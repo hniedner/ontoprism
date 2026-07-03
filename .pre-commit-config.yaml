@@ -1,0 +1,143 @@
+---
+# Pre-commit for ontoprism. Adapted (trimmed) from fairdata: the local, primary
+# quality gate so lint/type/security/test-quality failures are caught BEFORE push,
+# not by CI. CI runs the same hooks (`pre-commit run --all-files`) for parity.
+#
+# Install once:  pdm run pre-commit install
+default_language_version:
+  python: python3.13
+exclude: ^(tmp/|frontend/node_modules/|frontend/\.svelte-kit/)
+
+repos:
+  # -------------------------------------------------------------------------
+  # Stage 1: fast auto-fixers
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.4
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        types: [python]
+
+  # -------------------------------------------------------------------------
+  # Stage 2: fast syntax & structure checks
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-json
+        # tsconfig.json and VS Code configs are JSONC (comments/trailing commas).
+        exclude: ^frontend/(tsconfig\.json|\.vscode/)
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-ast
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+        exclude: ^(.*tests/|.*test_.*\.py$)
+      - id: check-added-large-files
+        args: [--maxkb=10000]
+      - id: name-tests-test
+        args: [--pytest-test-first]
+        exclude: ^(fairlib|backend)/tests/(fixtures/|.*/fixtures/|helpers/|.*/helpers/)
+
+  # Secret scanning — block credentials at commit time, before CI.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.27.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning]
+
+  # -------------------------------------------------------------------------
+  # Stage 3: Python lint & type checking
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.4
+    hooks:
+      - id: ruff
+        name: ruff lint
+        args: [--fix, --exit-non-zero-on-fix]
+        types: [python]
+
+  # basedpyright on the FULL project (cascade errors from a schema change can hide
+  # in files that aren't restaged — see fairdata's note). Run via the pdm env.
+  - repo: local
+    hooks:
+      - id: basedpyright
+        name: basedpyright type checking (full project)
+        entry: pdm run basedpyright
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # -------------------------------------------------------------------------
+  # Stage 3.5: frontend lint & type checking
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      # Prettier lands with the real frontend port (M4); eslint + svelte-check gate now.
+      - id: eslint
+        name: eslint (frontend)
+        entry: bash -c 'cd frontend && npx eslint src/ --max-warnings=0'
+        language: system
+        types_or: [ts, javascript, svelte]
+        files: ^frontend/
+        pass_filenames: false
+
+      - id: svelte-check
+        name: svelte-check type checking
+        entry: bash -c 'cd frontend && set -o pipefail && npm run check'
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
+  # -------------------------------------------------------------------------
+  # Stage 4: project-specific quality gates (lifted from fairdata)
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      # Cyclomatic complexity gate (CC >= 8) via radon.
+      - id: radon-complexity
+        name: radon cyclomatic complexity (CC >= 8)
+        entry: pdm run python scripts/validation/check_complexity.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # Test quality: block mock-only assertions and coverage-padding docstrings.
+      # Directly enforces the "no mockery / no coverage padding" rule.
+      - id: check-test-quality
+        name: check test quality (no mock-only / coverage-padding tests)
+        entry: pdm run python scripts/validation/check_test_quality.py
+        language: system
+        files: (tests/.*test_.*\.py|.*_test\.py)$
+
+      # Block broad exception swallowing (silent failures) in source.
+      - id: check-broad-exceptions
+        name: check broad exception swallowing
+        entry: pdm run python scripts/validation/check_broad_exceptions.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: validate-pyproject
+        name: validate pyproject.toml
+        entry: python3 -c "import tomllib, sys; tomllib.load(open('pyproject.toml','rb')); print('pyproject.toml OK')"
+        language: system
+        files: pyproject\.toml$
+        pass_filenames: false

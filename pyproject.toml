@@ -47,6 +47,8 @@ test = [
 lint = [
     "ruff==0.15.4",
     "basedpyright==1.38.2",
+    "pre-commit>=4.0",
+    "radon>=6.0",             # cyclomatic-complexity gate (check_complexity.py)
 ]
 
 # ---------------------------------------------------------------------------

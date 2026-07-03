@@ -58,5 +58,27 @@ the default path `.pth` backend (not the `editables` import-hook backend, which 
 extra runtime dep and breaks under xdist). Import resolution in tests is guaranteed by the
 root conftest (D6); the editable install serves runtime (uvicorn) and the type checker.
 
+### D8. Local pre-commit is the primary quality gate (CI is parity, not discovery)
+Lifted and trimmed fairdata's `.pre-commit-config.yaml` so lint/type/security/
+test-quality failures are caught **locally before push**, not discovered by CI. Kept the
+reusable gates (file hygiene, ruff + ruff-format, basedpyright full-project, gitleaks,
+shellcheck, eslint, svelte-check, radon CC≥8) and lifted fairdata's genuinely-aligned
+static scripts into `scripts/validation/`: `check_test_quality.py` (no mock-only /
+coverage-padding tests — enforces D3), `check_broad_exceptions.py` (no silent-failure
+swallowing), `check_complexity.py`. Dropped fairdata-ADR-specific hooks (phase-state
+nuller, FDW001 http_error, exception-handler ordering, module/page-size, sync_versions)
+and the heavy suites' hooks. CI runs the same `pre-commit run --all-files` for parity.
+*Open policy:* `check_test_quality` reports mock-only tests as a **warning**, not a hard
+block (some legitimate tests assert on interactions). Flip to hard-fail if we want
+"no mockery" strictly enforced. Prettier deferred to the real frontend port (M4).
+
+### D9. Full fairdata test_runner deferred to M1+
+fairdata's `pdm run test` drives an ~8k-LOC `scripts/test_runner/` package (suite matrix,
+JUnit parsing, dropped-test/silent-failure detection, colored summary) built for its large
+suite set (phases, playwright, quality tiers) we do not have. Lifting it into a 2-test repo
+is premature. Our `pdm run test*` scripts already mirror fairdata's naming with xdist
+sharding + markers + coverage gate. Lift the runner alongside fairdata's actual test suites
+in M1+, where its machinery is justified.
+
 ### Dropped/deferred tests
 _(none yet — record here any intentionally-dropped ported test.)_
