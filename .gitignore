@@ -27,8 +27,9 @@ htmlcov/
 # Node / SvelteKit
 node_modules/
 .svelte-kit/
-apps/web/build/
-apps/web/.env*
+frontend/build/
+frontend/.env
+frontend/.env.*
 *.log
 npm-debug.log*
 pnpm-debug.log*
