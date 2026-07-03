@@ -7,6 +7,7 @@
 
 <ul class="repos">
 	<li><a href={resolve('/repositories/ncit')}>NCIt repository →</a></li>
+	<li><a href={resolve('/repositories/cadsr')}>caDSR repository →</a></li>
 </ul>
 
 <style>

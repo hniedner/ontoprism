@@ -61,3 +61,44 @@ export interface Neighborhood {
 	nodes: GraphNode[];
 	edges: GraphEdge[];
 }
+
+// caDSR CDE read models (backend fairlib.repositories.cadsr.models).
+
+export interface ConceptLink {
+	concept_code: string;
+	concept_name: string;
+	concept_type: string | null;
+	is_primary: boolean;
+}
+
+export interface PermissibleValue {
+	value: string;
+	meaning: string | null;
+	meaning_code: string | null;
+}
+
+export interface CdeSummary {
+	public_id: string;
+	version: string;
+	short_name: string;
+	long_name: string;
+	context: string | null;
+	datatype: string | null;
+}
+
+export interface CdeDetail extends CdeSummary {
+	definition: string | null;
+	workflow_status: string | null;
+	registration_status: string | null;
+	value_domain_type: string | null;
+	permissible_values: PermissibleValue[];
+	concepts: ConceptLink[];
+}
+
+export interface CdeSearchPage {
+	query: string;
+	total: number;
+	limit: number;
+	offset: number;
+	hits: CdeSummary[];
+}

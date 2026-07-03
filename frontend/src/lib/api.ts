@@ -1,7 +1,14 @@
 // Typed client for the ontoprism backend. In dev, requests hit `/api/...` and Vite
 // proxies them to the FastAPI backend (see vite.config.ts).
 
-import type { ConceptDetail, Neighborhood, SearchPage } from './types';
+import type {
+	CdeDetail,
+	CdeSearchPage,
+	CdeSummary,
+	ConceptDetail,
+	Neighborhood,
+	SearchPage
+} from './types';
 
 const BASE = '';
 
@@ -44,6 +51,44 @@ export function getNeighborhood(
 ): Promise<Neighborhood> {
 	return getJson<Neighborhood>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/neighborhood`, { depth }),
+		fetchImpl
+	);
+}
+
+// --- caDSR ---
+
+export function searchCadsr(
+	q: string,
+	opts: { limit?: number; offset?: number; fetch?: typeof fetch } = {}
+): Promise<CdeSearchPage> {
+	const url = apiUrl('/api/v1/cadsr/search', {
+		q,
+		limit: opts.limit ?? 25,
+		offset: opts.offset ?? 0
+	});
+	return getJson<CdeSearchPage>(url, opts.fetch);
+}
+
+export function getCde(
+	publicId: string,
+	version?: string,
+	fetchImpl?: typeof fetch
+): Promise<CdeDetail> {
+	const params: Record<string, string | number> = version ? { version } : {};
+	return getJson<CdeDetail>(
+		apiUrl(`/api/v1/cadsr/cdes/${encodeURIComponent(publicId)}`, params),
+		fetchImpl
+	);
+}
+
+/** CDEs mapped to an NCIt concept — the caDSR↔NCIt cross-link. */
+export function cdesForConcept(
+	conceptCode: string,
+	limit = 25,
+	fetchImpl?: typeof fetch
+): Promise<CdeSummary[]> {
+	return getJson<CdeSummary[]>(
+		apiUrl(`/api/v1/cadsr/concepts/${encodeURIComponent(conceptCode)}/cdes`, { limit }),
 		fetchImpl
 	);
 }

@@ -5,6 +5,7 @@
 	import type { ConceptDetail, Neighborhood } from '$lib/types';
 	import RelationshipList from '$lib/components/RelationshipList.svelte';
 	import NeighborhoodGraph from '$lib/components/NeighborhoodGraph.svelte';
+	import MappedCdes from '$lib/components/MappedCdes.svelte';
 
 	let detail = $state<ConceptDetail | null>(null);
 	let graph = $state<Neighborhood | null>(null);
@@ -83,6 +84,7 @@
 		<RelationshipList title="Roles" items={detail.roles} />
 		<RelationshipList title="Associations" items={detail.associations} />
 		<RelationshipList title="Incoming roles" items={detail.incoming_roles} />
+		<MappedCdes code={detail.code} />
 	</div>
 {/if}
 

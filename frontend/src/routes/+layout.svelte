@@ -11,7 +11,10 @@
 
 <header class="topbar">
 	<a href={resolve('/')} class="brand">ONTOPRISM</a>
-	<nav><a href={resolve('/repositories/ncit')}>NCIt</a></nav>
+	<nav>
+		<a href={resolve('/repositories/ncit')}>NCIt</a>
+		<a href={resolve('/repositories/cadsr')}>caDSR</a>
+	</nav>
 </header>
 
 <main>
