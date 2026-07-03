@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Pre-commit hook to detect test anti-patterns using AST analysis.
 
-Detects:
-1. Tests whose only assertions are mock.assert_called* / mock.assert_awaited*
+Hard failures (block the commit):
+1. Tests whose only assertions are mock.assert_called* / assert_awaited* / call_count
 2. Module docstrings containing "improve coverage" or "to X%"
-3. Tests with >5 @patch / with patch(...) usages (warning only)
-4. Tests whose only assertion is assert callable(...)
+3. Tests whose only assertion is assert callable(...)
+
+Warnings (advisory):
+4. Tests with >5 @patch / with patch(...) usages
 """
 
 import ast
@@ -94,9 +96,14 @@ class TestQualityVisitor(ast.NodeVisitor):
     def _check_mock_only_assertions(
         self, node: ast.FunctionDef, assertions: list[ast.AST]
     ) -> None:
-        """WARN if every assertion is a mock assertion or call_count."""
+        """FAIL if every assertion is a mock assertion or call_count.
+
+        ontoprism blocks mock-only tests outright (not a warning): a test whose only
+        assertions are ``mock.assert_called*`` / ``call_count`` verifies the mock, not
+        the system. Assert on real return values / observable behavior instead.
+        """
         if all(self._is_mock_only_assertion(a) for a in assertions):
-            self.warnings.append(
+            self.failures.append(
                 f"{self.filename}:{node.lineno}: "
                 f"test '{node.name}' only asserts mock interactions — "
                 f"add assertions on actual behavior or return values"
