@@ -196,9 +196,14 @@ class NcitGraphStore:
             }}
             FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?syn))
         """
+        # GROUP BY concept so a concept with several matching synonyms / semantic
+        # types yields exactly one result row (not one row per synonym).
         rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT DISTINCT ?concept ?label ?semtype ?syn WHERE {{{where}}}
+            SELECT ?concept ?label
+                   (SAMPLE(?semtype) AS ?semtype) (SAMPLE(?syn) AS ?syn)
+            WHERE {{{where}}}
+            GROUP BY ?concept ?label
             ORDER BY ?label LIMIT {limit} OFFSET {offset}
             """
         )

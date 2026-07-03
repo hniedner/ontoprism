@@ -35,7 +35,7 @@ fmt:
 	pdm run fmt
 
 api-dev:
-	pdm run uvicorn backend.main:app --reload --port 8001
+	pdm run uvicorn backend.main:app --reload --port 8011
 
 web-dev:
 	npm --prefix frontend run dev

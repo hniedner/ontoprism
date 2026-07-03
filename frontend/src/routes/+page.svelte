@@ -1,2 +1,21 @@
-<h1>Welcome to SvelteKit</h1>
-<p>Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the documentation</p>
+<script lang="ts">
+	import { resolve } from '$app/paths';
+</script>
+
+<h1>ONTOPRISM</h1>
+<p>Ontology storage, query, and graph visualization.</p>
+
+<ul class="repos">
+	<li><a href={resolve('/repositories/ncit')}>NCIt repository →</a></li>
+</ul>
+
+<style>
+	.repos {
+		list-style: none;
+		padding: 0;
+		font-size: 1.1rem;
+	}
+	.repos a {
+		color: #2563eb;
+	}
+</style>
