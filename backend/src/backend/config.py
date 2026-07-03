@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     uberon_sparql_url: str = "http://localhost:7879"
     ncit_expected_version: str = "26.02d"
 
+    # caDSR CDE repository SQLite DB (read-only); defaults to fairdata's build.
+    cadsr_db_path: str = "../fairdata/data/cde_repository/cde_repository.db"
+
     # Guarded raw-SPARQL endpoint limits.
     sparql_timeout_sec: float = 30.0
     sparql_row_cap: int = 1000
