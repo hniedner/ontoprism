@@ -1,22 +1,46 @@
 """FastAPI application entrypoint.
 
-M0 provides only the app factory and a liveness probe. The repository/graph/search/
-sparql/refresh routers are lifted in later milestones.
+Owns the process-wide Oxigraph SPARQL client (opened for the app lifespan) and the
+NCIt repository read model; the frontend talks only to this backend.
 """
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from backend import __version__
+from backend.api.v1 import ncit, sparql
+from backend.config import get_settings
+from fairlib.terminologies.ncit.graph_store import NcitGraphStore
+from fairlib.terminologies.oxigraph_http_client import OxigraphHttpClient
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Open the shared SPARQL client + NCIt store; close on shutdown."""
+    settings = get_settings()
+    client = OxigraphHttpClient(
+        settings.ncit_sparql_url, query_timeout=settings.sparql_timeout_sec
+    )
+    app.state.ncit_client = client
+    app.state.ncit_store = NcitGraphStore(client)
+    try:
+        yield
+    finally:
+        await client.aclose()
 
 
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
-    app = FastAPI(title="ontoprism", version=__version__)
+    app = FastAPI(title="ontoprism", version=__version__, lifespan=lifespan)
 
-    @app.get("/health")
+    @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    app.include_router(ncit.router)
+    app.include_router(sparql.router)
     return app
 
 
