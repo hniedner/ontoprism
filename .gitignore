@@ -1,0 +1,44 @@
+# Project scratch / handover material (not part of the codebase)
+tmp/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pdm-python
+.pdm-build/
+__pypackages__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.basedpyright/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+apps/web/build/
+apps/web/.env*
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor
+.idea/
+.vscode/
+*.swp
