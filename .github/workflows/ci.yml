@@ -11,8 +11,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: backend (lint + types + tests)
+  # Static quality gates — runs the SAME pre-commit hooks developers run locally,
+  # so CI is parity, not the place issues are first discovered.
+  quality:
+    name: quality (pre-commit parity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install PDM
+        run: pipx install pdm
+
+      - name: Install Python deps
+        run: pdm install --dev
+
+      - name: Install frontend deps (eslint/svelte-check hooks need node_modules)
+        run: npm ci --prefix frontend
+
+      - name: Run pre-commit (all files)
+        run: pdm run pre-commit run --all-files --show-diff-on-failure
+
+  backend-tests:
+    name: backend tests + coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,16 +60,7 @@ jobs:
       - name: Install dependencies
         run: pdm install --dev
 
-      - name: Ruff (lint)
-        run: pdm run ruff check .
-
-      - name: Ruff (format check)
-        run: pdm run ruff format --check .
-
-      - name: basedpyright (types)
-        run: pdm run basedpyright
-
-      - name: Tests + coverage (excludes integration)
+      - name: Tests + coverage (excludes integration; needs no live services)
         run: pdm run test-ci
 
       - name: Upload coverage
@@ -47,8 +70,8 @@ jobs:
           name: coverage-xml
           path: coverage.xml
 
-  web:
-    name: web (lint + check + vitest)
+  web-tests:
+    name: web tests (vitest)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -66,11 +89,5 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Lint
-        run: npm run lint --if-present
-
-      - name: svelte-check
-        run: npm run check --if-present
-
       - name: Unit tests (vitest)
-        run: npm run test:unit --if-present -- --run
+        run: npm run test:unit -- --run
