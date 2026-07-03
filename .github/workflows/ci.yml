@@ -50,8 +50,6 @@ jobs:
   web:
     name: web (lint + check + vitest)
     runs-on: ubuntu-latest
-    # Enabled once the SvelteKit app is scaffolded (frontend/package.json present).
-    if: ${{ hashFiles('frontend/package.json') != '' }}
     defaults:
       run:
         working-directory: frontend
