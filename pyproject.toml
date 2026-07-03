@@ -65,7 +65,7 @@ test = "pytest fairlib/tests backend/tests -m 'not integration' -n auto"
 test-unit = "pytest fairlib/tests backend/tests -m unit -n auto"
 test-backend-unit = "pytest backend/tests -m unit -n auto"
 test-integration = "pytest fairlib/tests backend/tests -m integration"
-test-ci = "pytest fairlib/tests backend/tests -m 'not integration' --cov=fairlib --cov=backend --cov-report=term-missing --cov-report=xml --cov-fail-under=80 -n auto"
+test-ci = "pytest fairlib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=80 -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
 pytest = "pytest"
 lint = { composite = ["ruff check .", "basedpyright"] }

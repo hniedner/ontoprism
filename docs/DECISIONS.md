@@ -34,10 +34,12 @@ inferred-closure bleed (ancestor materialization + `Excludes_*` negatives). Deci
 inferred store only for validation/closure. The external download is confirmed with the
 user when M5 begins. (User decision.) Only affects M5; M0–M4 unaffected.
 
-### D5. Version pin: NCIt inferred build 26.05d
-Integration/version-guard tests assert against build 26.05d (12,836,426 triples;
-C3262 → R105 → C12922). Roles are version-pinned; a build bump must fail loudly.
-(Assessment §4.)
+### D5. Version pin: NCIt inferred build **26.02d** (corrected from assessment)
+Integration/version-guard tests assert against `owl:versionInfo` **`26.02d`** — the value
+the live store actually reports (verified 2026-07-03). The assessment §4 labeled it 26.05d,
+but that is wrong; the triple count it quotes (12,836,426) matches, and C3262 → R105 → C12922
+holds, so it's the same build under a mislabeled version. Roles are version-pinned; a build
+bump must fail loudly.
 
 ### D6. pytest import mode = prepend + root conftest (not importlib)
 Keep-names layout has top-level dirs (`fairlib/`, `backend/`) whose names equal the
