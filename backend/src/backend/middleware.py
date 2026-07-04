@@ -33,6 +33,14 @@ _SECURITY_HEADERS = {
 Handler = Callable[[Request], Awaitable["Response"]]
 
 
+def _apply_hardening_headers(response: Response, request_id: str | None) -> None:
+    """Add the request-id and security headers to *response* (idempotent)."""
+    if request_id is not None:
+        response.headers[_REQUEST_ID_HEADER] = request_id
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Assign/propagate a request id, add security headers, and log each request."""
 
@@ -42,9 +50,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
         response = await call_next(request)
         elapsed_ms = (time.perf_counter() - start) * 1000
-        response.headers[_REQUEST_ID_HEADER] = request_id
-        for name, value in _SECURITY_HEADERS.items():
-            response.headers.setdefault(name, value)
+        _apply_hardening_headers(response, request_id)
         logger.info(
             "%s %s -> %d (%.1fms) rid=%s",
             request.method,
@@ -81,7 +87,10 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
         request_id = _request_id(request)
         logger.exception("unhandled error rid=%s: %s", request_id, exc)
-        return JSONResponse(
+        # This handler runs in Starlette's outer ServerErrorMiddleware, above
+        # RequestContextMiddleware — so a 500 would otherwise ship without the
+        # request-id / security headers. Apply them here to keep them consistent.
+        response = JSONResponse(
             status_code=500,
             content={
                 "detail": "Internal server error",
@@ -89,3 +98,5 @@ def install_error_handlers(app: FastAPI) -> None:
                 "request_id": request_id,
             },
         )
+        _apply_hardening_headers(response, request_id)
+        return response

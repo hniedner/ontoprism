@@ -2,7 +2,11 @@
 
 import pytest
 
-from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.graph_store import (
+    _MAX_NEIGHBORHOOD_NODES,
+    NcitGraphStore,
+)
+from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 
@@ -70,3 +74,28 @@ async def test_neighborhood_depth_expands_beyond_one_hop(ncit_stub_url: str) -> 
 
     assert len(two.edges) > len(one.edges)
     assert {n.code for n in one.nodes} <= {n.code for n in two.nodes}
+
+
+@pytest.mark.unit
+async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> None:
+    # A single concept with far more neighbors than the cap must not blow past it:
+    # the bound is enforced while adding nodes, not only between concepts. Every
+    # surviving edge must still connect two surviving nodes (no dangling endpoints).
+    over_cap = _MAX_NEIGHBORHOOD_NODES + 200
+    dense = ConceptDetail(
+        code="C1",
+        label="Dense",
+        parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(over_cap)],
+    )
+
+    async def only_center(code: str) -> ConceptDetail | None:
+        return dense if code == "C1" else None
+
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = only_center  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C1", depth=1)
+
+    assert len(graph.nodes) == _MAX_NEIGHBORHOOD_NODES
+    node_codes = {n.code for n in graph.nodes}
+    assert all(e.source in node_codes and e.target in node_codes for e in graph.edges)

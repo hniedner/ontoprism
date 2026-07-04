@@ -382,9 +382,17 @@ class NcitGraphStore:
         edges: dict[tuple[str, str, str, str], GraphEdge],
     ) -> None:
         def add_node(node_code: str, label: str | None) -> None:
-            nodes.setdefault(node_code, GraphNode(code=node_code, label=label))
+            # Hard cap: never grow past the bound. A single densely-connected concept
+            # would otherwise add all of its (up to 4x _DEFAULT_EDGE_LIMIT) neighbors
+            # at once, blowing past a between-nodes-only check.
+            if node_code in nodes or len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+                return
+            nodes[node_code] = GraphNode(code=node_code, label=label)
 
         def add_edge(edge: GraphEdge) -> None:
+            # Only connect nodes that survived the cap — no dangling edge endpoints.
+            if edge.source not in nodes or edge.target not in nodes:
+                return
             edges.setdefault((edge.source, edge.target, edge.relation, edge.kind), edge)
 
         add_node(code, detail.label)

@@ -86,3 +86,35 @@ def test_mutating_endpoints_require_api_key_when_configured(
         # Correct key passes authorization (reaches the handler / store layer).
         ok = client.post("/api/v1/refresh", headers={"X-API-Key": "s3cret"})
         assert ok.status_code != 401
+
+
+@pytest.mark.api
+def test_empty_api_key_leaves_endpoints_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An empty API_KEY must mean "open" (dev default), not "locked behind an empty
+    # string" — otherwise a blank config would 401 every unauthenticated caller.
+    monkeypatch.setenv("API_KEY", "")
+    get_settings.cache_clear()
+    with TestClient(create_app()) as client:
+        resp = client.post("/api/v1/refresh")
+        assert resp.status_code != 401
+
+
+@pytest.mark.api
+def test_unhandled_error_carries_request_id_and_headers() -> None:
+    # A non-HTTPException 500 is handled by Starlette's outer ServerErrorMiddleware,
+    # which sits above our middleware — assert it still ships the request-id and
+    # security headers (and a request_id in the body).
+    app = create_app()
+    app.add_api_route("/_boom", _raise_boom, methods=["GET"])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        resp = client.get("/_boom")
+    assert resp.status_code == 500
+    assert resp.json()["request_id"]
+    assert resp.headers["X-Request-ID"]
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def _raise_boom() -> None:
+    raise RuntimeError("boom")
