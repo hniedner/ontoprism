@@ -102,3 +102,18 @@ export interface CdeSearchPage {
 	offset: number;
 	hits: CdeSummary[];
 }
+
+// Refresh / status.
+
+export interface RepoStatus {
+	name: string;
+	healthy: boolean;
+	version: string | null;
+	item_count: number | null;
+	error: string | null;
+}
+
+export interface RefreshReport {
+	refreshed_at: string;
+	repositories: RepoStatus[];
+}

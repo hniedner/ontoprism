@@ -101,6 +101,11 @@ class CdeRepository:
             ).fetchall()
         return [_to_summary(r) for r in rows]
 
+    def count(self) -> int:
+        """Total number of CDE rows (used by the refresh/status report)."""
+        with self._connect() as conn:
+            return conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
+
     def _concepts_for(
         self, conn: sqlite3.Connection, public_id: str, version: str
     ) -> list[ConceptLink]:

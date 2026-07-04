@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from backend import __version__
-from backend.api.v1 import cadsr, ncit, sparql
+from backend.api.v1 import cadsr, ncit, refresh, sparql
 from backend.config import get_settings
 from fairlib.repositories.cadsr.repository import CdeRepository
 from fairlib.terminologies.ncit.graph_store import NcitGraphStore
@@ -43,6 +43,7 @@ def create_app() -> FastAPI:
 
     app.include_router(ncit.router)
     app.include_router(cadsr.router)
+    app.include_router(refresh.router)
     app.include_router(sparql.router)
     return app
 

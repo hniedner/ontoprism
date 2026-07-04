@@ -14,6 +14,7 @@
 	<nav>
 		<a href={resolve('/repositories/ncit')}>NCIt</a>
 		<a href={resolve('/repositories/cadsr')}>caDSR</a>
+		<a href={resolve('/refresh')}>Refresh</a>
 	</nav>
 </header>
 

@@ -7,6 +7,7 @@ import type {
 	CdeSummary,
 	ConceptDetail,
 	Neighborhood,
+	RefreshReport,
 	SearchPage
 } from './types';
 
@@ -22,6 +23,14 @@ export function apiUrl(path: string, params: Record<string, string | number> = {
 
 async function getJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promise<T> {
 	const resp = await fetchImpl(url);
+	if (!resp.ok) {
+		throw new Error(`Request failed (${resp.status}): ${url}`);
+	}
+	return (await resp.json()) as T;
+}
+
+async function postJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promise<T> {
+	const resp = await fetchImpl(url, { method: 'POST' });
 	if (!resp.ok) {
 		throw new Error(`Request failed (${resp.status}): ${url}`);
 	}
@@ -91,4 +100,11 @@ export function cdesForConcept(
 		apiUrl(`/api/v1/cadsr/concepts/${encodeURIComponent(conceptCode)}/cdes`, { limit }),
 		fetchImpl
 	);
+}
+
+// --- refresh ---
+
+/** Re-probe repositories and return their live version/counts. */
+export function refreshRepositories(fetchImpl?: typeof fetch): Promise<RefreshReport> {
+	return postJson<RefreshReport>(apiUrl('/api/v1/refresh'), fetchImpl);
 }

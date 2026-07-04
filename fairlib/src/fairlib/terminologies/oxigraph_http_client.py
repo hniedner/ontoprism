@@ -80,6 +80,7 @@ class OxigraphHttpClient:
         """Create a client for *endpoint_url* (its ``/query`` path is derived)."""
         self._endpoint_url = endpoint_url.rstrip("/")
         self._query_url = f"{self._endpoint_url}/query"
+        self._store_url = f"{self._endpoint_url}/store"
         self._timeout = httpx.Timeout(query_timeout, connect=connect_timeout)
         self._client: httpx.AsyncClient | None = None
 
@@ -117,6 +118,49 @@ class OxigraphHttpClient:
             content=query.encode("utf-8"),
             headers={"Content-Type": _SPARQL_QUERY, "Accept": _SPARQL_JSON},
         )
+
+    async def load(
+        self,
+        data: bytes,
+        *,
+        content_type: str,
+        graph_iri: str | None = None,
+        replace: bool = True,
+    ) -> None:
+        """Bulk-load RDF into the store via the SPARQL Graph Store Protocol.
+
+        The local reload path (no container/ECS restart): ``replace=True`` PUTs
+        (replacing the target graph), ``replace=False`` POSTs (merging). Targets the
+        default graph unless *graph_iri* is given (e.g. the decomposed named graph).
+
+        Raises:
+            StorageError: on a transport error or a non-2xx response.
+        """
+        url = (
+            f"{self._store_url}?graph={graph_iri}"
+            if graph_iri
+            else f"{self._store_url}?default"
+        )
+        client = self._get_client()
+        request = client.put if replace else client.post
+        try:
+            response = await request(
+                url, content=data, headers={"Content-Type": content_type}
+            )
+        except _RETRYABLE as e:
+            raise StorageError(
+                f"Store load transport error against {self._store_url}: "
+                f"{type(e).__name__}: {e}"
+            ) from e
+        if response.status_code not in (
+            HTTPStatus.OK,
+            HTTPStatus.CREATED,
+            HTTPStatus.NO_CONTENT,
+        ):
+            raise StorageError(
+                f"Store load failed: HTTP {response.status_code} — "
+                f"{response.text[:200]}"
+            )
 
     async def select_raw(self, query: str) -> dict[str, Any]:
         """Run a SELECT/ASK query and return the raw SPARQL-JSON document."""
