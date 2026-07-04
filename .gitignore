@@ -43,3 +43,6 @@ pnpm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# Local isolated Oxigraph stores (CoW clones; not tracked)
+data/

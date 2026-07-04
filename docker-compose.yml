@@ -1,56 +1,62 @@
-# ONTOPRISM development services.
+# ONTOPRISM's OWN data services — isolated from the sibling fairdata app so both can
+# run simultaneously with zero interference.
 #
-# On this dev machine the ontology stores and Postgres are ALREADY running
-# (Oxigraph NCIt :7878, Oxigraph Uberon :7879, Postgres :5432). In that case you do
-# NOT need this file — point the app at the running services via .env (see .env.example).
+#   ontoprism            fairdata (do not touch)
+#   ---------            ----------------------
+#   oxigraph-ncit  7888    fairdata-oxigraph         7878
+#   oxigraph-uberon 7889   fairdata-oxigraph-uberon  7879
+#   postgres       5433    fairdata-postgres         5432
+#   backend        8011    (fairdata backend)        8001
 #
-# This compose file is the "fresh machine" recipe: it brings up the same three data
-# services on the same ports. The `api` and `web` services are added in later
-# milestones once their Dockerfiles exist.
+# The Oxigraph stores under ./data/ are copy-on-write clones of fairdata's stores
+# (see README/QUICKSTART), so ontoprism has its own writable copy — a reload or a
+# decomposition write here never affects fairdata. Uses the same oxigraph 0.5.3 image
+# for store-format compatibility with the clones.
 services:
+  oxigraph-ncit:
+    image: fairdata-oxigraph:local
+    container_name: ontoprism-oxigraph-ncit
+    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
+    ports:
+      - "127.0.0.1:7888:7878"
+    volumes:
+      - ./data/oxigraph-ncit:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7878/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  oxigraph-uberon:
+    image: fairdata-oxigraph:local
+    container_name: ontoprism-oxigraph-uberon
+    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
+    ports:
+      - "127.0.0.1:7889:7878"
+    volumes:
+      - ./data/oxigraph-uberon:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7878/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg15
+    container_name: ontoprism-postgres
     environment:
       POSTGRES_USER: ontoprism
       POSTGRES_PASSWORD: ontoprism
       POSTGRES_DB: ontoprism
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - ontoprism_pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ontoprism"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  oxigraph-ncit:
-    image: oxigraph/oxigraph:latest
-    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
-    ports:
-      - "7878:7878"
-    volumes:
-      - oxigraph_ncit:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O- http://localhost:7878/ >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  oxigraph-uberon:
-    image: oxigraph/oxigraph:latest
-    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7879"]
-    ports:
-      - "7879:7879"
-    volumes:
-      - oxigraph_uberon:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O- http://localhost:7879/ >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
 volumes:
-  pg_data:
-  oxigraph_ncit:
-  oxigraph_uberon:
+  ontoprism_pg_data:

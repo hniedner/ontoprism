@@ -22,7 +22,7 @@ from fairlib.terminologies.namespaces import NCIT_NS as NS
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-_DEFAULT_NCIT_URL = "http://localhost:7878"
+_DEFAULT_NCIT_URL = "http://localhost:7888"  # ontoprism's own store (fairdata is 7878)
 
 
 def _reachable(url: str) -> bool:
