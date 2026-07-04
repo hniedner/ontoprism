@@ -47,8 +47,8 @@ test = [
     "httpx2>=2.5",               # Starlette TestClient prefers httpx2 (silences its deprecation)
 ]
 lint = [
-    "ruff==0.15.4",
-    "basedpyright==1.38.2",
+    "ruff==0.15.20",
+    "basedpyright==1.39.9",
     "pre-commit>=4.0",
     "radon>=6.0",             # cyclomatic-complexity gate (check_complexity.py)
 ]
@@ -72,6 +72,19 @@ test-smoke = "npm --prefix frontend run test:unit -- --run"
 pytest = "pytest"
 lint = { composite = ["ruff check .", "basedpyright"] }
 fmt = "ruff format ."
+
+# --- Dev process management (backend :8011 + frontend :5175), fairdata-style ---
+up = "docker compose up -d"
+down = "docker compose down"
+start-all = { shell = "bash scripts/dev.sh start all" }
+stop-all = { shell = "bash scripts/dev.sh stop all" }
+restart-all = { shell = "bash scripts/dev.sh restart all" }
+start-backend = { shell = "bash scripts/dev.sh start backend" }
+stop-backend = { shell = "bash scripts/dev.sh stop backend" }
+restart-backend = { shell = "bash scripts/dev.sh restart backend" }
+start-frontend = { shell = "bash scripts/dev.sh start frontend" }
+stop-frontend = { shell = "bash scripts/dev.sh stop frontend" }
+restart-frontend = { shell = "bash scripts/dev.sh restart frontend" }
 
 [tool.pytest.ini_options]
 # prepend import mode: our keep-names layout has top dirs (fairlib/, backend/) whose

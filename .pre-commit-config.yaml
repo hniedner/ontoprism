@@ -22,7 +22,7 @@ repos:
         args: [--fix=lf]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.4
+    rev: v0.15.20
     hooks:
       - id: ruff-format
         name: ruff format
@@ -67,7 +67,7 @@ repos:
   # Stage 3: Python lint & type checking
   # -------------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.4
+    rev: v0.15.20
     hooks:
       - id: ruff
         name: ruff lint

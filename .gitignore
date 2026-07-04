@@ -46,3 +46,6 @@ pnpm-debug.log*
 
 # Local isolated Oxigraph stores (CoW clones; not tracked)
 data/
+
+# Dev server logs (pdm run start-*)
+.dev-logs/

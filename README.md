@@ -15,10 +15,36 @@ graph-visualization platform whose distinctive purpose is to produce a **decompo
    original concept is retained and flagged `legacy-precoordinated`, written to a separate
    `ncit_decomposed` named graph. Existing caDSR CDE→concept mappings are preserved.
 
+## Running the app (dev)
+
+ontoprism runs its own isolated data services (ports distinct from the sibling fairdata app —
+see `docs/DATA_SETUP.md`), so both can run at once.
+
+```bash
+pdm install            # Python deps (Python 3.13)
+pdm run up             # start data services: oxigraph :7888/:7889, postgres :5433
+pdm run start-all      # start backend (:8011) + frontend (:5175) in the background
+# → open http://localhost:5175
+```
+
+Process commands (fairdata-style):
+
+| Command | Does |
+|---|---|
+| `pdm run start-all` / `stop-all` / `restart-all` | backend + frontend |
+| `pdm run start-backend` / `stop-backend` / `restart-backend` | FastAPI on :8011 |
+| `pdm run start-frontend` / `stop-frontend` / `restart-frontend` | SvelteKit on :5175 |
+| `pdm run up` / `down` | data-service containers (docker compose) |
+| `pdm run api-dev` / `web-dev` | run one service in the foreground |
+
+Background logs are written to `.dev-logs/`. First run provisions data per `docs/DATA_SETUP.md`.
+
 ## Status
 
-Bootstrapping (M0). See the milestone plan and decomposition assessment (kept locally under `tmp/`,
-not tracked in git).
+NCIt + caDSR repository webapp is functional (search, concept/CDE detail, roles, graph explorer,
+bidirectional cross-links, 768-dim embeddings for semantic similarity, and refresh). The
+decomposition engine (the "prism" science) is the next milestone. Plan/assessment are kept under
+`tmp/` (untracked); decisions in `docs/DECISIONS.md`.
 
 ## Stack
 
