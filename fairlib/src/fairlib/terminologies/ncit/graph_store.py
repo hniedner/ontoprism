@@ -227,6 +227,24 @@ class NcitGraphStore:
             query=query_text, total=total, limit=limit, offset=offset, hits=hits
         )
 
+    async def labels_for(self, codes: list[str]) -> dict[str, str]:
+        """Return a ``{code: label}`` map for the given codes (one query)."""
+        if not codes:
+            return {}
+        values = " ".join(f"<{safe_iri(c, self._ns)}>" for c in codes)
+        query = f"""{_PREFIXES}
+        SELECT ?c ?label WHERE {{
+            VALUES ?c {{ {values} }}
+            ?c rdfs:label ?label .
+        }}
+        """
+        rows = await self._client.select(query)
+        return {
+            _code_of(c): label
+            for r in rows
+            if (c := r.get("c")) and (label := r.get("label"))
+        }
+
     # ------------------------------------------------------------- neighborhood
 
     async def get_neighborhood(self, code: str, *, depth: int = 1) -> Neighborhood:

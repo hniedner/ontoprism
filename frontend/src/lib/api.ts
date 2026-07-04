@@ -8,7 +8,9 @@ import type {
 	ConceptDetail,
 	Neighborhood,
 	RefreshReport,
-	SearchPage
+	SearchPage,
+	SimilarCde,
+	SimilarConcept
 } from './types';
 
 const BASE = '';
@@ -98,6 +100,30 @@ export function cdesForConcept(
 ): Promise<CdeSummary[]> {
 	return getJson<CdeSummary[]>(
 		apiUrl(`/api/v1/cadsr/concepts/${encodeURIComponent(conceptCode)}/cdes`, { limit }),
+		fetchImpl
+	);
+}
+
+// --- semantic similarity (embeddings) ---
+
+export function similarConcepts(
+	code: string,
+	limit = 10,
+	fetchImpl?: typeof fetch
+): Promise<SimilarConcept[]> {
+	return getJson<SimilarConcept[]>(
+		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/similar`, { limit }),
+		fetchImpl
+	);
+}
+
+export function similarCdes(
+	publicId: string,
+	limit = 10,
+	fetchImpl?: typeof fetch
+): Promise<SimilarCde[]> {
+	return getJson<SimilarCde[]>(
+		apiUrl(`/api/v1/cadsr/cdes/${encodeURIComponent(publicId)}/similar`, { limit }),
 		fetchImpl
 	);
 }

@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from fairlib.repositories.cadsr.repository import CdeRepository
+from fairlib.repositories.embeddings.store import EmbeddingStore
 from fairlib.terminologies.ncit.graph_store import NcitGraphStore
 from fairlib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -24,6 +25,12 @@ def get_cadsr_repo(request: Request) -> CdeRepository:
     return request.app.state.cadsr_repo
 
 
+def get_embedding_store(request: Request) -> EmbeddingStore:
+    """Return the process-wide pgvector embedding store."""
+    return request.app.state.embedding_store
+
+
 NcitStore = Annotated[NcitGraphStore, Depends(get_ncit_store)]
 NcitClient = Annotated[OxigraphHttpClient, Depends(get_ncit_client)]
 CadsrRepo = Annotated[CdeRepository, Depends(get_cadsr_repo)]
+Embeddings = Annotated[EmbeddingStore, Depends(get_embedding_store)]

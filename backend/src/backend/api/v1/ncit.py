@@ -3,9 +3,15 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import NcitStore
-from fairlib.terminologies.ncit.models import ConceptDetail, Neighborhood, SearchPage
+from backend.dependencies import Embeddings, NcitStore
+from fairlib.terminologies.ncit.models import (
+    ConceptDetail,
+    Neighborhood,
+    SearchPage,
+    SimilarConcept,
+)
 
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
 
@@ -31,6 +37,24 @@ async def concept_detail(store: NcitStore, code: str) -> ConceptDetail:
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Concept not found: {code}")
     return detail
+
+
+@router.get("/concepts/{code}/similar", response_model=list[SimilarConcept])
+async def similar_concepts(
+    store: NcitStore,
+    embeddings: Embeddings,
+    code: str,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> list[SimilarConcept]:
+    """Semantically similar concepts via 768-dim embeddings (pgvector cosine)."""
+    try:
+        hits = await embeddings.similar_ncit(code, limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    labels = await store.labels_for([c for c, _ in hits])
+    return [
+        SimilarConcept(code=c, label=labels.get(c), score=score) for c, score in hits
+    ]
 
 
 @router.get("/concepts/{code}/neighborhood", response_model=Neighborhood)

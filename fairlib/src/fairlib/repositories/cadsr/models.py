@@ -42,6 +42,12 @@ class CdeDetail(CdeSummary):
     concepts: list[ConceptLink] = []
 
 
+class SimilarCde(CdeSummary):
+    """A CDE semantically similar to another (cosine over 768-dim embeddings)."""
+
+    score: float
+
+
 class CdeSearchPage(BaseModel):
     """A paginated CDE search result."""
 

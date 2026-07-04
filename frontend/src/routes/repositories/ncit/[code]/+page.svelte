@@ -6,6 +6,7 @@
 	import RelationshipList from '$lib/components/RelationshipList.svelte';
 	import NeighborhoodGraph from '$lib/components/NeighborhoodGraph.svelte';
 	import MappedCdes from '$lib/components/MappedCdes.svelte';
+	import SimilarConcepts from '$lib/components/SimilarConcepts.svelte';
 
 	let detail = $state<ConceptDetail | null>(null);
 	let graph = $state<Neighborhood | null>(null);
@@ -85,6 +86,7 @@
 		<RelationshipList title="Associations" items={detail.associations} />
 		<RelationshipList title="Incoming roles" items={detail.incoming_roles} />
 		<MappedCdes code={detail.code} />
+		<SimilarConcepts code={detail.code} />
 	</div>
 {/if}
 

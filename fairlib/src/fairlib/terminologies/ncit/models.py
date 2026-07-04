@@ -43,6 +43,14 @@ class ConceptDetail(BaseModel):
     incoming_roles: list[Relationship] = []
 
 
+class SimilarConcept(BaseModel):
+    """A concept semantically similar to another (cosine over 768-dim embeddings)."""
+
+    code: str
+    label: str | None = None
+    score: float
+
+
 class SearchHit(BaseModel):
     """A single row in a search result table."""
 

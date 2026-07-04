@@ -43,3 +43,12 @@ def test_search_matches_name(cadsr_db_path) -> None:
 def test_find_cdes_by_concept_is_the_ncit_join(cadsr_db_path) -> None:
     hits = CdeRepository(cadsr_db_path).find_cdes_by_concept("C3262")
     assert [h.public_id for h in hits] == ["100"]
+
+
+@pytest.mark.unit
+def test_count_and_summaries_for(cadsr_db_path) -> None:
+    repo = CdeRepository(cadsr_db_path)
+    assert repo.count() == 2
+    summaries = repo.summaries_for(["100:2.0", "2003771:1.0", "999:9"])
+    assert set(summaries) == {"100:2.0", "2003771:1.0"}  # unknown doc_id dropped
+    assert summaries["100:2.0"].short_name == "NEOPLASM_HIST"

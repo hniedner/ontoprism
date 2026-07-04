@@ -36,6 +36,19 @@ async def test_search_returns_hits_and_total(ncit_stub_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_labels_for_batch(ncit_stub_url: str) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        labels = await NcitGraphStore(client).labels_for(["C9305", "C2991"])
+    assert labels == {"C9305": "Malignant Neoplasm", "C2991": "Disease or Disorder"}
+
+
+@pytest.mark.unit
+async def test_labels_for_empty_is_noop(ncit_stub_url: str) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        assert await NcitGraphStore(client).labels_for([]) == {}
+
+
+@pytest.mark.unit
 async def test_neighborhood_builds_typed_edges(ncit_stub_url: str) -> None:
     async with OxigraphHttpClient(ncit_stub_url) as client:
         graph = await NcitGraphStore(client).get_neighborhood("C3262")

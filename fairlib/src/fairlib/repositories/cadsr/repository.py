@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from fairlib.repositories.cadsr.models import (
     CdeDetail,
@@ -30,12 +34,17 @@ class CdeRepository:
         """Wrap the caDSR SQLite DB at *db_path* (opened read-only per query)."""
         self._path = Path(db_path)
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         # Read-only URI connection; a fresh handle per call keeps this thread-safe
-        # under FastAPI's threadpool. Opening is cheap (no full-file read).
+        # under FastAPI's threadpool. Opening is cheap (no full-file read). Closed on
+        # exit — sqlite3's own context manager commits but does not close.
         conn = sqlite3.connect(f"file:{self._path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def get_cde(self, public_id: str, version: str | None = None) -> CdeDetail | None:
         """Return a CDE by id (latest version when *version* is omitted)."""
@@ -105,6 +114,19 @@ class CdeRepository:
         """Total number of CDE rows (used by the refresh/status report)."""
         with self._connect() as conn:
             return conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
+
+    def summaries_for(self, doc_ids: list[str]) -> dict[str, CdeSummary]:
+        """Map ``{public_id}:{version}`` doc_ids to CDE summaries (one query)."""
+        if not doc_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in doc_ids)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT {_SUMMARY_COLS} FROM cdes "  # noqa: S608 — placeholders only
+                f"WHERE public_id || ':' || version IN ({placeholders})",
+                doc_ids,
+            ).fetchall()
+        return {f"{r['public_id']}:{r['version']}": _to_summary(r) for r in rows}
 
     def _concepts_for(
         self, conn: sqlite3.Connection, public_id: str, version: str

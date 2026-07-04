@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { getCde } from '$lib/api';
 	import type { CdeDetail } from '$lib/types';
+	import SimilarCdes from '$lib/components/SimilarCdes.svelte';
 
 	let cde = $state<CdeDetail | null>(null);
 	let loading = $state(false);
@@ -73,6 +74,7 @@
 				<p class="empty">Not an enumerated value domain.</p>
 			{/if}
 		</section>
+		<SimilarCdes publicId={cde.public_id} />
 	</div>
 {/if}
 

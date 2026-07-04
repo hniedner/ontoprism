@@ -103,6 +103,16 @@ export interface CdeSearchPage {
 	hits: CdeSummary[];
 }
 
+export interface SimilarConcept {
+	code: string;
+	label: string | null;
+	score: number;
+}
+
+export interface SimilarCde extends CdeSummary {
+	score: number;
+}
+
 // Refresh / status.
 
 export interface RepoStatus {

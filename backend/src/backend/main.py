@@ -12,25 +12,30 @@ from fastapi import FastAPI
 from backend import __version__
 from backend.api.v1 import cadsr, ncit, refresh, sparql
 from backend.config import get_settings
+from backend.db import dispose_engine, make_engine, make_sessionmaker
 from fairlib.repositories.cadsr.repository import CdeRepository
+from fairlib.repositories.embeddings.store import EmbeddingStore
 from fairlib.terminologies.ncit.graph_store import NcitGraphStore
 from fairlib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Open the shared SPARQL client, NCIt store, and caDSR repo; close on shutdown."""
+    """Open the SPARQL client, NCIt store, caDSR repo, and embedding store."""
     settings = get_settings()
     client = OxigraphHttpClient(
         settings.ncit_sparql_url, query_timeout=settings.sparql_timeout_sec
     )
+    engine = make_engine(settings.database_url)
     app.state.ncit_client = client
     app.state.ncit_store = NcitGraphStore(client)
     app.state.cadsr_repo = CdeRepository(settings.cadsr_db_path)
+    app.state.embedding_store = EmbeddingStore(make_sessionmaker(engine))
     try:
         yield
     finally:
         await client.aclose()
+        await dispose_engine(engine)
 
 
 def create_app() -> FastAPI:

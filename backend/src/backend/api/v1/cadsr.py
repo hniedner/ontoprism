@@ -4,9 +4,15 @@ import sqlite3
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import CadsrRepo
-from fairlib.repositories.cadsr.models import CdeDetail, CdeSearchPage, CdeSummary
+from backend.dependencies import CadsrRepo, Embeddings
+from fairlib.repositories.cadsr.models import (
+    CdeDetail,
+    CdeSearchPage,
+    CdeSummary,
+    SimilarCde,
+)
 
 router = APIRouter(prefix="/api/v1/cadsr", tags=["cadsr"])
 
@@ -39,6 +45,31 @@ def cde_detail(
     if cde is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
     return cde
+
+
+@router.get("/cdes/{public_id}/similar", response_model=list[SimilarCde])
+async def similar_cdes(
+    repo: CadsrRepo,
+    embeddings: Embeddings,
+    public_id: str,
+    version: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> list[SimilarCde]:
+    """Semantically similar CDEs via 768-dim embeddings (pgvector cosine)."""
+    cde = repo.get_cde(public_id, version)  # resolve the concrete version
+    if cde is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
+    try:
+        hits = await embeddings.similar_cde(cde.public_id, cde.version, limit=limit)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    summaries = repo.summaries_for([doc_id for doc_id, _ in hits])
+    results: list[SimilarCde] = []
+    for doc_id, score in hits:
+        summary = summaries.get(doc_id)
+        if summary is not None:
+            results.append(SimilarCde(**summary.model_dump(), score=score))
+    return results
 
 
 @router.get("/concepts/{concept_code}/cdes", response_model=list[CdeSummary])

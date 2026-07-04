@@ -75,6 +75,13 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
     ),
     ("COUNT(DISTINCT ?concept)", [{"count": "2"}]),
     (
+        "VALUES ?c",  # labels_for batch query
+        [
+            {"c": f"{NS}C9305", "label": "Malignant Neoplasm"},
+            {"c": f"{NS}C2991", "label": "Disease or Disorder"},
+        ],
+    ),
+    (
         "ORDER BY ?label",
         [
             {
