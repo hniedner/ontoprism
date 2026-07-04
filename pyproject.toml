@@ -43,6 +43,7 @@ test = [
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
     "pytest-xdist>=3.6",          # parallel sharding (matches the global test-runner hook)
+    "httpx2>=2.5",               # Starlette TestClient prefers httpx2 (silences its deprecation)
 ]
 lint = [
     "ruff==0.15.4",
