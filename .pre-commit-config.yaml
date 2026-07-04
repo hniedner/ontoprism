@@ -49,7 +49,7 @@ repos:
         args: [--maxkb=10000]
       - id: name-tests-test
         args: [--pytest-test-first]
-        exclude: ^(fairlib|backend)/tests/(fixtures/|.*/fixtures/|helpers/|.*/helpers/)
+        exclude: ^(ontolib|backend)/tests/(fixtures/|.*/fixtures/|helpers/|.*/helpers/)
 
   # Secret scanning — block credentials at commit time, before CI.
   - repo: https://github.com/gitleaks/gitleaks

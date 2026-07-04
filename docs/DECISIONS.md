@@ -2,19 +2,33 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-04 — library rename
+
+### D10. Renamed the shared library `fairlib` → `ontolib`
+Executed the rename that D1 deferred (to `ontolib`, not the placeholder `ontoprism-core`).
+Changed: package dir `ontolib/src/fairlib` → `ontolib/src/ontolib`; every `from/import
+fairlib` → `ontolib`; config paths (root pyproject editable/test/ruff/coverage/basedpyright,
+the `ontolib`/backend pyprojects, pre-commit exclude, validation scripts); the root
+`conftest.py` src roots; and the docs. `backend` and `frontend` keep their names.
+*Why:* the fairdata-inherited name was misleading for an ontology-focused library.
+Verified: `import fairlib` now fails, `import ontolib` resolves, full suite + lint green.
+Older entries below predate this — the D6 import-collision reasoning now concerns the
+`ontolib/` dir vs the `ontolib` package (same mechanism, new name).
+
 ## 2026-07-03 — M0 bootstrap
 
 ### D1. Porting method: lift whole packages, keep fairdata names
 The original plan prescribed surgical, file-by-file extraction from `fairdata` with a
 rename to `ontoprism-core`. **Superseded.** We instead **lift whole coherent packages**
-from `fairdata`, keeping their names (`fairlib/`, `backend/`, `frontend/`) and imports
+from `fairdata`, keeping their names (`ontolib/`, `backend/`, `frontend/`) and imports
 unchanged, so their real test suites come along and run unmodified. Rename to
-`ontoprism-*` is deferred to a later, test-guarded mechanical pass.
+`ontoprism-*` is deferred to a later, test-guarded mechanical pass. *(Later done: the
+library was renamed `fairlib` → `ontolib` — see D10.)*
 *Why:* avoids import-graph whack-a-mole; brings real behavioral tests for free; lowest
 risk before a safety net exists. (User decision at kickoff.)
 
 ### D2. Lift scope: ontology vertical slice
-Lift only the ontology platform slice: `fairlib` storage/terminologies/cadsr/core/common
+Lift only the ontology platform slice: `ontolib` storage/terminologies/cadsr/core/common
 (+ transitive deps); `backend` repository/graph/search/sparql/refresh routers + their
 service/repo layers + middleware; `frontend` repositories/graph/results/query. Leave
 behind the fairdata pipeline/HRM/learning/audit/CDE-mapping/target-spec subsystems
@@ -42,19 +56,19 @@ holds, so it's the same build under a mislabeled version. Roles are version-pinn
 bump must fail loudly.
 
 ### D6. pytest import mode = prepend + root conftest (not importlib)
-Keep-names layout has top-level dirs (`fairlib/`, `backend/`) whose names equal the
-packages. Under pytest's `importlib` mode, collecting a test at `fairlib/tests/…`
-synthesizes the module `fairlib.tests.…`, which pre-binds `sys.modules["fairlib"]` to the
-outer namespace dir and shadows the real `fairlib/src` package (top-level attrs like
+Keep-names layout has top-level dirs (`ontolib/`, `backend/`) whose names equal the
+packages. Under pytest's `importlib` mode, collecting a test at `ontolib/tests/…`
+synthesizes the module `ontolib.tests.…`, which pre-binds `sys.modules["ontolib"]` to the
+outer namespace dir and shadows the real `ontolib/src` package (top-level attrs like
 `__version__` disappear). Decision: use `--import-mode=prepend` plus a root `conftest.py`
-that prepends `fairlib/src` and `backend/src` to `sys.path` (runs in every xdist worker,
+that prepends `ontolib/src` and `backend/src` to `sys.path` (runs in every xdist worker,
 where editable `.pth` files are not processed).
 *Trade-off:* prepend mode requires unique test-module basenames per directory. **Revisit
 when lifting fairdata's large test suite** — fairdata uses importlib + a custom runner to
 avoid basename collisions; port that strategy if collisions appear.
 
 ### D7. Editable local packages via default path backend
-`fairlib` and `backend` are installed editable (PDM `[tool.pdm.dev-dependencies].local`,
+`ontolib` and `backend` are installed editable (PDM `[tool.pdm.dev-dependencies].local`,
 `file://${PROJECT_ROOT}` syntax — PDM 2.28 crashes on the `-e ./pkg` relative form). Uses
 the default path `.pth` backend (not the `editables` import-hook backend, which needs an
 extra runtime dep and breaks under xdist). Import resolution in tests is guaranteed by the

@@ -1,0 +1,322 @@
+"""NCIt repository read model over an Oxigraph SPARQL endpoint.
+
+Assembles concept detail (metadata + hierarchy + roles + associations + incoming
+roles), search, and expand-on-demand neighborhoods. Roles are recovered by OWL
+restriction traversal (see :mod:`ontolib.terminologies.ncit.role_queries`); rendering
+them is the point — the source platform's empty-roles bug came from querying only
+direct triples.
+"""
+
+from __future__ import annotations
+
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
+from ontolib.terminologies.ncit import property_codes as pc
+from ontolib.terminologies.ncit.models import (
+    ConceptDetail,
+    ConceptRef,
+    GraphEdge,
+    GraphNode,
+    Neighborhood,
+    Relationship,
+    SearchHit,
+    SearchPage,
+)
+from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_iri
+
+_PREFIXES = (
+    f"PREFIX rdfs: <{RDFS_NS}>\nPREFIX owl: <{OWL_NS}>\nPREFIX ncit: <{NCIT_NS}>"
+)
+_LIST_SEP = "||"
+_DEFAULT_EDGE_LIMIT = 200
+
+
+def _code_of(uri: str) -> str:
+    """Return the trailing NCIt code of an IRI (``…#C3262`` -> ``C3262``)."""
+    return uri.rsplit("#", 1)[-1] if "#" in uri else uri.rsplit("/", 1)[-1]
+
+
+def _escape_literal(text: str) -> str:
+    """Escape a user string for safe embedding in a SPARQL double-quoted literal."""
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _ref(uri: str | None, label: str | None) -> ConceptRef | None:
+    """Build a ConceptRef from a possibly-unbound node URI."""
+    return ConceptRef(code=_code_of(uri), label=label) if uri else None
+
+
+def _rel(
+    rel_uri: str | None,
+    rel_label: str | None,
+    target_uri: str | None,
+    target_label: str | None,
+) -> Relationship | None:
+    """Build a Relationship, or None if the relation or target is unbound."""
+    if not (rel_uri and target_uri):
+        return None
+    return Relationship(
+        relation=_code_of(rel_uri),
+        relation_label=rel_label,
+        target=ConceptRef(code=_code_of(target_uri), label=target_label),
+    )
+
+
+class NcitGraphStore:
+    """Read-only NCIt repository backed by an Oxigraph SPARQL endpoint."""
+
+    def __init__(self, client: OxigraphHttpClient, *, namespace: str = NCIT_NS) -> None:
+        """Wrap a SPARQL *client*; concept IRIs are ``{namespace}{code}``."""
+        self._client = client
+        self._ns = namespace
+
+    # ------------------------------------------------------------------ detail
+
+    async def get_concept_detail(self, code: str) -> ConceptDetail | None:
+        """Return full detail for *code*, or ``None`` if the concept does not exist."""
+        uri = safe_iri(code, self._ns)
+        meta = await self._client.select(self._metadata_query(uri))
+        if not meta:
+            return None
+        row = meta[0]
+        return ConceptDetail(
+            code=code,
+            label=row.get("label"),
+            preferred_name=row.get("pref"),
+            definition=row.get("def"),
+            semantic_types=_split_list(row.get("semtypes")),
+            synonyms=_split_list(row.get("synonyms")),
+            parents=await self._named_neighbors(uri, incoming=False),
+            children=await self._named_neighbors(uri, incoming=True),
+            roles=await self._roles(uri),
+            associations=await self._associations(uri),
+            incoming_roles=await self._incoming_roles(uri),
+        )
+
+    def _metadata_query(self, uri: str) -> str:
+        return f"""{_PREFIXES}
+        SELECT ?label ?pref ?def
+               (GROUP_CONCAT(DISTINCT ?semtype; separator="{_LIST_SEP}") AS ?semtypes)
+               (GROUP_CONCAT(DISTINCT ?syn; separator="{_LIST_SEP}") AS ?synonyms)
+        WHERE {{
+            <{uri}> a owl:Class .
+            OPTIONAL {{ <{uri}> rdfs:label ?label }}
+            OPTIONAL {{ <{uri}> ncit:{pc.PREFERRED_NAME} ?pref }}
+            OPTIONAL {{ <{uri}> ncit:{pc.DEFINITION} ?def }}
+            OPTIONAL {{ <{uri}> ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+            OPTIONAL {{ <{uri}> ncit:{pc.FULL_SYNONYM} ?syn }}
+        }}
+        GROUP BY ?label ?pref ?def
+        """
+
+    async def _named_neighbors(self, uri: str, *, incoming: bool) -> list[ConceptRef]:
+        """Named parents (``incoming=False``) or children (``incoming=True``)."""
+        pattern = (
+            f"?node rdfs:subClassOf <{uri}>"
+            if incoming
+            else f"<{uri}> rdfs:subClassOf ?node"
+        )
+        query = f"""{_PREFIXES}
+        SELECT DISTINCT ?node ?label WHERE {{
+            {pattern} .
+            FILTER(isIRI(?node) && STRSTARTS(STR(?node), "{self._ns}"))
+            OPTIONAL {{ ?node rdfs:label ?label }}
+        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        """
+        rows = await self._client.select(query)
+        refs = (_ref(r.get("node"), r.get("label")) for r in rows)
+        return [ref for ref in refs if ref is not None]
+
+    async def _roles(self, uri: str) -> list[Relationship]:
+        query = f"""{_PREFIXES}
+        SELECT ?rel ?rellabel ?target ?tlabel WHERE {{
+            <{uri}> rdfs:subClassOf ?r .
+            ?r a owl:Restriction ;
+               owl:onProperty ?rel ;
+               owl:someValuesFrom ?target .
+            FILTER(STRSTARTS(STR(?target), "{self._ns}"))
+            OPTIONAL {{ ?rel rdfs:label ?rellabel }}
+            OPTIONAL {{ ?target rdfs:label ?tlabel }}
+        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        """
+        return self._as_relationships(await self._client.select(query))
+
+    async def _associations(self, uri: str) -> list[Relationship]:
+        query = f"""{_PREFIXES}
+        SELECT ?rel ?rellabel ?target ?tlabel WHERE {{
+            <{uri}> ?rel ?target .
+            FILTER(isIRI(?target) && STRSTARTS(STR(?target), "{self._ns}"))
+            FILTER(?rel != rdfs:subClassOf)
+            OPTIONAL {{ ?rel rdfs:label ?rellabel }}
+            OPTIONAL {{ ?target rdfs:label ?tlabel }}
+        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        """
+        return self._as_relationships(await self._client.select(query))
+
+    async def _incoming_roles(self, uri: str) -> list[Relationship]:
+        query = f"""{_PREFIXES}
+        SELECT ?rel ?rellabel ?src ?slabel WHERE {{
+            ?r a owl:Restriction ;
+               owl:onProperty ?rel ;
+               owl:someValuesFrom <{uri}> .
+            ?src rdfs:subClassOf ?r .
+            FILTER(STRSTARTS(STR(?src), "{self._ns}"))
+            OPTIONAL {{ ?rel rdfs:label ?rellabel }}
+            OPTIONAL {{ ?src rdfs:label ?slabel }}
+        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        """
+        rows = await self._client.select(query)
+        rels = (
+            _rel(r.get("rel"), r.get("rellabel"), r.get("src"), r.get("slabel"))
+            for r in rows
+        )
+        return [rel for rel in rels if rel is not None]
+
+    def _as_relationships(
+        self, rows: list[dict[str, str | None]]
+    ) -> list[Relationship]:
+        rels = (
+            _rel(r.get("rel"), r.get("rellabel"), r.get("target"), r.get("tlabel"))
+            for r in rows
+        )
+        return [rel for rel in rels if rel is not None]
+
+    # ------------------------------------------------------------------ search
+
+    async def search(
+        self, query_text: str, *, limit: int = 25, offset: int = 0
+    ) -> SearchPage:
+        """Case-insensitive search over preferred label and synonyms."""
+        term = _escape_literal(query_text)
+        where = f"""
+            ?concept a owl:Class ; rdfs:label ?label .
+            OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+            OPTIONAL {{
+                ?concept ncit:{pc.FULL_SYNONYM} ?syn .
+                FILTER(CONTAINS(LCASE(?syn), LCASE("{term}")))
+            }}
+            FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?syn))
+        """
+        # GROUP BY concept so a concept with several matching synonyms / semantic
+        # types yields exactly one result row (not one row per synonym).
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT ?concept ?label
+                   (SAMPLE(?semtype) AS ?semtype) (SAMPLE(?syn) AS ?syn)
+            WHERE {{{where}}}
+            GROUP BY ?concept ?label
+            ORDER BY ?label LIMIT {limit} OFFSET {offset}
+            """
+        )
+        count_rows = await self._client.select(
+            f"{_PREFIXES}\n"
+            f"SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{{where}}}"
+        )
+        count_val = count_rows[0].get("count") if count_rows else None
+        total = int(count_val) if count_val is not None else 0
+        hits = [
+            SearchHit(
+                code=_code_of(concept),
+                label=r.get("label"),
+                semantic_type=r.get("semtype"),
+                matched_synonym=r.get("syn"),
+            )
+            for r in rows
+            if (concept := r.get("concept")) is not None
+        ]
+        return SearchPage(
+            query=query_text, total=total, limit=limit, offset=offset, hits=hits
+        )
+
+    async def labels_for(self, codes: list[str]) -> dict[str, str]:
+        """Return a ``{code: label}`` map for the given codes (one query)."""
+        if not codes:
+            return {}
+        values = " ".join(f"<{safe_iri(c, self._ns)}>" for c in codes)
+        query = f"""{_PREFIXES}
+        SELECT ?c ?label WHERE {{
+            VALUES ?c {{ {values} }}
+            ?c rdfs:label ?label .
+        }}
+        """
+        rows = await self._client.select(query)
+        return {
+            _code_of(c): label
+            for r in rows
+            if (c := r.get("c")) and (label := r.get("label"))
+        }
+
+    # ------------------------------------------------------------- neighborhood
+
+    async def get_neighborhood(self, code: str, *, depth: int = 1) -> Neighborhood:
+        """Return a concept-centered subgraph (subClassOf + roles + associations).
+
+        ``depth`` is currently a single hop in each direction (expand-on-demand); the
+        frontend re-centers to go deeper rather than loading a large closure.
+        """
+        detail = await self.get_concept_detail(code)
+        if detail is None:
+            return Neighborhood(center=code)
+        nodes: dict[str, GraphNode] = {
+            code: GraphNode(
+                code=code,
+                label=detail.label,
+                semantic_type=_first(detail.semantic_types),
+            )
+        }
+        edges: list[GraphEdge] = []
+
+        def add(ref: ConceptRef) -> None:
+            nodes.setdefault(ref.code, GraphNode(code=ref.code, label=ref.label))
+
+        for parent in detail.parents:
+            add(parent)
+            edges.append(
+                GraphEdge(
+                    source=code,
+                    target=parent.code,
+                    relation="subClassOf",
+                    kind="subClassOf",
+                )
+            )
+        for child in detail.children:
+            add(child)
+            edges.append(
+                GraphEdge(
+                    source=child.code,
+                    target=code,
+                    relation="subClassOf",
+                    kind="subClassOf",
+                )
+            )
+        for rel in detail.roles:
+            add(rel.target)
+            edges.append(
+                GraphEdge(
+                    source=code,
+                    target=rel.target.code,
+                    relation=rel.relation,
+                    relation_label=rel.relation_label,
+                    kind="role",
+                )
+            )
+        for rel in detail.associations:
+            add(rel.target)
+            edges.append(
+                GraphEdge(
+                    source=code,
+                    target=rel.target.code,
+                    relation=rel.relation,
+                    relation_label=rel.relation_label,
+                    kind="association",
+                )
+            )
+        _ = depth
+        return Neighborhood(center=code, nodes=list(nodes.values()), edges=edges)
+
+
+def _split_list(value: str | None) -> list[str]:
+    return [item for item in value.split(_LIST_SEP) if item] if value else []
+
+
+def _first(items: list[str]) -> str | None:
+    return items[0] if items else None

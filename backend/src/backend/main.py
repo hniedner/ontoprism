@@ -13,10 +13,10 @@ from backend import __version__
 from backend.api.v1 import cadsr, ncit, refresh, sparql
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from fairlib.repositories.cadsr.repository import CdeRepository
-from fairlib.repositories.embeddings.store import EmbeddingStore
-from fairlib.terminologies.ncit.graph_store import NcitGraphStore
-from fairlib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.repositories.cadsr.repository import CdeRepository
+from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 
 @asynccontextmanager

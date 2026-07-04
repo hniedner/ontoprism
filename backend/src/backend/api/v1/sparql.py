@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from backend.config import get_settings
 from backend.dependencies import NcitClient
-from fairlib.core.exceptions import StorageError
+from ontolib.core.exceptions import StorageError
 
 router = APIRouter(prefix="/api/v1/sparql", tags=["sparql"])
 

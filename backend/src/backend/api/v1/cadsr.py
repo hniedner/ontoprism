@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import CadsrRepo, Embeddings
-from fairlib.repositories.cadsr.models import (
+from ontolib.repositories.cadsr.models import (
     CdeDetail,
     CdeSearchPage,
     CdeSummary,

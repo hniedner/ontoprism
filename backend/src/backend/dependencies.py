@@ -4,10 +4,10 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from fairlib.repositories.cadsr.repository import CdeRepository
-from fairlib.repositories.embeddings.store import EmbeddingStore
-from fairlib.terminologies.ncit.graph_store import NcitGraphStore
-from fairlib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.repositories.cadsr.repository import CdeRepository
+from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 
 def get_ncit_store(request: Request) -> NcitGraphStore:

@@ -184,7 +184,7 @@ def main() -> int:
         # Check all Python files in src directories
         root = Path(__file__).parent.parent.parent
         files = list(root.glob("backend/src/**/*.py")) + list(
-            root.glob("fairlib/src/**/*.py")
+            root.glob("ontolib/src/**/*.py")
         )
     else:
         files = [Path(f) for f in args.files]

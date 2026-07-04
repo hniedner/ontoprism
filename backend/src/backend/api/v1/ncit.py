@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import Embeddings, NcitStore
-from fairlib.terminologies.ncit.models import (
+from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     Neighborhood,
     SearchPage,

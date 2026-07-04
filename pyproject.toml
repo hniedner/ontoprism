@@ -32,11 +32,11 @@ dependencies = [
 distribution = false
 
 [tool.pdm.dev-dependencies]
-# Editable installs of the keep-names local packages. This makes `import fairlib`
+# Editable installs of the keep-names local packages. This makes `import ontolib`
 # and `import backend` resolve via the venv in any pytest import mode — no sys.path
 # hacks, no outer-namespace-dir shadowing.
 local = [
-    "-e file:///${PROJECT_ROOT}/fairlib",
+    "-e file:///${PROJECT_ROOT}/ontolib",
     "-e file:///${PROJECT_ROOT}/backend",
 ]
 test = [
@@ -58,16 +58,16 @@ lint = [
 # `pdm run test*` scripts. `-n auto` shards across cores via pytest-xdist.
 # ---------------------------------------------------------------------------
 # Use the `pytest` console script (not `python -m pytest`): the module form prepends
-# the repo root to sys.path, where the outer fairlib/ & backend/ dirs shadow the
+# the repo root to sys.path, where the outer ontolib/ & backend/ dirs shadow the
 # editable installs. The console script keeps import resolution clean.
 [tool.pdm.scripts]
 # Default runs exclude integration (which needs live Oxigraph/Postgres); opt in via
 # test-integration. This keeps CI and quick local runs hermetic.
-test = "pytest fairlib/tests backend/tests -m 'not integration' -n auto"
-test-unit = "pytest fairlib/tests backend/tests -m unit -n auto"
+test = "pytest ontolib/tests backend/tests -m 'not integration' -n auto"
+test-unit = "pytest ontolib/tests backend/tests -m unit -n auto"
 test-backend-unit = "pytest backend/tests -m unit -n auto"
-test-integration = "pytest fairlib/tests backend/tests -m integration"
-test-ci = "pytest fairlib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=80 -n auto"
+test-integration = "pytest ontolib/tests backend/tests -m integration"
+test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=80 -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
 pytest = "pytest"
 lint = { composite = ["ruff check .", "basedpyright"] }
@@ -87,14 +87,14 @@ stop-frontend = { shell = "bash scripts/dev.sh stop frontend" }
 restart-frontend = { shell = "bash scripts/dev.sh restart frontend" }
 
 [tool.pytest.ini_options]
-# prepend import mode: our keep-names layout has top dirs (fairlib/, backend/) whose
+# prepend import mode: our keep-names layout has top dirs (ontolib/, backend/) whose
 # names equal the packages, which makes pytest's importlib mode pre-bind sys.modules
 # to the outer namespace dir and shadow the editable install. prepend avoids that.
 # Trade-off: test module basenames must be unique per directory (revisit when lifting
 # fairdata's large suite — see docs/DECISIONS.md).
 addopts = "-ra -q --strict-markers --strict-config --import-mode=prepend"
 minversion = "8.0"
-# fairlib and backend are installed editable (see [tool.pdm.dev-dependencies]).
+# ontolib and backend are installed editable (see [tool.pdm.dev-dependencies]).
 norecursedirs = ["build", "dist", ".git", ".venv", "node_modules", "frontend"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -109,7 +109,7 @@ markers = [
 [tool.ruff]
 target-version = "py313"
 line-length = 88
-src = ["fairlib/src", "backend/src", "fairlib/tests", "backend/tests"]
+src = ["ontolib/src", "backend/src", "ontolib/tests", "backend/tests"]
 
 [tool.ruff.lint]
 select = [
@@ -137,7 +137,7 @@ ignore = [
 "**/tests/**/*.py" = ["S101", "PLR2004"]  # asserts + magic values are fine in tests
 
 [tool.coverage.run]
-source = ["fairlib/src", "backend/src"]
+source = ["ontolib/src", "backend/src"]
 branch = true
 
 [tool.coverage.report]
@@ -147,6 +147,6 @@ exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 [tool.basedpyright]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
-include = ["fairlib/src", "backend/src"]
-extraPaths = ["fairlib/src", "backend/src"]
+include = ["ontolib/src", "backend/src"]
+extraPaths = ["ontolib/src", "backend/src"]
 reportMissingImports = true

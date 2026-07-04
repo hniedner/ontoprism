@@ -17,7 +17,7 @@ from pathlib import Path
 THRESHOLD = 8
 BASELINE_PATH = Path(__file__).parent / "radon_cc8_baseline.txt"
 SCAN_DIRS = [
-    ("fairlib/src", "fairlib"),
+    ("ontolib/src", "ontolib"),
     ("backend/src", "backend"),
 ]
 

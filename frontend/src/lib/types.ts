@@ -1,4 +1,4 @@
-// Types mirroring the backend NCIt read models (fairlib.terminologies.ncit.models).
+// Types mirroring the backend NCIt read models (ontolib.terminologies.ncit.models).
 
 export interface ConceptRef {
 	code: string;
@@ -62,7 +62,7 @@ export interface Neighborhood {
 	edges: GraphEdge[];
 }
 
-// caDSR CDE read models (backend fairlib.repositories.cadsr.models).
+// caDSR CDE read models (backend ontolib.repositories.cadsr.models).
 
 export interface ConceptLink {
 	concept_code: string;

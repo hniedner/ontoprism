@@ -10,13 +10,13 @@ D1–D2) and adding a decomposition engine.
 ```
 ontoprism/
 ├── pyproject.toml            # root PDM project (distribution=false), tool config, test scripts
-├── conftest.py               # puts fairlib/src & backend/src on sys.path (see DECISIONS D6)
+├── conftest.py               # puts ontolib/src & backend/src on sys.path (see DECISIONS D6)
 ├── docker-compose.yml        # postgres + oxigraph-ncit(:7878) + oxigraph-uberon(:7879)
 ├── Makefile  .env.example
 ├── .github/workflows/ci.yml  # backend (ruff+basedpyright+cov) + web (eslint+check+vitest)
-├── fairlib/                  # LIFTED library — import name `fairlib`
+├── ontolib/                  # LIFTED library — import name `ontolib`
 │   ├── pyproject.toml        #   editable package (src layout)
-│   ├── src/fairlib/
+│   ├── src/ontolib/
 │   │   ├── storage/          #   Oxigraph HTTP store base, pyoxigraph compat
 │   │   ├── terminologies/    #   ncit (graph store, role/restriction queries), uberon
 │   │   ├── repositories/     #   cadsr read model
@@ -49,7 +49,7 @@ access.
 NCIt encodes pre-coordination as OWL existential restrictions
 (`?c rdfs:subClassOf [ owl:onProperty ?R ; owl:someValuesFrom ?filler ]`), **not** as
 direct triples (0 direct R-triples in the store; associations are direct A-triples). The
-restriction-traversal query (`fairlib` `terminologies/ncit/graph_store_role_queries.py`)
+restriction-traversal query (`ontolib` `terminologies/ncit/graph_store_role_queries.py`)
 is the backbone that makes roles queryable, and the foundation the decomposition engine
 builds on. Porting it faithfully is the keystone of M1/M2 ("roles must render").
 

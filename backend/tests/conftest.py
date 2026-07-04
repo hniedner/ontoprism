@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from backend.config import get_settings
 from backend.dependencies import get_cadsr_repo
 from backend.main import create_app
-from fairlib.repositories.cadsr.repository import CdeRepository
+from ontolib.repositories.cadsr.repository import CdeRepository
 
 
 def _store_reachable(url: str) -> bool:

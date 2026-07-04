@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from backend.dependencies import CadsrRepo, NcitClient, NcitStore
-from fairlib.core.exceptions import StorageError
+from ontolib.core.exceptions import StorageError
 
 router = APIRouter(prefix="/api/v1/refresh", tags=["refresh"])
 
