@@ -28,6 +28,9 @@ _PREFIXES = (
 )
 _LIST_SEP = "||"
 _DEFAULT_EDGE_LIMIT = 200
+# Upper bound on nodes returned by a multi-hop neighborhood expansion, so a deep
+# request cannot pull an unbounded closure out of the store.
+_MAX_NEIGHBORHOOD_NODES = 400
 
 
 def _code_of(uri: str) -> str:
@@ -296,27 +299,98 @@ class NcitGraphStore:
     async def get_neighborhood(self, code: str, *, depth: int = 1) -> Neighborhood:
         """Return a concept-centered subgraph (subClassOf + roles + associations).
 
-        ``depth`` is currently a single hop in each direction (expand-on-demand); the
-        frontend re-centers to go deeper rather than loading a large closure.
+        ``depth`` hops are expanded breadth-first from *code*: every node discovered at
+        hop *n* is itself expanded at hop *n+1*, up to ``depth``. Growth is bounded by
+        ``_MAX_NEIGHBORHOOD_NODES`` so a deep request cannot pull a huge closure.
         """
-        detail = await self.get_concept_detail(code)
-        if detail is None:
+        center_detail = await self.get_concept_detail(code)
+        if center_detail is None:
             return Neighborhood(center=code)
-        nodes: dict[str, GraphNode] = {
-            code: GraphNode(
-                code=code,
-                label=detail.label,
-                semantic_type=_first(detail.semantic_types),
+
+        nodes: dict[str, GraphNode] = {}
+        edges: dict[tuple[str, str, str, str], GraphEdge] = {}
+        expanded: set[str] = set()
+        frontier = [code]
+        details: dict[str, ConceptDetail] = {code: center_detail}
+
+        for _hop in range(depth):
+            frontier = await self._expand_hop(frontier, expanded, nodes, edges, details)
+            if not frontier or len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+                break
+
+        # The center always carries its semantic type even if its node was seeded
+        # label-only by an earlier neighbor reference.
+        nodes[code] = GraphNode(
+            code=code,
+            label=center_detail.label,
+            semantic_type=_first(center_detail.semantic_types),
+        )
+        return Neighborhood(
+            center=code,
+            nodes=list(nodes.values()),
+            edges=list(edges.values()),
+        )
+
+    async def _expand_hop(
+        self,
+        frontier: list[str],
+        expanded: set[str],
+        nodes: dict[str, GraphNode],
+        edges: dict[tuple[str, str, str, str], GraphEdge],
+        details: dict[str, ConceptDetail],
+    ) -> list[str]:
+        """Expand one BFS hop: add each frontier node's edges, return the next hop."""
+        next_frontier: list[str] = []
+        for current in frontier:
+            detail = await self._detail_to_expand(current, expanded, details)
+            if detail is None:
+                continue
+            self._add_edges(current, detail, nodes, edges)
+            if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+                break
+            next_frontier.extend(
+                n for n in self._neighbor_codes(detail) if n not in expanded
             )
-        }
-        edges: list[GraphEdge] = []
+        return next_frontier
 
-        def add(ref: ConceptRef) -> None:
-            nodes.setdefault(ref.code, GraphNode(code=ref.code, label=ref.label))
+    async def _detail_to_expand(
+        self,
+        current: str,
+        expanded: set[str],
+        details: dict[str, ConceptDetail],
+    ) -> ConceptDetail | None:
+        """Return *current*'s detail to expand (None if already seen or missing)."""
+        if current in expanded:
+            return None
+        detail = details.get(current) or await self.get_concept_detail(current)
+        if detail is None:
+            return None
+        expanded.add(current)
+        return detail
 
+    @staticmethod
+    def _neighbor_codes(detail: ConceptDetail) -> list[str]:
+        refs = [*detail.parents, *detail.children]
+        rels = [*detail.roles, *detail.associations]
+        return [r.code for r in refs] + [rel.target.code for rel in rels]
+
+    @staticmethod
+    def _add_edges(
+        code: str,
+        detail: ConceptDetail,
+        nodes: dict[str, GraphNode],
+        edges: dict[tuple[str, str, str, str], GraphEdge],
+    ) -> None:
+        def add_node(node_code: str, label: str | None) -> None:
+            nodes.setdefault(node_code, GraphNode(code=node_code, label=label))
+
+        def add_edge(edge: GraphEdge) -> None:
+            edges.setdefault((edge.source, edge.target, edge.relation, edge.kind), edge)
+
+        add_node(code, detail.label)
         for parent in detail.parents:
-            add(parent)
-            edges.append(
+            add_node(parent.code, parent.label)
+            add_edge(
                 GraphEdge(
                     source=code,
                     target=parent.code,
@@ -325,8 +399,8 @@ class NcitGraphStore:
                 )
             )
         for child in detail.children:
-            add(child)
-            edges.append(
+            add_node(child.code, child.label)
+            add_edge(
                 GraphEdge(
                     source=child.code,
                     target=code,
@@ -335,8 +409,8 @@ class NcitGraphStore:
                 )
             )
         for rel in detail.roles:
-            add(rel.target)
-            edges.append(
+            add_node(rel.target.code, rel.target.label)
+            add_edge(
                 GraphEdge(
                     source=code,
                     target=rel.target.code,
@@ -346,8 +420,8 @@ class NcitGraphStore:
                 )
             )
         for rel in detail.associations:
-            add(rel.target)
-            edges.append(
+            add_node(rel.target.code, rel.target.label)
+            add_edge(
                 GraphEdge(
                     source=code,
                     target=rel.target.code,
@@ -356,8 +430,6 @@ class NcitGraphStore:
                     kind="association",
                 )
             )
-        _ = depth
-        return Neighborhood(center=code, nodes=list(nodes.values()), edges=edges)
 
 
 def _split_list(value: str | None) -> list[str]:

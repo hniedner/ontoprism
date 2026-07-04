@@ -57,3 +57,16 @@ async def test_neighborhood_builds_typed_edges(ncit_stub_url: str) -> None:
     assert {"C3262", "C12922", "C2991", "C9305"} <= node_codes
     kinds = {e.kind for e in graph.edges}
     assert {"subClassOf", "role", "association"} <= kinds
+
+
+@pytest.mark.unit
+async def test_neighborhood_depth_expands_beyond_one_hop(ncit_stub_url: str) -> None:
+    # depth=2 expands each depth-1 neighbor, so more edges are discovered than at
+    # depth=1 (regression: `depth` used to be ignored). Node set stays deduped.
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        one = await store.get_neighborhood("C3262", depth=1)
+        two = await store.get_neighborhood("C3262", depth=2)
+
+    assert len(two.edges) > len(one.edges)
+    assert {n.code for n in one.nodes} <= {n.code for n in two.nodes}
