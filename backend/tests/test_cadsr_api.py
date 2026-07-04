@@ -27,6 +27,17 @@ def test_search_returns_hits(cadsr_client: TestClient) -> None:
 
 
 @pytest.mark.api
+def test_list_browses_without_a_query(cadsr_client: TestClient) -> None:
+    # The no-search browse endpoint: returns CDEs in natural order, no `q` needed.
+    resp = cadsr_client.get("/api/v1/cadsr/list", params={"limit": 10})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["query"] == ""
+    assert body["total"] >= 1
+    assert body["hits"][0]["public_id"] == "100"
+
+
+@pytest.mark.api
 def test_cdes_for_concept_join(cadsr_client: TestClient) -> None:
     # The caDSR<->NCIt cross-link: CDEs mapped to NCIt concept C3262.
     resp = cadsr_client.get("/api/v1/cadsr/concepts/C3262/cdes")

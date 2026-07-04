@@ -22,62 +22,77 @@
 		}
 	}
 
-	const arrow = (k: Col) => (sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '');
+	const arrow = (k: Col) => (sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕');
+
+	const th =
+		'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted select-none';
 </script>
 
-<table>
-	<thead>
-		<tr>
-			<th><button type="button" onclick={() => toggle('code')}>Code{arrow('code')}</button></th>
-			<th><button type="button" onclick={() => toggle('label')}>Label{arrow('label')}</button></th>
-			<th
-				><button type="button" onclick={() => toggle('semantic_type')}
-					>Semantic type{arrow('semantic_type')}</button
-				></th
-			>
-		</tr>
-	</thead>
-	<tbody>
-		{#each sorted as hit (hit.code)}
-			<tr>
-				<td><a href={resolve('/repositories/ncit/[code]', { code: hit.code })}>{hit.code}</a></td>
-				<td>{hit.label ?? '—'}</td>
-				<td>{hit.semantic_type ?? '—'}</td>
+<div class="overflow-x-auto">
+	<table class="w-full border-collapse text-sm">
+		<thead>
+			<tr class="border-b border-default">
+				<th class={th}>
+					<button
+						type="button"
+						class="inline-flex items-center gap-1 hover:text-default"
+						onclick={() => toggle('code')}
+					>
+						Code <span class="text-subtle">{arrow('code')}</span>
+					</button>
+				</th>
+				<th class={th}>
+					<button
+						type="button"
+						class="inline-flex items-center gap-1 hover:text-default"
+						onclick={() => toggle('label')}
+					>
+						Name <span class="text-subtle">{arrow('label')}</span>
+					</button>
+				</th>
+				<th class={th}>
+					<button
+						type="button"
+						class="inline-flex items-center gap-1 hover:text-default"
+						onclick={() => toggle('semantic_type')}
+					>
+						Semantic type <span class="text-subtle">{arrow('semantic_type')}</span>
+					</button>
+				</th>
 			</tr>
-		{/each}
-	</tbody>
-</table>
+		</thead>
+		<tbody>
+			{#each sorted as hit (hit.code)}
+				<tr class="border-b border-default/60 transition-colors hover:bg-subtle">
+					<td class="px-4 py-2.5 align-top">
+						<a
+							href={resolve('/repositories/ncit/[code]', { code: hit.code })}
+							class="rounded bg-subtle px-1.5 py-0.5 font-mono text-xs text-primary-600 no-underline hover:text-primary-700 dark:text-primary-400"
+						>
+							{hit.code}
+						</a>
+					</td>
+					<td class="px-4 py-2.5 align-top font-medium text-default">
+						<a
+							href={resolve('/repositories/ncit/[code]', { code: hit.code })}
+							class="no-underline hover:text-primary-600"
+						>
+							{hit.label ?? '—'}
+						</a>
+					</td>
+					<td class="px-4 py-2.5 align-top text-muted">
+						{#if hit.semantic_type}
+							<span class="whitespace-nowrap">{hit.semantic_type}</span>
+						{:else}
+							—
+						{/if}
+					</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+</div>
 
 {#if sorted.length === 0}
-	<p class="empty">No results.</p>
+	<p class="px-4 py-6 text-center text-sm italic text-muted">No results.</p>
 {/if}
-
-<style>
-	table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: 0.9rem;
-	}
-	th,
-	td {
-		text-align: left;
-		padding: 0.4rem 0.6rem;
-		border-bottom: 1px solid #e2e2e2;
-	}
-	th button {
-		background: none;
-		border: none;
-		font: inherit;
-		font-weight: 600;
-		cursor: pointer;
-		padding: 0;
-		color: inherit;
-	}
-	tbody tr:hover {
-		background: #f6f8fa;
-	}
-	.empty {
-		color: #666;
-		font-style: italic;
-	}
-</style>

@@ -5,8 +5,11 @@
 	import type { ConceptDetail, Neighborhood } from '$lib/types';
 	import RelationshipList from '$lib/components/RelationshipList.svelte';
 	import NeighborhoodGraph from '$lib/components/NeighborhoodGraph.svelte';
+	import GraphExplorer from '$lib/components/GraphExplorer.svelte';
 	import MappedCdes from '$lib/components/MappedCdes.svelte';
 	import SimilarConcepts from '$lib/components/SimilarConcepts.svelte';
+
+	let graphMode = $state<'interactive' | 'radial'>('interactive');
 
 	let detail = $state<ConceptDetail | null>(null);
 	let graph = $state<Neighborhood | null>(null);
@@ -34,54 +37,125 @@
 	});
 </script>
 
-<p class="back"><a href={resolve('/repositories/ncit')}>← Search</a></p>
+<svelte:head>
+	<title>{detail?.label ?? page.params.code} · NCIt · ONTOPRISM</title>
+</svelte:head>
+
+<a
+	href={resolve('/repositories/ncit')}
+	class="mb-4 inline-flex items-center gap-1.5 text-sm text-muted no-underline hover:text-primary-600"
+>
+	<span aria-hidden="true">←</span> Back to search
+</a>
 
 {#if loading}
-	<p>Loading {page.params.code}…</p>
+	<p class="text-sm text-muted">Loading {page.params.code}…</p>
 {:else if error}
-	<p class="error">{error}</p>
+	<div
+		class="rounded-xl border border-danger-200 bg-danger-50 p-4 text-sm text-danger dark:border-danger-800 dark:bg-danger-900/20"
+	>
+		{error}
+	</div>
 {:else if detail}
-	<header>
-		<h1>{detail.label ?? detail.code}</h1>
-		<p class="meta">
-			<code>{detail.code}</code>
-			{#each detail.semantic_types as st (st)}<span class="tag">{st}</span>{/each}
-		</p>
-		{#if detail.definition}<p class="def">{detail.definition}</p>{/if}
+	<!-- Concept header -->
+	<header class="mb-6">
+		<h1 class="text-2xl font-semibold text-default">{detail.label ?? detail.code}</h1>
+		<div class="mt-2 flex flex-wrap items-center gap-2">
+			<span class="rounded bg-subtle px-2 py-0.5 font-mono text-xs text-secondary">{detail.code}</span>
+			{#each detail.semantic_types as st (st)}
+				<span
+					class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+					>{st}</span
+				>
+			{/each}
+		</div>
+		{#if detail.definition}
+			<p class="mt-3 max-w-3xl text-sm leading-relaxed text-secondary">{detail.definition}</p>
+		{/if}
 		{#if detail.synonyms.length}
-			<p class="syn"><strong>Synonyms:</strong> {detail.synonyms.join(', ')}</p>
+			<p class="mt-2 max-w-3xl text-sm text-muted">
+				<span class="font-medium text-secondary">Synonyms:</span>
+				{detail.synonyms.join(', ')}
+			</p>
 		{/if}
 	</header>
 
-	{#if graph}
-		<NeighborhoodGraph {graph} />
-	{/if}
+	<!-- Interactive graph explorer -->
+	<section>
+		<div class="mb-2 flex items-center justify-between">
+			<h2 class="text-sm font-semibold text-default">Concept graph</h2>
+			<div class="inline-flex overflow-hidden rounded-lg border border-default text-xs">
+				<button
+					type="button"
+					class="px-2.5 py-1 {graphMode === 'interactive'
+						? 'bg-primary-600 text-white'
+						: 'text-secondary hover:bg-subtle'}"
+					onclick={() => (graphMode = 'interactive')}>Interactive</button
+				>
+				<button
+					type="button"
+					class="px-2.5 py-1 {graphMode === 'radial'
+						? 'bg-primary-600 text-white'
+						: 'text-secondary hover:bg-subtle'}"
+					onclick={() => (graphMode = 'radial')}>Radial</button
+				>
+			</div>
+		</div>
+		{#if graphMode === 'interactive'}
+			{#key detail.code}
+				<GraphExplorer code={detail.code} initial={graph} />
+			{/key}
+		{:else if graph}
+			<NeighborhoodGraph {graph} />
+		{/if}
+	</section>
 
-	<div class="panels">
-		<section>
-			<h3>Parents <span class="count">({detail.parents.length})</span></h3>
-			<ul class="refs">
+	<!-- Hierarchy -->
+	<div class="mt-6 grid gap-6 md:grid-cols-2">
+		<section class="rounded-xl border border-default bg-card p-4 shadow-sm">
+			<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
+				Parents
+				<span class="rounded-full bg-subtle px-2 py-0.5 text-xs font-normal text-muted"
+					>{detail.parents.length}</span
+				>
+			</h3>
+			<ul class="flex flex-col gap-2 text-sm">
 				{#each detail.parents as p (p.code)}
 					<li>
-						<a href={resolve('/repositories/ncit/[code]', { code: p.code })}>{p.label ?? p.code}</a>
+						<a
+							href={resolve('/repositories/ncit/[code]', { code: p.code })}
+							class="text-secondary no-underline hover:text-primary-600">{p.label ?? p.code}</a
+						>
 					</li>
 				{:else}
-					<li class="empty">None.</li>
+					<li class="italic text-subtle">None.</li>
 				{/each}
 			</ul>
 		</section>
-		<section>
-			<h3>Children <span class="count">({detail.children.length})</span></h3>
-			<ul class="refs">
+		<section class="rounded-xl border border-default bg-card p-4 shadow-sm">
+			<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
+				Children
+				<span class="rounded-full bg-subtle px-2 py-0.5 text-xs font-normal text-muted"
+					>{detail.children.length}</span
+				>
+			</h3>
+			<ul class="flex flex-col gap-2 text-sm">
 				{#each detail.children as c (c.code)}
 					<li>
-						<a href={resolve('/repositories/ncit/[code]', { code: c.code })}>{c.label ?? c.code}</a>
+						<a
+							href={resolve('/repositories/ncit/[code]', { code: c.code })}
+							class="text-secondary no-underline hover:text-primary-600">{c.label ?? c.code}</a
+						>
 					</li>
 				{:else}
-					<li class="empty">None.</li>
+					<li class="italic text-subtle">None.</li>
 				{/each}
 			</ul>
 		</section>
+	</div>
+
+	<!-- Relationship + semantic panels -->
+	<div class="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 		<RelationshipList title="Roles" items={detail.roles} />
 		<RelationshipList title="Associations" items={detail.associations} />
 		<RelationshipList title="Incoming roles" items={detail.incoming_roles} />
@@ -89,61 +163,3 @@
 		<SimilarConcepts code={detail.code} />
 	</div>
 {/if}
-
-<style>
-	.back {
-		margin: 0.5rem 0;
-	}
-	.meta {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	code {
-		background: #f1f5f9;
-		padding: 0.1rem 0.4rem;
-		border-radius: 4px;
-	}
-	.tag {
-		background: #ede9fe;
-		color: #6d28d9;
-		font-size: 0.75rem;
-		padding: 0.1rem 0.5rem;
-		border-radius: 999px;
-	}
-	.def {
-		max-width: 60ch;
-		color: #333;
-	}
-	.syn {
-		font-size: 0.85rem;
-		color: #555;
-	}
-	.panels {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-		gap: 1.5rem;
-		margin-top: 1.5rem;
-	}
-	.refs {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.2rem;
-		font-size: 0.88rem;
-	}
-	.count {
-		color: #888;
-		font-weight: 400;
-	}
-	.empty {
-		color: #888;
-		font-style: italic;
-	}
-	.error {
-		color: #b91c1c;
-	}
-</style>

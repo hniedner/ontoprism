@@ -22,127 +22,110 @@
 	});
 </script>
 
-<p class="back"><a href={resolve('/repositories/cadsr')}>← CDE search</a></p>
+<svelte:head>
+	<title>{cde?.long_name ?? page.params.id} · caDSR · ONTOPRISM</title>
+</svelte:head>
+
+<a
+	href={resolve('/repositories/cadsr')}
+	class="mb-4 inline-flex items-center gap-1.5 text-sm text-muted no-underline hover:text-primary-600"
+>
+	<span aria-hidden="true">←</span> Back to CDE search
+</a>
 
 {#if loading}
-	<p>Loading {page.params.id}…</p>
+	<p class="text-sm text-muted">Loading {page.params.id}…</p>
 {:else if error}
-	<p class="error">{error}</p>
+	<div
+		class="rounded-xl border border-danger-200 bg-danger-50 p-4 text-sm text-danger dark:border-danger-800 dark:bg-danger-900/20"
+	>
+		{error}
+	</div>
 {:else if cde}
-	<header>
-		<h1>{cde.long_name}</h1>
-		<p class="meta">
-			<code>{cde.public_id} v{cde.version}</code>
-			{#if cde.context}<span class="tag">{cde.context}</span>{/if}
-			{#if cde.datatype}<span class="tag">{cde.datatype}</span>{/if}
-		</p>
-		{#if cde.definition}<p class="def">{cde.definition}</p>{/if}
+	<header class="mb-6">
+		<h1 class="text-2xl font-semibold text-default">{cde.long_name}</h1>
+		<div class="mt-2 flex flex-wrap items-center gap-2">
+			<span class="rounded bg-subtle px-2 py-0.5 font-mono text-xs text-secondary"
+				>{cde.public_id} v{cde.version}</span
+			>
+			{#if cde.short_name}
+				<span class="rounded bg-subtle px-2 py-0.5 font-mono text-xs text-muted">{cde.short_name}</span>
+			{/if}
+			{#if cde.context}
+				<span
+					class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+					>{cde.context}</span
+				>
+			{/if}
+			{#if cde.datatype}
+				<span
+					class="rounded-md bg-info-50 px-2 py-0.5 text-xs font-medium text-info dark:bg-info-900/30"
+					>{cde.datatype}</span
+				>
+			{/if}
+		</div>
+		{#if cde.definition}
+			<p class="mt-3 max-w-3xl text-sm leading-relaxed text-secondary">{cde.definition}</p>
+		{/if}
 	</header>
 
-	<div class="panels">
-		<section>
-			<h3>NCIt concepts <span class="count">({cde.concepts.length})</span></h3>
-			<ul class="refs">
+	<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+		<!-- NCIt concepts -->
+		<section class="rounded-xl border border-default bg-card p-4 shadow-sm">
+			<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
+				NCIt concepts
+				<span class="rounded-full bg-subtle px-2 py-0.5 text-xs font-normal text-muted"
+					>{cde.concepts.length}</span
+				>
+			</h3>
+			<ul class="flex flex-col gap-2.5">
 				{#each cde.concepts as c (c.concept_code)}
-					<li>
-						<a href={resolve('/repositories/ncit/[code]', { code: c.concept_code })}>
-							{c.concept_name}
-						</a>
-						<span class="code">{c.concept_code}</span>
-						{#if c.is_primary}<span class="primary">primary</span>{/if}
-						{#if c.concept_type}<span class="ctype">{c.concept_type}</span>{/if}
+					<li class="flex flex-wrap items-baseline gap-1.5 text-sm">
+						<a
+							href={resolve('/repositories/ncit/[code]', { code: c.concept_code })}
+							class="text-secondary no-underline hover:text-primary-600">{c.concept_name}</a
+						>
+						<span class="font-mono text-xs text-subtle">{c.concept_code}</span>
+						{#if c.is_primary}
+							<span
+								class="rounded-full bg-success-50 px-1.5 py-0.5 text-xs font-medium text-success dark:bg-success-900/30"
+								>primary</span
+							>
+						{/if}
+						{#if c.concept_type}
+							<span class="text-xs text-muted">{c.concept_type}</span>
+						{/if}
 					</li>
 				{:else}
-					<li class="empty">None.</li>
+					<li class="text-sm italic text-subtle">None.</li>
 				{/each}
 			</ul>
 		</section>
 
-		<section>
-			<h3>Permissible values <span class="count">({cde.permissible_values.length})</span></h3>
+		<!-- Permissible values -->
+		<section class="rounded-xl border border-default bg-card p-4 shadow-sm">
+			<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
+				Permissible values
+				<span class="rounded-full bg-subtle px-2 py-0.5 text-xs font-normal text-muted"
+					>{cde.permissible_values.length}</span
+				>
+			</h3>
 			{#if cde.permissible_values.length}
-				<ul class="refs">
+				<ul class="flex flex-col gap-2 text-sm">
 					{#each cde.permissible_values as pv (pv.value + (pv.meaning_code ?? ''))}
-						<li>
-							<strong>{pv.value}</strong>
-							{#if pv.meaning}— {pv.meaning}{/if}
-							{#if pv.meaning_code}<span class="code">{pv.meaning_code}</span>{/if}
+						<li class="flex flex-wrap items-baseline gap-1.5">
+							<strong class="text-default">{pv.value}</strong>
+							{#if pv.meaning}<span class="text-muted">— {pv.meaning}</span>{/if}
+							{#if pv.meaning_code}<span class="font-mono text-xs text-subtle">{pv.meaning_code}</span
+								>{/if}
 						</li>
 					{/each}
 				</ul>
 			{:else}
-				<p class="empty">Not an enumerated value domain.</p>
+				<p class="text-sm italic text-subtle">Not an enumerated value domain.</p>
 			{/if}
 		</section>
+
 		<SimilarCdes publicId={cde.public_id} />
 	</div>
 {/if}
-
-<style>
-	.back {
-		margin: 0.5rem 0;
-	}
-	.meta {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	code {
-		background: #f1f5f9;
-		padding: 0.1rem 0.4rem;
-		border-radius: 4px;
-	}
-	.tag {
-		background: #ede9fe;
-		color: #6d28d9;
-		font-size: 0.75rem;
-		padding: 0.1rem 0.5rem;
-		border-radius: 999px;
-	}
-	.def {
-		max-width: 60ch;
-		color: #333;
-	}
-	.panels {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 1.5rem;
-		margin-top: 1.5rem;
-	}
-	.refs {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
-		font-size: 0.88rem;
-	}
-	.count {
-		color: #888;
-		font-weight: 400;
-	}
-	.code {
-		color: #999;
-		font-size: 0.75rem;
-	}
-	.primary {
-		background: #dcfce7;
-		color: #166534;
-		font-size: 0.7rem;
-		padding: 0 0.4rem;
-		border-radius: 999px;
-	}
-	.ctype {
-		color: #64748b;
-		font-size: 0.75rem;
-	}
-	.empty {
-		color: #888;
-		font-style: italic;
-	}
-	.error {
-		color: #b91c1c;
-	}
-</style>

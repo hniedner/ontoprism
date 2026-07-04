@@ -5,64 +5,28 @@
 	let { title, items }: { title: string; items: Relationship[] } = $props();
 </script>
 
-<section>
-	<h3>{title} <span class="count">({items.length})</span></h3>
+<section class="rounded-xl border border-default bg-card p-4 shadow-sm">
+	<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
+		{title}
+		<span class="rounded-full bg-subtle px-2 py-0.5 text-xs font-normal text-muted">{items.length}</span>
+	</h3>
 	{#if items.length === 0}
-		<p class="empty">None.</p>
+		<p class="text-sm italic text-subtle">None.</p>
 	{:else}
-		<ul>
+		<ul class="flex flex-col gap-2">
 			{#each items as rel (rel.relation + rel.target.code)}
-				<li>
-					<span class="rel">{rel.relation_label ?? rel.relation}</span>
-					<span class="arrow">→</span>
-					<a href={resolve('/repositories/ncit/[code]', { code: rel.target.code })}
-						>{rel.target.label ?? rel.target.code}</a
+				<li class="flex flex-wrap items-baseline gap-1.5 text-sm">
+					<span class="font-mono text-xs text-primary-600 dark:text-primary-400"
+						>{rel.relation_label ?? rel.relation}</span
 					>
-					<span class="code">{rel.target.code}</span>
+					<span class="text-subtle">→</span>
+					<a
+						href={resolve('/repositories/ncit/[code]', { code: rel.target.code })}
+						class="text-secondary no-underline hover:text-primary-600">{rel.target.label ?? rel.target.code}</a
+					>
+					<span class="font-mono text-xs text-subtle">{rel.target.code}</span>
 				</li>
 			{/each}
 		</ul>
 	{/if}
 </section>
-
-<style>
-	h3 {
-		font-size: 0.95rem;
-		margin: 0 0 0.4rem;
-	}
-	.count {
-		color: #888;
-		font-weight: 400;
-	}
-	ul {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-	li {
-		display: flex;
-		align-items: baseline;
-		gap: 0.4rem;
-		font-size: 0.88rem;
-	}
-	.rel {
-		color: #2563eb;
-		font-family: ui-monospace, monospace;
-		font-size: 0.8rem;
-	}
-	.arrow {
-		color: #999;
-	}
-	.code {
-		color: #999;
-		font-size: 0.75rem;
-	}
-	.empty {
-		color: #888;
-		font-style: italic;
-		margin: 0;
-	}
-</style>

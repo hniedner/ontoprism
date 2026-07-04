@@ -31,6 +31,19 @@ def search(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
 
+@router.get("/list", response_model=CdeSearchPage)
+def list_cdes(
+    repo: CadsrRepo,
+    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> CdeSearchPage:
+    """List CDEs in natural order — powers no-search browse of the repository."""
+    try:
+        return repo.list_cdes(limit=limit, offset=offset)
+    except sqlite3.OperationalError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+
+
 @router.get("/cdes/{public_id}", response_model=CdeDetail)
 def cde_detail(
     repo: CadsrRepo,

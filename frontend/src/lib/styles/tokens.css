@@ -1,0 +1,636 @@
+/**
+ * Design Tokens - ITCSS Layer 1: Settings
+ *
+ * Comprehensive design system tokens for FAIR DATA Workbench.
+ * NCI-inspired color palette for clinical data applications.
+ * Based on National Cancer Institute Design System with modern Material Design principles.
+ *
+ * Organization follows design token best practices:
+ * - Primitive tokens (raw values)
+ * - Semantic tokens (purpose-based)
+ * - Component tokens (component-specific)
+ *
+ * ============================================================================
+ * COLOR USAGE GUIDE
+ * ============================================================================
+ *
+ * SEMANTIC COLORS (use these for consistent, purposeful color application):
+ *
+ * | Color      | Purpose                          | When to Use                                    |
+ * |------------|----------------------------------|------------------------------------------------|
+ * | primary    | Brand, interactive elements      | Links, buttons, focus states, active states    |
+ * | success    | Positive outcomes, completion    | Confirmations, progress complete, available    |
+ * | warning    | Attention needed, caution        | Pending review, degraded state, soft errors    |
+ * | danger     | Errors, destructive actions      | Validation errors, delete buttons, critical    |
+ * | info       | Informational, suggestions       | Tips, hints, neutral information, suggestions  |
+ * | neutral    | Interface foundation             | Text, borders, backgrounds, dividers           |
+ *
+ * TAILWIND USAGE (always include dark: variants!):
+ *
+ *   ✅ CORRECT: bg-danger-50 dark:bg-danger-900/20 text-danger-700 dark:text-danger-300
+ *   ✅ CORRECT: text-success (the AA-safe semantic token — see below)
+ *   ❌ WRONG:   bg-red-50 (use danger instead)
+ *   ❌ WRONG:   text-green-600 (use success instead)
+ *   ❌ WRONG:   bg-blue-100 (use info or primary instead)
+ *   ❌ WRONG:   text-warning-600 / text-success-600 dark:text-*-400 for TEXT
+ *              (fails WCAG AA on some surfaces, #970 — use the .text-{state} token)
+ *
+ * COMMON PATTERNS:
+ *
+ *   Error states:     bg-danger-50 dark:bg-danger-900/20 border-danger-200 dark:border-danger-800
+ *   Success states:   bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800
+ *   Warning states:   bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800
+ *   Info states:      bg-info-50 dark:bg-info-900/20 border-info-200 dark:border-info-800
+ *
+ *   Error text:       .text-danger   (AA-safe: danger-700 / dark danger-300)
+ *   Success text:     .text-success  (AA-safe: success-700 / dark success-300)
+ *   Warning text:     .text-warning  (AA-safe: warning-700 / dark warning-400)
+ *   Info text:        .text-info     (AA-safe incl. on bg-info-50: info-800 / dark info-300; #1028)
+ *
+ * SEMANTIC UTILITY CLASSES (defined in app.css, preferred over raw colors):
+ *
+ *   .text-default     Primary text, headings (gray-900 / gray-100)
+ *   .text-secondary   Medium emphasis body text (gray-700 / gray-300)
+ *   .text-muted       Low emphasis, meta info (gray-600 / gray-400)
+ *   .text-warning/.text-success/.text-danger/.text-info  AA-safe state-color text (#970)
+ *   .text-subtle      Hints, placeholders (gray-500 / gray-500)
+ *   .bg-card          Card backgrounds (white / neutral-900)
+ *   .bg-subtle        Subtle backgrounds (gray-50 / gray-800)
+ *   .border-default   Standard borders (gray-200 / neutral-700)
+ *
+ * EXCEPTIONS (syntax highlighting only):
+ *   Raw color names (blue-600, green-600, etc.) are acceptable ONLY for
+ *   code/syntax highlighting where semantic meaning doesn't apply.
+ *
+ * ============================================================================
+ *
+ * AUDIT ACTION COLOR ASSIGNMENTS (see audit-styles.ts):
+ *
+ * | Category | Color   | Actions                                           |
+ * |----------|---------|---------------------------------------------------|
+ * | Positive | success | upload, file_uploaded, approve, row_validated     |
+ * | Negative | danger  | reject, delete                                    |
+ * | Modify   | warning | update, column_renamed, row_filtered              |
+ * | Analyze  | info    | classify, map, export, cde_mapping                |
+ * | Execute  | primary | stage_executed, variables_extracted, cell_*       |
+ *
+ * DATA TYPE COLOR ASSIGNMENTS (see scr-columns.ts):
+ *
+ * | Type    | Color   | Rationale                    |
+ * |---------|---------|------------------------------|
+ * | Integer | info    | Quantitative data            |
+ * | Float   | info-50 | Quantitative (lighter)       |
+ * | String  | neutral | Generic text data            |
+ * | Date    | primary | Temporal/system data         |
+ * | Boolean | warning | Binary choice = attention    |
+ * | Mixed   | danger  | Data quality concern         |
+ *
+ * STATISTICS CARD VARIANTS (see StatisticsGrid.svelte):
+ *
+ * | Variant | Usage                                             |
+ * |---------|---------------------------------------------------|
+ * | success | Valid items, positive outcomes                    |
+ * | warning | Needs review, attention items, unmapped           |
+ * | error   | Invalid items, duplicates, critical issues        |
+ * | info    | Totals, counts, informational metrics             |
+ * | primary | System/execution metrics (ID vars, retention)     |
+ *
+ * ============================================================================
+ */
+
+/* ============================================================================
+ * CSS CUSTOM PROPERTIES (for component usage)
+ * ============================================================================ */
+:root {
+	/* ============================================================================
+	 * NCI COLOR PALETTE - Single Source of Truth
+	 * These are the canonical color values. The @theme inline block in app.css
+	 * references these variables to expose them as Tailwind utilities.
+	 * ============================================================================ */
+
+	/* Primary Brand Colors - NCI Cerulean Blue Palette */
+	--nci-primary-50: #e8f4fc;
+	--nci-primary-100: #d1e9f9;
+	--nci-primary-200: #a3d3f3;
+	--nci-primary-300: #5bb5e8;
+	--nci-primary-400: #2a9bd9;
+	--nci-primary-500: #007bbd; /* NCI Cerulean */
+	--nci-primary-600: #006a9e; /* Main brand color */
+	--nci-primary-700: #005a85;
+	--nci-primary-800: #14315c; /* NCI Navy */
+	--nci-primary-900: #0d2140;
+
+	/* Secondary Brand Colors - NCI Cranberry Red Palette (for accents/input indicators) */
+	--nci-secondary-50: #fdf2f4;
+	--nci-secondary-100: #fce7eb;
+	--nci-secondary-200: #f9d0d9;
+	--nci-secondary-300: #f4a8b8;
+	--nci-secondary-400: #e85a7a;
+	--nci-secondary-500: #bb0e3d; /* NCI Cranberry */
+	--nci-secondary-600: #a00c35;
+	--nci-secondary-700: #85092c;
+	--nci-secondary-800: #6b0724;
+	--nci-secondary-900: #4a051a;
+
+	/* Success - NCI Teal Palette (Clinical positive outcomes) */
+	--nci-success-50: #e6f5f5;
+	--nci-success-100: #ccebeb;
+	--nci-success-200: #99d6d7;
+	--nci-success-300: #66c2c3;
+	--nci-success-400: #42979a; /* NCI Success */
+	--nci-success-500: #298085; /* NCI Teal */
+	--nci-success-600: #236d71; /* Main success color */
+	--nci-success-700: #1d5a5d;
+	--nci-success-800: #174749;
+	--nci-success-900: #113435;
+
+	/* Warning - NCI Golden Palette (Attention required) */
+	--nci-warning-50: #fefbf0;
+	--nci-warning-100: #fdf6e0;
+	--nci-warning-200: #fbedc1;
+	--nci-warning-300: #f9e4a2;
+	--nci-warning-400: #f5d56e;
+	--nci-warning-500: #ffbe2e; /* NCI Golden Vivid */
+	--nci-warning-600: #947100; /* NCI Golden */
+	--nci-warning-700: #7a5d00;
+	--nci-warning-800: #614a00;
+	--nci-warning-900: #473600;
+
+	/* Danger - NCI Error Red Palette (Critical issues) */
+	--nci-danger-50: #fef2f5;
+	--nci-danger-100: #fde5eb;
+	--nci-danger-200: #fbccd7;
+	--nci-danger-300: #f8a6bb;
+	--nci-danger-400: #f37193;
+	--nci-danger-500: #e41154; /* NCI Error/Cranberry Vivid */
+	--nci-danger-600: #c90f4a; /* Main danger color */
+	--nci-danger-700: #a60c3d;
+	--nci-danger-800: #830930;
+	--nci-danger-900: #600723;
+
+	/* Info - NCI Info Blue Palette (Informational) */
+	--nci-info-50: #e8f7fd;
+	--nci-info-100: #d1effb;
+	--nci-info-200: #a3dff7;
+	--nci-info-300: #75cff3;
+	--nci-info-400: #51b8f0; /* NCI Info */
+	--nci-info-500: #2da5e9;
+	--nci-info-600: #1a8fcf; /* Main info color */
+	--nci-info-700: #1578ab;
+	--nci-info-800: #106187;
+	--nci-info-900: #0b4a63;
+
+	/* Neutral - Gray Palette (Interface foundation)
+	 * INTERNAL ONLY — referenced by semantic tokens below. Do not use
+	 * var(--color-neutral-*) directly in components; use semantic tokens instead.
+	 * Tailwind's built-in neutral palette provides the utility classes. */
+	--color-neutral-50: #fafafa;
+	--color-neutral-100: #f5f5f5;
+	--color-neutral-200: #e5e5e5;
+	--color-neutral-300: #d4d4d4;
+	--color-neutral-400: #a3a3a3;
+	--color-neutral-500: #737373;
+	--color-neutral-600: #525252;
+	--color-neutral-700: #404040;
+	--color-neutral-800: #262626;
+	--color-neutral-850: #1a1a1a;
+	--color-neutral-900: #171717;
+	--color-neutral-950: #0a0a0a;
+
+	/* Semantic Color Tokens */
+	--color-primary: var(--nci-primary-600);
+	--color-primary-hover: var(--nci-primary-700);
+	--color-primary-active: var(--nci-primary-800);
+	--color-primary-subtle: var(--nci-primary-50);
+
+	--color-success: var(--nci-success-600);
+	--color-success-hover: var(--nci-success-700);
+	--color-success-subtle: var(--nci-success-50);
+
+	--color-warning: var(--nci-warning-600);
+	--color-warning-hover: var(--nci-warning-700);
+	--color-warning-subtle: var(--nci-warning-50);
+
+	--color-danger: var(--nci-danger-600);
+	--color-danger-hover: var(--nci-danger-700);
+	--color-danger-subtle: var(--nci-danger-50);
+
+	--color-info: var(--nci-info-600);
+	--color-info-hover: var(--nci-info-700);
+	--color-info-subtle: var(--nci-info-50);
+
+	/* Background Colors - Light Mode */
+	--color-background: #ffffff;
+	--color-background-muted: var(--color-neutral-100);
+	--color-background-subtle: var(--color-neutral-200);
+	--color-background-hover: var(--color-neutral-200);
+	--color-background-active: var(--color-neutral-300);
+
+	/* Card/Surface Backgrounds - Light Mode */
+	--color-card-background: #f0f0f0;
+	--color-surface-raised: var(--color-neutral-100);
+
+	/* Page Canvas Background - Cool gray for card contrast (light mode only) */
+	--color-page-bg: #cacaca;
+	--color-page-bg-subtle: #d6d6d6;
+
+	/* Border Colors - Light Mode (enhanced for visual distinction) */
+	--color-border: var(--color-neutral-400);
+	--color-border-strong: var(--color-neutral-500);
+	--color-border-hover: var(--color-neutral-500);
+	--color-border-focus: var(--color-primary-500);
+
+	/* Text Colors - Light Mode (WCAG AA compliant - 4.5:1 contrast) */
+	--color-text: var(--color-neutral-900); /* #171717 on white = 16.1:1 */
+	--color-text-secondary: var(--color-neutral-700); /* #404040 on white = 10.4:1 */
+	--color-text-muted: var(--color-neutral-600); /* #525252 on white = 7.5:1 */
+	--color-text-subtle: var(--color-neutral-500); /* #737373 on white = 4.6:1 */
+	--color-text-disabled: var(--color-neutral-400);
+	--color-text-inverse: #ffffff;
+
+	/* ============================================================================
+	 * SPACING SYSTEM - 8px Grid
+	 * ============================================================================ */
+
+	/* Base unit: 8px (0.5rem) */
+	--space-0: 0;
+	--space-1: 0.25rem; /* 4px - micro spacing */
+	--space-2: 0.5rem; /* 8px - base unit */
+	--space-3: 0.75rem; /* 12px */
+	--space-4: 1rem; /* 16px - standard spacing */
+	--space-5: 1.25rem; /* 20px */
+	--space-6: 1.5rem; /* 24px */
+	--space-8: 2rem; /* 32px */
+	--space-10: 2.5rem; /* 40px */
+	--space-12: 3rem; /* 48px */
+	--space-16: 4rem; /* 64px */
+	--space-20: 5rem; /* 80px */
+	--space-24: 6rem; /* 96px */
+	--space-32: 8rem; /* 128px */
+
+	/* Semantic Spacing Tokens */
+	--space-xs: var(--space-1);
+	--space-sm: var(--space-2);
+	--space-md: var(--space-4);
+	--space-lg: var(--space-6);
+	--space-xl: var(--space-8);
+	--space-2xl: var(--space-12);
+	--space-3xl: var(--space-16);
+
+	/* Component-Specific Spacing */
+	--space-button-padding-x: var(--space-4);
+	--space-button-padding-y: var(--space-2);
+	--space-input-padding-x: var(--space-3);
+	--space-input-padding-y: var(--space-2);
+	--space-card-padding: var(--space-6);
+	--space-section-gap: var(--space-8);
+
+	/* Icon-Text Spacing (standardized across app) */
+	--space-icon-text: var(--space-2); /* 8px - standard gap between icon and text */
+	--space-icon-text-sm: var(--space-1); /* 4px - compact icon-text gap */
+	--space-icon-text-lg: var(--space-3); /* 12px - spacious icon-text gap */
+
+	/* ============================================================================
+	 * TYPOGRAPHY SYSTEM
+	 * ============================================================================ */
+
+	/* Font Families */
+	--font-sans:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	--font-mono:
+		'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+
+	/* Font Sizes - Modular Scale (1.250 - Major Third) */
+	--font-size-xs: 0.75rem; /* 12px */
+	--font-size-sm: 0.875rem; /* 14px */
+	--font-size-base: 1rem; /* 16px */
+	--font-size-md: 1rem; /* 16px - same as base */
+	--font-size-lg: 1.125rem; /* 18px */
+	--font-size-xl: 1.25rem; /* 20px */
+	--font-size-2xl: 1.5rem; /* 24px */
+	--font-size-3xl: 1.875rem; /* 30px */
+	--font-size-4xl: 2.25rem; /* 36px */
+	--font-size-5xl: 3rem; /* 48px */
+
+	/* Line Heights */
+	--leading-none: 1;
+	--leading-tight: 1.25;
+	--leading-snug: 1.375;
+	--leading-normal: 1.5;
+	--leading-relaxed: 1.625;
+	--leading-loose: 2;
+
+	/* Font Weights */
+	--font-weight-normal: 400;
+	--font-weight-medium: 500;
+	--font-weight-semibold: 600;
+	--font-weight-bold: 700;
+
+	/* ============================================================================
+	 * SIZING SYSTEM
+	 * ============================================================================ */
+
+	/* Heights */
+	--height-button-sm: 2rem; /* 32px */
+	--height-button-md: 2.5rem; /* 40px */
+	--height-button-lg: 3rem; /* 48px */
+
+	--height-input-sm: 2rem; /* 32px */
+	--height-input-md: 2.5rem; /* 40px */
+	--height-input-lg: 3rem; /* 48px */
+
+	/* Border Radius */
+	--radius-none: 0;
+	--radius-sm: 0.25rem; /* 4px */
+	--radius-md: 0.375rem; /* 6px */
+	--radius-lg: 0.5rem; /* 8px */
+	--radius-xl: 0.75rem; /* 12px */
+	--radius-2xl: 1rem; /* 16px */
+	--radius-full: 9999px;
+
+	/* ============================================================================
+	 * SHADOWS
+	 * ============================================================================ */
+
+	--shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+	--shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.12), 0 1px 2px -1px rgb(0 0 0 / 0.08);
+	--shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.12), 0 2px 4px -2px rgb(0 0 0 / 0.08);
+	--shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+	--shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+	--shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+
+	/* Focus Ring */
+	--shadow-focus: 0 0 0 3px var(--color-primary-200);
+	--shadow-focus-danger: 0 0 0 3px var(--color-danger-200);
+
+	/* ============================================================================
+	 * Z-INDEX SCALE
+	 * ============================================================================ */
+
+	--z-base: 0;
+	--z-dropdown: 1000;
+	--z-sticky: 1020;
+	--z-fixed: 1030;
+	--z-modal-backdrop: 1040;
+	--z-modal: 1050;
+	--z-popover: 1060;
+	--z-tooltip: 1070;
+
+	/* ============================================================================
+	 * TRANSITIONS
+	 * ============================================================================ */
+
+	--duration-fast: 150ms;
+	--duration-base: 200ms;
+	--duration-slow: 300ms;
+
+	--ease-in: cubic-bezier(0.4, 0, 1, 1);
+	--ease-out: cubic-bezier(0, 0, 0.2, 1);
+	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+	/* ============================================================================
+	 * COMPONENT TOKENS
+	 * ============================================================================ */
+
+	/* Buttons */
+	--button-font-weight: var(--font-weight-medium);
+	--button-border-radius: var(--radius-md);
+	--button-transition:
+		background-color var(--duration-fast) var(--ease-in-out),
+		border-color var(--duration-fast) var(--ease-in-out),
+		color var(--duration-fast) var(--ease-in-out);
+
+	/* Inputs */
+	--input-border-radius: var(--radius-md);
+	--input-border-color: var(--color-border);
+	--input-border-color-focus: var(--color-border-focus);
+	--input-background: var(--color-background);
+	--input-background-disabled: var(--color-background-subtle);
+
+	/* Cards */
+	--card-border-radius: var(--radius-lg);
+	--card-padding: var(--space-card-padding);
+	--card-shadow: var(--shadow-sm);
+	--card-border-color: var(--color-neutral-400);
+
+	/* Code Block Theme (VS Code Dark style) */
+	--code-block-bg: #1e1e1e;
+	--code-block-text: #d4d4d4;
+
+	/* Modals */
+	--modal-border-radius: var(--radius-xl);
+	--modal-backdrop: rgb(0 0 0 / 0.5);
+	--modal-shadow: var(--shadow-2xl);
+
+	/* Tables */
+	--table-border-color: var(--color-border);
+	--table-header-background: var(--color-background-muted);
+	--table-row-hover: var(--color-background-hover);
+
+	/* Pipeline Stepper */
+	--stepper-height: 5rem; /* 80px */
+	--stepper-connector-width: 3rem; /* 48px */
+	--stepper-indicator-size: 2.5rem; /* 40px */
+	--stepper-indicator-completed: var(--nci-success-600);
+	--stepper-indicator-current: var(--nci-primary-600);
+	--stepper-indicator-pending: var(--color-neutral-300);
+	--stepper-connector-completed: var(--nci-success-600);
+	--stepper-connector-pending: var(--color-neutral-300);
+
+	/* Pipeline Stage Colors - Light Mode
+	 * Each stage has a unique color for visual identity in workflow view.
+	 * These are for borders and subtle accents, not status indication. */
+	--stage-info-color: #60a5fa; /* blue-400 */
+	--stage-src-color: #c084fc; /* purple-400 */
+	--stage-cls-color: #818cf8; /* indigo-400 */
+	--stage-dict-color: #22d3ee; /* cyan-400 */
+	--stage-sem-color: #2dd4bf; /* teal-400 */
+	--stage-scr-color: #34d399; /* emerald-400 */
+	--stage-qa-color: #a3e635; /* lime-400 */
+	--stage-norm-color: #fbbf24; /* amber-400 */
+	--stage-map-color: #fb923c; /* orange-400 */
+	--stage-hrm-color: #f87171; /* red-400 */
+	--stage-exp-color: #f472b6; /* pink-400 */
+	--stage-rdf-color: #fb7185; /* rose-400 */
+
+	/* Stage Status Colors */
+	--status-completed: var(--nci-success-600);
+	--status-in-progress: var(--nci-primary-600);
+	--status-pending: var(--color-neutral-400);
+	--status-warning: var(--nci-warning-600);
+	--status-error: var(--nci-danger-600);
+
+	/* Layout Heights */
+	--header-height: 4rem; /* 64px */
+	/* Stage navigation footer ("Stage N of 12" + Continue). Single source of
+	 * truth: StageNavigationFooter consumes it as min-height AND StageLayout's
+	 * scroll/content region reserves an equal padding-block-end so the sticky
+	 * footer never occludes the bottom-most table row / inline action (#705). */
+	--stage-footer-height: 4.5rem; /* 72px */
+	--stepper-height: 5rem; /* 80px */
+
+	/* ============================================================================
+	 * GRAPH VISUALIZATION TOKENS
+	 * ============================================================================ */
+
+	/* NCIt Concept Hierarchy */
+	--graph-ncit-current-bg: var(--nci-success-500);
+	--graph-ncit-current-border: var(--nci-success-700);
+	--graph-ncit-ancestor-bg: #3b82f6;
+	--graph-ncit-ancestor-border: #2563eb;
+	--graph-ncit-descendant-bg: #eab308;
+	--graph-ncit-descendant-border: #a16207;
+	--graph-ncit-sibling-bg: #ec4899;
+	--graph-ncit-sibling-border: #db2777;
+	--graph-ncit-related-bg: #a855f7;
+	--graph-ncit-related-border: #9333ea;
+
+	/* SHACL Shape Nodes */
+	--graph-shacl-nodeshape-bg: var(--nci-primary-600);
+	--graph-shacl-nodeshape-border: var(--nci-primary-700);
+	--graph-shacl-propertyshape-bg: var(--nci-info-600);
+	--graph-shacl-propertyshape-border: var(--nci-info-700);
+	--graph-shacl-targetclass-bg: var(--nci-secondary-500);
+	--graph-shacl-targetclass-border: var(--nci-secondary-600);
+	--graph-shacl-constraint-bg: var(--color-neutral-600);
+	--graph-shacl-constraint-border: var(--color-neutral-700);
+
+	/* Severity Colors */
+	--graph-severity-violation: var(--nci-danger-600);
+	--graph-severity-warning: var(--nci-warning-600);
+	--graph-severity-info: var(--nci-info-600);
+
+	/* CDE Nodes */
+	--graph-cde-node-bg: #10b981;
+	--graph-cde-node-border: #059669;
+
+	/* Base Graph Elements */
+	--graph-node-default-bg: var(--color-neutral-400);
+	--graph-node-default-border: var(--color-neutral-500);
+	--graph-edge-default: var(--color-neutral-400);
+	--graph-hover-border: #f97316;
+}
+
+/* ============================================================================
+ * DARK MODE OVERRIDES
+ * ============================================================================ */
+
+/* Dark mode based on Material Design 3 (#121212 base) and WCAG AA standards
+ * All text colors ensure 4.5:1+ contrast ratio on dark backgrounds
+ * Avoiding pure black/white to reduce eye strain and halation effect
+ */
+.dark {
+	/* Background Colors - Dark Mode (Material Design 3 inspired) */
+	--color-background: #121212; /* Material Design dark surface */
+	--color-background-muted: #1e1e1e; /* Slightly elevated */
+	--color-background-subtle: #2a2a2a; /* More elevated */
+	--color-background-hover: #2a2a2a;
+	--color-background-active: #333333;
+
+	/* Card/Surface Backgrounds - Dark Mode (elevation system) */
+	--color-card-background: #1e1e1e; /* 1dp elevation */
+	--color-surface-raised: #2a2a2a; /* 2dp elevation */
+
+	/* Page Canvas Background - No warm tint in dark mode */
+	--color-page-bg: #171717;
+	--color-page-bg-subtle: #0a0a0a;
+
+	/* Card tokens - preserve existing dark borders */
+	--card-shadow: none;
+	--card-border-color: #404040;
+
+	/* Border Colors - Dark Mode (subtle but visible) */
+	--color-border: #404040; /* Subtle separation */
+	--color-border-strong: #525252; /* Stronger emphasis */
+	--color-border-hover: #737373; /* Interactive state */
+
+	/* Text Colors - Dark Mode (WCAG AA compliant - 4.5:1+ contrast on #121212) */
+	--color-text: #e5e5e5; /* Primary text - 12.6:1 contrast */
+	--color-text-secondary: #a3a3a3; /* Secondary text - 5.7:1 contrast */
+	--color-text-muted: #737373; /* Muted text - 3.5:1 (large text only) */
+	--color-text-subtle: #525252; /* Subtle hints - 2.4:1 (decorative) */
+	--color-text-disabled: #404040;
+	--color-text-inverse: #121212;
+
+	/* Semantic Colors - Dark Mode Adjustments (lighter for visibility on dark bg) */
+	--color-primary: var(--nci-primary-400); /* Lighter cerulean for dark mode */
+	--color-primary-hover: var(--nci-primary-300);
+	--color-primary-subtle: rgba(0, 123, 189, 0.15);
+
+	--color-success: var(--nci-success-400);
+	--color-success-hover: var(--nci-success-300);
+	--color-success-subtle: rgba(41, 128, 133, 0.15);
+
+	--color-warning: var(--nci-warning-500);
+	--color-warning-hover: var(--nci-warning-400);
+	--color-warning-subtle: rgba(255, 190, 46, 0.15);
+
+	--color-danger: var(--nci-danger-400);
+	--color-danger-hover: var(--nci-danger-300);
+	--color-danger-subtle: rgba(228, 17, 84, 0.15);
+
+	--color-info: var(--nci-info-400);
+	--color-info-hover: var(--nci-info-300);
+	--color-info-subtle: rgba(81, 184, 240, 0.15);
+
+	/* Input Colors - Dark Mode */
+	--input-background: #2a2a2a;
+	--input-background-disabled: #1e1e1e;
+
+	/* Stepper Colors - Dark Mode */
+	--stepper-indicator-pending: var(--color-neutral-600);
+	--stepper-connector-pending: var(--color-neutral-600);
+
+	/* Pipeline Stage Colors - Dark Mode (brighter for visibility) */
+	--stage-info-color: #3b82f6; /* blue-500 */
+	--stage-src-color: #a855f7; /* purple-500 */
+	--stage-cls-color: #6366f1; /* indigo-500 */
+	--stage-dict-color: #06b6d4; /* cyan-500 */
+	--stage-sem-color: #14b8a6; /* teal-500 */
+	--stage-scr-color: #10b981; /* emerald-500 */
+	--stage-qa-color: #84cc16; /* lime-500 */
+	--stage-norm-color: #f59e0b; /* amber-500 */
+	--stage-map-color: #f97316; /* orange-500 */
+	--stage-hrm-color: #ef4444; /* red-500 */
+	--stage-exp-color: #ec4899; /* pink-500 */
+	--stage-rdf-color: #f43f5e; /* rose-500 */
+
+	/* Status Colors - Dark Mode (slightly brighter for visibility) */
+	--status-pending: var(--color-neutral-500);
+
+	/* Shadow adjustments for dark mode (softer, less pronounced) */
+	--shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+	--shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5);
+	--shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.5);
+
+	/* Graph Visualization - Dark Mode
+	 * NOTE: These colors must be BRIGHT and SATURATED to be visible on dark backgrounds.
+	 * Aim for high contrast - light/bright nodes on dark canvas (#262626 or darker).
+	 * IMPORTANT: graph-styles.ts has SEPARATE hardcoded colors that MUST match these!
+	 */
+	--graph-ncit-current-bg: #34d399; /* Bright emerald - selected/current concept */
+	--graph-ncit-current-border: #10b981;
+	--graph-ncit-ancestor-bg: #60a5fa; /* Bright blue - search results/ancestors */
+	--graph-ncit-ancestor-border: #3b82f6;
+	--graph-ncit-descendant-bg: #fbbf24; /* Bright amber - parent/descendant */
+	--graph-ncit-descendant-border: #f59e0b;
+	--graph-ncit-sibling-bg: #f472b6; /* Bright pink - sibling concepts */
+	--graph-ncit-sibling-border: #ec4899;
+	--graph-ncit-related-bg: #c084fc; /* Bright purple - related concepts */
+	--graph-ncit-related-border: #a855f7;
+
+	--graph-shacl-nodeshape-bg: #38bdf8; /* Bright sky blue */
+	--graph-shacl-nodeshape-border: #0ea5e9;
+	--graph-shacl-propertyshape-bg: #22d3ee; /* Bright cyan */
+	--graph-shacl-propertyshape-border: #06b6d4;
+	--graph-shacl-constraint-bg: #a1a1aa; /* Bright neutral */
+	--graph-shacl-constraint-border: #71717a;
+
+	--graph-severity-violation: var(--nci-danger-400);
+	--graph-severity-warning: var(--nci-warning-500);
+
+	--graph-cde-node-bg: #34d399; /* Bright emerald - same as current */
+	--graph-cde-node-border: #10b981;
+
+	--graph-hover-border: #fb923c; /* Bright orange on hover */
+}

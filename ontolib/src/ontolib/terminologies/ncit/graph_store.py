@@ -68,6 +68,7 @@ class NcitGraphStore:
         """Wrap a SPARQL *client*; concept IRIs are ``{namespace}{code}``."""
         self._client = client
         self._ns = namespace
+        self._total_concepts: int | None = None
 
     # ------------------------------------------------------------------ detail
 
@@ -244,6 +245,51 @@ class NcitGraphStore:
             for r in rows
             if (c := r.get("c")) and (label := r.get("label"))
         }
+
+    # -------------------------------------------------------------------- browse
+
+    async def list_concepts(self, *, limit: int = 25, offset: int = 0) -> SearchPage:
+        """List all named concepts in natural (code) order — the no-search browse mode.
+
+        The total class count is expensive to compute over the full store, so it is
+        memoized after the first call (the concept universe is static between reloads).
+        """
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT ?concept ?label (SAMPLE(?semtype) AS ?semtype)
+            WHERE {{
+                ?concept a owl:Class ; rdfs:label ?label .
+                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+                FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+            }}
+            GROUP BY ?concept ?label
+            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
+            """
+        )
+        if self._total_concepts is None:
+            count_rows = await self._client.select(
+                f"""{_PREFIXES}
+                SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
+                    ?concept a owl:Class ; rdfs:label ?label .
+                    FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+                }}
+                """
+            )
+            count_val = count_rows[0].get("count") if count_rows else None
+            self._total_concepts = int(count_val) if count_val is not None else 0
+        hits = [
+            SearchHit(
+                code=_code_of(concept),
+                label=r.get("label"),
+                semantic_type=r.get("semtype"),
+                matched_synonym=None,
+            )
+            for r in rows
+            if (concept := r.get("concept")) is not None
+        ]
+        return SearchPage(
+            query="", total=self._total_concepts, limit=limit, offset=offset, hits=hits
+        )
 
     # ------------------------------------------------------------- neighborhood
 

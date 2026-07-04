@@ -51,6 +51,17 @@ export function searchNcit(
 	return getJson<SearchPage>(url, opts.fetch);
 }
 
+/** List NCIt concepts in natural order (no search term) — browse mode. */
+export function listNcit(
+	opts: { limit?: number; offset?: number; fetch?: typeof fetch } = {}
+): Promise<SearchPage> {
+	const url = apiUrl('/api/v1/ncit/list', {
+		limit: opts.limit ?? 25,
+		offset: opts.offset ?? 0
+	});
+	return getJson<SearchPage>(url, opts.fetch);
+}
+
 export function getConcept(code: string, fetchImpl?: typeof fetch): Promise<ConceptDetail> {
 	return getJson<ConceptDetail>(apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}`), fetchImpl);
 }
@@ -74,6 +85,17 @@ export function searchCadsr(
 ): Promise<CdeSearchPage> {
 	const url = apiUrl('/api/v1/cadsr/search', {
 		q,
+		limit: opts.limit ?? 25,
+		offset: opts.offset ?? 0
+	});
+	return getJson<CdeSearchPage>(url, opts.fetch);
+}
+
+/** List caDSR CDEs in natural order (no search term) — browse mode. */
+export function listCadsr(
+	opts: { limit?: number; offset?: number; fetch?: typeof fetch } = {}
+): Promise<CdeSearchPage> {
+	const url = apiUrl('/api/v1/cadsr/list', {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
 	});

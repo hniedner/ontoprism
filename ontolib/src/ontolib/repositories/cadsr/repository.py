@@ -115,6 +115,23 @@ class CdeRepository:
         with self._connect() as conn:
             return conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
 
+    def list_cdes(self, *, limit: int = 25, offset: int = 0) -> CdeSearchPage:
+        """List all CDEs in natural (public_id) order — the no-search browse mode."""
+        with self._connect() as conn:
+            total = conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
+            rows = conn.execute(
+                f"SELECT {_SUMMARY_COLS} FROM cdes "  # noqa: S608 — module constant
+                "ORDER BY CAST(public_id AS INTEGER), version LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return CdeSearchPage(
+            query="",
+            total=total,
+            limit=limit,
+            offset=offset,
+            hits=[_to_summary(r) for r in rows],
+        )
+
     def summaries_for(self, doc_ids: list[str]) -> dict[str, CdeSummary]:
         """Map ``{public_id}:{version}`` doc_ids to CDE summaries (one query)."""
         if not doc_ids:

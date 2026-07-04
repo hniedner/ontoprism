@@ -46,6 +46,26 @@ def test_find_cdes_by_concept_is_the_ncit_join(cadsr_db_path) -> None:
 
 
 @pytest.mark.unit
+def test_list_cdes_browses_in_natural_numeric_order(cadsr_db_path) -> None:
+    # No search term: list every CDE ordered by numeric public_id (100 < 2003771).
+    page = CdeRepository(cadsr_db_path).list_cdes()
+    assert page.query == ""
+    assert page.total == 2
+    assert [h.public_id for h in page.hits] == ["100", "2003771"]
+
+
+@pytest.mark.unit
+def test_list_cdes_paginates(cadsr_db_path) -> None:
+    repo = CdeRepository(cadsr_db_path)
+    first = repo.list_cdes(limit=1, offset=0)
+    second = repo.list_cdes(limit=1, offset=1)
+    assert first.total == 2
+    assert second.total == 2
+    assert [h.public_id for h in first.hits] == ["100"]
+    assert [h.public_id for h in second.hits] == ["2003771"]
+
+
+@pytest.mark.unit
 def test_count_and_summaries_for(cadsr_db_path) -> None:
     repo = CdeRepository(cadsr_db_path)
     assert repo.count() == 2

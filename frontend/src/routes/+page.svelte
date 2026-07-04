@@ -1,22 +1,52 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+
+	const repos = [
+		{
+			href: resolve('/repositories/ncit'),
+			title: 'NCIt Concepts',
+			blurb:
+				'NCI Thesaurus — biomedical concepts with hierarchy, typed roles, neighborhood graphs, and semantic similarity.',
+			accent: 'from-primary-500 to-primary-700'
+		},
+		{
+			href: resolve('/repositories/cadsr'),
+			title: 'caDSR CDEs',
+			blurb:
+				'Common Data Elements with NCIt concept mappings (ISO-11179 roles), permissible values, and similar CDEs.',
+			accent: 'from-success-500 to-success-700'
+		}
+	];
 </script>
 
-<h1>ONTOPRISM</h1>
-<p>Ontology storage, query, and graph visualization.</p>
+<svelte:head>
+	<title>ONTOPRISM · Ontology Explorer</title>
+</svelte:head>
 
-<ul class="repos">
-	<li><a href={resolve('/repositories/ncit')}>NCIt repository →</a></li>
-	<li><a href={resolve('/repositories/cadsr')}>caDSR repository →</a></li>
-</ul>
+<section class="mb-8">
+	<h1 class="text-3xl font-semibold text-default">Ontology Explorer</h1>
+	<p class="mt-2 max-w-2xl text-secondary">
+		Search, browse, and cross-navigate the NCI Thesaurus and caDSR Common Data Elements — with
+		graph visualization and embedding-based semantic similarity.
+	</p>
+</section>
 
-<style>
-	.repos {
-		list-style: none;
-		padding: 0;
-		font-size: 1.1rem;
-	}
-	.repos a {
-		color: #2563eb;
-	}
-</style>
+<div class="grid gap-6 sm:grid-cols-2">
+	{#each repos as repo (repo.href)}
+		<a
+			href={repo.href}
+			class="group overflow-hidden rounded-xl border border-default bg-card shadow-sm no-underline transition-shadow hover:shadow-md"
+		>
+			<div class="h-1.5 bg-gradient-to-r {repo.accent}"></div>
+			<div class="p-5">
+				<h2
+					class="flex items-center justify-between text-lg font-semibold text-default group-hover:text-primary-600"
+				>
+					{repo.title}
+					<span class="text-muted transition-transform group-hover:translate-x-1">→</span>
+				</h2>
+				<p class="mt-2 text-sm text-muted">{repo.blurb}</p>
+			</div>
+		</a>
+	{/each}
+</div>

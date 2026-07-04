@@ -27,6 +27,16 @@ async def search(
     return await store.search(q, limit=limit, offset=offset)
 
 
+@router.get("/list", response_model=SearchPage)
+async def list_concepts(
+    store: NcitStore,
+    limit: Annotated[int, Query(ge=1, le=200)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SearchPage:
+    """List concepts in natural order — powers no-search browse of the repository."""
+    return await store.list_concepts(limit=limit, offset=offset)
+
+
 @router.get("/concepts/{code}", response_model=ConceptDetail)
 async def concept_detail(store: NcitStore, code: str) -> ConceptDetail:
     """Return full concept detail — parents, roles, associations, incoming roles."""
