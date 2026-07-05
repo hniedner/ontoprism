@@ -312,10 +312,15 @@ class NcitGraphStore:
         expanded: set[str] = set()
         frontier = [code]
         details: dict[str, ConceptDetail] = {code: center_detail}
+        truncated = False
 
         for _hop in range(depth):
-            frontier = await self._expand_hop(frontier, expanded, nodes, edges, details)
+            frontier, hop_truncated = await self._expand_hop(
+                frontier, expanded, nodes, edges, details
+            )
+            truncated = truncated or hop_truncated
             if not frontier or len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+                truncated = truncated or bool(frontier)
                 break
 
         # The center always carries its semantic type even if its node was seeded
@@ -329,6 +334,7 @@ class NcitGraphStore:
             center=code,
             nodes=list(nodes.values()),
             edges=list(edges.values()),
+            truncated=truncated,
         )
 
     async def _expand_hop(
@@ -338,20 +344,21 @@ class NcitGraphStore:
         nodes: dict[str, GraphNode],
         edges: dict[tuple[str, str, str, str], GraphEdge],
         details: dict[str, ConceptDetail],
-    ) -> list[str]:
-        """Expand one BFS hop: add each frontier node's edges, return the next hop."""
+    ) -> tuple[list[str], bool]:
+        """Expand one BFS hop; return (next frontier, whether nodes were dropped)."""
         next_frontier: list[str] = []
+        truncated = False
         for current in frontier:
             detail = await self._detail_to_expand(current, expanded, details)
             if detail is None:
                 continue
-            self._add_edges(current, detail, nodes, edges)
+            truncated = self._add_edges(current, detail, nodes, edges) or truncated
             if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
                 break
             next_frontier.extend(
                 n for n in self._neighbor_codes(detail) if n not in expanded
             )
-        return next_frontier
+        return next_frontier, truncated
 
     async def _detail_to_expand(
         self,
@@ -380,12 +387,19 @@ class NcitGraphStore:
         detail: ConceptDetail,
         nodes: dict[str, GraphNode],
         edges: dict[tuple[str, str, str, str], GraphEdge],
-    ) -> None:
+    ) -> bool:
+        """Add *detail*'s edges/nodes; return True if a node was dropped at the cap."""
+        dropped = False
+
         def add_node(node_code: str, label: str | None) -> None:
             # Hard cap: never grow past the bound. A single densely-connected concept
             # would otherwise add all of its (up to 4x _DEFAULT_EDGE_LIMIT) neighbors
             # at once, blowing past a between-nodes-only check.
-            if node_code in nodes or len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+            nonlocal dropped
+            if node_code in nodes:
+                return
+            if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+                dropped = True
                 return
             nodes[node_code] = GraphNode(code=node_code, label=label)
 
@@ -438,6 +452,7 @@ class NcitGraphStore:
                     kind="association",
                 )
             )
+        return dropped
 
 
 def _split_list(value: str | None) -> list[str]:

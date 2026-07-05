@@ -17,6 +17,9 @@ from backend.config import get_settings
 from backend.dependencies import CadsrRepo, NcitClient, NcitStore
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
+from ontolib.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/refresh", tags=["refresh"])
 
@@ -127,5 +130,10 @@ async def reload_ncit(client: NcitClient, body: ReloadRequest) -> ReloadResponse
         )
         after = await client.count()
     except StorageError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        # A 5xx from a real store fault would otherwise leave no server-side trace
+        # (HTTPException responses are not logged by the error handler).
+        logger.exception("NCIt reload failed for %s", path)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "NCIt store reload failed."
+        ) from exc
     return ReloadResponse(triples_before=before, triples_after=after)

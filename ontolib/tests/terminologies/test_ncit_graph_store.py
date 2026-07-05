@@ -97,5 +97,14 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
         graph = await store.get_neighborhood("C1", depth=1)
 
     assert len(graph.nodes) == _MAX_NEIGHBORHOOD_NODES
+    assert graph.truncated is True  # dropped neighbors are signalled, not silent
     node_codes = {n.code for n in graph.nodes}
     assert all(e.source in node_codes and e.target in node_codes for e in graph.edges)
+
+
+@pytest.mark.unit
+async def test_neighborhood_not_truncated_when_under_cap(ncit_stub_url: str) -> None:
+    # A small neighborhood that fits under the cap must report truncated=False.
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        graph = await NcitGraphStore(client).get_neighborhood("C3262")
+    assert graph.truncated is False
