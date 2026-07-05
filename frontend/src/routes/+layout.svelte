@@ -14,6 +14,7 @@
 	const nav = [
 		{ href: resolve('/repositories/ncit'), path: '/repositories/ncit', label: 'NCIt' },
 		{ href: resolve('/repositories/cadsr'), path: '/repositories/cadsr', label: 'caDSR' },
+		{ href: resolve('/query'), path: '/query', label: 'SPARQL' },
 		{ href: resolve('/refresh'), path: '/refresh', label: 'Refresh' }
 	];
 

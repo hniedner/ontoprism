@@ -15,7 +15,8 @@ import type { EdgeKind, Neighborhood } from '$lib/types';
 export const KIND_COLOR: Record<EdgeKind, string> = {
 	subClassOf: '#94a3b8',
 	role: '#3b9de0',
-	association: '#42979a'
+	association: '#42979a',
+	'cde-concept': '#e0a53b' // amber: the caDSR CDE → NCIt concept join edge
 };
 
 /** Distinct, theme-neutral palette cycled across detected communities. */

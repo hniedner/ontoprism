@@ -46,7 +46,7 @@ export interface GraphNode {
 	semantic_type: string | null;
 }
 
-export type EdgeKind = 'subClassOf' | 'role' | 'association';
+export type EdgeKind = 'subClassOf' | 'role' | 'association' | 'cde-concept';
 
 export interface GraphEdge {
 	source: string;
@@ -62,6 +62,22 @@ export interface Neighborhood {
 	edges: GraphEdge[];
 	/** True when the node cap was hit and some neighbors were dropped (partial graph). */
 	truncated?: boolean;
+}
+
+// Raw SPARQL-JSON (subset) returned by the guarded query endpoint.
+export interface SparqlBindingCell {
+	value: string;
+}
+
+export interface SparqlResultDoc {
+	head?: { vars?: string[] };
+	results?: { bindings?: Array<Record<string, SparqlBindingCell>> };
+	boolean?: boolean;
+}
+
+export interface SparqlResponse {
+	result: SparqlResultDoc;
+	truncated: boolean;
 }
 
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
