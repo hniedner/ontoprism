@@ -195,7 +195,7 @@ async def download_ncit(
             replace=True,
         )
         after = await client.count()
-    except StorageError as exc:
+    except (StorageError, OSError) as exc:
         logger.exception("NCIt OWL load failed for %s", result.file_path)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "NCIt store load failed."

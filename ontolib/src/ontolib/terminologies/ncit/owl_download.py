@@ -20,16 +20,13 @@ from __future__ import annotations
 import asyncio
 import shutil
 import zipfile
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import httpx
 from pydantic import BaseModel
 
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 logger = get_logger(__name__)
 
@@ -129,20 +126,80 @@ async def _stream_to(url: str, dest: Path) -> int:
     return written
 
 
+# A valid archive that simply lacks a .owl member — re-downloading the same URL
+# would return the same archive, so this is terminal, not retryable.
+class OwlContentError(StorageError):
+    """The downloaded archive has no usable ``.owl`` member."""
+
+
+# A failed transfer/extract worth another attempt (a truncated body decompresses to a
+# BadZipFile, a socket drops, a move hits a transient FS error).
+_RETRYABLE_DOWNLOAD = (httpx.HTTPError, zipfile.BadZipFile, OSError)
+
+
 def _extract_owl(zip_path: Path, output_dir: Path) -> Path:
-    """Extract the Thesaurus ``.owl`` member from *zip_path* into *output_dir*."""
+    """Extract the Thesaurus ``.owl`` member from *zip_path* into *output_dir*.
+
+    Raises:
+        OwlContentError: the archive is valid but contains no ``.owl`` member.
+        zipfile.BadZipFile: the archive is corrupt/truncated (retryable upstream).
+        OSError: a filesystem error moving the extracted file.
+    """
     with zipfile.ZipFile(zip_path) as zf:
         owl_members = [n for n in zf.namelist() if n.lower().endswith(".owl")]
         if not owl_members:
-            raise StorageError(f"No .owl member in archive {zip_path.name}")
-        member = owl_members[0]
-        zf.extract(member, output_dir)
-    extracted = output_dir / member
+            raise OwlContentError(f"No .owl member in archive {zip_path.name}")
+        # extract() returns the sanitized path it actually wrote to (defends against
+        # zip-slip / absolute member names — never trust the raw namelist entry).
+        extracted = Path(zf.extract(owl_members[0], output_dir))
     final = output_dir / DEFAULT_OWL_FILENAME
     if extracted != final:
         final.unlink(missing_ok=True)
-        shutil.move(str(extracted), final)
+        shutil.move(str(extracted), str(final))
     return final
+
+
+def _make_result(variant: str, owl: Path, *, cached: bool) -> OwlDownloadResult:
+    return OwlDownloadResult(
+        success=True,
+        variant=variant,
+        file_path=str(owl),
+        size_bytes=owl.stat().st_size,
+        cached=cached,
+    )
+
+
+def _try_cached(
+    zip_path: Path, output_dir: Path, variant: str, remote_size: int | None
+) -> OwlDownloadResult | None:
+    """Return a cache-hit result if a valid local zip matches *remote_size*, else None.
+
+    A right-sized but corrupt cached zip is dropped and treated as a miss so the caller
+    re-downloads (self-heal) rather than raising forever.
+    """
+    if (
+        remote_size is None
+        or not zip_path.exists()
+        or zip_path.stat().st_size != remote_size
+    ):
+        return None
+    try:
+        owl = _extract_owl(zip_path, output_dir)
+    except (StorageError, *_RETRYABLE_DOWNLOAD) as exc:
+        logger.warning("Cached OWL zip unusable (%s); re-downloading", exc)
+        zip_path.unlink(missing_ok=True)
+        return None
+    return _make_result(variant, owl, cached=True)
+
+
+async def _fetch_and_extract(
+    url: str, temp: Path, zip_path: Path, output_dir: Path, variant: str
+) -> OwlDownloadResult:
+    """One download attempt: stream → move → extract. Raises on any failure."""
+    await _stream_to(url, temp)
+    shutil.move(str(temp), str(zip_path))
+    owl = _extract_owl(zip_path, output_dir)
+    return _make_result(variant, owl, cached=False)
 
 
 async def download_ncit_owl(
@@ -154,29 +211,18 @@ async def download_ncit_owl(
 ) -> OwlDownloadResult:
     """Download and extract the NCIt OWL *variant* into *output_dir*.
 
-    Skips the fetch when a cached zip already matches the remote size. Retries the
-    transfer with exponential backoff; a persistent failure is returned as
-    ``success=False`` (not raised) so the caller/endpoint can report it.
+    Skips the fetch when a cached zip already matches the remote size. Retries a
+    transient transfer/extract failure with exponential backoff; a persistent or
+    terminal failure is returned as ``success=False`` (never raised) so the
+    caller/endpoint can report it cleanly.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     url = owl_download_url(variant, base_url)
     zip_path = output_dir / _VARIANT_ZIPS[variant]
 
-    remote_size = await _remote_size(url)
-    cache_hit = (
-        remote_size is not None
-        and zip_path.exists()
-        and zip_path.stat().st_size == remote_size
-    )
-    if cache_hit:
-        owl = _extract_owl(zip_path, output_dir)
-        return OwlDownloadResult(
-            success=True,
-            variant=variant,
-            file_path=str(owl),
-            size_bytes=owl.stat().st_size,
-            cached=True,
-        )
+    cached = _try_cached(zip_path, output_dir, variant, await _remote_size(url))
+    if cached is not None:
+        return cached
 
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
@@ -184,19 +230,15 @@ async def download_ncit_owl(
             await asyncio.sleep(min(_RETRY_BASE_DELAY * 2 ** (attempt - 1), 60.0))
         temp = zip_path.with_suffix(".zip.tmp")
         try:
-            await _stream_to(url, temp)
-            shutil.move(str(temp), zip_path)
-            owl = _extract_owl(zip_path, output_dir)
-            return OwlDownloadResult(
-                success=True,
-                variant=variant,
-                file_path=str(owl),
-                size_bytes=owl.stat().st_size,
-                cached=False,
-            )
-        except (httpx.HTTPError, StorageError) as exc:
+            return await _fetch_and_extract(url, temp, zip_path, output_dir, variant)
+        except OwlContentError as exc:
+            temp.unlink(missing_ok=True)
+            logger.error("NCIt OWL archive unusable: %s", exc)
+            return OwlDownloadResult(success=False, variant=variant, error=str(exc))
+        except _RETRYABLE_DOWNLOAD as exc:
             last_error = exc
             temp.unlink(missing_ok=True)
+            zip_path.unlink(missing_ok=True)  # drop a corrupt archive; never cache it
             logger.warning("OWL download attempt %d failed: %s", attempt + 1, exc)
 
     return OwlDownloadResult(

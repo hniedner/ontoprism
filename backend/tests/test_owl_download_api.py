@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from backend.config import get_settings
 from backend.dependencies import get_ncit_client
 from backend.main import create_app
+from ontolib.core.exceptions import StorageError
 
 _OWL_BYTES = b"<?xml version='1.0'?><rdf:RDF>tiny ncit owl</rdf:RDF>"
 
@@ -132,6 +133,33 @@ def test_download_endpoint_loads_into_store(
     assert body["triples_before"] == 5
     assert body["triples_after"] == 9
     assert recording.loaded == _OWL_BYTES  # the extracted OWL was loaded into the store
+
+
+@pytest.mark.api
+def test_download_endpoint_reports_load_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, evs_server: str
+) -> None:
+    # Download succeeds but the store rejects the OWL: the endpoint must return a
+    # clean 502, not an unhandled 500.
+    monkeypatch.setenv("NCIT_OWL_BASE_URL", evs_server)
+    monkeypatch.setenv("NCIT_OWL_DIR", str(tmp_path))
+    get_settings.cache_clear()
+
+    class _RejectingClient:
+        async def count(self) -> int:
+            return 0
+
+        async def load(self, *_a: Any, **_k: Any) -> None:
+            raise StorageError("bad RDF")
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _RejectingClient
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/v1/refresh/ncit/download",
+            json={"variant": "inferred", "load": True},
+        )
+    assert resp.status_code == 502
 
 
 @pytest.mark.api

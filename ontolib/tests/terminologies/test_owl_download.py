@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from ontolib.terminologies.ncit import owl_download as owl_mod
 from ontolib.terminologies.ncit.owl_download import (
     download_ncit_owl,
     owl_download_url,
@@ -117,6 +118,46 @@ async def test_probe_owl_version_reports_size(zip_server: str) -> None:
     assert info.size_bytes == len(_ZIP_BYTES)
 
 
+def _zip_with(member: str, data: bytes) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr(member, data)
+    return buffer.getvalue()
+
+
+def _serve(
+    handler_cls: type[BaseHTTPRequestHandler],
+) -> tuple[ThreadingHTTPServer, str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    host, port = server.server_address[:2]
+    return server, f"http://{host}:{port}"
+
+
+def _bytes_handler(
+    body: bytes, *, advertised_len: int | None = None
+) -> type[BaseHTTPRequestHandler]:
+    length = advertised_len if advertised_len is not None else len(body)
+
+    class _Handler(BaseHTTPRequestHandler):
+        def _headers(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(length))
+            self.end_headers()
+
+        def do_HEAD(self) -> None:
+            self._headers()
+
+        def do_GET(self) -> None:
+            self._headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a: Any) -> None:
+            pass
+
+    return _Handler
+
+
 @pytest.mark.unit
 async def test_download_reports_error_after_retries(tmp_path: Path) -> None:
     # A server that always 500s: the downloader must surface a failure, not raise.
@@ -132,17 +173,164 @@ async def test_download_reports_error_after_retries(tmp_path: Path) -> None:
         def log_message(self, *_args: Any) -> None:
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Failing)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    server, base = _serve(_Failing)
     try:
-        host, port = server.server_address[:2]
         result = await download_ncit_owl(
-            tmp_path, variant="stated", base_url=f"http://{host}:{port}", max_retries=0
+            tmp_path, variant="stated", base_url=base, max_retries=0
         )
     finally:
         server.shutdown()
         server.server_close()
-        thread.join(timeout=5)
     assert result.success is False
     assert result.error
+
+
+@pytest.mark.unit
+async def test_download_returns_error_on_no_owl_member(tmp_path: Path) -> None:
+    # A valid archive lacking a .owl member is a terminal failure returned, not raised.
+    zip_bytes = _zip_with("readme.txt", b"nothing here")
+    server, base = _serve(_bytes_handler(zip_bytes))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=2
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.success is False
+    assert result.error is not None
+    assert "No .owl member" in result.error
+
+
+@pytest.mark.unit
+async def test_download_returns_error_on_corrupt_zip(tmp_path: Path) -> None:
+    # Bytes that are not a zip decompress to BadZipFile — surfaced as success=False,
+    # not an escaping exception (the "return, don't raise" contract).
+    server, base = _serve(_bytes_handler(b"this is not a zip file"))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.success is False
+    # A corrupt archive must not be left cached to poison the next call.
+    assert not (tmp_path / "Thesaurus.OWL.zip").exists()
+
+
+@pytest.mark.unit
+async def test_download_renames_non_root_member(tmp_path: Path) -> None:
+    # Real inferred archives carry ThesaurusInf.owl; it must be normalized to
+    # Thesaurus.owl (exercises the rename/move branch).
+    zip_bytes = _zip_with("ThesaurusInf.owl", _OWL_BYTES)
+    server, base = _serve(_bytes_handler(zip_bytes))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="inferred", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.success is True
+    assert result.file_path is not None
+    owl = Path(result.file_path)
+    assert owl.name == "Thesaurus.owl"
+    assert owl.read_bytes() == _OWL_BYTES
+
+
+@pytest.mark.unit
+async def test_download_retries_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # First GET fails, second succeeds — the retry loop must recover.
+    monkeypatch.setattr(owl_mod, "_RETRY_BASE_DELAY", 0.0)  # no real backoff sleep
+    good_zip = _make_zip()
+
+    class _FlipFlop(BaseHTTPRequestHandler):
+        gets = 0
+
+        def do_HEAD(self) -> None:
+            self.send_response(500)  # no size → skip cache, go straight to download
+            self.end_headers()
+
+        def do_GET(self) -> None:
+            _FlipFlop.gets += 1
+            if _FlipFlop.gets == 1:
+                self.send_response(500)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(good_zip)))
+            self.end_headers()
+            self.wfile.write(good_zip)
+
+        def log_message(self, *_a: Any) -> None:
+            pass
+
+    server, base = _serve(_FlipFlop)
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=2
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.success is True
+    assert _FlipFlop.gets == 2  # failed once, then succeeded
+
+
+@pytest.mark.unit
+async def test_download_detects_incomplete_transfer(tmp_path: Path) -> None:
+    # Server advertises more bytes than it sends: the short read must fail the attempt.
+    server, base = _serve(_bytes_handler(b"short", advertised_len=9999))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.success is False
+
+
+@pytest.mark.unit
+async def test_corrupt_cached_zip_is_dropped_and_refetched(tmp_path: Path) -> None:
+    # A right-sized but corrupt cached zip must be dropped and re-downloaded
+    # (self-heal), not raise forever.
+    good_zip = _make_zip()
+    corrupt = b"x" * len(good_zip)  # same size as remote → passes the size cache
+    (tmp_path / "Thesaurus.OWL.zip").write_bytes(corrupt)
+    server, base = _serve(_bytes_handler(good_zip))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.success is True
+    assert (
+        result.cached is False
+    )  # the corrupt cache was rejected, a fresh copy fetched
+
+
+@pytest.mark.unit
+async def test_probe_owl_version_reports_last_modified(tmp_path: Path) -> None:
+    class _WithDate(BaseHTTPRequestHandler):
+        def do_HEAD(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", "10")
+            self.send_header("Last-Modified", "Wed, 01 Jul 2026 00:00:00 GMT")
+            self.end_headers()
+
+        def log_message(self, *_a: Any) -> None:
+            pass
+
+    server, base = _serve(_WithDate)
+    try:
+        info = await probe_owl_version(owl_download_url("stated", base))
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert info.last_modified == "Wed, 01 Jul 2026 00:00:00 GMT"
