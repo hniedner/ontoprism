@@ -53,7 +53,10 @@ async function postJsonBody<T>(
 	if (!resp.ok) {
 		let detail = '';
 		try {
-			detail = ((await resp.json()) as { detail?: string }).detail ?? '';
+			// `detail` is a string for our HTTPExceptions; FastAPI validation errors make
+			// it an array — only use it when it's actually a string.
+			const body = (await resp.json()) as { detail?: unknown };
+			if (typeof body.detail === 'string') detail = body.detail;
 		} catch {
 			// non-JSON error body — fall through to the status-code message
 		}
