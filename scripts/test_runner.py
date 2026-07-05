@@ -17,11 +17,14 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 
-_REPO_ROOT = __file__.rsplit("/scripts/", 1)[0]
+_REPO_ROOT = str(Path(__file__).resolve().parents[1])
+# pytest exit 5 = "no tests collected" (e.g. a marker selected nothing) — not a failure.
+_PYTEST_NO_TESTS = 5
 
 
 @dataclass
@@ -46,7 +49,9 @@ _PYTEST_COUNT = {
     "failed": re.compile(r"(\d+) failed"),
     "skipped": re.compile(r"(\d+) skipped"),
 }
-_VITEST_TESTS = re.compile(r"Tests\s+(?:(\d+) failed \| )?(\d+) passed")
+_VITEST_TESTS = re.compile(
+    r"Tests\s+(?:(\d+) failed \| )?(\d+) passed(?: \| (\d+) skipped)?"
+)
 
 
 def _count(pattern: re.Pattern[str], text: str) -> int:
@@ -69,7 +74,8 @@ def parse_vitest(text: str) -> tuple[int, int, int]:
     if not match:
         return (0, 0, 0)
     failed = int(match.group(1)) if match.group(1) else 0
-    return (int(match.group(2)), failed, 0)
+    skipped = int(match.group(3)) if match.group(3) else 0
+    return (int(match.group(2)), failed, skipped)
 
 
 def _suites(fast: bool) -> list[Suite]:
@@ -104,7 +110,8 @@ def run_suite(suite: Suite) -> Result:
     output = proc.stdout + proc.stderr
     parser = parse_vitest if suite.kind == "frontend" else parse_pytest
     passed, failed, skipped = parser(output)
-    return Result(suite, passed, failed, skipped, duration, proc.returncode == 0)
+    ok = proc.returncode in (0, _PYTEST_NO_TESTS)
+    return Result(suite, passed, failed, skipped, duration, ok)
 
 
 def _render(results: list[Result]) -> None:

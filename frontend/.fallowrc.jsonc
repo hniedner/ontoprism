@@ -1,8 +1,8 @@
 {
 	// Fallow codebase-intelligence gate. Covers what ESLint cannot: cross-file unused
 	// exports/files/deps, import cycles, duplication, and complexity hotspots.
-	// `fallow audit` gates ONLY findings INTRODUCED by a changeset (new-only, vs the
-	// merge-base with origin/main); the existing tree is reported-but-not-gated.
+	// `fallow audit` gates ONLY findings INTRODUCED by a changeset (new-only, vs
+	// origin/main); the existing tree is reported-but-not-gated.
 
 	// SvelteKit entry points — without these, discovery finds 0 files in this layout
 	// and everything looks "unused".

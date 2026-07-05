@@ -34,12 +34,11 @@ try {
 		console.error('fallow is not using frontend/.fallowrc.jsonc (silent default fallback).');
 		process.exit(1);
 	}
-} catch (err) {
-	if (err.code) {
-		console.error('Cannot run fallow — run `npm ci` in frontend/ to install it.');
-		process.exit(1);
-	}
-	throw err;
+} catch {
+	// fallow not installed (npx exits non-zero) or npx missing (spawn ENOENT) — either
+	// way the fix is the same, so surface the guidance rather than a raw stack trace.
+	console.error('Cannot run fallow — run `npm ci` in frontend/ to install it.');
+	process.exit(1);
 }
 
 // Guard 2 — no base ⇒ skip (never block on environment).

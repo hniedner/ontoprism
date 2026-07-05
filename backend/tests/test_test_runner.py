@@ -11,8 +11,8 @@ _spec = importlib.util.spec_from_file_location("summary_runner", _RUNNER_PATH)
 assert _spec is not None
 assert _spec.loader is not None
 test_runner = importlib.util.module_from_spec(_spec)
-# Register before exec so the module's @dataclass can resolve its string annotations
-# via sys.modules[cls.__module__].
+# Register in sys.modules before exec — @dataclass looks up sys.modules[cls.__module__]
+# while processing the class, which is None for an unregistered dynamic module.
 sys.modules[_spec.name] = test_runner
 _spec.loader.exec_module(test_runner)
 
@@ -38,3 +38,9 @@ def test_parse_pytest_no_summary_is_zeros() -> None:
 def test_parse_vitest_counts() -> None:
     assert test_runner.parse_vitest("Tests  18 passed (18)") == (18, 0, 0)
     assert test_runner.parse_vitest("Tests  2 failed | 16 passed (18)") == (16, 2, 0)
+    # failed | passed | skipped, in vitest's order.
+    assert test_runner.parse_vitest("Tests  1 failed | 15 passed | 2 skipped (18)") == (
+        15,
+        1,
+        2,
+    )
