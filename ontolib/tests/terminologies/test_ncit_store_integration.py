@@ -8,6 +8,7 @@ Skipped automatically when the store is unreachable (see conftest ``ncit_url``).
 import pytest
 
 from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.role_queries import build_role_relationships_query
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -39,3 +40,15 @@ async def test_c3262_role_traversal_yields_abnormal_cell(ncit_url: str) -> None:
         if r.get("rel") and r.get("target")
     }
     assert ("R105", "C12922") in pairs
+
+
+@pytest.mark.integration
+async def test_neighborhood_depth_two_pulls_more_than_one_hop(ncit_url: str) -> None:
+    # depth is honored: a 2-hop expansion of C3262 reaches strictly more concepts than
+    # a single hop, and stays within the node bound.
+    async with OxigraphHttpClient(ncit_url) as client:
+        store = NcitGraphStore(client)
+        one = await store.get_neighborhood("C3262", depth=1)
+        two = await store.get_neighborhood("C3262", depth=2)
+    assert len(two.nodes) > len(one.nodes)
+    assert len(two.nodes) <= 400

@@ -89,8 +89,15 @@ class GraphEdge(BaseModel):
 
 
 class Neighborhood(BaseModel):
-    """A concept-centered subgraph for the graph explorer (expand-on-demand)."""
+    """A concept-centered subgraph for the graph explorer (expand-on-demand).
+
+    ``truncated`` is set when the node cap was reached during expansion, so the client
+    can tell a possibly-partial subgraph from a complete one. It errs toward ``True``
+    (reaching the cap is reported even in the rare case the graph happened to be
+    complete) — a flag whose job is to never claim "complete" when it might not be.
+    """
 
     center: str
     nodes: list[GraphNode] = []
     edges: list[GraphEdge] = []
+    truncated: bool = False

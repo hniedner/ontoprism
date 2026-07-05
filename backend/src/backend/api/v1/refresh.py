@@ -13,8 +13,13 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
+from backend.config import get_settings
 from backend.dependencies import CadsrRepo, NcitClient, NcitStore
+from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
+from ontolib.core.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/refresh", tags=["refresh"])
 
@@ -58,7 +63,20 @@ class ReloadResponse(BaseModel):
     triples_after: int
 
 
-@router.post("", response_model=RefreshReport)
+def _resolve_allowed(source_path: str) -> Path:
+    """Resolve *source_path* and require it to live inside the reload allowlist dir."""
+    allowed_root = Path(get_settings().reload_allowed_dir).resolve()
+    resolved = Path(source_path).resolve()
+    if not resolved.is_relative_to(allowed_root):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"source_path must resolve within the reload allowlist directory "
+            f"({allowed_root}).",
+        )
+    return resolved
+
+
+@router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
 async def refresh(
     store: NcitStore, client: NcitClient, cadsr: CadsrRepo
 ) -> RefreshReport:
@@ -85,10 +103,17 @@ def _cadsr_status(cadsr: CadsrRepo) -> RepoStatus:
     return RepoStatus(name="cadsr", healthy=True, item_count=count)
 
 
-@router.post("/ncit/reload", response_model=ReloadResponse)
+@router.post(
+    "/ncit/reload", response_model=ReloadResponse, dependencies=[RequireApiKey]
+)
 async def reload_ncit(client: NcitClient, body: ReloadRequest) -> ReloadResponse:
-    """Bulk-load a server-side RDF file into the NCIt Oxigraph store."""
-    path = Path(body.source_path)
+    """Bulk-load a server-side RDF file into the NCIt Oxigraph store.
+
+    The source file must resolve inside the configured reload allowlist directory —
+    an arbitrary host path (``../../etc/passwd``) is rejected, so this endpoint cannot
+    be used to ingest or exfiltrate files outside the managed data area.
+    """
+    path = _resolve_allowed(body.source_path)
     content_type = _RDF_CONTENT_TYPES.get(path.suffix.lower())
     if content_type is None:
         raise HTTPException(
@@ -105,5 +130,10 @@ async def reload_ncit(client: NcitClient, body: ReloadRequest) -> ReloadResponse
         )
         after = await client.count()
     except StorageError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        # A 5xx from a real store fault would otherwise leave no server-side trace
+        # (HTTPException responses are not logged by the error handler).
+        logger.exception("NCIt reload failed for %s", path)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "NCIt store reload failed."
+        ) from exc
     return ReloadResponse(triples_before=before, triples_after=after)

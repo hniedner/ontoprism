@@ -8,21 +8,33 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend import __version__
 from backend.api.v1 import cadsr, ncit, refresh, sparql
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from backend.middleware import RequestContextMiddleware, install_error_handlers
+from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.embeddings.store import EmbeddingStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open the SPARQL client, NCIt store, caDSR repo, and embedding store."""
     settings = get_settings()
+    if not settings.api_key:
+        # Surface an intended-auth misconfiguration (blank/unset key) instead of
+        # silently running the mutating endpoints wide open.
+        logger.warning(
+            "API_KEY is not set — refresh/reload endpoints run unauthenticated "
+            "(open mode). Set api_key to require X-API-Key."
+        )
     client = OxigraphHttpClient(
         settings.ncit_sparql_url, query_timeout=settings.sparql_timeout_sec
     )
@@ -41,6 +53,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     """Build the FastAPI application."""
     app = FastAPI(title="ontoprism", version=__version__, lifespan=lifespan)
+    settings = get_settings()
+
+    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    install_error_handlers(app)
 
     @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:

@@ -60,6 +60,8 @@ export interface Neighborhood {
 	center: string;
 	nodes: GraphNode[];
 	edges: GraphEdge[];
+	/** True when the node cap was hit and some neighbors were dropped (partial graph). */
+	truncated?: boolean;
 }
 
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).

@@ -28,6 +28,20 @@ class Settings(BaseSettings):
     sparql_timeout_sec: float = 30.0
     sparql_row_cap: int = 1000
 
+    # CORS: browser origins allowed to call the API (the SvelteKit dev/prod hosts).
+    cors_allow_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:5175",
+    ]
+
+    # Authorization for the mutating endpoints (refresh / reload). When unset (dev
+    # default) those endpoints are open; when set, callers must send X-API-Key.
+    api_key: str | None = None
+
+    # Reload allowlist: the reload endpoint may only ingest RDF files resolving inside
+    # this directory (defence against arbitrary-file ingest / path traversal).
+    reload_allowed_dir: str = "data"
+
 
 @lru_cache
 def get_settings() -> Settings:

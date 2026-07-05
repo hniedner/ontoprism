@@ -6,8 +6,9 @@ from fastapi.testclient import TestClient
 
 @pytest.mark.api
 def test_reload_rejects_unsupported_extension(app_client: TestClient) -> None:
+    # Path is inside the allowlist dir so the extension guard (not the allowlist) fires.
     resp = app_client.post(
-        "/api/v1/refresh/ncit/reload", json={"source_path": "some-data.csv"}
+        "/api/v1/refresh/ncit/reload", json={"source_path": "data/some-data.csv"}
     )
     assert resp.status_code == 400
     assert "Unsupported" in resp.json()["detail"]
@@ -17,7 +18,7 @@ def test_reload_rejects_unsupported_extension(app_client: TestClient) -> None:
 def test_reload_missing_file_is_404(app_client: TestClient) -> None:
     resp = app_client.post(
         "/api/v1/refresh/ncit/reload",
-        json={"source_path": "missing-file-xyz-12345.ttl"},
+        json={"source_path": "data/missing-file-xyz-12345.ttl"},
     )
     assert resp.status_code == 404
 

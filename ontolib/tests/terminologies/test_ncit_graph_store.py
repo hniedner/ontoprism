@@ -2,7 +2,11 @@
 
 import pytest
 
-from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.graph_store import (
+    _MAX_NEIGHBORHOOD_NODES,
+    NcitGraphStore,
+)
+from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 
@@ -57,3 +61,77 @@ async def test_neighborhood_builds_typed_edges(ncit_stub_url: str) -> None:
     assert {"C3262", "C12922", "C2991", "C9305"} <= node_codes
     kinds = {e.kind for e in graph.edges}
     assert {"subClassOf", "role", "association"} <= kinds
+
+
+@pytest.mark.unit
+async def test_neighborhood_depth_expands_beyond_one_hop(ncit_stub_url: str) -> None:
+    # depth=2 expands each depth-1 neighbor, so more edges are discovered than at
+    # depth=1 (regression: `depth` used to be ignored). Node set stays deduped.
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        one = await store.get_neighborhood("C3262", depth=1)
+        two = await store.get_neighborhood("C3262", depth=2)
+
+    assert len(two.edges) > len(one.edges)
+    assert {n.code for n in one.nodes} <= {n.code for n in two.nodes}
+
+
+@pytest.mark.unit
+async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> None:
+    # A single concept with far more neighbors than the cap must not blow past it:
+    # the bound is enforced while adding nodes, not only between concepts. Every
+    # surviving edge must still connect two surviving nodes (no dangling endpoints).
+    over_cap = _MAX_NEIGHBORHOOD_NODES + 200
+    dense = ConceptDetail(
+        code="C1",
+        label="Dense",
+        parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(over_cap)],
+    )
+
+    async def only_center(code: str) -> ConceptDetail | None:
+        return dense if code == "C1" else None
+
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = only_center  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C1", depth=1)
+
+    assert len(graph.nodes) == _MAX_NEIGHBORHOOD_NODES
+    assert graph.truncated is True  # dropped neighbors are signalled, not silent
+    node_codes = {n.code for n in graph.nodes}
+    assert all(e.source in node_codes and e.target in node_codes for e in graph.edges)
+
+
+@pytest.mark.unit
+async def test_neighborhood_not_truncated_when_under_cap(ncit_stub_url: str) -> None:
+    # A small neighborhood that fits under the cap must report truncated=False.
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        graph = await NcitGraphStore(client).get_neighborhood("C3262")
+    assert graph.truncated is False
+
+
+@pytest.mark.unit
+async def test_neighborhood_truncated_when_cap_filled_exactly(
+    ncit_stub_url: str,
+) -> None:
+    # Exact-fill boundary: the first hop lands nodes on the cap with NO per-node drop,
+    # so expansion is cut short before its neighbors are expanded at hop 2. That is a
+    # partial result and must report truncated=True (regression: the flag under-reported
+    # when the cap was filled exactly rather than overshot).
+    exact = _MAX_NEIGHBORHOOD_NODES - 1  # center node + these parents == cap
+    center = ConceptDetail(
+        code="C1",
+        label="Center",
+        parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(exact)],
+    )
+
+    async def detail(code: str) -> ConceptDetail:
+        return center if code == "C1" else ConceptDetail(code=code, label=code)
+
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = detail  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C1", depth=2)
+
+    assert len(graph.nodes) == _MAX_NEIGHBORHOOD_NODES
+    assert graph.truncated is True
