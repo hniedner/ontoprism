@@ -10,7 +10,8 @@ import type {
 	RefreshReport,
 	SearchPage,
 	SimilarCde,
-	SimilarConcept
+	SimilarConcept,
+	SparqlResponse
 } from './types';
 
 const BASE = '';
@@ -35,6 +36,31 @@ async function postJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promis
 	const resp = await fetchImpl(url, { method: 'POST' });
 	if (!resp.ok) {
 		throw new Error(`Request failed (${resp.status}): ${url}`);
+	}
+	return (await resp.json()) as T;
+}
+
+async function postJsonBody<T>(
+	url: string,
+	body: unknown,
+	fetchImpl: typeof fetch = fetch
+): Promise<T> {
+	const resp = await fetchImpl(url, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body)
+	});
+	if (!resp.ok) {
+		let detail = '';
+		try {
+			// `detail` is a string for our HTTPExceptions; FastAPI validation errors make
+			// it an array — only use it when it's actually a string.
+			const body = (await resp.json()) as { detail?: unknown };
+			if (typeof body.detail === 'string') detail = body.detail;
+		} catch {
+			// non-JSON error body — fall through to the status-code message
+		}
+		throw new Error(detail || `Request failed (${resp.status}): ${url}`);
 	}
 	return (await resp.json()) as T;
 }
@@ -73,6 +99,23 @@ export function getNeighborhood(
 ): Promise<Neighborhood> {
 	return getJson<Neighborhood>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/neighborhood`, { depth }),
+		fetchImpl
+	);
+}
+
+/** Run a guarded read-only SPARQL query against the NCIt store. */
+export function runSparql(query: string, fetchImpl?: typeof fetch): Promise<SparqlResponse> {
+	return postJsonBody<SparqlResponse>(apiUrl('/api/v1/sparql'), { query }, fetchImpl);
+}
+
+/** CDE-centred subgraph joining the CDE into the NCIt concept graph. */
+export function getCdeNeighborhood(
+	publicId: string,
+	depth = 1,
+	fetchImpl?: typeof fetch
+): Promise<Neighborhood> {
+	return getJson<Neighborhood>(
+		apiUrl(`/api/v1/cadsr/cdes/${encodeURIComponent(publicId)}/neighborhood`, { depth }),
 		fetchImpl
 	);
 }

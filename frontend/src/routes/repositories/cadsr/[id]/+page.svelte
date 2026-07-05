@@ -1,13 +1,33 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { getCde } from '$lib/api';
-	import type { CdeDetail } from '$lib/types';
+	import { getCde, getCdeNeighborhood } from '$lib/api';
+	import type { CdeDetail, Neighborhood } from '$lib/types';
 	import SimilarCdes from '$lib/components/SimilarCdes.svelte';
+	import GraphExplorer from '$lib/components/GraphExplorer.svelte';
 
 	let cde = $state<CdeDetail | null>(null);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+
+	// Concept graph, loaded on demand (a CDE view shouldn't fetch the subgraph eagerly).
+	let cdeGraph = $state<Neighborhood | null>(null);
+	let graphLoading = $state(false);
+	let graphError = $state<string | null>(null);
+
+	async function loadGraph() {
+		const current = cde;
+		if (!current) return;
+		graphLoading = true;
+		graphError = null;
+		try {
+			cdeGraph = await getCdeNeighborhood(current.public_id);
+		} catch (err) {
+			graphError = err instanceof Error ? err.message : String(err);
+		} finally {
+			graphLoading = false;
+		}
+	}
 
 	$effect(() => {
 		const id = page.params.id;
@@ -15,6 +35,9 @@
 		loading = true;
 		error = null;
 		cde = null;
+		cdeGraph = null;
+		graphError = null;
+		graphLoading = false;
 		getCde(id)
 			.then((c) => (cde = c))
 			.catch((err) => (error = err instanceof Error ? err.message : String(err)))
@@ -128,4 +151,28 @@
 
 		<SimilarCdes publicId={cde.public_id} />
 	</div>
+
+	<!-- Concept graph: the CDE joined into the NCIt graph via its mapped concepts -->
+	<section class="mt-6">
+		<div class="mb-2 flex items-center justify-between">
+			<h2 class="text-sm font-semibold text-default">Concept graph</h2>
+			{#if !cdeGraph}
+				<button
+					type="button"
+					onclick={() => loadGraph()}
+					disabled={graphLoading || cde.concepts.length === 0}
+					class="rounded-lg border border-default px-2.5 py-1 text-xs text-secondary hover:bg-subtle disabled:opacity-50"
+				>
+					{graphLoading ? 'Loading…' : 'Explore in graph'}
+				</button>
+			{/if}
+		</div>
+		{#if graphError}
+			<p class="text-sm text-danger">{graphError}</p>
+		{:else if cdeGraph}
+			<GraphExplorer code={cdeGraph.center} initial={cdeGraph} />
+		{:else if cde.concepts.length === 0}
+			<p class="text-sm italic text-subtle">No mapped NCIt concepts to graph.</p>
+		{/if}
+	</section>
 {/if}

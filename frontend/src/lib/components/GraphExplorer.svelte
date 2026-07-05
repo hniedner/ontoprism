@@ -129,8 +129,12 @@
 
 	async function expand(target: string) {
 		if (!graph || expanding) return;
+		// Pseudo-nodes (e.g. a caDSR "cde:<id>:<ver>" seed) aren't NCIt concepts, so
+		// they have no /neighborhood — skip rather than fetch a guaranteed 404.
+		if (target.includes(':')) return;
 		if (graph.hasNode(target) && graph.getNodeAttribute(target, 'expanded')) return;
 		expanding = true;
+		error = null; // a prior transient error must not stick across expansions
 		try {
 			const nb = await getNeighborhood(target);
 			mergeNeighborhood(graph, nb);
