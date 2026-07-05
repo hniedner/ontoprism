@@ -99,7 +99,7 @@ async def _remote_size(url: str) -> int | None:
     """Return the remote Content-Length, or None if the HEAD fails (non-fatal)."""
     try:
         info = await probe_owl_version(url)
-    except (httpx.HTTPError, OSError, ValueError) as exc:
+    except (httpx.HTTPError, httpx.InvalidURL, OSError, ValueError) as exc:
         logger.warning("HEAD probe failed for %s: %s", url, exc)
         return None
     return info.size_bytes
@@ -245,9 +245,11 @@ async def download_ncit_owl(
         temp = zip_path.with_suffix(".zip.tmp")
         try:
             return await _fetch_and_extract(url, temp, zip_path, output_dir, variant)
-        except OwlContentError as exc:
+        except (OwlContentError, httpx.InvalidURL, httpx.UnsupportedProtocol) as exc:
+            # Terminal: a bad archive or a malformed/unschemed URL won't fix on retry —
+            # fail fast rather than burn the backoff budget on a config error.
             temp.unlink(missing_ok=True)
-            logger.error("NCIt OWL archive unusable: %s", exc)
+            logger.error("NCIt OWL fetch terminal failure: %s", exc)
             return OwlDownloadResult(success=False, variant=variant, error=str(exc))
         except _RETRYABLE_DOWNLOAD as exc:
             last_error = exc

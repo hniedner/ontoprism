@@ -200,6 +200,17 @@ async def test_download_reports_error_on_unwritable_dir(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+async def test_download_reports_error_on_malformed_base_url(tmp_path: Path) -> None:
+    # A misconfigured NCIT_OWL_BASE_URL (no scheme) must be reported as success=False,
+    # not escape as an unhandled error (httpx.InvalidURL is not an HTTPError).
+    result = await download_ncit_owl(
+        tmp_path, variant="stated", base_url="not-a-valid-url", max_retries=2
+    )
+    assert result.success is False
+    assert result.error is not None
+
+
+@pytest.mark.unit
 async def test_download_returns_error_on_no_owl_member(tmp_path: Path) -> None:
     # A valid archive lacking a .owl member is a terminal failure returned, not raised —
     # and it must NOT be retried (re-downloading the same URL yields the same archive).
