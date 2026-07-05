@@ -1,14 +1,16 @@
 """Repository refresh / reload.
 
 ``POST /api/v1/refresh`` re-probes each repository and returns current version/counts
-— a live status refresh. ``POST /api/v1/refresh/ncit/reload`` bulk-loads an RDF file
-into Oxigraph via the local Graph Store Protocol (no container/ECS restart). The full
-NCI FTP/EVS download pipeline is intentionally out of scope (an operational task).
+— a live status refresh. ``POST /api/v1/refresh/ncit/reload`` bulk-loads a server-side
+RDF file into Oxigraph via the local Graph Store Protocol (no container/ECS restart).
+``POST /api/v1/refresh/ncit/download`` fetches the NCIt OWL from NCI EVS (stated or
+inferred variant) and optionally loads it — the built-in NCIt data-refresh mechanism.
 """
 
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -18,8 +20,14 @@ from backend.dependencies import CadsrRepo, NcitClient, NcitStore
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
+from ontolib.terminologies.ncit.owl_download import (
+    OwlDownloadResult,
+    download_ncit_owl,
+)
 
 logger = get_logger(__name__)
+
+_OWL_CONTENT_TYPE = "application/rdf+xml"
 
 router = APIRouter(prefix="/api/v1/refresh", tags=["refresh"])
 
@@ -137,3 +145,61 @@ async def reload_ncit(client: NcitClient, body: ReloadRequest) -> ReloadResponse
             status.HTTP_502_BAD_GATEWAY, "NCIt store reload failed."
         ) from exc
     return ReloadResponse(triples_before=before, triples_after=after)
+
+
+class OwlDownloadRequest(BaseModel):
+    """Request to fetch the NCIt OWL from NCI EVS (and optionally load it)."""
+
+    variant: Literal["stated", "inferred"] = "inferred"
+    load: bool = False
+
+
+class OwlDownloadReport(BaseModel):
+    """Result of an OWL download, plus store triple counts if it was loaded."""
+
+    download: OwlDownloadResult
+    triples_before: int | None = None
+    triples_after: int | None = None
+
+
+@router.post(
+    "/ncit/download", response_model=OwlDownloadReport, dependencies=[RequireApiKey]
+)
+async def download_ncit(
+    client: NcitClient, body: OwlDownloadRequest
+) -> OwlDownloadReport:
+    """Download the NCIt OWL from NCI EVS; with ``load=True``, reload it into the store.
+
+    Loads into the default graph (a full store refresh). The download lands in the
+    configured managed dir; a failed download or load returns 502.
+    """
+    settings = get_settings()
+    result = await download_ncit_owl(
+        Path(settings.ncit_owl_dir),
+        variant=body.variant,
+        base_url=settings.ncit_owl_base_url,
+        max_retries=settings.ncit_owl_max_retries,
+    )
+    if not result.success:
+        logger.error("NCIt OWL download failed: %s", result.error)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, result.error or "OWL download failed."
+        )
+    if not body.load or result.file_path is None:
+        return OwlDownloadReport(download=result)
+    try:
+        before = await client.count()
+        await client.load(
+            Path(result.file_path).read_bytes(),
+            content_type=_OWL_CONTENT_TYPE,
+            replace=True,
+        )
+        after = await client.count()
+    except (StorageError, OSError) as exc:
+        logger.exception("NCIt OWL load failed for %s", result.file_path)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "NCIt store load failed."
+        ) from exc
+    return OwlDownloadReport(
+        download=result, triples_before=before, triples_after=after
+    )

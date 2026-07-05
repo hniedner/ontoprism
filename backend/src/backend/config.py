@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     # this directory (defence against arbitrary-file ingest / path traversal).
     reload_allowed_dir: str = "data"
 
+    # NCIt OWL refresh: EVS download base + the managed dir OWL files land in (kept
+    # inside reload_allowed_dir so a downloaded file can then be loaded via /reload).
+    ncit_owl_base_url: str = "https://evs.nci.nih.gov/ftp1/NCI_Thesaurus"
+    ncit_owl_dir: str = "data/ncit-owl"
+    ncit_owl_max_retries: int = 3
+
 
 @lru_cache
 def get_settings() -> Settings:
