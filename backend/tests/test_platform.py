@@ -24,11 +24,20 @@ def _clear_settings_cache() -> Iterator[None]:
 
 
 class _FakeClient:
-    def __init__(self, version: str | None = "26.02d", *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        version: str | None = "26.02d",
+        *,
+        fail: bool = False,
+        error: Exception | None = None,
+    ) -> None:
         self._version = version
         self._fail = fail
+        self._error = error
 
     async def version(self) -> str | None:
+        if self._error is not None:
+            raise self._error
         if self._fail:
             raise StorageError("store unreachable")
         return self._version
@@ -117,6 +126,18 @@ async def test_unreachable_store_version_check_is_non_fatal(
     with caplog.at_level(logging.WARNING):
         await check_ncit_version(_FakeClient(fail=True), "26.02d")  # must not raise
     assert any("unreachable" in r.getMessage() for r in caplog.records)
+
+
+async def test_unexpected_error_in_version_check_is_non_fatal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The background guard must swallow-and-log an unexpected (non-StorageError) error,
+    # never propagate it (a propagated error would re-raise at shutdown, skipping
+    # client/engine cleanup).
+    client = _FakeClient(error=ValueError("boom"))
+    with caplog.at_level(logging.ERROR):
+        await check_ncit_version(client, "26.02d")  # must not raise
+    assert any("unexpectedly" in r.getMessage() for r in caplog.records)
 
 
 # ------------------------------------------------------------------- readiness

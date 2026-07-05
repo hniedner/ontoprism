@@ -55,8 +55,35 @@ async def _drop_db(admin_dsn: str) -> None:
         await conn.close()
 
 
+_EMBEDDING_TABLES = ("ncit_concepts", "cde_repository")
+
+
+async def _table_facts(conn: asyncpg.Connection, table: str) -> dict[str, Any]:
+    # Parameterized + join (not ::regclass) so a missing table returns None, not raises.
+    return {
+        "embedding_type": await conn.fetchval(
+            "SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a "
+            "JOIN pg_class c ON c.oid = a.attrelid "
+            "WHERE c.relname = $1 AND a.attname = 'embedding'",
+            table,
+        ),
+        "metadata_type": await conn.fetchval(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = $1 AND column_name = 'metadata'",
+            table,
+        ),
+        "hnsw_indexdef": await conn.fetchval(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = $1",
+            f"idx_{table}_hnsw",
+        ),
+    }
+
+
 async def _schema_facts(dsn: str) -> dict[str, Any]:
-    """Schema facts the similarity endpoints depend on (no alembic assumptions)."""
+    """Schema facts the similarity endpoints depend on (no alembic assumptions).
+
+    Introspects *both* embedding tables so a divergence in either is caught.
+    """
     conn = await asyncpg.connect(dsn)
     try:
         return {
@@ -67,18 +94,9 @@ async def _schema_facts(dsn: str) -> dict[str, Any]:
                 "SELECT count(*) FROM information_schema.tables "
                 "WHERE table_name IN ('ncit_concepts', 'cde_repository')"
             ),
-            "embedding_type": await conn.fetchval(
-                "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
-                "WHERE attrelid = 'ncit_concepts'::regclass AND attname = 'embedding'"
-            ),
-            "metadata_type": await conn.fetchval(
-                "SELECT data_type FROM information_schema.columns "
-                "WHERE table_name = 'ncit_concepts' AND column_name = 'metadata'"
-            ),
-            "hnsw_indexdef": await conn.fetchval(
-                "SELECT indexdef FROM pg_indexes "
-                "WHERE indexname = 'idx_ncit_concepts_hnsw'"
-            ),
+            "per_table": {
+                table: await _table_facts(conn, table) for table in _EMBEDDING_TABLES
+            },
         }
     finally:
         await conn.close()
@@ -98,11 +116,14 @@ async def _table_count(dsn: str) -> int:
 def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["has_vector_ext"] == 1
     assert facts["tables"] == 2
-    assert facts["embedding_type"] == "vector(768)"  # dimension matters for similarity
-    assert facts["metadata_type"] == "jsonb"
-    # HNSW with cosine opclass — an L2 opclass would silently return wrong neighbors.
-    assert "hnsw" in facts["hnsw_indexdef"]
-    assert "vector_cosine_ops" in facts["hnsw_indexdef"]
+    for table in _EMBEDDING_TABLES:
+        t = facts["per_table"][table]
+        assert t["embedding_type"] == "vector(768)", table  # dim matters for similarity
+        assert t["metadata_type"] == "jsonb", table
+        # HNSW cosine opclass — an L2 opclass would silently return wrong neighbors.
+        indexdef = t["hnsw_indexdef"] or ""
+        assert "hnsw" in indexdef, table
+        assert "vector_cosine_ops" in indexdef, table
 
 
 @pytest.mark.integration
