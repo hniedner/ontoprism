@@ -40,17 +40,30 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     the scan-heavy read endpoints. ``limit <= 0`` disables it entirely.
     """
 
+    # Sweep expired entries once the map grows past this, so a churn of distinct client
+    # IPs can't grow it without bound (in-memory, single process).
+    _SWEEP_THRESHOLD = 10_000
+
     def __init__(self, app: object, *, limit: int, window_sec: float = 60.0) -> None:
         super().__init__(app)  # pyright: ignore[reportArgumentType]
         self._limit = limit
         self._window = window_sec
         self._hits: dict[str, tuple[float, int]] = {}
 
+    def _sweep_expired(self, now: float) -> None:
+        expired = [
+            key for key, (start, _) in self._hits.items() if now - start >= self._window
+        ]
+        for key in expired:
+            del self._hits[key]
+
     async def dispatch(self, request: Request, call_next: Handler) -> Response:
         if self._limit <= 0:
             return await call_next(request)
         key = request.client.host if request.client else "unknown"
         now = time.monotonic()
+        if len(self._hits) > self._SWEEP_THRESHOLD:
+            self._sweep_expired(now)
         window_start, count = self._hits.get(key, (now, 0))
         if now - window_start >= self._window:
             window_start, count = now, 0

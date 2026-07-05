@@ -1,15 +1,18 @@
 """Behavioral tests for platform hardening: rate limiting, version check, readiness."""
 
 import logging
+import time
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
 from backend.dependencies import get_ncit_client
 from backend.main import check_ncit_version, create_app
+from backend.middleware import RateLimitMiddleware, RequestContextMiddleware
 from ontolib.core.exceptions import StorageError
 
 
@@ -56,8 +59,30 @@ def test_rate_limit_429_has_retry_after_and_envelope(
         client.get("/health")
         blocked = client.get("/health")
     assert blocked.status_code == 429
-    assert blocked.headers["Retry-After"]
-    assert blocked.json()["error"] == "rate_limited"
+    assert 1 <= int(blocked.headers["Retry-After"]) <= 60
+    body = blocked.json()
+    assert body["error"] == "rate_limited"
+    assert body["request_id"]  # 429 still carries the request id (middleware order)
+    assert blocked.headers["X-Content-Type-Options"] == "nosniff"  # + security headers
+
+
+@pytest.mark.api
+def test_rate_limit_window_resets_after_expiry() -> None:
+    # After the window elapses the counter resets — a capped client is not blocked
+    # forever (guards the reset branch).
+    app = FastAPI()
+    app.add_middleware(RateLimitMiddleware, limit=1, window_sec=0.05)
+    app.add_middleware(RequestContextMiddleware)
+
+    @app.get("/ping")
+    def ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        assert client.get("/ping").status_code == 200
+        assert client.get("/ping").status_code == 429  # over cap within the window
+        time.sleep(0.08)  # let the window expire
+        assert client.get("/ping").status_code == 200  # reset
 
 
 @pytest.mark.api

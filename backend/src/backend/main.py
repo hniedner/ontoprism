@@ -43,6 +43,12 @@ async def check_ncit_version(client: OxigraphHttpClient, expected: str) -> None:
     except StorageError as exc:
         logger.warning("NCIt version check skipped — store unreachable: %s", exc)
         return
+    except Exception:
+        # Background guard: an unexpected error must be logged where it happens and
+        # never stored on the task (a stored exception would re-raise at shutdown and
+        # skip client/engine cleanup). Warn, don't propagate.
+        logger.exception("NCIt version check failed unexpectedly")
+        return
     if actual != expected:
         logger.warning(
             "NCIt store version mismatch: expected %s, store reports %s "
@@ -114,6 +120,9 @@ def create_app() -> FastAPI:
         try:
             version = await client.version()
         except StorageError as exc:
+            # HTTPException responses aren't logged by the error handler, so log the
+            # root cause here — otherwise a failing readiness probe has no server trace.
+            logger.warning("Readiness check failed — NCIt store unreachable: %s", exc)
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE, "NCIt store not ready"
             ) from exc

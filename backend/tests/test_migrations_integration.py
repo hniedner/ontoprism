@@ -1,8 +1,8 @@
-"""Integration test: the Alembic migration reproduces the embedding schema.
+"""Integration tests for the Alembic embedding-schema migration.
 
-Creates a throwaway database, runs ``alembic upgrade head`` against it, and asserts the
-resulting schema matches what the semantic-similarity endpoints require (pgvector
-tables + HNSW cosine indexes). Skipped when Postgres is unreachable.
+Verifies the migration (a) produces the exact pgvector schema the similarity endpoints
+need, (b) round-trips (upgrade→downgrade), and (c) matches the live/cloned DB — the
+parity that makes ``migrate-stamp`` on the clone safe. Skipped when Postgres is down.
 """
 
 import asyncio
@@ -55,34 +55,58 @@ async def _drop_db(admin_dsn: str) -> None:
         await conn.close()
 
 
-async def _introspect(dsn: str) -> dict[str, Any]:
+async def _schema_facts(dsn: str) -> dict[str, Any]:
+    """Schema facts the similarity endpoints depend on (no alembic assumptions)."""
     conn = await asyncpg.connect(dsn)
     try:
         return {
-            "version": await conn.fetchval("SELECT version_num FROM alembic_version"),
             "has_vector_ext": await conn.fetchval(
                 "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
-            ),
-            "embedding_type": await conn.fetchval(
-                "SELECT udt_name FROM information_schema.columns "
-                "WHERE table_name = 'ncit_concepts' AND column_name = 'embedding'"
             ),
             "tables": await conn.fetchval(
                 "SELECT count(*) FROM information_schema.tables "
                 "WHERE table_name IN ('ncit_concepts', 'cde_repository')"
             ),
-            "hnsw_indexes": await conn.fetchval(
-                "SELECT count(*) FROM pg_indexes "
-                "WHERE indexname IN "
-                "('idx_ncit_concepts_hnsw', 'idx_cde_repository_hnsw')"
+            "embedding_type": await conn.fetchval(
+                "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
+                "WHERE attrelid = 'ncit_concepts'::regclass AND attname = 'embedding'"
+            ),
+            "metadata_type": await conn.fetchval(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name = 'ncit_concepts' AND column_name = 'metadata'"
+            ),
+            "hnsw_indexdef": await conn.fetchval(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE indexname = 'idx_ncit_concepts_hnsw'"
             ),
         }
     finally:
         await conn.close()
 
 
+async def _table_count(dsn: str) -> int:
+    conn = await asyncpg.connect(dsn)
+    try:
+        return await conn.fetchval(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_name IN ('ncit_concepts', 'cde_repository')"
+        )
+    finally:
+        await conn.close()
+
+
+def _assert_embedding_schema(facts: dict[str, Any]) -> None:
+    assert facts["has_vector_ext"] == 1
+    assert facts["tables"] == 2
+    assert facts["embedding_type"] == "vector(768)"  # dimension matters for similarity
+    assert facts["metadata_type"] == "jsonb"
+    # HNSW with cosine opclass — an L2 opclass would silently return wrong neighbors.
+    assert "hnsw" in facts["hnsw_indexdef"]
+    assert "vector_cosine_ops" in facts["hnsw_indexdef"]
+
+
 @pytest.mark.integration
-def test_migration_reproduces_embedding_schema(
+def test_migration_upgrade_downgrade_roundtrip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     base_url = get_settings().database_url
@@ -92,22 +116,33 @@ def test_migration_reproduces_embedding_schema(
 
     temp_sa_url = _swap_db(base_url, _TEMP_DB)
     temp_dsn = _swap_db(admin_dsn, _TEMP_DB)
-
     asyncio.run(_recreate_db(admin_dsn))
     try:
         monkeypatch.setenv("DATABASE_URL", temp_sa_url)
         get_settings.cache_clear()  # env.py reads the temp URL via settings
         cfg = Config(str(_REPO_ROOT / "alembic.ini"))
         cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
-        command.upgrade(cfg, "head")
 
-        schema = asyncio.run(_introspect(temp_dsn))
+        command.upgrade(cfg, "head")
+        facts = asyncio.run(_schema_facts(temp_dsn))
+        command.downgrade(cfg, "base")
+        after_down = asyncio.run(_table_count(temp_dsn))
     finally:
         get_settings.cache_clear()
         asyncio.run(_drop_db(admin_dsn))
 
-    assert schema["version"] == "0001_embedding_tables"
-    assert schema["has_vector_ext"] == 1
-    assert schema["embedding_type"] == "vector"
-    assert schema["tables"] == 2  # both embedding tables created
-    assert schema["hnsw_indexes"] == 2  # both HNSW cosine indexes created
+    _assert_embedding_schema(facts)
+    assert after_down == 0  # downgrade drops both embedding tables
+
+
+@pytest.mark.integration
+def test_migration_matches_cloned_db_schema() -> None:
+    # Parity: the live/cloned DB (created by pg_dump) must match what the migration
+    # produces — otherwise `migrate-stamp` would mark a mismatched clone as migrated.
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    if not asyncio.run(_pg_reachable(dsn)):
+        pytest.skip("Postgres not reachable")
+    facts = asyncio.run(_schema_facts(dsn))
+    if not facts["tables"]:
+        pytest.skip("embedding tables not present in the configured DB")
+    _assert_embedding_schema(facts)
