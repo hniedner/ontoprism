@@ -85,7 +85,7 @@ class GraphEdge(BaseModel):
     target: str
     relation: str
     relation_label: str | None = None
-    kind: str  # "subClassOf" | "role" | "association"
+    kind: str  # "subClassOf" | "role" | "association" | "cde-concept"
 
 
 class Neighborhood(BaseModel):
