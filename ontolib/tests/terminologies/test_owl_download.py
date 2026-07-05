@@ -186,10 +186,44 @@ async def test_download_reports_error_after_retries(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+async def test_download_reports_error_on_unwritable_dir(tmp_path: Path) -> None:
+    # A misconfigured/unwritable download dir must be reported as success=False, not
+    # escape as an unhandled error (mkdir failure honours the "never raise" contract).
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file, not a dir")
+    result = await download_ncit_owl(
+        blocker / "sub", variant="stated", base_url="http://unused", max_retries=0
+    )
+    assert result.success is False
+    assert result.error is not None
+    assert "download dir" in result.error
+
+
+@pytest.mark.unit
 async def test_download_returns_error_on_no_owl_member(tmp_path: Path) -> None:
-    # A valid archive lacking a .owl member is a terminal failure returned, not raised.
+    # A valid archive lacking a .owl member is a terminal failure returned, not raised —
+    # and it must NOT be retried (re-downloading the same URL yields the same archive).
     zip_bytes = _zip_with("readme.txt", b"nothing here")
-    server, base = _serve(_bytes_handler(zip_bytes))
+
+    class _Counting(BaseHTTPRequestHandler):
+        gets = 0
+
+        def do_HEAD(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(zip_bytes)))
+            self.end_headers()
+
+        def do_GET(self) -> None:
+            _Counting.gets += 1
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(zip_bytes)))
+            self.end_headers()
+            self.wfile.write(zip_bytes)
+
+        def log_message(self, *_a: Any) -> None:
+            pass
+
+    server, base = _serve(_Counting)
     try:
         result = await download_ncit_owl(
             tmp_path, variant="stated", base_url=base, max_retries=2
@@ -200,6 +234,7 @@ async def test_download_returns_error_on_no_owl_member(tmp_path: Path) -> None:
     assert result.success is False
     assert result.error is not None
     assert "No .owl member" in result.error
+    assert _Counting.gets == 1  # terminal — not retried despite max_retries=2
 
 
 @pytest.mark.unit

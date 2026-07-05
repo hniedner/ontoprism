@@ -116,7 +116,8 @@ async def _stream_to(url: str, dest: Path) -> int:
         client.stream("GET", url, follow_redirects=True) as response,
     ):
         response.raise_for_status()
-        total = int(response.headers.get("content-length", 0))
+        raw_total = response.headers.get("content-length", "")
+        total = int(raw_total) if raw_total.isdigit() else 0
         with dest.open("wb") as fh:
             async for chunk in response.aiter_bytes(_CHUNK):
                 fh.write(chunk)
@@ -145,13 +146,18 @@ def _extract_owl(zip_path: Path, output_dir: Path) -> Path:
         zipfile.BadZipFile: the archive is corrupt/truncated (retryable upstream).
         OSError: a filesystem error moving the extracted file.
     """
-    with zipfile.ZipFile(zip_path) as zf:
-        owl_members = [n for n in zf.namelist() if n.lower().endswith(".owl")]
-        if not owl_members:
-            raise OwlContentError(f"No .owl member in archive {zip_path.name}")
-        # extract() returns the sanitized path it actually wrote to (defends against
-        # zip-slip / absolute member names — never trust the raw namelist entry).
-        extracted = Path(zf.extract(owl_members[0], output_dir))
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            owl_members = [n for n in zf.namelist() if n.lower().endswith(".owl")]
+            if not owl_members:
+                raise OwlContentError(f"No .owl member in archive {zip_path.name}")
+            # extract() returns the sanitized path it actually wrote to (defends
+            # against zip-slip / absolute member names — never trust the raw entry).
+            extracted = Path(zf.extract(owl_members[0], output_dir))
+    except (RuntimeError, NotImplementedError) as exc:
+        # Encrypted or unsupported-compression archive: structurally unusable, so
+        # terminal (re-downloading the same URL won't help) — not a corrupt-bytes retry.
+        raise OwlContentError(f"Unusable archive {zip_path.name}: {exc}") from exc
     final = output_dir / DEFAULT_OWL_FILENAME
     if extracted != final:
         final.unlink(missing_ok=True)
@@ -216,9 +222,17 @@ async def download_ncit_owl(
     terminal failure is returned as ``success=False`` (never raised) so the
     caller/endpoint can report it cleanly.
     """
-    output_dir.mkdir(parents=True, exist_ok=True)
-    url = owl_download_url(variant, base_url)
+    url = owl_download_url(variant, base_url)  # validates variant (ValueError if bad)
     zip_path = output_dir / _VARIANT_ZIPS[variant]
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # A misconfigured/read-only dir is an operational failure — report it cleanly
+        # rather than let it escape as an unhandled 500 (honours the contract below).
+        logger.error("Cannot create OWL download dir %s: %s", output_dir, exc)
+        return OwlDownloadResult(
+            success=False, variant=variant, error=f"Cannot create download dir: {exc}"
+        )
 
     cached = _try_cached(zip_path, output_dir, variant, await _remote_size(url))
     if cached is not None:

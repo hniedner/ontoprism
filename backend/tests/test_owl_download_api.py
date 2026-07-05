@@ -112,13 +112,15 @@ def test_download_endpoint_loads_into_store(
     class _RecordingClient:
         def __init__(self) -> None:
             self.loaded: bytes | None = None
+            self.load_kwargs: dict[str, Any] = {}
             self._counts = iter([5, 9])
 
         async def count(self) -> int:
             return next(self._counts)
 
-        async def load(self, data: bytes, **_kwargs: Any) -> None:
+        async def load(self, data: bytes, **kwargs: Any) -> None:
             self.loaded = data
+            self.load_kwargs = kwargs
 
     recording = _RecordingClient()
     app = create_app()
@@ -133,6 +135,10 @@ def test_download_endpoint_loads_into_store(
     assert body["triples_before"] == 5
     assert body["triples_after"] == 9
     assert recording.loaded == _OWL_BYTES  # the extracted OWL was loaded into the store
+    # replace=True is the load-bearing "full refresh" semantic — a flip to append
+    # would silently double the store, so pin it.
+    assert recording.load_kwargs["replace"] is True
+    assert recording.load_kwargs["content_type"] == "application/rdf+xml"
 
 
 @pytest.mark.api
