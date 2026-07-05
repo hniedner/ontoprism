@@ -108,3 +108,30 @@ async def test_neighborhood_not_truncated_when_under_cap(ncit_stub_url: str) -> 
     async with OxigraphHttpClient(ncit_stub_url) as client:
         graph = await NcitGraphStore(client).get_neighborhood("C3262")
     assert graph.truncated is False
+
+
+@pytest.mark.unit
+async def test_neighborhood_truncated_when_cap_filled_exactly(
+    ncit_stub_url: str,
+) -> None:
+    # Exact-fill boundary: the first hop lands nodes on the cap with NO per-node drop,
+    # so expansion is cut short before its neighbors are expanded at hop 2. That is a
+    # partial result and must report truncated=True (regression: the flag under-reported
+    # when the cap was filled exactly rather than overshot).
+    exact = _MAX_NEIGHBORHOOD_NODES - 1  # center node + these parents == cap
+    center = ConceptDetail(
+        code="C1",
+        label="Center",
+        parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(exact)],
+    )
+
+    async def detail(code: str) -> ConceptDetail:
+        return center if code == "C1" else ConceptDetail(code=code, label=code)
+
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = detail  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C1", depth=2)
+
+    assert len(graph.nodes) == _MAX_NEIGHBORHOOD_NODES
+    assert graph.truncated is True

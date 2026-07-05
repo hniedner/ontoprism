@@ -320,7 +320,8 @@ class NcitGraphStore:
             )
             truncated = truncated or hop_truncated
             if not frontier or len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
-                truncated = truncated or bool(frontier)
+                # A cap-reached hop already set truncated (see _expand_hop); an empty
+                # frontier is natural termination, not truncation.
                 break
 
         # The center always carries its semantic type even if its node was seeded
@@ -354,6 +355,10 @@ class NcitGraphStore:
                 continue
             truncated = self._add_edges(current, detail, nodes, edges) or truncated
             if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+                # Cap reached: this concept's neighbors and any remaining frontier
+                # concepts are left unexpanded — a partial result, even if the cap
+                # filled exactly with no per-node drop. Signal it.
+                truncated = True
                 break
             next_frontier.extend(
                 n for n in self._neighbor_codes(detail) if n not in expanded
