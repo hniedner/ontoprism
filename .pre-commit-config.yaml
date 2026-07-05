@@ -43,6 +43,11 @@ repos:
       - id: check-ast
       - id: check-merge-conflict
       - id: check-case-conflict
+      - id: debug-statements  # catch leftover breakpoint() / pdb.set_trace()
+      - id: check-builtin-literals  # prefer {}/[] over dict()/list()
+      - id: check-docstring-first  # module docstring must precede code
+      - id: check-symlinks
+      - id: destroyed-symlinks
       - id: detect-private-key
         exclude: ^(.*tests/|.*test_.*\.py$)
       - id: check-added-large-files
@@ -90,7 +95,7 @@ repos:
   # -------------------------------------------------------------------------
   - repo: local
     hooks:
-      # Prettier lands with the real frontend port (M4); eslint + svelte-check gate now.
+      # Frontend gates: eslint + svelte-check + fallow (cross-file static analysis).
       - id: eslint
         name: eslint (frontend)
         entry: bash -c 'cd frontend && npx eslint src/ --max-warnings=0'
@@ -103,6 +108,16 @@ repos:
         name: svelte-check type checking
         entry: bash -c 'cd frontend && set -o pipefail && npm run check'
         language: system
+        files: ^frontend/
+        pass_filenames: false
+
+      # fallow: cross-file dead code / import cycles / duplication / complexity —
+      # gates only findings INTRODUCED vs origin/main (see scripts/fallow-gate.mjs).
+      - id: fallow
+        name: fallow (frontend dead-code/dupes/cycles/complexity)
+        entry: bash -c 'cd frontend && npm run fallow'
+        language: system
+        types_or: [ts, javascript, svelte]
         files: ^frontend/
         pass_filenames: false
 

@@ -11,6 +11,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "eslint .",
+		"fallow": "node scripts/fallow-gate.mjs",
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run"
 	},
@@ -23,6 +24,7 @@
 		"@types/node": "^24",
 		"eslint": "^10.4.1",
 		"eslint-plugin-svelte": "^3.19.0",
+		"fallow": "2.102.0",
 		"globals": "^17.6.0",
 		"graphology-types": "^0.24.8",
 		"svelte": "^5.56.1",
