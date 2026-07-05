@@ -1,0 +1,29 @@
+{
+	// Fallow codebase-intelligence gate. Covers what ESLint cannot: cross-file unused
+	// exports/files/deps, import cycles, duplication, and complexity hotspots.
+	// `fallow audit` gates ONLY findings INTRODUCED by a changeset (new-only, vs
+	// origin/main); the existing tree is reported-but-not-gated.
+
+	// SvelteKit entry points — without these, discovery finds 0 files in this layout
+	// and everything looks "unused".
+	"entry": [
+		"src/routes/**/+page.svelte",
+		"src/routes/**/+page.{ts,js}",
+		"src/routes/**/+layout.svelte",
+		"src/routes/**/+layout.{ts,js}",
+		"src/routes/**/+error.svelte",
+		"src/hooks.{client,server}.{ts,js}",
+		"src/app.html",
+		"src/app.d.ts"
+	],
+
+	"ignorePatterns": [
+		"**/*.test.ts",
+		"**/*.spec.ts",
+		// Example scaffolding shipped by the SvelteKit template (greet.ts + its spec).
+		"src/lib/vitest-examples/**"
+	],
+
+	// fallow is a tool, not an imported dependency — don't flag it as unused.
+	"ignoreDependencies": ["fallow"]
+}

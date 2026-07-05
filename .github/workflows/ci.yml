@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the fallow hook can resolve origin/main as its audit base.
+          fetch-depth: 0
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5

@@ -69,6 +69,7 @@ test-backend-unit = "pytest backend/tests -m unit -n auto"
 test-integration = "pytest ontolib/tests backend/tests -m integration"
 test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=80 -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
+test-summary = "python scripts/test_runner.py"  # colored per-suite summary table
 pytest = "pytest"
 lint = { composite = ["ruff check .", "basedpyright"] }
 fmt = "ruff format ."
