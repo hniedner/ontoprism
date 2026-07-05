@@ -43,6 +43,19 @@ Tables: `ncit_concepts` (202,825 rows, doc_id = concept code) and `cde_repositor
 (79,827 rows, doc_id = `{public_id}:{version}`), each `embedding vector(768)` with an
 HNSW cosine index. Used by the `/similar` endpoints (no runtime embedding model needed).
 
+## Database schema (Alembic)
+
+The pgvector tables above are also defined as an Alembic migration
+(`migrations/versions/0001_embedding_tables.py`), so the schema is reproducible:
+
+```bash
+pdm run migrate         # fresh DB: create the embedding tables + HNSW indexes
+pdm run migrate-stamp   # pre-existing cloned DB: mark migrated WITHOUT recreating
+```
+
+Run `migrate-stamp` **once** on the clone (its tables already exist); use `migrate` on a
+from-scratch database. `migrations/env.py` reads the URL from `DATABASE_URL` / settings.
+
 ## Rebuild-from-scratch (standalone, no fairdata)
 
 The clone path depends on the local `fairdata-oxigraph:local` image + fairdata's data.

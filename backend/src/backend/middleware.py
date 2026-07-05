@@ -33,6 +33,59 @@ _SECURITY_HEADERS = {
 Handler = Callable[[Request], Awaitable["Response"]]
 
 
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Fixed-window, per-client-IP rate limit. In-memory (single-process).
+
+    A generous cap that lets normal browsing through while blocking abusive bursts of
+    the scan-heavy read endpoints. ``limit <= 0`` disables it entirely.
+    """
+
+    # Sweep expired entries once the map grows past this, so a churn of distinct client
+    # IPs can't grow it without bound (in-memory, single process).
+    _SWEEP_THRESHOLD = 10_000
+
+    def __init__(self, app: object, *, limit: int, window_sec: float = 60.0) -> None:
+        super().__init__(app)  # pyright: ignore[reportArgumentType]
+        self._limit = limit
+        self._window = window_sec
+        self._hits: dict[str, tuple[float, int]] = {}
+
+    def _sweep_expired(self, now: float) -> None:
+        expired = [
+            key for key, (start, _) in self._hits.items() if now - start >= self._window
+        ]
+        for key in expired:
+            del self._hits[key]
+
+    async def dispatch(self, request: Request, call_next: Handler) -> Response:
+        if self._limit <= 0:
+            return await call_next(request)
+        key = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        if len(self._hits) > self._SWEEP_THRESHOLD:
+            self._sweep_expired(now)
+        window_start, count = self._hits.get(key, (now, 0))
+        if now - window_start >= self._window:
+            window_start, count = now, 0
+        count += 1
+        self._hits[key] = (window_start, count)
+        if count > self._limit:
+            retry_after = max(1, int(self._window - (now - window_start)))
+            request_id = getattr(request.state, "request_id", None)
+            response: Response = JSONResponse(
+                status_code=429,
+                content={
+                    "detail": "Rate limit exceeded. Slow down.",
+                    "error": "rate_limited",
+                    "request_id": request_id,
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+            _apply_hardening_headers(response, request_id)
+            return response
+        return await call_next(request)
+
+
 def _apply_hardening_headers(response: Response, request_id: str | None) -> None:
     """Add the request-id and security headers to *response* (idempotent)."""
     if request_id is not None:

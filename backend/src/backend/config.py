@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # default) those endpoints are open; when set, callers must send X-API-Key.
     api_key: str | None = None
 
+    # Per-client-IP rate limit on all endpoints (fixed window). 0 disables it.
+    rate_limit_per_minute: int = 600
+
     # Reload allowlist: the reload endpoint may only ingest RDF files resolving inside
     # this directory (defence against arbitrary-file ingest / path traversal).
     reload_allowed_dir: str = "data"
