@@ -41,7 +41,11 @@ pnpm-debug.log*
 !.env.example
 
 # Editor
+# JetBrains / IntelliJ IDEA (project + module files)
 .idea/
+*.iml
+*.ipr
+*.iws
 .vscode/
 *.swp
 
