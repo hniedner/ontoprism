@@ -23,6 +23,7 @@ import httpx
 
 if TYPE_CHECKING:
     from types import TracebackType
+    from typing import BinaryIO
 
 from ontolib.common.error_handling import retry_with_backoff
 from ontolib.core.exceptions import StorageError
@@ -121,7 +122,7 @@ class OxigraphHttpClient:
 
     async def load(
         self,
-        data: bytes,
+        data: bytes | BinaryIO,
         *,
         content_type: str,
         graph_iri: str | None = None,
@@ -129,9 +130,11 @@ class OxigraphHttpClient:
     ) -> None:
         """Bulk-load RDF into the store via the SPARQL Graph Store Protocol.
 
-        The local reload path (no container/ECS restart): ``replace=True`` PUTs
-        (replacing the target graph), ``replace=False`` POSTs (merging). Targets the
-        default graph unless *graph_iri* is given (e.g. the decomposed named graph).
+        *data* may be bytes or a binary file object — httpx streams a file object, so a
+        multi-GB OWL never fully materializes in memory. The local reload path (no
+        container/ECS restart): ``replace=True`` PUTs (replacing the target graph),
+        ``replace=False`` POSTs (merging). Targets the default graph unless *graph_iri*
+        is given (e.g. the decomposed named graph).
 
         Raises:
             StorageError: on a transport error or a non-2xx response.

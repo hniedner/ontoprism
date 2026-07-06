@@ -5,7 +5,7 @@
 groups = ["default", "lint", "local", "test"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:c7280e988a4e692d45e26fadad38cad51daef464497d697400c5769636718f5b"
+content_hash = "sha256:0d3aab10135052a52b56a829375981678337f5265b24953c334cf8e7dfa2d87a"
 
 [[metadata.targets]]
 requires_python = ">=3.13,<3.14"
@@ -1052,7 +1052,7 @@ files = [
 
 [[package]]
 name = "uvicorn"
-version = "0.50.0"
+version = "0.50.2"
 requires_python = ">=3.10"
 summary = "The lightning-fast ASGI server."
 groups = ["default"]
@@ -1062,13 +1062,13 @@ dependencies = [
     "typing-extensions>=4.0; python_version < \"3.11\"",
 ]
 files = [
-    {file = "uvicorn-0.50.0-py3-none-any.whl", hash = "sha256:05f0eb19edf38208f79f43df8a63081b48df31b0cd1e5997be957a4dc97d1b19"},
-    {file = "uvicorn-0.50.0.tar.gz", hash = "sha256:0c92e1bc2259cb7faa4fcef774a5966588f2e88542744550b66799fba10b76f1"},
+    {file = "uvicorn-0.50.2-py3-none-any.whl", hash = "sha256:4ae72a385630bcc17a0adb8290f26c993865e0b43a2114c2aab96420172c056a"},
+    {file = "uvicorn-0.50.2.tar.gz", hash = "sha256:b92bf03509b82bcb9d49e7335b4fd364518ad021c2dc18b4e6a2fec8c955a0bb"},
 ]
 
 [[package]]
 name = "uvicorn"
-version = "0.50.0"
+version = "0.50.2"
 extras = ["standard"]
 requires_python = ">=3.10"
 summary = "The lightning-fast ASGI server."
@@ -1078,14 +1078,14 @@ dependencies = [
     "httptools>=0.8.0",
     "python-dotenv>=0.13",
     "pyyaml>=5.1",
-    "uvicorn==0.50.0",
+    "uvicorn==0.50.2",
     "uvloop>=0.15.1; (sys_platform != \"cygwin\" and sys_platform != \"win32\") and platform_python_implementation != \"PyPy\"",
     "watchfiles>=0.20",
-    "websockets>=11.0",
+    "websockets>=13.0",
 ]
 files = [
-    {file = "uvicorn-0.50.0-py3-none-any.whl", hash = "sha256:05f0eb19edf38208f79f43df8a63081b48df31b0cd1e5997be957a4dc97d1b19"},
-    {file = "uvicorn-0.50.0.tar.gz", hash = "sha256:0c92e1bc2259cb7faa4fcef774a5966588f2e88542744550b66799fba10b76f1"},
+    {file = "uvicorn-0.50.2-py3-none-any.whl", hash = "sha256:4ae72a385630bcc17a0adb8290f26c993865e0b43a2114c2aab96420172c056a"},
+    {file = "uvicorn-0.50.2.tar.gz", hash = "sha256:b92bf03509b82bcb9d49e7335b4fd364518ad021c2dc18b4e6a2fec8c955a0bb"},
 ]
 
 [[package]]
