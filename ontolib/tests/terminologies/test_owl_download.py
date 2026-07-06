@@ -122,6 +122,29 @@ async def test_download_reuses_cache_when_source_unchanged(
 
 
 @pytest.mark.unit
+async def test_offline_serves_cached_owl_and_flags_it(tmp_path: Path) -> None:
+    # Populate the cache, take the remote down, then confirm the reload succeeds from
+    # cache AND flags offline=True so the operator can see it served a stale copy.
+    server, base = _serve(_ZipHandler)
+    first = await download_ncit_owl(
+        tmp_path, variant="stated", base_url=base, max_retries=0
+    )
+    assert first.success is True
+    assert first.offline is False
+    server.shutdown()
+    server.server_close()  # remote now unreachable
+
+    result = await download_ncit_owl(
+        tmp_path, variant="stated", base_url=base, max_retries=0
+    )
+    assert result.success is True
+    assert result.offline is True
+    assert result.cached is True
+    assert result.file_path is not None
+    assert Path(result.file_path).read_bytes() == _OWL_BYTES
+
+
+@pytest.mark.unit
 async def test_result_surfaces_source_version_metadata(
     zip_server: str, tmp_path: Path
 ) -> None:
