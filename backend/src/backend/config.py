@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     ncit_owl_dir: str = "data/ncit-owl"
     ncit_owl_max_retries: int = 3
 
+    # caDSR CDE refresh: source archive URL + the managed dir the CDE XML zip is cached
+    # in. Threaded through to ontolib.repositories.cadsr.download (mirrors NCIt keys).
+    cadsr_download_url: str = (
+        "https://cadsr.nci.nih.gov/ftp/caDSR_Downloads/CDE/XML/releasedCDEsXML-OD.zip"
+    )
+    cadsr_data_dir: str = "data/cadsr"
+    cadsr_download_max_retries: int = 3
+
 
 @lru_cache
 def get_settings() -> Settings:

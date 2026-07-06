@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 import httpx
 from pydantic import BaseModel
@@ -58,7 +58,7 @@ class DownloadOutcome(BaseModel):
     """Result of a cached download and how it was satisfied."""
 
     path: str
-    status: str  # "downloaded" | "not_modified" | "offline"
+    status: Literal["downloaded", "not_modified", "offline"]
     manifest: CacheManifest
 
 
