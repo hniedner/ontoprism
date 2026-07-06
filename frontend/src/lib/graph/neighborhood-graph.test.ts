@@ -93,12 +93,64 @@ describe('mergeNeighborhood', () => {
 			expect(Number.isFinite(attrs.y as number)).toBe(true);
 		});
 	});
+
+	it('falls back to the code as label for a node with no label', () => {
+		const g = createGraph();
+		mergeNeighborhood(g, nb({ center: 'C1', nodes: [{ code: 'C1', label: null, semantic_type: null }] }));
+		expect(g.getNodeAttribute('C1', 'label')).toBe('C1');
+	});
+
+	it('does not mark the center expanded when centerExpanded is false', () => {
+		const g = createGraph();
+		mergeNeighborhood(
+			g,
+			nb({ center: 'C1', nodes: [{ code: 'C1', label: 'Root', semantic_type: null }] }),
+			{ centerExpanded: false }
+		);
+		expect(g.getNodeAttribute('C1', 'expanded')).toBe(false);
+	});
+
+	it('uses the bare relation code as the edge label when no relation_label is given', () => {
+		const g = createGraph();
+		mergeNeighborhood(
+			g,
+			nb({
+				center: 'C1',
+				nodes: [
+					{ code: 'C1', label: 'A', semantic_type: null },
+					{ code: 'C2', label: 'B', semantic_type: null }
+				],
+				edges: [{ source: 'C1', target: 'C2', relation: 'R42', relation_label: null, kind: 'role' }]
+			})
+		);
+		expect(g.getEdgeAttribute('C1|R42|C2', 'label')).toBe('R42');
+	});
 });
 
 describe('assignAnalytics', () => {
 	it('is safe on an empty graph', () => {
 		const summary = assignAnalytics(createGraph());
 		expect(summary).toEqual({ communityCount: 0, topByDegree: [], topByBetweenness: [] });
+	});
+
+	it('zeroes community/betweenness on a graph with nodes but no edges', () => {
+		const g = createGraph();
+		mergeNeighborhood(
+			g,
+			nb({
+				center: 'C1',
+				nodes: [
+					{ code: 'C1', label: 'A', semantic_type: null },
+					{ code: 'C2', label: 'B', semantic_type: null }
+				]
+			})
+		);
+		const summary = assignAnalytics(g);
+		expect(g.getNodeAttribute('C1', 'community')).toBe(0);
+		expect(g.getNodeAttribute('C1', 'betweenness')).toBe(0);
+		// One community (everything defaulted to 0), no bridges.
+		expect(summary.communityCount).toBe(1);
+		expect(summary.topByBetweenness[0].betweenness).toBe(0);
 	});
 
 	it('assigns degree and ranks the most connected node first', () => {

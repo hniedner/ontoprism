@@ -28,6 +28,28 @@ describe('sortBy', () => {
 		sortBy(rows, (r) => r.code, 'desc');
 		expect(rows.map((r) => r.code)).toEqual(before);
 	});
+
+	it('treats two null keys as equal (stable)', () => {
+		const bothNull: Row[] = [
+			{ code: 'C1', label: null },
+			{ code: 'C2', label: null }
+		];
+		expect(sortBy(bothNull, (r) => r.label, 'asc').map((r) => r.code)).toEqual(['C1', 'C2']);
+	});
+
+	it('keeps equal keys in their original order', () => {
+		const dupes: Row[] = [
+			{ code: 'C1', label: 'Same' },
+			{ code: 'C2', label: 'Same' }
+		];
+		expect(sortBy(dupes, (r) => r.label, 'desc').map((r) => r.code)).toEqual(['C1', 'C2']);
+	});
+
+	it('sorts by a numeric key', () => {
+		const nums = [{ n: 3 }, { n: 1 }, { n: 2 }];
+		expect(sortBy(nums, (r) => r.n, 'asc').map((r) => r.n)).toEqual([1, 2, 3]);
+		expect(sortBy(nums, (r) => r.n, 'desc').map((r) => r.n)).toEqual([3, 2, 1]);
+	});
 });
 
 describe('nextDir', () => {

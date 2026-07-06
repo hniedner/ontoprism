@@ -31,4 +31,10 @@ describe('flattenSparql', () => {
 		expect(table.columns).toEqual([]);
 		expect(table.rows).toEqual([]);
 	});
+
+	it('defaults to empty columns/rows when head and results are absent', () => {
+		const table = flattenSparql({});
+		expect(table.columns).toEqual([]);
+		expect(table.rows).toEqual([]);
+	});
 });

@@ -79,7 +79,7 @@ test-integration = "pytest ontolib/tests backend/tests -m integration"
 # CI integration run against a small seeded fixture (excludes full_build tests, which
 # assert the pinned 12.8M-triple production build / real generated embeddings).
 test-integration-ci = "pytest ontolib/tests backend/tests -m 'integration and not full_build'"
-test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=80 -n auto"
+test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=90 -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
 test-summary = "python scripts/test_runner.py"  # colored per-suite summary table
 pytest = "pytest"
@@ -126,6 +126,7 @@ markers = [
     "integration: Tests against real running services (Oxigraph :7888/:7889, Postgres :5433)",
     "full_build: Integration tests that require the full pinned NCIt build / real generated embeddings (excluded from the seeded-fixture CI run)",
     "api: API contract tests exercising HTTP endpoints",
+    "security: Security-hardening controls (headers, CORS, authz, rate limiting, injection/path-traversal guards)",
     "e2e: End-to-end tests",
     "slow: Tests that take more than 1 second",
 ]

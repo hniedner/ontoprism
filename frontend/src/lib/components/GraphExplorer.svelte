@@ -16,10 +16,20 @@
 		mergeNeighborhood,
 		assignAnalytics,
 		degreeToSize,
-		communityColor,
 		type AnalyticsSummary,
 		type NodeAttrs
 	} from '$lib/graph/neighborhood-graph';
+	import {
+		makeSemanticColorer,
+		nodeColorForMode,
+		seedPositions,
+		ensureFinite,
+		collectSemanticTypes,
+		neighborSet,
+		findNode,
+		reduceNodeAppearance,
+		reduceEdgeAppearance
+	} from '$lib/graph/graph-explorer';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
 	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
 
@@ -64,54 +74,11 @@
 	// Bumped after any graph mutation so the minimap redraws.
 	let graphVersion = $state(0);
 
-	const SEMANTIC_PALETTE = [
-		'#007bbd',
-		'#e85a7a',
-		'#298085',
-		'#c98f00',
-		'#7c5cbf',
-		'#1a8fcf',
-		'#d1495b',
-		'#4c956c'
-	];
-	// Non-reactive color cache (read inside the sigma reducer, never in markup).
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const semanticColors = new Map<string, string>();
-	function semanticColor(t: string | null): string {
-		if (!t) return '#94a3b8';
-		if (!semanticColors.has(t)) {
-			semanticColors.set(t, SEMANTIC_PALETTE[semanticColors.size % SEMANTIC_PALETTE.length]);
-		}
-		return semanticColors.get(t) as string;
-	}
+	// Session-stable semantic-type colorer (read inside the sigma reducer, not markup).
+	const semanticColorer = makeSemanticColorer();
 
 	function nodeColor(attrs: NodeAttrs): string {
-		return colorMode === 'community'
-			? communityColor(attrs.community)
-			: semanticColor(attrs.semanticType);
-	}
-
-	/** Seed positions for freshly added nodes so the layout has somewhere to start. */
-	function seedPositions(g: Graph) {
-		g.forEachNode((n, attrs) => {
-			if (typeof attrs.x !== 'number' || typeof attrs.y !== 'number') {
-				const angle = Math.random() * 2 * Math.PI;
-				const r = 0.5 + Math.random();
-				g.setNodeAttribute(n, 'x', Math.cos(angle) * r);
-				g.setNodeAttribute(n, 'y', Math.sin(angle) * r);
-			}
-		});
-	}
-
-	/** Guarantee every node has finite x/y — sigma throws otherwise. */
-	function ensureFinite(g: Graph) {
-		g.forEachNode((n, attrs) => {
-			if (!Number.isFinite(attrs.x as number) || !Number.isFinite(attrs.y as number)) {
-				const angle = Math.random() * 2 * Math.PI;
-				g.setNodeAttribute(n, 'x', Math.cos(angle));
-				g.setNodeAttribute(n, 'y', Math.sin(angle));
-			}
-		});
+		return nodeColorForMode(colorMode, attrs, semanticColorer);
 	}
 
 	function runLayout(g: Graph) {
@@ -150,14 +117,7 @@
 		stats = assignAnalytics(g);
 		nodeCount = g.order;
 		edgeCount = g.size;
-		// Transient, non-reactive: collected once then spread into semanticTypes.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const types = new Set<string>();
-		g.forEachNode((_n, attrs) => {
-			const t = (attrs as NodeAttrs).semanticType;
-			if (t) types.add(t);
-		});
-		semanticTypes = [...types].sort();
+		semanticTypes = collectSemanticTypes(g);
 		restyle(g);
 		graphVersion += 1;
 	}
@@ -184,45 +144,34 @@
 	}
 
 	function neighbors(node: string): Set<string> {
-		// Transient, non-reactive lookup set rebuilt per reducer call.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const set = new Set<string>([node]);
-		graph?.forEachNeighbor(node, (n) => set.add(n));
-		return set;
+		return neighborSet(graph!, node);
 	}
 
 	function setupReducers(s: Sigma) {
 		s.setSetting('nodeReducer', (node, data) => {
-			const res = { ...data };
-			if (node === code) res.type = 'circle';
-			// Filters: hide nodes of a toggled-off semantic type, and (optionally)
-			// degree-0 nodes. The center is always kept visible.
-			if (node !== code && graph) {
-				const semType = graph.getNodeAttribute(node, 'semanticType') as string | null;
-				if (semType && hiddenTypes.has(semType)) res.hidden = true;
-				if (hideIsolated && graph.degree(node) === 0) res.hidden = true;
-			}
-			if (selected && node === selected.code) {
-				res.highlighted = true;
-			}
-			if (hovered) {
-				const near = neighbors(hovered);
-				if (!near.has(node)) {
-					res.color = '#cbd5e1';
-					res.label = '';
-				}
-			}
-			return res;
+			const g = graph;
+			return {
+				...data,
+				...reduceNodeAppearance({
+					node,
+					centerCode: code,
+					semanticType:
+						g && node !== code
+							? (g.getNodeAttribute(node, 'semanticType') as string | null)
+							: null,
+					degree: g && node !== code ? g.degree(node) : 0,
+					hiddenTypes,
+					hideIsolated,
+					selectedCode: selected?.code ?? null,
+					hovered,
+					hoveredNeighbors: hovered ? neighbors(hovered) : null
+				})
+			};
 		});
 		s.setSetting('edgeReducer', (edge, data) => {
-			const res = { ...data };
-			if (hovered && graph) {
-				const [src, tgt] = graph.extremities(edge);
-				if (src !== hovered && tgt !== hovered) {
-					res.hidden = true;
-				}
-			}
-			return res;
+			if (!graph) return { ...data };
+			const [src, tgt] = graph.extremities(edge);
+			return { ...data, ...reduceEdgeAppearance({ hovered, source: src, target: tgt }) };
 		});
 	}
 
@@ -324,14 +273,7 @@
 
 	function focusNode() {
 		if (!graph || !sigma) return;
-		const term = search.trim().toLowerCase();
-		if (!term) return;
-		let found: string | null = null;
-		graph.forEachNode((n, attrs) => {
-			if (found) return;
-			const a = attrs as NodeAttrs;
-			if (n.toLowerCase() === term || (a.label ?? '').toLowerCase().includes(term)) found = n;
-		});
+		const found = findNode(graph, search);
 		if (found) {
 			selected = graph.getNodeAttributes(found) as NodeAttrs;
 			const pos = sigma.getNodeDisplayData(found);

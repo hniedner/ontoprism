@@ -139,3 +139,17 @@ def test_related_returns_pmids(pm_app: TestClient) -> None:
 def test_related_invalid_link_type_is_422(pm_app: TestClient) -> None:
     resp = pm_app.get("/api/v1/pubmed/111/related?link_type=bogus")
     assert resp.status_code == 422
+
+
+@pytest.mark.api
+def test_article_detail_upstream_failure_is_502(pm_app: TestClient) -> None:
+    _Handler.fail_status = 500
+    resp = pm_app.get("/api/v1/pubmed/111")
+    assert resp.status_code == 502
+
+
+@pytest.mark.api
+def test_related_upstream_failure_is_502(pm_app: TestClient) -> None:
+    _Handler.fail_status = 500
+    resp = pm_app.get("/api/v1/pubmed/111/related?link_type=similar")
+    assert resp.status_code == 502
