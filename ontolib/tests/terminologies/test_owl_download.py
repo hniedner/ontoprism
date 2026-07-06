@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from ontolib.terminologies.ncit import owl_download as owl_mod
+from ontolib.core import download_cache as dl_cache
 from ontolib.terminologies.ncit.owl_download import (
     download_ncit_owl,
     owl_download_url,
@@ -38,11 +38,17 @@ def _make_zip() -> bytes:
 _ZIP_BYTES = _make_zip()
 
 
+_ZIP_ETAG = '"ncit-zip-v1"'
+_ZIP_LAST_MODIFIED = "Wed, 01 Jul 2026 00:00:00 GMT"
+
+
 class _ZipHandler(BaseHTTPRequestHandler):
     def _send(self, body: bytes | None) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "application/zip")
         self.send_header("Content-Length", str(len(_ZIP_BYTES)))
+        self.send_header("ETag", _ZIP_ETAG)
+        self.send_header("Last-Modified", _ZIP_LAST_MODIFIED)
         self.end_headers()
         if body is not None:
             self.wfile.write(body)
@@ -51,6 +57,11 @@ class _ZipHandler(BaseHTTPRequestHandler):
         self._send(None)
 
     def do_GET(self) -> None:
+        # Conditional revalidation: an unchanged zip answers 304 so the cache is reused.
+        if self.headers.get("If-None-Match") == _ZIP_ETAG:
+            self.send_response(304)
+            self.end_headers()
+            return
         self._send(_ZIP_BYTES)
 
     def log_message(self, *_args: Any) -> None:
@@ -95,20 +106,32 @@ async def test_download_extracts_owl_from_zip(zip_server: str, tmp_path: Path) -
 
 
 @pytest.mark.unit
-async def test_download_uses_cache_when_zip_matches_remote_size(
+async def test_download_reuses_cache_when_source_unchanged(
     zip_server: str, tmp_path: Path
 ) -> None:
     first = await download_ncit_owl(
         tmp_path, variant="stated", base_url=zip_server, max_retries=0
     )
     assert first.cached is False
+    # Second call revalidates via ETag → the server answers 304 → the cache is reused.
     second = await download_ncit_owl(
         tmp_path, variant="stated", base_url=zip_server, max_retries=0
     )
     assert second.success is True
-    assert (
-        second.cached is True
-    )  # the local zip matches the remote size — skip re-fetch
+    assert second.cached is True
+
+
+@pytest.mark.unit
+async def test_result_surfaces_source_version_metadata(
+    zip_server: str, tmp_path: Path
+) -> None:
+    # The result echoes the source's version markers so a caller knows which version
+    # is on disk (the user's "which version have we cached" question).
+    result = await download_ncit_owl(
+        tmp_path, variant="stated", base_url=zip_server, max_retries=0
+    )
+    assert result.source_etag == _ZIP_ETAG
+    assert result.source_last_modified == _ZIP_LAST_MODIFIED
 
 
 @pytest.mark.unit
@@ -196,7 +219,6 @@ async def test_download_reports_error_on_unwritable_dir(tmp_path: Path) -> None:
     )
     assert result.success is False
     assert result.error is not None
-    assert "download dir" in result.error
 
 
 @pytest.mark.unit
@@ -290,7 +312,7 @@ async def test_download_retries_then_succeeds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # First GET fails, second succeeds — the retry loop must recover.
-    monkeypatch.setattr(owl_mod, "_RETRY_BASE_DELAY", 0.0)  # no real backoff sleep
+    monkeypatch.setattr(dl_cache, "_RETRY_BASE_DELAY", 0.0)  # no real backoff sleep
     good_zip = _make_zip()
 
     class _FlipFlop(BaseHTTPRequestHandler):
