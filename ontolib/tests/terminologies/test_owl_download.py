@@ -319,7 +319,7 @@ async def test_download_retries_then_succeeds(
         gets = 0
 
         def do_HEAD(self) -> None:
-            self.send_response(500)  # no size → skip cache, go straight to download
+            self.send_response(500)  # 5xx on the first attempt (retryable)
             self.end_headers()
 
         def do_GET(self) -> None:
@@ -364,10 +364,10 @@ async def test_download_detects_incomplete_transfer(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 async def test_corrupt_cached_zip_is_dropped_and_refetched(tmp_path: Path) -> None:
-    # A right-sized but corrupt cached zip must be dropped and re-downloaded
-    # (self-heal), not raise forever.
+    # A corrupt cached zip with NO manifest: no conditional header is sent, so a plain
+    # 200 re-downloads over it; extraction succeeds → self-heal, not a hard failure.
     good_zip = _make_zip()
-    corrupt = b"x" * len(good_zip)  # same size as remote → passes the size cache
+    corrupt = b"x" * len(good_zip)
     (tmp_path / "Thesaurus.OWL.zip").write_bytes(corrupt)
     server, base = _serve(_bytes_handler(good_zip))
     try:

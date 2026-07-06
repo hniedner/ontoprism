@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from ontolib.core import download_cache
 from ontolib.core.download_cache import (
     cached_download,
     manifest_path,
@@ -29,26 +30,46 @@ _LAST_MODIFIED = "Wed, 01 Jul 2026 00:00:00 GMT"
 
 
 class _State:
-    """Mutable server state so a test can change the served content mid-run."""
+    """Mutable server state so a test can change what/how the server serves mid-run."""
 
     body = b"ontology source v1"
-    etag = _ETAG
-    last_modified = _LAST_MODIFIED
+    etag: str | None = _ETAG
+    last_modified: str | None = _LAST_MODIFIED
+    status = 200  # forced GET status; set to 500/404 to simulate a server error
+    advertised_len: int | None = (
+        None  # override Content-Length (for truncated transfer)
+    )
     get_requests: list[dict[str, str]] = []  # noqa: RUF012
+
+
+def _not_modified(state: type[_State], headers: dict[str, str]) -> bool:
+    if state.etag is not None:
+        return headers.get("If-None-Match") == state.etag
+    # ETag-less origin: any If-Modified-Since revalidates to 304 for this stub.
+    return state.last_modified is not None and "If-Modified-Since" in headers
 
 
 def _handler(state: type[_State]) -> type[BaseHTTPRequestHandler]:
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             state.get_requests.append(dict(self.headers))
-            if self.headers.get("If-None-Match") == state.etag:
+            if state.status != 200:
+                self.send_response(state.status)
+                self.end_headers()
+                return
+            if _not_modified(state, dict(self.headers)):
                 self.send_response(304)
                 self.end_headers()
                 return
             self.send_response(200)
-            self.send_header("Content-Length", str(len(state.body)))
-            self.send_header("ETag", state.etag)
-            self.send_header("Last-Modified", state.last_modified)
+            length = state.advertised_len
+            self.send_header(
+                "Content-Length", str(length if length is not None else len(state.body))
+            )
+            if state.etag is not None:
+                self.send_header("ETag", state.etag)
+            if state.last_modified is not None:
+                self.send_header("Last-Modified", state.last_modified)
             self.end_headers()
             self.wfile.write(state.body)
 
@@ -147,3 +168,89 @@ async def test_offline_without_cache_raises(tmp_path: Path) -> None:
         await cached_download("http://127.0.0.1:9/never.owl", dest, max_retries=0)
     assert not dest.exists()
     assert not manifest_path(dest).exists()
+
+
+def _start(**overrides: Any) -> tuple[ThreadingHTTPServer, type[_State], str]:
+    state = type("S", (_State,), {"get_requests": [], **overrides})
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _handler(state))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    return srv, state, f"http://{host}:{port}/src.owl"
+
+
+@pytest.mark.unit
+async def test_server_error_falls_back_to_cache(
+    server: tuple[str, type[_State]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A reachable-but-erroring origin (persistent 5xx) with a cache serves it offline.
+    monkeypatch.setattr(download_cache, "_RETRY_BASE_DELAY", 0.0)
+    url, state = server
+    dest = tmp_path / "src.owl"
+    await cached_download(url, dest)  # populate cache
+    state.status = 500
+    outcome = await cached_download(url, dest, max_retries=1)
+    assert outcome.status == "offline"
+    assert dest.read_bytes() == b"ontology source v1"
+
+
+@pytest.mark.unit
+async def test_incomplete_transfer_preserves_existing_cache(
+    server: tuple[str, type[_State]], tmp_path: Path
+) -> None:
+    # A truncated re-fetch must not clobber the good cache (.tmp + move design).
+    url, state = server
+    dest = tmp_path / "src.owl"
+    await cached_download(url, dest)  # v1 cached
+    state.etag = '"v2"'  # source "changed" so the conditional yields a 200...
+    state.body = b"the new larger body"
+    state.advertised_len = 9999  # ...but the server truncates it
+    outcome = await cached_download(url, dest, max_retries=0)
+    assert outcome.status == "offline"  # truncated fetch failed → served cache
+    assert dest.read_bytes() == b"ontology source v1"  # old good copy intact
+    assert not (tmp_path / "src.owl.tmp").exists()  # no orphan temp file
+
+
+@pytest.mark.unit
+async def test_client_error_4xx_raises_fast(
+    server: tuple[str, type[_State]], tmp_path: Path
+) -> None:
+    # A 4xx is terminal: raise immediately, do NOT retry (won't fix on retry).
+    url, state = server
+    state.status = 404
+    dest = tmp_path / "src.owl"
+    with pytest.raises(StorageError):
+        await cached_download(url, dest, max_retries=2)
+    assert len(state.get_requests) == 1  # exactly one attempt
+
+
+@pytest.mark.unit
+async def test_corrupt_manifest_does_not_defeat_offline(tmp_path: Path) -> None:
+    # A corrupt sidecar must not turn a usable on-disk cache into "no cache available".
+    srv, _state, url = _start()
+    dest = tmp_path / "src.owl"
+    try:
+        await cached_download(url, dest)
+        manifest_path(dest).write_text("{ not valid json")  # corrupt the sidecar
+        assert read_manifest(dest) is None  # exists-but-unreadable → None (logged)
+    finally:
+        srv.shutdown()
+        srv.server_close()  # remote now unreachable
+
+    outcome = await cached_download(url, dest, max_retries=0)
+    assert outcome.status == "offline"  # keyed off the file, not the manifest
+    assert dest.read_bytes() == b"ontology source v1"
+
+
+@pytest.mark.unit
+async def test_revalidates_via_if_modified_since_without_etag(tmp_path: Path) -> None:
+    # A date-only origin (no ETag) revalidates via If-Modified-Since → 304 → reuse.
+    srv, state, url = _start(etag=None)
+    dest = tmp_path / "src.owl"
+    try:
+        await cached_download(url, dest)  # 200; manifest gets last_modified, no etag
+        outcome = await cached_download(url, dest)
+        assert outcome.status == "not_modified"
+        assert "If-Modified-Since" in state.get_requests[-1]
+    finally:
+        srv.shutdown()
+        srv.server_close()

@@ -38,9 +38,10 @@ _DOWNLOAD_TIMEOUT = 1800.0
 _RETRY_BASE_DELAY = 5.0
 _SERVER_ERROR = 500  # >= this is a (retryable) 5xx; below is a terminal 4xx
 
-# "Can't reach the remote" — these trigger retry and then the offline fallback. An HTTP
-# status error is a reached-but-refused server: 5xx retries, 4xx is terminal.
-_NETWORK_ERRORS = (httpx.TransportError, httpx.TimeoutException)
+# Retryable → retry, then offline fallback. httpx.RequestError covers transport,
+# timeout, redirect-loop and decoding; HTTPStatusError adds 5xx. Terminal errors (bad
+# URL, 4xx) are converted to StorageError in _attempt before they reach the loop.
+_RETRYABLE = (httpx.RequestError, httpx.HTTPStatusError)
 
 
 class CacheManifest(BaseModel):
@@ -73,7 +74,10 @@ def read_manifest(dest: Path) -> CacheManifest | None:
         return None
     try:
         return CacheManifest.model_validate_json(path.read_text())
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        # Exists but unreadable — surface it (a silent None would defeat both the
+        # conditional request and, worse, the offline fallback if it keyed off it).
+        logger.warning("Ignoring unreadable cache manifest %s: %s", path, exc)
         return None
 
 
@@ -106,18 +110,25 @@ def _require_manifest(dest: Path, url: str) -> CacheManifest:
 
 
 async def _stream_to_dest(response: httpx.Response, dest: Path) -> None:
+    # Stream to a temp file and only move it into place once complete, so a truncated or
+    # mid-stream-failed transfer never clobbers an existing good cache at *dest*.
     tmp = dest.with_name(dest.name + ".tmp")
-    written = 0
-    with tmp.open("wb") as fh:
-        async for chunk in response.aiter_bytes(_CHUNK):
-            fh.write(chunk)
-            written += len(chunk)
-    raw_total = response.headers.get("content-length", "")
-    total = int(raw_total) if raw_total.isdigit() else 0
-    if total and written < total:
-        tmp.unlink(missing_ok=True)
-        raise httpx.TransportError(f"Incomplete download: {written}/{total} bytes")
-    shutil.move(str(tmp), str(dest))
+    moved = False
+    try:
+        written = 0
+        with tmp.open("wb") as fh:
+            async for chunk in response.aiter_bytes(_CHUNK):
+                fh.write(chunk)
+                written += len(chunk)
+        raw_total = response.headers.get("content-length", "")
+        total = int(raw_total) if raw_total.isdigit() else 0
+        if total and written < total:
+            raise httpx.TransportError(f"Incomplete download: {written}/{total} bytes")
+        shutil.move(str(tmp), str(dest))
+        moved = True
+    finally:
+        if not moved:
+            tmp.unlink(missing_ok=True)  # clean the orphan on any failure
 
 
 def _raise_if_terminal(exc: httpx.HTTPError | httpx.InvalidURL, url: str) -> NoReturn:
@@ -178,8 +189,8 @@ async def cached_download(
 
     Returns a :class:`DownloadOutcome` whose ``status`` is ``downloaded`` (fresh copy),
     ``not_modified`` (remote unchanged, cache reused), or ``offline`` (unreachable,
-    cache reused). Raises :class:`StorageError` only when the remote is unreachable and
-    there is no cached copy to fall back to.
+    cache reused). Raises :class:`StorageError` on a terminal error (bad URL, 4xx),
+    or when the remote is unreachable and there is no cached copy to fall back to.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     headers = _conditional_headers(read_manifest(dest))
@@ -189,14 +200,17 @@ async def cached_download(
             await asyncio.sleep(min(_RETRY_BASE_DELAY * 2 ** (attempt - 1), 60.0))
         try:
             return await _attempt(url, dest, headers)
-        except (*_NETWORK_ERRORS, httpx.HTTPStatusError) as exc:
-            last_error = exc  # network or 5xx — retry, then maybe offline
+        except _RETRYABLE as exc:
+            last_error = exc  # transport/redirect/decoding or 5xx — retry, then offline
             logger.warning(
                 "download attempt %d failed for %s: %s", attempt + 1, url, exc
             )
 
-    manifest = read_manifest(dest)
-    if dest.exists() and manifest is not None:
+    if dest.exists():
+        # Offline fallback keys off the file on disk, not the manifest — a corrupt
+        # sidecar must not turn a usable cache into "no cache available". Synthesize a
+        # bare manifest when the sidecar is missing/unreadable.
+        manifest = _require_manifest(dest, url)
         logger.warning(
             "Remote unreachable (%s); serving cached %s (offline).", last_error, dest
         )

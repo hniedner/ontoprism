@@ -9,10 +9,11 @@ matter here:
 - ``inferred`` → ``ThesaurusInf.OWL.zip``  — the materialised closure; what the running
   store currently holds.
 
-The downloader streams the zip to a temp file, extracts the ``.owl``, and skips the
-fetch when a local copy already matches the remote ``Content-Length`` (size cache).
-Loading the extracted file into Oxigraph is a separate step (the store client's
-``load``); this module only fetches bytes to disk.
+The downloader fetches the zip through the metadata-aware cache
+(:func:`ontolib.core.download_cache.cached_download`) — a conditional request reuses an
+unchanged remote (304), and an unreachable remote falls back to the cached copy — then
+extracts the ``.owl`` and reports which source version is on disk. Loading the extracted
+file into Oxigraph is a separate step (the store client's ``load``).
 """
 
 from __future__ import annotations
@@ -66,6 +67,9 @@ class OwlDownloadResult(BaseModel):
     file_path: str | None = None
     size_bytes: int | None = None
     cached: bool = False
+    # True when the remote was unreachable and a possibly-stale cached copy was served —
+    # a degraded (not fresh) success the caller/operator should be able to see.
+    offline: bool = False
     source_last_modified: str | None = None
     source_etag: str | None = None
     error: str | None = None
@@ -143,6 +147,7 @@ def _make_result(
         file_path=str(owl),
         size_bytes=owl.stat().st_size,
         cached=outcome.status != "downloaded",  # revalidated (304) or offline
+        offline=outcome.status == "offline",
         source_last_modified=outcome.manifest.last_modified,
         source_etag=outcome.manifest.etag,
     )
@@ -172,6 +177,7 @@ async def download_ncit_owl(
     try:
         url = owl_download_url(variant, base_url)
     except ValueError as exc:
+        logger.error("Invalid NCIt OWL variant %r: %s", variant, exc)
         return OwlDownloadResult(success=False, variant=variant, error=str(exc))
     zip_path = output_dir / _VARIANT_ZIPS[variant]
 
