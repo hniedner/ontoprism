@@ -5,8 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import Embeddings, NcitSearch, NcitStore
+from backend.dependencies import Embeddings, NcitClient, NcitSearch, NcitStore
 from ontolib.core.logging_config import get_logger
+from ontolib.decomposition.read import decomposition_from_rows
+from ontolib.decomposition.read_models import ConceptDecomposition
+from ontolib.decomposition.read_queries import build_decomposition_query
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     Neighborhood,
@@ -91,3 +94,26 @@ async def neighborhood(
         return await store.get_neighborhood(code, depth=depth)
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+
+
+@router.get("/concepts/{code}/decomposition", response_model=ConceptDecomposition)
+async def concept_decomposition(
+    client: NcitClient, store: NcitStore, code: str
+) -> ConceptDecomposition:
+    """Return the concept's decomposition from the additive ``ncit_decomposed`` graph.
+
+    Resolves even for a concept the engine has not decomposed
+    (``is_legacy_precoordinated = false``, no constituents) so the UI can show "not
+    decomposed" rather than a 404. Filler labels are resolved for display.
+    """
+    try:
+        query = build_decomposition_query(code)
+    except ValueError as exc:  # code failed the IRI-safety guard
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+    rows = await client.select(query)
+    decomposition = decomposition_from_rows(code, rows)
+    filler_codes = [c.filler for c in decomposition.constituents]
+    labels = await store.labels_for(filler_codes) if filler_codes else {}
+    for constituent in decomposition.constituents:
+        constituent.filler_label = labels.get(constituent.filler)
+    return decomposition
