@@ -17,6 +17,7 @@ _PINNED_VERSION = "26.02d"
 
 
 @pytest.mark.integration
+@pytest.mark.full_build
 async def test_triple_count_matches_pinned_build(ncit_url: str) -> None:
     async with OxigraphHttpClient(ncit_url) as client:
         assert await client.count() == _PINNED_TRIPLE_COUNT

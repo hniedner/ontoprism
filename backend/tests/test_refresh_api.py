@@ -24,6 +24,7 @@ def test_reload_missing_file_is_404(app_client: TestClient) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.full_build
 def test_refresh_reports_ncit_version_and_counts(live_api_client: TestClient) -> None:
     resp = live_api_client.post("/api/v1/refresh")
     assert resp.status_code == 200
