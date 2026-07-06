@@ -2,6 +2,35 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-06 — stated NCIt load + decomposition extraction
+
+### D12. Load the stated NCIt OWL via the offline bulk loader, not HTTP GSP
+The stated build (`Thesaurus.OWL.zip`, 713 MB extracted RDF/XML, 10.84M triples) is
+ontoprism-specific (decomposition #4); fairdata never loaded it, so there was nothing to
+clone. Pushing it through the HTTP Graph Store Protocol (`client.load` PUT) **OOM-killed
+the Oxigraph container** (exit 137) on Docker Desktop's memory-limited VM. **Decision:**
+load it with Oxigraph's offline bulk loader into the RocksDB dir —
+`oxigraph load --location /data --file Thesaurus.owl --format application/rdf+xml --graph
+<STATED_GRAPH_IRI> --non-atomic` (server stopped) — the same class of operation that
+produced fairdata's cloned store. Loaded 10.84M triples in ~20s, memory-safe. HTTP GSP
+stays for small/incremental writes (the decomposed named graph). *Also fixed a real bug:
+`client.load` passed a sync file handle to httpx's `AsyncClient`, which rejects it — now
+streamed as an async byte iterator (chunked).* Documented in `docs/DATA_SETUP.md`.
+
+### D13. Stated pre-coordination is layered defined classes → recursive genus-chain extraction
+Running 5a's roles-first extraction against the freshly-loaded stated graph revealed that
+the stated build encodes a pre-coordinated concept as a **defined class** — an
+`owl:equivalentClass`/`owl:intersectionOf` chain (genus + restriction per level) — not the
+flat `rdfs:subClassOf` restrictions the *inferred* build materializes. So the merged 5a
+query returns nothing for a defined class (e.g. `C6135`). **Decision:** extraction must
+**recursively walk the genus chain** (application-level: query a level, recurse into
+*defined* genus members, stop at *primitive* genus/morphology classes), because Oxigraph
+won't evaluate the nested `rest*` inside a transitive property path. The C6135 integration
+test is `xfail` until this lands (next #4 increment). Full rationale:
+`docs/design/ncit-decomposition-engine.md` §6.1. *Why it matters:* this is the true core of
+correct stated extraction, and only surfaced once real stated data was loaded — validating
+the decision to load it before building 5b on top.
+
 ## 2026-07-04 — library rename
 
 ### D10. Renamed the shared library `fairlib` → `ontolib`

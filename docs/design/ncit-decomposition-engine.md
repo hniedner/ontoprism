@@ -173,6 +173,39 @@ The core engineering. For each defining axis of a candidate, choose the single i
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review)]`.
 
+### 6.1 Stated encoding is *layered defined classes* (verified 2026-07-06)
+
+**Correction to the initial extraction assumption**, found once the stated build was
+loaded (10.84M triples) and the roles-first path was run against real data. The stated
+graph does **not** hang a concept's role restrictions off `rdfs:subClassOf` — that is the
+*inferred* build's flattened form (what `role_queries.py` reads on the default graph).
+In the **stated** build a pre-coordinated concept is a **defined class**, expressed as a
+chain:
+
+```
+C6135  owl:equivalentClass [ owl:intersectionOf ( C141041  [R88 someValuesFrom C27970] ) ]
+C141041 owl:equivalentClass [ owl:intersectionOf ( C3879   [ …stage-system… ] ) ]
+C3879   owl:equivalentClass [ owl:intersectionOf ( …genus… [ …site / abnormal-cell… ] ) ]
+…                                                     ↓ (eventually a *primitive* class)
+```
+
+Each level intersects a **genus** (a named class) with one or a few **restrictions**;
+the axes are distributed **up the genus chain**, not all present on `C6135`. So the
+merged 5a query (`build_role_restrictions_query`, direct `rdfs:subClassOf` only) returns
+**nothing** for `C6135` — its integration test is marked `xfail` pending this fix.
+
+**Implication for extraction (next #4 increment):** collect restrictions by **recursively
+walking the genus chain** — from the concept, follow
+`owl:equivalentClass/owl:intersectionOf/(rdf:rest*/rdf:first)` to its members; a member
+that is a **restriction** yields a role; a member that is a **defined** named class (has
+its own `owl:equivalentClass`) is recursed; a member that is a **primitive** named class
+is the terminal genus / morphology-bearing parent (§6 morphology-from-parent) and is
+**not** recursed further (that bounds the walk and avoids climbing the general taxonomy).
+This must be **application-level recursion** (query one level, recurse in Python):
+Oxigraph does not evaluate the nested `rest*` inside a transitive `(…)+` property path,
+so a single-path traversal is not viable. Most-specific selection (§6) still applies per
+axis after the chain is gathered.
+
 ---
 
 ## 7. NLP fallback + minting (`nlp_fallback.py`, `minting.py`)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
@@ -18,12 +19,26 @@ _received: dict[str, Any] = {}
 
 
 class _StoreHandler(BaseHTTPRequestHandler):
-    def _handle(self, code: int) -> None:
+    def _read_body(self) -> bytes:
+        # Support both Content-Length and chunked transfer-encoding (streamed uploads).
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+            chunks: list[bytes] = []
+            while True:
+                size = int(self.rfile.readline().split(b";")[0], 16)
+                if size == 0:
+                    self.rfile.readline()  # consume the trailing CRLF
+                    break
+                chunks.append(self.rfile.read(size))
+                self.rfile.readline()  # CRLF after each chunk
+            return b"".join(chunks)
         length = int(self.headers.get("Content-Length", "0"))
+        return self.rfile.read(length)
+
+    def _handle(self, code: int) -> None:
         _received["method"] = self.command
         _received["content_type"] = self.headers.get("Content-Type")
         _received["path"] = self.path
-        _received["body"] = self.rfile.read(length)
+        _received["body"] = self._read_body()
         self.send_response(code)
         self.end_headers()
 
@@ -39,8 +54,7 @@ class _StoreHandler(BaseHTTPRequestHandler):
 
 class _RejectHandler(_StoreHandler):
     def do_PUT(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
-        self.rfile.read(length)  # drain body so httpx sees the response, not a reset
+        self._read_body()  # drain body so httpx sees the response, not a reset
         self.send_response(400)
         self.end_headers()
 
@@ -95,3 +109,16 @@ async def test_load_error_status_raises(rejecting_store: str) -> None:
     async with OxigraphHttpClient(rejecting_store) as client:
         with pytest.raises(StorageError, match="Store load failed"):
             await client.load(b"x", content_type="text/turtle")
+
+
+@pytest.mark.unit
+async def test_load_streams_a_binary_file_object(store_stub: str) -> None:
+    # A binary file object (what owl_load streams a multi-hundred-MB OWL through) must
+    # be sent as an async byte stream — a sync file handle is rejected by httpx's
+    # AsyncClient. Chunk boundaries must reassemble to the exact bytes.
+    payload = b"<a> <b> <c> ." * 100_000  # ~1.3 MB → spans multiple 1 MB chunks
+    _received.clear()
+    async with OxigraphHttpClient(store_stub) as client:
+        await client.load(io.BytesIO(payload), content_type="application/rdf+xml")
+    assert _received["method"] == "PUT"
+    assert _received["body"] == payload
