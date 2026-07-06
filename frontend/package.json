@@ -14,6 +14,7 @@
 		"fallow": "node scripts/fallow-gate.mjs",
 		"test:unit": "vitest",
 		"test:e2e": "playwright test",
+		"test:coverage": "vitest run --coverage",
 		"test": "npm run test:unit -- --run"
 	},
 	"devDependencies": {
@@ -26,6 +27,7 @@
 		"@testing-library/jest-dom": "^6.9.1",
 		"@testing-library/svelte": "^5.4.2",
 		"@types/node": "^24",
+		"@vitest/coverage-v8": "^4.1.10",
 		"eslint": "^10.4.1",
 		"eslint-plugin-svelte": "^3.19.0",
 		"fallow": "2.102.0",

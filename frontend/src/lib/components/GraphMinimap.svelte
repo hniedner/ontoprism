@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import type Graph from 'graphology';
 	import type Sigma from 'sigma';
+	import { minimapBounds, projectToMinimap } from '$lib/graph/graph-explorer';
 
 	// A lightweight overview minimap: node positions drawn as dots into a small canvas,
 	// with a rectangle marking the main view's current viewport. Orientation aid for
@@ -20,50 +21,18 @@
 	const PAD = 6;
 	let canvas = $state<HTMLCanvasElement | null>(null);
 
-	interface Bounds {
-		minX: number;
-		minY: number;
-		spanX: number;
-		spanY: number;
-	}
-
-	function bounds(): Bounds | null {
-		if (graph.order === 0) return null;
-		let minX = Infinity;
-		let minY = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-		graph.forEachNode((_n, attrs) => {
-			const x = attrs.x as number;
-			const y = attrs.y as number;
-			if (x < minX) minX = x;
-			if (y < minY) minY = y;
-			if (x > maxX) maxX = x;
-			if (y > maxY) maxY = y;
-		});
-		// Guard a zero span (single node / collinear) so we never divide by zero.
-		return { minX, minY, spanX: maxX - minX || 1, spanY: maxY - minY || 1 };
-	}
-
-	function project(gx: number, gy: number, b: Bounds): { x: number; y: number } {
-		return {
-			x: PAD + ((gx - b.minX) / b.spanX) * (W - 2 * PAD),
-			// Canvas y grows downward; graph y grows upward — flip so orientation matches.
-			y: PAD + (1 - (gy - b.minY) / b.spanY) * (H - 2 * PAD)
-		};
-	}
-
 	function draw() {
 		const ctx = canvas?.getContext('2d');
 		if (!ctx) return;
 		ctx.clearRect(0, 0, W, H);
-		const b = bounds();
+		const b = minimapBounds(graph);
 		if (!b) return;
+		const dims2d = { width: W, height: H, pad: PAD };
 
 		// Nodes as faint dots.
 		ctx.fillStyle = '#3b9de0';
 		graph.forEachNode((_n, attrs) => {
-			const p = project(attrs.x as number, attrs.y as number, b);
+			const p = projectToMinimap(attrs.x as number, attrs.y as number, b, dims2d);
 			ctx.beginPath();
 			ctx.arc(p.x, p.y, 1.4, 0, 2 * Math.PI);
 			ctx.fill();
@@ -73,8 +42,8 @@
 		const dims = sigma.getDimensions();
 		const tl = sigma.viewportToGraph({ x: 0, y: 0 });
 		const br = sigma.viewportToGraph({ x: dims.width, y: dims.height });
-		const a = project(tl.x, tl.y, b);
-		const c = project(br.x, br.y, b);
+		const a = projectToMinimap(tl.x, tl.y, b, dims2d);
+		const c = projectToMinimap(br.x, br.y, b, dims2d);
 		const rx = Math.min(a.x, c.x);
 		const ry = Math.min(a.y, c.y);
 		ctx.strokeStyle = '#e85a7a';

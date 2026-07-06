@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { apiUrl } from './api';
+import {
+	apiUrl,
+	searchNcit,
+	listNcit,
+	getConcept,
+	getNeighborhood,
+	runSparql,
+	getCdeNeighborhood,
+	searchCadsr,
+	listCadsr,
+	getCde,
+	cdesForConcept,
+	similarConcepts,
+	similarCdes,
+	refreshRepositories
+} from './api';
 import { getTrial, searchClinicalTrials } from './api.clinicaltrials';
 import { getArticle, getRelatedArticles, searchPubmed } from './api.pubmed';
 
@@ -87,5 +102,123 @@ describe('error handling', () => {
 		await expect(searchClinicalTrials({ condition: 'x' }, fetchImpl)).rejects.toThrow(
 			'Invalid trial phase filter.'
 		);
+	});
+});
+
+describe('NCIt endpoints', () => {
+	it('searchNcit builds the search URL with q/limit/offset defaults', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: 'neo', total: 0, limit: 25, offset: 0, hits: [] }));
+		await searchNcit('neo', { fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/search?q=neo&limit=25&offset=0');
+	});
+
+	it('listNcit builds the browse URL with explicit paging', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 5, offset: 10, hits: [] }));
+		await listNcit({ limit: 5, offset: 10, fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/list?limit=5&offset=10');
+	});
+
+	it('getConcept encodes the code in the path', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 'C 3262' }));
+		await getConcept('C 3262', fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C%203262');
+	});
+
+	it('getNeighborhood passes the depth query param', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ center: 'C3262', nodes: [], edges: [] }));
+		await getNeighborhood('C3262', 2, fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C3262/neighborhood?depth=2');
+	});
+
+	it('similarConcepts requests the similar endpoint with a limit', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+		await similarConcepts('C3262', 5, fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C3262/similar?limit=5');
+	});
+});
+
+describe('caDSR endpoints', () => {
+	it('searchCadsr builds the search URL', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: 'age', total: 0, limit: 25, offset: 0, hits: [] }));
+		await searchCadsr('age', { fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/search?q=age&limit=25&offset=0');
+	});
+
+	it('listCadsr builds the browse URL', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] }));
+		await listCadsr({ fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/list?limit=25&offset=0');
+	});
+
+	it('getCde omits the version param when not given', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ public_id: '100' }));
+		await getCde('100', undefined, fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/cdes/100');
+	});
+
+	it('getCde includes the version param when given', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ public_id: '100' }));
+		await getCde('100', '2.0', fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/cdes/100?version=2.0');
+	});
+
+	it('cdesForConcept requests the concept→CDE cross-link with a limit', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+		await cdesForConcept('C3262', 50, fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/concepts/C3262/cdes?limit=50');
+	});
+
+	it('getCdeNeighborhood passes the depth param', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ center: 'cde:100:2.0', nodes: [], edges: [] }));
+		await getCdeNeighborhood('100', 1, fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/cdes/100/neighborhood?depth=1');
+	});
+
+	it('similarCdes requests the similar endpoint with a limit', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+		await similarCdes('100', 8, fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/cadsr/cdes/100/similar?limit=8');
+	});
+});
+
+describe('sparql + refresh', () => {
+	it('runSparql POSTs the query as a JSON body', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ result: { head: {}, results: {} }, truncated: false }));
+		await runSparql('SELECT * WHERE { ?s ?p ?o }', fetchImpl);
+		const [url, init] = fetchImpl.mock.calls[0];
+		expect(url).toBe('/api/v1/sparql');
+		expect(init.method).toBe('POST');
+		expect(JSON.parse(init.body)).toEqual({ query: 'SELECT * WHERE { ?s ?p ?o }' });
+	});
+
+	it('refreshRepositories POSTs to the refresh endpoint', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ refreshed_at: 't', repositories: [] }));
+		await refreshRepositories(fetchImpl);
+		const [url, init] = fetchImpl.mock.calls[0];
+		expect(url).toBe('/api/v1/refresh');
+		expect(init.method).toBe('POST');
+	});
+});
+
+describe('getJson error handling', () => {
+	it('throws with the status code when a GET fails', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(new Response('nope', { status: 404 }));
+		await expect(getConcept('C0', fetchImpl)).rejects.toThrow('404');
 	});
 });

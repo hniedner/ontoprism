@@ -26,7 +26,7 @@ def _clear_settings_cache() -> Iterator[None]:
     get_settings.cache_clear()
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_security_headers_and_request_id_present(app_client: TestClient) -> None:
     resp = app_client.get("/health")
     assert resp.status_code == 200
@@ -35,13 +35,13 @@ def test_security_headers_and_request_id_present(app_client: TestClient) -> None
     assert resp.headers["X-Request-ID"]
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_incoming_request_id_is_echoed(app_client: TestClient) -> None:
     resp = app_client.get("/health", headers={"X-Request-ID": "abc123"})
     assert resp.headers["X-Request-ID"] == "abc123"
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_error_envelope_shape(app_client: TestClient) -> None:
     resp = app_client.post(
         "/api/v1/refresh/ncit/reload", json={"source_path": "data/nope.csv"}
@@ -53,13 +53,13 @@ def test_error_envelope_shape(app_client: TestClient) -> None:
     assert body["request_id"]
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_cors_allows_configured_origin(app_client: TestClient) -> None:
     resp = app_client.get("/health", headers={"Origin": "http://localhost:5175"})
     assert resp.headers["access-control-allow-origin"] == "http://localhost:5175"
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_reload_rejects_path_traversal(app_client: TestClient) -> None:
     resp = app_client.post(
         "/api/v1/refresh/ncit/reload",
@@ -69,7 +69,7 @@ def test_reload_rejects_path_traversal(app_client: TestClient) -> None:
     assert "allowlist" in resp.json()["detail"]
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_reload_rejects_absolute_outside_allowlist(app_client: TestClient) -> None:
     resp = app_client.post(
         "/api/v1/refresh/ncit/reload", json={"source_path": "/etc/hosts.ttl"}
@@ -77,7 +77,7 @@ def test_reload_rejects_absolute_outside_allowlist(app_client: TestClient) -> No
     assert resp.status_code == 403
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_mutating_endpoints_require_api_key_when_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -105,7 +105,7 @@ def test_mutating_endpoints_require_api_key_when_configured(
         assert reload_auth.status_code != 401
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_empty_api_key_leaves_endpoints_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -118,7 +118,7 @@ def test_empty_api_key_leaves_endpoints_open(
         assert resp.status_code != 401
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_unhandled_error_carries_request_id_and_headers() -> None:
     # A non-HTTPException 500 is handled by Starlette's outer ServerErrorMiddleware,
     # which sits above our middleware — assert it still ships the request-id and
@@ -137,7 +137,7 @@ def _raise_boom() -> None:
     raise RuntimeError("boom")
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_open_mode_logs_startup_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -150,7 +150,7 @@ def test_open_mode_logs_startup_warning(
     assert any("open mode" in r.getMessage() for r in caplog.records)
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_reload_storage_error_is_logged_and_returns_502(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

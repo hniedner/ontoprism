@@ -46,7 +46,7 @@ class _FakeClient:
 # --------------------------------------------------------------------- rate limit
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_rate_limit_returns_429_over_the_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -58,7 +58,7 @@ def test_rate_limit_returns_429_over_the_cap(
     assert codes[3] == 429
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_rate_limit_429_has_retry_after_and_envelope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -75,7 +75,7 @@ def test_rate_limit_429_has_retry_after_and_envelope(
     assert blocked.headers["X-Content-Type-Options"] == "nosniff"  # + security headers
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_rate_limit_window_resets_after_expiry() -> None:
     # After the window elapses the counter resets — a capped client is not blocked
     # forever (guards the reset branch).
@@ -94,7 +94,7 @@ def test_rate_limit_window_resets_after_expiry() -> None:
         assert client.get("/ping").status_code == 200  # reset
 
 
-@pytest.mark.api
+@pytest.mark.security
 def test_rate_limit_disabled_when_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RATE_LIMIT_PER_MINUTE", "0")
     get_settings.cache_clear()
@@ -106,12 +106,14 @@ def test_rate_limit_disabled_when_zero(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------- version check
 
 
+@pytest.mark.unit
 async def test_version_mismatch_warns(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
         await check_ncit_version(_FakeClient(version="99.99z"), "26.02d")
     assert any("version mismatch" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.unit
 async def test_matching_version_does_not_warn(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -120,6 +122,7 @@ async def test_matching_version_does_not_warn(
     assert not any("version mismatch" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.unit
 async def test_unreachable_store_version_check_is_non_fatal(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -128,6 +131,7 @@ async def test_unreachable_store_version_check_is_non_fatal(
     assert any("unreachable" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.unit
 async def test_unexpected_error_in_version_check_is_non_fatal(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

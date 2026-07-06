@@ -30,7 +30,7 @@ ontoprism/
 │   │   └── api/…/routers/    #   repo/graph/search/sparql/refresh + decomp (M6)
 │   └── tests/
 ├── frontend/                 # LIFTED SvelteKit 5 app (M4)
-└── docs/  ARCHITECTURE.md  DECISIONS.md  DECOMPOSITION_SPEC.md
+└── docs/  ARCHITECTURE.md  DECISIONS.md  DATA_SETUP.md  design/
 ```
 
 ## Data planes
@@ -63,5 +63,6 @@ with/without <finding>, staging-manual version). Scope: disease/neoplasm(/regime
 gene/protein role families are excluded by a semantic-type gate. Extraction runs off the
 **stated** OWL (DECISIONS D4); the inferred store is used only for validation/closure.
 
-See the milestone plan and `ncit-decomposition-assessment.md` (local `tmp/`, untracked)
-for the full rationale and verified prevalence numbers.
+See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
+(the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)
+(the *how*) — for the full rationale.

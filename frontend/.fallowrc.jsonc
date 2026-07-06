@@ -24,6 +24,8 @@
 		// not reachable from an app entry point.
 		"vitest-setup-client.ts",
 		"playwright.config.ts",
+		// Shared test fixtures (imported only by ignored *.test.ts files).
+		"**/*-fixture.ts",
 		// Example scaffolding shipped by the SvelteKit template (greet.ts + its spec).
 		"src/lib/vitest-examples/**"
 	],

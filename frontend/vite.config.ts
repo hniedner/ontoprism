@@ -27,6 +27,24 @@ export default defineConfig({
 	},
 	test: {
 		expect: { requireAssertions: true },
+		coverage: {
+			provider: 'v8',
+			// Cover the shared library (components + logic). Routes are exercised by the
+			// Playwright e2e flows, tracked separately; test files don't count.
+			include: ['src/lib/**'],
+			exclude: [
+				'src/lib/**/*.{test,spec}.{js,ts}',
+				'src/lib/vitest-examples/**',
+				// Imperative WebGL (sigma) / 2d-canvas rendering shells: cannot mount in
+				// jsdom (no WebGL/canvas). Their pure logic is extracted to and unit-tested
+				// in src/lib/graph/graph-explorer.ts; the interactive behaviour is covered by
+				// the Playwright e2e graph flows. See CLAUDE.local.md (documented exception).
+				'src/lib/components/GraphExplorer.svelte',
+				'src/lib/components/GraphMinimap.svelte'
+			],
+			thresholds: { lines: 90, functions: 90, branches: 90, statements: 90 },
+			reporter: ['text-summary', 'json-summary']
+		},
 		projects: [
 			{
 				extends: './vite.config.ts',
