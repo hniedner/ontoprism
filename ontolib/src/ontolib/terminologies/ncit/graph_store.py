@@ -294,6 +294,40 @@ class NcitGraphStore:
             query="", total=self._total_concepts, limit=limit, offset=offset, hits=hits
         )
 
+    async def search_records(
+        self, *, limit: int, offset: int
+    ) -> list[dict[str, str | None]]:
+        """A page of ``{code,label,semantic_type,synonyms}`` for the FTS-cache build.
+
+        Enumerates named concepts (code order) with their label, one semantic type,
+        and pipe-joined synonyms — the fields the ``ncit_search`` cache indexes.
+        """
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT ?concept ?label
+                   (SAMPLE(?semtype) AS ?semtype)
+                   (GROUP_CONCAT(DISTINCT ?syn; separator="{_LIST_SEP}") AS ?synonyms)
+            WHERE {{
+                ?concept a owl:Class ; rdfs:label ?label .
+                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+                OPTIONAL {{ ?concept ncit:{pc.FULL_SYNONYM} ?syn }}
+                FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+            }}
+            GROUP BY ?concept ?label
+            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
+            """
+        )
+        return [
+            {
+                "code": _code_of(concept),
+                "label": r.get("label"),
+                "semantic_type": r.get("semtype"),
+                "synonyms": r.get("synonyms") or "",
+            }
+            for r in rows
+            if (concept := r.get("concept")) is not None
+        ]
+
     # ------------------------------------------------------------- neighborhood
 
     async def get_neighborhood(self, code: str, *, depth: int = 1) -> Neighborhood:
