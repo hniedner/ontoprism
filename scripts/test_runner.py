@@ -107,28 +107,32 @@ _PARSERS = {
 }
 
 
-def _pytest(name: str, kind: str, marker: str, *, slow: bool = False) -> Suite:
-    cmd = ["pytest", "ontolib/tests", "backend/tests", "-m", marker]
-    return Suite(name, "Backend", kind, "pytest", cmd, slow=slow)
+def _pytest(
+    group: str, kind: str, marker: str, path: str, *, slow: bool = False
+) -> Suite:
+    cmd = ["pytest", path, "-m", marker]
+    return Suite(f"{group} {kind}", group, kind, "pytest", cmd, slow=slow)
 
 
 def suites(include_slow: bool) -> list[Suite]:
     """Hermetic suites by default; add integration + e2e when *include_slow*."""
     all_suites = [
-        _pytest("backend unit", "unit", "unit"),
-        _pytest("backend api", "api", "api"),
-        _pytest("backend security", "security", "security"),
-        _pytest("backend integration", "integration", "integration", slow=True),
+        _pytest("ontolib", "unit", "unit", "ontolib/tests"),
+        _pytest("ontolib", "integration", "integration", "ontolib/tests", slow=True),
+        _pytest("backend", "unit", "unit", "backend/tests"),
+        _pytest("backend", "api", "api", "backend/tests"),
+        _pytest("backend", "security", "security", "backend/tests"),
+        _pytest("backend", "integration", "integration", "backend/tests", slow=True),
         Suite(
             "frontend vitest",
-            "Frontend",
+            "frontend",
             "vitest",
             "vitest",
             ["npm", "--prefix", "frontend", "run", "test:unit", "--", "--run"],
         ),
         Suite(
             "frontend e2e",
-            "Frontend",
+            "frontend",
             "playwright",
             "playwright",
             ["npm", "--prefix", "frontend", "run", "test:e2e"],
@@ -138,19 +142,35 @@ def suites(include_slow: bool) -> list[Suite]:
     return [s for s in all_suites if include_slow or not s.slow]
 
 
-def run_suite(suite: Suite) -> Result:
+def run_suite(suite: Suite, console: Console) -> Result:
+    """Run one suite, streaming its output live (so long suites show progress) while
+    capturing it for the summary parse."""
+    console.rule(f"[bold cyan]{suite.group} · {suite.kind}[/bold cyan]")
     start = time.perf_counter()
     # suite.cmd is a fixed, module-defined command list — never user/network input.
-    proc = subprocess.run(  # noqa: S603
-        suite.cmd, cwd=_REPO_ROOT, capture_output=True, text=True, check=False
+    proc = subprocess.Popen(  # noqa: S603
+        suite.cmd,
+        cwd=_REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
+    captured: list[str] = []
+    # Popen(stdout=PIPE) always yields a stream; the guard keeps the type-checker happy.
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            sys.stdout.write(line)  # live echo — the developer sees tests progressing
+            captured.append(line)
+    sys.stdout.flush()
+    returncode = proc.wait()
     duration = time.perf_counter() - start
-    output = _ANSI.sub("", proc.stdout + proc.stderr)
+    output = _ANSI.sub("", "".join(captured))
     passed, failed, errors, skipped = _PARSERS[suite.runner](output)
     # Verdict: a good return code AND no failures/errors — and a raw FAILED/ERROR line
     # flips it red even if a merged summary somehow read clean (worker-drop guard).
     ok = (
-        proc.returncode in (0, _PYTEST_NO_TESTS)
+        returncode in (0, _PYTEST_NO_TESTS)
         and failed == 0
         and errors == 0
         and not _RAW_FAILURE.search(output)
@@ -164,6 +184,8 @@ _COL_W = 7
 _WIDTHS = (_NAME_W, _COL_W, _COL_W, _COL_W, _COL_W, _COL_W, _COL_W)
 _TABLE_WIDTH = sum(_WIDTHS) + 3 * (len(_WIDTHS) - 1)
 _HEADERS = ("Test Type", "Total", "Passed", "Failed", "Errors", "Skipped", "Time")
+# Section order in the summary table (library first, then service, then UI).
+_GROUP_ORDER = {"ontolib": 0, "backend": 1, "frontend": 2}
 
 
 def _num(value: int, color: str | None = None) -> str:
@@ -192,11 +214,15 @@ def _render(results: list[Result], total_duration: float) -> None:
 
     totals = [0, 0, 0, 0, 0]  # total, pass, fail, error, skip
     last_group: str | None = None
-    for r in sorted(results, key=lambda x: (x.suite.group != "Backend", x.suite.name)):
+
+    def _key(r: Result) -> tuple[int, str]:
+        return (_GROUP_ORDER.get(r.suite.group, 99), r.suite.name)
+
+    for r in sorted(results, key=_key):
         if r.suite.group != last_group:
             if last_group is not None:
                 console.print(sep)
-            console.print(r.suite.group, style="bold blue")
+            console.print(r.suite.group.title(), style="bold blue")
             last_group = r.suite.group
         total = r.passed + r.failed + r.errors + r.skipped
         for i, v in enumerate((total, r.passed, r.failed, r.errors, r.skipped)):
@@ -248,8 +274,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    console = Console()
     start = time.perf_counter()
-    results = [run_suite(s) for s in suites(args.all)]
+    results = [run_suite(s, console) for s in suites(args.all)]
     _render(results, time.perf_counter() - start)
     return 0 if all(r.ok for r in results) else 1
 
