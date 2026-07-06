@@ -58,7 +58,39 @@ from-scratch database. `migrations/env.py` reads the URL from `DATABASE_URL` / s
 
 ## Rebuild-from-scratch (standalone, no fairdata)
 
-The clone path depends on the local `fairdata-oxigraph:local` image + fairdata's data.
-A fully standalone setup would instead: load `Thesaurus.owl` via `oxigraph load` (~minutes),
-build the caDSR DB from the caDSR XML, and compute embeddings with sentence-transformers.
-Tracked as a follow-up; see [DECISIONS.md](DECISIONS.md).
+`pdm run data-build` stands ontoprism up from public sources with no fairdata
+dependency (issue #7). It has four steps, runnable individually or together:
+
+```bash
+# 0. Bring up the empty data services + apply the DB schema.
+pdm run up                      # oxigraph-ncit :7888, postgres :5433
+pdm run migrate                 # pgvector embedding tables + ncit_search FTS cache
+
+# 1. NCIt OWL → Oxigraph. Downloads from NCI EVS and loads the *inferred* build into
+#    the default graph and the *stated* build into a distinct named graph (for the
+#    decomposition engine, #4 / DECISIONS D4).
+pdm run data-build owl
+
+# 2. caDSR CDEs → SQLite. Downloads the released CDE XML and builds cde_repository.db
+#    (cdes + cde_concepts + the cdes_fts FTS5 index).
+pdm run data-build cadsr
+
+# 3. Embeddings → pgvector. 768-dim sentence-transformers (all-mpnet-base-v2) for every
+#    NCIt concept + caDSR CDE, plus a refresh of the NCIt FTS cache. Needs the optional
+#    ML stack — install it first:
+pdm install -G data-build
+pdm run data-build embeddings
+
+# …or run 1→3 in one shot:
+pdm run data-build all
+```
+
+Notes:
+
+- The embedding step is heavy (multi-GB model + compute over ~200k concepts + ~80k
+  CDEs) and is a batch/offline operation — it does not run in CI. The behavioral pieces
+  (XML parsing, embedding-text building, the pgvector upsert, OWL-load routing) are unit-
+  and integration-tested; the full run is verified manually.
+- The Oxigraph store, caDSR SQLite, and pgvector rows produced are the same shapes the
+  running app reads, so a standalone build is a drop-in replacement for the fairdata
+  clone described above. See [DECISIONS.md](DECISIONS.md).

@@ -330,6 +330,42 @@ class NcitGraphStore:
 
     # ------------------------------------------------------------- neighborhood
 
+    async def embedding_records(
+        self, *, limit: int, offset: int
+    ) -> list[dict[str, str | None]]:
+        """A page of ``{code,preferred_name,definition,semantic_type,synonyms}`` for
+        the embedding build. Synonyms are joined with `` | ``.
+        """
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT ?concept
+                   (SAMPLE(?pref) AS ?pref) (SAMPLE(?label) AS ?label)
+                   (SAMPLE(?def) AS ?def) (SAMPLE(?semtype) AS ?semtype)
+                   (GROUP_CONCAT(DISTINCT ?syn; separator=" | ") AS ?synonyms)
+            WHERE {{
+                ?concept a owl:Class ; rdfs:label ?label .
+                OPTIONAL {{ ?concept ncit:{pc.PREFERRED_NAME} ?pref }}
+                OPTIONAL {{ ?concept ncit:{pc.DEFINITION} ?def }}
+                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+                OPTIONAL {{ ?concept ncit:{pc.FULL_SYNONYM} ?syn }}
+                FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+            }}
+            GROUP BY ?concept
+            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
+            """
+        )
+        return [
+            {
+                "code": _code_of(concept),
+                "preferred_name": r.get("pref") or r.get("label"),
+                "definition": r.get("def"),
+                "semantic_type": r.get("semtype"),
+                "synonyms": r.get("synonyms") or "",
+            }
+            for r in rows
+            if (concept := r.get("concept")) is not None
+        ]
+
     async def get_neighborhood(self, code: str, *, depth: int = 1) -> Neighborhood:
         """Return a concept-centered subgraph (subClassOf + roles + associations).
 

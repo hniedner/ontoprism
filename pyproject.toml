@@ -29,6 +29,14 @@ dependencies = [
     "defusedxml>=0.7.1",
 ]
 
+[project.optional-dependencies]
+# Heavy, build-time-only ML stack for the standalone data build (embedding
+# generation). NOT installed by default (keeps the runtime image + CI lean); opt in
+# with `pdm install -G data-build`. The runtime only reads vectors from pgvector.
+data-build = [
+    "sentence-transformers>=3.0",
+]
+
 [tool.pdm]
 distribution = false
 
@@ -83,6 +91,10 @@ migrate = "alembic upgrade head"
 migrate-down = "alembic downgrade -1"
 migrate-stamp = "alembic stamp head"  # mark the pre-existing cloned DB as migrated
 migrate-rev = "alembic revision -m"
+
+# --- Standalone data build (issue #7): needs `pdm install -G data-build` for the ---
+# --- embedding step. `data-build all` runs owl -> cadsr -> embeddings (migrate first). ---
+data-build = "python scripts/data_build.py"
 
 # --- Dev process management (backend :8011 + frontend :5175), fairdata-style ---
 up = "docker compose up -d"
