@@ -95,7 +95,9 @@ migrate-rev = "alembic revision -m"
 # --- Standalone data build (issue #7): needs `pdm install -G data-build` for the ---
 # --- embedding step. `data-build all` runs owl -> cadsr -> embeddings (migrate first). ---
 data-build = "python scripts/data_build.py"
-
+# Decomposition extraction research spike (#4): score a candidate stated-extraction
+# against the curated golden set. Needs the stated NCIt graph loaded. Manual, not CI.
+decompose-spike = "python scripts/decomposition_spike.py"
 # --- Dev process management (backend :8011 + frontend :5175), fairdata-style ---
 up = "docker compose up -d"
 down = "docker compose down"

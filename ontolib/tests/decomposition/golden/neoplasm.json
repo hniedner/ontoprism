@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "purpose": "Curated intended decomposition constituents per concept — the oracle for the stated-extraction research loop (engine design §6.2). A candidate extractor is scored (precision/recall) against this set; iterate the boundary heuristic until it converges.",
+    "status": "STARTER SEED — needs SME validation + expansion to ~20-50 concepts. C6135's pairs are the design §4.2 worked example; morphology (op:Morphology) filler code is TBD (Medullary Carcinoma).",
+    "constituent_format": "[axis, filler] — axis is an NCIt role code (e.g. R101) or an op: axis (e.g. op:Morphology); filler is an NCIt concept code."
+  },
+  "concepts": {
+    "C6135": {
+      "label": "Stage III Thyroid Gland Medullary Carcinoma AJCC v7",
+      "constituents": [
+        ["R88", "C27970"],
+        ["op:StageSystem", "C90530"],
+        ["R101", "C12400"],
+        ["R105", "C36761"]
+      ]
+    }
+  }
+}
