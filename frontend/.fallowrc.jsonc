@@ -25,5 +25,16 @@
 	],
 
 	// fallow is a tool, not an imported dependency — don't flag it as unused.
-	"ignoreDependencies": ["fallow"]
+	"ignoreDependencies": ["fallow"],
+
+	// Complexity gate. Cyclomatic (20) and cognitive (15) are the primary guards. CRAP
+	// defaults to 30, but this project does not feed test coverage into fallow, so CRAP
+	// degenerates to ~cyclomatic^2 + cyclomatic and would flag every non-trivial
+	// presentational Svelte template (~cyclomatic 5) — directly undercutting the
+	// configured maxCyclomatic of 20. Align maxCrap with that ceiling (CRAP at
+	// cyclomatic 20 with 0% coverage = 20^2 + 20 = 420) so CRAP never binds tighter than
+	// cyclomatic; genuinely complex logic is still caught by maxCyclomatic/maxCognitive.
+	"health": {
+		"maxCrap": 420.0
+	}
 }

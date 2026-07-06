@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend import __version__
-from backend.api.v1 import cadsr, ncit, refresh, sparql
+from backend.api.v1 import cadsr, clinicaltrials, ncit, refresh, sparql
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from backend.dependencies import NcitClient
@@ -25,6 +25,7 @@ from backend.middleware import (
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.repository import CdeRepository
+from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
@@ -77,6 +78,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ncit_store = NcitGraphStore(client)
     app.state.cadsr_repo = CdeRepository(settings.cadsr_db_path)
     app.state.embedding_store = EmbeddingStore(make_sessionmaker(engine))
+    app.state.clinicaltrials_client = ClinicalTrialsClient(
+        settings.clinicaltrials_api_url
+    )
     # Fire the version check in the background so startup neither blocks on nor is
     # coupled to store reachability (a down store must not slow app boot / tests).
     version_check = asyncio.create_task(
@@ -89,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with contextlib.suppress(asyncio.CancelledError):
             await version_check
         await client.aclose()
+        await app.state.clinicaltrials_client.aclose()
         await dispose_engine(engine)
 
 
@@ -132,6 +137,7 @@ def create_app() -> FastAPI:
     app.include_router(cadsr.router)
     app.include_router(refresh.router)
     app.include_router(sparql.router)
+    app.include_router(clinicaltrials.router)
     return app
 
 

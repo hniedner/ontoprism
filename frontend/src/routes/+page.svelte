@@ -15,6 +15,13 @@
 			blurb:
 				'Common Data Elements with NCIt concept mappings (ISO-11179 roles), permissible values, and similar CDEs.',
 			accent: 'from-success-500 to-success-700'
+		},
+		{
+			href: resolve('/repositories/clinicaltrials'),
+			title: 'ClinicalTrials.gov',
+			blurb:
+				'Search the ClinicalTrials.gov v2 registry by condition — interventions, outcomes, eligibility, sponsors, and publication references.',
+			accent: 'from-info-500 to-info-700'
 		}
 	];
 </script>

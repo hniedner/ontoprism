@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     cadsr_data_dir: str = "data/cadsr"
     cadsr_download_max_retries: int = 3
 
+    # ClinicalTrials.gov v2 client: public API base URL (no key). Overridable to point
+    # at a mirror or a test double.
+    clinicaltrials_api_url: str = "https://clinicaltrials.gov/api/v2"
+
 
 @lru_cache
 def get_settings() -> Settings:
