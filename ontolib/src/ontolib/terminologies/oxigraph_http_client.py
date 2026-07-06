@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Self
 import httpx
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
     from types import TracebackType
     from typing import BinaryIO
 
@@ -33,6 +34,20 @@ logger = get_logger(__name__)
 
 _SPARQL_JSON = "application/sparql-results+json"
 _SPARQL_QUERY = "application/sparql-query"
+# Chunk size for streaming a file object to the store (keeps a multi-hundred-MB OWL
+# from fully materializing in memory).
+_LOAD_CHUNK_BYTES = 1 << 20
+
+
+async def _aiter_file(handle: BinaryIO) -> AsyncIterator[bytes]:
+    """Yield a binary file object in chunks as an async byte stream.
+
+    httpx's ``AsyncClient`` rejects a plain (sync) file handle as request content, so a
+    streamed upload must be wrapped in an async iterator.
+    """
+    while chunk := handle.read(_LOAD_CHUNK_BYTES):
+        yield chunk
+
 
 # A code safe to embed inside a ``<{ns}{code}>`` IRI. Anything that could close the
 # IRI or inject SPARQL (``>`` ``{`` ``}`` whitespace) is rejected. Defence in depth
@@ -146,9 +161,14 @@ class OxigraphHttpClient:
         )
         client = self._get_client()
         request = client.put if replace else client.post
+        # bytes go as-is; a file object is streamed via an async iterator (httpx's
+        # AsyncClient rejects a sync file handle passed directly as content).
+        content: bytes | AsyncIterator[bytes] = (
+            data if isinstance(data, bytes) else _aiter_file(data)
+        )
         try:
             response = await request(
-                url, content=data, headers={"Content-Type": content_type}
+                url, content=content, headers={"Content-Type": content_type}
             )
         except _RETRYABLE as e:
             raise StorageError(

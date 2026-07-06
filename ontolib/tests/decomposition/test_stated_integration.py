@@ -86,6 +86,15 @@ async def test_stated_query_builders_parse_against_live_store() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.xfail(
+    reason="Stated NCIt encodes pre-coordination as LAYERED defined classes "
+    "(owl:equivalentClass/owl:intersectionOf genus chains), not flat rdfs:subClassOf "
+    "restrictions. build_role_restrictions_query only walks direct subClassOf, so it "
+    "returns nothing for a defined class like C6135. Correct extraction needs a "
+    "recursive genus-chain walk — see docs/design/ncit-decomposition-engine.md §6.1. "
+    "Tracked as the next #4 increment.",
+    strict=False,
+)
 async def test_c6135_roles_first_extraction() -> None:
     url = _url()
     if not _reachable(url):

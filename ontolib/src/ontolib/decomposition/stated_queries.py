@@ -30,6 +30,13 @@ def build_role_restrictions_query(concept_code: str) -> str:
     Projects ``?rel`` (property IRI), ``?relLabel`` (its name — the ``Excludes_*`` /
     defining classification keys on), and ``?target`` (the filler concept IRI).
 
+    NOTE: this matches only restrictions hung **directly** off ``rdfs:subClassOf``. In
+    the stated build a pre-coordinated concept is a *defined class* whose roles live in
+    an ``owl:equivalentClass``/``owl:intersectionOf`` genus chain — those require the
+    recursive genus-chain traversal described in
+    ``docs/design/ncit-decomposition-engine.md`` §6.1 (next #4 increment). This builder
+    is the primitive-class building block for that traversal.
+
     Raises:
         ValueError: if *concept_code* is not injection-safe.
     """
