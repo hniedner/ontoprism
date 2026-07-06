@@ -50,6 +50,7 @@ def test_neighborhood_has_center_and_role_edge(live_api_client: TestClient) -> N
 
 
 @pytest.mark.integration
+@pytest.mark.full_build
 def test_list_browses_concepts_without_a_query(live_api_client: TestClient) -> None:
     # No search term: the browse endpoint pages through all concepts in code order.
     resp = live_api_client.get("/api/v1/ncit/list", params={"limit": 5})
@@ -75,6 +76,7 @@ def test_list_paginates_disjointly(live_api_client: TestClient) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.full_build
 def test_guarded_sparql_select_runs(live_api_client: TestClient) -> None:
     resp = live_api_client.post(
         "/api/v1/sparql",

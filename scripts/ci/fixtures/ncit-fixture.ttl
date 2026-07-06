@@ -1,0 +1,59 @@
+# Minimal deterministic NCIt fixture for the CI integration job — NOT the real build.
+# Hand-authored to satisfy the behavioral (non-full_build) NCIt integration tests:
+# concept detail (C3262 metadata + role), search, neighborhood role-edge + depth>1,
+# role traversal C3262 -R105-> C12922, version pin, pagination, and the caDSR CDE
+# join. See ontolib/tests/terminologies/test_ncit_store_integration.py and
+# backend/tests/test_ncit_api_integration.py.
+
+@prefix ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Ontology header → version() pin test.
+<http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl>
+    a owl:Ontology ;
+    owl:versionInfo "26.02d" .
+
+# C3262 Neoplasm — full metadata (P108 preferred name, P97 definition, P106 semantic
+# type, P90 synonym), a named parent, a named child, and the R105 role restriction.
+ncit:C3262 a owl:Class ;
+    rdfs:label "Neoplasm" ;
+    ncit:P108 "Neoplasm" ;
+    ncit:P97 "A benign or malignant tissue growth resulting from uncontrolled cell proliferation." ;
+    ncit:P106 "Neoplastic Process" ;
+    ncit:P90 "Neoplasia" ;
+    rdfs:subClassOf ncit:C2991 ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R105 ;
+        owl:someValuesFrom ncit:C12922
+    ] .
+
+# Role target and its own parent → depth-2 neighborhood grows beyond depth-1.
+ncit:C12922 a owl:Class ;
+    rdfs:label "Neoplastic Cell" ;
+    rdfs:subClassOf ncit:C12913 .
+
+ncit:C12913 a owl:Class ;
+    rdfs:label "Abnormal Cell" .
+
+ncit:C2991 a owl:Class ;
+    rdfs:label "Disease or Disorder" .
+
+# Child of Neoplasm (also a "neoplasm" search hit).
+ncit:C9305 a owl:Class ;
+    rdfs:label "Malignant Neoplasm" ;
+    ncit:P106 "Neoplastic Process" ;
+    rdfs:subClassOf ncit:C3262 .
+
+# The role property carries a label so ?rellabel resolves in the roles query.
+ncit:R105 rdfs:label "Disease_Has_Abnormal_Cell" .
+
+# Filler classes so browse/pagination has a meaningful second page (labels chosen not
+# to match a "neoplasm" search).
+ncit:C1001 a owl:Class ; rdfs:label "Anatomic Structure" .
+ncit:C1002 a owl:Class ; rdfs:label "Gene" .
+ncit:C1003 a owl:Class ; rdfs:label "Therapeutic Procedure" .
+ncit:C1004 a owl:Class ; rdfs:label "Laboratory Procedure" .
+ncit:C1005 a owl:Class ; rdfs:label "Anatomic Site" .
+ncit:C1006 a owl:Class ; rdfs:label "Clinical Finding" .

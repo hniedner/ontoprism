@@ -100,3 +100,69 @@ jobs:
 
       - name: E2E tests (Playwright)
         run: npm run test:e2e
+
+  # Behavioral integration tests against real services (Oxigraph + Postgres/pgvector),
+  # seeded with a small deterministic fixture — honors DECISIONS D3. Build-pinned tests
+  # (the 12.8M-triple universe / real generated embeddings) are marked `full_build` and
+  # excluded here; they run locally against the pinned store.
+  integration-tests:
+    name: integration tests (services)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: ontoprism
+          POSTGRES_PASSWORD: ontoprism
+          POSTGRES_DB: ontoprism
+        ports:
+          - "5433:5432"
+        options: >-
+          --health-cmd "pg_isready -U ontoprism"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      NCIT_SPARQL_URL: http://localhost:7888
+      DATABASE_URL: postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/ontoprism
+      CADSR_DB_PATH: ${{ github.workspace }}/data/cadsr/cde_repository.db
+    steps:
+      - uses: actions/checkout@v4
+
+      # Oxigraph runs as a plain container (service containers can't override the
+      # command it needs to `serve`).
+      - name: Start Oxigraph
+        run: |
+          docker run -d --name oxigraph -p 7888:7878 \
+            ghcr.io/oxigraph/oxigraph serve --location /data --bind 0.0.0.0:7878
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PDM
+        run: pipx install pdm
+
+      - name: Install dependencies
+        run: pdm install --dev
+
+      - name: Wait for Oxigraph
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS -X POST http://localhost:7888/query \
+                 -H 'Content-Type: application/sparql-query' \
+                 -H 'Accept: application/sparql-results+json' \
+                 --data 'ASK {}' >/dev/null 2>&1; then
+              echo "Oxigraph ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "Oxigraph did not become ready"; docker logs oxigraph; exit 1
+
+      - name: Provision Postgres schema (Alembic migrations)
+        run: pdm run migrate
+
+      - name: Seed the fixture (Oxigraph graph + caDSR DB)
+        run: pdm run python scripts/ci/seed_fixtures.py
+
+      - name: Integration tests (fixture-satisfiable)
+        run: pdm run test-integration-ci
