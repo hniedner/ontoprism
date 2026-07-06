@@ -1,0 +1,14 @@
+# Keep the backend build context lean — most importantly the multi-GB Oxigraph
+# stores under data/ must never be sent to the daemon.
+data/
+.venv/
+.git/
+tmp/
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+frontend/build/
+frontend/.svelte-kit/
+*.db
+*.db-shm
+*.db-wal

@@ -1,0 +1,67 @@
+# Full-application overlay: the backend (api), frontend (web), and a reverse proxy,
+# on top of the data services in docker-compose.yml. One-command prod-like bring-up:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.app.yml up --build
+#
+# Then open http://localhost:8080. The data services must already hold their stores
+# (see docs/DATA_SETUP.md); this overlay only adds the application tier. All app
+# config is env-driven here — no localhost defaults are baked into the image.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ontoprism-api
+    environment:
+      # Point at the compose-network service names, not the host-published ports.
+      NCIT_SPARQL_URL: http://oxigraph-ncit:7878
+      UBERON_SPARQL_URL: http://oxigraph-uberon:7878
+      DATABASE_URL: postgresql+asyncpg://ontoprism:ontoprism@postgres:5432/ontoprism
+      CADSR_DB_PATH: /app/data/cadsr/cde_repository.db
+      CORS_ALLOW_ORIGINS: '["http://localhost:8080"]'
+      # Refresh downloads (caDSR zip, NCIt OWL) write here — a dedicated app-writable
+      # volume, kept out of the read-only reference mount. reload_allowed_dir points at
+      # it so a downloaded OWL can then be loaded via /reload.
+      CADSR_DATA_DIR: /app/refresh/cadsr
+      NCIT_OWL_DIR: /app/refresh/ncit-owl
+      RELOAD_ALLOWED_DIR: /app/refresh
+      # Set API_KEY in your environment to require X-API-Key on the mutating endpoints
+      # (unset = open mode; the proxy is bound to localhost only).
+      API_KEY: ${API_KEY:-}
+    volumes:
+      # The caDSR SQLite DB is read-only reference data.
+      - ./data/cadsr:/app/data/cadsr:ro
+      - ontoprism_refresh:/app/refresh
+    depends_on:
+      oxigraph-ncit:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ontoprism-web
+    environment:
+      # adapter-node listens on 3000; the proxy fronts it.
+      PORT: "3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2-alpine
+    container_name: ontoprism-proxy
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  ontoprism_refresh:

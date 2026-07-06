@@ -1,0 +1,11 @@
+# Reverse proxy for the full-app compose profile: serve the SvelteKit frontend at /
+# and route /api/* to the backend, so the browser uses one same-origin host (no CORS
+# and no Vite dev proxy needed in prod-like mode).
+:80 {
+	handle /api/* {
+		reverse_proxy api:8011
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
