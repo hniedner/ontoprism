@@ -127,6 +127,24 @@ export interface SimilarConcept {
 	score: number;
 }
 
+// Decomposition (non-pre-coordinated) read models (backend ontolib.decomposition).
+
+export interface DecompositionConstituent {
+	axis: string;
+	axis_label: string | null;
+	filler: string;
+	filler_label: string | null;
+	axis_source: string;
+	most_specific: boolean;
+}
+
+export interface ConceptDecomposition {
+	code: string;
+	is_legacy_precoordinated: boolean;
+	decomposed_on: string | null;
+	constituents: DecompositionConstituent[];
+}
+
 export interface SimilarCde extends CdeSummary {
 	score: number;
 }

@@ -8,6 +8,7 @@
 	import GraphExplorer from '$lib/components/GraphExplorer.svelte';
 	import MappedCdes from '$lib/components/MappedCdes.svelte';
 	import SimilarConcepts from '$lib/components/SimilarConcepts.svelte';
+	import DecompositionPanel from '$lib/components/DecompositionPanel.svelte';
 
 	let graphMode = $state<'interactive' | 'radial'>('interactive');
 
@@ -159,6 +160,7 @@
 		<RelationshipList title="Roles" items={detail.roles} />
 		<RelationshipList title="Associations" items={detail.associations} />
 		<RelationshipList title="Incoming roles" items={detail.incoming_roles} />
+		<DecompositionPanel code={detail.code} />
 		<MappedCdes code={detail.code} />
 		<SimilarConcepts code={detail.code} />
 	</div>
