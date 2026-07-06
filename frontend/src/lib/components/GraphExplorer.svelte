@@ -21,6 +21,7 @@
 		type NodeAttrs
 	} from '$lib/graph/neighborhood-graph';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
+	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
 
 	interface Props {
 		/** Center concept code. */
@@ -33,8 +34,8 @@
 	let { code, initial = null, height = '32rem' }: Props = $props();
 
 	let container = $state<HTMLDivElement | null>(null);
-	let sigma: Sigma | null = null;
-	let graph: Graph | null = null;
+	let sigma = $state<Sigma | null>(null);
+	let graph = $state<Graph | null>(null);
 
 	let colorMode = $state<'community' | 'semantic'>('community');
 	let layoutMode = $state<'forceatlas2' | 'noverlap'>('forceatlas2');
@@ -59,6 +60,9 @@
 	let menu = $state<{ x: number; y: number; node: NodeAttrs } | null>(null);
 	let menuEl = $state<HTMLDivElement | null>(null);
 	let semanticTypes = $state<string[]>([]);
+	let showMinimap = $state(true);
+	// Bumped after any graph mutation so the minimap redraws.
+	let graphVersion = $state(0);
 
 	const SEMANTIC_PALETTE = [
 		'#007bbd',
@@ -155,6 +159,7 @@
 		});
 		semanticTypes = [...types].sort();
 		restyle(g);
+		graphVersion += 1;
 	}
 
 	async function expand(target: string) {
@@ -499,6 +504,14 @@
 		</form>
 		<button
 			type="button"
+			class="rounded-lg border border-default px-2 py-1 text-xs {showMinimap
+				? 'bg-primary-600 text-white'
+				: 'text-secondary hover:bg-subtle'}"
+			onclick={() => (showMinimap = !showMinimap)}
+			title="Toggle minimap">Minimap</button
+		>
+		<button
+			type="button"
 			class="gx-btn"
 			onclick={() => (fullscreen = !fullscreen)}
 			title="Toggle fullscreen"
@@ -509,6 +522,10 @@
 	<div class="relative flex" style:height={fullscreen ? 'calc(100vh - 8rem)' : height}>
 		<!-- Canvas -->
 		<div bind:this={container} class="graph-canvas relative flex-1"></div>
+
+		{#if !loading && showMinimap && sigma && graph}
+			<GraphMinimap {graph} {sigma} version={graphVersion} />
+		{/if}
 
 		{#if loading}
 			<div class="absolute inset-0 flex items-center justify-center text-sm text-muted">

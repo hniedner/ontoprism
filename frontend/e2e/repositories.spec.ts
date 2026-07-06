@@ -202,5 +202,6 @@ test('NCIt: concept page mounts the graph explorer with its controls', async ({ 
 	await expect(page.getByTitle('Layout preset')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Hide isolated' })).toBeVisible();
 	await expect(page.getByTitle('Export as PNG')).toBeVisible();
+	await expect(page.getByTitle('Toggle minimap')).toBeVisible();
 	await expect(page.getByText('Network', { exact: true })).toBeVisible();
 });
