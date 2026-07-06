@@ -22,6 +22,13 @@
 			blurb:
 				'Search the ClinicalTrials.gov v2 registry by condition — interventions, outcomes, eligibility, sponsors, and publication references.',
 			accent: 'from-info-500 to-info-700'
+		},
+		{
+			href: resolve('/repositories/pubmed'),
+			title: 'PubMed',
+			blurb:
+				'Search the NCBI PubMed literature database — abstracts, authors, MeSH terms, and identifiers via the E-utilities API.',
+			accent: 'from-warning-500 to-warning-700'
 		}
 	];
 </script>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { searchClinicalTrials } from '$lib/api.clinicaltrials';
 	import type { CTStudySearchPage } from '$lib/types';
+	import { createRepoBrowse } from '$lib/repo-browse.svelte';
 	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
@@ -8,30 +9,12 @@
 
 	const SUGGESTIONS = ['melanoma', 'breast cancer', 'immunotherapy', 'CAR-T', 'glioblastoma'];
 
-	let condition = $state('');
-	let submitted = $state('');
-	let result = $state<CTStudySearchPage | null>(null);
-	let loading = $state(false);
-	let error = $state<string | null>(null);
+	const search = createRepoBrowse<CTStudySearchPage>((term) =>
+		searchClinicalTrials({ condition: term, limit: 25 })
+	);
 
-	async function load(term: string) {
-		const trimmed = term.trim();
-		if (!trimmed) return;
-		loading = true;
-		error = null;
-		try {
-			result = await searchClinicalTrials({ condition: trimmed, limit: 25 });
-			submitted = trimmed;
-		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
-			result = null;
-		} finally {
-			loading = false;
-		}
-	}
-
-	const countLabel = $derived(result ? `${result.total.toLocaleString()} trials` : '');
-	const isEmpty = $derived((result?.studies.length ?? 0) === 0);
+	const countLabel = $derived(search.result ? `${search.result.total.toLocaleString()} trials` : '');
+	const isEmpty = $derived((search.result?.studies.length ?? 0) === 0);
 </script>
 
 <svelte:head>
@@ -41,7 +24,7 @@
 <RepoPageHeader
 	title="ClinicalTrials.gov"
 	description="Search the ClinicalTrials.gov v2 registry by condition. Open a trial to see its interventions, outcomes, eligibility, sponsors, sites, and publication references."
-	total={result?.total ?? null}
+	total={search.result?.total ?? null}
 >
 	{#snippet help()}
 		Enter a medical condition to search interventional and observational studies. Results are
@@ -50,25 +33,29 @@
 </RepoPageHeader>
 
 <RepoSearchBar
-	bind:value={condition}
+	bind:value={search.q}
 	placeholder="Search trials by condition…"
 	ariaLabel="Search ClinicalTrials.gov"
 	suggestions={SUGGESTIONS}
-	{loading}
-	onsearch={() => load(condition)}
-	onsuggestion={(term) => {
-		condition = term;
-		load(term);
-	}}
+	loading={search.loading}
+	onsearch={search.search}
+	onsuggestion={search.suggest}
 	suggestionsLabel="Quick:"
 />
 
-{#if result || error}
-	<RepoResultsCard title={`Results for “${submitted}”`} {countLabel} {loading} {error}>
+{#if search.result || search.error}
+	<RepoResultsCard
+		title={`Results for “${search.submitted}”`}
+		{countLabel}
+		loading={search.loading}
+		error={search.error}
+	>
 		{#if isEmpty}
-			<p class="px-4 py-6 text-center text-sm text-muted">No trials matched “{submitted}”.</p>
+			<p class="px-4 py-6 text-center text-sm text-muted">
+				No trials matched “{search.submitted}”.
+			</p>
 		{:else}
-			<CtResultsTable studies={result?.studies ?? []} />
+			<CtResultsTable studies={search.result?.studies ?? []} />
 		{/if}
 	</RepoResultsCard>
 {:else}

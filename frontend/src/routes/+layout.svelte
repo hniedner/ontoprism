@@ -19,6 +19,7 @@
 			path: '/repositories/clinicaltrials',
 			label: 'Trials'
 		},
+		{ href: resolve('/repositories/pubmed'), path: '/repositories/pubmed', label: 'PubMed' },
 		{ href: resolve('/query'), path: '/query', label: 'SPARQL' },
 		{ href: resolve('/refresh'), path: '/refresh', label: 'Refresh' }
 	];
