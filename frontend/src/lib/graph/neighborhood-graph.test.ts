@@ -5,8 +5,7 @@ import {
 	mergeNeighborhood,
 	assignAnalytics,
 	degreeToSize,
-	communityColor,
-	COMMUNITY_PALETTE
+	communityColor
 } from './neighborhood-graph';
 
 function nb(partial: Partial<Neighborhood> & { center: string }): Neighborhood {
@@ -99,7 +98,7 @@ describe('mergeNeighborhood', () => {
 describe('assignAnalytics', () => {
 	it('is safe on an empty graph', () => {
 		const summary = assignAnalytics(createGraph());
-		expect(summary).toEqual({ communityCount: 0, topByDegree: [] });
+		expect(summary).toEqual({ communityCount: 0, topByDegree: [], topByBetweenness: [] });
 	});
 
 	it('assigns degree and ranks the most connected node first', () => {
@@ -115,7 +114,7 @@ describe('assignAnalytics', () => {
 				],
 				edges: [
 					{ source: 'A', target: 'HUB', relation: 'r', relation_label: null, kind: 'role' },
-					{ source: 'B', target: 'HUB', relation: 'r', relation_label: null, kind: 'role' }
+					{ source: 'HUB', target: 'B', relation: 'r', relation_label: null, kind: 'role' }
 				]
 			})
 		);
@@ -123,6 +122,9 @@ describe('assignAnalytics', () => {
 		expect(summary.topByDegree[0].code).toBe('HUB');
 		expect(g.getNodeAttribute('HUB', 'degree')).toBe(2);
 		expect(summary.communityCount).toBeGreaterThanOrEqual(1);
+		// HUB is on every shortest path A↔B, so it leads betweenness too.
+		expect(summary.topByBetweenness[0].code).toBe('HUB');
+		expect(g.getNodeAttribute('HUB', 'betweenness')).toBeGreaterThan(0);
 	});
 });
 
@@ -132,9 +134,12 @@ describe('scales', () => {
 		expect(degreeToSize(10_000)).toBeLessThanOrEqual(22);
 	});
 
-	it('communityColor cycles the palette and is stable', () => {
-		expect(communityColor(0)).toBe(COMMUNITY_PALETTE[0]);
-		expect(communityColor(COMMUNITY_PALETTE.length)).toBe(COMMUNITY_PALETTE[0]);
-		expect(communityColor(undefined)).toBe(COMMUNITY_PALETTE[0]);
+	it('communityColor is a stable hex color, wraps, and falls back for undefined', () => {
+		expect(communityColor(0)).toMatch(/^#[0-9a-f]{6}$/i);
+		// Distinct communities get distinct colors; undefined falls back to community 0.
+		expect(communityColor(0)).not.toBe(communityColor(1));
+		expect(communityColor(undefined)).toBe(communityColor(0));
+		// Indices past the palette wrap around to the start (stable cycling).
+		expect(communityColor(0)).toBe(communityColor(10));
 	});
 });

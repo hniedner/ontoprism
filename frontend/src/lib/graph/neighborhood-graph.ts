@@ -9,6 +9,7 @@
  */
 import Graph from 'graphology';
 import louvain from 'graphology-communities-louvain';
+import betweenness from 'graphology-metrics/centrality/betweenness';
 import type { EdgeKind, Neighborhood } from '$lib/types';
 
 /** Edge color by ontological kind — reused by the legend. */
@@ -20,7 +21,7 @@ export const KIND_COLOR: Record<EdgeKind, string> = {
 };
 
 /** Distinct, theme-neutral palette cycled across detected communities. */
-export const COMMUNITY_PALETTE = [
+const COMMUNITY_PALETTE = [
 	'#007bbd',
 	'#e85a7a',
 	'#298085',
@@ -40,6 +41,7 @@ export interface NodeAttrs {
 	/** Present after `assignAnalytics`. */
 	community?: number;
 	degree?: number;
+	betweenness?: number;
 	/** Whether this node's own neighborhood has been fetched and merged. */
 	expanded?: boolean;
 	[key: string]: unknown;
@@ -103,34 +105,52 @@ export interface AnalyticsSummary {
 	communityCount: number;
 	/** Node codes sorted by descending degree (most connected first). */
 	topByDegree: { code: string; label: string; degree: number }[];
+	/** Node codes sorted by descending betweenness (key bridging concepts first). */
+	topByBetweenness: { code: string; label: string; betweenness: number }[];
+}
+
+/** Assign community + betweenness to every node (or zero them on an edgeless graph). */
+function assignCentrality(graph: Graph): void {
+	if (graph.size > 0) {
+		louvain.assign(graph, { nodeCommunityAttribute: 'community' });
+		// Betweenness = how often a node lies on shortest paths — the bridging concepts.
+		// Cheap here (neighborhoods are bounded to a few hundred nodes).
+		betweenness.assign(graph, { nodeCentralityAttribute: 'betweenness', normalized: true });
+		return;
+	}
+	graph.forEachNode((n) => {
+		graph.setNodeAttribute(n, 'community', 0);
+		graph.setNodeAttribute(n, 'betweenness', 0);
+	});
 }
 
 /**
- * Assign `community` (Louvain) and `degree` attributes to every node and return
- * a summary for the stats panel. Safe on an empty graph.
+ * Assign `community` (Louvain), `degree`, and `betweenness` attributes to every node
+ * and return a summary for the stats panel. Safe on an empty graph.
  */
 export function assignAnalytics(graph: Graph, { topN = 5 }: { topN?: number } = {}): AnalyticsSummary {
-	if (graph.order === 0) return { communityCount: 0, topByDegree: [] };
+	if (graph.order === 0) return { communityCount: 0, topByDegree: [], topByBetweenness: [] };
 
-	if (graph.size > 0) {
-		louvain.assign(graph, { nodeCommunityAttribute: 'community' });
-	} else {
-		graph.forEachNode((n) => graph.setNodeAttribute(n, 'community', 0));
-	}
+	assignCentrality(graph);
 
 	const communities = new Set<number>();
 	const degrees: { code: string; label: string; degree: number }[] = [];
+	const between: { code: string; label: string; betweenness: number }[] = [];
 	graph.forEachNode((n, attrs) => {
 		const degree = graph.degree(n);
 		graph.setNodeAttribute(n, 'degree', degree);
 		communities.add((attrs.community as number) ?? 0);
-		degrees.push({ code: n, label: (attrs.label as string) ?? n, degree });
+		const label = (attrs.label as string) ?? n;
+		degrees.push({ code: n, label, degree });
+		between.push({ code: n, label, betweenness: (attrs.betweenness as number) ?? 0 });
 	});
 	degrees.sort((a, b) => b.degree - a.degree);
+	between.sort((a, b) => b.betweenness - a.betweenness);
 
 	return {
 		communityCount: communities.size,
-		topByDegree: degrees.slice(0, topN)
+		topByDegree: degrees.slice(0, topN),
+		topByBetweenness: between.slice(0, topN)
 	};
 }
 
