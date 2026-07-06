@@ -6,7 +6,7 @@ from ontolib.decomposition.extract import (
     ancestor_pairs_from_rows,
     make_is_ancestor,
     roles_from_rows,
-    semantic_type_from_rows,
+    semantic_types_from_rows,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -36,6 +36,10 @@ def test_roles_from_rows_tolerates_missing_label_and_skips_incomplete_rows() -> 
     rows = [
         {"rel": _iri("R101"), "target": _iri("C12400")},  # no label
         {"rel": _iri("R99")},  # no target -> skipped
+        {
+            "rel": _iri("R1"),
+            "target": f"{NCIT_NS}",
+        },  # empty code (IRI ends in #) -> skipped
     ]
     roles = roles_from_rows(rows)
     assert [(r.role_code, r.filler_code, r.role_label) for r in roles] == [
@@ -44,22 +48,20 @@ def test_roles_from_rows_tolerates_missing_label_and_skips_incomplete_rows() -> 
 
 
 @pytest.mark.unit
-def test_semantic_type_from_rows_returns_first_value_or_none() -> None:
-    assert (
-        semantic_type_from_rows([{"semanticType": "Neoplastic Process"}])
-        == "Neoplastic Process"
-    )
-    assert semantic_type_from_rows([]) is None
+def test_semantic_types_from_rows_returns_all_distinct_sorted() -> None:
+    rows = [
+        {"semanticType": "Neoplastic Process"},
+        {"semanticType": "Gene or Genome"},
+        {"semanticType": "Neoplastic Process"},  # duplicate collapsed
+        {"semanticType": None},  # empty dropped
+        {"semanticType": ""},
+    ]
+    assert semantic_types_from_rows(rows) == ["Gene or Genome", "Neoplastic Process"]
 
 
 @pytest.mark.unit
-def test_semantic_type_from_rows_skips_empty_then_takes_the_first_real_value() -> None:
-    rows = [
-        {"semanticType": None},
-        {"semanticType": ""},
-        {"semanticType": "Disease or Syndrome"},
-    ]
-    assert semantic_type_from_rows(rows) == "Disease or Syndrome"
+def test_semantic_types_from_rows_empty() -> None:
+    assert semantic_types_from_rows([]) == []
 
 
 @pytest.mark.unit

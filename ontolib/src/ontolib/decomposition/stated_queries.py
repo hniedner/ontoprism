@@ -42,10 +42,14 @@ def build_role_restrictions_query(concept_code: str) -> str:
                              owl:onProperty ?rel ;
                              owl:someValuesFrom ?target .
                 FILTER(STRSTARTS(STR(?target), "{NCIT_NS}"))
-                OPTIONAL {{ ?rel rdfs:label ?relLabel }}
             }}
+            # Resolve the property label from the DEFAULT graph (NCIt property
+            # definitions live there), not the stated named graph — otherwise the
+            # Excludes_* classification silently breaks if the stated graph carries only
+            # class axioms without property rdfs:labels.
+            OPTIONAL {{ ?rel rdfs:label ?relLabel }}
         }}
-    """
+    """  # noqa: S608 — interpolated values are safe_iri-validated + module constants
 
 
 def build_semantic_type_query(concept_code: str) -> str:

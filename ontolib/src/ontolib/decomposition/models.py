@@ -8,9 +8,10 @@ filler-selection, and (later) writer/provenance layers exchange. See
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 # How an axis/constituent was recovered — the ``op:axisSource`` provenance value.
-AxisSource = str  # "role" | "nlp" | "parent"
+AxisSource = Literal["role", "nlp", "parent"]
 
 
 @dataclass(frozen=True, slots=True)

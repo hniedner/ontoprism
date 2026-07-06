@@ -105,6 +105,41 @@ def test_select_flags_ambiguous_multi_leaf_axis_for_review() -> None:
 
 
 @pytest.mark.unit
+def test_most_specific_flag_is_per_filler_not_axis_aggregate() -> None:
+    # One axis with an ancestor/leaf pair (C12401 -> C12400) AND an unrelated filler
+    # (C777). After collapse the leaves are {C12400, C777}: only C12400 was chosen over
+    # an ancestor, so only it is most_specific; the axis is still ambiguous (2 leaves).
+    restrictions = _roles(
+        ("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        ("R101", "C12401", "Disease_Has_Primary_Anatomic_Site"),
+        ("R101", "C777", "Disease_Has_Primary_Anatomic_Site"),
+    )
+    by_filler = {
+        c.filler_code: c for c in select_constituents(restrictions, _is_ancestor)
+    }
+    assert set(by_filler) == {"C12400", "C777"}
+    assert by_filler["C12400"].most_specific is True
+    assert by_filler["C777"].most_specific is False  # nothing was dropped for it
+    assert all(c.needs_review for c in by_filler.values())
+
+
+@pytest.mark.unit
+def test_cyclic_hierarchy_keeps_all_fillers_and_flags_review() -> None:
+    # A pathological cycle (A ancestor of B AND B ancestor of A) must not silently drop
+    # the whole axis — keep both and flag for curation.
+    def cyclic(a: str, b: str) -> bool:
+        return {(a, b), (b, a)} & {("CA", "CB"), ("CB", "CA")} != set()
+
+    restrictions = _roles(
+        ("R101", "CA", "Disease_Has_Primary_Anatomic_Site"),
+        ("R101", "CB", "Disease_Has_Primary_Anatomic_Site"),
+    )
+    constituents = select_constituents(restrictions, cyclic)
+    assert {c.filler_code for c in constituents} == {"CA", "CB"}
+    assert all(c.needs_review for c in constituents)
+
+
+@pytest.mark.unit
 def test_select_adds_morphology_from_parent() -> None:
     restrictions = _roles(("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"))
     constituents = select_constituents(

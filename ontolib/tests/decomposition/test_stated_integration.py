@@ -106,5 +106,7 @@ async def test_c6135_roles_first_extraction() -> None:
     fillers = {c.filler_code for c in constituents}
     # C6135 — Stage III Thyroid Gland Medullary Carcinoma AJCC v7 (design §4.2).
     assert {"C27970", "C90530", "C12400", "C36761"} <= fillers
-    # Every constituent is an existing NCIt concept code (roles-path coverage ~100%).
-    assert all(c.filler_code.startswith("C") for c in constituents)
+    # On the stated path each axis asserts a single intended filler, so most-specific
+    # selection is unambiguous — no axis should be flagged for review. (The exact,
+    # no-ancestor-bleed constituent set is pinned by the deferred golden-file spike.)
+    assert not any(c.needs_review for c in constituents)

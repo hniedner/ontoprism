@@ -11,8 +11,13 @@ single-axis atomic concept does not.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ontolib.decomposition.axes import is_defining_role, is_in_scope
 from ontolib.decomposition.models import DetectionResult, RoleRestriction
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 _DEFAULT_MIN_AXES = 2
 
@@ -31,9 +36,15 @@ def label_multi_aspect(label: str | None) -> bool:
     return any(marker in lowered for marker in _LABEL_MARKERS)
 
 
+def _representative_type(semantic_types: Sequence[str]) -> str | None:
+    """The in-scope type if any (deterministic), else the first, else None."""
+    ordered = sorted(semantic_types)
+    return next((t for t in ordered if is_in_scope(t)), ordered[0] if ordered else None)
+
+
 def detect(
     code: str,
-    semantic_type: str | None,
+    semantic_types: Sequence[str],
     roles: list[RoleRestriction],
     *,
     has_parent_morphology: bool = False,
@@ -42,8 +53,10 @@ def detect(
 ) -> DetectionResult:
     """Classify one concept. Pure — all inputs are supplied by the caller.
 
-    ``roles`` may include ``Excludes_*`` negative axioms; they are filtered here so the
-    caller can pass a concept's raw stated roles unmodified.
+    ``semantic_types`` is the concept's full set of ``P106`` types; the scope gate fires
+    if **any** of them is in scope (a concept typed both a gene and a neoplasm is in
+    scope). ``roles`` may include ``Excludes_*`` negative axioms; they are filtered here
+    so the caller can pass a concept's raw stated roles unmodified.
     """
     defining_axes = {r.role_code for r in roles if is_defining_role(r)}
     multi_aspect = label_multi_aspect(label)
@@ -54,13 +67,12 @@ def detect(
     if multi_aspect:
         decomposable_axes += 1
 
-    is_precoordinated = (
-        is_in_scope(semantic_type) and decomposable_axes >= min_decomposable_axes
-    )
+    in_scope = any(is_in_scope(t) for t in semantic_types)
+    is_precoordinated = in_scope and decomposable_axes >= min_decomposable_axes
     return DetectionResult(
         code=code,
         is_precoordinated=is_precoordinated,
         defining_role_count=len(defining_axes),
-        semantic_type=semantic_type,
+        semantic_type=_representative_type(semantic_types),
         label_multi_aspect=multi_aspect,
     )

@@ -34,7 +34,9 @@ def roles_from_rows(rows: Iterable[Row]) -> list[RoleRestriction]:
     for row in rows:
         role_code = _code(row.get("rel"))
         filler_code = _code(row.get("target"))
-        if role_code is None or filler_code is None:
+        # Skip incomplete rows and any empty code (an IRI ending in ``#``), consistent
+        # with ancestor_pairs_from_rows below.
+        if not role_code or not filler_code:
             continue
         restrictions.append(
             RoleRestriction(
@@ -46,13 +48,13 @@ def roles_from_rows(rows: Iterable[Row]) -> list[RoleRestriction]:
     return restrictions
 
 
-def semantic_type_from_rows(rows: Iterable[Row]) -> str | None:
-    """The first ``?semanticType`` literal, or None if the concept has none."""
-    for row in rows:
-        value = row.get("semanticType")
-        if value:
-            return value
-    return None
+def semantic_types_from_rows(rows: Iterable[Row]) -> list[str]:
+    """All distinct ``?semanticType`` literals, sorted (deterministic).
+
+    NCIt concepts can carry several semantic types; the caller must consider all of
+    them, so this returns the full set rather than an arbitrary first row.
+    """
+    return sorted({v for row in rows if (v := row.get("semanticType"))})
 
 
 def ancestor_pairs_from_rows(rows: Iterable[Row]) -> set[tuple[str, str]]:

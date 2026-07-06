@@ -35,6 +35,27 @@ def most_specific(fillers: set[str], is_ancestor: IsAncestor) -> set[str]:
     }
 
 
+def _axis_constituents(
+    axis: str, fillers: set[str], is_ancestor: IsAncestor
+) -> list[Constituent]:
+    """Select the constituent(s) for one axis: collapse to leaves, flag review/most-
+    specific per filler. A cyclic hierarchy (which would drop every filler) falls back
+    to keeping all fillers so the axis is never silently lost."""
+    leaves = most_specific(fillers, is_ancestor) or set(fillers)
+    ambiguous = len(leaves) > 1  # multiple candidate leaves — needs curation
+    return [
+        Constituent(
+            axis=axis,
+            filler_code=filler,
+            axis_source="role",
+            # Per-filler: this filler was chosen over an ancestor present in the set.
+            most_specific=any(o != filler and is_ancestor(o, filler) for o in fillers),
+            needs_review=ambiguous,
+        )
+        for filler in leaves
+    ]
+
+
 def select_constituents(
     restrictions: Iterable[RoleRestriction],
     is_ancestor: IsAncestor,
@@ -52,21 +73,11 @@ def select_constituents(
     for r in filter_excluded(restrictions):
         by_axis[r.role_code].add(r.filler_code)
 
-    constituents: list[Constituent] = []
-    for axis, fillers in by_axis.items():
-        leaves = most_specific(fillers, is_ancestor)
-        collapsed = len(leaves) < len(fillers)  # an ancestor was dropped
-        ambiguous = len(leaves) > 1  # multiple unrelated leaves — needs curation
-        for filler in leaves:
-            constituents.append(
-                Constituent(
-                    axis=axis,
-                    filler_code=filler,
-                    axis_source="role",
-                    most_specific=collapsed,
-                    needs_review=ambiguous,
-                )
-            )
+    constituents = [
+        c
+        for axis, fillers in by_axis.items()
+        for c in _axis_constituents(axis, fillers, is_ancestor)
+    ]
 
     if parent_morphology is not None:
         constituents.append(
