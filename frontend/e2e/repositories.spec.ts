@@ -155,3 +155,52 @@ test('ClinicalTrials: search by condition → open a trial', async ({ page }) =>
 	await expect(page.getByText('A Phase 2 Study of Widgetinib in Melanoma')).toBeVisible();
 	await expect(page.getByText('Adults with measurable disease')).toBeVisible();
 });
+
+test('NCIt: concept page mounts the graph explorer with its controls', async ({ page }) => {
+	await page.route('**/api/v1/ncit/concepts/C3262/neighborhood**', (route) =>
+		route.fulfill({
+			json: {
+				center: 'C3262',
+				nodes: [
+					{ code: 'C3262', label: 'Neoplasm', semantic_type: 'Neoplastic Process' },
+					{ code: 'C12922', label: 'Neoplastic Cell', semantic_type: null }
+				],
+				edges: [
+					{
+						source: 'C3262',
+						target: 'C12922',
+						relation: 'R105',
+						relation_label: 'Disease_Has_Abnormal_Cell',
+						kind: 'role'
+					}
+				],
+				truncated: false
+			}
+		})
+	);
+	await page.route('**/api/v1/ncit/concepts/C3262/similar**', (route) => route.fulfill({ json: [] }));
+	await page.route('**/api/v1/ncit/concepts/C3262', (route) =>
+		route.fulfill({
+			json: {
+				code: 'C3262',
+				label: 'Neoplasm',
+				preferred_name: 'Neoplasm',
+				definition: 'A tissue growth.',
+				semantic_types: ['Neoplastic Process'],
+				synonyms: ['Neoplasia'],
+				parents: [],
+				children: [],
+				roles: [],
+				associations: [],
+				incoming_roles: []
+			}
+		})
+	);
+
+	await page.goto('/repositories/ncit/C3262');
+	// Toolbar + panel render regardless of the WebGL canvas: assert the new controls.
+	await expect(page.getByTitle('Layout preset')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Hide isolated' })).toBeVisible();
+	await expect(page.getByTitle('Export as PNG')).toBeVisible();
+	await expect(page.getByText('Network', { exact: true })).toBeVisible();
+});

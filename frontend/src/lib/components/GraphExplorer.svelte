@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Sigma from 'sigma';
+	import { EdgeCurvedArrowProgram } from '@sigma/edge-curve';
+	import { downloadAsImage } from '@sigma/export-image';
 	import forceAtlas2 from 'graphology-layout-forceatlas2';
+	import noverlap from 'graphology-layout-noverlap';
 	import type Graph from 'graphology';
 	import { getNeighborhood } from '$lib/api';
 	import type { Neighborhood } from '$lib/types';
@@ -13,10 +17,10 @@
 		assignAnalytics,
 		degreeToSize,
 		communityColor,
-		KIND_COLOR,
 		type AnalyticsSummary,
 		type NodeAttrs
 	} from '$lib/graph/neighborhood-graph';
+	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
 
 	interface Props {
 		/** Center concept code. */
@@ -33,7 +37,12 @@
 	let graph: Graph | null = null;
 
 	let colorMode = $state<'community' | 'semantic'>('community');
-	let stats = $state<AnalyticsSummary>({ communityCount: 0, topByDegree: [] });
+	let layoutMode = $state<'forceatlas2' | 'noverlap'>('forceatlas2');
+	let stats = $state<AnalyticsSummary>({
+		communityCount: 0,
+		topByDegree: [],
+		topByBetweenness: []
+	});
 	let nodeCount = $state(0);
 	let edgeCount = $state(0);
 	let selected = $state<NodeAttrs | null>(null);
@@ -43,6 +52,13 @@
 	let error = $state<string | null>(null);
 	let search = $state('');
 	let fullscreen = $state(false);
+	let hideIsolated = $state(false);
+	// Semantic types the user has toggled off (hidden). A reactive set: the sigma
+	// reducer and the filter chips both read it.
+	const hiddenTypes = new SvelteSet<string>();
+	let menu = $state<{ x: number; y: number; node: NodeAttrs } | null>(null);
+	let menuEl = $state<HTMLDivElement | null>(null);
+	let semanticTypes = $state<string[]>([]);
 
 	const SEMANTIC_PALETTE = [
 		'#007bbd',
@@ -96,7 +112,7 @@
 
 	function runLayout(g: Graph) {
 		seedPositions(g);
-		if (g.size > 0) {
+		if (g.size > 0 && layoutMode === 'forceatlas2') {
 			forceAtlas2.assign(g, {
 				iterations: 220,
 				settings: {
@@ -106,6 +122,12 @@
 					barnesHutOptimize: g.order > 120
 				}
 			});
+		}
+		if (g.order > 0 && layoutMode === 'noverlap') {
+			// Spread first (a coordinate-less graph collapses to the origin), then remove
+			// node overlaps — a compact, grid-like alternative to the force layout.
+			forceAtlas2.assign(g, { iterations: 60, settings: forceAtlas2.inferSettings(g) });
+			noverlap.assign(g, { maxIterations: 120, settings: { margin: 4, ratio: 1.2 } });
 		}
 		ensureFinite(g);
 	}
@@ -124,6 +146,14 @@
 		stats = assignAnalytics(g);
 		nodeCount = g.order;
 		edgeCount = g.size;
+		// Transient, non-reactive: collected once then spread into semanticTypes.
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
+		const types = new Set<string>();
+		g.forEachNode((_n, attrs) => {
+			const t = (attrs as NodeAttrs).semanticType;
+			if (t) types.add(t);
+		});
+		semanticTypes = [...types].sort();
 		restyle(g);
 	}
 
@@ -160,6 +190,13 @@
 		s.setSetting('nodeReducer', (node, data) => {
 			const res = { ...data };
 			if (node === code) res.type = 'circle';
+			// Filters: hide nodes of a toggled-off semantic type, and (optionally)
+			// degree-0 nodes. The center is always kept visible.
+			if (node !== code && graph) {
+				const semType = graph.getNodeAttribute(node, 'semanticType') as string | null;
+				if (semType && hiddenTypes.has(semType)) res.hidden = true;
+				if (hideIsolated && graph.degree(node) === 0) res.hidden = true;
+			}
 			if (selected && node === selected.code) {
 				res.highlighted = true;
 			}
@@ -184,6 +221,73 @@
 		});
 	}
 
+	function setupInteractions(s: Sigma) {
+		let dragged: string | null = null;
+
+		s.on('clickNode', ({ node }) => {
+			selected = graph?.getNodeAttributes(node) as NodeAttrs;
+			menu = null;
+			sigma?.refresh();
+		});
+		s.on('doubleClickNode', ({ node, event }) => {
+			event.preventSigmaDefault();
+			void expand(node);
+		});
+		s.on('enterNode', ({ node }) => {
+			hovered = node;
+			sigma?.refresh();
+		});
+		s.on('leaveNode', () => {
+			hovered = null;
+			sigma?.refresh();
+		});
+		s.on('clickStage', () => {
+			selected = null;
+			menu = null;
+			sigma?.refresh();
+		});
+
+		// Right-click a node → context menu (positioned over the canvas).
+		s.on('rightClickNode', ({ node, event }) => {
+			event.preventSigmaDefault();
+			event.original.preventDefault();
+			menu = { x: event.x, y: event.y, node: graph?.getNodeAttributes(node) as NodeAttrs };
+		});
+
+		// Pin/drag: dragging fixes a node's position until released. Left button only —
+		// right-click never emits a matching `up*`, which would strand the drag state.
+		s.on('downNode', ({ node, event }) => {
+			if (event.original instanceof MouseEvent && event.original.button !== 0) return;
+			dragged = node;
+			graph?.setNodeAttribute(node, 'highlighted', true);
+		});
+		s.on('moveBody', ({ event }) => {
+			if (!dragged || !graph) return;
+			const pos = s.viewportToGraph(event);
+			graph.setNodeAttribute(dragged, 'x', pos.x);
+			graph.setNodeAttribute(dragged, 'y', pos.y);
+			// forceAtlas2 honors `fixed` (noverlap ignores it) — keep the dragged spot.
+			graph.setNodeAttribute(dragged, 'fixed', true);
+			// preventSigmaDefault suppresses camera pan during the drag (no need to
+			// disable the camera, which would strand it disabled on a missed mouseup).
+			event.preventSigmaDefault();
+			event.original.stopPropagation();
+		});
+		const release = () => {
+			if (dragged) graph?.removeNodeAttribute(dragged, 'highlighted');
+			dragged = null;
+		};
+		s.on('upNode', release);
+		s.on('upStage', release);
+
+		// Zoom-scalable labels: reveal more labels as the camera zooms in. Also dismiss
+		// the context menu on any pan/zoom so it never lingers detached from its node.
+		s.getCamera().on('updated', ({ ratio }) => {
+			s.setSetting('labelRenderedSizeThreshold', ratio < 0.6 ? 3 : 8);
+			menu = null;
+		});
+	}
+
 	async function init() {
 		if (!container) return;
 		loading = true;
@@ -197,34 +301,15 @@
 
 			sigma = new Sigma(graph, container, {
 				renderEdgeLabels: true,
-				defaultEdgeType: 'arrow',
+				defaultEdgeType: 'curved',
+				edgeProgramClasses: { curved: EdgeCurvedArrowProgram },
 				labelDensity: 0.5,
 				labelRenderedSizeThreshold: 8,
 				minCameraRatio: 0.05,
 				maxCameraRatio: 4
 			});
 			setupReducers(sigma);
-
-			sigma.on('clickNode', ({ node }) => {
-				selected = graph?.getNodeAttributes(node) as NodeAttrs;
-				sigma?.refresh();
-			});
-			sigma.on('doubleClickNode', ({ node, event }) => {
-				event.preventSigmaDefault();
-				void expand(node);
-			});
-			sigma.on('enterNode', ({ node }) => {
-				hovered = node;
-				sigma?.refresh();
-			});
-			sigma.on('leaveNode', () => {
-				hovered = null;
-				sigma?.refresh();
-			});
-			sigma.on('clickStage', () => {
-				selected = null;
-				sigma?.refresh();
-			});
+			setupInteractions(sigma);
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -268,6 +353,40 @@
 		fit();
 	}
 
+	function applyLayout(mode: 'forceatlas2' | 'noverlap') {
+		layoutMode = mode;
+		relayout();
+	}
+
+	function exportPng() {
+		if (sigma) void downloadAsImage(sigma, { fileName: `ncit-${code}-graph` });
+	}
+
+	function toggleType(t: string) {
+		if (hiddenTypes.has(t)) hiddenTypes.delete(t);
+		else hiddenTypes.add(t);
+		sigma?.refresh();
+	}
+
+	function toggleIsolated() {
+		hideIsolated = !hideIsolated;
+		sigma?.refresh();
+	}
+
+	function unpinNode(nodeCode: string) {
+		graph?.removeNodeAttribute(nodeCode, 'fixed');
+	}
+
+	function menuAction(action: 'expand' | 'open' | 'unpin' | 'hide-type') {
+		if (!menu) return;
+		const { node } = menu;
+		if (action === 'expand') void expand(node.code);
+		else if (action === 'open') void goto(resolve('/repositories/ncit/[code]', { code: node.code }));
+		else if (action === 'unpin') unpinNode(node.code);
+		else if (action === 'hide-type' && node.semanticType) toggleType(node.semanticType);
+		menu = null;
+	}
+
 	$effect(() => {
 		// Re-color when the color mode changes.
 		void colorMode;
@@ -275,6 +394,24 @@
 			restyle(graph);
 			sigma?.refresh();
 		}
+	});
+
+	$effect(() => {
+		// While the context menu is open, dismiss it on Escape or a pointer down outside
+		// it (clicks on its own buttons are excluded so their action still fires).
+		if (!menu) return;
+		const onPointerDown = (e: PointerEvent) => {
+			if (menuEl && !menuEl.contains(e.target as Node)) menu = null;
+		};
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') menu = null;
+		};
+		window.addEventListener('pointerdown', onPointerDown, true);
+		window.addEventListener('keydown', onKey);
+		return () => {
+			window.removeEventListener('pointerdown', onPointerDown, true);
+			window.removeEventListener('keydown', onKey);
+		};
 	});
 
 	onMount(() => {
@@ -316,6 +453,35 @@
 				onclick={() => (colorMode = 'semantic')}>Semantic type</button
 			>
 		</div>
+
+		<div class="mx-1 h-5 w-px bg-neutral-300 dark:bg-neutral-700"></div>
+
+		<label class="sr-only" for="gx-layout">Layout</label>
+		<select
+			id="gx-layout"
+			class="rounded-lg border border-default bg-page-bg px-2 py-1 text-xs text-default focus:border-primary-500 focus:outline-none dark:bg-neutral-900"
+			value={layoutMode}
+			onchange={(e) => applyLayout(e.currentTarget.value as 'forceatlas2' | 'noverlap')}
+			title="Layout preset"
+		>
+			<option value="forceatlas2">Force layout</option>
+			<option value="noverlap">No-overlap</option>
+		</select>
+		<button
+			type="button"
+			class="rounded-lg border border-default px-2 py-1 text-xs {hideIsolated
+				? 'bg-primary-600 text-white'
+				: 'text-secondary hover:bg-subtle'}"
+			onclick={toggleIsolated}
+			title="Hide degree-0 nodes">Hide isolated</button
+		>
+		<button
+			type="button"
+			class="gx-btn"
+			onclick={exportPng}
+			title="Export as PNG"
+			aria-label="Export as PNG">⭳</button
+		>
 
 		<form
 			class="relative ml-auto"
@@ -361,92 +527,51 @@
 			</div>
 		{/if}
 
-		<!-- Side panel -->
-		<div class="w-64 shrink-0 overflow-y-auto border-l border-default p-3 text-sm">
-			{#if selected}
-				<div class="mb-4">
-					<h4 class="font-semibold text-default">{selected.label}</h4>
-					<p class="mt-0.5 font-mono text-xs text-muted">{selected.code}</p>
-					{#if selected.semanticType}
-						<span
-							class="mt-1 inline-block rounded-full bg-primary-50 px-2 py-0.5 text-xs text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-							>{selected.semanticType}</span
-						>
-					{/if}
-					<dl class="mt-2 grid grid-cols-2 gap-1 text-xs text-muted">
-						<dt>Degree</dt>
-						<dd class="text-right text-default">{selected.degree ?? 0}</dd>
-						<dt>Community</dt>
-						<dd class="text-right text-default">#{(selected.community ?? 0) + 1}</dd>
-					</dl>
-					<div class="mt-3 flex flex-col gap-1.5">
-						<button
-							type="button"
-							class="rounded-md bg-primary-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50"
-							disabled={expanding || selected.expanded}
-							onclick={() => selected && expand(selected.code)}
-						>
-							{selected.expanded ? 'Expanded' : 'Expand node'}
-						</button>
-						<button
-							type="button"
-							class="rounded-md border border-default px-2.5 py-1.5 text-xs font-medium text-secondary hover:bg-subtle"
-							onclick={() => selected && goto(resolve('/repositories/ncit/[code]', { code: selected.code }))}
-						>
-							Open concept →
-						</button>
-					</div>
+		{#if menu}
+			<!-- Right-click context menu, positioned over the canvas. -->
+			<div
+				bind:this={menuEl}
+				class="absolute z-20 min-w-40 overflow-hidden rounded-lg border border-default bg-card text-xs shadow-lg"
+				style:left="{menu.x}px"
+				style:top="{menu.y}px"
+			>
+				<div class="truncate border-b border-default px-3 py-1.5 font-medium text-default">
+					{menu.node.label}
 				</div>
-			{:else}
-				<p class="mb-4 text-xs text-subtle">
-					Click a node to inspect it. Double-click to expand its neighborhood.
-				</p>
-			{/if}
-
-			<div class="border-t border-default pt-3">
-				<h5 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Network</h5>
-				<dl class="grid grid-cols-2 gap-1 text-xs text-muted">
-					<dt>Nodes</dt>
-					<dd class="text-right text-default">{nodeCount}</dd>
-					<dt>Edges</dt>
-					<dd class="text-right text-default">{edgeCount}</dd>
-					<dt>Communities</dt>
-					<dd class="text-right text-default">{stats.communityCount}</dd>
-				</dl>
-				{#if stats.topByDegree.length}
-					<h5 class="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-muted">
-						Most connected
-					</h5>
-					<ul class="flex flex-col gap-1 text-xs">
-						{#each stats.topByDegree as n (n.code)}
-							<li class="flex items-center justify-between gap-2">
-								<button
-									type="button"
-									class="min-w-0 truncate text-left text-secondary hover:text-primary-600"
-									onclick={() => {
-										search = n.code;
-										focusNode();
-									}}>{n.label}</button
-								>
-								<span class="shrink-0 tabular-nums text-subtle">{n.degree}</span>
-							</li>
-						{/each}
-					</ul>
+				<button type="button" class="gx-menu-item" onclick={() => menuAction('expand')}
+					>Expand neighborhood</button
+				>
+				<button type="button" class="gx-menu-item" onclick={() => menuAction('open')}
+					>Open concept →</button
+				>
+				<button type="button" class="gx-menu-item" onclick={() => menuAction('unpin')}
+					>Unpin</button
+				>
+				{#if menu.node.semanticType}
+					<button type="button" class="gx-menu-item" onclick={() => menuAction('hide-type')}
+						>Hide type “{menu.node.semanticType}”</button
+					>
 				{/if}
 			</div>
+		{/if}
 
-			<div class="mt-3 border-t border-default pt-3">
-				<h5 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Edge types</h5>
-				<ul class="flex flex-col gap-1 text-xs text-muted">
-					{#each Object.entries(KIND_COLOR) as [kind, color] (kind)}
-						<li class="flex items-center gap-2">
-							<span class="inline-block h-2.5 w-4 rounded-sm" style:background={color}></span>
-							{kind}
-						</li>
-					{/each}
-				</ul>
-			</div>
-		</div>
+		<!-- Side panel -->
+		<GraphSidePanel
+			{selected}
+			{expanding}
+			{stats}
+			{nodeCount}
+			{edgeCount}
+			{semanticTypes}
+			{hiddenTypes}
+			onexpand={(c) => expand(c)}
+			onopen={(c) => goto(resolve('/repositories/ncit/[code]', { code: c }))}
+			onfocus={(c) => {
+				search = c;
+				focusNode();
+			}}
+			ontoggletype={toggleType}
+		/>
 	</div>
 </div>
 
@@ -476,6 +601,22 @@
 		color: #d4d4d4;
 	}
 	:global(.dark) .gx-btn:hover {
+		background: #262626;
+	}
+	.gx-menu-item {
+		display: block;
+		width: 100%;
+		padding: 0.375rem 0.75rem;
+		text-align: left;
+		color: var(--color-text-secondary, #404040);
+	}
+	.gx-menu-item:hover {
+		background: var(--color-bg-subtle, #f5f5f5);
+	}
+	:global(.dark) .gx-menu-item {
+		color: #d4d4d4;
+	}
+	:global(.dark) .gx-menu-item:hover {
 		background: #262626;
 	}
 </style>
