@@ -62,4 +62,17 @@ describe('createRepoBrowse', () => {
 		expect(browse.q).toBe('immunotherapy');
 		expect(searchFn).toHaveBeenCalledWith('immunotherapy', { limit: 25, offset: 0 });
 	});
+
+	it('search-only mode (no listFn): an empty term is a no-op, a term searches', async () => {
+		const searchFn = vi.fn().mockResolvedValue(page(3, ['x']));
+		const browse = createRepoBrowse<Page>(searchFn); // no listFn
+
+		await browse.load(0, '   '); // empty → no-op
+		expect(searchFn).not.toHaveBeenCalled();
+		expect(browse.result).toBeNull();
+
+		await browse.load(0, 'melanoma');
+		expect(searchFn).toHaveBeenCalledOnce();
+		expect(browse.result?.total).toBe(3);
+	});
 });

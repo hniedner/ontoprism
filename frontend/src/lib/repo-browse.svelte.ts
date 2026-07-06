@@ -1,7 +1,8 @@
-// Shared browse/search state for the repository pages (NCIt, caDSR). Encapsulates the
-// list-vs-search mode toggle, pagination offset, and load/error lifecycle that the
-// repo pages otherwise duplicate. A Svelte 5 rune module: state is exposed via getters
-// so callers stay reactive (and `q` is settable for `bind:value`).
+// Shared browse/search state for the repository pages. Encapsulates the list-vs-search
+// mode toggle, pagination offset, and load/error lifecycle. A Svelte 5 rune module:
+// state is exposed via getters (so callers stay reactive; `q` is settable for
+// `bind:value`). Pages without a browse/list mode (ClinicalTrials, PubMed) omit
+// `listFn` — an empty query is then a no-op and the offset stays 0.
 
 interface PageResult {
 	total: number;
@@ -25,7 +26,7 @@ export interface RepoBrowse<P extends PageResult> {
 
 export function createRepoBrowse<P extends PageResult>(
 	searchFn: (q: string, opts: PageOpts) => Promise<P>,
-	listFn: (opts: PageOpts) => Promise<P>,
+	listFn?: (opts: PageOpts) => Promise<P>,
 	limit = 25
 ): RepoBrowse<P> {
 	let q = $state('');
@@ -37,13 +38,16 @@ export function createRepoBrowse<P extends PageResult>(
 	let error = $state<string | null>(null);
 
 	async function load(nextOffset: number, term: string): Promise<void> {
+		const trimmed = term.trim();
+		// Search-only pages (no listFn): an empty term has nothing to load.
+		if (!trimmed && !listFn) return;
 		loading = true;
 		error = null;
 		try {
-			const trimmed = term.trim();
-			result = trimmed
-				? await searchFn(trimmed, { limit, offset: nextOffset })
-				: await listFn({ limit, offset: nextOffset });
+			result =
+				trimmed || !listFn
+					? await searchFn(trimmed, { limit, offset: nextOffset })
+					: await listFn({ limit, offset: nextOffset });
 			mode = trimmed ? 'search' : 'browse';
 			submitted = trimmed;
 			offset = nextOffset;

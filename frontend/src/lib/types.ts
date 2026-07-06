@@ -228,3 +228,52 @@ export interface CTStudySearchPage {
 	total: number;
 	studies: CTStudySummary[];
 }
+
+// PubMed E-utilities read models (backend ontolib.repositories.pubmed.models).
+
+export interface PubMedAuthor {
+	last_name: string | null;
+	fore_name: string | null;
+	initials: string | null;
+}
+
+export interface MeshTerm {
+	descriptor: string;
+	qualifiers: string[];
+	major_topic: boolean;
+}
+
+export interface PubMedArticleSummary {
+	pmid: string;
+	title: string;
+	journal: string | null;
+	pub_date: string | null;
+	authors: string[];
+	doi: string | null;
+}
+
+export interface PubMedArticleDetail {
+	pmid: string;
+	title: string;
+	abstract: string | null;
+	authors: PubMedAuthor[];
+	journal: string | null;
+	pub_date: string | null;
+	doi: string | null;
+	pmc_id: string | null;
+	mesh_terms: MeshTerm[];
+	keywords: string[];
+	url: string;
+}
+
+export interface PubMedSearchResult {
+	query: string;
+	total: number;
+	articles: PubMedArticleSummary[];
+}
+
+export interface RelatedArticlesResult {
+	pmid: string;
+	link_type: string;
+	related_pmids: string[];
+}

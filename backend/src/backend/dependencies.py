@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -36,8 +37,14 @@ def get_clinicaltrials_client(request: Request) -> ClinicalTrialsClient:
     return request.app.state.clinicaltrials_client
 
 
+def get_pubmed_client(request: Request) -> PubMedClient:
+    """Return the process-wide PubMed E-utilities client."""
+    return request.app.state.pubmed_client
+
+
 NcitStore = Annotated[NcitGraphStore, Depends(get_ncit_store)]
 NcitClient = Annotated[OxigraphHttpClient, Depends(get_ncit_client)]
 CadsrRepo = Annotated[CdeRepository, Depends(get_cadsr_repo)]
 Embeddings = Annotated[EmbeddingStore, Depends(get_embedding_store)]
 ClinicalTrials = Annotated[ClinicalTrialsClient, Depends(get_clinicaltrials_client)]
+PubMed = Annotated[PubMedClient, Depends(get_pubmed_client)]

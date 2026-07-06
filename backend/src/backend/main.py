@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend import __version__
-from backend.api.v1 import cadsr, clinicaltrials, ncit, refresh, sparql
+from backend.api.v1 import cadsr, clinicaltrials, ncit, pubmed, refresh, sparql
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from backend.dependencies import NcitClient
@@ -27,6 +27,7 @@ from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -81,6 +82,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.clinicaltrials_client = ClinicalTrialsClient(
         settings.clinicaltrials_api_url
     )
+    app.state.pubmed_client = PubMedClient(
+        settings.pubmed_api_url,
+        api_key=settings.pubmed_api_key,
+        requests_per_second=settings.pubmed_requests_per_second,
+    )
     # Fire the version check in the background so startup neither blocks on nor is
     # coupled to store reachability (a down store must not slow app boot / tests).
     version_check = asyncio.create_task(
@@ -94,6 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await version_check
         await client.aclose()
         await app.state.clinicaltrials_client.aclose()
+        await app.state.pubmed_client.aclose()
         await dispose_engine(engine)
 
 
@@ -138,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(refresh.router)
     app.include_router(sparql.router)
     app.include_router(clinicaltrials.router)
+    app.include_router(pubmed.router)
     return app
 
 
