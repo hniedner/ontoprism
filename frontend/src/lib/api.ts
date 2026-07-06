@@ -5,6 +5,7 @@ import type {
 	CdeDetail,
 	CdeSearchPage,
 	CdeSummary,
+	ConceptDecomposition,
 	ConceptDetail,
 	Neighborhood,
 	RefreshReport,
@@ -99,6 +100,17 @@ export function getNeighborhood(
 ): Promise<Neighborhood> {
 	return getJson<Neighborhood>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/neighborhood`, { depth }),
+		fetchImpl
+	);
+}
+
+/** The concept's decomposition (constituents by axis + legacy flag) from ncit_decomposed. */
+export function getDecomposition(
+	code: string,
+	fetchImpl?: typeof fetch
+): Promise<ConceptDecomposition> {
+	return getJson<ConceptDecomposition>(
+		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/decomposition`),
 		fetchImpl
 	);
 }

@@ -5,6 +5,7 @@ import {
 	listNcit,
 	getConcept,
 	getNeighborhood,
+	getDecomposition,
 	runSparql,
 	getCdeNeighborhood,
 	searchCadsr,
@@ -140,6 +141,19 @@ describe('NCIt endpoints', () => {
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
 		await similarConcepts('C3262', 5, fetchImpl);
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C3262/similar?limit=5');
+	});
+
+	it('getDecomposition requests the decomposition endpoint with the code encoded', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse({
+				code: 'C6135',
+				is_legacy_precoordinated: false,
+				decomposed_on: null,
+				constituents: []
+			})
+		);
+		await getDecomposition('C 6135', fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C%206135/decomposition');
 	});
 });
 
