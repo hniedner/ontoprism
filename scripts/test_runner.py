@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Run the test suites by type and print a colored, grouped summary table.
 
-A lightweight wrapper (not fairdata's heavy runner — see DECISIONS D9) that invokes
-each sanctioned suite through its real command and renders one row per test *type*,
-grouped Backend / Frontend, with a TOTAL. Exits non-zero if any suite failed.
+The default `pdm run test` entry point (a lightweight wrapper, not fairdata's heavy
+runner — see DECISIONS D9): it invokes each hermetic suite through its real command and
+renders one row per test *type*, grouped Backend / Frontend, with a TOTAL, in the same
+style as fairdata's runner. Exits non-zero if any suite failed.
 
-    pdm run test-summary            # all types (unit/api/security/integration/e2e)
-    pdm run test-summary --fast     # skip slow suites (live-store integration, e2e)
+    pdm run test            # hermetic suites: backend unit/api/security + frontend
+    pdm run test --all      # also run the slow suites (live-store integration, e2e)
 
 Coverage is a separate gated flow (`pdm run test-ci` / `test:coverage`), not shown here.
 """
@@ -22,7 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
-from rich.table import Table
 
 _REPO_ROOT = str(Path(__file__).resolve().parents[1])
 # pytest exit 5 = "no tests collected" (e.g. a marker selected nothing) — not a failure.
@@ -36,7 +36,7 @@ class Suite:
     kind: str  # display label for the Type column
     runner: str  # "pytest" | "vitest" | "playwright"
     cmd: list[str]
-    slow: bool = False  # skipped under --fast
+    slow: bool = False  # skipped unless --all
 
 
 @dataclass
@@ -112,8 +112,8 @@ def _pytest(name: str, kind: str, marker: str, *, slow: bool = False) -> Suite:
     return Suite(name, "Backend", kind, "pytest", cmd, slow=slow)
 
 
-def suites(fast: bool) -> list[Suite]:
-    """All suites (a subset when *fast*)."""
+def suites(include_slow: bool) -> list[Suite]:
+    """Hermetic suites by default; add integration + e2e when *include_slow*."""
     all_suites = [
         _pytest("backend unit", "unit", "unit"),
         _pytest("backend api", "api", "api"),
@@ -135,7 +135,7 @@ def suites(fast: bool) -> list[Suite]:
             slow=True,
         ),
     ]
-    return [s for s in all_suites if not (fast and s.slow)]
+    return [s for s in all_suites if include_slow or not s.slow]
 
 
 def run_suite(suite: Suite) -> Result:
@@ -158,63 +158,99 @@ def run_suite(suite: Suite) -> Result:
     return Result(suite, passed, failed, errors, skipped, duration, ok)
 
 
-def _cell(value: int, color: str) -> str:
-    return f"[{color}]{value}[/{color}]" if value else "0"
+_NAME_W = 18
+_COL_W = 7
+# Column widths in order: name, then the six right-aligned metric columns.
+_WIDTHS = (_NAME_W, _COL_W, _COL_W, _COL_W, _COL_W, _COL_W, _COL_W)
+_TABLE_WIDTH = sum(_WIDTHS) + 3 * (len(_WIDTHS) - 1)
+_HEADERS = ("Test Type", "Total", "Passed", "Failed", "Errors", "Skipped", "Time")
 
 
-def _render(results: list[Result]) -> None:
-    console = Console()
-    table = Table(title="Test summary", header_style="bold")
-    for col in ("Suite", "Type"):
-        table.add_column(col)
-    for col in ("Total", "Pass", "Fail", "Error", "Skip", "Time"):
-        table.add_column(col, justify="right")
-    table.add_column("Status")
+def _num(value: int, color: str | None = None) -> str:
+    """A right-aligned metric cell, colored only when non-zero (padding preserved)."""
+    cell = f"{value:>{_COL_W}}"
+    return f"[{color}]{cell}[/{color}]" if value and color else cell
+
+
+def _row(name: str, cells: list[str]) -> str:
+    return " | ".join([f"{name:<{_NAME_W}}", *cells])
+
+
+def _render(results: list[Result], total_duration: float) -> None:
+    # Pin the width so the table lays out identically piped or in a terminal (never
+    # soft-wrapped to the detected column count).
+    console = Console(width=_TABLE_WIDTH)
+    sep = "-+-".join("-" * w for w in _WIDTHS)
+
+    console.print("=" * _TABLE_WIDTH)
+    console.print("TEST RESULTS SUMMARY".center(_TABLE_WIDTH), style="bold")
+    console.print("=" * _TABLE_WIDTH)
+    console.print(
+        _row(_HEADERS[0], [f"{h:>{_COL_W}}" for h in _HEADERS[1:]]), style="bold"
+    )
+    console.print(sep)
 
     totals = [0, 0, 0, 0, 0]  # total, pass, fail, error, skip
-    last_group = None
+    last_group: str | None = None
     for r in sorted(results, key=lambda x: (x.suite.group != "Backend", x.suite.name)):
         if r.suite.group != last_group:
-            table.add_section()
+            if last_group is not None:
+                console.print(sep)
+            console.print(r.suite.group, style="bold blue")
             last_group = r.suite.group
         total = r.passed + r.failed + r.errors + r.skipped
         for i, v in enumerate((total, r.passed, r.failed, r.errors, r.skipped)):
             totals[i] += v
-        table.add_row(
-            f"[dim]{r.suite.group}[/dim] · {r.suite.name}",
-            r.suite.kind,
-            str(total),
-            _cell(r.passed, "green"),
-            _cell(r.failed, "red"),
-            _cell(r.errors, "red"),
-            _cell(r.skipped, "yellow"),
-            f"{r.duration_s:.1f}s",
-            "[green]PASS[/green]" if r.ok else "[red]FAIL[/red]",
+        cells = [
+            _num(total),
+            _num(r.passed, "green"),
+            _num(r.failed, "red"),
+            _num(r.errors, "red"),
+            _num(r.skipped, "yellow"),
+            f"{r.duration_s:>{_COL_W - 1}.1f}s",
+        ]
+        console.print(_row(f"  {r.suite.kind}", cells))
+
+    console.print(sep)
+    total_cells = [
+        _num(totals[0]),
+        _num(totals[1], "green"),
+        _num(totals[2], "red"),
+        _num(totals[3], "red"),
+        _num(totals[4], "yellow"),
+        f"{total_duration:>{_COL_W - 1}.1f}s",
+    ]
+    console.print(_row("TOTAL", total_cells), style="bold")
+    console.print("=" * _TABLE_WIDTH)
+
+    ok = totals[2] == 0 and totals[3] == 0
+    console.print()
+    if ok:
+        console.print(
+            f"✅ All tests passed! ({totals[1]} passed, {totals[4]} skipped "
+            f"in {total_duration:.0f}s)",
+            style="bold green",
         )
-    table.add_section()
-    table.add_row(
-        "[bold]TOTAL[/bold]",
-        "",
-        f"[bold]{totals[0]}[/bold]",
-        _cell(totals[1], "green"),
-        _cell(totals[2], "red"),
-        _cell(totals[3], "red"),
-        _cell(totals[4], "yellow"),
-        "",
-        "",
-    )
-    console.print(table)
+    else:
+        console.print(
+            f"❌ Tests failed! ({totals[2]} failed, {totals[3]} errors "
+            f"in {total_duration:.0f}s)",
+            style="bold red",
+        )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--fast", action="store_true", help="skip the slow suites (integration, e2e)"
+        "--all",
+        action="store_true",
+        help="also run the slow suites (live-store integration, e2e)",
     )
     args = parser.parse_args()
 
-    results = [run_suite(s) for s in suites(args.fast)]
-    _render(results)
+    start = time.perf_counter()
+    results = [run_suite(s) for s in suites(args.all)]
+    _render(results, time.perf_counter() - start)
     return 0 if all(r.ok for r in results) else 1
 
 

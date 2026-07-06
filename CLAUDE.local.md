@@ -30,7 +30,7 @@ not lower a gate to make a change pass — raise coverage instead.
 **Test types.** Use the registered markers deliberately: `unit`, `api`, `security`,
 `integration` (real services), `full_build` (pinned build / real embeddings, excluded
 from the seeded-fixture CI run). Frontend: vitest unit + component (jsdom) and
-Playwright e2e. `pdm run test-summary` shows the per-type breakdown.
+Playwright e2e. `pdm run test` shows the per-type breakdown.
 
 **If a change genuinely cannot reach 90% for a specific module** (e.g. a thin CLI glue
 or an optional-dependency branch), that is a deliberate, justified exception — call it

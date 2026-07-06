@@ -70,9 +70,10 @@ lint = [
 # the repo root to sys.path, where the outer ontolib/ & backend/ dirs shadow the
 # editable installs. The console script keeps import resolution clean.
 [tool.pdm.scripts]
-# Default runs exclude integration (which needs live Oxigraph/Postgres); opt in via
-# test-integration. This keeps CI and quick local runs hermetic.
-test = "pytest ontolib/tests backend/tests -m 'not integration' -n auto"
+# Default `test`: the grouped, colored summary runner over the hermetic suites
+# (backend unit/api/security + frontend vitest). `pdm run test --all` adds the slow
+# suites (live-store integration, e2e). Coverage is the separate `test-ci` gate.
+test = "python scripts/test_runner.py"
 test-unit = "pytest ontolib/tests backend/tests -m unit -n auto"
 test-backend-unit = "pytest backend/tests -m unit -n auto"
 test-integration = "pytest ontolib/tests backend/tests -m integration"
@@ -81,7 +82,6 @@ test-integration = "pytest ontolib/tests backend/tests -m integration"
 test-integration-ci = "pytest ontolib/tests backend/tests -m 'integration and not full_build'"
 test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=90 -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
-test-summary = "python scripts/test_runner.py"  # colored per-suite summary table
 pytest = "pytest"
 lint = { composite = ["ruff check .", "basedpyright"] }
 fmt = "ruff format ."

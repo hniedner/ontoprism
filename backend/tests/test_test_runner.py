@@ -1,4 +1,4 @@
-"""Unit tests for the test-summary runner's output parsers (scripts/test_runner.py)."""
+"""Unit tests for the test runner's output parsers (scripts/test_runner.py)."""
 
 import importlib.util
 import sys
