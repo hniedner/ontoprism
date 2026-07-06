@@ -14,9 +14,10 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
-from backend.dependencies import CadsrRepo, NcitClient, NcitStore
+from backend.dependencies import CadsrRepo, NcitClient, NcitSearch, NcitStore
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
@@ -25,6 +26,7 @@ from ontolib.terminologies.ncit.owl_download import (
     OwlDownloadResult,
     download_ncit_owl,
 )
+from ontolib.terminologies.ncit.search_index import populate_from_store
 
 logger = get_logger(__name__)
 
@@ -260,3 +262,32 @@ async def download_cadsr() -> CdeDownloadReport:
         source_last_modified=outcome.manifest.last_modified,
         source_etag=outcome.manifest.etag,
     )
+
+
+class SearchIndexReport(BaseModel):
+    """Result of rebuilding the NCIt full-text search cache."""
+
+    concepts_indexed: int
+
+
+@router.post(
+    "/ncit/search-index",
+    response_model=SearchIndexReport,
+    dependencies=[RequireApiKey],
+)
+async def rebuild_ncit_search_index(
+    store: NcitStore, index: NcitSearch
+) -> SearchIndexReport:
+    """Rebuild the NCIt FTS cache from the live store (materialize label + synonyms).
+
+    Run after an NCIt store (re)load: search then serves from the tsvector index
+    instead of a live SPARQL scan. A store or DB failure returns 502.
+    """
+    try:
+        count = await populate_from_store(store, index)
+    except (StorageError, SQLAlchemyError) as exc:
+        logger.exception("NCIt search-index rebuild failed")
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "NCIt search-index rebuild failed."
+        ) from exc
+    return SearchIndexReport(concepts_indexed=count)

@@ -25,6 +25,27 @@ from ontolib.repositories.cadsr.models import (
 )
 
 _SUMMARY_COLS = "public_id, version, short_name, long_name, context, datatype"
+# Same columns qualified with the table name, for the FTS join (both cdes and cdes_fts
+# expose short_name/long_name/definition, so unqualified names are ambiguous there).
+_SUMMARY_COLS_Q = ", ".join(f"cdes.{c}" for c in _SUMMARY_COLS.split(", "))
+# FTS5 special characters we strip from user tokens before quoting them (quoting each
+# token as a phrase both AND-combines them and neutralizes operator syntax).
+_FTS_STRIP = str.maketrans(dict.fromkeys('"*():^-', " "))
+
+
+def _fts_match_query(query: str) -> str:
+    """Turn a user query into a safe FTS5 MATCH string (quoted AND-ed prefix tokens)."""
+    tokens = query.translate(_FTS_STRIP).split()
+    # Prefix-match each token so "tumo" finds "tumor" (mirrors the old substring feel).
+    return " ".join(f'"{t}"*' for t in tokens)
+
+
+def _has_cdes_fts(conn: sqlite3.Connection) -> bool:
+    """True if the DB has the ``cdes_fts`` FTS5 index (fairdata-built DBs do)."""
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cdes_fts'"
+    ).fetchone()
+    return row is not None
 
 
 class CdeRepository:
@@ -67,22 +88,59 @@ class CdeRepository:
         return _to_detail(data, concepts)
 
     def search(self, query: str, *, limit: int = 25, offset: int = 0) -> CdeSearchPage:
-        """Substring search over CDE short/long name and definition."""
+        """Search CDE short/long name and definition.
+
+        Uses the ``cdes_fts`` FTS5 index (single windowed query, no leading-wildcard
+        scan) when present; falls back to a ``LIKE`` scan for DBs without the index
+        (e.g. minimal test fixtures).
+        """
+        with self._connect() as conn:
+            if _has_cdes_fts(conn):
+                return self._search_fts(conn, query, limit=limit, offset=offset)
+            return self._search_like(conn, query, limit=limit, offset=offset)
+
+    def _search_fts(
+        self, conn: sqlite3.Connection, query: str, *, limit: int, offset: int
+    ) -> CdeSearchPage:
+        match = _fts_match_query(query)
+        if not match:  # query was all punctuation/empty → no matches
+            return CdeSearchPage(query=query, total=0, limit=limit, offset=offset)
+        # COUNT(*) OVER () yields the full match total in every row — one query, and the
+        # match uses the FTS index rather than a full table scan.
+        # Order by name (deterministic): bm25() relevance ranking can't be combined
+        # with the COUNT(*) OVER () window in one statement.
+        rows = conn.execute(
+            f"SELECT {_SUMMARY_COLS_Q}, COUNT(*) OVER () AS _total "  # noqa: S608
+            "FROM cdes JOIN cdes_fts ON cdes_fts.rowid = cdes.rowid "
+            "WHERE cdes_fts MATCH ? ORDER BY cdes.long_name LIMIT ? OFFSET ?",
+            (match, limit, offset),
+        ).fetchall()
+        total = rows[0]["_total"] if rows else 0
+        return CdeSearchPage(
+            query=query,
+            total=total,
+            limit=limit,
+            offset=offset,
+            hits=[_to_summary(r) for r in rows],
+        )
+
+    def _search_like(
+        self, conn: sqlite3.Connection, query: str, *, limit: int, offset: int
+    ) -> CdeSearchPage:
         like = f"%{query}%"
         where = "long_name LIKE ? OR short_name LIKE ? OR definition LIKE ?"
         params = (like, like, like)
         # S608 noqa: the interpolated parts (`where`, `_SUMMARY_COLS`) are module
         # constants; all user values are bound parameters.
-        with self._connect() as conn:
-            total = conn.execute(
-                f"SELECT COUNT(*) AS n FROM cdes WHERE {where}",  # noqa: S608
-                params,
-            ).fetchone()["n"]
-            rows = conn.execute(
-                f"SELECT {_SUMMARY_COLS} FROM cdes WHERE {where} "  # noqa: S608
-                "ORDER BY long_name LIMIT ? OFFSET ?",
-                (*params, limit, offset),
-            ).fetchall()
+        total = conn.execute(
+            f"SELECT COUNT(*) AS n FROM cdes WHERE {where}",  # noqa: S608
+            params,
+        ).fetchone()["n"]
+        rows = conn.execute(
+            f"SELECT {_SUMMARY_COLS} FROM cdes WHERE {where} "  # noqa: S608
+            "ORDER BY long_name LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
         return CdeSearchPage(
             query=query,
             total=total,

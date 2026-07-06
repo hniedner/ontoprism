@@ -5,7 +5,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import Embeddings, NcitStore
+from backend.dependencies import Embeddings, NcitSearch, NcitStore
+from ontolib.core.logging_config import get_logger
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     Neighborhood,
@@ -13,17 +14,29 @@ from ontolib.terminologies.ncit.models import (
     SimilarConcept,
 )
 
+logger = get_logger(__name__)
+
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
 
 
 @router.get("/search", response_model=SearchPage)
 async def search(
     store: NcitStore,
+    index: NcitSearch,
     q: Annotated[str, Query(min_length=1, description="Search term")],
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> SearchPage:
-    """Search NCIt by preferred label and synonyms; feeds the result table."""
+    """Search NCIt by label/synonyms; served from the FTS cache when populated.
+
+    Falls back to the live SPARQL scan when the cache is empty or unreachable, so
+    search always works (the store remains the source of truth).
+    """
+    try:
+        if await index.is_populated():
+            return await index.search(q, limit=limit, offset=offset)
+    except SQLAlchemyError as exc:
+        logger.warning("NCIt FTS cache unavailable, falling back to SPARQL: %s", exc)
     return await store.search(q, limit=limit, offset=offset)
 
 

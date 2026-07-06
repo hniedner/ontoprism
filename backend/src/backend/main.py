@@ -29,6 +29,7 @@ from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 logger = get_logger(__name__)
@@ -79,6 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ncit_store = NcitGraphStore(client)
     app.state.cadsr_repo = CdeRepository(settings.cadsr_db_path)
     app.state.embedding_store = EmbeddingStore(make_sessionmaker(engine))
+    app.state.ncit_search_index = NcitSearchIndex(make_sessionmaker(engine))
     app.state.clinicaltrials_client = ClinicalTrialsClient(
         settings.clinicaltrials_api_url
     )

@@ -9,6 +9,7 @@ from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 
@@ -42,9 +43,15 @@ def get_pubmed_client(request: Request) -> PubMedClient:
     return request.app.state.pubmed_client
 
 
+def get_ncit_search_index(request: Request) -> NcitSearchIndex:
+    """Return the process-wide NCIt FTS search index."""
+    return request.app.state.ncit_search_index
+
+
 NcitStore = Annotated[NcitGraphStore, Depends(get_ncit_store)]
 NcitClient = Annotated[OxigraphHttpClient, Depends(get_ncit_client)]
 CadsrRepo = Annotated[CdeRepository, Depends(get_cadsr_repo)]
 Embeddings = Annotated[EmbeddingStore, Depends(get_embedding_store)]
 ClinicalTrials = Annotated[ClinicalTrialsClient, Depends(get_clinicaltrials_client)]
 PubMed = Annotated[PubMedClient, Depends(get_pubmed_client)]
+NcitSearch = Annotated[NcitSearchIndex, Depends(get_ncit_search_index)]
