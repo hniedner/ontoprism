@@ -36,6 +36,18 @@ export default defineConfig({
 					include: ['src/**/*.{test,spec}.{js,ts}'],
 					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
 				}
+			},
+			{
+				// Component tests (Svelte in jsdom); files named `*.svelte.test.ts`.
+				extends: './vite.config.ts',
+				// Use Svelte's browser build (not the SSR entry) so components mount.
+				resolve: { conditions: ['browser'] },
+				test: {
+					name: 'client',
+					environment: 'jsdom',
+					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+					setupFiles: ['./vitest-setup-client.ts']
+				}
 			}
 		]
 	}

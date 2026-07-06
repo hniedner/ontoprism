@@ -20,6 +20,10 @@
 	"ignorePatterns": [
 		"**/*.test.ts",
 		"**/*.spec.ts",
+		// Test/tooling entry files wired in via config (vitest setupFiles / Playwright),
+		// not reachable from an app entry point.
+		"vitest-setup-client.ts",
+		"playwright.config.ts",
 		// Example scaffolding shipped by the SvelteKit template (greet.ts + its spec).
 		"src/lib/vitest-examples/**"
 	],
