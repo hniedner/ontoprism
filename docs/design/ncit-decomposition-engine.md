@@ -206,6 +206,36 @@ Oxigraph does not evaluate the nested `rest*` inside a transitive `(…)+` prope
 so a single-path traversal is not viable. Most-specific selection (§6) still applies per
 axis after the chain is gathered.
 
+### 6.2 The genus-chain walk over-collects — extraction is curation-heavy, not mechanical (verified 2026-07-06)
+
+Building the recursive walk of §6.1 and running it on `C6135` against the loaded stated
+graph produced a **critical negative result**: the walk reaches all four expected fillers
+(`C27970`, `C90530`, `C12400`, `C36761`) **but also over-collects heavily** — ~30 visited
+classes yielding dozens of extra fillers (`R108 Has_Finding`, `R113/R115 May_Have_*`,
+`R135/R138/R139/R142 Excludes_*`, `R176 Mapped_To_Gene`, and *many* alternative
+`R105 Has_Abnormal_Cell` values). The reason: the stated **upper** genus classes are
+themselves richly pre-coordinated defined classes, so walking a concept's genus chain to
+its base re-creates the very ancestor-closure bleed the stated form was supposed to avoid
+(assessment §4) — just reconstructed one level up.
+
+**Most-specific selection does not rescue it.** For `C6135`'s six collected `R105`
+abnormal-cell fillers the intra-set `rdfs:subClassOf+` relation is a deep chain whose only
+leaf is `C36825` — a **descendant** of the assessment's intended `C36761`. So most-specific
+selection collapses the axis to `C36825`, i.e. the **wrong** (too-specific) constituent.
+Over-collection followed by leaf selection can therefore silently pick a filler the concept
+does not actually assert.
+
+**Conclusion.** Correct stated extraction is **not** a mechanical genus-walk + most-specific.
+It needs (a) defining-role classification (keep `Has_*`/`Is_*` axes; drop `May_Have_*`,
+`Excludes_*`, `Mapped_To_Gene`), (b) a principled boundary that distinguishes a concept's
+*own differentia* from axes it merely *inherits* from its genus (e.g. per-level differentia
+diffing against the genus, or stopping at the first morphology-bearing primitive), and
+(c) curation of the residual ambiguous axes. This is exactly the **filler-selection tooling +
+curation** effort the assessment scoped at multiple person-months (§6–§7), and it is
+**dominated by curation, not engineering**. It should be planned as a focused research
+workstream (a small hand-curated golden set as the oracle, iterating the boundary heuristic),
+not a single mechanical PR. The C6135 integration test stays `xfail` until this lands.
+
 ---
 
 ## 7. NLP fallback + minting (`nlp_fallback.py`, `minting.py`)
