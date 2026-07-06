@@ -145,3 +145,86 @@ export interface RefreshReport {
 	refreshed_at: string;
 	repositories: RepoStatus[];
 }
+
+// ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).
+
+export interface CTInterventionDetail {
+	type: string | null;
+	name: string;
+	description: string | null;
+}
+
+export interface CTOutcome {
+	measure: string;
+	description: string | null;
+	time_frame: string | null;
+}
+
+export interface CTSponsor {
+	name: string;
+	role: string | null;
+}
+
+export interface CTLocation {
+	facility: string | null;
+	city: string | null;
+	state: string | null;
+	country: string | null;
+	status: string | null;
+}
+
+export interface CTReference {
+	pmid: string | null;
+	citation: string;
+	reference_type: string | null;
+}
+
+export interface CTStudySummary {
+	nct_id: string;
+	title: string;
+	status: string | null;
+	phase: string | null;
+	conditions: string[];
+	interventions: string[];
+	start_date: string | null;
+	enrollment: number | null;
+	relevance_score: number;
+}
+
+export interface CTStudyDetail {
+	nct_id: string;
+	title: string;
+	official_title: string | null;
+	status: string | null;
+	phase: string | null;
+	study_type: string | null;
+	primary_purpose: string | null;
+	conditions: string[];
+	interventions: CTInterventionDetail[];
+	primary_outcomes: CTOutcome[];
+	secondary_outcomes: CTOutcome[];
+	eligibility_criteria: string | null;
+	enrollment: number | null;
+	start_date: string | null;
+	sponsors: CTSponsor[];
+	locations: CTLocation[];
+	references: CTReference[];
+	url: string;
+}
+
+export interface CTSearchRequest {
+	condition?: string | null;
+	intervention?: string | null;
+	term?: string | null;
+	status?: string | null;
+	phase?: string | null;
+	limit?: number;
+}
+
+export interface CTStudySearchPage {
+	condition: string | null;
+	intervention: string | null;
+	term: string | null;
+	total: number;
+	studies: CTStudySummary[];
+}

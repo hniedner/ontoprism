@@ -24,7 +24,7 @@ export function apiUrl(path: string, params: Record<string, string | number> = {
 	return `${BASE}${path}${qs ? `?${qs}` : ''}`;
 }
 
-async function getJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promise<T> {
+export async function getJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promise<T> {
 	const resp = await fetchImpl(url);
 	if (!resp.ok) {
 		throw new Error(`Request failed (${resp.status}): ${url}`);
@@ -40,7 +40,7 @@ async function postJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promis
 	return (await resp.json()) as T;
 }
 
-async function postJsonBody<T>(
+export async function postJsonBody<T>(
 	url: string,
 	body: unknown,
 	fetchImpl: typeof fetch = fetch
