@@ -8,8 +8,6 @@ Each rule emits `AspectRecord(axis, surface_form, polarity)` — the caller maps
 `surface_form` to an existing NCIt concept code or passes it to the minter (§7.2).
 """
 
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from typing import Literal

@@ -10,8 +10,6 @@ A `MintedConcept` is never emitted silently to the graph; it lands in
 a governance step outside the engine.
 """
 
-from __future__ import annotations
-
 import hashlib
 from dataclasses import dataclass, field
 from typing import Literal

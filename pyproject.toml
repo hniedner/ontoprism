@@ -161,7 +161,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**/*.py" = ["S101", "PLR2004"]  # asserts + magic values are fine in tests
+"**/tests/**/*.py" = ["S101", "PLR2004"]
+"/**/decomposition/legacy_writer.py" = [
+       "TC003",    # Path used at runtime for .mkdir/.write_text
+ ]
 
 [tool.coverage.run]
 source = ["ontolib/src", "backend/src"]
