@@ -4,6 +4,7 @@ import pytest
 
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
+    build_in_scope_concepts_query,
     build_role_restrictions_query,
     build_semantic_type_query,
 )
@@ -67,3 +68,33 @@ def test_builders_reject_injection_unsafe_codes(builder) -> None:  # type: ignor
 def test_ancestor_pairs_query_rejects_unsafe_codes() -> None:
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
         build_ancestor_pairs_query(["C123", "bad code"])
+
+
+@pytest.mark.unit
+def test_in_scope_concepts_query_scoped_to_stated_graph() -> None:
+    q = build_in_scope_concepts_query(["Neoplastic Process"])
+    assert f"GRAPH <{STATED_GRAPH_IRI}>" in q
+    assert "P106" in q
+    assert "Neoplastic Process" in q
+
+
+@pytest.mark.unit
+def test_in_scope_concepts_query_binds_multiple_semantic_types() -> None:
+    q = build_in_scope_concepts_query(["Neoplastic Process", "Disease or Syndrome"])
+    assert "Neoplastic Process" in q
+    assert "Disease or Syndrome" in q
+
+
+@pytest.mark.unit
+def test_in_scope_concepts_query_projects_code_and_paginates() -> None:
+    q = build_in_scope_concepts_query(["Neoplastic Process"], limit=100, offset=200)
+    assert "?concept" in q
+    assert "LIMIT 100" in q
+    assert "OFFSET 200" in q
+    assert "ORDER BY" in q  # deterministic paging
+
+
+@pytest.mark.unit
+def test_in_scope_concepts_query_rejects_injection_unsafe_semantic_type() -> None:
+    with pytest.raises(ValueError, match=r"[Uu]nsafe"):
+        build_in_scope_concepts_query(['Neoplastic Process" ; DROP {} #'])

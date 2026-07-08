@@ -69,6 +69,47 @@ async def test_finish_run_noop_returns_false() -> None:
 
 
 @pytest.mark.unit
+async def test_processed_codes_returns_distinct_concept_codes() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.scalars.return_value.all.return_value = ["C6135", "C4791"]
+    store = ProvenanceStore(sf)
+    codes = await store.processed_codes("run-1")
+    assert codes == {"C6135", "C4791"}
+    sf().execute.assert_called_once()
+
+
+@pytest.mark.unit
+async def test_processed_codes_empty_when_no_rows() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.scalars.return_value.all.return_value = []
+    store = ProvenanceStore(sf)
+    codes = await store.processed_codes("run-1")
+    assert codes == set()
+
+
+@pytest.mark.unit
+async def test_run_version_returns_stored_version() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.scalar.return_value = "26.02d"
+    store = ProvenanceStore(sf)
+    version = await store.run_version("run-1")
+    assert version == "26.02d"
+
+
+@pytest.mark.unit
+async def test_run_version_none_when_run_not_found() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.scalar.return_value = None
+    store = ProvenanceStore(sf)
+    version = await store.run_version("nonexistent")
+    assert version is None
+
+
+@pytest.mark.unit
 async def test_upsert_minted_concept() -> None:
     sf = _make_mock_sf()
     store = ProvenanceStore(sf)
@@ -81,3 +122,18 @@ async def test_upsert_minted_concept() -> None:
     )
     assert count == 1
     sf().execute.assert_called_once()
+
+
+@pytest.mark.unit
+async def test_upsert_minted_concept_never_overwrites_an_existing_row() -> None:
+    # A rerun re-mints the same deterministic id (minting.py) with status="proposed"
+    # by default. The engine must never clobber a curator's prior approve/reject
+    # decision — so the upsert is insert-or-ignore, not insert-or-update, on conflict.
+    sf = _make_mock_sf()
+    store = ProvenanceStore(sf)
+    await store.upsert_minted_concept(
+        run_id="run-1", id="MINT-abc123", axis="op:Laterality", label="Left"
+    )
+    executed_sql = str(sf().execute.call_args.args[0])
+    assert "DO NOTHING" in executed_sql
+    assert "DO UPDATE" not in executed_sql

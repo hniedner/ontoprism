@@ -11,8 +11,8 @@ Create Date: 2026-07-07
 
 from alembic import op
 
-revision = "0003_decompression"
-down_revision = "0002_ncit_search"
+revision: str = "0003_decomposition"
+down_revision: str | None = "0002_ncit_search"
 branch_labels = None
 depends_on = None
 

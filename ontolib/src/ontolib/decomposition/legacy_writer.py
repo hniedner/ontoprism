@@ -1,8 +1,11 @@
 """Write additive decomposition triples to a TTL file (design §8).
 
 Pure function: takes decompositions and writes RDF/Turtle to stdout or a file path.
-All triples target the DECOMPOSED_GRAPH_IRI named graph only — the source graphs are
-never modified.  Uses the op: vocabulary from :mod:`ontolib.decomposition.vocab`.
+Emits plain, graph-agnostic Turtle triples — it has no concept of "which named graph"
+and never emits a ``DELETE``; the caller loads the output into ``DECOMPOSED_GRAPH_IRI``
+(see ``scripts/decompose.py``'s ``client.load(..., graph_iri=...)``). The source graphs
+are never referenced in the output at all.  Uses the op: vocabulary from
+:mod:`ontolib.decomposition.vocab`.
 """
 
 from __future__ import annotations
@@ -31,8 +34,13 @@ def _filler_iri(code: str) -> str:
 def _axis_uri(axis: str) -> str:
     """Map an axis identifier to its IRI."""
     if axis.startswith("op:"):
-        return f"<{vocab.ONTOPRISM_NS}{axis[3:]}"
+        return f"<{vocab.ONTOPRISM_NS}{axis[3:]}>"
     return f"<{NCIT_NS}{axis}>"
+
+
+def _p(predicate_iri: str) -> str:
+    """Bracket a vocabulary predicate IRI for embedding as a Turtle term."""
+    return f"<{predicate_iri}>"
 
 
 async def write_ttl(
@@ -54,29 +62,30 @@ async def write_ttl(
     for dec in decompositions:
         subj = f"<{NCIT_NS}{dec.code}>"
         buf.append(
-            f'{subj} {vocab.REPRESENTATION_STATUS} "{vocab.LEGACY_PRECOORDINATED}" ;',
+            f"{subj} {_p(vocab.REPRESENTATION_STATUS)} "
+            f'"{vocab.LEGACY_PRECOORDINATED}" ;',
         )
         buf.append(
-            f"   {vocab.DECOMPOSED_ON}"
+            f"   {_p(vocab.DECOMPOSED_ON)}"
             f' "{emitted_on}"^^<http://www.w3.org/2001/XMLSchema#date> .',
         )
 
         if run_id:
             buf.append(
-                f'{subj} {vocab.DECOMPOSED_BY} "{run_id}" .',
+                f'{subj} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .',
             )
 
         for c in dec.constituents:
             filler = _filler_iri(c.filler_code)
             auri = _axis_uri(c.axis)
             const = (
-                f"   [{vocab.AXIS} {auri} ; "
-                f"{vocab.FILLER} {filler} ; "
-                f'{vocab.AXIS_SOURCE} "{c.axis_source}"'
+                f"   [{_p(vocab.AXIS)} {auri} ; "
+                f"{_p(vocab.FILLER)} {filler} ; "
+                f'{_p(vocab.AXIS_SOURCE)} "{c.axis_source}"'
             )
             if c.most_specific:
-                const += f" ; {vocab.MOST_SPECIFIC} true"
-            buf.append(f"{subj} {vocab.HAS_CONSTITUENT}{const} .")
+                const += f" ; {_p(vocab.MOST_SPECIFIC)} true"
+            buf.append(f"{subj} {_p(vocab.HAS_CONSTITUENT)}{const} ] .")
 
     ttl = "\n".join(buf) + "\n"
 

@@ -85,6 +85,36 @@ class ProvenanceStore:
             await s.commit()
             return cast("int", result.rowcount)  # type: ignore[attr-defined]
 
+    async def processed_codes(self, run_id: str) -> set[str]:
+        """Concept codes that already have persisted constituents for *run_id*.
+
+        Used by ``--resume`` to skip re-processing (design §9). A concept that
+        decomposed to zero constituents leaves no row here, so it is reprocessed on
+        resume — safe (idempotent upserts) but not exhaustive; see run.py.
+        """
+        async with self._sf() as s:
+            result = await s.execute(
+                text(
+                    "SELECT DISTINCT concept_code FROM decomp_constituent "
+                    "WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+            return set(result.scalars().all())
+
+    async def run_version(self, run_id: str) -> str | None:
+        """The ``ncit_version`` pinned for *run_id*, or ``None`` if it has no manifest.
+
+        Lets ``--resume`` refuse to continue a run against a different NCIt build
+        than the one it started with (design §9/§13 — roles are version-pinned).
+        """
+        async with self._sf() as s:
+            result = await s.execute(
+                text("SELECT ncit_version FROM decomp_run WHERE id = :run_id"),
+                {"run_id": run_id},
+            )
+            return result.scalar()
+
     async def finish_run(
         self,
         run_id: str,
@@ -117,7 +147,14 @@ class ProvenanceStore:
         source_signal: str = "",
         status: str = "proposed",
     ) -> int:
-        """Record a minted concept proposal. Returns rows affected."""
+        """Record a minted concept proposal. Returns rows affected.
+
+        Insert-or-ignore, deliberately never insert-or-*update*: a rerun re-mints the
+        same deterministic id (``minting.MintedConcept``) with ``status="proposed"``
+        by default, and the engine must never clobber a curator's prior
+        approve/reject decision on that row. Approval is a governance step outside
+        the engine (design §7.2) — it updates the row directly, not via this method.
+        """
         result: Result
         async with self._sf() as s:
             result = await s.execute(
@@ -125,7 +162,7 @@ class ProvenanceStore:
                     "INSERT INTO minted_concept (id, run_id, axis, "
                     "label, source_signal, status) "
                     "VALUES (:id, :run_id, :axis, :label, :source_signal, :status) "
-                    "ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status"
+                    "ON CONFLICT (id) DO NOTHING"
                 ),
                 {
                     "id": id,
