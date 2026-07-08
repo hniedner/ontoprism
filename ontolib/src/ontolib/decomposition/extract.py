@@ -71,3 +71,17 @@ def ancestor_pairs_from_rows(rows: Iterable[Row]) -> set[tuple[str, str]]:
 def make_is_ancestor(pairs: set[tuple[str, str]]) -> Callable[[str, str], bool]:
     """Build an ``is_ancestor(a, b)`` predicate from a set of ancestor pairs."""
     return lambda a, b: (a, b) in pairs
+
+
+def concepts_from_rows(rows: Iterable[Row]) -> list[str]:
+    """Parse ``?concept`` rows (e.g. ``build_in_scope_concepts_query``) into codes.
+
+    Preserves row order (the query's ``ORDER BY`` makes it the paging order); rows
+    missing a concept or with an empty code (an IRI ending in ``#``) are skipped.
+    """
+    codes: list[str] = []
+    for row in rows:
+        code = _code(row.get("concept"))
+        if code:
+            codes.append(code)
+    return codes

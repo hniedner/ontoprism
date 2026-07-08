@@ -17,12 +17,14 @@ import pytest
 
 from ontolib.decomposition.extract import (
     ancestor_pairs_from_rows,
+    concepts_from_rows,
     make_is_ancestor,
     roles_from_rows,
 )
 from ontolib.decomposition.filler_selection import select_constituents
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
+    build_in_scope_concepts_query,
     build_role_restrictions_query,
     build_semantic_type_query,
 )
@@ -83,6 +85,29 @@ async def test_stated_query_builders_parse_against_live_store() -> None:
         assert isinstance(
             await client.select(build_ancestor_pairs_query(["C12400", "C12401"])), list
         )
+        assert isinstance(
+            await client.select(
+                build_in_scope_concepts_query(["Neoplastic Process"], limit=5)
+            ),
+            list,
+        )
+
+
+@pytest.mark.integration
+async def test_in_scope_concepts_query_pages_over_the_live_stated_graph() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async with OxigraphHttpClient(url) as client:
+        rows = await client.select(
+            build_in_scope_concepts_query(["Neoplastic Process"], limit=5, offset=0)
+        )
+    codes = concepts_from_rows(rows)
+    assert len(codes) <= 5
+    assert all(c.startswith("C") for c in codes)
 
 
 @pytest.mark.integration

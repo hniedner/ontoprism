@@ -8,6 +8,7 @@ in a ``GRAPH <STATED_GRAPH_IRI>`` clause, and reuse ``safe_iri`` for injection s
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
@@ -22,6 +23,21 @@ _PREFIXES = f"""
         PREFIX rdfs: <{RDFS_NS}>
         PREFIX owl: <{OWL_NS}>
 """
+
+# A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
+# apply): reject anything that could close the literal or inject a graph pattern.
+_SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
+
+
+def _safe_literal(value: str) -> str:
+    """Return *value* unchanged, rejecting injection-unsafe literals.
+
+    Raises:
+        ValueError: if *value* contains a quote, backslash, newline, or brace.
+    """
+    if not _SAFE_LITERAL.match(value):
+        raise ValueError(f"Unsafe semantic type rejected: {value!r}")
+    return value
 
 
 def build_role_restrictions_query(concept_code: str) -> str:
@@ -95,4 +111,29 @@ def build_ancestor_pairs_query(codes: Iterable[str]) -> str:
             VALUES ?descendant {{ {iris} }}
             VALUES ?ancestor {{ {iris} }}
         }}
+    """
+
+
+def build_in_scope_concepts_query(
+    semantic_types: Iterable[str], *, limit: int = 500, offset: int = 0
+) -> str:
+    """Page through concepts carrying any of *semantic_types* in the stated graph.
+
+    Projects ``?concept`` only (design §9 step 1, "enumerate in-scope concepts").
+    Ordered by ``?concept`` so paging by (*limit*, *offset*) is stable across calls.
+
+    Raises:
+        ValueError: if any semantic type is not injection-safe.
+    """
+    literals = " ".join(f'"{_safe_literal(t)}"' for t in semantic_types)
+    semantic_type_uri = f"{NCIT_NS}{SEMANTIC_TYPE}"
+    return f"""{_PREFIXES}
+        SELECT ?concept WHERE {{
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                ?concept <{semantic_type_uri}> ?semanticType .
+            }}
+            VALUES ?semanticType {{ {literals} }}
+        }}
+        ORDER BY ?concept
+        LIMIT {limit} OFFSET {offset}
     """

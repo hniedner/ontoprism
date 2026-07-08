@@ -4,6 +4,7 @@ import pytest
 
 from ontolib.decomposition.extract import (
     ancestor_pairs_from_rows,
+    concepts_from_rows,
     make_is_ancestor,
     roles_from_rows,
     semantic_types_from_rows,
@@ -85,3 +86,25 @@ def test_ancestor_pairs_and_predicate() -> None:
     is_ancestor = make_is_ancestor(pairs)
     assert is_ancestor("C12401", "C12400")
     assert not is_ancestor("C12400", "C12401")
+
+
+@pytest.mark.unit
+def test_concepts_from_rows_extracts_codes_in_order() -> None:
+    rows = [{"concept": _iri("C6135")}, {"concept": _iri("C4791")}]
+    assert concepts_from_rows(rows) == ["C6135", "C4791"]
+
+
+@pytest.mark.unit
+def test_concepts_from_rows_skips_missing_and_empty() -> None:
+    rows = [
+        {"concept": _iri("C1")},
+        {"concept": None},
+        {},
+        {"concept": _iri("")},  # empty code (IRI ends in #)
+    ]
+    assert concepts_from_rows(rows) == ["C1"]
+
+
+@pytest.mark.unit
+def test_concepts_from_rows_empty() -> None:
+    assert concepts_from_rows([]) == []

@@ -98,6 +98,8 @@ data-build = "python scripts/data_build.py"
 # Decomposition extraction research spike (#4): score a candidate stated-extraction
 # against the curated golden set. Needs the stated NCIt graph loaded. Manual, not CI.
 decompose-spike = "python scripts/decomposition_spike.py"
+# Decomposition engine CLI (design §9 / §12 PR 5b): run the pipeline for a branch.
+decompose = "python scripts/decompose.py"
 # --- Dev process management (backend :8011 + frontend :5175), fairdata-style ---
 up = "docker compose up -d"
 down = "docker compose down"
@@ -161,7 +163,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**/*.py" = ["S101", "PLR2004"]  # asserts + magic values are fine in tests
+"**/tests/**/*.py" = ["S101", "PLR2004"]
+"/**/decomposition/legacy_writer.py" = [
+       "TC003",    # Path used at runtime for .mkdir/.write_text
+ ]
+"scripts/decompose.py" = [
+       "TC003",    # Path used at runtime — typer resolves Annotated types via get_type_hints
+ ]
 
 [tool.coverage.run]
 source = ["ontolib/src", "backend/src"]
