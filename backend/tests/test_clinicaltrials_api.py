@@ -143,3 +143,10 @@ def test_trial_detail_unknown_is_404(ct_app: TestClient) -> None:
 def test_trial_detail_malformed_id_is_400(ct_app: TestClient) -> None:
     resp = ct_app.get("/api/v1/clinicaltrials/NCT123")
     assert resp.status_code == 400
+
+
+@pytest.mark.api
+def test_trial_detail_upstream_failure_is_502(ct_app: TestClient) -> None:
+    _Handler.fail_status = 500
+    resp = ct_app.get("/api/v1/clinicaltrials/NCT01234567")
+    assert resp.status_code == 502

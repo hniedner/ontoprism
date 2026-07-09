@@ -6,7 +6,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from ontolib.repositories.cadsr.build import build_database, iter_cdes, parse_cde
+from ontolib.repositories.cadsr.build import (
+    _Concept,
+    _dedupe,
+    _pv_concepts,
+    _structured_concepts,
+    build_database,
+    iter_cdes,
+    parse_cde,
+)
 from ontolib.repositories.cadsr.repository import CdeRepository
 
 if TYPE_CHECKING:
@@ -162,3 +170,98 @@ def test_built_db_fts_search_and_concept_join(built_db: Path) -> None:
     # The caDSR↔NCIt concept join works off cde_concepts.
     joined = repo.find_cdes_by_concept("C3262")
     assert [c.public_id for c in joined] == ["100"]
+
+
+@pytest.mark.unit
+def test_structured_concepts_empty_details() -> None:
+    xml = b"<ObjectClass><ConceptDetails/></ObjectClass>"
+    elem = fromstring(xml)
+    assert _structured_concepts(elem, "object_class") == []
+
+
+@pytest.mark.unit
+def test_structured_concepts_missing_details_node() -> None:
+    xml = b"<ObjectClass/>"
+    elem = fromstring(xml)
+    assert _structured_concepts(elem, "object_class") == []
+
+
+@pytest.mark.unit
+def test_structured_concepts_none_entity() -> None:
+    assert _structured_concepts(None, "object_class") == []
+
+
+@pytest.mark.unit
+def test_structured_concepts_skip_invalid_code() -> None:
+    xml = b"""<ObjectClass>
+      <ConceptDetails>
+        <ConceptDetails_ITEM>
+          <PREFERRED_NAME>Bad Code!</PREFERRED_NAME>
+          <LONG_NAME>Bad</LONG_NAME>
+        </ConceptDetails_ITEM>
+      </ConceptDetails>
+    </ObjectClass>"""
+    elem = fromstring(xml)
+    assert _structured_concepts(elem, "object_class") == []
+
+
+@pytest.mark.unit
+def test_pv_concepts_empty_meaning_concepts() -> None:
+    xml = b"""<PermissibleValues_ITEM>
+      <VALUEMEANING>Some Meaning</VALUEMEANING>
+    </PermissibleValues_ITEM>"""
+    elem = fromstring(xml)
+    assert _pv_concepts(elem) == []
+
+
+@pytest.mark.unit
+def test_pv_concepts_skip_non_ncit_code() -> None:
+    xml = b"""<PermissibleValues_ITEM>
+      <VALIDVALUE>X</VALIDVALUE>
+      <VALUEMEANING>Unknown</VALUEMEANING>
+      <MEANINGCONCEPTS>X9999</MEANINGCONCEPTS>
+    </PermissibleValues_ITEM>"""
+    elem = fromstring(xml)
+    assert _pv_concepts(elem) == []
+
+
+@pytest.mark.unit
+def test_dedupe_keeps_first_occurrence() -> None:
+    dupes = [
+        _Concept("C1", "First", "object_class", is_primary=True),
+        _Concept("C1", "Second", "property", is_primary=False),
+    ]
+    result = _dedupe(dupes)
+    assert len(result) == 1
+    assert result[0].name == "First"
+
+
+@pytest.mark.unit
+def test_iter_cdes_handles_parse_failure(tmp_path: Path) -> None:
+    xml = tmp_path / "bad.xml"
+    xml.write_text(
+        "<DataElementsList>"
+        "<DataElement><PUBLICID>1</PUBLICID><VERSION>1</VERSION></DataElement>"
+        "</DataElementsList>"
+    )
+    results = list(iter_cdes(xml))
+    assert len(results) == 1  # CDE 1 parses fine with minimal fields
+    assert results[0].cde_json["public_id"] == "1"
+
+
+@pytest.mark.unit
+def test_iter_cdes_exception_skips_bad_element(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _broken(*args: object, **kwargs: object) -> object:
+        raise ValueError("broken")
+
+    monkeypatch.setattr("ontolib.repositories.cadsr.build._collect_concepts", _broken)
+    xml = tmp_path / "broken.xml"
+    xml.write_text(
+        "<DataElementsList>"
+        "<DataElement><PUBLICID>1</PUBLICID><VERSION>1</VERSION></DataElement>"
+        "</DataElementsList>"
+    )
+    results = list(iter_cdes(xml))
+    assert len(results) == 0  # The only CDE failed to parse

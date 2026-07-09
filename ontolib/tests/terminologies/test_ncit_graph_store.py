@@ -202,6 +202,56 @@ async def test_neighborhood_skips_missing_neighbor(ncit_stub_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        page = await NcitGraphStore(client).list_concepts(limit=25, offset=0)
+
+    assert page.total == 2
+    assert [h.code for h in page.hits] == ["C3262", "C9305"]
+    assert page.hits[0].semantic_type == "Neoplastic Process"
+    assert page.hits[0].matched_synonym is None
+
+
+@pytest.mark.unit
+async def test_search_records_returns_records_with_synonyms(
+    ncit_stub_url: str,
+) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        records = await NcitGraphStore(client).search_records(limit=100, offset=0)
+
+    assert len(records) == 1
+    assert records[0]["code"] == "C3262"
+    assert records[0]["label"] == "Neoplasm"
+    assert records[0]["semantic_type"] == "Neoplastic Process"
+    assert records[0]["synonyms"] == "Neoplasia||Neoplasm"
+
+
+@pytest.mark.unit
+async def test_embedding_records_returns_records_with_all_fields(
+    ncit_stub_url: str,
+) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        records = await NcitGraphStore(client).embedding_records(limit=200, offset=0)
+
+    assert len(records) == 1
+    assert records[0]["code"] == "C3262"
+    assert records[0]["preferred_name"] == "Neoplasm"
+    assert records[0]["definition"] == "A benign or malignant tissue growth."
+    assert records[0]["semantic_type"] == "Neoplastic Process"
+    assert records[0]["synonyms"] == "Neoplasia | Neoplasm"
+
+
+@pytest.mark.unit
+async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        page1 = await store.list_concepts(limit=25, offset=0)
+        assert page1.total == 2
+        page2 = await store.list_concepts(limit=25, offset=1)
+        assert page2.total == 2  # memoized after first call
+
+
+@pytest.mark.unit
 async def test_neighborhood_not_truncated_when_under_cap(ncit_stub_url: str) -> None:
     # A small neighborhood that fits under the cap must report truncated=False.
     async with OxigraphHttpClient(ncit_stub_url) as client:

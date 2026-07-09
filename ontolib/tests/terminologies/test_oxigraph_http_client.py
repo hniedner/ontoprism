@@ -14,6 +14,8 @@ from ontolib.terminologies.oxigraph_http_client import (
     safe_iri,
 )
 
+_TTL = b"@prefix ex: <http://e/> . ex:a ex:b ex:c ."
+
 
 @pytest.mark.unit
 def test_safe_iri_builds_namespaced_uri() -> None:
@@ -58,3 +60,10 @@ async def test_select_against_closed_port_raises_storage_error() -> None:
     async with OxigraphHttpClient("http://localhost:1", connect_timeout=0.5) as client:
         with pytest.raises(StorageError, match="transport error"):
             await client.select("ASK {}")
+
+
+@pytest.mark.unit
+async def test_load_against_closed_port_raises_storage_error() -> None:
+    async with OxigraphHttpClient("http://localhost:1", connect_timeout=0.5) as client:
+        with pytest.raises(StorageError, match="transport error"):
+            await client.load(_TTL, content_type="text/turtle")

@@ -84,7 +84,7 @@ test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-r
 test-smoke = "npm --prefix frontend run test:unit -- --run"
 # Coverage: runs unit tests with line+branch coverage. Pass extra pytest args or test
 # paths to narrow scope (e.g. `pdm run coverage ontolib/tests/core/`).
-coverage = "pytest ontolib/tests backend/tests -m unit --cov --cov-branch --cov-report=term-missing --cov-report=term:skip-covered -n auto"
+coverage = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-branch --cov-report=term-missing --cov-report=term:skip-covered -n auto"
 pytest = "pytest"
 lint = { composite = ["ruff check .", "basedpyright"] }
 fmt = "ruff format ."

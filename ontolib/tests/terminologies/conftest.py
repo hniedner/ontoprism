@@ -62,7 +62,7 @@ def _rows(bindings: list[dict[str, str]]) -> dict[str, Any]:
 # marker is a prefix of another ("someValuesFrom <" before "someValuesFrom ?target").
 _CANNED: list[tuple[str, list[dict[str, str]]]] = [
     (
-        "GROUP_CONCAT",
+        "SELECT ?label ?pref ?def",
         [
             {
                 "label": "Neoplasm",
@@ -70,6 +70,45 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
                 "def": "A benign or malignant tissue growth.",
                 "semtypes": "Neoplastic Process",
                 "synonyms": "Neoplasia||Neoplasm",
+            }
+        ],
+    ),
+    (
+        "ORDER BY ?concept LIMIT 25 OFFSET 0",
+        [
+            {
+                "concept": f"{NS}C3262",
+                "label": "Neoplasm",
+                "semtype": "Neoplastic Process",
+            },
+            {
+                "concept": f"{NS}C9305",
+                "label": "Malignant Neoplasm",
+                "semtype": "Neoplastic Process",
+            },
+        ],
+    ),
+    (
+        "ORDER BY ?concept LIMIT 100 OFFSET 0",
+        [
+            {
+                "concept": f"{NS}C3262",
+                "label": "Neoplasm",
+                "semtype": "Neoplastic Process",
+                "synonyms": "Neoplasia||Neoplasm",
+            }
+        ],
+    ),
+    (
+        "ORDER BY ?concept LIMIT 200 OFFSET 0",
+        [
+            {
+                "concept": f"{NS}C3262",
+                "pref": "Neoplasm",
+                "label": "Neoplasm",
+                "def": "A benign or malignant tissue growth.",
+                "semtype": "Neoplastic Process",
+                "synonyms": "Neoplasia | Neoplasm",
             }
         ],
     ),

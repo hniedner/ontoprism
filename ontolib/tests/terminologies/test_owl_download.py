@@ -22,6 +22,21 @@ from ontolib.terminologies.ncit.owl_download import (
     probe_owl_version,
 )
 
+
+def _encrypted_zip(data: bytes) -> bytes:
+    """Zip with encryption bit set so extract raises ``RuntimeError``."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("Thesaurus.owl", data)
+    raw = bytearray(buffer.getvalue())
+    # General-purpose bit flag at offset 6 in local header, offset 8 in central dir.
+    for marker in (b"PK\x03\x04", b"PK\x01\x02"):
+        idx = raw.find(marker)
+        if idx >= 0:
+            raw[idx + 6 if marker == b"PK\x03\x04" else idx + 8] |= 0x01
+    return bytes(raw)
+
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -425,3 +440,29 @@ async def test_probe_owl_version_reports_last_modified(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
     assert info.last_modified == "Wed, 01 Jul 2026 00:00:00 GMT"
+
+
+@pytest.mark.unit
+async def test_download_reports_error_on_invalid_variant(tmp_path: Path) -> None:
+    result = await download_ncit_owl(
+        tmp_path, variant="nonsense", base_url="http://unused", max_retries=0
+    )
+    assert result.success is False
+    assert result.error is not None
+
+
+@pytest.mark.unit
+async def test_download_reports_error_on_encrypted_zip(tmp_path: Path) -> None:
+    zip_bytes = _encrypted_zip(_OWL_BYTES)
+    server, base = _serve(_bytes_handler(zip_bytes))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.success is False
+    assert result.error is not None
+    assert "Unusable archive" in result.error
+    assert not (tmp_path / "Thesaurus.OWL.zip").exists()
