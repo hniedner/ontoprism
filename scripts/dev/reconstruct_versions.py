@@ -126,13 +126,25 @@ def _assert_on_main(sha: str, tag: str) -> None:
         sys.exit(f"ERROR: {tag} target {sha[:8]} is not an ancestor of origin/main.")
 
 
+def _remote_tags() -> set[str]:
+    """Milestone tag names that already exist on origin."""
+    out = _git("ls-remote", "--tags", "origin")
+    return {
+        line.split("refs/tags/", 1)[1].removesuffix("^{}")
+        for line in out.splitlines()
+        if "refs/tags/" in line
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--write", action="store_true", help="create the tags (default: verify only)"
+        "--write", action="store_true", help="create missing tags locally"
     )
     parser.add_argument(
-        "--push", action="store_true", help="push created tags to origin"
+        "--push",
+        action="store_true",
+        help="push every milestone tag that origin is missing",
     )
     args = parser.parse_args()
 
@@ -157,11 +169,7 @@ def main() -> int:
                 f"{sha[:8]}. Refusing to move an existing tag — resolve by hand."
             )
 
-    if not to_create:
-        print("\nAll milestone tags present and correct.")
-        return 0
-
-    if not args.write:
+    if to_create and not args.write:
         print(f"\n{len(to_create)} tag(s) missing. Re-run with --write to create.")
         return 1
 
@@ -169,12 +177,23 @@ def main() -> int:
         _git("tag", "-a", ms.tag, sha, "-m", f"{ms.tag} ({ms.date})\n\n{ms.summary}")
         print(f"  created  {ms.tag} -> {sha[:8]}")
 
+    # Local existence is not remote existence: semantic-release resolves the last
+    # release from origin's tags. Push whatever origin lacks, not merely whatever
+    # this invocation happened to create — otherwise a rerun reports success while
+    # leaving origin untagged, and the first release restarts the version at zero.
+    unpushed = [ms.tag for ms in MILESTONES if ms.tag not in _remote_tags()]
+
+    if not unpushed:
+        print("\nAll milestone tags present locally and on origin.")
+        return 0
+
     if args.push:
-        _git("push", "origin", *(ms.tag for ms, _ in to_create))
-        print(f"\nPushed {len(to_create)} tag(s) to origin.")
+        _git("push", "origin", *unpushed)
+        print(f"\nPushed {len(unpushed)} tag(s) to origin: {' '.join(unpushed)}")
     else:
-        print("\nTags created locally. Push with:")
-        print("  git push origin " + " ".join(ms.tag for ms, _ in to_create))
+        print(f"\n{len(unpushed)} tag(s) missing on origin. Push with:")
+        print("  git push origin " + " ".join(unpushed))
+        print("  (or re-run this script with --write --push)")
 
     return 0
 
