@@ -19,6 +19,15 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.7.3 (2026-07-09)
+
+### Bug Fixes
+
+- **decomposition**: Make #44's DoD reachable — exclude needs_review from scoring, encode D19/D20 in
+  the golden set ([#49](https://github.com/hniedner/ontoprism/pull/49),
+  [`fe03484`](https://github.com/hniedner/ontoprism/commit/fe03484ef00aaaf5b686f65a7e854cc4c8dfbdd2))
+
+
 ## v0.7.2 (2026-07-09)
 
 ### Bug Fixes
