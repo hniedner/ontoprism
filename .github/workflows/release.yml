@@ -9,10 +9,11 @@ name: Release
 #   - `workflow_run` on a successful CI run of a `push` to main is exactly
 #     "a PR was merged to main and the merged tree is green".
 #
-# main is protected and only advances via PR merges, so every push event here is
-# a merge. The guard step below additionally refuses to release a commit that is
-# no longer main's tip, so a fast follow-up merge can never be released twice or
-# rewound.
+# In practice main advances via PR merges, but it is NOT branch-protected today —
+# a direct push would also land here. That is safe: the guard step below refuses
+# to release anything that is no longer main's tip, so a fast follow-up merge (or
+# a direct push racing a merge) can never be released twice or rewound. Protecting
+# main and requiring CI would make the invariant structural rather than incidental.
 
 on:
   workflow_run:
