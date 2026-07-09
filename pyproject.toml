@@ -1,6 +1,6 @@
 [project]
 name = "ontoprism"
-version = "0.1.0"
+version = "0.7.0"
 description = "Ontology storage, query, and graph-visualization platform producing a decomposed (non-pre-coordinated) NCIt."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -170,6 +170,10 @@ ignore = [
 "scripts/decompose.py" = [
        "TC003",    # Path used at runtime — typer resolves Annotated types via get_type_hints
  ]
+"scripts/dev/reconstruct_versions.py" = [
+       "S603",    # subprocess args are literals from the module-level MILESTONES tuple
+       "S607",    # `git` from PATH — this is a developer script, not a runtime component
+ ]
 
 [tool.coverage.run]
 source = ["ontolib/src", "backend/src"]
@@ -185,3 +189,95 @@ typeCheckingMode = "standard"
 include = ["ontolib/src", "backend/src"]
 extraPaths = ["ontolib/src", "backend/src"]
 reportMissingImports = true
+
+# --- Automated versioning (.github/workflows/release.yml) -----------------------
+# python-semantic-release computes the next version from Conventional Commit
+# subjects since the last tag, stamps it into every manifest below, regenerates
+# CHANGELOG.md, tags, and cuts a GitHub release.
+#
+# Pre-1.0 policy (SemVer §4: "Major version zero is for initial development;
+# anything MAY change at any time; the public API SHOULD NOT be considered
+# stable"). ontoprism is pre-production with no external consumers, so:
+#   allow_zero_version = true   → stay on 0.y.z
+#   major_on_zero      = false  → a breaking change bumps 0.7.x → 0.8.0; it does
+#                                 NOT auto-promote to 1.0.0. Reaching 1.0.0 is a
+#                                 deliberate act ("this API is now stable"), never
+#                                 the side effect of a stray `!` in a commit.
+#   minor_on_zero      = true   → `feat` bumps the minor digit; `fix`/`perf` patch.
+# Cut 1.0.0 by hand (`semantic-release version --major`) once README's goals are
+# met and the HTTP API is frozen.
+#
+# We deliberately do NOT use a prerelease token on main. The sibling fairdata repo
+# publishes `1.0.0-beta.N` and then runs `gh release edit --prerelease=false
+# --latest` on every release to make it visible — a self-contradiction (a
+# prerelease marked not-a-prerelease). Plain 0.y.z states the same thing honestly
+# and needs no fixup step.
+[tool.semantic_release]
+tag_format = "v{version}"
+allow_zero_version = true
+major_on_zero = false
+minor_on_zero = true
+commit_message = "chore(release): {version} [skip ci]"
+commit_author = "ontoprism-bot <noreply@ontoprism.invalid>"
+
+# The root project is `distribution = false` (a PDM workspace, not a wheel), so
+# there is nothing to build or upload. Versions are stamped, not published.
+# (Empty string is falsy → the build step is skipped. `upload_to_pypi` is NOT set:
+# it was removed in python-semantic-release v8 and is silently ignored today —
+# fairdata's config still carries it, where it does nothing.)
+build_command = ""
+
+# One commit stamps all five manifests. fairdata needs a second `sync_versions.py`
+# commit for this, which then has to be filtered back out of the next changelog;
+# letting semantic-release own every version file avoids both problems.
+version_toml = [
+    "pyproject.toml:project.version",
+    "ontolib/pyproject.toml:project.version",
+    "backend/pyproject.toml:project.version",
+]
+version_variables = [
+    "ontolib/src/ontolib/__init__.py:__version__",
+    "frontend/package.json:version",
+]
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.commit_parser_options]
+# Only these bump a version; `other_allowed_tags` land in the changelog at the
+# same level of detail but never move the number. `allowed_tags` is derived from
+# the three lists, so do not set it directly.
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
+other_allowed_tags = [
+    "docs", "style", "refactor", "test",
+    "chore", "build", "ci", "revert", "security", "deprecate",
+]
+# Merge commits carry no semantics of their own — the PR's own commits do. When a
+# PR is squash-merged, the squashed body is unpacked and each line parsed, so a
+# conventional PR title (enforced by .github/workflows/pr-title.yml) is what
+# drives the bump. Both are the v10 defaults; pinned here because the whole
+# release scheme depends on them.
+ignore_merge_commits = true
+parse_squash_commits = true
+
+[tool.semantic_release.changelog]
+mode = "update"
+insertion_flag = "<!-- version list -->"
+exclude_commit_patterns = [
+    "^Merge pull request",
+    "^Merge branch",
+    "^chore\\(release\\):",
+    "^chore\\(deps\\):",
+]
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.remote]
+type = "github"
+token = { env = "GH_TOKEN" }
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = false

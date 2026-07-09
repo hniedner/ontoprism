@@ -1,0 +1,107 @@
+name: Release
+
+# Fires after a PR merge to main, once that merge commit's CI run is green.
+#
+# Why `workflow_run` and not `pull_request: [closed]` or a bare `push`:
+#   - `push` would release code whose CI has not finished (or has failed).
+#   - `pull_request: closed` fires on the PR head, not the merge commit, so the
+#     released tree would not be what actually landed on main.
+#   - `workflow_run` on a successful CI run of a `push` to main is exactly
+#     "a PR was merged to main and the merged tree is green".
+#
+# In practice main advances via PR merges, but it is NOT branch-protected today —
+# a direct push would also land here. That is safe: the guard step below refuses
+# to release anything that is no longer main's tip, so a fast follow-up merge (or
+# a direct push racing a merge) can never be released twice or rewound. Protecting
+# main and requiring CI would make the invariant structural rather than incidental.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: semantic release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # push the version commit + tag, create the GitHub release
+      id-token: write   # OIDC, required by python-semantic-release
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: main
+          fetch-depth: 0          # full history + tags: semantic-release needs both
+          persist-credentials: true
+
+      - name: Guard — only release the exact commit CI validated
+        id: guard
+        env:
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$VALIDATED_SHA" ]; then
+            echo "main is at $head but CI validated $VALIDATED_SHA."
+            echo "A newer merge already landed; its own CI run will release it."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          subject="$(git log -1 --pretty=%s)"
+          case "$subject" in
+            'chore(release):'*)
+              echo "Head is semantic-release's own version commit; nothing to do."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Semantic release
+        id: release
+        if: steps.guard.outputs.skip == 'false'
+        uses: python-semantic-release/python-semantic-release@39dd2052f2ce8282a5d932c31d58a2ca06d2550e  # v10.6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          git_committer_name: ontoprism-bot
+          git_committer_email: noreply@ontoprism.invalid
+
+      - name: Summary
+        if: always()
+        env:
+          SKIPPED: ${{ steps.guard.outputs.skip }}
+          RELEASED: ${{ steps.release.outputs.released }}
+          TAG: ${{ steps.release.outputs.tag }}
+          LINK: ${{ steps.release.outputs.link }}
+        run: |
+          {
+            echo "## Release"
+            echo
+            if [ "$SKIPPED" = "true" ]; then
+              echo "Skipped — main advanced past the validated commit, or the head is a release commit."
+            elif [ "$RELEASED" = "true" ]; then
+              echo "Released **$TAG** — $LINK"
+            else
+              echo "No release: no \`feat\`/\`fix\`/breaking commits since the last tag."
+              echo
+              echo "Version bumps come from Conventional Commit subjects. \`docs\`, \`chore\`,"
+              echo "\`test\`, \`ci\`, \`refactor\` and \`style\` are changelog-only and never bump."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
