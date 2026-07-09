@@ -2,6 +2,48 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-09 — subsumption-closure completeness is a precondition of D19
+
+### D21. NCIt's `rdfs:subClassOf+` closure omits defined-class subsumption, so "nested" is only decidable where it is materialized — accept the fail-safe direction, and do not use the inferred graph as a round-trip oracle
+D19's central rule — collapse only *nested* (is-a/part-of) candidates, preserve co-equal
+non-nested ones — makes correctness depend on deciding nestedness, which
+`filler_selection.py` does via `rdfs:subClassOf+`. That closure is **incomplete**, and more
+broadly than §6.4 recorded. Verified against the live store (2026-07-09):
+
+- `C3773 owl:equivalentClass [owl:intersectionOf (C215715 C3809)]` — `C3809` is a named
+  intersection member, which *entails* `C3773 ⊑ C3809`.
+- `ASK { C3773 rdfs:subClassOf+ C3809 }` returns **false in the stated graph *and* in the
+  inferred default graph**, and neither holds a direct `rdfs:subClassOf` edge.
+
+§6.4 attributed this to "the materialized/inferred graph", implying the stated graph (or
+another build) might carry it. Neither does. **There is no graph in this deployment against
+which defined-class-to-defined-class subsumption can be read off `rdfs:subClassOf+`.**
+
+**Decision:**
+1. **Accept the fail-safe direction.** Where a genuine subsumption is not materialized, a
+   nested pair is misread as co-equal and therefore **preserved** as separate
+   relationship-group members (D19), never collapsed. Nothing is dropped from the lossless
+   record of truth; the cost falls entirely on the *curated projection*, which over-reports.
+   This is the right way for the error to fall, and it is why residual ties persist after
+   D20 rather than being a bug to engineer away.
+2. **Precision against a single-valued oracle is capped by this**, not by the boundary
+   heuristic. #44's ≥0.9 gate must be measured with `needs_review` excluded (now supported
+   by `score.py`) and against a golden set encoding D19/D20's multi-valued axes — otherwise
+   the gate is unreachable by construction.
+3. **`roundtrip_fidelity` (§10) may not treat the inferred graph as a sound closure
+   oracle.** §10 specifies validating the emitted `owl:equivalentClass` unfolding "against
+   the **inferred** graph as the closure oracle". That oracle has the *same* blindness, so
+   it would report false negatives on exactly the defined-class chains D19 exists to
+   preserve. Before `--emit-equivalence` is built out, either compute the closure from the
+   stated `owl:equivalentClass`/`owl:intersectionOf` structure (which *is* complete — it is
+   the definition) or run a real OWL reasoner. Do not ship a fidelity number derived from
+   `rdfs:subClassOf+`.
+
+**Why not just "fix the closure":** the entailment is genuine but unmaterialized; producing
+it requires OWL reasoning over the ~10.8M-triple stated build — a separate infrastructure
+decision, not a query fix. Recording the constraint costs nothing and prevents a silently
+wrong fidelity metric. Evidence: §6.4; narrative: `tmp/PLAN_44.md` §3.
+
 ## 2026-07-08 — round-trip-fidelity architecture + R101 open items resolved
 
 ### D19. Reversibility is guaranteed by a complete, lossless representation of record; the single-most-specific view is a *lossy curated projection* on top of it — scope-correction to D15
