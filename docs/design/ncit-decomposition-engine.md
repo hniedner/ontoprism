@@ -85,7 +85,8 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://ontoprism.org/vocab#"`, c
 | `op:decomposedOn` | xsd:date of the run that produced the decomposition |
 | `op:decomposedBy` | literal run id (joins to `decomp_run.id`) |
 | `op:hasConstituent` | source concept → a constituent node (blank node) |
-| `op:axis` | constituent node → the axis IRI (reuse the NCIt role IRI where one exists, else an `op:` axis like `op:Morphology`, `op:Laterality`) |
+| `op:axis` | constituent node → the axis IRI (reuse the NCIt role IRI where one exists, else an `op:` axis like `op:Morphology`, `op:Laterality`, `op:AssociatedLineageClassification`, `op:AssociatedRegion` — the last two carry `R101` senses split off per D20/§6.6) |
+| `op:group` | constituent node → a relationship-group id (D19): co-equal non-nested fillers of one concept are grouped rather than collapsed, so the complete representation stays lossless/round-trippable |
 | `op:filler` | constituent node → the filler concept IRI (existing NCIt concept or minted `op:` concept) |
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
 | `op:mostSpecific` | boolean — filler is the hierarchy leaf chosen over ancestors (audit aid) |
@@ -110,6 +111,15 @@ ncit:C6135 op:representationStatus "legacy-precoordinated" ;
 ### 4.4 Optional post-coordination equivalence (deferred to #6)
 
 For entities with a clean, complete axis set the engine *can* additionally assert an `owl:equivalentClass` intersection of the fillers, which is what makes a legacy concept a *derivable* post-coordinated expression and enables de-duplication of AJCC v7/v8 and with/without forks. This is emitted behind a `--emit-equivalence` flag, **off by default** — it is the seam #6 (post-coordination syntax) builds on and should not gate the M5 additive deliverable.
+
+**This flag is also the seam for the complete, lossless representation of record (DECISIONS
+D19).** The `owl:equivalentClass` intersection it emits — the full multi-parent-DAG
+unfolding, with genuinely multi-valued axes kept multi-valued (relationship groups, §6.5) —
+*is* the round-trippable artifact README goal 4 requires. The default single-valued,
+allowlist-filtered output (§6) is an explicitly-lossy curated projection derived from it, not
+a substitute for it. `roundtrip_fidelity` (§10) is therefore only meaningful when this flag
+is on, and is measured against the complete representation (lossless by construction), never
+against the curated projection.
 
 ### 4.5 Postgres provenance (Alembic migration `0003_decomposition`)
 
@@ -170,6 +180,7 @@ The core engineering. For each defining axis of a candidate, choose the single i
 - **`Excludes_*` filter:** negative-axiom restrictions are removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
 - **Anatomy validation:** multi-parent anatomy fillers are cross-checked against the Uberon store (`:7879`, `UBERON_NS`) and NCIt's own anatomy hierarchy; ambiguous cases are flagged (`review` marker in the constituent record) rather than silently resolved. **Validated across 4 concepts, see §6.4:** NCIt's own is-a + `R82` part-of hierarchy resolves this cleanly in some cases but not most — expect `needs_review` on primary-site axes to stay common, not to be engineered away.
+- **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `R101`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review)]`.
 
@@ -396,9 +407,15 @@ vocabulary gap:
 Prior art for exactly this tension: SNOMED CT's concept model hits the same problem (a
 concept can have several true, non-nested values for nominally one attribute type) and
 resolves it with **relationship groups** — multiple grouped sets of attribute-value pairs
-per concept, rather than forcing one value or flattening everything. That's the more
-principled answer this project should look to, over either "pick one" (loses information)
-or "keep everything" (isn't a decomposition anymore).
+per concept, rather than forcing one value or flattening everything. **Adopted (DECISIONS
+D19)** as this project's target axis model, over either "pick one" (loses information) or
+"keep everything" (isn't a decomposition anymore). This is the mechanism that reconciles
+D15's most-specific rule with README goal 4: most-specific collapse is correct **only**
+within a nested (is-a/part-of) candidate set, where the coarser fact stays derivable by
+subsumption; genuinely co-equal, non-nested values (site vs. lineage, organ vs. region) are
+kept as distinct grouped facts and never collapsed, so the complete representation remains
+lossless and round-trippable. See §6.6 and D19 for how the near-term single-valued
+projection is derived *from* that complete representation rather than replacing it.
 
 ### 6.6 Strategy: classify role-bearing *genus concepts* by sense, additively, before axis assignment — validated direction, refined from a stronger initial proposal
 
@@ -448,13 +465,28 @@ additional metadata on a node *already visited*, not a new traversal.
    same golden-set/precision-recall methodology already established for D14/D15, rather
    than attempting a one-shot global classification pass.
 
-**Open, not yet validated:** the region-vs-organ ties (`Colon`/`Colorectal Region`,
-`Left Atrium`/`Endocardium`) don't fit the lineage-generic-ancestor mechanism at all —
-`Colorectal Region` isn't reached through a reusable, organ-agnostic ancestor the way
-`Endocrine Gland` is. These look like a *second*, distinct phenomenon (overlapping
-region/organ classification schemes), for which the semantic-type signal that failed on
-the lineage case may actually be the right tool. **R101 likely needs two independent
-refinements, not one** — this is flagged as follow-up investigation, not claimed solved.
+**Resolved (2026-07-08, DECISIONS D20): R101 gets two independent, composable refinements,
+applied in order** — not one. The region-vs-organ ties (`Colon`/`Colorectal Region`,
+`Left Atrium`/`Endocardium`) are a *second*, distinct phenomenon from lineage conflation:
+they aren't reached through a reusable, organ-agnostic ancestor the way `Endocrine Gland`
+is. The resolution:
+
+1. **Genus-sense classification (this section, D17)** runs **first** and routes
+   lineage-generic restrictions to `op:AssociatedLineageClassification`, removing the
+   `Endocrine Gland`/`Endocrine System` artifacts from `R101` at their source.
+2. **Filler-semantic-type ranking** then orders the *remaining* non-lineage ties, using
+   the signal §6.6 confirmed separates them — `Colon` "Body Part, Organ, or Organ
+   Component" vs. `Colorectal Region` "Anatomical Structure"; `Left Atrium` organ vs.
+   `Endocardium` "Tissue". The organ-level filler is the `R101` primary site; the
+   co-present region/tissue is routed to `op:AssociatedRegion`.
+
+Order matters because semantic type *fails* on the lineage case (both `Lung` and `Endocrine
+Gland` type as "…Organ…") — which is exactly why (1) must carve off the lineage sense before
+(2) is applied. Under the D19 relationship-groups model neither refinement forces a single
+value: each tie becomes distinct grouped facts, so both the literal site and the associated
+region/lineage are preserved (round-trippable), while the curated projection still reports
+one primary site. Both are additive (new `op:` axes, never rewriting `R101` triples).
+Validate via the D14/D15/D17 golden-set methodology.
 
 Full narrative and the confirmed-shared-ancestor evidence: `tmp/PLAN_44.md`.
 
@@ -504,10 +536,11 @@ Pipeline per branch: enumerate in-scope concepts (semantic-type filter) → dete
 | `constituent_existence_rate` | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
 | `residual_precoordination` | candidates left with an unresolved multi-aspect label after roles+NLP |
 | `minted_count` | size of the mint tail (governance signal — should stay low hundreds) |
-| `roundtrip_fidelity` | when `--emit-equivalence`: fraction of concepts whose emitted `owl:equivalentClass` re-derives the same constituent set (validated against the **inferred** graph as the closure oracle) |
+| `roundtrip_fidelity` | when `--emit-equivalence`: fraction of concepts whose emitted **complete** `owl:equivalentClass` unfolding (all defining axes, multi-valued preserved — the D19 representation of record) re-derives the original concept, validated against the **inferred** graph as the closure oracle. Measured on the complete representation only, never the curated projection. |
+| `projection_lossiness` | count of concepts where the curated single-valued/allowlist projection (§6) drops a non-nested co-equal value the complete representation retains (D19) — a governance signal for how much the readable view sacrifices, expected to concentrate on `R101`/`R105` |
 | `needs_review_count` | ambiguous anatomy / multi-filler axes flagged for curation |
 
-The inferred default graph is the validation oracle here: constituent existence and round-trip closure are checked against it even though extraction never reads from it.
+The inferred default graph is the validation oracle here: constituent existence and round-trip closure are checked against it even though extraction never reads from it. Round-trip fidelity is a property of the **complete** representation (D19), which is lossless by construction; the curated single-valued projection is not expected to round-trip, and `projection_lossiness` quantifies the gap rather than treating it as a defect to drive to zero.
 
 ---
 
@@ -574,4 +607,10 @@ records the call and the rationale.
    Issue **#6 ("Post-coordination expression syntax for observations & findings")** is a real, separately-tracked workstream, which settles the split: the formal `owl:equivalentClass` post-coordinated assertion — with its reasoner/consistency implications and AJCC-fork de-duplication payoff — belongs there. M5 already emits the constituent set that #6 consumes; the flag stays in the codebase as the documented seam, and `roundtrip_fidelity` (§10) is only computed when it is on.
 
 5. **Most-specific filler selection applies *across alternate DAG branches*, not just within one branch's collected candidates. Resolved 2026-07-08 — see DECISIONS D14/D15 and §6.3.**
-   §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption.
+   §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption. **Scope-corrected by decision 6 below:** this "nothing is lost" reasoning holds only for *nested* (is-a/part-of) candidate sets; non-nested co-equal values must not be collapsed.
+
+6. **The reversible representation of record is the complete lossless unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 — see DECISIONS D19 and §6.5.**
+   §6.5 established that a defined concept's full `owl:equivalentClass` unfolding is exact and lossless, and that the *only* fidelity loss comes from this project's own simplifications (the defining-axis allowlist + single-valued collapse). Because README goal 4 requires round-tripping back to the original pre-coordinated concept, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG unfolding (all defining axes, multi-valued preserved via SNOMED-style **relationship groups**) is the representation of record and the basis for `roundtrip_fidelity`; the single-most-specific, allowlist-filtered output remains the near-term deliverable but is an explicitly-lossy projection derived from it, not the source of truth. Most-specific collapse (decision 5 / D15) is scoped to *nested* candidate sets only; genuinely co-equal non-nested values (site vs. lineage, organ vs. region) are kept as grouped facts. The complete layer is materialized behind `--emit-equivalence` (§4.4) and built incrementally; committing the architecture now forbids the single-valued path from hardening into an irreversible design.
+
+7. **`R101` primary-site disambiguation uses two independent, composable refinements. Resolved 2026-07-08 — see DECISIONS D20 and §6.6.**
+   D17 left open whether the region-vs-organ ties (`Colon`/`Colorectal Region`, `Left Atrium`/`Endocardium`) need a second mechanism beyond genus-sense classification. They do. Decision: (1) genus-sense classification (D17) runs first and routes lineage-generic restrictions to `op:AssociatedLineageClassification`, then (2) filler-semantic-type ranking orders the residual non-lineage ties (organ-level "Body Part, Organ, or Organ Component" wins the `R101` site; region/tissue is routed to `op:AssociatedRegion`). Order matters — semantic type fails on the lineage case both fillers type as organs, so (1) must carve off lineage before (2). Both additive; under decision 6's groups model each tie becomes distinct grouped facts rather than a forced single value.

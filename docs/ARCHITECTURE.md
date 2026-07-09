@@ -63,6 +63,14 @@ with/without <finding>, staging-manual version). Scope: disease/neoplasm(/regime
 gene/protein role families are excluded by a semantic-type gate. Extraction runs off the
 **stated** OWL (DECISIONS D4); the inferred store is used only for validation/closure.
 
+Reversibility (README goal 4) rests on a **complete, lossless representation of record** —
+the full multi-parent-DAG unfolding of a concept's `owl:equivalentClass` definition, with
+genuinely co-equal axes kept multi-valued as SNOMED-style relationship groups (DECISIONS
+D19). The single most-specific filler per axis is a deliberately **lossy curated projection**
+on top of that record, for human legibility, not the round-trippable artifact; most-specific
+collapse applies only to *nested* (is-a/part-of) candidates, never to non-nested co-equal
+values such as site-vs-lineage (DECISIONS D19/D20).
+
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
 (the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)
 (the *how*) — for the full rationale.

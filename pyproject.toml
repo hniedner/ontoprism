@@ -221,11 +221,20 @@ commit_message = "chore(release): {version} [skip ci]"
 commit_author = "ontoprism-bot <noreply@ontoprism.invalid>"
 
 # The root project is `distribution = false` (a PDM workspace, not a wheel), so
-# there is nothing to build or upload. Versions are stamped, not published.
-# (Empty string is falsy → the build step is skipped. `upload_to_pypi` is NOT set:
-# it was removed in python-semantic-release v8 and is silently ignored today —
-# fairdata's config still carries it, where it does nothing.)
-build_command = ""
+# there is nothing to build or upload. (`upload_to_pypi` is NOT set: it was removed
+# in python-semantic-release v8 and is silently ignored today — fairdata's config
+# still carries it, where it does nothing.)
+#
+# The "build" step instead re-stamps `pdm.lock`, which pins the two editable local
+# packages (`ontolib`, `ontoprism-backend`) by version. `pdm sync` reconciles the
+# working set *to the lock*, so without this every release leaves the lock naming the
+# old version and `pdm sync` reports a bogus "Update ontolib 0.7.1 -> 0.1.0".
+# A full `pdm lock` would also silently re-resolve third-party deps into the release
+# commit; the script edits only those two fields. See its docstring.
+build_command = "python scripts/dev/stamp_lock_version.py"
+
+# Files beyond the version manifests to include in the release commit.
+assets = ["pdm.lock"]
 
 # One commit stamps all five manifests. fairdata needs a second `sync_versions.py`
 # commit for this, which then has to be filtered back out of the next changelog;

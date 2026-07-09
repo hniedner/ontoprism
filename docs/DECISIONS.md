@@ -2,6 +2,98 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-08 — round-trip-fidelity architecture + R101 open items resolved
+
+### D19. Reversibility is guaranteed by a complete, lossless representation of record; the single-most-specific view is a *lossy curated projection* on top of it — scope-correction to D15
+D15 established "prefer the single most-specific filler per axis." §6.5 of the engine
+design then found the sharper truth: a defined concept's full `owl:equivalentClass`
+unfolding is *always* an exact, lossless definition over existing primitives, and **the
+only source of fidelity loss is this project's own simplifications** — the small
+defining-axis allowlist (`R88`/`R101`/`R105`, dropping `R103`/`R104`/`R106`/`R108`/…) and
+collapsing each axis to one filler. README goal 4 requires the decomposition to round-trip
+back to the original pre-coordinated NCIt concept. A single-valued, allowlist-filtered
+view **cannot** satisfy that goal, so it cannot be the artifact of record.
+
+**A necessary correction to D15's scope.** D15's "nothing is lost — the coarser fact stays
+retrievable via subsumption" reasoning is sound **only** when the tied candidates are in an
+is-a/part-of relationship (nested), because then the dropped fact is genuinely derivable
+from the kept one (`C36825 ⊑ C36761`). It does **not** hold for the residual `R101`/`R105`
+ties, which D16/D17/§6.4–§6.6 showed are *role-sense conflation*: genuinely co-equal,
+**non-nested** facts (literal site `Lung` vs. lineage classification `Endocrine Gland`;
+organ `Colon` vs. region `Colorectal Region`). Collapsing those to one leaf silently
+discards a true, non-derivable statement — a real fidelity loss, not a harmless
+projection. D15's most-specific rule is hereby scoped to **nested** candidate sets only;
+non-nested co-equal values must be **preserved**, not collapsed.
+
+**Decision (direction committed, full build deferred):**
+1. **Artifact of record = the complete unfolding.** The reversible representation is the
+   full multi-parent-DAG unfolding of the `owl:equivalentClass` intersection chain — every
+   defining restriction, across every branch, with genuinely multi-valued axes kept
+   multi-valued. This is lossless *by construction* (it *is* the concept's stated
+   definition) and is what `roundtrip_fidelity` (§10) is measured against.
+2. **Adopt SNOMED CT relationship groups as the target axis model.** Where an axis
+   legitimately carries several non-nested values, represent them as grouped
+   attribute-value sets rather than forcing one (loses information) or flattening
+   everything into an undifferentiated bag (stops being a decomposition). This is the
+   principled answer §6.5 identified, and it is what lets the co-equal site/lineage and
+   region/organ facts coexist without either being dropped.
+3. **The single-most-specific, allowlist-filtered output stays the near-term deliverable —
+   explicitly flagged as a lossy curated projection**, derived *from* the complete
+   representation, not the source of truth. It is the human-readable view a curator reads;
+   it is not expected to round-trip and must not be relied on for reversibility.
+4. **`owl:equivalentClass` emission is the seam that materializes the record-of-truth
+   layer.** The off-by-default `--emit-equivalence` flag (design §4.4, §14.4, owned by #6)
+   is retained and re-cast: it is not merely a post-coordination nicety, it is how the
+   lossless artifact is asserted and how `roundtrip_fidelity` is validated against the
+   inferred closure oracle.
+
+**Why not build the full lossless+groups layer now:** the near-term deliverable (neoplasm
+5a/5b) needs a curator-readable projection to make progress against the golden set, and the
+relationship-groups model is only validated on a handful of concepts (§6.6). Committing the
+architecture now — and forbidding the lossy collapse of non-nested values — prevents the
+single-valued path from hardening into an irreversible design, while letting the complete
+layer be built incrementally behind `--emit-equivalence`. Full rationale:
+`docs/design/ncit-decomposition-engine.md` §6.5/§6.6, §4.4, §10; narrative: `tmp/PLAN_44.md`.
+
+### D20. R101 needs two independent, composable refinements — resolves D17's open "region-vs-organ" question
+D17 adopted genus-concept-sense classification (site-specific vs. lineage/histology-generic)
+for the `R101`/`R105` role-sense conflation, and explicitly left open that the
+**region-vs-organ** ties (`Colon`/`Colorectal Region`, `Left Atrium`/`Endocardium`) "don't
+fit this lineage-generic-ancestor mechanism at all… two independent refinements to `R101`,
+not one, is the working hypothesis pending further investigation." That hypothesis is now
+resolved, using the evidence already gathered in §6.6.
+
+**Decision:** `R101` primary-site disambiguation is handled by **two additive, composable
+refinements, applied in order**, both routing to the D19 relationship-groups model rather
+than forcing a single leaf:
+
+1. **Genus-sense classification (D17)** — a restriction anchored on a genus concept
+   classified *lineage/histology-generic* (empirically confirmed reusable ancestors:
+   `C3010` Endocrine Neoplasm, `C3809` Neuroendocrine Neoplasm, `C3773` Neuroendocrine
+   Carcinoma) is routed to a distinct axis `op:AssociatedLineageClassification`, **not**
+   `R101`. This removes the `Endocrine Gland`/`Endocrine System` ties from the primary-site
+   axis at their source. Handles the `Lung`-vs-`Endocrine Gland` class of tie.
+2. **Filler-semantic-type ranking (new)** — for the residual, *non-lineage* ties, use the
+   filler's own NCIt semantic type, which §6.6 confirmed **does** separate exactly this
+   class (`Colon` "Body Part, Organ, or Organ Component" vs. `Colorectal Region`
+   "Anatomical Structure"; `Left Atrium` organ vs. `Endocardium` "Tissue"). Prefer the
+   organ-level filler ("Body Part, Organ, or Organ Component") as the `R101` primary site,
+   and route the co-present region/tissue to a distinct grouped axis
+   (`op:AssociatedRegion`) — again preserving both facts, not dropping one.
+
+This is deliberately the signal D17 **rejected as a general classifier** — and that
+rejection stands: semantic type fails on the lineage case (both `Lung` and `Endocrine
+Gland` are typed "…Organ…"), which is precisely why refinement (1) must run **first** and
+carve off the lineage sense before (2) is applied. The two refinements are complementary,
+not competing: (1) is genus-anchored and removes lineage artifacts; (2) is filler-anchored
+and orders what remains. Both are additive (new `op:` axes / metadata, never rewriting
+`R101` triples), consistent with D17's additive principle and D19's groups model. Under
+D19, neither is a "pick one" any longer — each tie becomes distinct grouped facts, so the
+curated projection can still surface a single primary site while the record-of-truth layer
+keeps every asserted site relationship. Validate via the same golden-set precision/recall
+methodology as D14/D15/D17. Full evidence: `docs/design/ncit-decomposition-engine.md`
+§6.4/§6.6; narrative: `tmp/PLAN_44.md`.
+
 ## 2026-07-08 — automated semantic versioning
 
 ### D18. Automated releases on merge to main; stay in `0.y.z` until the API is deliberately frozen
@@ -76,11 +168,12 @@ stated triples. A filler-semantic-type classifier was tested and rejected as the
 general mechanism — it fails exactly on the cases that matter (`Lung` and `Endocrine
 Gland` share a semantic type despite one being a lineage artifact).
 
-**Not yet resolved:** the region-vs-organ ties (`Colon`/`Colorectal Region`,
+**Resolved by D20 (above):** the region-vs-organ ties (`Colon`/`Colorectal Region`,
 `Left Atrium`/`Endocardium`) don't fit this lineage-generic-ancestor mechanism at all —
-a second, distinct refinement is likely needed there, possibly the semantic-type signal
-this decision rejected for the lineage case. Two independent refinements to `R101`, not
-one, is the working hypothesis pending further investigation.
+a second, distinct refinement is needed there, using the semantic-type signal this
+decision rejected for the lineage case. D20 confirms the two-independent-refinements
+hypothesis and commits the order (genus-sense first, filler-semantic-type second), both
+routed to D19's relationship-groups model rather than a forced single value.
 
 Full rationale, evidence, and the SNOMED CT relationship-groups prior art comparison:
 `docs/design/ncit-decomposition-engine.md` §6.5/§6.6; narrative: `tmp/PLAN_44.md`.
@@ -296,9 +389,14 @@ coverage-padding tests — enforces D3), `check_broad_exceptions.py` (no silent-
 swallowing), `check_complexity.py`. Dropped fairdata-ADR-specific hooks (phase-state
 nuller, FDW001 http_error, exception-handler ordering, module/page-size, sync_versions)
 and the heavy suites' hooks. CI runs the same `pre-commit run --all-files` for parity.
-*Open policy:* `check_test_quality` reports mock-only tests as a **warning**, not a hard
-block (some legitimate tests assert on interactions). Flip to hard-fail if we want
-"no mockery" strictly enforced. Prettier deferred to the real frontend port (M4).
+*Resolved policy (2026-07-08):* keep `check_test_quality`'s mock-only finding a **warning**,
+not a hard block. D3 already makes live-service integration tests (`@pytest.mark.integration`
+against Oxigraph/Postgres) the primary correctness gate, so mockery is not the load-bearing
+signal here; and legitimate tests do assert on interactions (e.g. that `client.load` streams
+an async byte iterator, D12), which a hard-fail would flag as false positives. The static
+`check_broad_exceptions`/`check_complexity` gates plus the integration bar are the real
+enforcement. Revisit only if mock-only unit tests start displacing behavioral coverage in
+practice. Prettier deferred to the real frontend port (M4).
 
 ### D9. Full fairdata test_runner deferred to M1+
 fairdata's `pdm run test` drives an ~8k-LOC `scripts/test_runner/` package (suite matrix,
