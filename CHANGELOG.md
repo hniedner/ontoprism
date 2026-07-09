@@ -19,6 +19,27 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.7.1 (2026-07-09)
+
+### Bug Fixes
+
+- **scripts**: Push milestone tags origin lacks, not only ones created this run
+  ([#47](https://github.com/hniedner/ontoprism/pull/47),
+  [`b9c06f7`](https://github.com/hniedner/ontoprism/commit/b9c06f738a487a1d0b4095736a6ef2a19cbbb4ac))
+
+### Continuous Integration
+
+- Automate semantic versioning on merge to main
+  ([#47](https://github.com/hniedner/ontoprism/pull/47),
+  [`b9c06f7`](https://github.com/hniedner/ontoprism/commit/b9c06f738a487a1d0b4095736a6ef2a19cbbb4ac))
+
+### Documentation
+
+- **ci**: Correct the release workflow's branch-protection claim
+  ([#47](https://github.com/hniedner/ontoprism/pull/47),
+  [`b9c06f7`](https://github.com/hniedner/ontoprism/commit/b9c06f738a487a1d0b4095736a6ef2a19cbbb4ac))
+
+
 ## v0.7.0 (2026-07-08)
 
 Decomposition engine, part 5b — the pipeline runs end to end.

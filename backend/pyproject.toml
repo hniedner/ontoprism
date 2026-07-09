@@ -1,6 +1,6 @@
 [project]
 name = "ontoprism-backend"
-version = "0.7.0"
+version = "0.7.1"
 description = "FastAPI backend for ontoprism (imported as `backend`)."
 requires-python = ">=3.13,<3.14"
 dependencies = ["ontolib"]
