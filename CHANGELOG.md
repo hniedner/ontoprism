@@ -19,6 +19,21 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.7.2 (2026-07-09)
+
+### Bug Fixes
+
+- **build**: Keep pdm.lock's local package versions in sync with releases
+  ([#48](https://github.com/hniedner/ontoprism/pull/48),
+  [`a7d8a32`](https://github.com/hniedner/ontoprism/commit/a7d8a32c59615a334a7fa5a72fa0e267a3a8e1d6))
+
+### Documentation
+
+- **decomposition**: Record D19/D20 — lossless record of truth, and two composable R101 refinements
+  ([#48](https://github.com/hniedner/ontoprism/pull/48),
+  [`a7d8a32`](https://github.com/hniedner/ontoprism/commit/a7d8a32c59615a334a7fa5a72fa0e267a3a8e1d6))
+
+
 ## v0.7.1 (2026-07-09)
 
 ### Bug Fixes

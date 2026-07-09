@@ -1,6 +1,6 @@
 [project]
 name = "ontolib"
-version = "0.7.1"
+version = "0.7.2"
 description = "Ontology/terminology core (storage, terminologies, cadsr) for ontoprism."
 requires-python = ">=3.13,<3.14"
 # Runtime deps are declared centrally in the root project; this package stays light.
