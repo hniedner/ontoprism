@@ -169,7 +169,7 @@ The core engineering. For each defining axis of a candidate, choose the single i
 - **Defense-in-depth most-specific selection:** where an axis still yields multiple fillers, keep the hierarchy **leaf** — the filler with no other returned filler as its `rdfs:subClassOf`-ancestor. Ancestors within the same axis result set are dropped. (Guards against any residual closure and against genuinely multi-filler axes.)
 - **`Excludes_*` filter:** negative-axiom restrictions are removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
-- **Anatomy validation:** multi-parent anatomy fillers are cross-checked against the Uberon store (`:7879`, `UBERON_NS`) and NCIt's own anatomy hierarchy; ambiguous cases are flagged (`review` marker in the constituent record) rather than silently resolved.
+- **Anatomy validation:** multi-parent anatomy fillers are cross-checked against the Uberon store (`:7879`, `UBERON_NS`) and NCIt's own anatomy hierarchy; ambiguous cases are flagged (`review` marker in the constituent record) rather than silently resolved. **Validated across 4 concepts, see §6.4:** NCIt's own is-a + `R82` part-of hierarchy resolves this cleanly in some cases but not most — expect `needs_review` on primary-site axes to stay common, not to be engineered away.
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review)]`.
 
@@ -218,23 +218,245 @@ themselves richly pre-coordinated defined classes, so walking a concept's genus 
 its base re-creates the very ancestor-closure bleed the stated form was supposed to avoid
 (assessment §4) — just reconstructed one level up.
 
-**Most-specific selection does not rescue it.** For `C6135`'s six collected `R105`
-abnormal-cell fillers the intra-set `rdfs:subClassOf+` relation is a deep chain whose only
-leaf is `C36825` — a **descendant** of the assessment's intended `C36761`. So most-specific
-selection collapses the axis to `C36825`, i.e. the **wrong** (too-specific) constituent.
-Over-collection followed by leaf selection can therefore silently pick a filler the concept
-does not actually assert.
+**Most-specific selection alone does not rescue it.** For `C6135`'s six collected `R105`
+abnormal-cell fillers, most-specific selection over the *unfiltered* over-collected set
+picks `C36825`. At the time this was recorded as "the wrong (too-specific) constituent" —
+**that framing was backwards and is corrected by DECISIONS D15**: `C36825` and the
+assessment's `C36761` are both genuinely asserted (on different DAG branches — §6.3), and
+`C36825` is in fact the *intended* most-specific answer once the axis set is correctly
+filtered first. The real problem this example exposed was over-collection (the ~30 extra
+classes and their non-defining roles), not most-specific selection itself.
 
-**Conclusion.** Correct stated extraction is **not** a mechanical genus-walk + most-specific.
-It needs (a) defining-role classification (keep `Has_*`/`Is_*` axes; drop `May_Have_*`,
-`Excludes_*`, `Mapped_To_Gene`), (b) a principled boundary that distinguishes a concept's
-*own differentia* from axes it merely *inherits* from its genus (e.g. per-level differentia
-diffing against the genus, or stopping at the first morphology-bearing primitive), and
-(c) curation of the residual ambiguous axes. This is exactly the **filler-selection tooling +
-curation** effort the assessment scoped at multiple person-months (§6–§7), and it is
-**dominated by curation, not engineering**. It should be planned as a focused research
-workstream (a small hand-curated golden set as the oracle, iterating the boundary heuristic),
-not a single mechanical PR. The C6135 integration test stays `xfail` until this lands.
+**Conclusion.** Correct stated extraction is **not** a mechanical genus-walk + most-specific
+over the *unfiltered* result set. It needs (a) defining-role classification (keep `Has_*`/`Is_*`
+axes; drop `May_Have_*`, `Excludes_*`, `Mapped_To_Gene`), (b) a principled boundary that
+distinguishes a concept's *own differentia* from axes it merely *inherits* from its genus
+(per-level differentia diffing against the genus — validated in §6.3), and (c) curation of
+axes that remain genuinely ambiguous after (a)+(b) (§6.3's R101 example). This is exactly
+the **filler-selection tooling + curation** effort the assessment scoped at multiple
+person-months (§6–§7); §6.3 reports the first concrete, measured progress against it. The
+C6135 integration test stays `xfail` until issue #44's SME-validated golden set clears its
+precision/recall threshold — §6.3's numbers are the current state, not the finish line.
+
+### 6.3 Resolution direction, validated against C6135 (issue #44, 2026-07-08)
+
+Two corrections to §6.1/§6.2, recorded as DECISIONS D14/D15, turn the negative result above
+into a measured positive one:
+
+- **D14 — the genus chain is a multi-parent DAG, not a linear chain.** Most levels have
+  *two or three* named-class genus members (multiple inheritance), not one. A walk that
+  visits every genus member (breadth-first, memoized) is required — following only one
+  branch silently drops real content (this is how `C36761` was found to be reachable at
+  all: seven hops down a branch a linear walk never visits).
+- **D15 — filler selection prefers the most-specific candidate across alternate branches.**
+  When two branches assert different specificities of the same axis (`C36825` vs `C36761`,
+  both true), keep the more specific one — matching SNOMED CT's Necessary Normal Form
+  precedent (D15's full rationale + citations).
+
+Applying (a) a small **defining-axis allowlist** (`R88` stage, `R101` primary site, `R105`
+abnormal cell — extend as more concepts are curated) at **every** level of a full
+multi-parent DAG walk, before most-specific selection, measured on `C6135` against the
+existing 1-concept golden set:
+
+| Extractor | Precision | Recall |
+|---|---|---|
+| Naive walk, no axis filter (§6.2's original result) | 0.10 | 0.75 |
+| + defining-axis allowlist, full multi-parent DAG walk | 0.31 | **1.00** |
+
+Recall reaching 1.00 confirms D14 was necessary (the golden set's `R105→C36761` is only
+reachable through the previously-unwalked branch). The remaining precision loss is now
+concentrated on exactly two axes, for two different and well-understood reasons — not
+diffuse noise:
+
+- **R101 (primary site):** 5 raw candidates spanning organ/system/region granularity
+  (`C12400` Thyroid Gland, `C12704` Endocrine Gland, `C12705` Endocrine System, `C12418`
+  Head and Neck, `C13063` Neck). Most-specific selection over the *stated* graph's
+  `rdfs:subClassOf+` (is-a only) resolves only 1 ancestor pair among them, leaving 4 tied
+  "leaves" — because `C12418`/`C13063` are anatomic *regions*, not organs, and aren't on a
+  strict is-a chain with `C12400`/`C12704`/`C12705` at all. **Update, validated against 4
+  concepts total: §6.4** — the fix is real but partial, not the clean resolution first
+  hoped for.
+- **R105 (abnormal cell):** resolved by D15 (policy: most-specific wins).
+
+**A data-quality caveat surfaced during this investigation:** `ASK { C3773
+rdfs:subClassOf+ C3809 }` returns `false` in the live store even though `C3773`'s own
+stated definition includes `C3809` as an intersection member (which entails `C3773 ⊑
+C3809`). The materialized/inferred graph's `rdfs:subClassOf+` closure does not appear to
+include defined-class-to-defined-class subsumption in this build — only role-restriction
+flattening. `filler_selection.py`'s most-specific selection, which relies on
+`rdfs:subClassOf+` over the stated graph, is therefore blind to some genuine subsumptions
+between defined classes; this did not affect the C6135 result above (both `R101` and
+`R105` candidates it needed to compare happen to be primitive classes with real
+`rdfs:subClassOf+` edges) but is a risk for other concepts and worth keeping in mind if
+most-specific selection ever silently under-collapses an axis.
+
+Research code (untracked, `tmp/` is gitignored): `tmp/walk_intersection.py` (the
+multi-parent DAG walker) and `tmp/differentia_extractor.py` (the defining-axis-filtered
+extractor + scorer). Full narrative: `tmp/PLAN_44.md`.
+
+### 6.4 R101 anatomy resolution — validated against 4 concepts: real improvement, not a full fix (2026-07-08)
+
+§6.3 found that `C6135`'s 5 tied `R101` candidates resolve to a single leaf (`C12400`
+Thyroid Gland) once most-specific selection also treats NCIt's own `R82
+Anatomic_Structure_Is_Physical_Part_Of` role as transitive-ancestor evidence, alongside
+`rdfs:subClassOf+` (is-a) — **no external Uberon lookup needed** for that case. Before
+writing that into this design as settled, it was checked against 3 more concepts
+(`C4791` Left Atrial Myxoma, `C35756` Stage IIIB Lung SCLC w/ Pleural Effusion, `C89995`
+Stage III Colon Cancer AJCC v7). Result: **the technique generalizes partially, not
+fully.**
+
+| Concept | Raw R101 candidates | is-a ∪ part-of leaves | Outcome |
+|---|---|---|---|
+| `C6135` | 5 (Thyroid Gland, Endocrine Gland/System, Head and Neck, Neck) | **1** (Thyroid Gland) | Fully resolved |
+| `C89995` | 3 (Colon, Colorectal Region, Digestive System) | 2 (Colon, Colorectal Region) | Partially resolved (system eliminated; organ-vs-region tie remains) |
+| `C35756` | 4 (Lung, Bronchus, Endocrine Gland/System) | 3 (Lung, Bronchus, Endocrine Gland) | Partially resolved (Endocrine System eliminated; three unrelated siblings remain) |
+| `C4791` | 7 (Heart, Cardiac Atrium, Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity, Connective/Soft Tissue) | 4 (Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity) | Partially resolved (Heart/Cardiac Atrium eliminated as too-broad; Left Atrium still ties with 3 unrelated candidates) |
+
+**What the technique reliably does:** correctly and consistently eliminates candidates
+that are genuine is-a or part-of *containers* of another candidate, in every case tested
+— it never removed a candidate it shouldn't have.
+
+**What it does not do:** resolve ties between candidates that are simply *not related* to
+each other in NCIt's own graph, which turns out to be the common case, not the exception.
+Two recurring patterns, neither of which a more complete external anatomy ontology
+(Uberon) is obviously the fix for:
+- **Region vs. organ:** `Colorectal Region` vs. `Colon`, `Head and Neck`/`Neck` vs.
+  `Thyroid Gland` — NCIt models named regions and named organs as siblings under a
+  common broader container, not one nested in the other, even where a clinician would
+  read one as implying the other.
+- **Site vs. cross-cutting system classification:** `Lung`/`Bronchus` (literal site) vs.
+  `Endocrine Gland`/`Endocrine System` (asserted because Small Cell Lung Carcinoma is
+  classified as a *neuroendocrine* tumor — the same pattern already seen for `R105` on
+  `C6135`, now recurring on `R101`). These are genuinely two different, simultaneously
+  true, non-nested facts, not a specificity ladder Uberon would linearize.
+
+One case (`C35756`'s `Lung`/`Bronchus`) plausibly *would* resolve via Uberon, since real
+anatomical containment exists between them that NCIt's own `R82` graph doesn't capture
+(`Bronchus` is asserted part-of `Bronchial Tree` part-of `Respiratory System`; `Lung` is
+asserted part-of `Respiratory System` directly — siblings in NCIt, but not in general
+anatomical knowledge). That is one plausible win out of four concepts, not evidence
+Uberon would close the gap generally.
+
+**Recommendation, revised from §6.3's more optimistic framing:**
+1. **Implement the is-a ∪ part-of (`R82`, transitive) extension to `filler_selection.py`'s
+   most-specific selection regardless** — it is a real, validated, zero-downside
+   improvement (never wrong in 4/4 tests) and reduces `needs_review` noise materially.
+2. **Do not expect it to eliminate `needs_review` for R101.** The existing
+   `needs_review` flag on a tied leaf set (already part of `filler_selection.py`'s
+   design) is the right mechanism for the residual ties — accept some primary-site axes
+   as legitimately multi-valued or curator-reviewed, rather than chasing a single
+   mechanical answer.
+3. **Uberon cross-checking is not validated as the general fix** and should not be
+   built as the default plan on the strength of this investigation. If pursued at all,
+   scope it narrowly (e.g. only for candidate pairs where NCIt's own graph shows no
+   relation at all) and expect a similarly partial result, not full resolution — the
+   `Lung`/`Bronchus` case is the one example here that looks promising, not four.
+
+Research code (untracked): `tmp/anatomy_resolve.py`. Full narrative: `tmp/PLAN_44.md`.
+
+### 6.5 Finding: the residual ambiguity is role-sense conflation, not a gap in NCIt's atomic vocabulary (2026-07-08)
+
+§6.4's residual `R101` ties, and D15's `R105` finding, both raise a deeper question worth
+answering precisely: **do NCIt's existing simple (non-pre-coordinated) concepts fully
+cover the semantics of its pre-coordinated concepts, or would decomposing into that
+existing pool leave real gaps?**
+
+**Answer: the atomic pool is not the gap.** Every filler encountered across all four §6.4
+concepts (`Thyroid Gland`, `Endocrine Gland`, `Colorectal Region`, `Lung`, `Bronchus`,
+`Endocardium`, …) was checked and confirmed **primitive** — none is itself a secretly
+pre-coordinated (defined) class. There is no case in this investigation where a needed
+concept doesn't already exist.
+
+There are two distinct, real phenomena behind the residual ties, and neither is a
+vocabulary gap:
+
+1. **A defined class's `owl:equivalentClass` chain is, by construction, an exact,
+   lossless definition in terms of existing primitives and roles.** Fully unfolding it
+   (every branch, every role, nothing dropped, multi-valued axes kept multi-valued) is
+   *always* achievable and *always* exact — that's definitionally what the pre-coordinated
+   concept's semantics already are. **The only reason decomposition can lose fidelity is
+   that this project deliberately simplifies**: a small curated defining-axis allowlist
+   (`R88`/`R101`/`R105`, dropping `R103`/`R104`/`R106`/`R108`/etc.) plus (until now)
+   collapsing each axis to one filler. That simplification is the right trade-off for
+   producing something a curator can read — but it is a chosen trade-off, not a discovery
+   about NCIt's expressiveness.
+2. **NCIt's role vocabulary is coarser than a clean single-valued axis model needs.**
+   `R101 Disease_Has_Primary_Anatomic_Site` is reused for two pragmatically different
+   things: the literal organ (`Thyroid Gland`, `Lung`), and a broader
+   histologic/lineage-classification association inherited from a tumor-family ancestor
+   (`Endocrine Gland`/`Endocrine System`, because the concept is *also* a neuroendocrine
+   tumor). **Confirmed, not hypothesized:** the exact same generic ancestor concept —
+   `C3010 "Endocrine Neoplasm"` — is reached in *both* `C6135`'s (thyroid) and
+   `C35756`'s (lung) genus DAGs, asserting the identical `R101 → Endocrine Gland/System`
+   restriction as part of its own organ-agnostic definition in both cases. This is a
+   systematic, corpus-level pattern (a small set of reusable, organ-agnostic "lineage"
+   ancestors), not a one-off coincidence — and it is a genuine structural property of
+   *how NCIt uses its roles*, distinct from the atomic concepts themselves.
+
+Prior art for exactly this tension: SNOMED CT's concept model hits the same problem (a
+concept can have several true, non-nested values for nominally one attribute type) and
+resolves it with **relationship groups** — multiple grouped sets of attribute-value pairs
+per concept, rather than forcing one value or flattening everything. That's the more
+principled answer this project should look to, over either "pick one" (loses information)
+or "keep everything" (isn't a decomposition anymore).
+
+### 6.6 Strategy: classify role-bearing *genus concepts* by sense, additively, before axis assignment — validated direction, refined from a stronger initial proposal
+
+The natural response to §6.5 is to stop trying to disambiguate a role's sense per-node,
+ad hoc, and instead classify **the relation itself** wherever it's overloaded — resolving
+the sense once, upstream of node decomposition, rather than re-deriving it every time a
+descendant concept is decomposed. The initial shape of this proposal was to
+mechanically split an overloaded role into multiple single-sense roles and regenerate the
+graph with the split roles before doing any node-level work. Investigating the concrete
+mechanism changes the *implementation shape*, not the direction:
+
+**What doesn't work as a general classifier:** the filler's own NCIt semantic type. It
+correctly separates some residual ties (`Colon` "Body Part, Organ, or Organ Component" vs
+`Colorectal Region` "Anatomical Structure"; `Left Atrium` "Body Part, Organ, or Organ
+Component" vs `Endocardium` "Tissue") but **not** the case that matters most: `Lung` and
+`Endocrine Gland` are *both* typed "Body Part, Organ, or Organ Component" in NCIt, despite
+one being the intended site and the other a lineage artifact. Semantic type alone cannot
+distinguish "wrong organ from an unrelated lineage-classification branch" from "right
+organ", because both are, mechanically, organs.
+
+**What does work, confirmed against 2 independent concepts:** classifying the **genus
+concept that anchors the restriction** — not the raw triple, not the filler — by whether
+it is *site-specific* (named for an organ/region, narrow relevance) or
+*lineage/histology-generic* (organ-agnostic, e.g. `Endocrine Neoplasm`, and by the same
+pattern presumably `Sarcoma`, `Carcinoma` superclass concepts generally). This is exactly
+the level-by-level DAG walk D14 already performs (`walk_intersection.py`'s `Level`
+already records which genus each restriction was found on) — the sense classification is
+additional metadata on a node *already visited*, not a new traversal.
+
+**Revised strategy (additive, incremental, not a global rewrite):**
+1. Classify **genus concepts**, not triples, and only the ones that actually anchor a
+   `R88`/`R101`/`R105`-type restriction somewhere in a decomposition-scope concept's DAG —
+   a few hundred to low thousands of concepts, not a pass over NCIt's full ~200K classes
+   or its millions of triples.
+2. Persist the classification **additively** (a new `op:` annotation on the genus concept,
+   or a lookup table alongside the golden set) — never rewrite or relabel the existing
+   `R101`/`R105` triples themselves. This matches the project's existing additive/
+   reversible principle (README goal 2) rather than introducing a second kind of mutation
+   risk alongside it.
+3. During per-level role extraction, consult that classification to route a restriction to
+   its raw role code (site-specific / default) or to a new `op:` axis such as
+   `op:AssociatedLineageClassification` (lineage-generic) — the same pattern already used
+   for `R88`'s stage-value/stage-system split, generalized from a per-filler label check to
+   a per-genus classification lookup.
+4. Start from the concepts already confirmed lineage-generic (`C3010` Endocrine Neoplasm,
+   `C3809` Neuroendocrine Neoplasm, `C3773` Neuroendocrine Carcinoma) and expand via the
+   same golden-set/precision-recall methodology already established for D14/D15, rather
+   than attempting a one-shot global classification pass.
+
+**Open, not yet validated:** the region-vs-organ ties (`Colon`/`Colorectal Region`,
+`Left Atrium`/`Endocardium`) don't fit the lineage-generic-ancestor mechanism at all —
+`Colorectal Region` isn't reached through a reusable, organ-agnostic ancestor the way
+`Endocrine Gland` is. These look like a *second*, distinct phenomenon (overlapping
+region/organ classification schemes), for which the semantic-type signal that failed on
+the lineage case may actually be the right tool. **R101 likely needs two independent
+refinements, not one** — this is flagged as follow-up investigation, not claimed solved.
+
+Full narrative and the confirmed-shared-ancestor evidence: `tmp/PLAN_44.md`.
 
 ---
 
@@ -324,7 +546,7 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 | Risk | Mitigation |
 |---|---|
 | Inferred-vs-stated confusion (ancestor bleed, `Excludes_*`) | Extract from the **stated** graph only; most-specific selection as defense-in-depth; inferred used solely as validation oracle |
-| Most-specific errors on multi-parent anatomy | Uberon + NCIt-hierarchy cross-check; ambiguous cases flagged `needs_review`, not silently resolved |
+| Most-specific errors on multi-parent anatomy | NCIt-hierarchy (is-a + `R82` part-of) cross-check, validated §6.4 as a real-but-partial fix; ambiguous cases flagged `needs_review`, not silently resolved; Uberon not validated as a general fix |
 | Semantic loss on "without/excludes" | Model absence explicitly as a minted qualifier + `polarity`; never drop the negation |
 | Consumer breakage | Additive-only by construction (single output graph, no deletions), proven by `test_additive_no_deletions` |
 | Scope creep into gene/protein | Semantic-type gate in the detector is the hard boundary |
@@ -334,7 +556,9 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 
 ## 14. Resolved decisions
 
-The four decisions flagged during design are resolved below (grounded in the assessment data, the code, and the issue tracker). Each records the call and the rationale.
+The decisions flagged during design (plus one that emerged from implementation) are
+resolved below (grounded in the assessment data, the code, and the issue tracker). Each
+records the call and the rationale.
 
 1. **`min_defining_roles` — keep default 2, but gate on ≥2 *decomposable axes*, not raw roles.**
    First, a correction: **55,044 is the corpus-wide count** (all 204K classes, incl. the out-of-scope gene/protein families). It must **not** be used as the in-scope candidate figure — the semantic-type gate (§5.1) fires first, so the true candidate set is measured *after* the gate over the ~26K in-scope role-bearing concepts (Neoplastic Process 16,467 + Disease or Syndrome 5,808 + Cell/Molecular Dysfunction 3,911). The golden spike must report that gated number, not 55,044.
@@ -348,3 +572,6 @@ The four decisions flagged during design are resolved below (grounded in the ass
 
 4. **`owl:equivalentClass` emission — keep the off-by-default `--emit-equivalence` seam; #6 owns it. Confirmed, no change.**
    Issue **#6 ("Post-coordination expression syntax for observations & findings")** is a real, separately-tracked workstream, which settles the split: the formal `owl:equivalentClass` post-coordinated assertion — with its reasoner/consistency implications and AJCC-fork de-duplication payoff — belongs there. M5 already emits the constituent set that #6 consumes; the flag stays in the codebase as the documented seam, and `roundtrip_fidelity` (§10) is only computed when it is on.
+
+5. **Most-specific filler selection applies *across alternate DAG branches*, not just within one branch's collected candidates. Resolved 2026-07-08 — see DECISIONS D14/D15 and §6.3.**
+   §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption.

@@ -2,6 +2,146 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-08 — role-sense conflation finding + genus-classification strategy
+
+### D17. Residual axis ambiguity is NCIt role-sense conflation, not a missing-atom gap — classify anchoring genus concepts additively, not a global role-splitting rewrite
+D16 left an open question: is the R101/R105 ambiguity evidence that NCIt's existing
+simple concepts are insufficient to represent pre-coordinated concepts' full semantics?
+**No** — every filler examined across §6.4/D16's four concepts was verified primitive
+(not itself a defined class); there is no case where a needed atomic concept is missing.
+The actual finding is narrower and more precise: (a) a defined class's full
+`owl:equivalentClass` unfolding is *always* an exact, lossless definition over existing
+primitives — any fidelity loss comes from this project's own simplification choices
+(a small defining-axis allowlist, single-valued-per-axis selection), not from NCIt; and
+(b) NCIt's role vocabulary reuses `R101`/`R105` for pragmatically distinct senses — the
+literal site/cell-type, and a broader lineage/histology classification inherited from an
+organ-agnostic tumor-family ancestor. **Confirmed empirically, not just hypothesized:**
+the identical ancestor concept `C3010 "Endocrine Neoplasm"` anchors the same
+`R101 → Endocrine Gland/System` restriction in both `C6135` (thyroid) and `C35756`
+(lung)'s genus DAGs — a systematic, reusable pattern, not a one-off.
+
+**Decision:** adopt a genus-concept-sense classification strategy — proposed initially as
+splitting the role and regenerating the graph with split roles before node decomposition;
+refined, after checking the mechanism, to classifying the **genus concepts that anchor
+overloaded restrictions** (site-specific vs. lineage/histology-generic) and persisting
+that **additively** (new metadata/lookup, never rewriting the existing `R101`/`R105`
+triples), consumed during per-level role extraction to route a restriction to its raw
+role or to a new `op:` axis. This is a small, incremental classification problem (a few
+hundred/thousand genus concepts that actually anchor decomposition-relevant restrictions)
+building directly on D14's existing per-level DAG walk, not a rewrite of NCIt's ~10M
+stated triples. A filler-semantic-type classifier was tested and rejected as the
+general mechanism — it fails exactly on the cases that matter (`Lung` and `Endocrine
+Gland` share a semantic type despite one being a lineage artifact).
+
+**Not yet resolved:** the region-vs-organ ties (`Colon`/`Colorectal Region`,
+`Left Atrium`/`Endocardium`) don't fit this lineage-generic-ancestor mechanism at all —
+a second, distinct refinement is likely needed there, possibly the semantic-type signal
+this decision rejected for the lineage case. Two independent refinements to `R101`, not
+one, is the working hypothesis pending further investigation.
+
+Full rationale, evidence, and the SNOMED CT relationship-groups prior art comparison:
+`docs/design/ncit-decomposition-engine.md` §6.5/§6.6; narrative: `tmp/PLAN_44.md`.
+
+## 2026-07-08 — R101 anatomy resolution validated (partial), Uberon plan revised
+
+### D16. NCIt's own is-a + `R82` part-of hierarchy resolves R101 anatomy ties partially, not fully — do not default to building a Uberon cross-check
+D15 fixed the `R105` axis; the same investigation raised a hypothesis for `R101`
+(primary site) ties: that combining `rdfs:subClassOf+` (is-a) with NCIt's own `R82
+Anatomic_Structure_Is_Physical_Part_Of` role (walked transitively — it is not
+transitively materialized in the inferred graph, unlike defining-role restrictions)
+might resolve anatomy-axis ambiguity without needing the external Uberon store design
+§6 originally scoped. **Before writing that into the design as settled, it was checked
+against 4 concepts, not 1** (`C6135`, `C4791`, `C35756`, `C89995` — Thyroid, cardiac,
+lung, and colon primaries respectively).
+
+**Result:** the technique is a real, zero-downside improvement (it correctly eliminated
+every genuine is-a/part-of container candidate across all 4 concepts, never wrongly) but
+only fully resolved the tie in 1 of 4 cases (`C6135`). The other 3 have a recurring
+residual tie between candidates that are simply *not related* in NCIt's own graph —
+region-vs-organ (`Colorectal Region` vs `Colon`) and site-vs-cross-cutting-classification
+(`Lung` vs `Endocrine Gland`, the same "neuroendocrine tumor" pattern D15 already found
+on `R105`, recurring on `R101`). Only one sub-case (`Lung`/`Bronchus`, where real
+anatomical containment exists but NCIt's own `R82` graph doesn't capture it) looks like a
+plausible genuine Uberon win — one out of four concepts, not a validated general fix.
+
+**Decision:**
+1. Implement the is-a ∪ part-of (`R82`, transitive) extension to
+   `filler_selection.py`'s most-specific selection — it is validated, low-risk, and
+   reduces noise materially even where it doesn't fully resolve an axis.
+2. Do **not** build a Uberon cross-check as the default follow-on plan. It is not shown
+   to be the general fix; the residual ties look structural (NCIt models regions and
+   organs, or anatomic site and tumor-lineage classification, as siblings rather than a
+   specificity ladder), not a completeness gap a richer anatomy ontology obviously
+   closes.
+3. Treat residual `R101` ties the way `filler_selection.py` already treats any tied
+   leaf set — `needs_review`, not a forced single answer. Expect this to be common on
+   primary-site axes, not an edge case to engineer away.
+
+Full data, per-concept tables, and reasoning: `docs/design/ncit-decomposition-engine.md`
+§6.4; research code (untracked): `tmp/anatomy_resolve.py`; narrative: `tmp/PLAN_44.md`.
+
+## 2026-07-08 — multi-parent DAG traversal + most-specific filler policy
+
+### D15. Filler selection prefers the most-specific candidate across *alternate* DAG branches — resolves §6.2's "wrong constituent" framing as backwards
+§6.2 recorded that most-specific selection over `C6135`'s collected `R105` (abnormal-cell)
+candidates picks `C36825`, one level more specific than the assessment's expected `C36761`,
+and called this "the wrong (too-specific) constituent." Investigating why (issue #44,
+after D14 below) found `C36825` and `C36761` are asserted on **different** multi-
+inheritance branches of the same DAG (`C36825` via genus `C3773`, `C36761` via genus
+`C3809`; `C36825 ⊑ C36761` verified true via `ASK`) — both are simultaneously true
+statements about `C6135`. This is not an extraction bug; it is a genuine choice between
+two true statements at different specificity, and something had to decide which one a
+single-valued axis reports.
+
+**Decision:** prefer the most-specific true statement, even when the candidates come from
+different alternate branches — §6.2's framing was backwards; `C36825` is the *correct*
+answer for that axis, not a bug to work around. Grounded in:
+- **Peer-reviewed precedent:** Spackman KA, "Normal forms for description logic
+  expressions of clinical concepts in SNOMED RT," *Proc AMIA Symp* 2001:627-31 (PMID
+  [11825261](https://pubmed.ncbi.nlm.nih.gov/11825261/)) — establishes canonical/normal
+  forms for exactly this problem class: a concept's logical definition admits multiple
+  equivalent representations, and one must be chosen for authoring/distribution.
+- **Production precedent, same problem class:** SNOMED International's
+  [`snomed-owl-toolkit`](https://github.com/IHTSDO/snomed-owl-toolkit/blob/master/documentation/calculating-necessary-normal-form.md)
+  (the code that generates SNOMED CT's actual distributed release files) computes its
+  Necessary Normal Form by explicitly removing attributes "redundant because they are
+  less specific... in one of the alternate hierarchies." SNOMED CT has the same
+  multi-parent-DAG structure NCIt does and resolves this exact scenario the same way, at
+  production scale, for decades.
+- **Consistent with this project's own round-trip-fidelity goal** (design §10): the more
+  specific filler is required to exactly reconstruct the original pre-coordinated concept
+  via `owl:equivalentClass`; the coarser filler only reconstructs a broader ancestor.
+- **Nothing is lost:** because `C36825 ⊑ C36761`, the coarser fact stays retrievable via
+  ordinary subsumption querying — asserting only the specific fact does not hide the
+  general one from a consumer.
+
+This resolves `filler_selection.py`'s existing most-specific behavior as *intentional
+policy*, not an unchosen mechanical default. `docs/design/ncit-decomposition-engine.md`
+§6.2/§6.3/§14 updated to match; the golden set's `C6135` entry
+(`ontolib/tests/decomposition/golden/neoplasm.json`) is due to change from `C36761` to
+`C36825` once golden-set curation resumes (issue #44).
+
+### D14. Stated pre-coordination hierarchy is a multi-parent DAG, not a linear genus chain — correction to D13/§6.1
+While building a defining-axis-filtered extractor (issue #44), walking `C6135`'s genus
+chain level by level found that most levels have **two or three** named-class genus
+members simultaneously (multiple inheritance), not one — e.g. `C3879
+owl:equivalentClass [owl:intersectionOf (C160980 C4815 <2 roles>)]`. D13's own worked
+example diagram reads as a linear chain; a walker that follows only one genus per level
+(the natural reading of that diagram) silently drops whole branches. Verified
+empirically: `C6135`'s golden-set-expected `R105→C36761` filler is asserted seven "genus
+hops" down a branch (`C6135→C141041→C3879→C160980→C188222→C3809`) that a single-parent
+walk never visits — dropping it produces a misleadingly plausible recall=0.75 result from
+a genuinely incomplete traversal.
+
+**Decision:** the recursive genus-chain walk (D13) must visit **every** named-class
+member at each intersection level (breadth-first over the DAG, memoized so re-converging
+branches aren't re-walked twice), not "the" genus. `scripts/decomposition_spike.py`'s
+existing stack-based walk already does this correctly (it pushes every genus row it
+finds); the mental model implied by D13's linear diagram does not, and a naive
+reimplementation following that diagram will reproduce the bug. Research code:
+`tmp/walk_intersection.py` (untracked, `tmp/` is gitignored — see `tmp/PLAN_44.md` for
+the full investigation).
+
 ## 2026-07-06 — stated NCIt load + decomposition extraction
 
 ### D12. Load the stated NCIt OWL via the offline bulk loader, not HTTP GSP
