@@ -2,6 +2,49 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-08 — automated semantic versioning
+
+### D18. Automated releases on merge to main; stay in `0.y.z` until the API is deliberately frozen
+The repo had 27 merged PRs, no tags, a hand-maintained `CHANGELOG.md` `[Unreleased]`
+section that had drifted behind reality, and five version fields (root/`ontolib`/
+`backend` `pyproject.toml`, `ontolib/__init__.py`, `frontend/package.json`) that
+disagreed (`0.1.0` vs `0.0.1`). **Decision:** adopt `python-semantic-release`, driven by
+Conventional Commits, triggered by a `workflow_run` on a **successful CI run of a push
+to main** — i.e. a PR merge whose merged tree is green.
+
+Deliberate departures from the sibling `fairdata` workflow this was modelled on:
+- **`major_on_zero = false`.** SemVer §4 reserves `0.y.z` for initial development. A
+  breaking change bumps `0.7.x → 0.8.0`; it can never auto-promote to `1.0.0`. fairdata
+  sets `major_on_zero = true` and then has to dodge the consequence by publishing
+  `1.0.0-beta.N` prereleases, each of which needs a `gh release edit
+  --prerelease=false --latest` fixup to be visible — a prerelease marked
+  not-a-prerelease. Plain `0.y.z` says the same thing without the contradiction.
+  `1.0.0` will be cut by hand (`semantic-release version --major`) when README's goals
+  are met and the HTTP API is frozen.
+- **One commit stamps all five manifests** via `version_toml`/`version_variables`,
+  rather than fairdata's second `sync_versions.py` commit — which then has to be
+  filtered back out of the next changelog via `exclude_commit_patterns`.
+- **Release detection uses the action's `released` output**, not fairdata's
+  `git describe --tags` probe, which reports `released=true` whenever *any* tag exists,
+  including when no release was made.
+- **A guard step refuses to release a commit that is no longer main's tip**, so a fast
+  follow-up merge cannot be released twice or rewound.
+- **`upload_to_pypi` is not set**: it was removed in python-semantic-release v8 and is
+  silently ignored today. fairdata's config still carries it, where it does nothing.
+
+Because only 27 of the 56 pre-tag commits used conventional subjects, prior versions
+were reconstructed **from the merged-PR history, not from a commit parse** — a parser
+replay would have dropped half of it. `scripts/dev/reconstruct_versions.py` pins seven
+milestone tags (`v0.1.0`…`v0.7.0`) at the merge commits where each capability became
+complete; it is idempotent and refuses to move an existing tag. Without those tags the
+first automated release would restart at `0.0.0` (or, with defaults, announce three
+months of work as `1.0.0`).
+
+Conventional PR titles are enforced by `.github/workflows/pr-title.yml`: the parser
+ignores merge commits and unpacks squash commits, so under squash-merge the PR title
+*is* the release signal — a non-conventional title would otherwise silently produce no
+release.
+
 ## 2026-07-08 — role-sense conflation finding + genus-classification strategy
 
 ### D17. Residual axis ambiguity is NCIt role-sense conflation, not a missing-atom gap — classify anchoring genus concepts additively, not a global role-splitting rewrite
