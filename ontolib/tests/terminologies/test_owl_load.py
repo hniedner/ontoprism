@@ -75,6 +75,23 @@ async def test_build_ncit_store_routes_inferred_default_stated_named(
 
 
 @pytest.mark.unit
+async def test_build_ncit_store_raises_on_download_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _FailedResult:
+        success = False
+        file_path = None
+        error = "Connection refused"
+
+    async def _fail(_output_dir: Path, *, variant: str, **_: Any) -> _FailedResult:
+        return _FailedResult()
+
+    monkeypatch.setattr(owl_load, "download_ncit_owl", _fail)
+    with pytest.raises(RuntimeError, match="NCIt inferred OWL download failed"):
+        await build_ncit_store(object(), tmp_path)  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
 async def test_build_ncit_store_can_skip_stated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

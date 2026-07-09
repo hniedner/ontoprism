@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,7 +12,11 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from ontolib.core.exceptions import StorageError
-from ontolib.repositories.pubmed.client import PubMedClient
+from ontolib.repositories.pubmed.client import (
+    PubMedClient,
+    _extract_elink_pmids,
+    _linkset_pmids,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -286,3 +291,98 @@ async def test_api_key_is_sent_when_configured(pubmed_url: str) -> None:
     async with PubMedClient(pubmed_url, api_key="secret", requests_per_second=0) as c:
         await c.search_articles("melanoma")
     assert _Handler.queries["esearch"]["api_key"] == ["secret"]
+
+
+# -- module-level helper tests -----------------------------------------------
+
+
+@pytest.mark.unit
+def test_linkset_pmids_non_dict_returns_empty() -> None:
+    assert _linkset_pmids("not a dict", "pubmed_pubmed") == []
+
+
+@pytest.mark.unit
+def test_linkset_pmids_skips_non_dict_entries() -> None:
+    linkset = {
+        "linksetdbs": [
+            "string_entry",
+            {"linkname": "pubmed_pubmed", "links": ["333", "444"]},
+            None,
+        ]
+    }
+    assert _linkset_pmids(linkset, "pubmed_pubmed") == ["333", "444"]
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_non_dict_returns_empty() -> None:
+    assert _extract_elink_pmids([], "pubmed_pubmed", source_pmid="111") == []
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_drops_source_pmid() -> None:
+    data = {
+        "linksets": [
+            {
+                "linksetdbs": [
+                    {"linkname": "pubmed_pubmed", "links": ["111", "333", "444"]}
+                ]
+            }
+        ]
+    }
+    assert _extract_elink_pmids(data, "pubmed_pubmed", source_pmid="111") == [
+        "333",
+        "444",
+    ]
+
+
+@pytest.mark.unit
+async def test_throttle_sleeps_on_concurrent_calls() -> None:
+    class _FastHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self._json(_ESEARCH)
+
+        def _json(self, payload: dict[str, Any]) -> None:
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a: object) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _FastHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    async with (
+        PubMedClient(f"http://{host}:{port}", requests_per_second=10) as client,
+        asyncio.TaskGroup() as tg,
+    ):
+        tg.create_task(client.search_articles("first"))
+        await asyncio.sleep(0)
+        tg.create_task(client.search_articles("second"))
+    srv.shutdown()
+    srv.server_close()
+
+
+@pytest.mark.unit
+async def test_non_200_response_raises_storage_error() -> None:
+    class _FailHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(500)
+            self.end_headers()
+
+        def log_message(self, *_a: object) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _FailHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with _client(f"http://{host}:{port}") as client:
+            with pytest.raises(StorageError, match="HTTP 500"):
+                await client.search_articles("x")
+    finally:
+        srv.shutdown()
+        srv.server_close()

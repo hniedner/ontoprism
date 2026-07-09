@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from ontolib.repositories.cadsr.build import build_database, parse_cde
+from ontolib.repositories.cadsr.build import build_database, iter_cdes, parse_cde
 from ontolib.repositories.cadsr.repository import CdeRepository
 
 if TYPE_CHECKING:
@@ -117,6 +117,27 @@ def test_parse_cde_extracts_fields_concepts_and_pv() -> None:
     # search_text folds names/PVs but excludes short/long/definition and value meanings.
     assert "Neoplasm" in parsed.search_text
     assert "Carcinoma" in parsed.search_text
+
+
+@pytest.mark.unit
+def test_parse_cde_missing_id_returns_none() -> None:
+    root = fromstring("<DataElement><PUBLICID/><VERSION/></DataElement>")
+    assert parse_cde(root) is None
+
+
+@pytest.mark.unit
+def test_iter_cdes_skips_unparseable_and_clears_memory(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.xml"
+    bad.write_text(
+        "<DataElementsList>"
+        "<DataElement><PUBLICID>1</PUBLICID><VERSION>1</VERSION></DataElement>"
+        "<NotDataElement>ignored</NotDataElement>"
+        "</DataElementsList>"
+    )
+    results = list(iter_cdes(bad))
+    assert len(results) == 1
+    assert results[0].cde_json["public_id"] == "1"
+    assert results[0].cde_json["version"] == "1"
 
 
 @pytest.mark.unit
