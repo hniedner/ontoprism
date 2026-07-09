@@ -50,7 +50,10 @@ pnpm-debug.log*
 *.swp
 
 # Local isolated Oxigraph stores (CoW clones; not tracked)
-data/
+/data/
+
+# Test fixtures — *not* ignored
+!ontolib/tests/data/
 
 # Dev server logs (pdm run start-*)
 .dev-logs/

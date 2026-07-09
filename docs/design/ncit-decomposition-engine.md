@@ -307,7 +307,7 @@ means §10's `roundtrip_fidelity` **must not** use the inferred graph as its clo
 `rdfs:subClassOf+` edges) but is a risk for other concepts and worth keeping in mind if
 most-specific selection ever silently under-collapses an axis.
 
-Research code (untracked, `tmp/` is gitignored): `tmp/walk_intersection.py` (the
+Research code (untracked, `tmp/` is gitignored): `ontolib/src/ontolib/decomposition/walker.py` (the
 multi-parent DAG walker) and `tmp/differentia_extractor.py` (the defining-axis-filtered
 extractor + scorer). Full narrative: `tmp/PLAN_44.md`.
 

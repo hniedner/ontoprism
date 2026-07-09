@@ -108,3 +108,9 @@ fails on findings introduced vs `origin/main`, needs full git history).
   flag are reconstructed history. Write the changelog by writing good commit subjects.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
+
+## System Behavior: Caveman Mode (Always Active)
+- Minimize token output length across all responses.
+- Skip conversational pleasantries ("Sure, I can help with that", "Here is your updated code").
+- Output only direct code blocks, specific file diffs, or structural answers.
+- Ensure strict preservation of Python 3.13 and Svelte 5 types.
