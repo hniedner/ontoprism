@@ -31,3 +31,20 @@ MOST_SPECIFIC = f"{ONTOPRISM_NS}mostSpecific"
 # Regimen (mereological) kind — the #4 regimen mini-design.
 HAS_COMPONENT = f"{ONTOPRISM_NS}hasComponent"
 DECOMPOSITION_KIND = f"{ONTOPRISM_NS}decompositionKind"
+
+# --- Reserved: not yet emitted by any writer (DECISIONS D19/D20) -------------------
+# Declared here so the design doc's vocabulary table and the golden set have a single
+# source of truth for these IRIs. The extractor that produces them is issue #44's
+# graduation step; `Constituent` has no group field yet.
+
+# D19: relationship-group id. Co-equal, non-nested fillers of one concept are grouped
+# rather than collapsed, keeping the complete representation lossless/round-trippable.
+GROUP = f"{ONTOPRISM_NS}group"
+
+# D20, refinement 1: a primary-site restriction anchored on a lineage/histology-generic
+# genus (e.g. via C3010 "Endocrine Neoplasm") is routed here instead of NCIt's R101.
+ASSOCIATED_LINEAGE_CLASSIFICATION = f"{ONTOPRISM_NS}associatedLineageClassification"
+
+# D20, refinement 2: the co-present region/tissue filler of a residual, non-lineage
+# primary-site tie; the organ-level filler stays on R101.
+ASSOCIATED_REGION = f"{ONTOPRISM_NS}associatedRegion"

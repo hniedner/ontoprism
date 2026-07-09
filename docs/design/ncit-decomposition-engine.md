@@ -289,14 +289,20 @@ diffuse noise:
   hoped for.
 - **R105 (abnormal cell):** resolved by D15 (policy: most-specific wins).
 
-**A data-quality caveat surfaced during this investigation:** `ASK { C3773
-rdfs:subClassOf+ C3809 }` returns `false` in the live store even though `C3773`'s own
-stated definition includes `C3809` as an intersection member (which entails `C3773 ⊑
-C3809`). The materialized/inferred graph's `rdfs:subClassOf+` closure does not appear to
-include defined-class-to-defined-class subsumption in this build — only role-restriction
-flattening. `filler_selection.py`'s most-specific selection, which relies on
-`rdfs:subClassOf+` over the stated graph, is therefore blind to some genuine subsumptions
-between defined classes; this did not affect the C6135 result above (both `R101` and
+**A soundness caveat surfaced during this investigation, promoted to DECISIONS D21:**
+`ASK { C3773 rdfs:subClassOf+ C3809 }` returns `false` even though `C3773`'s own stated
+definition includes `C3809` as an intersection member (which entails `C3773 ⊑ C3809`).
+Re-verified 2026-07-09: this holds in the **stated graph *and* the inferred default
+graph**, and neither carries a direct `rdfs:subClassOf` edge — so there is no graph in
+this deployment against which defined-class-to-defined-class subsumption can be read off
+`rdfs:subClassOf+` (only role-restriction flattening is materialized).
+`filler_selection.py`'s most-specific selection, which relies on `rdfs:subClassOf+`, is
+therefore blind to some genuine subsumptions between defined classes. Under D19 the error
+falls the safe way — an undetected nested pair is *preserved* as co-equal group members
+rather than collapsed, so the lossless record never loses a fact and only the curated
+projection over-reports — but it caps precision against a single-valued oracle, and it
+means §10's `roundtrip_fidelity` **must not** use the inferred graph as its closure oracle
+(D21.3); this did not affect the C6135 result above (both `R101` and
 `R105` candidates it needed to compare happen to be primitive classes with real
 `rdfs:subClassOf+` edges) but is a risk for other concepts and worth keeping in mind if
 most-specific selection ever silently under-collapses an axis.
@@ -536,7 +542,7 @@ Pipeline per branch: enumerate in-scope concepts (semantic-type filter) → dete
 | `constituent_existence_rate` | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
 | `residual_precoordination` | candidates left with an unresolved multi-aspect label after roles+NLP |
 | `minted_count` | size of the mint tail (governance signal — should stay low hundreds) |
-| `roundtrip_fidelity` | when `--emit-equivalence`: fraction of concepts whose emitted **complete** `owl:equivalentClass` unfolding (all defining axes, multi-valued preserved — the D19 representation of record) re-derives the original concept, validated against the **inferred** graph as the closure oracle. Measured on the complete representation only, never the curated projection. |
+| `roundtrip_fidelity` | when `--emit-equivalence`: fraction of concepts whose emitted **complete** `owl:equivalentClass` unfolding (all defining axes, multi-valued preserved — the D19 representation of record) re-derives the original concept, validated against a **complete** closure oracle — computed from the stated `owl:equivalentClass`/`owl:intersectionOf` structure, or a real OWL reasoner. **Not** the inferred graph's `rdfs:subClassOf+`, which omits defined-class subsumption and would report false negatives on exactly the chains D19 preserves (DECISIONS D21.3). Measured on the complete representation only, never the curated projection. |
 | `projection_lossiness` | count of concepts where the curated single-valued/allowlist projection (§6) drops a non-nested co-equal value the complete representation retains (D19) — a governance signal for how much the readable view sacrifices, expected to concentrate on `R101`/`R105` |
 | `needs_review_count` | ambiguous anatomy / multi-filler axes flagged for curation |
 
@@ -603,8 +609,8 @@ records the call and the rationale.
 3. **Vocabulary namespace — `https://w3id.org/ontoprism/vocab#` (prefix `op:`).**
    Nothing in-repo pins `ontoprism.org`; the only canonical identifier is `github.com/hniedner/ontoprism`. A **w3id.org persistent identifier** is the right choice: it is community-standard for linked-data/OBO vocabularies, is made resolvable via a one-line redirect PR to the w3id registry, and does **not** depend on owning (or keeping) the `ontoprism.org` domain — matching the repo's existing use of a purl persistent identifier for `UBERON_NS` (`namespaces.py`). Set `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"`. *Only* switch to `https://ontoprism.org/vocab#` if that domain is actually owned and committed to long-term; a namespace IRI need not resolve to be valid, but a stable, controllable one avoids a future migration of every `op:` triple.
 
-4. **`owl:equivalentClass` emission — keep the off-by-default `--emit-equivalence` seam; #6 owns it. Confirmed, no change.**
-   Issue **#6 ("Post-coordination expression syntax for observations & findings")** is a real, separately-tracked workstream, which settles the split: the formal `owl:equivalentClass` post-coordinated assertion — with its reasoner/consistency implications and AJCC-fork de-duplication payoff — belongs there. M5 already emits the constituent set that #6 consumes; the flag stays in the codebase as the documented seam, and `roundtrip_fidelity` (§10) is only computed when it is on.
+4. **`owl:equivalentClass` emission — keep the off-by-default `--emit-equivalence` seam. Re-cast by decision 6 below: it is no longer only #6's concern.**
+   Issue **#6 ("Post-coordination expression syntax for observations & findings")** still owns the *user-facing post-coordination grammar* — the reasoner/consistency implications and the AJCC-fork de-duplication payoff belong there. But **D19 makes this flag the seam through which the lossless representation of record is asserted**, and `roundtrip_fidelity` (§10) is only computed when it is on. Reversibility (README goal 4) therefore depends on `--emit-equivalence` being built out, which puts it on **goal 2's** critical path, not merely downstream of #6. It is no longer accurate to describe #6 as purely dependent on #4's output; the two now share this seam. Per **D21.3**, the fidelity check behind this flag must not use the inferred graph as its closure oracle.
 
 5. **Most-specific filler selection applies *across alternate DAG branches*, not just within one branch's collected candidates. Resolved 2026-07-08 — see DECISIONS D14/D15 and §6.3.**
    §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption. **Scope-corrected by decision 6 below:** this "nothing is lost" reasoning holds only for *nested* (is-a/part-of) candidate sets; non-nested co-equal values must not be collapsed.

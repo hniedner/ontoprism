@@ -24,6 +24,7 @@ class ExtractionScore:
     true_positive: int
     missing: frozenset[Constituent]  # in golden, not extracted (recall misses)
     extra: frozenset[Constituent]  # extracted, not in golden (precision misses)
+    deferred: frozenset[Constituent] = frozenset()  # flagged needs_review, unscored
 
     @property
     def precision(self) -> float:
@@ -46,13 +47,34 @@ class ExtractionScore:
         return not self.missing and not self.extra
 
 
-def score(expected: set[Constituent], actual: set[Constituent]) -> ExtractionScore:
-    """Score an *actual* extraction against the *expected* golden constituents."""
-    true_positive = expected & actual
+def score(
+    expected: set[Constituent],
+    actual: set[Constituent],
+    needs_review: set[Constituent] | None = None,
+) -> ExtractionScore:
+    """Score an *actual* extraction against the *expected* golden constituents.
+
+    An axis may legitimately carry several fillers (design §6.5/D19: co-equal,
+    non-nested values are preserved as relationship-group members rather than
+    collapsed to one leaf), so ``(axis, filler)`` pairs — not axes — are the unit of
+    scoring, and repeating an axis is not an error.
+
+    *needs_review* is the subset of constituents the extractor flagged as an ambiguous
+    pick (``Constituent.needs_review``) rather than silently resolving. Issue #44's
+    definition of done scores with those **excluded**: they are pending curation, so
+    they are neither credited as true positives nor charged as precision misses, and a
+    golden pair that is flagged is not charged as a recall miss either. They are
+    reported in ``deferred`` so a run can never quietly bury them.
+    """
+    flagged = frozenset(needs_review or ())
+    # Exclude from both sides: a flagged pair is a curation question, not an answer.
+    scored_expected = expected - flagged
+    scored_actual = actual - flagged
     return ExtractionScore(
-        expected=len(expected),
-        actual=len(actual),
-        true_positive=len(true_positive),
-        missing=frozenset(expected - actual),
-        extra=frozenset(actual - expected),
+        expected=len(scored_expected),
+        actual=len(scored_actual),
+        true_positive=len(scored_expected & scored_actual),
+        missing=frozenset(scored_expected - scored_actual),
+        extra=frozenset(scored_actual - scored_expected),
+        deferred=frozenset(flagged & (expected | actual)),
     )
