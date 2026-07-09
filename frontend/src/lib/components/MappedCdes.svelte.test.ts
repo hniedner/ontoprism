@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import MappedCdes from './MappedCdes.svelte';
 import type { CdeSummary } from '$lib/types';
@@ -8,14 +8,18 @@ import { cdesForConcept } from '$lib/api';
 
 const mock = vi.mocked(cdesForConcept);
 
-beforeEach(() => mock.mockClear());
-
 describe('MappedCdes', () => {
 	it('requests the CDEs mapped to the concept code', async () => {
 		mock.mockResolvedValue([]);
 		render(MappedCdes, { code: 'C3262' });
 		await screen.findByText('No CDEs map to this concept.');
 		expect(mock).toHaveBeenCalledWith('C3262', 25);
+	});
+
+	it('shows the fallback when the fetch fails', async () => {
+		mock.mockRejectedValue(new Error('network error'));
+		render(MappedCdes, { code: 'C3262' });
+		expect(await screen.findByText('No CDEs map to this concept.')).toBeInTheDocument();
 	});
 
 	it('lists mapped CDEs linking to their detail page', async () => {

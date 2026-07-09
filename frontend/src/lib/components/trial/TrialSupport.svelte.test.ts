@@ -39,4 +39,32 @@ describe('TrialSupport', () => {
 		expect(screen.getByText('Anon 2020')).toBeInTheDocument();
 		expect(screen.queryByText(/PMID/)).not.toBeInTheDocument();
 	});
+
+	it('tolerates a null citation in references', () => {
+		render(TrialSupport, {
+			trial: trialDetail({
+				references: [{ pmid: '123', citation: null as unknown as string, reference_type: null }]
+			})
+		});
+		expect(screen.getByText('PMID 123')).toBeInTheDocument();
+	});
+
+	it('tolerates an undefined citation in references', () => {
+		render(TrialSupport, {
+			trial: trialDetail({
+				references: [{ pmid: '456', citation: undefined as unknown as string, reference_type: null }]
+			})
+		});
+		expect(screen.getByText('PMID 456')).toBeInTheDocument();
+	});
+
+	it('renders a sponsor with a null name', () => {
+		render(TrialSupport, {
+			trial: trialDetail({
+				sponsors: [{ name: null as unknown as string, role: 'Lead' }]
+			})
+		});
+		// The null name renders as empty string in Svelte; the role still shows.
+		expect(screen.getByText('Lead')).toBeInTheDocument();
+	});
 });

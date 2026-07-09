@@ -62,7 +62,7 @@ describe('NeighborhoodGraph', () => {
 		expect(goto).toHaveBeenCalledWith('/repositories/ncit/C9305');
 	});
 
-	it('does not draw an edge with an endpoint missing from the node set', () => {
+	it('does not draw an edge with a missing target', () => {
 		render(NeighborhoodGraph, {
 			graph: {
 				center: 'C3262',
@@ -78,7 +78,6 @@ describe('NeighborhoodGraph', () => {
 				]
 			}
 		});
-		// The dangling edge (target has no position) is not rendered.
 		expect(screen.queryByText('is a')).not.toBeInTheDocument();
 	});
 

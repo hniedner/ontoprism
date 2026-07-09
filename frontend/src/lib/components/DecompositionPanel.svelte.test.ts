@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import DecompositionPanel from './DecompositionPanel.svelte';
 import type { ConceptDecomposition } from '$lib/types';
@@ -7,8 +7,6 @@ vi.mock('$lib/api', () => ({ getDecomposition: vi.fn() }));
 import { getDecomposition } from '$lib/api';
 
 const mock = vi.mocked(getDecomposition);
-
-beforeEach(() => mock.mockClear());
 
 const decomposed: ConceptDecomposition = {
 	code: 'C6135',
@@ -35,6 +33,19 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+	it('shows the loading indicator while waiting for the API', async () => {
+		const { promise, resolve } = Promise.withResolvers<ConceptDecomposition>();
+		mock.mockReturnValue(promise);
+		render(DecompositionPanel, { code: 'C6135' });
+		expect(screen.getByText('…')).toBeInTheDocument();
+		resolve({
+			code: 'C6135',
+			is_legacy_precoordinated: false,
+			decomposed_on: null,
+			constituents: []
+		});
+	});
+
 	it('requests the decomposition for the given code', async () => {
 		mock.mockResolvedValue({
 			code: 'C3262',
@@ -71,6 +82,38 @@ describe('DecompositionPanel', () => {
 		render(DecompositionPanel, { code: 'C12400' });
 		expect(await screen.findByText(/already atomic/)).toBeInTheDocument();
 		expect(screen.queryByText('legacy pre-coordinated')).not.toBeInTheDocument();
+	});
+
+	it('shows the unavailable state when the fetch fails', async () => {
+		mock.mockRejectedValue(new Error('network error'));
+		render(DecompositionPanel, { code: 'C6135' });
+		expect(await screen.findByText('Decomposition unavailable.')).toBeInTheDocument();
+	});
+
+	it('groups multiple fillers under the same axis', async () => {
+		mock.mockResolvedValue({
+			code: 'C6135',
+			is_legacy_precoordinated: true,
+			decomposed_on: '2026-07-06',
+			constituents: [
+				{ axis: 'R88', axis_label: null, filler: 'C27970', filler_label: 'Stage III', axis_source: 'role', most_specific: false },
+				{ axis: 'R88', axis_label: null, filler: 'C12400', filler_label: 'Thyroid Gland', axis_source: 'role', most_specific: true }
+			]
+		} satisfies ConceptDecomposition);
+		render(DecompositionPanel, { code: 'C6135' });
+		expect(await screen.findByText('R88')).toBeInTheDocument();
+	});
+
+	it('handles null constituents gracefully', async () => {
+		mock.mockResolvedValue({
+			code: 'C6135',
+			is_legacy_precoordinated: true,
+			decomposed_on: '2026-07-06',
+			constituents: null
+		} as unknown as ConceptDecomposition);
+		render(DecompositionPanel, { code: 'C6135' });
+		// Legacy badge shown, null constituents treated as empty list → no error.
+		expect(await screen.findByText('legacy pre-coordinated')).toBeInTheDocument();
 	});
 
 	it('uses the axis label when present and falls back to the code for an unlabeled filler', async () => {

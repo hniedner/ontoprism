@@ -12,10 +12,10 @@
 	$effect(() => {
 		loaded = false;
 		unavailable = false;
-		similarCdes(publicId, 10)
-			.then((r) => (items = r))
-			.catch(() => (unavailable = true))
-			.finally(() => (loaded = true));
+		similarCdes(publicId, 10).then(
+			(r) => (items = r),
+			() => (unavailable = true)
+		).finally(() => (loaded = true));
 	});
 </script>
 

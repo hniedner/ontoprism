@@ -49,6 +49,17 @@ describe('RepoBrowsePage', () => {
 		expect(searchFn).not.toHaveBeenCalled();
 	});
 
+	it('shows nothing before the initial load completes', async () => {
+		const { promise, resolve } = Promise.withResolvers();
+		const listFn = vi.fn().mockReturnValue(promise);
+		setup(vi.fn(), listFn);
+		// Before the promise settles, no results card or pagination is shown.
+		expect(screen.queryByText('All concepts')).not.toBeInTheDocument();
+		expect(screen.queryByTestId('results')).not.toBeInTheDocument();
+		resolve({ total: 42, hits: [{ id: 'a' }] } satisfies Page);
+		await screen.findByText('All concepts');
+	});
+
 	it('runs a search and switches the results title to the query', async () => {
 		const listFn = vi.fn().mockResolvedValue({ total: 42, hits: [] } satisfies Page);
 		const searchFn = vi.fn().mockResolvedValue({ total: 1, hits: [{ id: 'x' }] } satisfies Page);
@@ -69,5 +80,13 @@ describe('RepoBrowsePage', () => {
 		expect(await screen.findByText(/Search failed: backend down/)).toBeInTheDocument();
 		// No results table rendered on the error path.
 		expect(screen.queryByTestId('results')).not.toBeInTheDocument();
+	});
+
+	it('falls back to empty hits and zero total when the API omits them', async () => {
+		const listFn = vi.fn().mockResolvedValue({ hits: null, total: null } as unknown as Page);
+		setup(vi.fn(), listFn);
+		// countLabel receives raw null (the ?? 0 is in <Pagination>, not the label),
+		// but the results snippet should still render (empty array fallback).
+		expect(await screen.findByTestId('results')).toBeInTheDocument();
 	});
 });

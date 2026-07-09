@@ -52,6 +52,13 @@ describe('createRepoBrowse', () => {
 		expect(browse.loading).toBe(false);
 	});
 
+	it('handles a non-Error thrown value', async () => {
+		const searchFn = vi.fn().mockRejectedValue('string error');
+		const browse = createRepoBrowse<Page>(searchFn);
+		await browse.load(0, 'x');
+		expect(browse.error).toBe('string error');
+	});
+
 	it('suggest() sets the query and runs a search', async () => {
 		const searchFn = vi.fn().mockResolvedValue(page(1, ['a']));
 		const listFn = vi.fn().mockResolvedValue(page(0, []));

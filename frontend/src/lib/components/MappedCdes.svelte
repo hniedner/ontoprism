@@ -10,10 +10,10 @@
 
 	$effect(() => {
 		loaded = false;
-		cdesForConcept(code, 25)
-			.then((c) => (cdes = c))
-			.catch(() => (cdes = []))
-			.finally(() => (loaded = true));
+		cdesForConcept(code, 25).then(
+			(c) => (cdes = c),
+			() => (cdes = [])
+		).finally(() => (loaded = true));
 	});
 </script>
 

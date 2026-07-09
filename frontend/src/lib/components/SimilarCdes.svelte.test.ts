@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import SimilarCdes from './SimilarCdes.svelte';
 import type { SimilarCde } from '$lib/types';
@@ -7,8 +7,6 @@ vi.mock('$lib/api', () => ({ similarCdes: vi.fn() }));
 import { similarCdes } from '$lib/api';
 
 const mock = vi.mocked(similarCdes);
-
-beforeEach(() => mock.mockClear());
 
 const items: SimilarCde[] = [
 	{
@@ -36,5 +34,11 @@ describe('SimilarCdes', () => {
 		const link = await screen.findByRole('link', { name: 'Patient Age' });
 		expect(link).toHaveAttribute('href', '/repositories/cadsr/200');
 		expect(screen.getByText('0.88')).toBeInTheDocument();
+	});
+
+	it('shows the unavailable state on fetch failure', async () => {
+		mock.mockRejectedValue(new Error('network error'));
+		render(SimilarCdes, { publicId: '100' });
+		expect(await screen.findByText('Embeddings unavailable.')).toBeInTheDocument();
 	});
 });

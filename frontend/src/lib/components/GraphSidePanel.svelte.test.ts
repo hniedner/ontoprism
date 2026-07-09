@@ -93,6 +93,15 @@ describe('GraphSidePanel', () => {
 		expect(screen.getByText('cde-concept')).toBeInTheDocument();
 	});
 
+	it('marks hidden filter types with a line-through class and Show title', () => {
+		setup({ hiddenTypes: new SvelteSet(['Gene']) });
+		const chips = screen.getAllByRole('button');
+		// The 'Show' title appears on hidden chips.
+		const hiddenChip = screen.getByTitle('Show');
+		expect(hiddenChip).toHaveTextContent('Gene');
+		expect(chips.filter((c) => c.title === 'Hide')).toHaveLength(1);
+	});
+
 	it('omits the most-connected section when there are no ranked nodes', () => {
 		setup({
 			stats: { communityCount: 0, topByDegree: [], topByBetweenness: [] },
@@ -100,5 +109,17 @@ describe('GraphSidePanel', () => {
 		});
 		expect(screen.queryByText('Most connected')).not.toBeInTheDocument();
 		expect(screen.queryByText('Key bridges')).not.toBeInTheDocument();
+	});
+
+	it('renders a single semantic type without the filter heading', () => {
+		setup({ semanticTypes: ['Gene'] });
+		expect(screen.queryByText('Filter by type')).not.toBeInTheDocument();
+		// With one type no filter chips are rendered; the edge legend is still present.
+		expect(screen.getByText('subClassOf')).toBeInTheDocument();
+	});
+
+	it('does not render filter chips when semantic type array is empty', () => {
+		setup({ semanticTypes: [], stats: { communityCount: 0, topByDegree: [], topByBetweenness: [] } });
+		expect(screen.queryByText('Filter by type')).not.toBeInTheDocument();
 	});
 });

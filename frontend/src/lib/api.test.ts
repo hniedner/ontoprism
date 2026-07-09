@@ -18,6 +18,7 @@ import {
 } from './api';
 import { getTrial, searchClinicalTrials } from './api.clinicaltrials';
 import { getArticle, getRelatedArticles, searchPubmed } from './api.pubmed';
+import { postJsonBody } from './api';
 
 describe('apiUrl', () => {
 	it('returns the bare path when there are no params', () => {
@@ -104,6 +105,25 @@ describe('error handling', () => {
 			'Invalid trial phase filter.'
 		);
 	});
+
+	it('falls through to status code when detail is not a string on failing postJsonBody', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ detail: [{ msg: 'error' }] }), {
+				status: 422,
+				headers: { 'Content-Type': 'application/json' }
+			})
+		);
+		await expect(postJsonBody('/api/v1/sparql', { query: '' }, fetchImpl)).rejects.toThrow(
+			'Request failed (422)'
+		);
+	});
+
+	it('falls through to status code when the error body is not JSON on postJsonBody', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(new Response('plain text', { status: 400 }));
+		await expect(postJsonBody('/api/v1/sparql', { query: '' }, fetchImpl)).rejects.toThrow(
+			'Request failed (400)'
+		);
+	});
 });
 
 describe('NCIt endpoints', () => {
@@ -121,6 +141,14 @@ describe('NCIt endpoints', () => {
 			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 5, offset: 10, hits: [] }));
 		await listNcit({ limit: 5, offset: 10, fetch: fetchImpl });
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/list?limit=5&offset=10');
+	});
+
+	it('listNcit uses default limit and offset when omitted', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] }));
+		await listNcit({ fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/list?limit=25&offset=0');
 	});
 
 	it('getConcept encodes the code in the path', async () => {
@@ -234,5 +262,17 @@ describe('getJson error handling', () => {
 	it('throws with the status code when a GET fails', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(new Response('nope', { status: 404 }));
 		await expect(getConcept('C0', fetchImpl)).rejects.toThrow('404');
+	});
+});
+
+describe('postJson error handling', () => {
+	it('throws with the status code when a POST fails (refreshRepositories)', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(new Response('nope', { status: 500 }));
+		await expect(refreshRepositories(fetchImpl)).rejects.toThrow('Request failed (500)');
+	});
+
+	it('falls through to the status message when the error body is not JSON', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(new Response('not json', { status: 400 }));
+		await expect(refreshRepositories(fetchImpl)).rejects.toThrow('Request failed (400)');
 	});
 });
