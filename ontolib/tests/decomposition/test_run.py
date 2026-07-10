@@ -68,6 +68,7 @@ class _FakeClient:
         roles: dict[str, list[dict[str, str | None]]] | None = None,
         ancestors: list[dict[str, str | None]] | None = None,
         semantic_type_of_rows: list[dict[str, str | None]] | None = None,
+        part_of_rows: list[dict[str, str | None]] | None = None,
     ) -> None:
         self._version = version
         self._pages = pages if pages is not None else [[]]
@@ -86,6 +87,7 @@ class _FakeClient:
 
         self._ancestors = ancestors or []
         self._semantic_type_of_rows = semantic_type_of_rows or []
+        self._part_of_rows = part_of_rows or []
         self.queries: list[str] = []
 
     async def version(self) -> str | None:
@@ -116,6 +118,8 @@ class _FakeClient:
             return self._genus_walk.get(code or "", [])
         if "BIND(REPLACE(STR(?concept)" in query:
             return self._semantic_type_of_rows
+        if "R82>" in query:
+            return self._part_of_rows
         if "P106" in query and "VALUES" not in query:
             # Single-code semantic type query (build_semantic_type_query)
             code = self._code_in(query)
@@ -306,6 +310,32 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
     constituents = provenance.upsert_constituents.call_args.args[2]
     site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
     assert site_fillers == {"C12401"}  # the ancestor C12400 was dropped
+
+
+@pytest.mark.unit
+async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
+    """R101 filler C13063 is part-of C12400 (container), so C12400 should be
+    collapsed as the broader concept, leaving only C13063 (the part)."""
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                _role("R101", "Has_Primary_Site", "C12400"),
+                _role("R101", "Has_Primary_Site", "C13063"),
+                _role("R88", "Has_Stage", "C27970"),
+            ]
+        },
+        part_of_rows=[
+            {"whole": _iri("C13063"), "part": _iri("C12400")},
+        ],
+    )
+    provenance = _mock_provenance()
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+    assert metrics.decomposed == 1
+    constituents = provenance.upsert_constituents.call_args.args[2]
+    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    assert site_fillers == {"C13063"}  # C12400 collapsed as broader container
 
 
 @pytest.mark.unit

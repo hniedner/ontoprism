@@ -153,11 +153,16 @@ def semantic_type_of_from_rows(
 
 
 def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[tuple[str, str]]:
-    """Parse ``?whole``/``?part`` rows into ``(whole, part)`` pairs."""
+    """Parse ``?whole``/``?part`` rows into ``(whole, part)`` pairs.
+
+    ``?whole`` is a code string from ``REPLACE(STR(?descendant), ...)`` while
+    ``?part`` is a full IRI from ``owl:someValuesFrom ?part`` — both are
+    normalised via ``_code()`` so the output is consistently ``(code, code)``.
+    """
     pairs: list[tuple[str, str]] = []
     for row in rows:
-        whole = row.get("whole")
-        part = row.get("part")
+        whole = _code(row.get("whole"))
+        part = _code(row.get("part"))
         if whole and part:
             pairs.append((whole, part))
     return pairs
