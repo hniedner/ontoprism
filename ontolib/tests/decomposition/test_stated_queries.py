@@ -140,6 +140,7 @@ def test_build_genus_walk_members_query_shape() -> None:
         assert "?member" in q
         assert "?role" in q
         assert "?target" in q
+        assert "?roleLabel" in q
         assert f"GRAPH <{STATED_GRAPH_IRI}>" in q
 
 

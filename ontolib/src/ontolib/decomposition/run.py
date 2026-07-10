@@ -7,15 +7,10 @@ Usage:
     pdm run decompose --branch neoplasm [--out path.ttl] [--load]
 
 Scope of this orchestrator (documented boundaries, not oversights):
-- Extraction reads the stated graph via the **flat** ``rdfs:subClassOf`` restriction
-  pattern only (``stated_queries.build_role_restrictions_query``). A genuinely
-  pre-coordinated concept modelled as a *defined class* (design §6.1) will not surface
-  roles here yet — that recursive genus-chain walk is a separate, curation-heavy
-  workstream (issue #44) that over-collects until its boundary heuristic converges.
-  This orchestrator is correct for whatever a single-query extractor returns today;
-  design §6.1's anticipated fix needs *multiple* round-trips (recurse in Python), which
-  would require restructuring ``_decompose_one``'s single ``client.select(...)`` call —
-  not a drop-in swap.
+- Extraction uses the genus-chain walker (``stated_queries.walk_genus_chain``) to
+  traverse ``owl:equivalentClass``/``owl:intersectionOf`` members, collecting role
+  restrictions from defined classes. A ``_CORE_NEOPLASM_ROLES`` boundary filter
+  prevents over-collection of generic neoplasm biology from deep genus ancestors.
 - Morphology-from-parent (design §6, the ``op:Morphology`` axis) is not wired: there is
   no query yet for "nearest morphology-bearing taxonomic parent". ``parent_morphology``
   is always passed as ``None`` to ``filler_selection.select_constituents``.

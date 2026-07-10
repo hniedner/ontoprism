@@ -98,7 +98,7 @@ def build_genus_walk_members_query(
         patterns = _intersection_hop_pattern(concept_uri, hop)
         queries.append(
             f"""{_PREFIXES}
-            SELECT ?member ?type ?role ?target WHERE {{
+            SELECT ?member ?type ?role ?target ?roleLabel WHERE {{
                 GRAPH <{STATED_GRAPH_IRI}> {{
                     {patterns}
                     OPTIONAL {{ ?member a ?type }}
@@ -106,6 +106,7 @@ def build_genus_walk_members_query(
                         ?member owl:onProperty ?role ; owl:someValuesFrom ?target .
                     }}
                 }}
+                OPTIONAL {{ ?role rdfs:label ?roleLabel }}
             }}
             """
         )
