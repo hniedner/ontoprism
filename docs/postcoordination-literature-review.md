@@ -21,7 +21,7 @@ Niedner Consulting
 
 ## 1. Introduction
 
-A controlled terminology serves two masters that pull in opposite directions. Clinicians and data systems want a *stable, enumerable* set of codes they can select, store, and count. Reality supplies an *open-ended, combinatorial* space of meanings — every disease crossed with every site, laterality, stage, causative agent, and temporal qualifier. The dominant historical response has been **pre-coordination**: whenever a combination is needed often enough, the terminology authors mint a new named concept for it. NCIt, for example, contains tens of thousands of such concepts; in ONTOPRISM's own audit of the stated OWL, 55,044 NCIt concepts carry two or more defining role restrictions, and near-duplicate pairs such as *"Stage III Thyroid Gland Medullary Carcinoma AJCC v7"* and *"…AJCC v8"* re-enumerate one clinical entity purely to track a staging-manual revision.
+A controlled terminology serves two masters that pull in opposite directions. Clinicians and data systems want a *stable, enumerable* set of codes they can select, store, and count. Reality supplies an *open-ended, combinatorial* space of meanings — every disease crossed with every site, laterality, stage, causative agent, and temporal qualifier. The dominant historical response has been **pre-coordination**: whenever a combination is needed often enough, the terminology authors mint a new named concept for it. NCIt, for example, contains tens of thousands of such concepts; in ONTOPRISM's own audit of the stated OWL, 55,044 NCIt concepts carry two or more defining role restrictions (a corpus-wide count across all ~204K classes, not the smaller in-scope oncology candidate set), and near-duplicate pairs such as *"Stage III Thyroid Gland Medullary Carcinoma AJCC v7"* and *"…AJCC v8"* re-enumerate one clinical entity purely to track a staging-manual revision.
 
 The alternative is **post-coordination**: keep the terminology's *atomic* concepts small in number and formally defined, and express complex meaning as *combinations* of atoms assembled at query or documentation time through a defined grammar of relationships. "Non–Small Cell Lung Carcinoma" is not a named node but the expression *Lung Carcinoma : has\_finding\_site = Lung, has\_associated\_morphology = Non–Small Cell Carcinoma*. The trade-off has been articulated repeatedly since the 1990s: post-coordination is vastly more flexible and avoids combinatorial bloat, but it demands (a) a rigorous concept model constraining which combinations are sensible, and (b) a reasoning mechanism that can recognize when two differently-written expressions mean the same thing, and when an expression falls under an existing named concept [3][7][10].
 
@@ -101,7 +101,7 @@ The origin of this architecture is SNOMED RT [9], the first version to give ever
 
 ### 4.2 OWL and the OBO ecosystem
 
-In OBO/OWL biomedical ontologies, post-coordination is realized as **logical definitions** (also called *cross-products*): a class is defined by an equivalent-class axiom composing terms from several orthogonal reference ontologies, and a reasoner infers its subsumption relationships automatically.
+In OBO/OWL biomedical ontologies — whose role in knowledge management, data integration, and decision support is surveyed by Bodenreider [6] — post-coordination is realized as **logical definitions** (also called *cross-products*): a class is defined by an equivalent-class axiom composing terms from several orthogonal reference ontologies, and a reasoner infers its subsumption relationships automatically.
 
 - The **OBO Foundry principles** [24] mandate *orthogonality* — non-overlapping reference ontologies with shared, well-defined relations — which is the precondition that makes cross-ontology composition non-redundant.
 - The **Gene Ontology cross-product** work [26] gives GO classes explicit computable definitions referencing ChEBI, Cell Ontology, and Uberon, so that a reasoner reproduces and maintains the named GO hierarchy from composed primitives — an empirical demonstration that post-coordinated definitions can regenerate a pre-coordinated hierarchy.
@@ -128,7 +128,7 @@ The defining requirement — express everything from atoms *and* still recognize
 
 ### 5.1 Normal forms
 
-Because a single logical meaning can be written in many syntactically different but logically equivalent expressions, one needs *canonical* representations. Spackman's *Normal forms for description logic expressions of clinical concepts in SNOMED RT and CTV3* [10] is the foundational treatment. It distinguishes a *choice of syntax* from a *choice of normal form* and defines a **short canonical (short normal) form**, a **long canonical (long normal) form**, and a **distribution normal form**. Transforming two expressions into the same normal form reduces equivalence testing to a structural comparison, and is how SNOMED CT release tooling computes its Necessary Normal Form — explicitly removing attributes that are redundant because a more specific value is asserted on an alternate hierarchy branch.
+Because a single logical meaning can be written in many syntactically different but logically equivalent expressions, one needs *canonical* representations. Spackman's *Normal forms for description logic expressions of clinical concepts in SNOMED RT* [10] is the foundational treatment. It distinguishes a *choice of syntax* from a *choice of normal form* and defines a **short canonical (short normal) form**, a **long canonical (long normal) form**, and a **distribution normal form**. Transforming two expressions into the same normal form reduces equivalence testing to a structural comparison, and is how SNOMED CT release tooling computes its Necessary Normal Form — explicitly removing attributes that are redundant because a more specific value is asserted on an alternate hierarchy branch.
 
 Normal forms directly ground ONTOPRISM's most-specific-filler policy (see §8): when the same axis carries candidate fillers at different specificity on different DAG branches, choosing the most specific true value is exactly the normalization SNOMED performs at production scale.
 
@@ -278,9 +278,9 @@ Four decades of medical-informatics and ontology-engineering research converge o
 
 9. Spackman KA, Campbell KE, Côté RA. SNOMED RT: A Reference Terminology for Health Care. *Proc AMIA Annu Fall Symp.* 1997:640–644. https://pmc.ncbi.nlm.nih.gov/articles/PMC2233423/
 
-10. Spackman KA. Normal forms for description logic expressions of clinical concepts in SNOMED RT and CTV3. *Proc AMIA Symp.* 2001:627–631. PMID:11825261. https://pmc.ncbi.nlm.nih.gov/articles/PMC2243264/
+10. Spackman KA. Normal forms for description logic expressions of clinical concepts in SNOMED RT. *Proc AMIA Symp.* 2001:627–631. PMID:11825261. https://pmc.ncbi.nlm.nih.gov/articles/PMC2243264/
 
-11. Rector AL, Brandt S. Why Do It the Hard Way? The Case for an Expressive Description Logic for SNOMED. *J Am Med Inform Assoc.* 2008;15(6):744–751. doi:10.1197/jamia.M2755. https://doi.org/10.1197/jamia.M2755 (full text: https://pmc.ncbi.nlm.nih.gov/articles/PMC2585532/)
+11. Rector AL, Brandt S. Why Do It the Hard Way? The Case for an Expressive Description Logic for SNOMED. *J Am Med Inform Assoc.* 2008;15(6):744–751. doi:10.1197/jamia.M2797. https://doi.org/10.1197/jamia.M2797 (full text: https://pmc.ncbi.nlm.nih.gov/articles/PMC2585532/)
 
 12. Bodenreider O, Smith B, Kumar A, Burgun A. Investigating subsumption in SNOMED CT: An exploration into large description logic-based biomedical terminologies. *Artif Intell Med.* 2007;39(3):183–195. doi:10.1016/j.artmed.2006.12.003. https://doi.org/10.1016/j.artmed.2006.12.003 (full text: https://pmc.ncbi.nlm.nih.gov/articles/PMC2442845/)
 
