@@ -3,9 +3,13 @@
 import pytest
 
 from ontolib.decomposition.stated_queries import (
+    _intersection_hop_pattern,
     build_ancestor_pairs_query,
+    build_genus_walk_members_query,
     build_in_scope_concepts_query,
+    build_part_of_pairs_query,
     build_role_restrictions_query,
+    build_semantic_type_of_query,
     build_semantic_type_query,
 )
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -98,3 +102,88 @@ def test_in_scope_concepts_query_projects_code_and_paginates() -> None:
 def test_in_scope_concepts_query_rejects_injection_unsafe_semantic_type() -> None:
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
         build_in_scope_concepts_query(['Neoplastic Process" ; DROP {} #'])
+
+
+@pytest.mark.unit
+def test_intersection_hop_pattern_zero() -> None:
+    uri = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135"
+    assert "rdf:first ?member" in _intersection_hop_pattern(uri, 0)
+    assert "owl:equivalentClass ?ec" in _intersection_hop_pattern(uri, 0)
+
+
+@pytest.mark.unit
+def test_intersection_hop_pattern_one() -> None:
+    uri = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135"
+    p = _intersection_hop_pattern(uri, 1)
+    assert "rdf:first ?member" in p
+    assert "rdf:rest" in p
+    assert "?mid0" in p
+
+
+@pytest.mark.unit
+def test_intersection_hop_pattern_two() -> None:
+    uri = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135"
+    p = _intersection_hop_pattern(uri, 2)
+    assert "rdf:first ?member" in p
+    assert "?mid0" in p
+    assert "?mid1" in p
+
+
+@pytest.mark.unit
+def test_build_genus_walk_members_query_shape() -> None:
+    queries = build_genus_walk_members_query("C6135")
+    assert isinstance(queries, list)
+    assert len(queries) >= 3
+    for q in queries:
+        assert "owl:equivalentClass" in q
+        assert "owl:intersectionOf" in q
+        assert "?member" in q
+        assert "?role" in q
+        assert "?target" in q
+        assert f"GRAPH <{STATED_GRAPH_IRI}>" in q
+
+
+@pytest.mark.unit
+def test_build_genus_walk_members_query_rejects_unsafe_code() -> None:
+    with pytest.raises(ValueError, match=r"[Uu]nsafe"):
+        build_genus_walk_members_query("C6135 > INJECT {")
+
+
+@pytest.mark.unit
+def test_semantic_type_of_query_projects_code_and_type() -> None:
+    q = build_semantic_type_of_query(["C6135", "C12400"])
+    assert "?code" in q
+    assert "?st" in q
+    assert "VALUES ?concept" in q
+    assert "Thesaurus.owl#C6135" in q
+    assert "Thesaurus.owl#C12400" in q
+    assert "P106" in q
+
+
+@pytest.mark.unit
+def test_semantic_type_of_query_empty_list_returns_valid_query() -> None:
+    q = build_semantic_type_of_query([])
+    assert "BIND" in q
+
+
+@pytest.mark.unit
+def test_part_of_pairs_query_shape() -> None:
+    q = build_part_of_pairs_query(["C6135", "C27970"])
+    assert "R82" in q
+    assert "rdfs:subClassOf*" in q
+    assert "?whole" in q
+    assert "?part" in q
+    assert "Thesaurus.owl#C6135" in q
+    assert "Thesaurus.owl#C27970" in q
+
+
+@pytest.mark.unit
+def test_part_of_pairs_query_empty_list_returns_valid_query() -> None:
+    q = build_part_of_pairs_query([])
+    assert "BIND" in q
+
+
+@pytest.mark.unit
+def test_part_of_pairs_query_rejects_unsafe_code() -> None:
+    with pytest.raises(ValueError, match=r"[Uu]nsafe"):
+        build_part_of_pairs_query(["bad code"])

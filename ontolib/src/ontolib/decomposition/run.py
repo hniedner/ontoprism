@@ -192,21 +192,43 @@ async def _decompose_one(
     semantic_types = extract.semantic_types_from_rows(
         await client.select(stated_queries.build_semantic_type_query(code))
     )
-    roles = extract.roles_from_rows(
-        await client.select(stated_queries.build_role_restrictions_query(code))
-    )
+
+    # Phase 1: walk the genus chain — works for both primitive and defined
+    # classes. For primitive concepts (no owl:equivalentClass), the walker
+    # returns zero roles, which is correct — nothing to decompose.
+    roles = await stated_queries.walk_genus_chain(client.select, code)
+
+    # Phase 1b: batch-resolve semantic_type_of for all filler codes (needed
+    # by select_constituents for D20 axis routing).
+    filler_codes = {r.filler_code for r in roles}
+    semantic_type_of: dict[str, list[str]] = {}
+    if filler_codes:
+        rows = await client.select(
+            stated_queries.build_semantic_type_of_query(list(filler_codes))
+        )
+        semantic_type_of = extract.semantic_type_of_from_rows(rows)
+
     result = detector.detect(code, semantic_types, roles, label=label)
     if not result.is_precoordinated:
         return _CandidateResult(decomposition=None)
 
-    filler_codes = {r.filler_code for r in roles}
     ancestor_pairs: set[tuple[str, str]] = set()
     if filler_codes:  # skip the round trip when there is nothing to look up
         ancestor_pairs = extract.ancestor_pairs_from_rows(
             await client.select(stated_queries.build_ancestor_pairs_query(filler_codes))
         )
+
+    # Wrap semantic_type_of dict into a callable (prefer the first type if
+    # multiple; NCIt rarely assigns more than one).
+    def _semantic_type_of(filler_code: str) -> str | None:
+        types = semantic_type_of.get(filler_code)
+        return types[0] if types else None
+
     role_constituents = fs.select_constituents(
-        roles, extract.make_is_ancestor(ancestor_pairs), parent_morphology=None
+        roles,
+        extract.make_is_ancestor(ancestor_pairs),
+        parent_morphology=None,
+        semantic_type_of=_semantic_type_of,
     )
 
     aspects = nlp_fallback.parse_label_aspects(label)

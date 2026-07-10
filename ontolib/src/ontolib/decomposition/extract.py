@@ -85,3 +85,79 @@ def concepts_from_rows(rows: Iterable[Row]) -> list[str]:
         if code:
             codes.append(code)
     return codes
+
+
+def _add_role_if_new(
+    row: Row,
+    roles: list[RoleRestriction],
+    seen: set[tuple[str, str]],
+) -> None:
+    role_code = _code(row.get("role"))
+    filler_code = _code(row.get("target"))
+    if not role_code or not filler_code:
+        return
+    key = (role_code, filler_code)
+    if key not in seen:
+        seen.add(key)
+        roles.append(
+            RoleRestriction(
+                role_code=role_code,
+                filler_code=filler_code,
+                role_label=row.get("roleLabel"),
+            )
+        )
+
+
+def _add_genus_if_new(
+    row: Row,
+    genuses: list[str],
+    seen: set[str],
+) -> None:
+    genus = _code(row.get("member"))
+    if genus and genus not in seen:
+        seen.add(genus)
+        genuses.append(genus)
+
+
+def genus_walk_rows_to_roles_and_genuses(
+    rows: Iterable[Row],
+) -> tuple[list[RoleRestriction], list[str]]:
+    roles: list[RoleRestriction] = []
+    genuses: list[str] = []
+    seen_roles: set[tuple[str, str]] = set()
+    seen_genuses: set[str] = set()
+
+    for row in rows:
+        if row.get("type") == "http://www.w3.org/2002/07/owl#Restriction":
+            _add_role_if_new(row, roles, seen_roles)
+        else:
+            _add_genus_if_new(row, genuses, seen_genuses)
+
+    return roles, genuses
+
+
+def semantic_type_of_from_rows(
+    rows: Iterable[Row],
+) -> dict[str, list[str]]:
+    """Parse ``?code``/``?st`` batch rows into ``{code: [semantic_types]}``.
+
+    A concept may carry multiple semantic types; all are collected per code.
+    """
+    result: dict[str, list[str]] = {}
+    for row in rows:
+        code = row.get("code")
+        st = row.get("st")
+        if code and st:
+            result.setdefault(code, []).append(st)
+    return result
+
+
+def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[tuple[str, str]]:
+    """Parse ``?whole``/``?part`` rows into ``(whole, part)`` pairs."""
+    pairs: list[tuple[str, str]] = []
+    for row in rows:
+        whole = row.get("whole")
+        part = row.get("part")
+        if whole and part:
+            pairs.append((whole, part))
+    return pairs

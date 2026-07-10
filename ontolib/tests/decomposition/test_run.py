@@ -32,9 +32,32 @@ def _role(rel: str, label: str, target: str) -> dict[str, str | None]:
     return {"rel": _iri(rel), "relLabel": label, "target": _iri(target)}
 
 
+def _old_role_to_genus_walk_row(
+    role_row: dict[str, str | None],
+) -> dict[str, str | None]:
+    """Convert an old flat role row (``?rel``/``?relLabel``/``?target``) into a
+    genus-walk hop-1 row (``?member`` bnode with ``?role``/``?roleLabel``/
+    ``?target``)."""
+    return {
+        "member": "_:b",
+        "type": "http://www.w3.org/2002/07/owl#Restriction",
+        "role": role_row.get("rel"),
+        "roleLabel": role_row.get("relLabel"),
+        "target": role_row.get("target"),
+    }
+
+
 class _FakeClient:
     """Branches on query-text markers, matching the repo's fake-client convention
-    (see ``test_oxigraph_client_http.py``)."""
+    (see ``test_oxigraph_client_http.py``).
+
+    The walker queries (``build_genus_walk_members_query``) return per-concept
+    genus-walk rows: for each code the fake produces one hop-0 genus member
+    (the code itself as a named class, making it a defined class) and one
+    hop-1 restriction per role defined in ``self._genus_walk[code]``. This
+    makes the walker behave equivalently to the old flat query while testing
+    the walker's actual query-splitting, parsing, and frontier logic.
+    """
 
     def __init__(
         self,
@@ -44,12 +67,25 @@ class _FakeClient:
         semantic_types: dict[str, list[str]] | None = None,
         roles: dict[str, list[dict[str, str | None]]] | None = None,
         ancestors: list[dict[str, str | None]] | None = None,
+        semantic_type_of_rows: list[dict[str, str | None]] | None = None,
     ) -> None:
         self._version = version
         self._pages = pages if pages is not None else [[]]
         self._semantic_types = semantic_types or {}
-        self._roles = roles or {}
+        # Convert old role format to genus-walk rows
+        self._genus_walk: dict[str, list[dict[str, str | None]]] = {}
+        for code, role_rows in (roles or {}).items():
+            rows: list[dict[str, str | None]] = [
+                # hop 0: genus (the code itself — synthetic, makes it a
+                # defined class so the walker recurses)
+                {"member": _iri(code), "isDefined": "true"},
+            ]
+            for r in role_rows:
+                rows.append(_old_role_to_genus_walk_row(r))
+            self._genus_walk[code] = rows
+
         self._ancestors = ancestors or []
+        self._semantic_type_of_rows = semantic_type_of_rows or []
         self.queries: list[str] = []
 
     async def version(self) -> str | None:
@@ -75,10 +111,13 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
-        if "owl:someValuesFrom" in query:
+        if "rdf:first ?member" in query:
             code = self._code_in(query)
-            return self._roles.get(code or "", [])
-        if "P106" in query:
+            return self._genus_walk.get(code or "", [])
+        if "BIND(REPLACE(STR(?concept)" in query:
+            return self._semantic_type_of_rows
+        if "P106" in query and "VALUES" not in query:
+            # Single-code semantic type query (build_semantic_type_query)
             code = self._code_in(query)
             types = self._semantic_types.get(code or "", [])
             return [{"semanticType": t} for t in types]
@@ -182,6 +221,37 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     persisted_metrics = provenance.finish_run.call_args.kwargs["metrics"]
     assert persisted_metrics["pct_decomposed"] == 1.0
     assert persisted_metrics["decomposed"] == 1
+
+
+@pytest.mark.unit
+async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
+    """R101 fillers with semantic type "Body Part, Organ, or Organ Component"
+    stay on R101 (D20 — recognised organ site). Fillers without a recognised
+    semantic type route to op:AssociatedRegion (D19 — ambiguous body region)."""
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                _role("R101", "Has_Primary_Site", "C12400"),
+                _role("R101", "Has_Primary_Site", "C13063"),
+                _role("R88", "Has_Stage", "C27970"),
+            ]
+        },
+        semantic_type_of_rows=[
+            {"code": "C12400", "st": "Body Part, Organ, or Organ Component"},
+        ],
+    )
+    provenance = _mock_provenance()
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+    assert metrics.decomposed == 1
+    constituents = provenance.upsert_constituents.call_args.args[2]
+    region_fillers = {
+        c.filler_code for c in constituents if c.axis == "op:AssociatedRegion"
+    }
+    assert region_fillers == {"C13063"}
+    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    assert site_fillers == {"C12400"}
 
 
 @pytest.mark.unit
