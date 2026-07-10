@@ -217,7 +217,7 @@ def test_part_of_pairs_from_rows_parses() -> None:
         {"whole": _iri("C6135"), "part": _iri("C12400")},
     ]
     pairs = part_of_pairs_from_rows(rows)
-    assert pairs == [(_iri("C6135"), _iri("C27970")), (_iri("C6135"), _iri("C12400"))]
+    assert pairs == [("C6135", "C27970"), ("C6135", "C12400")]
 
 
 @pytest.mark.unit
