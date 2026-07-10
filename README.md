@@ -105,6 +105,26 @@ is tracked in [#3](https://github.com/hniedner/ontoprism/issues/3).
 
 Python 3.13 · PDM · FastAPI · Oxigraph (SPARQL) · PostgreSQL + pgvector · SvelteKit 5 ·
 Tailwind 4 · Sigma + graphology · ruff · basedpyright · pytest · vitest
+<!-- CODEBASE_LINE_COUNT_TABLE:START -->
+## Codebase Line Count
+
+_This table is auto-updated by CI after successful builds on `main`._
+
+| Language | Files | Lines |
+| --- | ---: | ---: |
+| Python | 156 | 19,063 |
+| JSON | 4 | 5,770 |
+| TypeScript | 61 | 4,169 |
+| Svelte | 38 | 3,192 |
+| Markdown | 17 | 2,543 |
+| CSS | 3 | 1,993 |
+| YAML | 6 | 624 |
+| TOML | 3 | 323 |
+| Shell | 1 | 95 |
+| JavaScript | 1 | 38 |
+| HTML | 1 | 21 |
+| **Total** | **291** | **37,831** |
+<!-- CODEBASE_LINE_COUNT_TABLE:END -->
 
 ## Provenance
 

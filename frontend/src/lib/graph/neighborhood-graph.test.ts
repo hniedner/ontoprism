@@ -199,7 +199,7 @@ describe('assignAnalytics', () => {
 		expect(g.getNodeAttribute('HUB', 'betweenness')).toBeGreaterThan(0);
 	});
 
-	it('covers the ?? fallback in assignAnalytics when a node lacks community/label/betweenness', () => {
+	it('covers missing attributes in assignAnalytics (label falls back to node id)', () => {
 		const g = createGraph();
 		g.addNode('N1', { code: 'N1' });
 		g.addNode('N2', { code: 'N2' });
