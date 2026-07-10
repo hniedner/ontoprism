@@ -112,6 +112,8 @@ def _render_one(
         )
         if c.most_specific:
             const += f" ; {_p(vocab.MOST_SPECIFIC)} true"
+        if c.group is not None:
+            const += f' ; {_p(vocab.GROUP)} "{c.group}"'
         lines.append(f"{subj} {_p(vocab.HAS_CONSTITUENT)}{const} ] .")
 
     return lines

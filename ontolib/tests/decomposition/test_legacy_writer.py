@@ -399,3 +399,77 @@ async def test_equivalence_with_d19_routed_axis(tmp_path: Path) -> None:
     # The restriction uses the op: IRI as owl:onProperty
     assert f"<{vocab.ONTOPRISM_NS}AssociatedRegion>" in content
     assert f"<{NCIT_NS}C13063>" in content
+
+
+@pytest.mark.unit
+async def test_group_id_is_rendered(tmp_path: Path) -> None:
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            constituents=[
+                Constituent(
+                    axis="op:AssociatedRegion",
+                    filler_code="C12418",
+                    axis_source="role",
+                    group="op:AssociatedRegion",
+                ),
+                Constituent(
+                    axis="op:AssociatedRegion",
+                    filler_code="C13063",
+                    axis_source="role",
+                    group="op:AssociatedRegion",
+                ),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out)
+    content = out.read_text()
+    assert vocab.GROUP in content
+    assert '"op:AssociatedRegion"' in content
+
+
+@pytest.mark.unit
+async def test_no_group_triple_when_group_is_none(tmp_path: Path) -> None:
+    decs = [
+        Decomposition(
+            code="C100",
+            semantic_type=None,
+            constituents=[
+                Constituent(axis="R88", filler_code="C27970", axis_source="role"),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out)
+    assert vocab.GROUP not in out.read_text()
+
+
+@pytest.mark.unit
+async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            constituents=[
+                Constituent(
+                    axis="op:AssociatedRegion",
+                    filler_code="C12418",
+                    axis_source="role",
+                    group="op:AssociatedRegion",
+                ),
+                Constituent(
+                    axis="op:AssociatedRegion",
+                    filler_code="C13063",
+                    axis_source="role",
+                    group="op:AssociatedRegion",
+                ),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out)
+    graph = rdflib.Graph()
+    graph.parse(out, format="turtle")
+    assert len(graph) > 0

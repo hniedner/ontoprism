@@ -35,7 +35,7 @@ DECOMPOSITION_KIND = f"{ONTOPRISM_NS}decompositionKind"
 # --- Reserved: not yet emitted by any writer (DECISIONS D19/D20) -------------------
 # Declared here so the design doc's vocabulary table and the golden set have a single
 # source of truth for these IRIs. The extractor that produces them is issue #44's
-# graduation step; `Constituent` has no group field yet.
+# graduation step; `Constituent.group` field added in PR-A.
 
 # D19: relationship-group id. Co-equal, non-nested fillers of one concept are grouped
 # rather than collapsed, keeping the complete representation lossless/round-trippable.
