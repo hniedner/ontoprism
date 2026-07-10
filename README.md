@@ -205,14 +205,14 @@ _This table is auto-updated by CI after successful builds on `main`._
 | JSON | 4 | 5,770 |
 | TypeScript | 61 | 4,203 |
 | Svelte | 38 | 3,192 |
-| Markdown | 17 | 2,639 |
+| Markdown | 18 | 3,037 |
 | CSS | 3 | 1,993 |
 | YAML | 7 | 665 |
 | TOML | 3 | 323 |
 | Shell | 1 | 95 |
 | JavaScript | 1 | 38 |
 | HTML | 1 | 21 |
-| **Total** | **294** | **40,188** |
+| **Total** | **295** | **40,586** |
 <!-- CODEBASE_LINE_COUNT_TABLE:END -->
 
 ## Provenance
