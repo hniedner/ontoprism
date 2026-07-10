@@ -53,6 +53,7 @@ async def _run(
     emit_equivalence: bool,
     resume: str | None,
     total_limit: int | None,
+    walker_max_depth: int = 5,
 ) -> RunMetrics:
     settings = get_settings()
     engine = make_engine(settings.database_url)
@@ -64,6 +65,7 @@ async def _run(
         load_to_store=load,
         emit_equivalence=emit_equivalence,
         resume_from=resume,
+        walker_max_depth=walker_max_depth,
     )
     try:
         async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
@@ -124,12 +126,19 @@ def main(
         int | None,
         typer.Option(help="Cap how many enumerated codes are processed (smoke runs)."),
     ] = None,
+    walker_max_depth: Annotated[
+        int,
+        typer.Option(
+            "--walker-max-depth",
+            help="Genus-chain walker recursion depth (default 5).",
+        ),
+    ] = 5,
 ) -> None:
     """Run the decomposition pipeline for a branch and print its coverage metrics."""
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
     metrics = asyncio.run(
-        _run(branch, out, load, emit_equivalence, resume, total_limit)
+        _run(branch, out, load, emit_equivalence, resume, total_limit, walker_max_depth)
     )
     typer.echo(
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "

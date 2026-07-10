@@ -101,6 +101,7 @@ class RunConfig:
     load_to_store: bool = False
     emit_equivalence: bool = False
     resume_from: str | None = None
+    walker_max_depth: int = 5
 
 
 @dataclass
@@ -180,6 +181,7 @@ async def _decompose_one(
     *,
     label: str | None,
     label_lookup: LabelLookup,
+    walker_max_depth: int = 5,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
     concept is not a decomposition candidate at all (atomic — never counted as residual,
@@ -191,7 +193,9 @@ async def _decompose_one(
     # Phase 1: walk the genus chain — works for both primitive and defined
     # classes. For primitive concepts (no owl:equivalentClass), the walker
     # returns zero roles, which is correct — nothing to decompose.
-    roles = await stated_queries.walk_genus_chain(client.select, code)
+    roles = await stated_queries.walk_genus_chain(
+        client.select, code, max_depth=walker_max_depth
+    )
 
     # Phase 1b: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
@@ -414,7 +418,11 @@ async def run_pipeline(
     for code in setup.pending:
         try:
             result = await _decompose_one(
-                code, client, label=setup.labels.get(code), label_lookup=label_lookup
+                code,
+                client,
+                label=setup.labels.get(code),
+                label_lookup=label_lookup,
+                walker_max_depth=config.walker_max_depth,
             )
         except Exception:
             logger.exception(
