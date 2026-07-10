@@ -224,6 +224,22 @@ def test_rebuild_search_index_success() -> None:
     assert resp.json() == {"concepts_indexed": 1}
 
 
+class _FailingSearchIndex:
+    async def rebuild(self, *args: object, **kwargs: object) -> int:
+        raise StorageError("store unreachable")
+
+
+@pytest.mark.api
+def test_rebuild_search_index_store_error_returns_502() -> None:
+    app = create_app()
+    app.dependency_overrides[get_ncit_store] = _FakeNcitStore
+    app.dependency_overrides[get_ncit_search_index] = _FailingSearchIndex
+    with TestClient(app) as client:
+        resp = client.post("/api/v1/refresh/ncit/search-index")
+    assert resp.status_code == 502
+    assert "search-index" in resp.json()["detail"]
+
+
 @pytest.mark.integration
 @pytest.mark.full_build
 def test_refresh_reports_ncit_version_and_counts(live_api_client: TestClient) -> None:

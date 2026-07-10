@@ -250,6 +250,20 @@ def test_iter_cdes_handles_parse_failure(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_iter_cdes_skips_element_when_parse_cde_returns_none(tmp_path: Path) -> None:
+    xml = tmp_path / "no_id.xml"
+    xml.write_text(
+        "<DataElementsList>"
+        "<DataElement><PUBLICID/><VERSION/></DataElement>"
+        "<DataElement><PUBLICID>1</PUBLICID><VERSION>1</VERSION></DataElement>"
+        "</DataElementsList>"
+    )
+    results = list(iter_cdes(xml))
+    assert len(results) == 1
+    assert results[0].cde_json["public_id"] == "1"
+
+
+@pytest.mark.unit
 def test_iter_cdes_exception_skips_bad_element(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

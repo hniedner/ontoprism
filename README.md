@@ -1,11 +1,125 @@
 # ONTOPRISM
 
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=fff" alt="Python 3.13">
+  <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=fff" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Svelte-5-FF3E00?logo=svelte&logoColor=fff" alt="Svelte 5">
+  <img src="https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=fff" alt="PostgreSQL 15">
+  <img src="https://img.shields.io/badge/Tailwind-4-06B6D4?logo=tailwindcss&logoColor=fff" alt="Tailwind 4">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="Apache 2.0">
+  <br>
+  <img src="https://img.shields.io/badge/CI-passing-brightgreen" alt="CI passing">
+  <img src="https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen" alt="Coverage ≥90%">
+</p>
+
 **Pre-coordination Refactoring Into Semantic Modules.** An ontology exploration and
 decomposition platform for the cancer-research domain over NCIt and caDSR.
 
 ONTOPRISM refracts NCIt's **pre-coordinated** concepts into their **atomic** constituents so
 complex meaning can be *composed* — expressed purely as combinations of simple concepts —
 rather than baked into the terminology as thousands of named combinations.
+
+## Background
+
+### NCIt — NCI Thesaurus
+
+The National Cancer Institute Thesaurus
+([NCIt](https://ncithesaurus.nci.nih.gov/)) is a reference ontology covering the
+cancer-research domain: diseases, drugs, genes, anatomy, procedures, and biological
+processes. It contains ~200K concepts organised in a multi-rooted hierarchy and uses
+OWL (Web Ontology Language) as its representation language.
+
+NCIt models meaning through two kinds of relationships:
+- **Hierarchical** (`rdfs:subClassOf`) — a disease is a kind of neoplasm
+- **Role-based** (OWL existential restrictions) — a disease *has_finding_site* some organ
+
+Pre-coordination is encoded in the stated OWL as **defined classes** —
+`owl:equivalentClass` / `owl:intersectionOf` chains where each level intersects a
+genus (a named superclass) with one or more role restrictions. The decomposition
+engine reads the stated graph directly to recover the intended semantic parts.
+
+### caDSR — Cancer Data Standards Repository
+
+The [caDSR](https://cadsr.cancer.gov/) is the metadata registry for clinical research
+data elements used across NCI programs. A **Common Data Element (CDE)** pairs a
+*question* (e.g., "What is the histologic grade?") with a *value domain* (e.g.,
+{Grade 1, Grade 2, Grade 3}) and is semantically anchored to NCIt concepts. caDSR
+is the downstream consumer that makes decomposition useful: when NCIt concepts are
+cleanly separated, CDE cross-links become precise and machine-actionable.
+
+### Pre-coordination vs Post-coordination
+
+**Pre-coordination** is the practice of creating a distinct named concept for every
+specific combination of meaning. For example, instead of representing "Non-Small Cell
+Lung Carcinoma" as a combination of "Lung Carcinoma" + "has_histology" → "Non-Small
+Cell Carcinoma", NCIt defines it as a separate class under *Carcinoma* with the
+histology detail baked into its definition and position in the hierarchy.
+
+This is how NCIt has been maintained for decades — it works, but it leads to thousands
+of highly specific concepts whose meaning is implicit in their name and definition
+rather than formally decomposed into parts.
+
+**Post-coordination** expresses complex meaning by combining simpler, atomic concepts
+at query or use time. Instead of a named concept for "Non-Small Cell Lung Carcinoma",
+a post-coordinated representation would say:
+
+> *Lung Carcinoma* that *has_finding_site* → *Lung* and *has_associated_morphology* → *Non-Small Cell Carcinoma*
+
+This is more flexible (any combination is expressible without awaiting a terminology
+release) but requires a grammar — a set of roles that define how atomic concepts can
+be combined.
+
+## The Problem
+
+NCIt contains tens of thousands of **pre-coordinated** concepts — named classes that
+package multiple semantic dimensions into a single node (55,044 concepts carry two or
+more role restrictions). For example, "Stage III Thyroid Gland Medullary Carcinoma
+AJCC v7" and its near-duplicate "Stage III Thyroid Gland Medullary Carcinoma AJCC v8"
+encode disease site, histology, abnormal cell, and staging version in one concept
+each — identical clinical entities re-enumerated for a terminology update. This
+approach:
+
+- **Bloats the terminology** — every new combination requires a new concept
+- **Hides meaning** — semantics are embedded in names and definitions rather than
+  formal axioms, making them opaque to automated reasoning
+- **Slows maintenance** — updating a dimension (e.g., staging terminology) means
+  touching every pre-coordinated concept that encodes it
+- **Limits flexibility** — researchers cannot query by arbitrary combinations of
+  dimensions; they are limited to whatever combinations NCIt chose to name
+
+## The Goal
+
+Refactor NCIt's pre-coordinated concepts into their **atomic constituents** so that
+complex meaning can be *composed* on demand — expressed purely as combinations of
+simple concepts using formally defined roles — while keeping the original
+pre-coordinated concepts intact for backward compatibility.
+
+## The Approach
+
+1. **Detect** — Identify pre-coordinated concepts via a semantic-type gate
+   (neoplasm/disease/regimen branches; gene/protein role families excluded) and a
+   defining-role count ≥ 2, excluding pure qualifier or value-set nodes. Each
+   role-filler pair is a semantic dimension that can be factored out.
+
+2. **Extract** — Walk each concept's genus chain recursively (a multi-parent DAG,
+   not a single lineage). For each defining role, select the most-specific filler
+   across alternate branches. Where role restrictions are absent (laterality,
+   staging-manual version, "with/without \<finding\>"), fall back to NLP rule-based
+   parsing of the concept label. The decisive feasibility finding: every role-defined
+   constituent is already an existing, active NCIt concept — **100% coverage for
+   the roles path** — so decomposition is surfacing and re-linking, not inventing.
+
+3. **Flag** — Mark source concepts with `representationStatus="legacy-precoordinated"`
+   so tooling and users can distinguish atomic from composite.
+
+4. **Compose** — Enable post-coordinated queries through a query layer that
+   combines atomic concepts at query time, supporting arbitrary dimension combinations
+   without requiring named concepts.
+
+The decomposition is **additive and reversible** — decomposed triples are written to
+a separate named graph (`ncit_decomposed`), never mutating the stated OWL. Legacy
+concepts remain fully navigable and resolvable; the decomposed view exists alongside
+them as an alternative, more granular lens.
 
 ## Quickstart
 

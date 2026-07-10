@@ -254,3 +254,20 @@ async def test_revalidates_via_if_modified_since_without_etag(tmp_path: Path) ->
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+@pytest.mark.unit
+async def test_revalidates_without_last_modified_uses_etag_only(tmp_path: Path) -> None:
+    # An origin with only ETag (no Last-Modified) must not include If-Modified-Since.
+    srv, state, url = _start(last_modified=None)
+    dest = tmp_path / "src.owl"
+    try:
+        await cached_download(url, dest)  # 200; manifest gets etag, no last_modified
+        outcome = await cached_download(url, dest)
+        assert outcome.status == "not_modified"
+        last = state.get_requests[-1]
+        assert "If-None-Match" in last
+        assert "If-Modified-Since" not in last
+    finally:
+        srv.shutdown()
+        srv.server_close()

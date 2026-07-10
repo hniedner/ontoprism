@@ -86,10 +86,11 @@ describe('GraphSidePanel', () => {
 		expect(screen.queryByText('Filter by type')).not.toBeInTheDocument();
 	});
 
-	it('renders the edge-kind legend', () => {
+	it('renders the edge-kind legend with all 4 types', () => {
 		setup();
 		expect(screen.getByText('subClassOf')).toBeInTheDocument();
 		expect(screen.getByText('role')).toBeInTheDocument();
+		expect(screen.getByText('association')).toBeInTheDocument();
 		expect(screen.getByText('cde-concept')).toBeInTheDocument();
 	});
 

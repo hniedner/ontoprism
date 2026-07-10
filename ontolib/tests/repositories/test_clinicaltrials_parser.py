@@ -77,6 +77,28 @@ def test_detail_of_minimal_study_has_empty_collections() -> None:
 
 
 @pytest.mark.unit
+def test_detail_sponsors_skips_collaborators_without_name() -> None:
+    study = _study(
+        identificationModule={"nctId": "NCT00000009", "briefTitle": "x"},
+        sponsorCollaboratorsModule={
+            "leadSponsor": {"name": "Lead Co"},
+            "collaborators": [
+                {"name": "Collab A"},
+                {"foo": "no name here"},
+                None,
+                {"name": "Collab B"},
+            ],
+        },
+    )
+    sponsors = parse_study_detail(study).sponsors
+    assert [(s.name, s.role) for s in sponsors] == [
+        ("Lead Co", "lead"),
+        ("Collab A", "collaborator"),
+        ("Collab B", "collaborator"),
+    ]
+
+
+@pytest.mark.unit
 def test_detail_sponsors_order_lead_then_collaborators() -> None:
     study = _study(
         identificationModule={"nctId": "NCT00000006", "briefTitle": "x"},
