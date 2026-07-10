@@ -129,7 +129,14 @@ Both remain checklist-only issues with no `docs/design/` entry. #5 depends on #4
 *output* existing, not just its code landing. **#6 is a partial exception since D19:** its
 `--emit-equivalence` seam is how #4's lossless, round-trippable representation of record is
 asserted, so goal 4's reversibility depends on that seam being built — #6 is no longer
-purely downstream of #4. The *grammar* #6 owns still is. A design for graph balancing (#5) or
+purely downstream of #4. The *grammar* #6 owns still is. **When that grammar is designed,
+it does not start from a blank page (D22):** model it on SNOMED CT's Compositional Grammar
+(SCG) for expression syntax, its Machine-Readable Concept Model (MRCM) for *sanctioning*
+valid refinements (the computable descendant of GALEN/GRAIL sanctioning), and its Expression
+Constraint Language (ECL) for the query layer — with HL7 FHIR `ConceptMap.$translate` as the
+pre-↔post equivalence surface. Rationale and citations:
+[`docs/postcoordination-literature-review.md`](postcoordination-literature-review.md) §4.1,
+§8.4. A design for graph balancing (#5) or
 a post-coordination grammar (#6) written against zero real decomposed concepts would be
 guessing. Note the gate is *trustworthy* data, not *any* data: a full-corpus run has already
 happened (§2.1 step 2 — `in_scope=28967 decomposed=939 coverage=3.24%`,
@@ -142,7 +149,12 @@ against real store queries before the engine was designed.
 ## 4. Summary — what to do next, in order
 
 1. ~~Review and merge PR #45.~~ **Done** (#45/#46/#47 all merged; v0.7.1 released).
-2. Continue #44's curation loop. **Done:** `score.py` now excludes `needs_review` and
+2. Continue #44's curation loop. **Sequencing (D22): relation quality gates coverage** —
+   the genus-sense routing that de-overloads `R101`/`R105` into univocal `op:` axes is a
+   *precondition* for pushing coverage past the ~3.24% baseline, not a parallel nicety;
+   chasing coverage on top of overloaded roles just propagates the conflation. Every `op:`
+   axis minted must carry a stated domain/range/definition (OBO Relation Ontology
+   discipline), not just a name. **Done:** `score.py` now excludes `needs_review` and
    scores multi-valued axes (#44's DoD was previously unreachable by construction); the
    C6135 golden entry now encodes D19/D20 (`R105 → C36825`, plus
    `op:AssociatedLineageClassification` and `op:AssociatedRegion`). **Remaining:** expand

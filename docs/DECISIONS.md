@@ -2,6 +2,52 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-10 — literature grounding: univocal relations, relation-quality-first, and the goal-4 grammar template
+
+### D22. The `op:` axes are univocal relations in the OBO Relation Ontology sense; relation quality gates coverage; goal 4's grammar is SCG/ECL/MRCM + sanctioning — grounded in a peer-reviewed review
+A comprehensive literature review of atomic/compositional terminology design was compiled
+against 34 peer-reviewed and standards sources
+([`docs/postcoordination-literature-review.md`](postcoordination-literature-review.md)).
+It confirms the D14–D21 decomposition decisions and adds three points the design had
+implicit but never named or cited. Recording them so they are load-bearing, not folklore.
+
+1. **The overloaded-role split (D17/D20) is the OBO Relation Ontology principle, and should
+   be named and cited as such.** D17/D20 route `R101`/`R105` senses to distinct `op:` axes
+   (`op:AssociatedLineageClassification`, `op:AssociatedRegion`) on empirical grounds. The
+   *principled* justification is Smith, Ceusters et al., "Relations in biomedical
+   ontologies" (*Genome Biol* 2005;6(5):R46, [doi:10.1186/gb-2005-6-5-r46](https://doi.org/10.1186/gb-2005-6-5-r46)):
+   a relation must be **univocal** — one label, one formally-defined sense, with stated
+   domain, range, and logical properties. NCIt's `R101` is not one relation but several
+   wearing one label; our `op:` axes are the univocal relations that replace it. Each `op:`
+   axis we mint **must** carry a stated domain/range/definition, not just a name. NCIt's
+   `R82` part-of transitivity gap (D16) and SNOMED's historical SEP-triplet overloading of
+   is-a for part-of (Schulz et al. 2009) are the same failure class viewed from other sides.
+2. **Relation quality gates decomposition quality — sequence it before coverage.** The
+   review's strongest strategic finding: the scarce resource is *univocal relations*, not
+   *atoms* (every filler is already an active NCIt concept — 100% roles-path coverage). So
+   pushing #44's coverage (currently ~3.24% on the naive baseline) *on top of* overloaded
+   roles propagates the `R101`/`R105` conflation into every decomposed concept. The genus-
+   sense routing (D17/D20, PR-A) is therefore a **precondition** for coverage expansion, not
+   a parallel nicety. This is already the PR order (PR-A before the coverage push); D22 makes
+   the *reason* explicit so the order is not reshuffled under schedule pressure.
+3. **Goal 4 (#6) has a standards template — use it, don't invent a grammar.** The post-
+   coordination expression syntax should be modelled on SNOMED CT's Compositional Grammar
+   (SCG) for writing expressions, its Machine-Readable Concept Model (MRCM) for *sanctioning*
+   which refinements are valid (the computable descendant of GALEN/GRAIL sanctioning, Rector
+   et al. 1997), and its Expression Constraint Language (ECL) for the query layer. This buys
+   interoperability and a clean path to HL7 FHIR terminology services
+   (`ConceptMap.$translate`) for the pre-↔post equivalence mapping — the same pattern
+   ICD-11's sanctioning tables implement. The #6 design, when written, starts here.
+
+**Why this is additive, not a course change:** it renames and grounds decisions already
+made and confirms their sequencing; it commits no new engineering beyond "every `op:` axis
+needs a stated definition" and "the #6 design starts from SCG/ECL/MRCM." The RO-style global
+role-split remains explicitly *not* adopted now (D17's additive genus-sense classification
+stands); D22 records it as the eventual *normalization target* once the genus-sense
+classification has accumulated enough evidence to define the univocal relations properly.
+Full survey, examples, and the mitigation-vs-current-approach comparison table:
+[`docs/postcoordination-literature-review.md`](postcoordination-literature-review.md) §6, §8.
+
 ## 2026-07-09 — subsumption-closure completeness is a precondition of D19
 
 ### D21. NCIt's `rdfs:subClassOf+` closure omits defined-class subsumption, so "nested" is only decidable where it is materialized — accept the fail-safe direction, and do not use the inferred graph as a round-trip oracle
