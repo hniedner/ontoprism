@@ -1,11 +1,18 @@
 """Unit tests for filler selection: Excludes filter, most-specific, morphology."""
 
+from collections import defaultdict
+
 import pytest
 
-from ontolib.decomposition.axes import MORPHOLOGY_AXIS
+from ontolib.decomposition.axes import (
+    ASSOCIATED_LINEAGE_AXIS,
+    ASSOCIATED_REGION_AXIS,
+    MORPHOLOGY_AXIS,
+)
 from ontolib.decomposition.filler_selection import (
     filter_excluded,
     most_specific,
+    route_axis,
     select_constituents,
 )
 from ontolib.decomposition.models import RoleRestriction
@@ -170,3 +177,193 @@ def test_select_output_is_deterministic() -> None:
     first = select_constituents(restrictions, _is_ancestor)
     second = select_constituents(list(reversed(restrictions)), _is_ancestor)
     assert first == second  # stable ordering regardless of input order
+
+
+# --- A3: route_axis ---
+
+
+@pytest.mark.unit
+def test_route_axis_maps_r101_with_lineage_generic_to_lineage_axis() -> None:
+    r = RoleRestriction("R101", "C12704", anchoring_genus="C3010")
+    assert route_axis(r) == ASSOCIATED_LINEAGE_AXIS
+
+
+@pytest.mark.unit
+def test_route_axis_keeps_non_r101_on_role_code() -> None:
+    r = RoleRestriction("R88", "C27970")
+    assert route_axis(r) == "R88"
+
+
+@pytest.mark.unit
+def test_route_axis_keeps_r101_without_genus_on_role_code() -> None:
+    r = RoleRestriction("R101", "C12400")
+    assert route_axis(r) == "R101"
+
+
+@pytest.mark.unit
+def test_route_axis_keeps_r101_with_non_lineage_genus_on_role_code() -> None:
+    r = RoleRestriction("R101", "C12400", anchoring_genus="C4815")
+    assert route_axis(r) == "R101"
+
+
+# --- A3: D20 refinement 1 — genus-sense routing in select_constituents ---
+
+
+@pytest.mark.unit
+def test_lineage_generic_genus_routes_r101_to_lineage_axis() -> None:
+    r = [
+        RoleRestriction(
+            "R101",
+            "C12704",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3010",
+        ),
+        RoleRestriction(
+            "R101",
+            "C12705",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3010",
+        ),
+    ]
+    cons = select_constituents(r, lambda a, b: False)
+    assert {c.filler_code for c in cons} == {"C12704", "C12705"}
+    assert all(c.axis == ASSOCIATED_LINEAGE_AXIS for c in cons)
+
+
+@pytest.mark.unit
+def test_site_specific_genus_stays_on_r101() -> None:
+    r = [
+        RoleRestriction(
+            "R101",
+            "C12400",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C4815",
+        )
+    ]
+    assert select_constituents(r, lambda a, b: False)[0].axis == "R101"
+
+
+# --- A4: D20 refinement 2 — filler-semantic-type ranking ---
+
+
+@pytest.mark.unit
+def test_semantic_type_ranking_splits_organ_from_region() -> None:
+    sem = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C12418": "Anatomical Structure",
+        "C13063": "Anatomical Structure",
+    }
+    r = [
+        RoleRestriction("R101", c, "Disease_Has_Primary_Anatomic_Site")
+        for c in ("C12400", "C12418", "C13063")
+    ]
+    cons = {
+        c.filler_code: c
+        for c in select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
+    }
+    assert cons["C12400"].axis == "R101"
+    assert cons["C12418"].axis == ASSOCIATED_REGION_AXIS
+    assert cons["C13063"].axis == ASSOCIATED_REGION_AXIS
+
+
+# --- A5: D19 grouping ---
+
+
+@pytest.mark.unit
+def test_coequal_nonnested_leaves_share_a_group_and_are_not_review() -> None:
+    sem = {"C12418": "Anatomical Structure", "C13063": "Anatomical Structure"}
+    r = [
+        RoleRestriction("R101", c, "Disease_Has_Primary_Anatomic_Site")
+        for c in ("C12418", "C13063")
+    ]
+    cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
+    assert {c.axis for c in cons} == {ASSOCIATED_REGION_AXIS}
+    assert all(
+        c.group == ASSOCIATED_REGION_AXIS and c.needs_review is False for c in cons
+    )
+
+
+@pytest.mark.unit
+def test_single_filler_axis_has_no_group() -> None:
+    assert (
+        select_constituents(
+            [RoleRestriction("R88", "C27970", "Disease_Is_Stage")], lambda a, b: False
+        )[0].group
+        is None
+    )
+
+
+@pytest.mark.unit
+def test_lineage_leaves_share_group_and_are_not_review() -> None:
+    r = [
+        RoleRestriction(
+            "R101",
+            "C12704",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3010",
+        ),
+        RoleRestriction(
+            "R101",
+            "C12705",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3010",
+        ),
+    ]
+    cons = select_constituents(r, lambda a, b: False)
+    assert {c.axis for c in cons} == {ASSOCIATED_LINEAGE_AXIS}
+    assert all(
+        c.group == ASSOCIATED_LINEAGE_AXIS and c.needs_review is False for c in cons
+    )
+
+
+@pytest.mark.unit
+def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
+    sem = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C12401": "Body Part, Organ, or Organ Component",
+    }
+    r = [
+        RoleRestriction("R101", c, "Disease_Has_Primary_Anatomic_Site")
+        for c in ("C12400", "C12401")
+    ]
+    cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
+    assert {c.axis for c in cons} == {"R101"}
+    assert all(c.needs_review for c in cons)
+    assert all(c.group is None for c in cons)
+
+
+# --- A6: capstone — C6135 golden split ---
+
+
+@pytest.mark.unit
+def test_c6135_r101_family_matches_golden_split() -> None:
+    sem = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C12704": "Body Part, Organ, or Organ Component",
+        "C12705": "Body System",
+        "C12418": "Anatomical Structure",
+        "C13063": "Anatomical Structure",
+    }
+    r = [
+        RoleRestriction("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction(
+            "R101",
+            "C12704",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3010",
+        ),
+        RoleRestriction(
+            "R101",
+            "C12705",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3010",
+        ),
+        RoleRestriction("R101", "C12418", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R101", "C13063", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+    by_axis: dict[str, set[str]] = defaultdict(set)
+    for c in select_constituents(r, lambda a, b: False, semantic_type_of=sem.get):
+        by_axis[c.axis].add(c.filler_code)
+    assert by_axis["R101"] == {"C12400"}
+    assert by_axis[ASSOCIATED_LINEAGE_AXIS] == {"C12704", "C12705"}
+    assert by_axis[ASSOCIATED_REGION_AXIS] == {"C12418", "C13063"}

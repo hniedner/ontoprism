@@ -27,6 +27,21 @@ IN_SCOPE_SEMANTIC_TYPES = frozenset(
 # Morphology is not a role filler; it is derived from the taxonomic parent (design §6).
 MORPHOLOGY_AXIS = "op:Morphology"
 
+# D20 refinement 1 axis: genus-sense classification (lineage) carved from R101.
+ASSOCIATED_LINEAGE_AXIS = "op:AssociatedLineageClassification"
+# D20 refinement 2 axis: anatomical region carved from R101 residual.
+ASSOCIATED_REGION_AXIS = "op:AssociatedRegion"
+
+# The overloaded primary-site role that both refinements split.
+PRIMARY_SITE_ROLE = "R101"
+
+# Genera whose R101 restrictions convey lineage classification rather than literal
+# primary site (D17/D20 §6.6, confirmed via C6135 analysis).
+LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset({"C3010", "C3809", "C3773"})
+
+# Semantic type for literal primary-site fillers (D20 refinement 2).
+ORGAN_SEMANTIC_TYPE = "Body Part, Organ, or Organ Component"
+
 # NCIt encodes disjointness as ``*_Excludes_*`` restrictions (e.g.
 # ``Disease_Excludes_Abnormal_Cell``). These are negative axioms, not constituents, and
 # must never be counted as defining axes (assessment §4.2).
@@ -41,6 +56,12 @@ def is_in_scope(semantic_type: str | None) -> bool:
 def is_excluded_role(role_label: str | None) -> bool:
     """True if the role is an ``*_Excludes_*`` negative axiom (not a constituent)."""
     return role_label is not None and _EXCLUDES_MARKER in role_label
+
+
+def is_lineage_generic(genus_code: str | None) -> bool:
+    """True when *genus_code* is one of the lineage-generic genera whose R101
+    restrictions should route to ``ASSOCIATED_LINEAGE_AXIS``."""
+    return genus_code in LINEAGE_GENERIC_GENERA
 
 
 def is_defining_role(restriction: RoleRestriction) -> bool:

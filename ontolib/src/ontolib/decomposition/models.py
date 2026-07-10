@@ -21,11 +21,14 @@ class RoleRestriction:
     ``role_code`` is the NCIt property code (e.g. ``R105``); ``role_label`` is its
     human-readable name (e.g. ``Disease_Has_Abnormal_Cell``) when resolvable — the
     label is what the ``Excludes_*`` / defining classification keys on.
+    ``anchoring_genus`` is the genus code on which this restriction was found during
+    the DAG walk (populated by PR-B; ``None`` on the flat path).
     """
 
     role_code: str
     filler_code: str
     role_label: str | None = None
+    anchoring_genus: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +38,8 @@ class Constituent:
     ``axis`` is the NCIt role code (reused as the axis identifier) or an ``op:`` axis
     such as ``op:Morphology``. ``most_specific`` records that the filler was chosen as
     the hierarchy leaf over its ancestors; ``needs_review`` flags an ambiguous pick for
-    curation rather than silently resolving it.
+    curation rather than silently resolving it. ``group`` is a D19 relationship-group
+    id shared by co-equal, non-nested fillers on the same axis.
     """
 
     axis: str
@@ -43,6 +47,7 @@ class Constituent:
     axis_source: AxisSource
     most_specific: bool = False
     needs_review: bool = False
+    group: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

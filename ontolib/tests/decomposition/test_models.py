@@ -62,3 +62,26 @@ def test_detection_result_carries_the_gate_inputs() -> None:
     )
     assert d.is_precoordinated
     assert d.defining_role_count == 4
+
+
+@pytest.mark.unit
+def test_constituent_group_defaults_none() -> None:
+    assert (
+        Constituent(axis="R101", filler_code="C12400", axis_source="role").group is None
+    )
+
+
+@pytest.mark.unit
+def test_constituent_accepts_group_id() -> None:
+    c = Constituent(
+        axis="op:AssociatedRegion",
+        filler_code="C12418",
+        axis_source="role",
+        group="op:AssociatedRegion",
+    )
+    assert c.group == "op:AssociatedRegion"
+
+
+@pytest.mark.unit
+def test_role_restriction_anchoring_genus_defaults_none() -> None:
+    assert RoleRestriction("R101", "C12400").anchoring_genus is None
