@@ -180,7 +180,7 @@ ignore = [
  ]
 
 [tool.coverage.run]
-source = ["ontolib/src", "backend/src"]
+source = ["ontolib/src", "backend/src", "scripts/dev"]
 branch = true
 
 [tool.coverage.report]
