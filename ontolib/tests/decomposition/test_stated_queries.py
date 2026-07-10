@@ -11,8 +11,14 @@ from ontolib.decomposition.stated_queries import (
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
+    resolve_starting_genus,
 )
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+
+
+def _iri(code: str) -> str:
+    return f"{NCIT_NS}{code}"
 
 
 @pytest.mark.unit
@@ -188,3 +194,58 @@ def test_part_of_pairs_query_empty_list_returns_valid_query() -> None:
 def test_part_of_pairs_query_rejects_unsafe_code() -> None:
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
         build_part_of_pairs_query(["bad code"])
+
+
+@pytest.mark.unit
+async def test_resolve_starting_genus_returns_genus_from_hop_0() -> None:
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        assert "C6135" in query
+        return [
+            {"member": _iri("C141041"), "type": None},
+            {
+                "member": _iri("C141041"),
+                "type": OWL_NS + "Restriction",
+                "role": _iri("R88"),
+                "target": _iri("C27970"),
+            },
+        ]
+
+    genus = await resolve_starting_genus(fake_select, "C6135")
+    assert genus == "C141041"
+
+
+@pytest.mark.unit
+async def test_resolve_starting_genus_returns_none_when_no_rows() -> None:
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        return []
+
+    genus = await resolve_starting_genus(fake_select, "C6135")
+    assert genus is None
+
+
+@pytest.mark.unit
+async def test_resolve_starting_genus_returns_none_when_all_are_restrictions() -> None:
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        return [
+            {
+                "member": _iri("C141041"),
+                "type": OWL_NS + "Restriction",
+                "role": _iri("R88"),
+                "target": _iri("C27970"),
+            },
+        ]
+
+    genus = await resolve_starting_genus(fake_select, "C6135")
+    assert genus is None
+
+
+@pytest.mark.unit
+async def test_resolve_starting_genus_handles_non_ncit_iri() -> None:
+    """Fallback path: genus IRI that does not start with NCIT_NS is returned
+    as-is (defensive — all NCIt genuses are in NCIT_NS)."""
+
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        return [{"member": "http://example.org/foo#C1", "type": None}]
+
+    genus = await resolve_starting_genus(fake_select, "C6135")
+    assert genus == "http://example.org/foo#C1"

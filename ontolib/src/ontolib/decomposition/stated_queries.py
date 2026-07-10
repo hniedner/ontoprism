@@ -338,6 +338,27 @@ async def _process_walk_node(
             next_frontier.append(g)
 
 
+async def resolve_starting_genus(
+    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    code: str,
+) -> str | None:
+    """Resolve the immediate genus (first ``owl:intersectionOf`` member) of
+    *code*, or ``None`` if *code* is a primitive class with no
+    ``owl:equivalentClass`` axiom."""
+    queries = build_genus_walk_members_query(code)
+    if not queries:
+        return None
+    rows = await select_fn(queries[0])  # hop-0 only
+    for row in rows:
+        if row.get("type") != OWL_NS + "Restriction":
+            genus_iri = row.get("member")
+            if genus_iri and genus_iri.startswith(NCIT_NS):
+                return genus_iri.removeprefix(NCIT_NS)
+            if genus_iri:
+                return genus_iri
+    return None
+
+
 async def walk_genus_chain(
     select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
     code: str,

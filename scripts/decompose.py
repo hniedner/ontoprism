@@ -116,7 +116,11 @@ def main(
         ),
     ] = False,
     emit_equivalence: Annotated[
-        bool, typer.Option("--emit-equivalence", help="Reserved for #6 — not wired.")
+        bool,
+        typer.Option(
+            "--emit-equivalence",
+            help="Emit owl:equivalentClass intersection axioms (lossless round-trip).",
+        ),
     ] = False,
     resume: Annotated[
         str | None,

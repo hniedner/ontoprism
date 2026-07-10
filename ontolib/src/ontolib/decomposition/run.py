@@ -89,11 +89,10 @@ async def _never_resolves(_: str) -> str | None:
 class RunConfig:
     """Configuration for a decomposition run.
 
-    ``load_to_store`` and ``emit_equivalence`` are accepted here for the CLI to carry
-    alongside the rest of the config, but ``run_pipeline`` never reads either: loading
-    into the store is a CLI-layer concern performed by the caller after
-    ``run_pipeline`` returns (see the module docstring), and ``owl:equivalentClass``
-    emission is reserved for #6 (design §14.4) and not implemented at all yet.
+    ``load_to_store`` is accepted here for the CLI to carry alongside the rest of the
+    config, but ``run_pipeline`` never reads it: loading into the store is a CLI-layer
+    concern performed by the caller after ``run_pipeline`` returns (see the module
+    docstring).  ``emit_equivalence`` is wired through to ``write_ttl``.
     """
 
     branch: str
@@ -197,6 +196,11 @@ async def _decompose_one(
         client.select, code, max_depth=walker_max_depth
     )
 
+    # Phase 1a: resolve immediate genus for the equivalence axiom (the first
+    # ``owl:intersectionOf`` member of the starting concept).  ``None`` for
+    # primitive concepts — no equivalentClass to read it from.
+    genus_code = await stated_queries.resolve_starting_genus(client.select, code)
+
     # Phase 1b: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
     filler_codes = {r.filler_code for r in roles}
@@ -245,6 +249,7 @@ async def _decompose_one(
     decomposition = Decomposition(
         code=code,
         semantic_type=result.semantic_type,
+        genus_code=genus_code,
         constituents=[*role_constituents, *nlp_constituents],
     )
     return _CandidateResult(decomposition=decomposition, minted=minted)
@@ -446,7 +451,12 @@ async def run_pipeline(
     metrics.pct_decomposed = metrics.coverage
 
     if config.out is not None:
-        await write_ttl(decompositions, dest=config.out, run_id=setup.run_id)
+        await write_ttl(
+            decompositions,
+            dest=config.out,
+            run_id=setup.run_id,
+            emit_equivalence=config.emit_equivalence,
+        )
 
     finished = await provenance.finish_run(setup.run_id, metrics=asdict(metrics))
     if not finished:
