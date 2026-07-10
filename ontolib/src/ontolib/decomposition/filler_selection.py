@@ -80,6 +80,8 @@ def _r101_semantic_type_constituents(
         return []
 
     result: list[Constituent] = []
+    organ_ambiguous = len(organ) > 1
+    region_ambiguous = len(region) > 1
     for filler in organ:
         result.append(
             Constituent(
@@ -87,9 +89,9 @@ def _r101_semantic_type_constituents(
                 filler_code=filler,
                 axis_source="role",
                 most_specific=_is_most_specific(filler, fillers, is_ancestor),
+                needs_review=organ_ambiguous,
             )
         )
-    region_ambiguous = len(region) > 1
     for filler in region:
         result.append(
             Constituent(
@@ -97,7 +99,7 @@ def _r101_semantic_type_constituents(
                 filler_code=filler,
                 axis_source="role",
                 most_specific=_is_most_specific(filler, fillers, is_ancestor),
-                needs_review=not region_ambiguous,
+                needs_review=False,
                 group=axes.ASSOCIATED_REGION_AXIS if region_ambiguous else None,
             )
         )

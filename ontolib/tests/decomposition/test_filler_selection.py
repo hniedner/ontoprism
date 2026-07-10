@@ -317,6 +317,25 @@ def test_lineage_leaves_share_group_and_are_not_review() -> None:
 
 
 @pytest.mark.unit
+def test_semantic_type_ranking_one_organ_one_region() -> None:
+    sem = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C12418": "Anatomical Structure",
+    }
+    r = [
+        RoleRestriction("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R101", "C12418", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+    cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
+    by_filler = {c.filler_code: c for c in cons}
+    assert by_filler["C12400"].axis == "R101"
+    assert by_filler["C12400"].needs_review is False
+    assert by_filler["C12418"].axis == ASSOCIATED_REGION_AXIS
+    assert by_filler["C12418"].needs_review is False
+    assert by_filler["C12418"].group is None
+
+
+@pytest.mark.unit
 def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
     sem = {
         "C12400": "Body Part, Organ, or Organ Component",
