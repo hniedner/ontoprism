@@ -3,11 +3,17 @@
 import pytest
 
 from ontolib.decomposition.axes import (
+    ASSOCIATED_LINEAGE_AXIS,
+    ASSOCIATED_REGION_AXIS,
     IN_SCOPE_SEMANTIC_TYPES,
+    LINEAGE_GENERIC_GENERA,
     MORPHOLOGY_AXIS,
+    ORGAN_SEMANTIC_TYPE,
+    PRIMARY_SITE_ROLE,
     is_defining_role,
     is_excluded_role,
     is_in_scope,
+    is_lineage_generic,
 )
 from ontolib.decomposition.models import RoleRestriction
 
@@ -71,3 +77,44 @@ def test_morphology_axis_is_an_ontoprism_axis() -> None:
     # Morphology is carried by the taxonomic parent, not a role, so it needs its own
     # op: axis identifier (design §6).
     assert MORPHOLOGY_AXIS.startswith("op:")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("genus_code", "expected"),
+    [
+        ("C3010", True),
+        ("C3809", True),
+        ("C3773", True),
+        ("C12400", False),
+        (None, False),
+    ],
+)
+def test_is_lineage_generic(genus_code: str | None, expected: bool) -> None:
+    assert is_lineage_generic(genus_code) is expected
+
+
+@pytest.mark.unit
+def test_associated_lineage_axis_is_op_axis() -> None:
+    assert ASSOCIATED_LINEAGE_AXIS.startswith("op:")
+
+
+@pytest.mark.unit
+def test_associated_region_axis_is_op_axis() -> None:
+    assert ASSOCIATED_REGION_AXIS.startswith("op:")
+
+
+@pytest.mark.unit
+def test_primary_site_role_is_r101() -> None:
+    assert PRIMARY_SITE_ROLE == "R101"
+
+
+@pytest.mark.unit
+def test_lineage_generic_genera_is_frozenset_of_codes() -> None:
+    assert isinstance(LINEAGE_GENERIC_GENERA, frozenset)
+    assert "C3010" in LINEAGE_GENERIC_GENERA
+
+
+@pytest.mark.unit
+def test_organ_semantic_type_constant() -> None:
+    assert ORGAN_SEMANTIC_TYPE == "Body Part, Organ, or Organ Component"
