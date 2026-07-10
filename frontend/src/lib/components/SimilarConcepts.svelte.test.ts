@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import SimilarConcepts from './SimilarConcepts.svelte';
 import type { SimilarConcept } from '$lib/types';
@@ -7,10 +7,6 @@ vi.mock('$lib/api', () => ({ similarConcepts: vi.fn() }));
 import { similarConcepts } from '$lib/api';
 
 const mock = vi.mocked(similarConcepts);
-
-// mockClear (not mockReset): each test sets its own return value; reset would leave a
-// stored rejected promise dangling and trip the runner's unhandled-rejection guard.
-beforeEach(() => mock.mockClear());
 
 describe('SimilarConcepts', () => {
 	it('requests the top-10 similar concepts for the given code', async () => {
@@ -33,5 +29,11 @@ describe('SimilarConcepts', () => {
 		expect(screen.getByText('0.91')).toBeInTheDocument(); // score to 2 dp
 		// A concept with no label falls back to its code.
 		expect(screen.getByRole('link', { name: 'C4321' })).toBeInTheDocument();
+	});
+
+	it('shows the unavailable state on fetch failure', async () => {
+		mock.mockRejectedValue(new Error('network error'));
+		render(SimilarConcepts, { code: 'C3262' });
+		expect(await screen.findByText('Embeddings unavailable.')).toBeInTheDocument();
 	});
 });

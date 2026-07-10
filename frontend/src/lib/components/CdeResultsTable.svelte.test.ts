@@ -55,4 +55,12 @@ describe('CdeResultsTable', () => {
 		});
 		expect(screen.queryByText('NEOPLASM_HIST')).not.toBeInTheDocument();
 	});
+
+	it('handles version being undefined in the each-block key', () => {
+		render(CdeResultsTable, {
+			hits: [{ ...hits[0], version: undefined as unknown as string }]
+		});
+		// In Svelte 5, {undefined} in text interpolations renders as empty string.
+		expect(screen.getByText(/^v$/)).toBeInTheDocument();
+	});
 });

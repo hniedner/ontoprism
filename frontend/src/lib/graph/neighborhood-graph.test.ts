@@ -13,6 +13,22 @@ function nb(partial: Partial<Neighborhood> & { center: string }): Neighborhood {
 }
 
 describe('mergeNeighborhood', () => {
+	it('does not overwrite a label when the merged node has no label', () => {
+		const g = createGraph();
+		mergeNeighborhood(g, nb({ center: 'C1', nodes: [{ code: 'C1', label: 'Original', semantic_type: null }] }));
+		mergeNeighborhood(
+			g,
+			nb({
+				center: 'C2',
+				nodes: [
+					{ code: 'C1', label: null, semantic_type: null },
+					{ code: 'C2', label: 'New', semantic_type: null }
+				]
+			})
+		);
+		expect(g.getNodeAttribute('C1', 'label')).toBe('Original');
+	});
+
 	it('adds center and neighbor nodes with edges', () => {
 		const g = createGraph();
 		const added = mergeNeighborhood(
@@ -37,7 +53,6 @@ describe('mergeNeighborhood', () => {
 	it('deduplicates nodes and edges across merges and fills in labels', () => {
 		const g = createGraph();
 		mergeNeighborhood(g, nb({ center: 'C1', nodes: [{ code: 'C1', label: 'Root', semantic_type: null }] }));
-		// C2 first appears only as a bare reference, then arrives with a real label.
 		mergeNeighborhood(
 			g,
 			nb({
@@ -49,7 +64,6 @@ describe('mergeNeighborhood', () => {
 				edges: [{ source: 'C1', target: 'C2', relation: 'R2', relation_label: 'assoc', kind: 'association' }]
 			})
 		);
-		// Re-merging the same payload must not create duplicate nodes or edges.
 		mergeNeighborhood(
 			g,
 			nb({
@@ -125,6 +139,14 @@ describe('mergeNeighborhood', () => {
 		);
 		expect(g.getEdgeAttribute('C1|R42|C2', 'label')).toBe('R42');
 	});
+
+	it('does not mark the center expanded when it is absent from the graph', () => {
+		const g = createGraph();
+		g.addNode('X', { code: 'X', label: 'Only' });
+		const added = mergeNeighborhood(g, nb({ center: 'CENTER', nodes: [] }));
+		expect(added).toBe(0);
+		expect(g.getNodeAttribute('X', 'expanded')).toBe(undefined);
+	});
 });
 
 describe('assignAnalytics', () => {
@@ -148,7 +170,6 @@ describe('assignAnalytics', () => {
 		const summary = assignAnalytics(g);
 		expect(g.getNodeAttribute('C1', 'community')).toBe(0);
 		expect(g.getNodeAttribute('C1', 'betweenness')).toBe(0);
-		// One community (everything defaulted to 0), no bridges.
 		expect(summary.communityCount).toBe(1);
 		expect(summary.topByBetweenness[0].betweenness).toBe(0);
 	});
@@ -174,9 +195,19 @@ describe('assignAnalytics', () => {
 		expect(summary.topByDegree[0].code).toBe('HUB');
 		expect(g.getNodeAttribute('HUB', 'degree')).toBe(2);
 		expect(summary.communityCount).toBeGreaterThanOrEqual(1);
-		// HUB is on every shortest path A↔B, so it leads betweenness too.
 		expect(summary.topByBetweenness[0].code).toBe('HUB');
 		expect(g.getNodeAttribute('HUB', 'betweenness')).toBeGreaterThan(0);
+	});
+
+	it('covers missing attributes in assignAnalytics (label falls back to node id)', () => {
+		const g = createGraph();
+		g.addNode('N1', { code: 'N1' });
+		g.addNode('N2', { code: 'N2' });
+		g.addEdgeWithKey('e1', 'N1', 'N2', { label: 'r', kind: 'role', color: '#aaa' });
+		const summary = assignAnalytics(g);
+		expect(summary.communityCount).toBeGreaterThanOrEqual(1);
+		expect(g.getNodeAttribute('N1', 'community')).toBeGreaterThanOrEqual(0);
+		expect(g.getNodeAttribute('N1', 'degree')).toBe(1);
 	});
 });
 
@@ -188,10 +219,8 @@ describe('scales', () => {
 
 	it('communityColor is a stable hex color, wraps, and falls back for undefined', () => {
 		expect(communityColor(0)).toMatch(/^#[0-9a-f]{6}$/i);
-		// Distinct communities get distinct colors; undefined falls back to community 0.
 		expect(communityColor(0)).not.toBe(communityColor(1));
 		expect(communityColor(undefined)).toBe(communityColor(0));
-		// Indices past the palette wrap around to the start (stable cycling).
 		expect(communityColor(0)).toBe(communityColor(10));
 	});
 });

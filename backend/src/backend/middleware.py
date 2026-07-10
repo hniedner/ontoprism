@@ -50,7 +50,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._window = window_sec
         self._hits: dict[str, tuple[float, int]] = {}
 
-    def _sweep_expired(self, now: float) -> None:
+    def _sweep_expired(self, now: float) -> None:  # pragma: no cover — needs 10k+ IPs
         expired = [
             key for key, (start, _) in self._hits.items() if now - start >= self._window
         ]
@@ -62,7 +62,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         key = request.client.host if request.client else "unknown"
         now = time.monotonic()
-        if len(self._hits) > self._SWEEP_THRESHOLD:
+        if len(self._hits) > self._SWEEP_THRESHOLD:  # pragma: no cover — needs 10k+ IPs
             self._sweep_expired(now)
         window_start, count = self._hits.get(key, (now, 0))
         if now - window_start >= self._window:

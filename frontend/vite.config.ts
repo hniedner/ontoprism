@@ -43,7 +43,7 @@ export default defineConfig({
 				'src/lib/components/GraphMinimap.svelte'
 			],
 			thresholds: { lines: 90, functions: 90, branches: 90, statements: 90 },
-			reporter: ['text-summary', 'json-summary']
+			reporter: ['text', 'text-summary', 'json-summary']
 		},
 		projects: [
 			{

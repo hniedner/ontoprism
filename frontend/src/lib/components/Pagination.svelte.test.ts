@@ -24,6 +24,15 @@ describe('Pagination', () => {
 		expect(screen.getByLabelText('Previous page')).toBeEnabled();
 	});
 
+	it('calls onPage with the previous offset and first page', async () => {
+		const onPage = vi.fn();
+		render(Pagination, { offset: 50, limit: 25, total: 130, onPage });
+		screen.getByLabelText('Previous page').click();
+		expect(onPage).toHaveBeenCalledWith(25);
+		screen.getByLabelText('First page').click();
+		expect(onPage).toHaveBeenCalledWith(0);
+	});
+
 	it('calls onPage with the next offset', async () => {
 		const onPage = vi.fn();
 		render(Pagination, { offset: 25, limit: 25, total: 130, onPage });

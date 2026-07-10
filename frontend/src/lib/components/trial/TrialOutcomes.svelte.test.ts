@@ -42,4 +42,25 @@ describe('TrialOutcomes', () => {
 		expect(screen.getByText('Response rate')).toBeInTheDocument();
 		expect(screen.queryByText(/·/)).not.toBeInTheDocument();
 	});
+
+	it('handles null measure in the each-block key for secondary outcomes', () => {
+		render(TrialOutcomes, {
+			trial: trialDetail({
+				secondary_outcomes: [{ measure: null as unknown as string, description: null, time_frame: null }]
+			})
+		});
+		expect(screen.getByText('secondary')).toBeInTheDocument();
+	});
+
+	it('shows the outcomes section when only secondary outcomes are present', () => {
+		render(TrialOutcomes, {
+			trial: trialDetail({
+				primary_outcomes: [],
+				secondary_outcomes: [{ measure: 'Pain score', description: null, time_frame: null }]
+			})
+		});
+		expect(screen.getByText('Outcomes')).toBeInTheDocument();
+		expect(screen.getByText('Pain score')).toBeInTheDocument();
+		expect(screen.getByText('secondary')).toBeInTheDocument();
+	});
 });

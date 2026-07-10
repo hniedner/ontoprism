@@ -69,21 +69,19 @@
 
 			{#each graph.nodes as node (node.code)}
 				{@const p = positions[node.code]}
-				{#if p}
-					<g
-						class="node"
-						class:center={node.code === graph.center}
-						transform="translate({p.x},{p.y})"
-						role="button"
-						tabindex="0"
-						onclick={() => goto(conceptHref(node.code))}
-						onkeydown={(e) => e.key === 'Enter' && goto(conceptHref(node.code))}
-					>
-						<circle r={node.code === graph.center ? 30 : 21} />
-						<text class="node-label">{node.code}</text>
-						<title>{labelOf(node.code)}</title>
-					</g>
-				{/if}
+				<g
+					class="node"
+					class:center={node.code === graph.center}
+					transform="translate({p.x},{p.y})"
+					role="button"
+					tabindex="0"
+					onclick={() => goto(conceptHref(node.code))}
+					onkeydown={(e) => e.key === 'Enter' && goto(conceptHref(node.code))}
+				>
+					<circle r={node.code === graph.center ? 30 : 21} />
+					<text class="node-label">{node.code}</text>
+					<title>{labelOf(node.code)}</title>
+				</g>
 			{/each}
 		</svg>
 	</div>

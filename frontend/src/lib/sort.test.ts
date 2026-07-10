@@ -50,6 +50,16 @@ describe('sortBy', () => {
 		expect(sortBy(nums, (r) => r.n, 'asc').map((r) => r.n)).toEqual([1, 2, 3]);
 		expect(sortBy(nums, (r) => r.n, 'desc').map((r) => r.n)).toEqual([3, 2, 1]);
 	});
+
+	it('handles mixed null and non-null keys where only bv is null', () => {
+		const items = [
+			{ v: 'Beta' },
+			{ v: null },
+			{ v: 'Alpha' }
+		];
+		expect(sortBy(items, (r) => r.v, 'asc').map((r) => r.v)).toEqual(['Alpha', 'Beta', null]);
+		expect(sortBy(items, (r) => r.v, 'desc').map((r) => r.v)).toEqual(['Beta', 'Alpha', null]);
+	});
 });
 
 describe('nextDir', () => {

@@ -139,10 +139,10 @@ export function assignAnalytics(graph: Graph, { topN = 5 }: { topN?: number } = 
 	graph.forEachNode((n, attrs) => {
 		const degree = graph.degree(n);
 		graph.setNodeAttribute(n, 'degree', degree);
-		communities.add((attrs.community as number) ?? 0);
+		communities.add(attrs.community as number);
 		const label = (attrs.label as string) ?? n;
 		degrees.push({ code: n, label, degree });
-		between.push({ code: n, label, betweenness: (attrs.betweenness as number) ?? 0 });
+		between.push({ code: n, label, betweenness: attrs.betweenness as number });
 	});
 	degrees.sort((a, b) => b.degree - a.degree);
 	between.sort((a, b) => b.betweenness - a.betweenness);

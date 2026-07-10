@@ -60,6 +60,22 @@ def test_sync_retries_then_succeeds() -> None:
 
 
 @pytest.mark.unit
+def test_sync_reraises_after_exhaustion() -> None:
+    calls = {"n": 0}
+
+    @retry_with_backoff(
+        max_attempts=2, base_delay=0.0, retryable_exceptions=(_BoomError,)
+    )
+    def always_fails() -> None:
+        calls["n"] += 1
+        raise _BoomError
+
+    with pytest.raises(_BoomError):
+        always_fails()
+    assert calls["n"] == 2
+
+
+@pytest.mark.unit
 def test_non_retryable_exception_propagates_immediately() -> None:
     calls = {"n": 0}
 

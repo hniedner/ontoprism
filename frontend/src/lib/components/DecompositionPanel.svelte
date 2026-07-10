@@ -13,10 +13,10 @@
 		loaded = false;
 		unavailable = false;
 		data = null;
-		getDecomposition(code)
-			.then((d) => (data = d))
-			.catch(() => (unavailable = true))
-			.finally(() => (loaded = true));
+		getDecomposition(code).then(
+			(d) => (data = d),
+			() => (unavailable = true)
+		).finally(() => (loaded = true));
 	});
 
 	// Group constituents by axis for display (axes → their fillers), order preserved.

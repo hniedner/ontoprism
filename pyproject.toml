@@ -82,6 +82,10 @@ test-integration = "pytest ontolib/tests backend/tests -m integration"
 test-integration-ci = "pytest ontolib/tests backend/tests -m 'integration and not full_build'"
 test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=90 -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
+# Coverage: runs unit tests with line+branch coverage for backend/ontolib and
+# frontend. Pass extra pytest args or test paths to narrow scope
+# (e.g. `pdm run coverage ontolib/tests/core/`).
+coverage = { shell = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-branch --cov-report=term-missing --cov-report=term:skip-covered -n auto && npm --prefix frontend run test:coverage" }
 pytest = "pytest"
 lint = { composite = ["ruff check .", "basedpyright"] }
 fmt = "ruff format ."
@@ -176,7 +180,7 @@ ignore = [
  ]
 
 [tool.coverage.run]
-source = ["ontolib/src", "backend/src"]
+source = ["ontolib/src", "backend/src", "scripts/dev"]
 branch = true
 
 [tool.coverage.report]

@@ -136,6 +136,14 @@ describe('findNode', () => {
 		expect(findNode(g, '   ')).toBeNull();
 		expect(findNode(g, 'nonexistent')).toBeNull();
 	});
+
+	it('handles nodes without a label attribute gracefully', () => {
+		// A node without a label attribute triggers the '??' fallback to ''.
+		const g2 = graphWith([['C0', { label: null as unknown as string }]]);
+		expect(findNode(g2, 'non-existent')).toBeNull();
+		// Code match still works.
+		expect(findNode(g2, 'c0')).toBe('C0');
+	});
 });
 
 describe('reduceNodeAppearance', () => {
@@ -234,6 +242,28 @@ describe('minimapBounds', () => {
 	it('clamps a zero span to 1 (single node / collinear) to avoid divide-by-zero', () => {
 		const g = graphWith([['A', { x: 3, y: 3 }]]);
 		expect(minimapBounds(g)).toEqual({ minX: 3, minY: 3, spanX: 1, spanY: 1 });
+	});
+
+	it('does not extend the max with a node positioned inside the current bounds', () => {
+		// Outer node first, then inner node.
+		const g = graphWith([
+			['Outer', { x: -10, y: -10 }],
+			['Inner', { x: 0, y: 0 }],
+			['Outer2', { x: 10, y: 10 }]
+		]);
+		const bounds = minimapBounds(g);
+		expect(bounds).toEqual({ minX: -10, minY: -10, spanX: 20, spanY: 20 });
+	});
+
+	it('handles an interior node that does not extend max bounds', () => {
+		// Max-only interior: node C's x/y are between A and B but less than B.
+		const g = graphWith([
+			['A', { x: 0, y: 0 }],
+			['B', { x: 10, y: 10 }],
+			['C', { x: 5, y: 5 }]
+		]);
+		const bounds = minimapBounds(g);
+		expect(bounds).toEqual({ minX: 0, minY: 0, spanX: 10, spanY: 10 });
 	});
 });
 

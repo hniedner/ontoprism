@@ -22,23 +22,22 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
-def _respond_for(query: str) -> tuple[int, dict[str, Any]]:
-    """Return a canned (status, SPARQL-JSON) for the query shape under test."""
-    if "boom" in query:
-        return 400, {"error": "syntax"}
-    if query.lstrip().upper().startswith("ASK"):
-        return 200, {"head": {}, "boolean": True}
-    if "COUNT" in query:
-        return 200, {
-            "head": {"vars": ["count"]},
-            "results": {"bindings": [{"count": {"value": "7"}}]},
-        }
-    if "versionInfo" in query:
-        return 200, {
-            "head": {"vars": ["v"]},
-            "results": {"bindings": [{"v": {"value": "26.02d"}}]},
-        }
-    return 200, {
+# Sentinel markers for error-path tests (the handler converts these into the
+# specific error response the client must handle).
+_COUNT_NONE = "count_none"  # SPARQL-JSON without a "count" binding
+_COUNT_BAD = "count_bad"  # SPARQL-JSON with a non-integer count value
+_NON_JSON = "non_json"  # response body that is not valid JSON
+
+
+def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
+    """Return a canned (status, content-type, body) for the query shape under test.
+
+    Returns a (status, content-type, body) tuple — body is either a dict for JSON
+    responses or a raw string for non-JSON responses.
+    """
+    status = 200
+    content_type = "application/sparql-results+json"
+    body: dict[str, Any] | str = {
         "head": {"vars": ["rel", "target"]},
         "results": {
             "bindings": [
@@ -50,15 +49,54 @@ def _respond_for(query: str) -> tuple[int, dict[str, Any]]:
         },
     }
 
+    if _COUNT_NONE in query:
+        body = {"head": {"vars": ["count"]}, "results": {"bindings": [{}]}}
+    elif _COUNT_BAD in query:
+        body = {
+            "head": {"vars": ["count"]},
+            "results": {"bindings": [{"count": {"value": "not_a_number"}}]},
+        }
+    elif _NON_JSON in query:
+        content_type = "text/plain"
+        body = "not json at all"
+    elif "boom" in query:
+        status = 400
+        body = {"error": "syntax"}
+    elif query.lstrip().upper().startswith("ASK"):
+        body = {"head": {}, "boolean": True}
+    elif "COUNT" in query:
+        body = {
+            "head": {"vars": ["count"]},
+            "results": {"bindings": [{"count": {"value": "7"}}]},
+        }
+    elif "versionInfo" in query:
+        body = {
+            "head": {"vars": ["v"]},
+            "results": {"bindings": [{"v": {"value": "26.02d"}}]},
+        }
+
+    return status, content_type, body
+
 
 class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         query = self.rfile.read(length).decode("utf-8")
-        status, payload = _respond_for(query)
-        body = json.dumps(payload).encode("utf-8")
+        status, content_type, payload = _respond_for(query)
+        if isinstance(payload, dict):
+            body = json.dumps(payload).encode("utf-8")
+        else:
+            body = payload.encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", "application/sparql-results+json")
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_PUT(self) -> None:
+        self.send_response(500)
+        self.send_header("Content-Type", "text/plain")
+        body = b"internal server error"
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -111,3 +149,41 @@ async def test_non_200_status_raises_storage_error(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="HTTP 400"):
             await client.select("SELECT boom WHERE { ?s ?p ?o }")
+
+
+@pytest.mark.unit
+async def test_count_no_binding_raises_storage_error(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="no 'count' binding"):
+            await client.count(
+                "SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }  # count_none"
+            )
+
+
+@pytest.mark.unit
+async def test_count_bad_integer_raises_storage_error(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="did not parse as int"):
+            await client.count(
+                "SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }  # count_bad"
+            )
+
+
+@pytest.mark.unit
+async def test_select_raw_non_json_raises_storage_error(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="not valid JSON"):
+            await client.select_raw("SELECT ?x WHERE { ?s ?p ?o }  # non_json")
+
+
+@pytest.mark.unit
+async def test_endpoint_url_property(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        assert client.endpoint_url == stub_url.rstrip("/")
+
+
+@pytest.mark.unit
+async def test_load_server_error_raises_storage_error(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="Store load failed"):
+            await client.load(b"<a> <b> <c> .", content_type="text/turtle")

@@ -5,9 +5,32 @@ import pytest
 from ontolib.terminologies.ncit.graph_store import (
     _MAX_NEIGHBORHOOD_NODES,
     NcitGraphStore,
+    _rel,
 )
-from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef
+from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef, Relationship
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+
+
+@pytest.mark.unit
+def test_rel_returns_none_when_rel_or_target_missing() -> None:
+    assert _rel(None, "label", "http://ncit#C1", "Target") is None
+    assert _rel("http://ncit#R1", "rel", None, "Target") is None
+    assert _rel("http://ncit#R1", "rel", "http://ncit#C1", "Target") is not None
+
+
+@pytest.mark.unit
+async def test_get_concept_detail_unknown_returns_none(
+    ncit_stub_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+
+        async def _empty_select(_query: str) -> list[dict[str, str]]:
+            return []
+
+        monkeypatch.setattr(store._client, "select", _empty_select)
+        detail = await store.get_concept_detail("C999999")
+    assert detail is None
 
 
 @pytest.mark.unit
@@ -100,6 +123,132 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
     assert graph.truncated is True  # dropped neighbors are signalled, not silent
     node_codes = {n.code for n in graph.nodes}
     assert all(e.source in node_codes and e.target in node_codes for e in graph.edges)
+
+
+@pytest.mark.unit
+async def test_neighborhood_unknown_center_returns_empty(
+    ncit_stub_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+
+        async def _empty_select(_query: str) -> list[dict[str, str]]:
+            return []
+
+        monkeypatch.setattr(store._client, "select", _empty_select)
+        graph = await store.get_neighborhood("C999999")
+    assert graph.center == "C999999"
+    assert graph.nodes == []
+    assert graph.edges == []
+
+
+@pytest.mark.unit
+async def test_neighborhood_skips_already_expanded(ncit_stub_url: str) -> None:
+    center = ConceptDetail(
+        code="C1",
+        label="Center",
+        parents=[ConceptRef(code="P1", label="Parent")],
+        roles=[
+            Relationship(
+                relation="R1",
+                relation_label="rel",
+                target=ConceptRef(code="P1", label="Parent"),
+            )
+        ],
+    )
+
+    async def detail(code: str) -> ConceptDetail | None:
+        if code == "C1":
+            return center
+        return ConceptDetail(code=code, label=code, parents=[])
+
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = detail  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C1", depth=2)
+    assert graph.center == "C1"
+    assert len(graph.nodes) == 2  # C1 + P1
+    assert graph.truncated is False
+
+
+@pytest.mark.unit
+async def test_neighborhood_skips_missing_neighbor(ncit_stub_url: str) -> None:
+    center = ConceptDetail(
+        code="C1",
+        label="Center",
+        parents=[
+            ConceptRef(code="P1", label="Present"),
+            ConceptRef(code="P2", label="Missing"),
+        ],
+        children=[ConceptRef(code="C2", label="Child")],
+    )
+
+    async def detail(code: str) -> ConceptDetail | None:
+        if code == "C1":
+            return center
+        if code == "P2":
+            return None
+        return ConceptDetail(code=code, label=code, parents=[])
+
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = detail  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C1", depth=2)
+    node_codes = {n.code for n in graph.nodes}
+    assert "P1" in node_codes
+    assert "P2" in node_codes  # added as neighbor at hop 1, but not expanded further
+    assert "C2" in node_codes
+    assert graph.truncated is False
+
+
+@pytest.mark.unit
+async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        page = await NcitGraphStore(client).list_concepts(limit=25, offset=0)
+
+    assert page.total == 2
+    assert [h.code for h in page.hits] == ["C3262", "C9305"]
+    assert page.hits[0].semantic_type == "Neoplastic Process"
+    assert page.hits[0].matched_synonym is None
+
+
+@pytest.mark.unit
+async def test_search_records_returns_records_with_synonyms(
+    ncit_stub_url: str,
+) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        records = await NcitGraphStore(client).search_records(limit=100, offset=0)
+
+    assert len(records) == 1
+    assert records[0]["code"] == "C3262"
+    assert records[0]["label"] == "Neoplasm"
+    assert records[0]["semantic_type"] == "Neoplastic Process"
+    assert records[0]["synonyms"] == "Neoplasia||Neoplasm"
+
+
+@pytest.mark.unit
+async def test_embedding_records_returns_records_with_all_fields(
+    ncit_stub_url: str,
+) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        records = await NcitGraphStore(client).embedding_records(limit=200, offset=0)
+
+    assert len(records) == 1
+    assert records[0]["code"] == "C3262"
+    assert records[0]["preferred_name"] == "Neoplasm"
+    assert records[0]["definition"] == "A benign or malignant tissue growth."
+    assert records[0]["semantic_type"] == "Neoplastic Process"
+    assert records[0]["synonyms"] == "Neoplasia | Neoplasm"
+
+
+@pytest.mark.unit
+async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
+    async with OxigraphHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        page1 = await store.list_concepts(limit=25, offset=0)
+        assert page1.total == 2
+        page2 = await store.list_concepts(limit=25, offset=1)
+        assert page2.total == 2  # memoized after first call
 
 
 @pytest.mark.unit
