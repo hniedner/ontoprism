@@ -11,10 +11,12 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.responses import Response
 
 from backend.config import get_settings
 from backend.dependencies import get_ncit_client
 from backend.main import create_app
+from backend.middleware import _apply_hardening_headers
 from ontolib.core.exceptions import StorageError
 
 
@@ -135,6 +137,17 @@ def test_unhandled_error_carries_request_id_and_headers() -> None:
 
 def _raise_boom() -> None:
     raise RuntimeError("boom")
+
+
+@pytest.mark.unit
+def test_apply_hardening_headers_without_request_id() -> None:
+    response = Response()
+    assert "X-Request-ID" not in response.headers
+    _apply_hardening_headers(response, None)
+    assert "X-Request-ID" not in response.headers
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
 
 
 @pytest.mark.security

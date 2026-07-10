@@ -8,11 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from ontolib.decomposition.minting import MintedConcept
+from ontolib.decomposition.models import Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.run import (
     RunConfig,
     RunMetrics,
     _CandidateResult,
+    _persist_candidate,
     enumerate_in_scope_codes,
     run_pipeline,
 )
@@ -485,3 +487,20 @@ def test_candidate_result_allows_none_with_no_minted() -> None:
     result = _CandidateResult(decomposition=None)
     assert result.decomposition is None
     assert result.minted == []
+
+
+@pytest.mark.unit
+async def test_persist_candidate_empty_constituents_increments_residual() -> None:
+    decomposition = Decomposition(
+        code="C1", semantic_type="Neoplastic Process", constituents=[]
+    )
+    metrics = RunMetrics()
+    decompositions: list[Decomposition] = []
+    provenance = _mock_provenance()
+    await _persist_candidate(
+        "run-1", "C1", decomposition, [], provenance, metrics, decompositions
+    )
+    assert metrics.residual == 1
+    assert metrics.decomposed == 0
+    assert decompositions == []
+    provenance.upsert_constituents.assert_not_called()

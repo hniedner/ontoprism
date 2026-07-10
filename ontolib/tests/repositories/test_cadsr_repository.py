@@ -72,3 +72,9 @@ def test_count_and_summaries_for(cadsr_db_path) -> None:
     summaries = repo.summaries_for(["100:2.0", "2003771:1.0", "999:9"])
     assert set(summaries) == {"100:2.0", "2003771:1.0"}  # unknown doc_id dropped
     assert summaries["100:2.0"].short_name == "NEOPLASM_HIST"
+
+
+@pytest.mark.unit
+def test_summaries_for_empty_returns_empty_dict(cadsr_db_path) -> None:
+    repo = CdeRepository(cadsr_db_path)
+    assert repo.summaries_for([]) == {}

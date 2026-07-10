@@ -81,6 +81,13 @@ describe('NeighborhoodGraph', () => {
 		expect(screen.queryByText('is a')).not.toBeInTheDocument();
 	});
 
+	it('renders the edge-kind legend with all 3 types', () => {
+		render(NeighborhoodGraph, { graph });
+		expect(screen.getByText('subClassOf')).toBeInTheDocument();
+		expect(screen.getByText('role')).toBeInTheDocument();
+		expect(screen.getByText('association')).toBeInTheDocument();
+	});
+
 	it('falls back to the relation code when an edge has no label', () => {
 		render(NeighborhoodGraph, {
 			graph: {

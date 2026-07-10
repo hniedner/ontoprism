@@ -89,4 +89,28 @@ describe('RepoBrowsePage', () => {
 		// but the results snippet should still render (empty array fallback).
 		expect(await screen.findByTestId('results')).toBeInTheDocument();
 	});
+
+	it('loads a search when a suggestion chip is clicked', async () => {
+		const listFn = vi.fn().mockResolvedValue({ total: 42, hits: [{ id: 'a' }] } satisfies Page);
+		const searchFn = vi.fn().mockResolvedValue({ total: 1, hits: [{ id: 'x' }] } satisfies Page);
+		setup(searchFn, listFn);
+		await screen.findByText('All concepts');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'melanoma' }));
+		await screen.findByText(/Results for .*melanoma/);
+		expect(searchFn).toHaveBeenCalledWith('melanoma', { limit: 25, offset: 0 });
+	});
+
+	it('loads the next page when a pagination control is clicked', async () => {
+		const listFn = vi.fn().mockResolvedValue({ total: 100, hits: [{ id: 'a' }, { id: 'b' }] } satisfies Page);
+		const searchFn = vi.fn();
+		setup(searchFn, listFn);
+		await screen.findByText('All concepts');
+		expect(listFn).toHaveBeenCalledTimes(1);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+		await screen.findByText('Page 2 of 4');
+		expect(listFn).toHaveBeenCalledTimes(2);
+		expect(listFn).toHaveBeenLastCalledWith({ limit: 25, offset: 25 });
+	});
 });

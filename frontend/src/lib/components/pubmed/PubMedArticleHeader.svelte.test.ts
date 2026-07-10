@@ -21,10 +21,11 @@ const article: PubMedArticleDetail = {
 };
 
 describe('PubMedArticleHeader', () => {
-	it('shows the PMID, journal and title', () => {
+	it('shows the PMID, journal, pub date and title', () => {
 		render(PubMedArticleHeader, { article });
 		expect(screen.getByText('PMID 111')).toBeInTheDocument();
 		expect(screen.getByText('J Onc')).toBeInTheDocument();
+		expect(screen.getByText('· 2024')).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Widgetinib in melanoma' })).toBeInTheDocument();
 	});
 
@@ -57,6 +58,7 @@ describe('PubMedArticleHeader', () => {
 		});
 		expect(screen.getByText('PMID 111')).toBeInTheDocument();
 		expect(screen.queryByText('J Onc')).not.toBeInTheDocument();
+		expect(screen.queryByText(/·/)).not.toBeInTheDocument();
 		expect(screen.queryByText(/DOI:/)).not.toBeInTheDocument();
 		expect(screen.queryByText('PMC123')).not.toBeInTheDocument();
 		// No author line rendered.
