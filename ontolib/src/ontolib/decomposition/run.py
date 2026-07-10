@@ -201,9 +201,17 @@ async def _decompose_one(
     # primitive concepts — no equivalentClass to read it from.
     genus_code = await stated_queries.resolve_starting_genus(client.select, code)
 
+    # Phase 1a.5: resolve morphology filler from genus chain (design §6).
+    # First non-staging genus code, or None if no morphology-bearing parent.
+    morphology_filler = await stated_queries.resolve_morphology_filler(
+        client.select, code, max_depth=walker_max_depth
+    )
+
     # Phase 1b: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
     filler_codes = {r.filler_code for r in roles}
+    if morphology_filler:
+        filler_codes.add(morphology_filler)
     semantic_type_of: dict[str, list[str]] = {}
     if filler_codes:
         rows = await client.select(
@@ -237,7 +245,7 @@ async def _decompose_one(
     role_constituents = fs.select_constituents(
         roles,
         extract.make_is_ancestor(ancestor_pairs),
-        parent_morphology=None,
+        parent_morphology=morphology_filler,
         semantic_type_of=_semantic_type_of,
     )
 

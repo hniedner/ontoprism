@@ -4,13 +4,16 @@ import pytest
 
 from ontolib.decomposition.stated_queries import (
     _intersection_hop_pattern,
+    _is_staging_concept_label,
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
+    build_morphology_query,
     build_part_of_pairs_query,
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
+    resolve_morphology_filler,
     resolve_starting_genus,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
@@ -249,3 +252,101 @@ async def test_resolve_starting_genus_handles_non_ncit_iri() -> None:
 
     genus = await resolve_starting_genus(fake_select, "C6135")
     assert genus == "http://example.org/foo#C1"
+
+
+@pytest.mark.unit
+def test_build_morphology_query_is_scoped_to_stated_graph() -> None:
+    q = build_morphology_query("C6135")
+    assert f"GRAPH <{STATED_GRAPH_IRI}>" in q
+    assert "rdfs:label" in q
+    assert "?label" in q
+
+
+@pytest.mark.unit
+def test_build_morphology_query_interpolates_code_safely() -> None:
+    q = build_morphology_query("C6135")
+    assert "Thesaurus.owl#C6135" in q
+
+
+@pytest.mark.unit
+def test_build_morphology_query_rejects_unsafe_code() -> None:
+    with pytest.raises(ValueError, match=r"[Uu]nsafe"):
+        build_morphology_query("C6135 > INJECT {")
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_returns_first_non_staging_genus() -> None:
+    call_count = 0
+
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return [{"member": _iri("C141041"), "type": None}]
+        if call_count == 2:
+            return [{"label": "Thyroid Gland Medullary Carcinoma by AJCC v7 Stage"}]
+        if call_count == 3:
+            return [{"member": _iri("C3879"), "type": None}]
+        if call_count == 4:
+            return [{"label": "Thyroid Gland Medullary Carcinoma"}]
+        return []
+
+    morphology = await resolve_morphology_filler(fake_select, "C6135")
+    assert morphology == "C3879"
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        return []
+
+    morphology = await resolve_morphology_filler(fake_select, "C6135")
+    assert morphology is None
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_returns_first_genus_if_not_staging() -> None:
+    call_count = 0
+
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        nonlocal call_count
+        call_count += 1
+        # Call 1: build_genus_walk_members_query(C6135) then select_fn(queries[0])
+        # Call 2: select_fn(label_query) for C3879
+        if call_count == 1:
+            return [{"member": _iri("C3879"), "type": None}]
+        if call_count == 2 and "rdfs:label" in query:
+            return [{"label": "Thyroid Gland Medullary Carcinoma"}]
+        return []
+
+    morphology = await resolve_morphology_filler(fake_select, "C6135")
+    assert morphology == "C3879"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Stage III Colon Cancer",
+        "Thyroid Gland Medullary Carcinoma by AJCC v7 Stage",
+        "Unresectable Pancreatic Carcinoma",
+        "Recurrent Glioblastoma",
+        "Metastatic Breast Carcinoma",
+    ],
+)
+def test_staging_label_markers_identify_staging_concepts(label: str) -> None:
+    assert _is_staging_concept_label(label) is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Thyroid Gland Medullary Carcinoma",
+        "Colon Adenocarcinoma",
+        "Small Cell Lung Carcinoma",
+        "Invasive Ductal Carcinoma",
+    ],
+)
+def test_staging_label_markers_do_not_match_morphology_concepts(label: str) -> None:
+    assert _is_staging_concept_label(label) is False
