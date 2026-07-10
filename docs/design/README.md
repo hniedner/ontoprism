@@ -21,5 +21,12 @@ it. Read in this order:
    Why chemotherapy regimens are a distinct **mereological** decomposition kind (a bag of
    drug components, not axis-qualified) and how that kind plugs into the same engine.
 
+For the *peer-reviewed foundations* behind all of the above — atomicity/compositionality,
+pre- vs post-coordination, semantic equivalence via description-logic classification, the
+overloaded-role (role-sense conflation) problem and its OBO Relation Ontology mitigation,
+and the SCG/ECL/MRCM template for the goal-4 grammar — see the
+**[post-coordination literature review](../postcoordination-literature-review.md)**
+(34 cited sources; maps each finding onto ONTOPRISM's strategy and decisions D14–D22).
+
 These are living design documents (design of record); as milestones land, keep them in
 sync and record consequential shifts in [../DECISIONS.md](../DECISIONS.md).
