@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition import vocab
-from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -43,12 +43,87 @@ def _p(predicate_iri: str) -> str:
     return f"<{predicate_iri}>"
 
 
+def _emit_equivalence(subj: str, dec: Decomposition) -> str | None:
+    """Build Turtle for ``owl:equivalentClass`` intersection axiom, or ``None``
+    if there is no genus or no role-sourced constituents to reconstruct."""
+    if dec.genus_code is None:
+        return None
+
+    genus_iri = f"<{NCIT_NS}{dec.genus_code}>"
+    restrictions: list[str] = []
+    for c in dec.constituents:
+        if c.axis_source != "role":
+            continue
+        property_iri = _axis_uri(c.axis)
+        filler_iri = _filler_iri(c.filler_code)
+        restrictions.append(
+            f"        [ a <{OWL_NS}Restriction> ;\n"
+            f"          <{OWL_NS}onProperty> {property_iri} ;\n"
+            f"          <{OWL_NS}someValuesFrom> {filler_iri} ]"
+        )
+    if not restrictions:
+        return None
+
+    return (
+        f"{subj} <{OWL_NS}equivalentClass> [\n"
+        f"    a <{OWL_NS}Class> ;\n"
+        f"    <{OWL_NS}intersectionOf> (\n"
+        f"        {genus_iri}\n"
+        f"{chr(10).join(restrictions)}\n"
+        f"    )\n"
+        f"] ."
+    )
+
+
+def _render_one(
+    dec: Decomposition,
+    *,
+    run_id: str = "",
+    emitted_on: date,
+    emit_equivalence: bool = False,
+) -> list[str]:
+    """Render Turtle triples for a single *dec* into a list of statement strings."""
+    subj = f"<{NCIT_NS}{dec.code}>"
+    lines: list[str] = []
+
+    if emit_equivalence:
+        eq = _emit_equivalence(subj, dec)
+        if eq is not None:
+            lines.append(eq)
+
+    lines.append(
+        f'{subj} {_p(vocab.REPRESENTATION_STATUS)} "{vocab.LEGACY_PRECOORDINATED}" ;',
+    )
+    lines.append(
+        f"   {_p(vocab.DECOMPOSED_ON)}"
+        f' "{emitted_on}"^^<http://www.w3.org/2001/XMLSchema#date> .',
+    )
+
+    if run_id:
+        lines.append(f'{subj} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .')
+
+    for c in dec.constituents:
+        filler = _filler_iri(c.filler_code)
+        auri = _axis_uri(c.axis)
+        const = (
+            f"   [{_p(vocab.AXIS)} {auri} ; "
+            f"{_p(vocab.FILLER)} {filler} ; "
+            f'{_p(vocab.AXIS_SOURCE)} "{c.axis_source}"'
+        )
+        if c.most_specific:
+            const += f" ; {_p(vocab.MOST_SPECIFIC)} true"
+        lines.append(f"{subj} {_p(vocab.HAS_CONSTITUENT)}{const} ] .")
+
+    return lines
+
+
 async def write_ttl(
     decompositions: Iterable[Decomposition],
     dest: Path | None = None,
     *,
     run_id: str = "",
     emitted_on: date | None = None,
+    emit_equivalence: bool = False,
 ) -> Path | None:
     """Render all *decompositions* as Turtle triples into *dest* (or stdout).
 
@@ -60,32 +135,14 @@ async def write_ttl(
     buf: list[str] = []
 
     for dec in decompositions:
-        subj = f"<{NCIT_NS}{dec.code}>"
-        buf.append(
-            f"{subj} {_p(vocab.REPRESENTATION_STATUS)} "
-            f'"{vocab.LEGACY_PRECOORDINATED}" ;',
-        )
-        buf.append(
-            f"   {_p(vocab.DECOMPOSED_ON)}"
-            f' "{emitted_on}"^^<http://www.w3.org/2001/XMLSchema#date> .',
-        )
-
-        if run_id:
-            buf.append(
-                f'{subj} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .',
+        buf.extend(
+            _render_one(
+                dec,
+                run_id=run_id,
+                emitted_on=emitted_on,
+                emit_equivalence=emit_equivalence,
             )
-
-        for c in dec.constituents:
-            filler = _filler_iri(c.filler_code)
-            auri = _axis_uri(c.axis)
-            const = (
-                f"   [{_p(vocab.AXIS)} {auri} ; "
-                f"{_p(vocab.FILLER)} {filler} ; "
-                f'{_p(vocab.AXIS_SOURCE)} "{c.axis_source}"'
-            )
-            if c.most_specific:
-                const += f" ; {_p(vocab.MOST_SPECIFIC)} true"
-            buf.append(f"{subj} {_p(vocab.HAS_CONSTITUENT)}{const} ] .")
+        )
 
     ttl = "\n".join(buf) + "\n"
 

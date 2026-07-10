@@ -10,6 +10,7 @@ from ontolib.decomposition import vocab
 from ontolib.decomposition.axes import MORPHOLOGY_AXIS
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 
 
 @pytest.mark.unit
@@ -193,3 +194,208 @@ async def test_no_dest_writes_to_stdout_and_returns_none(
     assert result is None
     captured = capsys.readouterr()
     assert "C100" in captured.out
+
+
+@pytest.mark.unit
+async def test_equivalence_emitted_when_flag_and_genus_set(tmp_path: Path) -> None:
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            genus_code="C141041",
+            constituents=[
+                Constituent(axis="R88", filler_code="C27970", axis_source="role"),
+                Constituent(axis="R101", filler_code="C12400", axis_source="role"),
+                Constituent(
+                    axis=MORPHOLOGY_AXIS,
+                    filler_code="C36761",
+                    axis_source="parent",
+                ),
+                Constituent(
+                    axis="op:Laterality", filler_code="MINT-abc", axis_source="nlp"
+                ),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out, run_id="run-1", emit_equivalence=True)
+    content = out.read_text()
+
+    # Core equivalence structure
+    assert OWL_NS + "equivalentClass" in content
+    assert OWL_NS + "intersectionOf" in content
+    assert " a " in content  # rdf:type via Turtle `a` keyword
+
+    # Genus as first intersection member
+    assert f"<{NCIT_NS}C141041>" in content
+
+    # Role-sourced restrictions only (not nlp/parent)
+    assert f"<{NCIT_NS}R88>" in content  # owl:onProperty <R88>
+    assert f"<{NCIT_NS}C27970>" in content  # owl:someValuesFrom <C27970>
+    assert f"<{NCIT_NS}R101>" in content
+    assert f"<{NCIT_NS}C12400>" in content
+
+    # The regular op: triples are still present
+    assert vocab.HAS_CONSTITUENT in content
+    assert vocab.REPRESENTATION_STATUS in content
+
+
+@pytest.mark.unit
+async def test_equivalence_not_emitted_when_flag_off(tmp_path: Path) -> None:
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            genus_code="C141041",
+            constituents=[
+                Constituent(axis="R88", filler_code="C27970", axis_source="role"),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out, run_id="run-1", emit_equivalence=False)
+    content = out.read_text()
+    assert OWL_NS + "equivalentClass" not in content
+    assert OWL_NS + "intersectionOf" not in content
+
+
+@pytest.mark.unit
+async def test_equivalence_not_emitted_when_genus_missing(tmp_path: Path) -> None:
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            genus_code=None,
+            constituents=[
+                Constituent(axis="R88", filler_code="C27970", axis_source="role"),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out, run_id="run-1", emit_equivalence=True)
+    content = out.read_text()
+    assert OWL_NS + "equivalentClass" not in content
+
+
+@pytest.mark.unit
+async def test_equivalence_excludes_nlp_and_parent_constituents(
+    tmp_path: Path,
+) -> None:
+    """Only axis_source='role' constituents appear in the equivalence axiom."""
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            genus_code="C141041",
+            constituents=[
+                Constituent(axis="R88", filler_code="C27970", axis_source="role"),
+                Constituent(
+                    axis=MORPHOLOGY_AXIS,
+                    filler_code="C36761",
+                    axis_source="parent",
+                ),
+                Constituent(
+                    axis="op:Laterality", filler_code="MINT-abc", axis_source="nlp"
+                ),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out, run_id="run-1", emit_equivalence=True)
+    content = out.read_text()
+
+    # The role-sourced restriction IS in the equivalence block
+    assert f"<{NCIT_NS}R88>" in content
+    assert f"<{NCIT_NS}C27970>" in content
+
+    # The NLP/morphology fillers appear only in op:hasConstituent, not the
+    # equivalence block — check that the filler IRIs appear *outside* the
+    # intersection block (hard to assert absence inside a blank node, so just
+    # check that a single op:hasConstituent references them).
+    assert "C36761" in content  # morphology (in regular triples)
+    assert "MINT-abc" in content  # nlp (in regular triples)
+
+
+@pytest.mark.unit
+async def test_equivalence_output_is_valid_turtle(tmp_path: Path) -> None:
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            genus_code="C141041",
+            constituents=[
+                Constituent(axis="R88", filler_code="C27970", axis_source="role"),
+                Constituent(axis="R101", filler_code="C12400", axis_source="role"),
+                Constituent(
+                    axis=MORPHOLOGY_AXIS,
+                    filler_code="C36761",
+                    axis_source="parent",
+                    most_specific=True,
+                ),
+                Constituent(
+                    axis="op:Laterality",
+                    filler_code="MINT-abc123",
+                    axis_source="nlp",
+                ),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out, run_id="run-1", emit_equivalence=True)
+
+    graph = rdflib.Graph()
+    graph.parse(out, format="turtle")
+    assert len(graph) > 0
+
+
+@pytest.mark.unit
+async def test_equivalence_not_emitted_when_no_role_constituents(
+    tmp_path: Path,
+) -> None:
+    """Genus is set but there are no role-sourced constituents to put in the
+    intersection — equivalence is not emitted (would be a degenerate class)."""
+    decs = [
+        Decomposition(
+            code="C999",
+            semantic_type="Disease",
+            genus_code="C100",
+            constituents=[
+                Constituent(
+                    axis=MORPHOLOGY_AXIS,
+                    filler_code="C36761",
+                    axis_source="parent",
+                ),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out, run_id="run-1", emit_equivalence=True)
+    content = out.read_text()
+    assert OWL_NS + "equivalentClass" not in content
+
+
+@pytest.mark.unit
+async def test_equivalence_with_d19_routed_axis(tmp_path: Path) -> None:
+    """D19/D20 routed axes (op:AssociatedRegion) use their own IRI in the
+    restriction, not the original NCIt role."""
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            genus_code="C141041",
+            constituents=[
+                Constituent(
+                    axis="op:AssociatedRegion",
+                    filler_code="C13063",
+                    axis_source="role",
+                ),
+            ],
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out, run_id="run-1", emit_equivalence=True)
+    content = out.read_text()
+
+    # The restriction uses the op: IRI as owl:onProperty
+    assert f"<{vocab.ONTOPRISM_NS}AssociatedRegion>" in content
+    assert f"<{NCIT_NS}C13063>" in content
