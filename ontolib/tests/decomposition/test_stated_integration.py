@@ -29,6 +29,7 @@ from ontolib.decomposition.stated_queries import (
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
+    resolve_morphology_filler,
     walk_genus_chain,
 )
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -192,3 +193,67 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
     assert "op:AssociatedRegion" in region_axes
     region_axes_12418 = {c.axis for c in constituents if c.filler_code == "C12418"}
     assert "op:AssociatedRegion" in region_axes_12418
+
+
+@pytest.mark.integration
+async def test_resolve_morphology_filler_for_c6135() -> None:
+    """The morphology filler for C6135 should be C3879 (Thyroid Gland Medullary
+    Carcinoma), not the staging genus C141041."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async with OxigraphHttpClient(url) as client:
+        morphology = await resolve_morphology_filler(
+            client.select, "C6135", max_depth=6
+        )
+
+    # C3879 is "Thyroid Gland Medullary Carcinoma" - the first non-staging genus
+    assert morphology == "C3879"
+
+
+@pytest.mark.integration
+async def test_c6135_decomposition_includes_morphology_constituent() -> None:
+    """When morphology is resolved, the decomposition should include an
+    op:Morphology constituent with axis_source='parent'."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async with OxigraphHttpClient(url) as client:
+        roles = await walk_genus_chain(client.select, "C6135", max_depth=6)
+        morphology = await resolve_morphology_filler(
+            client.select, "C6135", max_depth=6
+        )
+
+        filler_codes = {r.filler_code for r in roles}
+        rows = await client.select(build_semantic_type_of_query(list(filler_codes)))
+        semantic_type_of = semantic_type_of_from_rows(rows)
+
+        def _st_of(code: str) -> str | None:
+            types = semantic_type_of.get(code)
+            return types[0] if types else None
+
+        ancestor_pairs: set[tuple[str, str]] = set()
+        if filler_codes:
+            ancestor_rows = await client.select(
+                build_ancestor_pairs_query(list(filler_codes))
+            )
+            ancestor_pairs = ancestor_pairs_from_rows(ancestor_rows)
+
+        constituents = select_constituents(
+            roles,
+            make_is_ancestor(ancestor_pairs),
+            parent_morphology=morphology,
+            semantic_type_of=_st_of,
+        )
+
+    # The morphology constituent should be present
+    morphology_constituents = [c for c in constituents if c.axis == "op:Morphology"]
+    assert len(morphology_constituents) == 1
+    assert morphology_constituents[0].filler_code == "C3879"
+    assert morphology_constituents[0].axis_source == "parent"

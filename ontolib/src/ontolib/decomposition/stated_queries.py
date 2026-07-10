@@ -170,6 +170,34 @@ def build_part_of_pairs_query(codes: list[str]) -> str:
     """
 
 
+def build_morphology_query(concept_code: str) -> str:
+    """Fetch label, genus, and semantic type for *concept_code* and its genus chain.
+
+    Returns rows with ``?genus`` (genus code), ``?label`` (genus label), ``?depth``
+    (hop count from starting concept), needed to identify the morphology-bearing
+    parent (first non-staging genus).
+
+    Raises:
+        ValueError: if *concept_code* is not injection-safe.
+    """
+    concept_uri = safe_iri(concept_code, NCIT_NS)
+    semantic_type_uri = f"{NCIT_NS}{SEMANTIC_TYPE}"
+    return f"""{_PREFIXES}
+        SELECT ?genus ?label ?depth WHERE {{
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                <{concept_uri}> owl:equivalentClass ?ec .
+                ?ec owl:intersectionOf ?list .
+                ?list rdf:first ?first .
+                ?list rdf:rest*/rdf:first ?genus .
+                OPTIONAL {{ ?genus rdfs:label ?label . }}
+                OPTIONAL {{ ?genus <{semantic_type_uri}> ?stype . }}
+            }}
+            BIND(REPLACE(STR(?first), ".*#", "") AS ?first_code)
+            BIND(IF(?genus = ?first, 0, 1) AS ?depth)
+        }}
+    """
+
+
 def build_role_restrictions_query(concept_code: str) -> str:
     """Role restrictions (``owl:someValuesFrom``) for *concept_code*, stated graph.
 
@@ -356,6 +384,105 @@ async def resolve_starting_genus(
                 return genus_iri.removeprefix(NCIT_NS)
             if genus_iri:
                 return genus_iri
+    return None
+
+
+_STAGING_LABEL_MARKERS = frozenset(
+    {
+        "Stage I",
+        "Stage II",
+        "Stage III",
+        "Stage IV",
+        "AJCC",
+        " v7",
+        " v8",
+        "Unresectable",
+        "Recurrent",
+        "Metastatic",
+        " by ",  # "by AJCC v7 Stage"
+    }
+)
+
+
+def _is_staging_concept_label(label: str) -> bool:
+    """True if *label* matches a staging qualifier pattern."""
+    label_lower = label.lower()
+    return any(m.lower() in label_lower for m in _STAGING_LABEL_MARKERS)
+
+
+async def _fetch_genus_label(
+    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    genus_iri: str,
+) -> str | None:
+    """Fetch the label for a genus concept from the stated graph."""
+    label_query = f"""{_PREFIXES}
+        SELECT ?label WHERE {{
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                <{genus_iri}> rdfs:label ?label .
+            }}
+        }}
+    """
+    rows = await select_fn(label_query)
+    if not rows:
+        return None
+    return rows[0].get("label")
+
+
+async def _get_genus_from_intersection(
+    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    code: str,
+) -> str | None:
+    """Get the genus code from the first owl:intersectionOf member."""
+    queries = build_genus_walk_members_query(code)
+    if not queries:
+        return None
+
+    rows = await select_fn(queries[0])  # hop-0: first intersection member
+    if not rows:
+        return None
+
+    for row in rows:
+        if row.get("type") != OWL_NS + "Restriction":
+            genus_iri = row.get("member")
+            if genus_iri and genus_iri.startswith(NCIT_NS):
+                return genus_iri.removeprefix(NCIT_NS)
+    return None
+
+
+async def resolve_morphology_filler(
+    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    code: str,
+    *,
+    max_depth: int = 5,
+) -> str | None:
+    """Resolve the morphology filler from the genus chain of *code*.
+
+    Walks the genus chain, returning the first non-staging genus code.
+    Staging concepts are identified by labels containing stage markers
+    (Stage I-IV, AJCC, v7/v8, Unresectable, etc.).
+
+    Returns ``None`` if no morphology-bearing genus is found within max_depth.
+    """
+    visited: set[str] = {code}
+    current_code = code
+
+    for _ in range(max_depth):
+        genus_code = await _get_genus_from_intersection(select_fn, current_code)
+        if not genus_code:
+            return None
+
+        if genus_code in visited:
+            return None
+        visited.add(genus_code)
+
+        genus_iri = f"{NCIT_NS}{genus_code}"
+        label = await _fetch_genus_label(select_fn, genus_iri)
+
+        if label is not None and not _is_staging_concept_label(label):
+            return genus_code
+
+        current_code = genus_code
+
     return None
 
 
