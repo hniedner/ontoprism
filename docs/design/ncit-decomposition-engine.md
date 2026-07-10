@@ -77,7 +77,7 @@ Loaded via the existing `OxigraphHttpClient.load(..., graph_iri=DECOMPOSED_GRAPH
 
 ### 4.2 Vocabulary (ontoprism namespace)
 
-A small ontoprism vocabulary, `ONTOPRISM_NS = "https://ontoprism.org/vocab#"`, carries the decomposition predicates so nothing collides with NCIt's own terms:
+A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"` (§14 decision 3, matching `vocab.py`), carries the decomposition predicates so nothing collides with NCIt's own terms:
 
 | Term | Meaning |
 |---|---|
@@ -91,7 +91,9 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://ontoprism.org/vocab#"`, c
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
 | `op:mostSpecific` | boolean — filler is the hierarchy leaf chosen over ancestors (audit aid) |
 
-Example (`C6135`, matching assessment §5):
+Example (`C6135`, matching assessment §5). **Superseded in detail by D15/D19/D20** — the
+authoritative constituent set is now `ontolib/tests/decomposition/golden/neoplasm.json`
+(`R105→C36825` per D15; `R101`'s raw candidates split across `R101`/`op:AssociatedLineageClassification`/`op:AssociatedRegion` per D20, with co-equal non-nested fillers carrying `op:group` per D19). The shape below still illustrates the predicate vocabulary:
 
 ```turtle
 ncit:C6135 op:representationStatus "legacy-precoordinated" ;

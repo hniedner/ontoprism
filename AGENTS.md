@@ -108,3 +108,8 @@ fails on findings introduced vs `origin/main`, needs full git history).
   flag are reconstructed history. Write the changelog by writing good commit subjects.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
+- **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
+  Plan-mode plan files and any implementation handover written for a follow-up session go
+  under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
+  the tracked docs (`docs/ROADMAP.md`, `docs/DECISIONS.md`, `docs/design/`) and the GitHub
+  issues; never reference a `tmp/` path from a tracked file or a GitHub issue.
