@@ -143,7 +143,14 @@ def _iter_axis_constituents(
 ) -> list[Constituent]:
     result: list[Constituent] = []
     for axis_name, fillers in by_axis.items():
-        leaves = most_specific(fillers, is_ancestor) or set(fillers)
+        # Most-specific collapse is NOT applied to lineage axis: co-equal lineage
+        # senses at different granularities (e.g., "Endocrine Gland" vs "Endocrine
+        # System") must all be preserved per D20 policy ("None is dropped").
+        # The taxonomy ancestor relationship does NOT mean one overrides the other.
+        if axis_name == axes.ASSOCIATED_LINEAGE_AXIS:
+            leaves = set(fillers)  # preserve all lineage fillers
+        else:
+            leaves = most_specific(fillers, is_ancestor) or set(fillers)
 
         if _is_r101_semantic_split(axis_name, leaves, semantic_type_of):
             narrowed = cast("Callable[[str], str | None]", semantic_type_of)

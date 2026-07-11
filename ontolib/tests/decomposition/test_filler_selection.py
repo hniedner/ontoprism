@@ -386,3 +386,41 @@ def test_c6135_r101_family_matches_golden_split() -> None:
     assert by_axis["R101"] == {"C12400"}
     assert by_axis[ASSOCIATED_LINEAGE_AXIS] == {"C12704", "C12705"}
     assert by_axis[ASSOCIATED_REGION_AXIS] == {"C12418", "C13063"}
+
+
+# --- Lineage axis exempt from most-specific collapse ---
+
+
+@pytest.mark.unit
+def test_lineage_fillers_preserve_ancestor_relationship() -> None:
+    """D20 policy: co-equal lineage senses must be preserved even when in a
+    taxonomy ancestor relationship (e.g., Endocrine Gland vs Endocrine System).
+
+    The most_specific collapse must NOT be applied to the lineage axis, otherwise
+    the broader sense (Endocrine System, ancestor of Endocrine Gland) would be
+    incorrectly dropped.
+    """
+    # C12705 (Endocrine System) is ancestor of C12704 (Endocrine Gland)
+
+    def _is_anc(a: str, b: str) -> bool:
+        return (a, b) in {("C12705", "C12704")}
+
+    r = [
+        RoleRestriction(
+            "R101",
+            "C12704",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3809",  # lineage-generic
+        ),
+        RoleRestriction(
+            "R101",
+            "C12705",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3809",
+        ),
+    ]
+    cons = select_constituents(r, _is_anc)
+    lineage = [c for c in cons if c.axis == ASSOCIATED_LINEAGE_AXIS]
+    # Both must be preserved: most-specific collapse does NOT apply to lineage
+    assert len(lineage) == 2
+    assert {c.filler_code for c in lineage} == {"C12704", "C12705"}
