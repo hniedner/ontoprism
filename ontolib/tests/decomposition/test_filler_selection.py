@@ -351,6 +351,82 @@ def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
     assert all(c.group is None for c in cons)
 
 
+# --- D23 organ lookup ---
+
+
+@pytest.mark.unit
+def test_organ_lookup_resolves_known_morphology_tie() -> None:
+    """Given two R101 fillers where one matches the known organ for the
+    concept's morphology, the organ is selected and the tie broken."""
+    restrictions = [
+        RoleRestriction("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R101", "C75102", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+    constituents = select_constituents(
+        restrictions,
+        lambda a, b: (a, b) == ("C75102", "C12400"),
+        parent_morphology="C3879",
+    )
+    r101 = [c for c in constituents if c.axis == "R101"]
+    assert len(r101) == 1
+    assert r101[0].filler_code == "C12400"
+    assert r101[0].needs_review is False
+    assert r101[0].most_specific is True
+
+
+@pytest.mark.unit
+def test_organ_lookup_falls_through_when_organ_not_in_candidates() -> None:
+    """When the known organ is not among the R101 candidates, existing logic
+    (most_specific or semantic-type split) takes over."""
+    restrictions = [
+        RoleRestriction("R101", "C75102", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R101", "C12418", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+    constituents = select_constituents(
+        restrictions,
+        lambda a, b: False,
+        parent_morphology="C3879",
+        semantic_type_of=lambda _: "Body Part, Organ, or Organ Component",
+    )
+    r101 = [c for c in constituents if c.axis == "R101"]
+    assert len(r101) == 2
+    assert all(c.needs_review for c in r101)
+
+
+@pytest.mark.unit
+def test_organ_lookup_falls_through_on_unknown_morphology() -> None:
+    """When the morphology has no mapping, existing logic applies unchanged."""
+    restrictions = [
+        RoleRestriction("R101", "C12404", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R101", "C12418", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+    constituents = select_constituents(
+        restrictions,
+        lambda a, b: False,
+        parent_morphology="C99999",
+    )
+    r101 = [c for c in constituents if c.axis == "R101"]
+    assert len(r101) == 2
+
+
+@pytest.mark.unit
+def test_organ_lookup_not_triggered_for_single_filler() -> None:
+    """Single-filler R101 must NOT trigger organ lookup — most_specific
+    already handled it, and the organ lookup only resolves ties."""
+    restrictions = [
+        RoleRestriction("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+    constituents = select_constituents(
+        restrictions,
+        lambda a, b: False,
+        parent_morphology="C3879",
+    )
+    r101 = [c for c in constituents if c.axis == "R101"]
+    assert len(r101) == 1
+    assert r101[0].filler_code == "C12400"
+    assert r101[0].needs_review is False
+
+
 # --- A6: capstone — C6135 golden split ---
 
 
@@ -424,3 +500,113 @@ def test_lineage_fillers_preserve_ancestor_relationship() -> None:
     # Both must be preserved: most-specific collapse does NOT apply to lineage
     assert len(lineage) == 2
     assert {c.filler_code for c in lineage} == {"C12704", "C12705"}
+
+
+# --- D23: per-role settings (dropped probabilistic roles) ---
+
+
+@pytest.mark.unit
+def test_dropped_role_r114_is_filtered_from_output() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R114", "C26682", "Disease_May_Have_Finding"),
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    axes_found = {c.axis for c in cons}
+    assert "R101" in axes_found
+    assert "R114" not in axes_found
+
+
+@pytest.mark.unit
+def test_dropped_role_r115_is_filtered_from_output() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R115", "C12418", "Disease_Has_Cell_Origin"),
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    axes_found = {c.axis for c in cons}
+    assert "R101" in axes_found
+    assert "R115" not in axes_found
+
+
+@pytest.mark.unit
+def test_molecular_abnormality_r106_is_kept() -> None:
+    """Per SME: R106 (Molecular Abnormality) is a first-class axis, NOT dropped."""
+    restrictions = [
+        RoleRestriction("R106", "C17121", "Disease_Has_Molecular_Abnormality"),
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    assert any(c.axis == "R106" for c in cons)
+
+
+# --- D23: op:StageSystem axis ---
+
+
+@pytest.mark.unit
+def test_stage_system_axis_routes_known_system_code() -> None:
+    restrictions = [
+        RoleRestriction("R88", "C27970", "Disease_Is_Stage"),  # Stage III (value)
+        RoleRestriction("R88", "C90529", "Disease_Is_Stage"),  # AJCC v6 Stage (system)
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    r88 = [c for c in cons if c.axis == "R88"]
+    stage_sys = [c for c in cons if c.axis == "op:StageSystem"]
+    assert len(r88) == 1
+    assert r88[0].filler_code == "C27970"
+    assert len(stage_sys) == 1
+    assert stage_sys[0].filler_code == "C90529"
+
+
+@pytest.mark.unit
+def test_stage_system_axis_preserves_unknown_r88_as_role() -> None:
+    restrictions = [
+        RoleRestriction("R88", "C27970", "Disease_Is_Stage"),
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    r88 = [c for c in cons if c.axis == "R88"]
+    assert len(r88) == 1
+    assert r88[0].filler_code == "C27970"
+    assert not any(c.axis == "op:StageSystem" for c in cons)
+
+
+@pytest.mark.unit
+def test_multiple_stage_systems_are_grouped_and_not_flagged() -> None:
+    restrictions = [
+        RoleRestriction("R88", "C90529", "Disease_Is_Stage"),  # AJCC v6
+        RoleRestriction("R88", "C90530", "Disease_Is_Stage"),  # AJCC v7
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    stage_sys = [c for c in cons if c.axis == "op:StageSystem"]
+    assert len(stage_sys) == 2
+    assert {c.filler_code for c in stage_sys} == {"C90529", "C90530"}
+    assert all(c.needs_review is False for c in stage_sys)
+    assert all(c.group == "op:StageSystem" for c in stage_sys)
+
+
+@pytest.mark.unit
+def test_stage_value_and_system_on_separate_axes() -> None:
+    restrictions = [
+        RoleRestriction("R88", "C27970", "Disease_Is_Stage"),  # Stage III
+        RoleRestriction("R88", "C90529", "Disease_Is_Stage"),  # AJCC v6
+        RoleRestriction("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    axes_found = {c.axis for c in cons}
+    assert "R88" in axes_found
+    assert "op:StageSystem" in axes_found
+    assert "R101" in axes_found
+
+
+@pytest.mark.unit
+def test_stage_system_code_value_keeps_r88_on_role_code_not_op() -> None:
+    """Verify a value-stage filler that is NOT in the system-codes set
+    stays on R88 even when a system code is also present."""
+    restrictions = [
+        RoleRestriction("R88", "C27970", "Disease_Is_Stage"),  # Stage III
+        RoleRestriction("R88", "C90530", "Disease_Is_Stage"),  # AJCC v7
+    ]
+    cons = select_constituents(restrictions, lambda a, b: False)
+    r88_fillers = {c.filler_code for c in cons if c.axis == "R88"}
+    sys_fillers = {c.filler_code for c in cons if c.axis == "op:StageSystem"}
+    assert r88_fillers == {"C27970"}
+    assert sys_fillers == {"C90530"}

@@ -27,6 +27,9 @@ IN_SCOPE_SEMANTIC_TYPES = frozenset(
 # Morphology is not a role filler; it is derived from the taxonomic parent (design §6).
 MORPHOLOGY_AXIS = "op:Morphology"
 
+# D23 first-class axis for the staging manual/system (AJCC v6/v7/v8/v9, FIGO, etc.)
+STAGE_SYSTEM_AXIS = "op:StageSystem"
+
 # D20 refinement 1 axis: genus-sense classification (lineage) carved from R101.
 ASSOCIATED_LINEAGE_AXIS = "op:AssociatedLineageClassification"
 # D20 refinement 2 axis: anatomical region carved from R101 residual.
@@ -64,7 +67,20 @@ def is_lineage_generic(genus_code: str | None) -> bool:
     return genus_code in LINEAGE_GENERIC_GENERA
 
 
+# D23 SME decision: probabilistic/optional roles (R114 Clinical Finding,
+# R115 Cell Origin) are non-defining and dropped from decomposition output.
+# ``Has_*`` = defining; ``May_Have_*`` = probabilistic (SME distinction).
+DROPPED_ROLES: frozenset[str] = frozenset({"R114", "R115"})
+
+
+def is_dropped_role(role_code: str) -> bool:
+    """True if the role is a probabilistic/optional role per SME (D23)."""
+    return role_code in DROPPED_ROLES
+
+
 def is_defining_role(restriction: RoleRestriction) -> bool:
     """True if the restriction contributes a decomposition axis (i.e. is not a
-    negative ``Excludes_*`` axiom)."""
-    return not is_excluded_role(restriction.role_label)
+    negative ``Excludes_*`` axiom AND not a probabilistic/optional role per SME)."""
+    return not is_excluded_role(restriction.role_label) and not is_dropped_role(
+        restriction.role_code
+    )
