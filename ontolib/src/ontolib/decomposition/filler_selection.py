@@ -168,6 +168,7 @@ def _resolve_r101_with_organ_lookup(
     fillers: set[str],
     is_ancestor: IsAncestor,
     parent_morphology: str | None,
+    axis_name: str = "",
 ) -> list[Constituent] | None:
     """When the morphology has a known D23 organ mapping, prefer it over
     generic or data-quality-issue R101 candidates.
@@ -176,7 +177,11 @@ def _resolve_r101_with_organ_lookup(
     is among the surviving leaves. Returns ``None`` to fall through to
     existing logic when no mapping applies.
     """
-    if parent_morphology is None or len(leaves) <= 1:
+    if (
+        axis_name != axes.PRIMARY_SITE_ROLE
+        or parent_morphology is None
+        or len(leaves) <= 1
+    ):
         return None
     organ = organ_for_morphology(parent_morphology)
     if organ is None or organ not in leaves:
@@ -218,7 +223,7 @@ def _constituents_for_axis(
     leaves = _resolved_leaves(axis_name, fillers, is_ancestor)
 
     resolved = _resolve_r101_with_organ_lookup(
-        leaves, fillers, is_ancestor, parent_morphology
+        leaves, fillers, is_ancestor, parent_morphology, axis_name
     )
     if resolved is not None:
         return resolved

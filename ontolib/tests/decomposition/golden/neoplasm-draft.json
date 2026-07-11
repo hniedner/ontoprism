@@ -17,7 +17,7 @@
       "op:Morphology"
     ],
     "known_extractor_gaps": [
-      "op:StageSystem is NOT implemented: R88 conflates the stage VALUE (e.g. 'Stage III') and the staging SYSTEM (e.g. 'AJCC v7 Stage') on one role (lit-review \u00a76 role overload). System fillers are surfaced under review_buckets.stage_system_split with a proposed_axis, for an SME/design decision \u2014 not auto-split into the scorable set.",
+      "op:StageSystem implemented (PR#72): stage-SYSTEM fillers (AJCC v6-v9, FIGO, Toronto) are routed to the op:StageSystem axis via _STAGE_SYSTEM_CODES in filler_selection.py. Stage VALUES (Stage I-IV) remain on R88.",
       "Morphology is resolved from the first non-staging genus parent; the prior golden marked it TBD. Confirm the filler is the intended morphology.",
       "op:AssociatedLineageClassification now fires (walker anchoring_genus fix); verify lineage fillers (e.g. Endocrine Gland/System from C3010/C3809/C3773) are the intended co-equal lineage senses (D20 refinement 1).",
       "R101/R105 residual multi-filler ties are surfaced as needs_review, not forced to one value (D16/D21 fail-safe direction)."
