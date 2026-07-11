@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "purpose": "AUTO-DRAFT candidates for SME review — NOT the scorer oracle yet. Grounded in DECISIONS D15-D22 and postcoordination-literature-review.md §6.",
-    "status": "AUTO-DRAFT — requires SME validation (Issue #57)",
+    "purpose": "AUTO-DRAFT candidates for SME review \u2014 NOT the scorer oracle yet. Grounded in DECISIONS D15-D22 and postcoordination-literature-review.md \u00a76.",
+    "status": "AUTO-DRAFT \u2014 requires SME validation (Issue #57)",
     "how_to_read": {
-      "constituents": "Scorable (axis, filler) pairs — the curated projection (allowlist R88/R101/R105 + op: axes). Compatible with score.py.",
+      "constituents": "Scorable (axis, filler) pairs \u2014 the curated projection (allowlist R88/R101/R105 + op: axes). Compatible with score.py.",
       "needs_review": "Ambiguous ties the extractor refused to resolve; score.py excludes these (D21). SME must resolve.",
       "review_buckets": "Full labelled breakdown by curation scope; the SME works here.",
       "review_flags": "Per-concept prose prompts for the SME."
@@ -17,7 +17,7 @@
       "op:Morphology"
     ],
     "known_extractor_gaps": [
-      "op:StageSystem is NOT implemented: R88 conflates the stage VALUE (e.g. 'Stage III') and the staging SYSTEM (e.g. 'AJCC v7 Stage') on one role (lit-review §6 role overload). System fillers are surfaced under review_buckets.stage_system_split with a proposed_axis, for an SME/design decision — not auto-split into the scorable set.",
+      "op:StageSystem implemented (PR#72): stage-SYSTEM fillers (AJCC v6-v9, FIGO, Toronto) are routed to the op:StageSystem axis via _STAGE_SYSTEM_CODES in filler_selection.py. Stage VALUES (Stage I-IV) remain on R88.",
       "Morphology is resolved from the first non-staging genus parent; the prior golden marked it TBD. Confirm the filler is the intended morphology.",
       "op:AssociatedLineageClassification now fires (walker anchoring_genus fix); verify lineage fillers (e.g. Endocrine Gland/System from C3010/C3809/C3773) are the intended co-equal lineage senses (D20 refinement 1).",
       "R101/R105 residual multi-filler ties are surfaced as needs_review, not forced to one value (D16/D21 fail-safe direction)."
@@ -172,8 +172,8 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis.",
-        "Molecular / optional roles present (R106) — likely out of scope per the neoplasm-label-decomposition philosophy; confirm drop."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Molecular / optional roles present (R106) \u2014 likely out of scope per the neoplasm-label-decomposition philosophy; confirm drop."
       ],
       "_stats": {
         "roles_walked": 9,
@@ -278,8 +278,8 @@
         ]
       },
       "review_flags": [
-        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 6,
@@ -384,7 +384,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 7,
@@ -478,7 +478,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 6,
@@ -597,9 +597,9 @@
         ]
       },
       "review_flags": [
-        "3 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis.",
-        "Associated (R100) / metastatic (R102) anatomic sites present — SME decides if these belong in the curated projection or only the lossless record.",
+        "3 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
         "Same anatomy code C12377 (Gallbladder) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
       ],
       "_stats": {
@@ -740,9 +740,9 @@
         ]
       },
       "review_flags": [
-        "3 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis.",
-        "Associated (R100) / metastatic (R102) anatomic sites present — SME decides if these belong in the curated projection or only the lossless record.",
+        "3 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
         "Same anatomy code C166416 (Pancreatobiliary System) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
       ],
       "_stats": {
@@ -812,7 +812,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 4,
@@ -917,7 +917,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 7,
@@ -1011,7 +1011,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 6,
@@ -1116,7 +1116,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 7,
@@ -1220,7 +1220,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 7,
@@ -1346,9 +1346,9 @@
         ]
       },
       "review_flags": [
-        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis.",
-        "Associated (R100) / metastatic (R102) anatomic sites present — SME decides if these belong in the curated projection or only the lossless record.",
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
         "Same anatomy code C191741 (Urinary Tract) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
       ],
       "_stats": {
@@ -1517,8 +1517,8 @@
         ]
       },
       "review_flags": [
-        "4 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "4 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 10,
@@ -1622,7 +1622,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 7,
@@ -1643,19 +1643,23 @@
       "constituents": [
         [
           "R88",
-          "C95178"
+          "C27970"
         ],
         [
-          "R101",
-          "C12311"
+          "R105",
+          "C36779"
         ],
         [
           "op:AssociatedRegion",
-          "C12402"
+          "C12378"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54189"
         ],
         [
           "op:Morphology",
-          "C9039"
+          "C2955"
         ]
       ],
       "needs_review": [],
@@ -1663,6 +1667,12 @@
         "curated_projection": [
           {
             "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role"
+          },
+          {
             "axis_label": "Disease_Is_Stage",
             "filler": "C95178",
             "filler_label": "Stage IIA2",
@@ -1703,7 +1713,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 5,
@@ -1763,7 +1773,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 3,
@@ -1867,7 +1877,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 7,
@@ -1971,8 +1981,8 @@
         ]
       },
       "review_flags": [
-        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 6,
@@ -2054,7 +2064,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 5,
@@ -2197,9 +2207,9 @@
         ]
       },
       "review_flags": [
-        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
         "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic.",
-        "2 multi-filler tie(s) on R114/R115 — routed to out_of_scope (not needs_review) per axes philosophy."
+        "2 multi-filler tie(s) on R114/R115 \u2014 routed to out_of_scope (not needs_review) per axes philosophy."
       ],
       "_stats": {
         "roles_walked": 10,
@@ -2291,7 +2301,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 6,
@@ -2427,8 +2437,8 @@
       },
       "review_flags": [
         "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic.",
-        "Associated (R100) / metastatic (R102) anatomic sites present — SME decides if these belong in the curated projection or only the lossless record.",
-        "Same anatomy code C12470 (Skin) appears in both curated_projection and additional_anatomic — double-count risk."
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12470 (Skin) appears in both curated_projection and additional_anatomic \u2014 double-count risk."
       ],
       "_stats": {
         "roles_walked": 10,
@@ -2635,7 +2645,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 6,
@@ -2728,7 +2738,7 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
       ],
       "_stats": {
         "roles_walked": 6,
@@ -2829,9 +2839,9 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis.",
-        "Associated (R100) / metastatic (R102) anatomic sites present — SME decides if these belong in the curated projection or only the lossless record.",
-        "Same anatomy code C12366 (Bone) appears in both curated_projection and additional_anatomic — double-count risk."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12366 (Bone) appears in both curated_projection and additional_anatomic \u2014 double-count risk."
       ],
       "_stats": {
         "roles_walked": 7,
@@ -3077,9 +3087,9 @@
         ]
       },
       "review_flags": [
-        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) — SME must pick the intended value or confirm co-equal.",
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
         "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic.",
-        "Associated (R100) / metastatic (R102) anatomic sites present — SME decides if these belong in the curated projection or only the lossless record.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
         "Same anatomy code C12246 (Hypopharynx) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
       ],
       "_stats": {
@@ -3100,6 +3110,10 @@
       },
       "constituents": [
         [
+          "R88",
+          "C27970"
+        ],
+        [
           "R105",
           "C36779"
         ],
@@ -3119,6 +3133,14 @@
       "needs_review": [],
       "review_buckets": {
         "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role",
+            "most_specific": true
+          },
           {
             "axis": "R105",
             "axis_label": "Disease_Has_Abnormal_Cell",
@@ -3210,13 +3232,13 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis.",
-        "5 multi-filler tie(s) on R114/R115 — routed to out_of_scope (not needs_review) per axes philosophy."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "5 multi-filler tie(s) on R114/R115 \u2014 routed to out_of_scope (not needs_review) per axes philosophy."
       ],
       "_stats": {
         "roles_walked": 10,
         "candidates_total": 10,
-        "curated": 4
+        "curated": 5
       }
     },
     "C87138": {
@@ -3302,9 +3324,9 @@
         ]
       },
       "review_flags": [
-        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review §6). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis — confirm the split and whether to add the axis.",
-        "Associated (R100) / metastatic (R102) anatomic sites present — SME decides if these belong in the curated projection or only the lossless record.",
-        "Same anatomy code C12316 (Corpus Uteri) appears in both curated_projection and additional_anatomic — double-count risk."
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12316 (Corpus Uteri) appears in both curated_projection and additional_anatomic \u2014 double-count risk."
       ],
       "_stats": {
         "roles_walked": 6,

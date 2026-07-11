@@ -1,23 +1,3338 @@
 {
   "_meta": {
-    "purpose": "Curated intended decomposition constituents per concept — the oracle for the stated-extraction research loop (engine design §6.2). A candidate extractor is scored (precision/recall) against this set; iterate the boundary heuristic until it converges.",
-    "status": "STARTER SEED — needs SME validation + expansion to ~20-50 concepts. C6135's entry now encodes DECISIONS D19/D20 (see below) and supersedes the design §4.2 worked example's single-valued R101/R105; morphology (op:Morphology) filler code is TBD (Medullary Carcinoma).",
-    "constituent_format": "[axis, filler] — axis is an NCIt role code (e.g. R101) or an op: axis (e.g. op:Morphology); filler is an NCIt concept code. An axis MAY repeat: D19 preserves co-equal, non-nested fillers as relationship-group members rather than collapsing them to one leaf.",
-    "policy": "R105 uses C36825, not C36761: the two are nested (C36825 rdfs:subClassOf+ C36761, verified in both the stated and inferred graphs), so most-specific selection applies (D15, scope-corrected by D19). C6135's five raw R101 candidates split across three axes per D20: the organ-level filler stays on R101; the lineage-generic fillers reached via the C3010 'Endocrine Neoplasm' ancestor move to op:AssociatedLineageClassification; the anatomic regions move to op:AssociatedRegion. None is dropped."
+    "purpose": "AUTO-DRAFT candidates for SME review \u2014 NOT the scorer oracle yet. Grounded in DECISIONS D15-D22 and postcoordination-literature-review.md \u00a76.",
+    "status": "AUTO-DRAFT \u2014 requires SME validation (Issue #57)",
+    "how_to_read": {
+      "constituents": "Scorable (axis, filler) pairs \u2014 the curated projection (allowlist R88/R101/R105 + op: axes). Compatible with score.py.",
+      "needs_review": "Ambiguous ties the extractor refused to resolve; score.py excludes these (D21). SME must resolve.",
+      "review_buckets": "Full labelled breakdown by curation scope; the SME works here.",
+      "review_flags": "Per-concept prose prompts for the SME."
+    },
+    "curated_axes": [
+      "R101",
+      "R105",
+      "R88",
+      "op:AssociatedLineageClassification",
+      "op:AssociatedRegion",
+      "op:Morphology"
+    ],
+    "known_extractor_gaps": [
+      "op:StageSystem implemented (PR#72): stage-SYSTEM fillers (AJCC v6-v9, FIGO, Toronto) are routed to the op:StageSystem axis via _STAGE_SYSTEM_CODES in filler_selection.py. Stage VALUES (Stage I-IV) remain on R88.",
+      "Morphology is resolved from the first non-staging genus parent; the prior golden marked it TBD. Confirm the filler is the intended morphology.",
+      "op:AssociatedLineageClassification now fires (walker anchoring_genus fix); verify lineage fillers (e.g. Endocrine Gland/System from C3010/C3809/C3773) are the intended co-equal lineage senses (D20 refinement 1).",
+      "R101/R105 residual multi-filler ties are surfaced as needs_review, not forced to one value (D16/D21 fail-safe direction)."
+    ],
+    "validation": {
+      "oracle_concept": "C6135",
+      "curated_projection": {
+        "precision": 0.857,
+        "recall": 0.75,
+        "f1": 0.8,
+        "missing": [
+          "op:AssociatedLineageClassification/C12705",
+          "op:StageSystem/C90530"
+        ],
+        "extra": [
+          "op:Morphology/C3879"
+        ]
+      },
+      "with_proposed_stage_system": {
+        "precision": 0.875,
+        "recall": 0.875,
+        "f1": 0.875,
+        "missing": [
+          "op:AssociatedLineageClassification/C12705"
+        ],
+        "extra": [
+          "op:Morphology/C3879"
+        ]
+      },
+      "note": "'extra' op:Morphology/C3879 is the correct morphology the prior golden left TBD (draft is more complete here). 'missing' op:AssociatedLineageClassification/C12705 (Endocrine System) is a genuine walker recall gap."
+    },
+    "count": 30,
+    "count_with_needs_review": 8,
+    "count_with_stage_system_split": 30,
+    "count_with_c12705_lineage_gap": 1
   },
   "concepts": {
     "C6135": {
       "label": "Stage III Thyroid Gland Medullary Carcinoma AJCC v7",
+      "genus": {
+        "code": "C141041",
+        "label": "Thyroid Gland Medullary Carcinoma by AJCC v7 Stage"
+      },
+      "morphology": {
+        "code": "C3879",
+        "label": "Thyroid Gland Medullary Carcinoma"
+      },
       "constituents": [
-        ["R88", "C27970"],
-        ["op:StageSystem", "C90530"],
-        ["R101", "C12400"],
-        ["R105", "C36825"],
-        ["op:AssociatedLineageClassification", "C12704"],
-        ["op:AssociatedLineageClassification", "C12705"],
-        ["op:AssociatedRegion", "C12418"],
-        ["op:AssociatedRegion", "C13063"]
-      ]
+        [
+          "R88",
+          "C27970"
+        ],
+        [
+          "R101",
+          "C12400"
+        ],
+        [
+          "R105",
+          "C36825"
+        ],
+        [
+          "op:AssociatedLineageClassification",
+          "C12704"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12418"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C13063"
+        ],
+        [
+          "op:Morphology",
+          "C3879"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12400",
+            "filler_label": "Thyroid Gland",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36825",
+            "filler_label": "Malignant Neuroendocrine Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedLineageClassification",
+            "axis_label": "op:AssociatedLineageClassification",
+            "filler": "C12704",
+            "filler_label": "Endocrine Gland",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12418",
+            "filler_label": "Head and Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C13063",
+            "filler_label": "Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C3879",
+            "filler_label": "Thyroid Gland Medullary Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "out_of_scope": [
+          {
+            "axis": "R106",
+            "axis_label": "Disease_Has_Molecular_Abnormality",
+            "filler": "C129702",
+            "filler_label": "Activating RET Gene Mutation",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Molecular / optional roles present (R106) \u2014 likely out of scope per the neoplasm-label-decomposition philosophy; confirm drop."
+      ],
+      "_stats": {
+        "roles_walked": 9,
+        "candidates_total": 9,
+        "curated": 7
+      }
+    },
+    "C115118": {
+      "label": "Stage IB Esophageal Cancer AJCC v7",
+      "genus": {
+        "code": "C89793",
+        "label": "Stage I Esophageal Cancer AJCC v7"
+      },
+      "morphology": {
+        "code": "C3513",
+        "label": "Esophageal Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27976"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12378"
+        ],
+        [
+          "op:Morphology",
+          "C3513"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12389",
+          "filler_label": "Esophagus",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C203674",
+          "filler_label": "Esophagus and Gastroesophageal Junction",
+          "axis_source": "role",
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27976",
+            "filler_label": "Stage IB",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12378",
+            "filler_label": "Digestive System",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C3513",
+            "filler_label": "Esophageal Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12389",
+            "filler_label": "Esophagus",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C203674",
+            "filler_label": "Esophagus and Gastroesophageal Junction",
+            "axis_source": "role",
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 3
+      }
+    },
+    "C133158": {
+      "label": "Stage I Laryngeal Cancer AJCC v8",
+      "genus": {
+        "code": "C133156",
+        "label": "Laryngeal Cancer by AJCC v8 Stage"
+      },
+      "morphology": {
+        "code": "C4855",
+        "label": "Laryngeal Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27966"
+        ],
+        [
+          "R101",
+          "C12420"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12418"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C13063"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54272"
+        ],
+        [
+          "op:Morphology",
+          "C4855"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27966",
+            "filler_label": "Stage I",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12420",
+            "filler_label": "Larynx",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12418",
+            "filler_label": "Head and Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C13063",
+            "filler_label": "Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C54272",
+            "filler_label": "Throat",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4855",
+            "filler_label": "Laryngeal Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 6
+      }
+    },
+    "C134194": {
+      "label": "Stage IIIC Colorectal Cancer AJCC v8",
+      "genus": {
+        "code": "C134191",
+        "label": "Stage III Colorectal Cancer AJCC v8"
+      },
+      "morphology": {
+        "code": "C2955",
+        "label": "Colorectal Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27982"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12378"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54189"
+        ],
+        [
+          "op:Morphology",
+          "C2955"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27982",
+            "filler_label": "Stage IIIC",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12378",
+            "filler_label": "Digestive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C54189",
+            "filler_label": "Colorectal Region",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C2955",
+            "filler_label": "Colorectal Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 5
+      }
+    },
+    "C134670": {
+      "label": "Stage IIA Gallbladder Cancer AJCC v8",
+      "genus": {
+        "code": "C134667",
+        "label": "Stage II Gallbladder Cancer AJCC v8"
+      },
+      "morphology": {
+        "code": "C3844",
+        "label": "Gallbladder Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27967"
+        ],
+        [
+          "op:Morphology",
+          "C3844"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12377",
+          "filler_label": "Gallbladder",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12678",
+          "filler_label": "Biliary Tract",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C166416",
+          "filler_label": "Pancreatobiliary System",
+          "axis_source": "role",
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27967",
+            "filler_label": "Stage IIA",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C3844",
+            "filler_label": "Gallbladder Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12377",
+            "filler_label": "Gallbladder",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12678",
+            "filler_label": "Biliary Tract",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C166416",
+            "filler_label": "Pancreatobiliary System",
+            "axis_source": "role",
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "additional_anatomic": [
+          {
+            "axis": "R100",
+            "axis_label": "Disease_Has_Associated_Anatomic_Site",
+            "filler": "C12377",
+            "filler_label": "Gallbladder",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "3 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12377 (Gallbladder) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 2
+      }
+    },
+    "C134930": {
+      "label": "Stage IV Pancreatic Cancer AJCC v8",
+      "genus": {
+        "code": "C134909",
+        "label": "Pancreatic Cancer by AJCC v8 Stage"
+      },
+      "morphology": {
+        "code": "C207229",
+        "label": "Pancreatic Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27971"
+        ],
+        [
+          "R105",
+          "C12917"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12378"
+        ],
+        [
+          "op:Morphology",
+          "C207229"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12393",
+          "filler_label": "Pancreas",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C166416",
+          "filler_label": "Pancreatobiliary System",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C214985",
+          "filler_label": "Hepatopancreatobiliary System",
+          "axis_source": "role",
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27971",
+            "filler_label": "Stage IV",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C12917",
+            "filler_label": "Malignant Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12378",
+            "filler_label": "Digestive System",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C207229",
+            "filler_label": "Pancreatic Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12393",
+            "filler_label": "Pancreas",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C166416",
+            "filler_label": "Pancreatobiliary System",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C214985",
+            "filler_label": "Hepatopancreatobiliary System",
+            "axis_source": "role",
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "additional_anatomic": [
+          {
+            "axis": "R100",
+            "axis_label": "Disease_Has_Associated_Anatomic_Site",
+            "filler": "C166416",
+            "filler_label": "Pancreatobiliary System",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "3 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C166416 (Pancreatobiliary System) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
+      ],
+      "_stats": {
+        "roles_walked": 9,
+        "candidates_total": 9,
+        "curated": 4
+      }
+    },
+    "C136348": {
+      "label": "Stage I Thymoma AJCC v8",
+      "genus": {
+        "code": "C136322",
+        "label": "Stage I Thymus Epithelial Neoplasm AJCC v8"
+      },
+      "morphology": {
+        "code": "C6450",
+        "label": "Thymus Epithelial Neoplasm"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27966"
+        ],
+        [
+          "R105",
+          "C36753"
+        ],
+        [
+          "op:Morphology",
+          "C6450"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27966",
+            "filler_label": "Stage I",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36753",
+            "filler_label": "Neoplastic Epithelial Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C6450",
+            "filler_label": "Thymus Epithelial Neoplasm",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 4,
+        "candidates_total": 4,
+        "curated": 3
+      }
+    },
+    "C136775": {
+      "label": "Stage IIIA Gastric and Omental Gastrointestinal Stromal Tumor AJCC v8",
+      "genus": {
+        "code": "C136774",
+        "label": "Stage III Gastric and Omental Gastrointestinal Stromal Tumor AJCC v8"
+      },
+      "morphology": {
+        "code": "C9306",
+        "label": "Soft Tissue Sarcoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27977"
+        ],
+        [
+          "R101",
+          "C12391"
+        ],
+        [
+          "R105",
+          "C37153"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12471"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C33209"
+        ],
+        [
+          "op:Morphology",
+          "C9306"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27977",
+            "filler_label": "Stage IIIA",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12391",
+            "filler_label": "Stomach",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C37153",
+            "filler_label": "Malignant Stromal Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12471",
+            "filler_label": "Soft Tissue",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C33209",
+            "filler_label": "Omentum",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C9306",
+            "filler_label": "Soft Tissue Sarcoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 6
+      }
+    },
+    "C139755": {
+      "label": "Stage IVB Cervical Cancer AJCC v8",
+      "genus": {
+        "code": "C139753",
+        "label": "Stage IV Cervical Cancer AJCC v8"
+      },
+      "morphology": {
+        "code": "C9039",
+        "label": "Cervical Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27980"
+        ],
+        [
+          "R101",
+          "C12311"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12402"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12810"
+        ],
+        [
+          "op:Morphology",
+          "C9039"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27980",
+            "filler_label": "Stage IVB",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12311",
+            "filler_label": "Cervix Uteri",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12402",
+            "filler_label": "Female Reproductive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12810",
+            "filler_label": "Genitourinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C9039",
+            "filler_label": "Cervical Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 5
+      }
+    },
+    "C139971": {
+      "label": "Stage III Ovarian Cancer AJCC v8",
+      "genus": {
+        "code": "C139963",
+        "label": "Ovarian Cancer by AJCC v8 Stage"
+      },
+      "morphology": {
+        "code": "C4908",
+        "label": "Ovarian Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27970"
+        ],
+        [
+          "R101",
+          "C12404"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12402"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12810"
+        ],
+        [
+          "op:Morphology",
+          "C4908"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12404",
+            "filler_label": "Ovary",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12402",
+            "filler_label": "Female Reproductive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12810",
+            "filler_label": "Genitourinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4908",
+            "filler_label": "Ovarian Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 6
+      }
+    },
+    "C140169": {
+      "label": "Stage III Prostate Cancer AJCC v8",
+      "genus": {
+        "code": "C140163",
+        "label": "Prostate Cancer by AJCC v8 Stage"
+      },
+      "morphology": {
+        "code": "C4863",
+        "label": "Prostate Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27970"
+        ],
+        [
+          "R101",
+          "C12410"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12722"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12810"
+        ],
+        [
+          "op:Morphology",
+          "C4863"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12410",
+            "filler_label": "Prostate Gland",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12722",
+            "filler_label": "Male Reproductive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12810",
+            "filler_label": "Genitourinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4863",
+            "filler_label": "Prostate Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 6
+      }
+    },
+    "C140461": {
+      "label": "Stage II Urethral Cancer AJCC v8",
+      "genus": {
+        "code": "C140457",
+        "label": "Urethral Cancer by AJCC v8 Stage"
+      },
+      "morphology": {
+        "code": "C9106",
+        "label": "Urethral Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C28054"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12413"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12810"
+        ],
+        [
+          "op:Morphology",
+          "C9106"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12417",
+          "filler_label": "Urethra",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C191741",
+          "filler_label": "Urinary Tract",
+          "axis_source": "role",
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C28054",
+            "filler_label": "Stage II",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12413",
+            "filler_label": "Urinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12810",
+            "filler_label": "Genitourinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C9106",
+            "filler_label": "Urethral Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12417",
+            "filler_label": "Urethra",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C191741",
+            "filler_label": "Urinary Tract",
+            "axis_source": "role",
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "additional_anatomic": [
+          {
+            "axis": "R100",
+            "axis_label": "Disease_Has_Associated_Anatomic_Site",
+            "filler": "C191741",
+            "filler_label": "Urinary Tract",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C191741 (Urinary Tract) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
+      ],
+      "_stats": {
+        "roles_walked": 8,
+        "candidates_total": 8,
+        "curated": 4
+      }
+    },
+    "C141004": {
+      "label": "Stage IVC Thyroid Gland Anaplastic Carcinoma AJCC v8",
+      "genus": {
+        "code": "C141000",
+        "label": "Thyroid Gland Anaplastic Carcinoma by AJCC v8 Stage"
+      },
+      "morphology": {
+        "code": "C3878",
+        "label": "Thyroid Gland Anaplastic Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C28055"
+        ],
+        [
+          "R101",
+          "C12400"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12418"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C13063"
+        ],
+        [
+          "op:Morphology",
+          "C3878"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R105",
+          "axis_label": "Disease_Has_Abnormal_Cell",
+          "filler": "C36848",
+          "filler_label": "Anaplastic Carcinoma Cell",
+          "axis_source": "role",
+          "most_specific": true,
+          "needs_review": true
+        },
+        {
+          "axis": "R105",
+          "axis_label": "Disease_Has_Abnormal_Cell",
+          "filler": "C37085",
+          "filler_label": "Undifferentiated Carcinoma Cell",
+          "axis_source": "role",
+          "most_specific": true,
+          "needs_review": true
+        },
+        {
+          "axis": "R105",
+          "axis_label": "Disease_Has_Abnormal_Cell",
+          "filler": "C37109",
+          "filler_label": "Malignant Epithelial Spindle Cell",
+          "axis_source": "role",
+          "most_specific": true,
+          "needs_review": true
+        },
+        {
+          "axis": "R105",
+          "axis_label": "Disease_Has_Abnormal_Cell",
+          "filler": "C41435",
+          "filler_label": "Malignant Epithelioid Cell",
+          "axis_source": "role",
+          "most_specific": true,
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C28055",
+            "filler_label": "Stage IVC",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12400",
+            "filler_label": "Thyroid Gland",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12418",
+            "filler_label": "Head and Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C13063",
+            "filler_label": "Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C3878",
+            "filler_label": "Thyroid Gland Anaplastic Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36848",
+            "filler_label": "Anaplastic Carcinoma Cell",
+            "axis_source": "role",
+            "most_specific": true,
+            "needs_review": true
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C37085",
+            "filler_label": "Undifferentiated Carcinoma Cell",
+            "axis_source": "role",
+            "most_specific": true,
+            "needs_review": true
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C37109",
+            "filler_label": "Malignant Epithelial Spindle Cell",
+            "axis_source": "role",
+            "most_specific": true,
+            "needs_review": true
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C41435",
+            "filler_label": "Malignant Epithelioid Cell",
+            "axis_source": "role",
+            "most_specific": true,
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C132248",
+            "filler_label": "AJCC v8 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "4 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 10,
+        "candidates_total": 10,
+        "curated": 5
+      }
+    },
+    "C162245": {
+      "label": "Stage IV Cervical Cancer FIGO 2018",
+      "genus": {
+        "code": "C162225",
+        "label": "Cervical Cancer by FIGO Stage 2018"
+      },
+      "morphology": {
+        "code": "C9039",
+        "label": "Cervical Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C96261"
+        ],
+        [
+          "R101",
+          "C12311"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12402"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12810"
+        ],
+        [
+          "op:Morphology",
+          "C9039"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C96261",
+            "filler_label": "FIGO Stage IV",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12311",
+            "filler_label": "Cervix Uteri",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12402",
+            "filler_label": "Female Reproductive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12810",
+            "filler_label": "Genitourinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C9039",
+            "filler_label": "Cervical Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C186617",
+            "filler_label": "FIGO 2018 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 6
+      }
+    },
+    "C186630": {
+      "label": "Stage IIA2 Cervical Cancer FIGO 2009",
+      "genus": {
+        "code": "C186628",
+        "label": "Stage IIA Cervical Cancer FIGO 2009"
+      },
+      "morphology": {
+        "code": "C9039",
+        "label": "Cervical Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27970"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12378"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54189"
+        ],
+        [
+          "op:Morphology",
+          "C2955"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role"
+          },
+          {
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C95178",
+            "filler_label": "Stage IIA2",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12311",
+            "filler_label": "Cervix Uteri",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12402",
+            "filler_label": "Female Reproductive System",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C9039",
+            "filler_label": "Cervical Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C186618",
+            "filler_label": "FIGO 2009 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 5,
+        "candidates_total": 5,
+        "curated": 4
+      }
+    },
+    "C198426": {
+      "label": "Stage IIB Childhood Testicular Germ Cell Tumor by Toronto Guidelines v2",
+      "genus": {
+        "code": "C198424",
+        "label": "Stage II Childhood Testicular Germ Cell Tumor by Toronto Guidelines v2"
+      },
+      "morphology": {
+        "code": "C4005",
+        "label": "Childhood Malignant Neoplasm"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27968"
+        ],
+        [
+          "op:Morphology",
+          "C4005"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27968",
+            "filler_label": "Stage IIB",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4005",
+            "filler_label": "Childhood Malignant Neoplasm",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C198024",
+            "filler_label": "Toronto Classification v2 Stage, Tier 2",
+            "axis_source": "role",
+            "most_specific": true,
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 3,
+        "candidates_total": 3,
+        "curated": 2
+      }
+    },
+    "C207664": {
+      "label": "Stage I Vulvar Cancer AJCC v9",
+      "genus": {
+        "code": "C207662",
+        "label": "Vulvar Cancer by AJCC v9 Stage"
+      },
+      "morphology": {
+        "code": "C4866",
+        "label": "Vulvar Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27966"
+        ],
+        [
+          "R101",
+          "C12408"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12402"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12810"
+        ],
+        [
+          "op:Morphology",
+          "C4866"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27966",
+            "filler_label": "Stage I",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12408",
+            "filler_label": "Vulva",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12402",
+            "filler_label": "Female Reproductive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12810",
+            "filler_label": "Genitourinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4866",
+            "filler_label": "Vulvar Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C180901",
+            "filler_label": "AJCC v9 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 6
+      }
+    },
+    "C208097": {
+      "label": "Stage II Colon Neuroendocrine Tumor AJCC v9",
+      "genus": {
+        "code": "C208091",
+        "label": "Colon Neuroendocrine Tumor by AJCC v9 Stage"
+      },
+      "morphology": {
+        "code": "C135212",
+        "label": "Colon Neuroendocrine Tumor"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C28054"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54189"
+        ],
+        [
+          "op:Morphology",
+          "C135212"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12382",
+          "filler_label": "Colon",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12736",
+          "filler_label": "Intestine",
+          "axis_source": "role",
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C28054",
+            "filler_label": "Stage II",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C54189",
+            "filler_label": "Colorectal Region",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C135212",
+            "filler_label": "Colon Neuroendocrine Tumor",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12382",
+            "filler_label": "Colon",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12736",
+            "filler_label": "Intestine",
+            "axis_source": "role",
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C180901",
+            "filler_label": "AJCC v9 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 3
+      }
+    },
+    "C222376": {
+      "label": "Stage IIIA Lung Cancer AJCC v9",
+      "genus": {
+        "code": "C222375",
+        "label": "Stage III Lung Cancer AJCC v9"
+      },
+      "morphology": {
+        "code": "C4878",
+        "label": "Lung Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27977"
+        ],
+        [
+          "R101",
+          "C12468"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:Morphology",
+          "C4878"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27977",
+            "filler_label": "Stage IIIA",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12468",
+            "filler_label": "Lung",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4878",
+            "filler_label": "Lung Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C180901",
+            "filler_label": "AJCC v9 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 5,
+        "candidates_total": 5,
+        "curated": 4
+      }
+    },
+    "C27787": {
+      "label": "Stage III Testicular Non-Seminomatous Germ Cell Tumor AJCC v6 and v7",
+      "genus": {
+        "code": "C5027",
+        "label": "Malignant Testicular Non-Seminomatous Germ Cell Tumor"
+      },
+      "morphology": {
+        "code": "C5027",
+        "label": "Malignant Testicular Non-Seminomatous Germ Cell Tumor"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27970"
+        ],
+        [
+          "R101",
+          "C12412"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12722"
+        ],
+        [
+          "op:Morphology",
+          "C5027"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R105",
+          "axis_label": "Disease_Has_Abnormal_Cell",
+          "filler": "C12917",
+          "filler_label": "Malignant Cell",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R105",
+          "axis_label": "Disease_Has_Abnormal_Cell",
+          "filler": "C36903",
+          "filler_label": "Neoplastic Germ Cell",
+          "axis_source": "role",
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12412",
+            "filler_label": "Testis",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12722",
+            "filler_label": "Male Reproductive System",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C5027",
+            "filler_label": "Malignant Testicular Non-Seminomatous Germ Cell Tumor",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C12917",
+            "filler_label": "Malignant Cell",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36903",
+            "filler_label": "Neoplastic Germ Cell",
+            "axis_source": "role",
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90529",
+            "filler_label": "AJCC v6 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          },
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "out_of_scope": [
+          {
+            "axis": "R114",
+            "axis_label": "Disease_May_Have_Cytogenetic_Abnormality",
+            "filler": "C39913",
+            "filler_label": "i(12p)",
+            "axis_source": "role",
+            "needs_review": true,
+            "tie_among_out_of_scope": true
+          },
+          {
+            "axis": "R114",
+            "axis_label": "Disease_May_Have_Cytogenetic_Abnormality",
+            "filler": "C39914",
+            "filler_label": "Gain of Chromosome 12p",
+            "axis_source": "role",
+            "needs_review": true,
+            "tie_among_out_of_scope": true
+          }
+        ]
+      },
+      "review_flags": [
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic.",
+        "2 multi-filler tie(s) on R114/R115 \u2014 routed to out_of_scope (not needs_review) per axes philosophy."
+      ],
+      "_stats": {
+        "roles_walked": 10,
+        "candidates_total": 10,
+        "curated": 4
+      }
+    },
+    "C5468": {
+      "label": "Stage IA Gastric Cancer AJCC v7",
+      "genus": {
+        "code": "C89856",
+        "label": "Stage I Gastric Cancer AJCC v7"
+      },
+      "morphology": {
+        "code": "C4911",
+        "label": "Gastric Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27975"
+        ],
+        [
+          "R101",
+          "C12391"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12378"
+        ],
+        [
+          "op:Morphology",
+          "C4911"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27975",
+            "filler_label": "Stage IA",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12391",
+            "filler_label": "Stomach",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12378",
+            "filler_label": "Digestive System",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4911",
+            "filler_label": "Gastric Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 5
+      }
+    },
+    "C5874": {
+      "label": "Stage IVA Lip Basal Cell Carcinoma",
+      "genus": {
+        "code": "C5880",
+        "label": "Stage IVA Lip Cancer AJCC v6 and v7"
+      },
+      "morphology": {
+        "code": "C3490",
+        "label": "Lip Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27979"
+        ],
+        [
+          "R101",
+          "C12470"
+        ],
+        [
+          "R105",
+          "C60783"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12220"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12418"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54224"
+        ],
+        [
+          "op:Morphology",
+          "C3490"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27979",
+            "filler_label": "Stage IVA",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12470",
+            "filler_label": "Skin",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C60783",
+            "filler_label": "Malignant Cutaneous Basal Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12220",
+            "filler_label": "Lip",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12418",
+            "filler_label": "Head and Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C54224",
+            "filler_label": "Lip and Oral Cavity",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C3490",
+            "filler_label": "Lip Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90529",
+            "filler_label": "AJCC v6 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          },
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "additional_anatomic": [
+          {
+            "axis": "R100",
+            "axis_label": "Disease_Has_Associated_Anatomic_Site",
+            "filler": "C12470",
+            "filler_label": "Skin",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12470 (Skin) appears in both curated_projection and additional_anatomic \u2014 double-count risk."
+      ],
+      "_stats": {
+        "roles_walked": 10,
+        "candidates_total": 10,
+        "curated": 7
+      }
+    },
+    "C6056": {
+      "label": "Stage IV Oral Cavity Squamous Cell Carcinoma AJCC v6 and v7",
+      "genus": {
+        "code": "C115060",
+        "label": "Stage IV Lip and Oral Cavity Squamous Cell Carcinoma AJCC v6 and v7"
+      },
+      "morphology": {
+        "code": "C42690",
+        "label": "Lip and Oral Cavity Squamous Cell Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27971"
+        ],
+        [
+          "R101",
+          "C12421"
+        ],
+        [
+          "R105",
+          "C36771"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12418"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54224"
+        ],
+        [
+          "op:Morphology",
+          "C42690"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27971",
+            "filler_label": "Stage IV",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12421",
+            "filler_label": "Oral Cavity",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36771",
+            "filler_label": "Malignant Squamous Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12418",
+            "filler_label": "Head and Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C54224",
+            "filler_label": "Lip and Oral Cavity",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C42690",
+            "filler_label": "Lip and Oral Cavity Squamous Cell Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90529",
+            "filler_label": "AJCC v6 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          },
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic."
+      ],
+      "_stats": {
+        "roles_walked": 8,
+        "candidates_total": 8,
+        "curated": 6
+      }
+    },
+    "C6273": {
+      "label": "Stage IIIA Fallopian Tube Cancer AJCC v7",
+      "genus": {
+        "code": "C89692",
+        "label": "Stage III Fallopian Tube Cancer AJCC v7"
+      },
+      "morphology": {
+        "code": "C3867",
+        "label": "Fallopian Tube Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27977"
+        ],
+        [
+          "R101",
+          "C12403"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12402"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12810"
+        ],
+        [
+          "op:Morphology",
+          "C3867"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27977",
+            "filler_label": "Stage IIIA",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12403",
+            "filler_label": "Fallopian Tube",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12402",
+            "filler_label": "Female Reproductive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12810",
+            "filler_label": "Genitourinary System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C3867",
+            "filler_label": "Fallopian Tube Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 5
+      }
+    },
+    "C6609": {
+      "label": "Stage IB Osteosarcoma AJCC v7",
+      "genus": {
+        "code": "C6465",
+        "label": "Stage IB Bone Sarcoma AJCC v7"
+      },
+      "morphology": {
+        "code": "C4016",
+        "label": "Malignant Bone Neoplasm"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27976"
+        ],
+        [
+          "R101",
+          "C12366"
+        ],
+        [
+          "R105",
+          "C36901"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12964"
+        ],
+        [
+          "op:Morphology",
+          "C4016"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27976",
+            "filler_label": "Stage IB",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12366",
+            "filler_label": "Bone",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36901",
+            "filler_label": "Malignant Osteoblast",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12964",
+            "filler_label": "Connective and Soft Tissue",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4016",
+            "filler_label": "Malignant Bone Neoplasm",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 5
+      }
+    },
+    "C6706": {
+      "label": "Stage IV Bone Sarcoma AJCC v7",
+      "genus": {
+        "code": "C136632",
+        "label": "Bone Sarcoma by AJCC v7 Stage"
+      },
+      "morphology": {
+        "code": "C4016",
+        "label": "Malignant Bone Neoplasm"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27971"
+        ],
+        [
+          "R101",
+          "C12366"
+        ],
+        [
+          "R105",
+          "C48787"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12964"
+        ],
+        [
+          "op:Morphology",
+          "C4016"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27971",
+            "filler_label": "Stage IV",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12366",
+            "filler_label": "Bone",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C48787",
+            "filler_label": "Malignant Connective and Soft Tissue Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12964",
+            "filler_label": "Connective and Soft Tissue",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4016",
+            "filler_label": "Malignant Bone Neoplasm",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "additional_anatomic": [
+          {
+            "axis": "R100",
+            "axis_label": "Disease_Has_Associated_Anatomic_Site",
+            "filler": "C12366",
+            "filler_label": "Bone",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12366 (Bone) appears in both curated_projection and additional_anatomic \u2014 double-count risk."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 5
+      }
+    },
+    "C7788": {
+      "label": "Stage 0 Gastric Cancer AJCC v6 and v7",
+      "genus": {
+        "code": "C90503",
+        "label": "Gastric Cancer by AJCC v6 Stage"
+      },
+      "morphology": {
+        "code": "C4911",
+        "label": "Gastric Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C28051"
+        ],
+        [
+          "R101",
+          "C12391"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12378"
+        ],
+        [
+          "op:Morphology",
+          "C4911"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C28051",
+            "filler_label": "Stage 0",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12391",
+            "filler_label": "Stomach",
+            "axis_source": "role"
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12378",
+            "filler_label": "Digestive System",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C4911",
+            "filler_label": "Gastric Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90529",
+            "filler_label": "AJCC v6 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          },
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic."
+      ],
+      "_stats": {
+        "roles_walked": 7,
+        "candidates_total": 7,
+        "curated": 5
+      }
+    },
+    "C8039": {
+      "label": "Stage II Hypopharyngeal Carcinoma AJCC v6 and v7",
+      "genus": {
+        "code": "C8769",
+        "label": "Stage II Pharyngeal Carcinoma"
+      },
+      "morphology": {
+        "code": "C9466",
+        "label": "Pharyngeal Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C28054"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12418"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C13063"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54272"
+        ],
+        [
+          "op:Morphology",
+          "C9466"
+        ]
+      ],
+      "needs_review": [
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12246",
+          "filler_label": "Hypopharynx",
+          "axis_source": "role",
+          "needs_review": true
+        },
+        {
+          "axis": "R101",
+          "axis_label": "Disease_Has_Primary_Anatomic_Site",
+          "filler": "C12425",
+          "filler_label": "Pharynx",
+          "axis_source": "role",
+          "needs_review": true
+        }
+      ],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C28054",
+            "filler_label": "Stage II",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12418",
+            "filler_label": "Head and Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C13063",
+            "filler_label": "Neck",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C54272",
+            "filler_label": "Throat",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C9466",
+            "filler_label": "Pharyngeal Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "needs_review": [
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12246",
+            "filler_label": "Hypopharynx",
+            "axis_source": "role",
+            "needs_review": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12425",
+            "filler_label": "Pharynx",
+            "axis_source": "role",
+            "needs_review": true
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90529",
+            "filler_label": "AJCC v6 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          },
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "additional_anatomic": [
+          {
+            "axis": "R100",
+            "axis_label": "Disease_Has_Associated_Anatomic_Site",
+            "filler": "C12246",
+            "filler_label": "Hypopharynx",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "2 ambiguous filler(s) on R101/R105 left unresolved (D16/D21) \u2014 SME must pick the intended value or confirm co-equal.",
+        "R88 carries 2 staging-SYSTEM fillers (e.g., AJCC v6 and v7) alongside the stage value. If op:StageSystem is accepted, this concept will have 2 op:StageSystem constituents against one stage value. Confirm that the stage value is genuinely version-agnostic.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12246 (Hypopharynx) is both a primary-site tie candidate (needs_review) and an associated site (additional_anatomic). Resolve axis before tie resolution."
+      ],
+      "_stats": {
+        "roles_walked": 10,
+        "candidates_total": 10,
+        "curated": 5
+      }
+    },
+    "C8515": {
+      "label": "Stage III Colorectal Cancer AJCC v6",
+      "genus": {
+        "code": "C90506",
+        "label": "Colorectal Cancer by AJCC v6 Stage"
+      },
+      "morphology": {
+        "code": "C2955",
+        "label": "Colorectal Carcinoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27970"
+        ],
+        [
+          "R105",
+          "C36779"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12378"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C54189"
+        ],
+        [
+          "op:Morphology",
+          "C2955"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27970",
+            "filler_label": "Stage III",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R105",
+            "axis_label": "Disease_Has_Abnormal_Cell",
+            "filler": "C36779",
+            "filler_label": "Malignant Epithelial Cell",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12378",
+            "filler_label": "Digestive System",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C54189",
+            "filler_label": "Colorectal Region",
+            "axis_source": "role",
+            "group": "op:AssociatedRegion"
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C2955",
+            "filler_label": "Colorectal Carcinoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90529",
+            "filler_label": "AJCC v6 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "out_of_scope": [
+          {
+            "axis": "R115",
+            "axis_label": "Disease_May_Have_Finding",
+            "filler": "C26682",
+            "filler_label": "Abdominal Pain",
+            "axis_source": "role",
+            "needs_review": true,
+            "tie_among_out_of_scope": true
+          },
+          {
+            "axis": "R115",
+            "axis_label": "Disease_May_Have_Finding",
+            "filler": "C3038",
+            "filler_label": "Fever",
+            "axis_source": "role",
+            "needs_review": true,
+            "tie_among_out_of_scope": true
+          },
+          {
+            "axis": "R115",
+            "axis_label": "Disease_May_Have_Finding",
+            "filler": "C3445",
+            "filler_label": "Weight Loss",
+            "axis_source": "role",
+            "needs_review": true,
+            "tie_among_out_of_scope": true
+          },
+          {
+            "axis": "R115",
+            "axis_label": "Disease_May_Have_Finding",
+            "filler": "C37930",
+            "filler_label": "Constipation",
+            "axis_source": "role",
+            "needs_review": true,
+            "tie_among_out_of_scope": true
+          },
+          {
+            "axis": "R115",
+            "axis_label": "Disease_May_Have_Finding",
+            "filler": "C78438",
+            "filler_label": "Lower Gastrointestinal Hemorrhage",
+            "axis_source": "role",
+            "needs_review": true,
+            "tie_among_out_of_scope": true
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "5 multi-filler tie(s) on R114/R115 \u2014 routed to out_of_scope (not needs_review) per axes philosophy."
+      ],
+      "_stats": {
+        "roles_walked": 10,
+        "candidates_total": 10,
+        "curated": 5
+      }
+    },
+    "C87138": {
+      "label": "Stage IIIC Uterine Sarcoma AJCC v7",
+      "genus": {
+        "code": "C8260",
+        "label": "Stage III Uterine Sarcoma AJCC v7"
+      },
+      "morphology": {
+        "code": "C6339",
+        "label": "Uterine Corpus Sarcoma"
+      },
+      "constituents": [
+        [
+          "R88",
+          "C27982"
+        ],
+        [
+          "R101",
+          "C12316"
+        ],
+        [
+          "op:AssociatedRegion",
+          "C12471"
+        ],
+        [
+          "op:Morphology",
+          "C6339"
+        ]
+      ],
+      "needs_review": [],
+      "review_buckets": {
+        "curated_projection": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C27982",
+            "filler_label": "Stage IIIC",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "R101",
+            "axis_label": "Disease_Has_Primary_Anatomic_Site",
+            "filler": "C12316",
+            "filler_label": "Corpus Uteri",
+            "axis_source": "role"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "axis_label": "op:AssociatedRegion",
+            "filler": "C12471",
+            "filler_label": "Soft Tissue",
+            "axis_source": "role",
+            "most_specific": true
+          },
+          {
+            "axis": "op:Morphology",
+            "axis_label": "op:Morphology",
+            "filler": "C6339",
+            "filler_label": "Uterine Corpus Sarcoma",
+            "axis_source": "parent"
+          }
+        ],
+        "stage_system_split": [
+          {
+            "axis": "R88",
+            "axis_label": "Disease_Is_Stage",
+            "filler": "C90530",
+            "filler_label": "AJCC v7 Stage",
+            "axis_source": "role",
+            "proposed_axis": "op:StageSystem"
+          }
+        ],
+        "additional_anatomic": [
+          {
+            "axis": "R100",
+            "axis_label": "Disease_Has_Associated_Anatomic_Site",
+            "filler": "C12316",
+            "filler_label": "Corpus Uteri",
+            "axis_source": "role"
+          }
+        ]
+      },
+      "review_flags": [
+        "R88 carries a staging-SYSTEM filler alongside the stage value (R88 overload, lit-review \u00a76). Golden convention routes the system to op:StageSystem, which is NOT an implemented axis \u2014 confirm the split and whether to add the axis.",
+        "Associated (R100) / metastatic (R102) anatomic sites present \u2014 SME decides if these belong in the curated projection or only the lossless record.",
+        "Same anatomy code C12316 (Corpus Uteri) appears in both curated_projection and additional_anatomic \u2014 double-count risk."
+      ],
+      "_stats": {
+        "roles_walked": 6,
+        "candidates_total": 6,
+        "curated": 4
+      }
     }
   }
 }
