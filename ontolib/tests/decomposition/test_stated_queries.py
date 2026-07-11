@@ -15,6 +15,7 @@ from ontolib.decomposition.stated_queries import (
     build_semantic_type_query,
     resolve_morphology_filler,
     resolve_starting_genus,
+    walk_genus_chain,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -350,3 +351,59 @@ def test_staging_label_markers_identify_staging_concepts(label: str) -> None:
 )
 def test_staging_label_markers_do_not_match_morphology_concepts(label: str) -> None:
     assert _is_staging_concept_label(label) is False
+
+
+@pytest.mark.unit
+async def test_walk_genus_chain_populates_anchoring_genus() -> None:
+    """The walker must record which genus anchored each restriction so D20 lineage
+    routing (``filler_selection.route_axis``) can fire. Regression guard for the
+    PR-B gap where ``anchoring_genus`` was left ``None`` on the walker path, which
+    silently disabled ``op:AssociatedLineageClassification`` routing entirely.
+    """
+    restriction_row: dict[str, str | None] = {
+        "member": "_:r1",
+        "type": OWL_NS + "Restriction",
+        "role": _iri("R101"),
+        "target": _iri("C12704"),
+        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+    }
+
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        # C6135 (start, depth 0) has the lineage-generic genus C3809 as a member.
+        if "#C6135>" in query:
+            return [{"member": _iri("C3809"), "type": None}]
+        # C3809 (depth 1) anchors the overloaded R101 -> Endocrine Gland restriction.
+        if "#C3809>" in query:
+            return [restriction_row]
+        return []
+
+    roles = await walk_genus_chain(fake_select, "C6135", max_depth=3)
+
+    lineage = [r for r in roles if r.filler_code == "C12704"]
+    assert len(lineage) == 1
+    assert lineage[0].role_code == "R101"
+    # The genus that anchored the restriction, not the starting concept.
+    assert lineage[0].anchoring_genus == "C3809"
+
+
+@pytest.mark.unit
+async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> None:
+    """A restriction found directly on the starting concept is anchored on that
+    concept's own code (depth 0), not left ``None``."""
+    restriction_row: dict[str, str | None] = {
+        "member": "_:r0",
+        "type": OWL_NS + "Restriction",
+        "role": _iri("R88"),
+        "target": _iri("C27970"),
+        "roleLabel": "Disease_Is_Stage",
+    }
+
+    async def fake_select(query: str) -> list[dict[str, str | None]]:
+        if "#C6135>" in query:
+            return [restriction_row]
+        return []
+
+    roles = await walk_genus_chain(fake_select, "C6135", max_depth=2)
+
+    assert len(roles) == 1
+    assert roles[0].anchoring_genus == "C6135"

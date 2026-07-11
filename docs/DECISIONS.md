@@ -2,6 +2,76 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-11 — SME review: organ-level R101 principle, op: namespace approval, and minted concepts
+
+### D23. R101 resolution = the named organ (SME-approved principle); `op:StageSystem`, `op:MolecularAbnormality`, `op:MetastaticSite` are first-class axes; minted concepts for missing NCIt terms are tracked in git
+SME review of the draft golden set (30 neoplasm concepts) produced a single governing rule that supersedes the per-cancer tie-resolution table in prior drafts, ratified the `op:` namespace for decomposition axes, identified two structural bugs, and required minted concepts for NCIt gaps. Recording all SME decisions as load-bearing.
+
+**The organ-level principle (from C134930 note):**
+> "If the emphasis is on the primary site of the tumor then **the organ is typically correct** — the tumor extent which might involve additional structures is a separate concern and **should not be conflated** — this concern is captured in the stage definition of the staging system!"
+
+**R101 = the named organ.** Not the super-system above it. Not the subsite/lobe below it. Extent/spread belongs to **stage**; metastasis belongs to a **separate site axis**.
+
+**Part 1: SME-validated organ-code lookup**
+
+| Morphology Context | Organ Code | Label | Notes |
+|--------------------|------------|-------|-------|
+| Thyroid Carcinoma | C12400 | Thyroid Gland | Prior draft used C75102 (incorrect) |
+| Gastric (non-EGJ) | C12391 | Stomach | NOT C13307 "Gastric" |
+| Gastric (EGJ) | C32668 | Gastroesophageal Junction | |
+| Small Intestine | C12386 | Small Intestine | Organ level, not subsite |
+| Colorectal | C19184 | Colon, Rectum | Composite staging organ |
+| Cervical | C12311 | Cervix Uteri | Corpus extension disregarded |
+| Lung | C12468 | Lung | |
+| Breast | C12971 | Breast | |
+| Gallbladder | C12377 | Gallbladder | |
+| Pancreas | C12393 | Pancreas | |
+| Urethra | C12417 | Urethra | |
+| Hypopharynx | C12246 | Hypopharynx | |
+| Esophagus+GEJ | C203674 | Esophagus and Gastroesophageal Junction | Composite |
+
+**Part 2: `op:` namespace approved**
+
+All proposal axes from D23 draft are ratified:
+- `op:StageSystem` — **approved** (29/30 concepts yes; 1 data fix)
+- `op:MolecularAbnormality` (R106) — **must be kept**; PR/ER/HER2 is the textbook case per SME setting change
+- `op:MetastaticSite` (R102) — **first-class axis**; distinct from R101 per SME note on brain metastasis of breast tumor
+- `op:PrimarySite` (R101) — organ per Part 1
+- `op:CellType` (R105) — histology
+- `op:AssociatedSite` (R100) — non-primary, non-metastatic
+- `op:ClinicalFinding` (R114) — probabilistic, not defining (SME distinction: `Has_*` = defining; `May_Have_*` = optional)
+- `op:CellOrigin` (R115) — lineage, optional per above
+
+**Part 3: Settings model change**
+
+| Setting | Old | New | SME Note |
+|---------|-----|-----|----------|
+| `drop_out_of_scope` | yes | **SPLIT per role** | R106 keep; R114/R115 may drop |
+| `include_associated_sites` | yes | **maybe** | Metastatic sites need separate axis |
+
+**Part 4: Collisions = Both**
+
+Same anatomy code legitimately appears on multiple axes (primary + associated). No cross-axis deduplication.
+
+**Part 5: Minted concepts for NCIt gaps**
+
+SME identified that C27787 (testicular NSGCT) has no suitable NCIt cell type. Decision: **mint temporary ID** `MINT-3a7f2c8e901d` for "Malignant Non-Seminomatous Germ Cell" with parent C12917. Minted concepts tracked in `ontolib/tests/decomposition/golden/minted-concepts.json` (git-tracked) for reproducibility.
+
+**Part 6: Structural bugs identified**
+
+1. **C8515** — AJCC v6 concepts missing R88 fillers; walker/q uery gap vs v7/v8
+2. **C208097** — SME preferred C19184 (Colon, Rectum) not in walker's R101 candidates; clinical staging convention overrides OWL-stated narrower code
+
+**Why this matters:**
+- Replaces per-cancer lookup table with a single principled rule (D22's univocal relation)
+- Validates the entire `op:` namespace proposal (D17/D20 era)
+- Establishes minted-concept workflow for NCIt gaps (reproducible, git-tracked)
+- Flags two bugs blocking golden set completion
+
+**Evidence:** `tmp/plans/D23-site-specific-resolution-and-role-naming.md`, `tmp/plans/sme_decisions.json`, `ontolib/tests/decomposition/golden/minted-concepts.json`, SME Review Workbook.
+
+---
+
 ## 2026-07-10 — literature grounding: univocal relations, relation-quality-first, and the goal-4 grammar template
 
 ### D22. The `op:` axes are univocal relations in the OBO Relation Ontology sense; relation quality gates coverage; goal 4's grammar is SCG/ECL/MRCM + sanctioning — grounded in a peer-reviewed review

@@ -146,9 +146,14 @@ async def test_c6135_genus_walk_finds_roles() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
     """After the genus-chain walker, feeding roles through ``select_constituents``
-    with ``semantic_type_of`` should apply D19/D20 axis routing."""
+    with ``semantic_type_of`` should apply D19/D20 axis routing.
+
+    Marked @slow because it walks a depth-6 genus chain against the full stated
+    build, which can take 30-60s on a cold store.
+    """
     url = _url()
     if not _reachable(url):
         pytest.skip(f"NCIt Oxigraph not reachable at {url}")
@@ -194,11 +199,26 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
     region_axes_12418 = {c.axis for c in constituents if c.filler_code == "C12418"}
     assert "op:AssociatedRegion" in region_axes_12418
 
+    # R101 fillers anchored on a lineage-generic genus (C3809 Neuroendocrine
+    # Neoplasm, in C6135's chain) route to op:AssociatedLineageClassification
+    # (D20 refinement 1). This exercises the walker's anchoring_genus population
+    # end-to-end — the gap that silently disabled lineage routing before.
+    lineage = {
+        c.filler_code
+        for c in constituents
+        if c.axis == "op:AssociatedLineageClassification"
+    }
+    assert "C12704" in lineage  # Endocrine Gland, anchored on C3809
+
 
 @pytest.mark.integration
+@pytest.mark.slow
 async def test_resolve_morphology_filler_for_c6135() -> None:
     """The morphology filler for C6135 should be C3879 (Thyroid Gland Medullary
-    Carcinoma), not the staging genus C141041."""
+    Carcinoma), not the staging genus C141041.
+
+    Marked @slow for the same reason as test_c6135_walked_roles_route_d19_d20.
+    """
     url = _url()
     if not _reachable(url):
         pytest.skip(f"NCIt Oxigraph not reachable at {url}")
