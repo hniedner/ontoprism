@@ -294,3 +294,8 @@ token = { env = "GH_TOKEN" }
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = false
+
+[dependency-groups]
+dev = [
+    "openpyxl>=3.1.5",
+]
