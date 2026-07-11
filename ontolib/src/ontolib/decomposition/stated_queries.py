@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -303,15 +304,22 @@ def build_in_scope_concepts_query(
 # set found deeper than the starting concept's own level are filtered as
 # generic neoplasm biology, not specific to a given concept. Extended as new
 # valid axes are validated against the golden oracle.
+#
+# Labels below are the live NCIt rdfs:label values (verified against the stated
+# build, 2026-07). NOTE: R106 (molecular) and R135 (an Excludes_* negative axiom)
+# are collected here but are arguably out of scope for label decomposition — R135
+# is dropped downstream by filter_excluded; R106 surfaces molecular findings (e.g.
+# gene mutations). Their membership is a scope question flagged for review, not a
+# validated inclusion.
 _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
     {
-        "R88",  # Disease_Has_Associated_Site
-        "R101",  # Disease_Has_Normal_Cell_Origin
-        "R100",  # Disease_Has_Primary_Anatomic_Site
-        "R102",  # Disease_Has_Associated_Anatomic_Site
+        "R88",  # Disease_Is_Stage
+        "R101",  # Disease_Has_Primary_Anatomic_Site
+        "R100",  # Disease_Has_Associated_Anatomic_Site
+        "R102",  # Disease_Has_Metastatic_Anatomic_Site
         "R105",  # Disease_Has_Abnormal_Cell
-        "R106",  # (stage)
-        "R135",  # Disease_Has_Grade
+        "R106",  # Disease_Has_Molecular_Abnormality (see scope note above)
+        "R135",  # Disease_Excludes_Primary_Anatomic_Site (see scope note above)
     }
 )
 
@@ -332,12 +340,16 @@ def _collect_new_roles(
     depth: int,
     seen: set[tuple[str, str]],
     dest: list[RoleRestriction],
+    anchoring_genus: str,
 ) -> None:
     for r in roles:
         key = (r.role_code, r.filler_code)
         if (depth == 0 or r.role_code in _CORE_NEOPLASM_ROLES) and key not in seen:
             seen.add(key)
-            dest.append(r)
+            # Record the genus this restriction was found on so D20 lineage
+            # routing (filler_selection.route_axis) can key on it. Without this
+            # the op:AssociatedLineageClassification axis never fires.
+            dest.append(replace(r, anchoring_genus=anchoring_genus))
 
 
 async def _process_walk_node(
@@ -358,7 +370,7 @@ async def _process_walk_node(
         return
 
     roles, genuses = genus_walk_rows_to_roles_and_genuses(member_rows)
-    _collect_new_roles(roles, depth, seen_pairs, all_roles)
+    _collect_new_roles(roles, depth, seen_pairs, all_roles, current)
 
     for g in genuses:
         if g not in visited:
