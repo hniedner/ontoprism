@@ -118,3 +118,28 @@ def test_lineage_generic_genera_is_frozenset_of_codes() -> None:
 @pytest.mark.unit
 def test_organ_semantic_type_constant() -> None:
     assert ORGAN_SEMANTIC_TYPE == "Body Part, Organ, or Organ Component"
+
+
+@pytest.mark.unit
+def test_lineage_generic_genera_scope_is_endocrine_only() -> None:
+    """LINEAGE_GENERIC_GENERA is validated for endocrine/neuroendocrine lineage.
+
+    D20 specifies the whitelist {C3010, C3809, C3773} was confirmed via C6135.
+    Other lineage families (hematopoietic, germ cell) may need additional genera
+    but are not yet validated. This test documents the current scope.
+
+    Expansion requires:
+    1. Empirical evidence from NCIt showing R101 restrictions on candidate genera
+    2. Manual review confirming the genus represents lineage/histology classification
+    3. Addition to D20 decision record
+    """
+    # All current members are endocrine/neuroendocrine
+    expected = frozenset({"C3010", "C3809", "C3773"})
+    assert expected == LINEAGE_GENERIC_GENERA
+    # C3010 = Endocrine Neoplasm, C3809 = Neuroendocrine Neoplasm,
+    # C3773 = Neuroendocrine Carcinoma
+
+    # Hematopoietic genera (C3209 Hematopoietic Neoplasm) are NOT in list
+    assert "C3209" not in LINEAGE_GENERIC_GENERA
+    # Germ cell genera (C4144 Germ Cell Neoplasm) are NOT in list
+    assert "C4144" not in LINEAGE_GENERIC_GENERA
