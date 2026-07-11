@@ -1,0 +1,20 @@
+[
+  {
+    "id": "MINT-3a7f2c8e901d",
+    "axis": "op:CellType",
+    "proposed_name": "Malignant Non-Seminomatous Germ Cell",
+    "source_concept": "C27787",
+    "source_signal": "SME New Concept Proposal — no existing NCIt cell type for testicular NSGCT",
+    "rationale": "A malignant human germ cell type characterized by differentiated, non-seminomatous embryonic or extraembryonic lineages—including embryonal carcinoma, yolk sac tumor, choriocarcinoma, or teratoma structural variations. These cells are typically aggressive, display variable secretion of tumor markers (AFP and/or beta-hCG), and are capable of rapid metastatic progression.",
+    "parent_concept": "C12917",
+    "semantic_type": "Cell",
+    "synonyms": [
+      "Malignant Nonseminomatous Germ Cell",
+      "NSGCT Cell",
+      "Malignant Mixed Germ Cell"
+    ],
+    "sme_status": "proposed",
+    "sme_notes": "File with NCI EVS for inclusion in NCIt; golden set entry for C27787 blocked until concept is added.",
+    "created": "2026-07-11"
+  }
+]
