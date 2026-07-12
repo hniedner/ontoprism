@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -137,3 +138,145 @@ async def test_upsert_minted_concept_never_overwrites_an_existing_row() -> None:
     executed_sql = str(sf().execute.call_args.args[0])
     assert "DO NOTHING" in executed_sql
     assert "DO UPDATE" not in executed_sql
+
+
+@pytest.mark.unit
+async def test_list_runs_returns_summaries_with_parsed_metrics() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "run-1",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.05d",
+            "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
+            "finished_at": datetime.datetime(2026, 7, 12, 1, 0, tzinfo=datetime.UTC),
+            "metrics": '{"total_in_scope":5,"decomposed":3,"residual":2,'
+            '"minted_count":1,"pct_decomposed":0.6,"roundtrip_fidelity":0.95}',
+        },
+    ]
+    store = ProvenanceStore(sf)
+    runs = await store.list_runs()
+    assert len(runs) == 1
+    r = runs[0]
+    assert r.id == "run-1"
+    assert r.branch == "neoplasm"
+    assert r.status == "complete"
+    assert r.ncit_version == "26.05d"
+    assert r.total_in_scope == 5
+    assert r.decomposed == 3
+    assert r.residual == 2
+    assert r.minted_count == 1
+    assert r.pct_decomposed == 0.6
+    assert r.roundtrip_fidelity == 0.95
+    assert r.finished_at is not None
+
+
+@pytest.mark.unit
+async def test_list_runs_metrics_none_when_null() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "run-2",
+            "branch": "neoplasm",
+            "status": "running",
+            "ncit_version": "26.05d",
+            "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
+            "finished_at": None,
+            "metrics": None,
+        },
+    ]
+    store = ProvenanceStore(sf)
+    runs = await store.list_runs()
+    assert len(runs) == 1
+    r = runs[0]
+    assert r.status == "running"
+    assert r.total_in_scope is None
+    assert r.decomposed is None
+    assert r.residual is None
+    assert r.minted_count is None
+    assert r.pct_decomposed is None
+    assert r.roundtrip_fidelity is None
+    assert r.finished_at is None
+
+
+@pytest.mark.unit
+async def test_list_runs_empty_when_no_rows() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = []
+    store = ProvenanceStore(sf)
+    runs = await store.list_runs()
+    assert runs == []
+
+
+@pytest.mark.unit
+async def test_get_run_found() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.first.return_value = {
+        "id": "run-1",
+        "branch": "neoplasm",
+        "status": "complete",
+        "ncit_version": "26.05d",
+        "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
+        "finished_at": None,
+        "metrics": None,
+    }
+    store = ProvenanceStore(sf)
+    run = await store.get_run("run-1")
+    assert run is not None
+    assert run.id == "run-1"
+
+
+@pytest.mark.unit
+async def test_get_run_not_found() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.first.return_value = None
+    store = ProvenanceStore(sf)
+    run = await store.get_run("nonexistent")
+    assert run is None
+
+
+@pytest.mark.unit
+async def test_list_minted_concepts_returns_all() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "MINT-abc",
+            "run_id": "run-1",
+            "axis": "op:Laterality",
+            "label": "Left",
+            "source_signal": "Left Atrial Myxoma",
+            "status": "proposed",
+        },
+    ]
+    store = ProvenanceStore(sf)
+    mints = await store.list_minted_concepts()
+    assert len(mints) == 1
+    m = mints[0]
+    assert m.id == "MINT-abc"
+    assert m.run_id == "run-1"
+    assert m.axis == "op:Laterality"
+    assert m.label == "Left"
+    assert m.source_signal == "Left Atrial Myxoma"
+    assert m.status == "proposed"
+
+
+@pytest.mark.unit
+async def test_list_minted_concepts_filtered_by_run_id_and_status() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = []
+    store = ProvenanceStore(sf)
+    mints = await store.list_minted_concepts(run_id="run-1", status="approved")
+    assert mints == []
+    # Verify both filters were passed as the second positional argument to execute.
+    args, _ = sf().execute.call_args
+    params = args[1]
+    assert params["run_id"] == "run-1"
+    assert params["status"] == "approved"
