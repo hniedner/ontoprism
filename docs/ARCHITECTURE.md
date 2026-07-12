@@ -11,9 +11,11 @@ D1–D2) and adding a decomposition engine.
 ontoprism/
 ├── pyproject.toml            # root PDM project (distribution=false), tool config, test scripts
 ├── conftest.py               # puts ontolib/src & backend/src on sys.path (see DECISIONS D6)
-├── docker-compose.yml        # postgres + oxigraph-ncit(:7878) + oxigraph-uberon(:7879)
+├── docker-compose.yml        # postgres(:5433) + oxigraph-ncit(:7888) + oxigraph-uberon(:7889)
 ├── Makefile  .env.example
-├── .github/workflows/ci.yml  # backend (ruff+basedpyright+cov) + web (eslint+check+vitest)
+├── .github/workflows/       # ci (path-filtered: quality/backend/coverage/web/integration
+│                            #   + ci-summary) + release + security (codeql default setup,
+│                            #   dependency-review, scorecard/OpenSSF) + update-readme + pr-title
 ├── ontolib/                  # LIFTED library — import name `ontolib`
 │   ├── pyproject.toml        #   editable package (src layout)
 │   ├── src/ontolib/
@@ -30,14 +32,15 @@ ontoprism/
 │   │   └── api/…/routers/    #   repo/graph/search/sparql/refresh + decomp (M6)
 │   └── tests/
 ├── frontend/                 # LIFTED SvelteKit 5 app (M4)
-└── docs/  ARCHITECTURE.md  DECISIONS.md  DATA_SETUP.md  design/
+└── docs/  ARCHITECTURE.md  ROADMAP.md  DECISIONS.md  DATA_SETUP.md  design/  postcoordination-literature-review.md
 ```
 
 ## Data planes
 
 - **Oxigraph (SPARQL)** — the ontology graph. Source NCIt graph is read-only; the
   decomposition engine writes a separate `ncit_decomposed` named graph (additive, never
-  mutating the source). NCIt on :7878, Uberon on :7879.
+  mutating the source). NCIt on :7888, Uberon on :7889 (Postgres :5433) — ports are
+  offset from the sibling `fairdata` app so both can run at once.
 - **PostgreSQL** — concept metadata/FTS cache, decomposition run state, provenance
   (`decomp_run`, `decomp_constituent`, `minted_concept`), and the caDSR read tables.
 

@@ -4,6 +4,28 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 ## 2026-07-12 — repository hardening for a public, bad-actor-resistant posture
 
+### D31. Repository made public; free security scanning + committed security workflows enabled
+Follows D30. A full secret-history audit (`gh secret list`, gitleaks over all 120 commits + all
+tags, a supplementary regex sweep, and `.env`/key-file checks) found **no secrets** in the repo,
+GitHub Actions secrets, or history — so the repo was flipped to **public**.
+
+**Decision:** on going public we enabled the features that are free for public repos —
+**secret scanning + push protection**, **private vulnerability reporting**, and **fork-PR
+workflow approval for all outside contributors** — and added committed security workflows:
+**CodeQL** (default setup, python + js/ts + actions; Copilot Autofix on), **dependency-review**
+(blocks high-severity/disallowed-license deps on PRs), and **OpenSSF Scorecard** (weekly + on
+push; SARIF → code scanning). Supply-chain hardening: all GitHub Actions are **SHA-pinned**,
+Docker base images are **digest-pinned**, Dependabot covers **github-actions + npm + docker**
+with a 7-day **cooldown**, and a **zizmor** pre-commit hook catches workflow-security regressions
+(unpinned actions, excessive token perms, credential persistence) locally before CI.
+
+**Why:** these close the D30 "deferred to the public flip" list and make the workflow-level
+Scorecard checks enforceable locally. The two secret-scanning sub-features (non-provider patterns,
+validity checks) require paid GitHub Secret Protection and are unavailable on a personal free
+account; three CodeQL `py/path-injection` alerts were verified false positives (guarded by
+`_resolve_allowed`'s allowlist + API-key auth) and dismissed with justification. Full require-PR/CI
+enforcement on `main` remains gated on a release-bot credential (D30).
+
 ### D30. `main` integrity is enforced by a ruleset; require-PR/CI is documented but gated on a bot credential
 After the release-pipeline fix (#92) nothing *structurally* protected `main`. We hardened
 the repository's GitHub settings toward a safe public posture.

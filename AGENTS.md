@@ -93,6 +93,12 @@ Frontend hooks (`cd frontend`): `npx eslint src/ --max-warnings=0`, `npm run che
 (svelte-check), `npm run fallow` (cross-file dead-code/cycle/duplication gate — only
 fails on findings introduced vs `origin/main`, needs full git history).
 
+Security gates (public repo, see D30/D31): `zizmor` pre-commit hook lints workflow security
+(unpinned actions, excessive `GITHUB_TOKEN` perms, credential persistence) — keep actions
+SHA-pinned and Docker base images digest-pinned. CI also runs CodeQL (default setup),
+dependency-review, and OpenSSF Scorecard; Dependabot (github-actions/npm/docker, 7-day
+cooldown) + secret scanning + push protection are enabled repo-side.
+
 ## Architecture notes not obvious from the code
 
 - **NCIt roles are OWL existential restrictions**, not direct triples
