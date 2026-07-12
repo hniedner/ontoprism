@@ -183,6 +183,9 @@ ignore = [
 [tool.coverage.run]
 source = ["ontolib/src", "backend/src", "scripts/dev"]
 branch = true
+# Store relative paths so .coverage is portable across CI jobs (the coverage-verify
+# job downloads it from backend-tests and reports in a fresh checkout).
+relative_files = true
 
 [tool.coverage.report]
 show_missing = true
