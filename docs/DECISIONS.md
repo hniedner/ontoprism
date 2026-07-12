@@ -29,6 +29,16 @@ axis covers grade/laterality). This turns an unfalsifiable assertion into an aud
 systematic mechanism the requirement demands. Evidence: ISO/IEC 11179; Covitz 2003; Nadkarni & Brandt
 2006; Jiang 2011/2012.
 
+**Field-level reconciliation (2026-07-11, verified against the code — see
+`tmp/plans/phaseA-verified-assumptions.md`):** caDSR is a read-only **SQLite** repository, not Postgres.
+The enumerable NCIt code is `cde_concepts.concept_code`; `concept_type`'s real vocabulary is
+`{object_class, property, representation, value_meaning}` (the DEC is a derived grouping in a separate
+`cde_decs` table). Value meanings are already first-class rows (`concept_type='value_meaning'`), so
+`C_cadsr` enumerates from the single `cde_concepts` table; `permissible_value.meaning_code` (in `cde_json`)
+is a cross-check, not the primary surface. Whole-DB denominators: 79,827 CDEs / 996,162 links /
+**64,001 distinct concept codes** — empirically confirming `C_cadsr` ⊄ `C_roles`. The decision (target set
++ published coverage number) is unchanged; only the field-level mechanics are corrected.
+
 ### D28. Mapping validation must be non-circular, SSSOM-recorded, EL-profiled, and backed by committed reasoner infrastructure (or explicitly downgraded)
 D25 said "DL oracle confirms exactMatch." Under-specified in two dangerous ways (red-team C2, H1;
 lit F12/F13). SKOS mapping properties are **annotation properties with no logical semantics** — feeding

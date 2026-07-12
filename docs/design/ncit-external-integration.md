@@ -581,9 +581,15 @@ Let:
 - `C_roles` = distinct NCIt concepts that are role-target fillers of in-scope decomposed concepts
   (~20K, assessment §3.2).
 - `C_cadsr` = distinct NCIt concept codes referenced by **in-scope caDSR CDEs**, enumerated from the
-  caDSR read model across **every** anchor surface: all `ConceptLink.concept_type` values (object
-  class, property, DEC — including qualifier concepts in post-coordinated components) **and** all
-  `PermissibleValue.meaning_code` values (value-domain value meanings).
+  caDSR read model across **every** anchor surface. *(Codebase-verified 2026-07-11, see
+  `tmp/plans/phaseA-verified-assumptions.md`.)* Concretely: the codes are the distinct
+  `cde_concepts.concept_code` values in the caDSR **SQLite** repository (`settings.cadsr_db_path`, read via
+  `CdeRepository`), partitioned by `cde_concepts.concept_type ∈ {object_class, property, representation,
+  value_meaning}`. Value-domain value meanings are already first-class rows here
+  (`concept_type='value_meaning'`), so they enumerate from the same single table — the
+  `PermissibleValue.meaning_code` field parsed from `cde_json` is only a redundant cross-check, not the
+  primary surface. The DEC is a derived grouping (separate `cde_decs` table). Post-coordinated components
+  appear as multiple `cde_concepts` rows for one CDE and must be counted whole.
 - **Mapping target `M = C_roles ∪ C_cadsr`.** The caDSR guarantee is about `C_cadsr`; the
   decomposition/cross-product story is about `C_roles`; they overlap but neither contains the other.
 
