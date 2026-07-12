@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "description": "Curated NCIt->upstream gold mappings for scoring issue #76 (xref precision/recall).",
+    "ncit_version": "26.02d",
+    "object_sources": ["UBERON"],
+    "curated_by": "seed (engine) — REQUIRES SME sign-off before treated as a hard oracle",
+    "status": "seed",
+    "notes": [
+      "subject_id = bare NCIt code; object_id = CURIE matching candidate_ingest._iri_to_curie output.",
+      "predicate_id = full SKOS IRI, matching ontolib.repositories.xref.vocab values.",
+      "exactMatch = interchangeable senses (identity-grade); narrowMatch = object is NARROWER than the NCIt subject.",
+      "Anatomy IDs are standard Uberon organ classes; NCIt codes are from the SME-validated D23 organ table.",
+      "Composite NCIt staging organs (Colon,Rectum; Esophagus+GEJ) are deliberately NON-exact examples that exercise the scorer's predicate filter and must NOT count toward exactMatch precision.",
+      "Cell-origin (op:CellOrigin -> Cell Ontology) pairs are intentionally DEFERRED: NCIt normal-cell -> CL mappings need SME + Uberon/CL label verification before entering an oracle. See _pending_cell below."
+    ],
+    "_pending_cell": {
+      "axis": "op:CellOrigin",
+      "object_source": "CL",
+      "action": "SME to supply a first batch of NCIt normal-cell -> CL pairs; do not fabricate CL IDs."
+    }
+  },
+  "mappings": [
+    {"subject_id": "C12400", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0002046", "note": "Thyroid Gland = thyroid gland"},
+    {"subject_id": "C12468", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0002048", "note": "Lung = lung"},
+    {"subject_id": "C12971", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0000310", "note": "Breast = breast"},
+    {"subject_id": "C12393", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0001264", "note": "Pancreas = pancreas"},
+    {"subject_id": "C12377", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0002110", "note": "Gallbladder = gallbladder"},
+    {"subject_id": "C12386", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0002108", "note": "Small Intestine = small intestine"},
+    {"subject_id": "C12391", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0000945", "note": "Stomach = stomach"},
+    {"subject_id": "C12311", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0000002", "note": "Cervix Uteri = uterine cervix"},
+    {"subject_id": "C12417", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0000057", "note": "Urethra = urethra"},
+    {"subject_id": "C32668", "predicate_id": "http://www.w3.org/2004/02/skos/core#exactMatch", "object_id": "UBERON:0007650", "note": "Gastroesophageal Junction = esophagogastric junction (verified)"},
+    {"subject_id": "C19184", "predicate_id": "http://www.w3.org/2004/02/skos/core#narrowMatch", "object_id": "UBERON:0001155", "note": "Colon,Rectum (composite staging organ) -> colon: object is narrower; NON-exact example"},
+    {"subject_id": "C203674", "predicate_id": "http://www.w3.org/2004/02/skos/core#narrowMatch", "object_id": "UBERON:0001043", "note": "Esophagus and GEJ (composite) -> esophagus: object is narrower; NON-exact example"}
+  ]
+}

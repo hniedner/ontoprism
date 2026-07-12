@@ -118,6 +118,10 @@ cooldown) + secret scanning + push protection are enabled repo-side.
 
 ## Conventions
 
+- **Never commit directly to `main`.** All code changes, issue implementations, and fixes
+  must be on a dedicated branch (`feat/<slug>-<issue#>`, `fix/...`, `docs/...`) and land
+  via PR. The only exception is the auto-generated `Update README Code Stats` bot commit
+  pushed by CI (with `GITHUB_TOKEN`).
 - Branches: `feat/<slug>-<issue#>`, `fix/...`, `docs/...`; PRs merge into `main`.
 - **PR titles must be Conventional Commits** (`type(scope)?!?: subject`) — CI enforces
   this (`.github/workflows/pr-title.yml`), because the release workflow derives the
