@@ -10,7 +10,8 @@ here rather than left to drift a second time. Promote a decision below into
 
 **Currently-open issues** span the three unbuilt README goals and the external-integration
 epic: #4/#5/#6 (goals), #9/#57/#60/#61/#62 (decomposition + frontend), #18 (tracking), and
-the epic #70 with its Phase B–E children #75–#84 (#79/#77/#78/#75/#80/#81/#82/#83/#84).
+the epic #70. Phase-A children #71/#72/#73/#74 are **merged and closed**; #76 (golden mapping
+set + coverage generator) is the remaining open Phase-A item; Phase B–E are #75/#77/#78/#79/#80/#81/#82/#83/#84.
 Phase-A children #71/#72/#73/#74 are **merged and closed**. #5 and #6 are deliberately *not*
 designed yet — see §3 — that is the correct sequencing per their dependency on #4, not a gap.
 
@@ -35,7 +36,7 @@ non-circular + EL-profiled + reasoner-committed, and mapping economics/licensing
 | 2 | Decomposed ("atomic") NCIt | **Engine + SME golden-set curation loop landed (#45/#46/#47/#58/#59/#44 closed); golden-set expansion (#57) ongoing** — see §2 | #4, #9, #57, #60, #61, #62 |
 | 3 | Balanced concept graph | **Not started, correctly deferred** — see §3 | #5 |
 | 4 | Post-coordination expression syntax | **Not started**, but D19 puts its `--emit-equivalence` seam on goal 2's critical path — see §3; D24–D26 now bind its ranges to the upstream substrate — see §5 | #6 |
-| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **Phase A merged & closed (#71–#74); design-of-record + peer-review/red-team hardened (D24–D30); Phase B–E pending** — parallel enabling track — see §5 | #70 (#75–#84) |
+| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **Phase-A children #71–#74 merged & closed; #76 (golden mapping set) still open; design-of-record + peer-review/red-team hardened (D24–D30); Phase B–E pending** — parallel enabling track — see §5 | #70 (#75–#84) |
 
 Critical path (per #18): Phase 0 ✅ → Phase 1 ✅ → **#4 → #9 → #5 → #6**, with the
 external-integration track (#70/#71–#84) running **parallel to #44** and feeding goal 4 (§5). #9's read/serve
@@ -78,8 +79,8 @@ test); several docstring inaccuracies.
 2. **#44 research is underway — real progress, not yet done.** A naive full-corpus
    baseline run was executed (branch `neoplasm`, no limit): `in_scope=28967
    decomposed=939 residual=0 minted=87 coverage=3.24%` — real data, but from the known-
-   naive flat-restriction extractor, not the fix below; kept in Postgres/`tmp/
-   ncit_decomposed_neoplasm.ttl` as a labeled baseline, not the target dataset.
+   naive flat-restriction extractor, not the fix below; kept as a labeled local baseline in
+   Postgres, not the target dataset.
    Separately, the boundary-heuristic research (design §6.2's own scoped workstream) has
    produced two resolved decisions — **DECISIONS D14** (the stated pre-coordination
    hierarchy is a multi-parent DAG, not a linear chain — a naive single-parent walk
@@ -106,21 +107,20 @@ test); several docstring inaccuracies.
    same restriction in both the thyroid and lung test concepts). A refined,
    evidence-based strategy for this (classify anchoring *genus concepts* by sense,
    additively — not a global role-splitting rewrite) is recorded in D17. Two further
-   decisions then closed the last open items (`tmp/PLAN_44.md` §7): **D19** makes the
+   decisions then closed the last open items (DECISIONS D17 §7): **D19** makes the
    complete lossless `owl:equivalentClass` unfolding — multi-valued axes kept as
    SNOMED-style relationship groups — the reversible representation of record, and recasts
    the single most-specific view as an explicitly-lossy curated projection (most-specific
    collapse restricted to *nested* candidates only); **D20** commits `R101`'s two composable
    refinements (genus-sense classification first, filler-semantic-type ranking second).
-   Full narrative: `tmp/PLAN_44.md`. Remaining before #44 can graduate: update the golden
+   Full narrative: DECISIONS D14–D20. Remaining before #44 can graduate: update the golden
    set's C6135 entry per D15, expand the golden set to more concepts, implement the
    validated is-a/part-of extension in `filler_selection.py`, prototype D20's two R101
    refinements + D17's genus classification for the confirmed lineage-generic ancestors,
    and stand up D19's complete-representation layer behind `--emit-equivalence` (the
    round-trip artifact of record) with the single-valued output derived from it.
-3. **Once #44 crosses its ≥0.9 threshold**, graduate the extractor from
-   `scripts/decomposition_spike.py`/`tmp/differentia_extractor.py` into
-   `ontolib/decomposition/` (issue #44's own acceptance criteria) and wire it into
+3. **Once #44 crosses its ≥0.9 threshold**, graduate the extractor from the local research
+   spike into `ontolib/decomposition/` (issue #44's own acceptance criteria) and wire it into
    `_decompose_one` in place of the current flat query — this is the one place PR #45's
    own module docstring says a future extractor swap needs real changes, not a drop-in.
 4. **Re-run `pdm run decompose --branch neoplasm`** once #44's extractor graduates, to
@@ -156,8 +156,8 @@ pre-↔post equivalence surface. Rationale and citations:
 §8.4. A design for graph balancing (#5) or
 a post-coordination grammar (#6) written against zero real decomposed concepts would be
 guessing. Note the gate is *trustworthy* data, not *any* data: a full-corpus run has already
-happened (§2.1 step 2 — `in_scope=28967 decomposed=939 coverage=3.24%`,
-`tmp/ncit_decomposed_neoplasm.ttl`), but from the naive flat-restriction extractor. §2.1
+happened (§2.1 step 2 — `in_scope=28967 decomposed=939 coverage=3.24%`, a labeled local
+baseline), but from the naive flat-restriction extractor. §2.1
 step 4 is what produces a dataset worth designing against. When
 that first real run exists, the next planning action is a `docs/design/ncit-balancing.md`
 written *against its actual coverage metrics* — mirroring how the assessment doc was written
@@ -194,8 +194,9 @@ against real store queries before the engine was designed.
 **Parallel enabling track (§5): the external-integration epic #70 (#71–#84).** Phase A
 (xref framework + SSSOM store + named graph #71; open-license Uberon/CL candidate ingest #72;
 caDSR anchor-set enumeration #74; non-circular ELK/ROBOT validation harness #73) is **merged and
-closed** (PRs #86/#90/#89/#88). Phase B–E (#75–#84) are pending; they enrich the same `op:` axes
-#57 curates and do not consume the decomposition critical path.
+closed** (PRs #86/#90/#89/#88). The remaining Phase-A item is **#76** (golden mapping set + coverage
+generator); Phase B–E (#75, #77–#84) are pending; they enrich the same `op:` axes #57 curates and do
+not consume the decomposition critical path.
 
 ## 5. Strategy shift — NCIt as a specialization of the OBO/SNOMED substrate (D24–D26)
 
@@ -241,4 +242,4 @@ epics (#18, the external-integration epic #70) stay unassigned.
 | Goal 3 · Balanced graph | #5 |
 | Goal 4 · Post-coordination grammar | #6, #84 |
 
-Creation + assignment `gh` commands: `tmp/plans/external-integration-handover.md` §0.1b.
+Full issue drafts + `gh` creation/assignment commands: external-integration design doc Appendix A.
