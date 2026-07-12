@@ -239,6 +239,7 @@ def test_list_minted_concepts_with_limit_and_offset() -> None:
     assert body[1]["id"] == "MINT-2"
 
 
+@pytest.mark.api
 def test_list_runs_503_on_db_error() -> None:
     client = next(_client(_ErrorFakeStore()))
     resp = client.get("/api/v1/decomposition/runs")
