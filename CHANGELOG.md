@@ -19,6 +19,41 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.8.1 (2026-07-12)
+
+### Bug Fixes
+
+- **frontend**: Override cookie to ^0.7.0 (clear GHSA-pxg6-pf52-xh8x)
+  ([#101](https://github.com/hniedner/ontoprism/pull/101),
+  [`97b69b7`](https://github.com/hniedner/ontoprism/commit/97b69b772d15254d4a85e01f40d166555536d20d))
+
+- **frontend**: Override cookie to ^0.7.0 to clear GHSA-pxg6-pf52-xh8x
+  ([#101](https://github.com/hniedner/ontoprism/pull/101),
+  [`97b69b7`](https://github.com/hniedner/ontoprism/commit/97b69b772d15254d4a85e01f40d166555536d20d))
+
+### Chores
+
+- **security**: Dependabot config, SECURITY.md, and main-hardening decision (D30)
+  ([#94](https://github.com/hniedner/ontoprism/pull/94),
+  [`2596635`](https://github.com/hniedner/ontoprism/commit/2596635300e9c3466c4dd8a038f3ccbcf4283bc8))
+
+- **security**: Fix review findings on hardening PR
+  ([#94](https://github.com/hniedner/ontoprism/pull/94),
+  [`2596635`](https://github.com/hniedner/ontoprism/commit/2596635300e9c3466c4dd8a038f3ccbcf4283bc8))
+
+- **security**: Harden main + public-repo security posture (#93)
+  ([#94](https://github.com/hniedner/ontoprism/pull/94),
+  [`2596635`](https://github.com/hniedner/ontoprism/commit/2596635300e9c3466c4dd8a038f3ccbcf4283bc8))
+
+### Documentation
+
+- Update README code line-count table
+  ([`c77de48`](https://github.com/hniedner/ontoprism/commit/c77de48213ec88640fd51609e088efc215900aa8))
+
+- Update README code line-count table
+  ([`5420467`](https://github.com/hniedner/ontoprism/commit/54204670aa4a7873118dc99a3169f1dbfabdf149))
+
+
 ## v0.8.0 (2026-07-12)
 
 ### Bug Fixes
