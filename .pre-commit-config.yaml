@@ -62,6 +62,16 @@ repos:
     hooks:
       - id: gitleaks
 
+  # GitHub Actions security — catches unpinned actions (Scorecard Pinned-Dependencies),
+  # excessive GITHUB_TOKEN permissions (Token-Permissions), credential persistence,
+  # dangerous triggers, and template injection locally, before CI. Offline so it needs
+  # no GH token; justified findings are suppressed inline via `# zizmor: ignore[...]`.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.26.1
+    hooks:
+      - id: zizmor
+        args: ["--offline"]
+
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
     hooks:

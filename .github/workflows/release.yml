@@ -16,6 +16,9 @@ name: Release
 # main and requiring CI would make the invariant structural rather than incidental.
 
 on:
+  # zizmor: ignore[dangerous-triggers] — workflow_run is used deliberately and
+  # safely here: the guard step below refuses to release anything that is not
+  # main's exact CI-validated tip, and the job never checks out untrusted PR code.
   workflow_run:
     workflows: [CI]
     types: [completed]
