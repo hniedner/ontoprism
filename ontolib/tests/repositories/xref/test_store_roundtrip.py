@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy import text
 
@@ -15,12 +17,13 @@ from ontolib.repositories.xref.vocab import CLOSE_MATCH
 @pytest.mark.integration
 async def test_store_roundtrip() -> None:
     engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-roundtrip-{uuid.uuid4().hex}"
     try:
-        sf = make_sessionmaker(engine)
         store = XrefStore(sf)
 
         count = await store.upsert_run(
-            run_id="test-roundtrip",
+            run_id=run_id,
             source="uberon",
             ncit_version="26.02d",
             source_version="uberon-2026-01",
@@ -32,8 +35,8 @@ async def test_store_roundtrip() -> None:
                 subject_id="C3262",
                 predicate_id=CLOSE_MATCH,
                 object_id="UBERON:0002107",
-                mapping_justification="semapv:LexicalMatching",
-                confidence=0.8,
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=1.0,
                 subject_source_version="26.02d",
                 object_source_version="uberon-2026-01",
             ),
@@ -47,23 +50,25 @@ async def test_store_roundtrip() -> None:
                 object_source_version="cl-2026-01",
             ),
         ]
-        rows_written = await store.upsert_records("test-roundtrip", records)
+        rows_written = await store.upsert_records(run_id, records)
         assert rows_written == 2
 
-        read_back = await store.records_for_run("test-roundtrip")
+        read_back = await store.records_for_run(run_id)
         assert len(read_back) == 2
         assert {r["subject_id"] for r in read_back} == {"C3262", "C12345"}
         assert all(r["predicate_id"] == CLOSE_MATCH for r in read_back)
-        assert all(r["confidence"] in (0.7, 0.8) for r in read_back)
-
-        # Clean up test data
+        assert all(r["confidence"] in (0.7, 1.0) for r in read_back)
+    finally:
         async with sf() as s:
             await s.execute(
-                text("DELETE FROM concept_xref WHERE run_id = 'test-roundtrip'")
+                text("DELETE FROM concept_xref WHERE run_id = :rid"),
+                {"rid": run_id},
             )
-            await s.execute(text("DELETE FROM xref_run WHERE id = 'test-roundtrip'"))
+            await s.execute(
+                text("DELETE FROM xref_run WHERE id = :rid"),
+                {"rid": run_id},
+            )
             await s.commit()
-    finally:
         await dispose_engine(engine)
 
 

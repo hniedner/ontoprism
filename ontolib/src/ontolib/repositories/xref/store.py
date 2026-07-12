@@ -86,9 +86,11 @@ class XrefStore:
                 rows,
             )
             await s.commit()
-            if result.rowcount and result.rowcount >= 0:  # type: ignore[attr-defined]
-                return cast("int", result.rowcount)  # type: ignore[attr-defined]
-            return len(rows)
+            if result.rowcount is not None:  # type: ignore[attr-defined]
+                if result.rowcount >= 0:  # type: ignore[attr-defined]
+                    return cast("int", result.rowcount)  # type: ignore[attr-defined]
+                return len(rows)
+            return 0
 
     async def records_for_run(self, run_id: str) -> list[dict]:
         async with self._sf() as s:

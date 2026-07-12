@@ -23,6 +23,15 @@ class SSSOMRecord:
     author: str = ""
 
     def __post_init__(self) -> None:
+        for field in (
+            "subject_id",
+            "object_id",
+            "mapping_justification",
+            "subject_source_version",
+            "object_source_version",
+        ):
+            if not getattr(self, field):
+                raise ValueError(f"{field} must be non-empty")
         if self.predicate_id not in ALLOWED_PREDICATES:
             raise ValueError(f"predicate_id not allowed: {self.predicate_id}")
         if self.lifecycle_state not in LIFECYCLE_STATES:
