@@ -21,10 +21,11 @@ jobs:
       contents: write   # commit + push the regenerated README line-count table
     steps:
       - name: Checkout main branch
-        # zizmor: ignore[artipacked] — this job commits + pushes the README update,
-        # so it must keep the persisted token (persist-credentials cannot be false).
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
+          # This job commits + pushes the README update, so it keeps the persisted
+          # token (explicit `true` is zizmor's endorsed artipacked remediation).
+          persist-credentials: true
           ref: main
           fetch-depth: 0
       - name: Setup Python
