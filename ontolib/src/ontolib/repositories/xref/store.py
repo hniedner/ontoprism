@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import Result, text
 
@@ -91,6 +91,24 @@ class XrefStore:
                     return cast("int", result.rowcount)  # type: ignore[attr-defined]
                 return len(rows)
             return 0
+
+    async def update_run_metrics(self, run_id: str, metrics: dict[str, Any]) -> None:
+        """Set ``finished_at``, ``status='completed'``, and *metrics* on a run."""
+        now = datetime.datetime.now(datetime.UTC)
+        async with self._sf() as s:
+            await s.execute(
+                text(
+                    "UPDATE xref_run SET "
+                    "  finished_at = :now, status = 'completed', metrics = :metrics "
+                    "WHERE id = :run_id"
+                ),
+                {
+                    "run_id": run_id,
+                    "now": now,
+                    "metrics": metrics,
+                },
+            )
+            await s.commit()
 
     async def records_for_run(self, run_id: str) -> list[dict]:
         async with self._sf() as s:
