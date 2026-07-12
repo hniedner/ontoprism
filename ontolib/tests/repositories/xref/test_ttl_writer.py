@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from ontolib.repositories.xref.models import SSSOMRecord
-from ontolib.repositories.xref.ttl_writer import render_ttl
+from ontolib.repositories.xref.ttl_writer import _object_iri, render_ttl
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -62,3 +62,15 @@ def test_render_multiple_records() -> None:
 def test_render_empty_iterable() -> None:
     ttl = render_ttl([])
     assert ttl == "\n"
+
+
+@pytest.mark.unit
+def test_invalid_curie_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="object_id is not a CURIE"):
+        _object_iri("not-a-curie")
+
+
+@pytest.mark.unit
+def test_empty_curie_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="object_id is not a CURIE"):
+        _object_iri("")

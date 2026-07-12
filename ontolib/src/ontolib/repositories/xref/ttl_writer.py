@@ -19,6 +19,8 @@ _PREFIX_BASE = {
 
 
 def _object_iri(curie: str) -> str:
+    if ":" not in curie:
+        raise ValueError(f"object_id is not a CURIE (missing ':'): {curie!r}")
     prefix, _, local = curie.partition(":")
     base = _PREFIX_BASE[prefix]
     return f"<{base}{local}>"
