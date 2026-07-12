@@ -64,17 +64,16 @@ jobs:
         run: pdm install --dev
 
       - name: Run unit tests with coverage collection (no gate)
-        # pytest-cov 7.1 has a teardown crash on Python 3.13 (os.dup2 Bad FD)
-        # inside stop_global_capturing after all tests pass. It's harmless but
-        # yields non-zero exit code despite all tests passing.
-        # We capture the exit code: 0=pass, 1=real failure, 2+=teardown flake.
+        # Use `coverage run -m pytest` (no --cov flag) to avoid pytest-cov 7.1
+        # teardown crash on Python 3.13. pytest-cov's stop_global_capturing
+        # calls os.dup2 on a closed FD, yielding exit code 1 despite 0 failures.
+        # `coverage run` captures coverage independently without the crash.
         run: |
-          pdm run pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n 0
-          ec=$?
-          if [ $ec -eq 0 ] || [ $ec -gt 1 ]; then
-            exit 0
-          fi
-          exit 1
+          pdm run coverage run --source=ontolib/src/ontolib,backend/src/backend \
+            -m pytest ontolib/tests backend/tests \
+            -m 'not integration' -n 0 -o cache_dir=/tmp/pytest-cache-coverage
+          pdm run coverage xml
+          pdm run coverage report
 
       - name: Upload coverage data
         if: always()
