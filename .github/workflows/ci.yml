@@ -22,18 +22,18 @@ jobs:
     name: quality (pre-commit parity)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history so the fallow hook can resolve origin/main as its audit base.
           fetch-depth: 0
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
@@ -55,10 +55,10 @@ jobs:
     name: backend tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -76,7 +76,7 @@ jobs:
 
       - name: Upload coverage data
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-data
           # .coverage is a dotfile; upload-artifact@v4 excludes hidden files by default.
@@ -90,10 +90,10 @@ jobs:
     needs: [backend-tests]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -103,7 +103,7 @@ jobs:
       - name: Install dependencies
         run: pdm install --dev
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: coverage-data
 
@@ -121,10 +121,10 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
@@ -166,7 +166,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/ontoprism
       CADSR_DB_PATH: ${{ github.workspace }}/data/cadsr/cde_repository.db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Oxigraph runs as a plain container (service containers can't override the
       # command it needs to `serve`).
@@ -176,7 +176,7 @@ jobs:
             ghcr.io/oxigraph/oxigraph serve --location /data --bind 0.0.0.0:7878
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
