@@ -309,9 +309,9 @@ means §10's `roundtrip_fidelity` **must not** use the inferred graph as its clo
 `rdfs:subClassOf+` edges) but is a risk for other concepts and worth keeping in mind if
 most-specific selection ever silently under-collapses an axis.
 
-Research code (untracked, `tmp/` is gitignored): `ontolib/src/ontolib/decomposition/walker.py` (the
-multi-parent DAG walker) and `tmp/differentia_extractor.py` (the defining-axis-filtered
-extractor + scorer). Full narrative: `tmp/PLAN_44.md`.
+Research code: `ontolib/src/ontolib/decomposition/walker.py` (the multi-parent DAG walker);
+the defining-axis-filtered extractor + scorer were prototyped in local, untracked scratch.
+Full narrative: this §6 and DECISIONS D14–D20.
 
 ### 6.4 R101 anatomy resolution — validated against 4 concepts: real improvement, not a full fix (2026-07-08)
 
@@ -371,7 +371,7 @@ Uberon would close the gap generally.
    relation at all) and expect a similarly partial result, not full resolution — the
    `Lung`/`Bronchus` case is the one example here that looks promising, not four.
 
-Research code (untracked): `tmp/anatomy_resolve.py`. Full narrative: `tmp/PLAN_44.md`.
+Research code: local, untracked scratch. Full narrative: this §6 and DECISIONS D16.
 
 ### 6.5 Finding: the residual ambiguity is role-sense conflation, not a gap in NCIt's atomic vocabulary (2026-07-08)
 
@@ -496,7 +496,7 @@ region/lineage are preserved (round-trippable), while the curated projection sti
 one primary site. Both are additive (new `op:` axes, never rewriting `R101` triples).
 Validate via the D14/D15/D17 golden-set methodology.
 
-Full narrative and the confirmed-shared-ancestor evidence: `tmp/PLAN_44.md`.
+Full narrative and the confirmed-shared-ancestor evidence: this §6 and DECISIONS D17.
 
 ---
 

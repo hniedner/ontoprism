@@ -12,7 +12,7 @@ here rather than left to drift a second time. Promote a decision below into
 epic: #4/#5/#6 (goals), #9/#57/#60/#61/#62 (decomposition + frontend), #18 (tracking), and
 the epic #70. Phase-A children #71/#72/#73/#74 are **merged and closed**; #76 (golden mapping
 set + coverage generator) is the remaining open Phase-A item; Phase B–E are #75/#77/#78/#79/#80/#81/#82/#83/#84.
-Phase-A children #71/#72/#73/#74 are **merged and closed**. #5 and #6 are deliberately *not*
+#5 and #6 are deliberately *not*
 designed yet — see §3 — that is the correct sequencing per their dependency on #4, not a gap.
 
 **2026-07-11 strategy shift (§5):** a new design-of-record,
@@ -36,7 +36,7 @@ non-circular + EL-profiled + reasoner-committed, and mapping economics/licensing
 | 2 | Decomposed ("atomic") NCIt | **Engine + SME golden-set curation loop landed (#45/#46/#47/#58/#59/#44 closed); golden-set expansion (#57) ongoing** — see §2 | #4, #9, #57, #60, #61, #62 |
 | 3 | Balanced concept graph | **Not started, correctly deferred** — see §3 | #5 |
 | 4 | Post-coordination expression syntax | **Not started**, but D19 puts its `--emit-equivalence` seam on goal 2's critical path — see §3; D24–D26 now bind its ranges to the upstream substrate — see §5 | #6 |
-| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **Phase-A children #71–#74 merged & closed; #76 (golden mapping set) still open; design-of-record + peer-review/red-team hardened (D24–D30); Phase B–E pending** — parallel enabling track — see §5 | #70 (#75–#84) |
+| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **Phase-A children #71–#74 merged & closed; #76 (golden mapping set) still open; design-of-record + peer-review/red-team hardened (D24–D29); Phase B–E pending** — parallel enabling track — see §5 | #70 (#75–#84) |
 
 Critical path (per #18): Phase 0 ✅ → Phase 1 ✅ → **#4 → #9 → #5 → #6**, with the
 external-integration track (#70/#71–#84) running **parallel to #44** and feeding goal 4 (§5). #9's read/serve

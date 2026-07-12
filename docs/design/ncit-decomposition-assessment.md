@@ -259,6 +259,6 @@ backward-compatible without deleting or altering a single existing concept.
 
 *Reproducibility: the headline figures were derived by SPARQL queries against the live
 NCIt Oxigraph store (build 26.05d) and an NLP scan of `Thesaurus.FLAT.txt`. The raw
-analysis working set (per-metric JSON dumps and the query/method checkpoint) lived under
-the local, untracked `tmp/ncit-decomp/` scratch during the assessment; the numbers it
+analysis working set (per-metric JSON dumps and the query/method checkpoint) lived in a
+local, untracked scratch area during the assessment; the numbers it
 produced are reproduced inline throughout this document.*

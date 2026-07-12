@@ -6,7 +6,7 @@
 review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 **Decisions introduced here:** **D24–D26** (see [`../DECISIONS.md`](../DECISIONS.md)).
 
-> **Origin.** This document responds to external feedback (`tmp/new_ncit_input.md`) recommending
+> **Origin.** This document responds to external feedback (a local input memo) recommending
 > that a next-generation NCIt be built on the OBO Foundry stack (**Uberon** anatomy, **Cell
 > Ontology** cells) plus **SNOMED CT / ICD-O-3** morphology and **Mondo / DO** disease, linked by
 > Relation-Ontology properties. The feedback is directionally aligned with where ONTOPRISM already
@@ -297,7 +297,7 @@ and stays; only its *fillers* gain upstream equivalents.
 | `op:CellType` (R105, abnormal cell) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI (candidate) | `derives_from` (RO bridge, **not** identity) | Histology axis. **Category caution (M1):** an NCIt *cell* (e.g. C36825 Neoplastic Neuroendocrine Cell), an ICD-O-3 *morphology/behaviour* code, and a SNOMED *morphologic-abnormality* entity are three different ontological kinds; the link is a typed RO bridge, never `closeMatch`/`exactMatch`. |
 | `op:Morphology` (from taxonomic parent) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI (candidate) | `closeMatch`→`exactMatch` only via §4.4 | Morphology-from-parent query still owed (engine §6, roadmap §2.2) — build it as part of this work. Morphology↔morphology *can* be identity; cell↔morphology cannot. |
 | `op:MolecularAbnormality` (R106) | NCIt-native (+ optional HGNC/SO) | — | — | Kept per D23 (PR/ER/HER2 textbook case). No mainstream OBO substitute needed; oncology-specific. |
-| `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; NCIt's unique contribution, no upstream equivalent. Axis names per D23 (`tmp/plans/D23-…md`). |
+| `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; NCIt's unique contribution, no upstream equivalent. Axis names per D23. |
 | Regimen (`Chemotherapy_Regimen_Has_Component`) | **NCIt-native** (components → RxNorm/ChEBI optional) | RxNorm | `relatedMatch` | Secondary scope (regimen doc). Oncology-specific packaging. |
 | Disease **genus** (taxonomic parent) | **Mondo / DO** | Mondo NCIt xref | `exactMatch` | Turns the cross-product's genus into a shared disease node. |
 
@@ -581,8 +581,8 @@ Let:
 - `C_roles` = distinct NCIt concepts that are role-target fillers of in-scope decomposed concepts
   (~20K, assessment §3.2).
 - `C_cadsr` = distinct NCIt concept codes referenced by **in-scope caDSR CDEs**, enumerated from the
-  caDSR read model across **every** anchor surface. *(Codebase-verified 2026-07-11, see
-  `tmp/plans/phaseA-verified-assumptions.md`.)* Concretely: the codes are the distinct
+  caDSR read model across **every** anchor surface. *(Codebase-verified 2026-07-11 against the
+  caDSR read model; see DECISIONS D27.)* Concretely: the codes are the distinct
   `cde_concepts.concept_code` values in the caDSR **SQLite** repository (`settings.cadsr_db_path`, read via
   `CdeRepository`), partitioned by `cde_concepts.concept_type ∈ {object_class, property, representation,
   value_meaning}`. Value-domain value meanings are already first-class rows here
