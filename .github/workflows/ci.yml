@@ -16,8 +16,43 @@ permissions:
   contents: read
 
 jobs:
-  # Static quality gates — runs the SAME pre-commit hooks developers run locally,
-  # so CI is parity, not the place issues are first discovered.
+  # Path filter so scoped PRs skip irrelevant job trees. Conservative: every heavy
+  # job also runs unconditionally on push to main (post-merge full validation), and
+  # the universal `quality` gate below is never skipped.
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4.0.2
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'ontolib/**'
+              - 'backend/**'
+              - 'scripts/**'
+              - 'migrations/**'
+              - 'data/**'
+              - 'conftest.py'
+              - 'alembic.ini'
+              - 'pyproject.toml'
+              - 'pdm.lock'
+              - '.pre-commit-config.yaml'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  # Static quality gates — runs the SAME pre-commit hooks developers run locally, so
+  # CI is parity, not the place issues are first discovered. Always runs (pre-commit's
+  # generic hooks cover every file, incl. docs), so it is intentionally not path-gated.
   quality:
     name: quality (pre-commit parity)
     runs-on: ubuntu-latest
@@ -27,10 +62,11 @@ jobs:
           # Full history so the fallow hook can resolve origin/main as its audit base.
           fetch-depth: 0
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v6
+      - name: Set up PDM (cached)
+        uses: pdm-project/setup-pdm@94a823180e06fcde4ad29308721954a521c96ed0  # v4.4
         with:
           python-version: "3.13"
+          cache: true
 
       - name: Set up Node 22
         uses: actions/setup-node@v6
@@ -38,9 +74,6 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Install PDM
-        run: pipx install pdm
 
       - name: Install Python deps
         run: pdm install --dev
@@ -53,17 +86,17 @@ jobs:
 
   backend-tests:
     name: backend tests
+    needs: [changes]
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v6
+      - name: Set up PDM (cached)
+        uses: pdm-project/setup-pdm@94a823180e06fcde4ad29308721954a521c96ed0  # v4.4
         with:
           python-version: "3.13"
-
-      - name: Install PDM
-        run: pipx install pdm
+          cache: true
 
       - name: Install dependencies
         run: pdm install --dev
@@ -97,25 +130,25 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install PDM
-        run: pipx install pdm
-
-      - name: Install dependencies
-        run: pdm install --dev
+      # Only the coverage tool + the checked-out source are needed to gate — no full
+      # project install. relative_files=true (pyproject) makes the artifact portable.
+      - name: Install coverage
+        run: pip install 'coverage>=7,<8'
 
       - uses: actions/download-artifact@v8
         with:
           name: coverage-data
 
       - name: Verify ontolib coverage >= 90%
-        # `python -m coverage` (not `pdm run coverage`, which is a pdm script name).
-        run: pdm run python -m coverage report --include='*ontolib/src/*' --fail-under=90
+        run: coverage report --include='*ontolib/src/*' --fail-under=90
 
       - name: Verify backend coverage >= 90%
-        run: pdm run python -m coverage report --include='*backend/src/*' --fail-under=90
+        run: coverage report --include='*backend/src/*' --fail-under=90
 
   web-tests:
     name: web tests + coverage
+    needs: [changes]
+    if: ${{ needs.changes.outputs.frontend == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -148,6 +181,8 @@ jobs:
   # excluded here; they run locally against the pinned store.
   integration-tests:
     name: integration tests (services)
+    needs: [changes]
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -175,13 +210,11 @@ jobs:
           docker run -d --name oxigraph -p 7888:7878 \
             ghcr.io/oxigraph/oxigraph serve --location /data --bind 0.0.0.0:7878
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v6
+      - name: Set up PDM (cached)
+        uses: pdm-project/setup-pdm@94a823180e06fcde4ad29308721954a521c96ed0  # v4.4
         with:
           python-version: "3.13"
-
-      - name: Install PDM
-        run: pipx install pdm
+          cache: true
 
       - name: Install dependencies
         run: pdm install --dev
@@ -207,3 +240,24 @@ jobs:
 
       - name: Integration tests (fixture-satisfiable)
         run: pdm run test-integration-ci
+
+  # Single aggregate status: fails if any job failed/was cancelled; treats skipped
+  # (path-filtered) jobs as OK. Use this as the branch-protection required check.
+  ci-summary:
+    name: CI summary
+    needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::A CI job failed or was cancelled."
+              exit 1
+            fi
+          done
+          echo "All CI jobs passed or were skipped."
