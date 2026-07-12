@@ -110,13 +110,18 @@ def test_to_el_profile_check_warns_on_failure(
 
 
 @pytest.mark.unit
+@patch("ontolib.repositories.xref.validation.os.close")
 @patch("ontolib.repositories.xref.validation.subprocess.run")
 @patch("ontolib.repositories.xref.validation.tempfile.mkstemp")
 def test_classify_creates_temp_output(
     mock_mkstemp: MagicMock,
     mock_run: MagicMock,
+    mock_close: MagicMock,
 ) -> None:
     """classify creates a temp file and calls robot reason --reasoner ELK."""
+    # mkstemp returns a fake fd; os.close is mocked so the fake fd (3) is never
+    # actually closed — closing a real in-use fd corrupts the xdist worker pipe
+    # (BrokenPipe) or pytest's dup'd fds (teardown EBADF).
     mock_mkstemp.return_value = (3, "/fake/temp/test_elk.owl")
     out_path = classify("/fake/input.owl")
     assert str(out_path) == "/fake/temp/test_elk.owl"
@@ -125,6 +130,7 @@ def test_classify_creates_temp_output(
     assert "ELK" in args
     assert "--reasoner" in args
     mock_mkstemp.assert_called_once_with(suffix=".owl")
+    mock_close.assert_called_once_with(3)
 
 
 # ── test 3c: validate_and_classify returns classify path on pass ────────

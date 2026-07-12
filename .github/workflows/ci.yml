@@ -47,7 +47,7 @@ jobs:
         run: pdm run pre-commit run --all-files --show-diff-on-failure
 
   backend-tests:
-    name: backend tests + coverage
+    name: backend tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,18 +63,54 @@ jobs:
       - name: Install dependencies
         run: pdm install --dev
 
-      - name: Tests + coverage (excludes integration; needs no live services)
-        run: pdm run test-ci
+      - name: Run unit tests with coverage collection (no gate)
+        # -n auto (xdist): the suite's stub HTTP servers require parallel workers;
+        # pytest's serial global-capture teardown corrupts stdin fd (os.dup2 EBADF)
+        # when run with -n 0, so we keep xdist. Coverage gate lives in coverage-verify.
+        run: pdm run test-ci-no-gate
 
-      - name: Upload coverage
+      - name: Upload coverage data
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-xml
-          path: coverage.xml
+          name: coverage-data
+          # .coverage is a dotfile; upload-artifact@v4 excludes hidden files by default.
+          include-hidden-files: true
+          path: |
+            .coverage
+            coverage.xml
+
+  coverage-verify:
+    name: coverage verify (ontolib + backend)
+    needs: [backend-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PDM
+        run: pipx install pdm
+
+      - name: Install dependencies
+        run: pdm install --dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-data
+
+      - name: Verify ontolib coverage >= 90%
+        # `python -m coverage` (not `pdm run coverage`, which is a pdm script name).
+        run: pdm run python -m coverage report --include='*ontolib/src/*' --fail-under=90
+
+      - name: Verify backend coverage >= 90%
+        run: pdm run python -m coverage report --include='*backend/src/*' --fail-under=90
 
   web-tests:
-    name: web tests (vitest)
+    name: web tests + coverage
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -92,8 +128,8 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Unit tests (vitest)
-        run: npm run test:unit -- --run
+      - name: Unit tests with coverage
+        run: npm run test:coverage
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
