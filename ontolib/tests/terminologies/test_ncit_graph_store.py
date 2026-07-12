@@ -127,15 +127,14 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
 
 @pytest.mark.unit
 async def test_neighborhood_unknown_center_returns_empty(
-    ncit_stub_url: str, monkeypatch: pytest.MonkeyPatch
+    ncit_stub_url: str,
 ) -> None:
+    async def _none_for_any(_code: str) -> None:
+        return None
+
     async with OxigraphHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
-
-        async def _empty_select(_query: str) -> list[dict[str, str]]:
-            return []
-
-        monkeypatch.setattr(store._client, "select", _empty_select)
+        store.get_concept_detail = _none_for_any  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C999999")
     assert graph.center == "C999999"
     assert graph.nodes == []
