@@ -50,7 +50,7 @@ defaults point at the services above.
 pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
 pdm run test-unit            # unit-marked only, backend+ontolib
 pdm run test-integration     # needs live Oxigraph :7888/Postgres :5433 (pdm run up)
-pdm run test-ci              # coverage gate, --cov-fail-under=90 (matches CI)
+pdm run test-ci              # per-package coverage gate: ontolib/src & backend/src each >=90% (matches CI)
 pdm run test-smoke           # frontend vitest via npm
 ```
 
