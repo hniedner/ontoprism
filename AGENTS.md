@@ -120,10 +120,14 @@ fails on findings introduced vs `origin/main`, needs full git history).
   flag are reconstructed history. Write the changelog by writing good commit subjects.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
-- **PR review fix cycle: after creating a PR, run the `pr-reviewer` subagent to
-  inspect the diff. If issues are reported, fix them, push, then re-run
-  `pr-reviewer` to confirm zero issues remain before considering the PR ready.
-  Do not skip the re-verification step.**
+- **PR review fix cycle (mandatory, no exceptions): after creating a PR, run the
+  `pr-reviewer` subagent to inspect the diff. Fix EVERY verifiable issue it reports —
+  critical, important, AND sensible suggestions (anything you can confirm and act on) —
+  then push and re-run `pr-reviewer`. Repeat this loop until a run detects NO verifiable
+  issues. Only then is the PR ready. Do not skip the re-verification step, do not defer
+  fixable issues, do not merge with known-fixable findings outstanding. NO BUTS. The
+  only findings you may leave are ones that are genuinely not verifiable/actionable in
+  this repo — and you must call those out explicitly with the reason.**
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go
   under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
