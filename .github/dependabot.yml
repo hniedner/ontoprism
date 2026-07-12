@@ -37,3 +37,17 @@ updates:
       # left ungrouped so each lands as its own reviewable PR (up to the limit above).
       frontend-minor-patch:
         update-types: ["minor", "patch"]
+
+  # Docker base images are digest-pinned (supply-chain); Dependabot proposes digest
+  # bumps so the pins stay current without manual tracking.
+  - package-ecosystem: "docker"
+    directories:
+      - "/backend"
+      - "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "build"
