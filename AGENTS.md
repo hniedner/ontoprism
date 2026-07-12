@@ -15,6 +15,10 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   PRs while `main` CI is red.
 - **`pdm run test-ci` must pass locally (or match CI outcome) before pushing CI changes.**
   If you can't reproduce a CI-only failure, isolate it from xdist rather than guessing.
+- **`main` is protected by a ruleset: no force-pushes, no deletion.** Never attempt to
+  rewrite or delete `main`. Land all work through PRs (see D30). Require-PR/required-CI
+  enforcement is intentionally *not* enabled yet — it needs a release-bot credential as a
+  ruleset bypass actor, else it would block the `GITHUB_TOKEN` release/README pushes.
 
 ## Repo layout (keep-names, 3 installable packages)
 

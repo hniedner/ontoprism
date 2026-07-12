@@ -1,0 +1,33 @@
+version: 2
+
+# Scheduled dependency-version PRs. Security alerts/fixes are enabled separately
+# (repo Security settings) and cover the dependency graph regardless of what is
+# listed here. Note: PDM's pdm.lock is not a Dependabot-supported manifest, so
+# Python deps are covered by security alerts + manual `pdm update`, not by
+# scheduled version PRs here.
+updates:
+  # Keep GitHub Actions pinned versions current (supply-chain hygiene).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Frontend npm dependencies (package-lock.json is Dependabot-supported).
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    groups:
+      # Batch minor/patch npm updates into one PR. Major updates are intentionally
+      # left ungrouped so each lands as its own reviewable PR (up to the limit above).
+      frontend-minor-patch:
+        update-types: ["minor", "patch"]

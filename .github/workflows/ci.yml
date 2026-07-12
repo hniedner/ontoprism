@@ -10,6 +10,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: CI only reads the repo (tests + coverage upload need no write
+# scopes). Release/README workflows request their own write scopes explicitly.
+permissions:
+  contents: read
+
 jobs:
   # Static quality gates — runs the SAME pre-commit hooks developers run locally,
   # so CI is parity, not the place issues are first discovered.
