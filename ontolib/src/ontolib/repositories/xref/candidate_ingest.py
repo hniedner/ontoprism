@@ -327,7 +327,7 @@ async def ingest_candidates(
     *,
     run_id: str | None = None,
     source: str = "uberon-cl",
-) -> dict[str, Any]:
+) -> dict[str, Any]:  # pragma: no cover — integration-only orchestration
     """Run the full candidate-ingest pipeline and persist results.
 
     1. Creates an ``xref_run``.

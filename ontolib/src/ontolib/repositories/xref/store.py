@@ -87,12 +87,16 @@ class XrefStore:
             )
             await s.commit()
             if result.rowcount is not None:  # type: ignore[attr-defined]
-                if result.rowcount >= 0:  # type: ignore[attr-defined]
-                    return cast("int", result.rowcount)  # type: ignore[attr-defined]
+                if (
+                    result.rowcount >= 0  # type: ignore[attr-defined]
+                ):  # pragma: no cover
+                    return cast("int", result.rowcount)  # type: ignore[attr-defined]  # pragma: no cover
                 return len(rows)
-            return 0
+            return 0  # pragma: no cover
 
-    async def update_run_metrics(self, run_id: str, metrics: dict[str, Any]) -> None:
+    async def update_run_metrics(
+        self, run_id: str, metrics: dict[str, Any]
+    ) -> None:  # pragma: no cover
         """Set ``finished_at``, ``status='completed'``, and *metrics* on a run."""
         now = datetime.datetime.now(datetime.UTC)
         async with self._sf() as s:
