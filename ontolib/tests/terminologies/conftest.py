@@ -1,9 +1,10 @@
 """Fixtures for terminology-store tests.
 
-Two flavors of "real, no-mock" backing:
+Two flavors of backing:
 - ``ncit_url``: the actual running Oxigraph store (integration tests; skipped if down).
-- ``ncit_stub_url``: a local ``http.server`` returning canned NCIt SPARQL-JSON keyed by
-  query shape, so the repository assembly logic runs in CI without the live store.
+- ``ncit_stub_url``: an in-process ``httpx.MockTransport`` returning canned NCIt
+  SPARQL-JSON keyed by query shape, so the repository assembly logic runs in CI
+  without the live store (no socket, thread, or port).
 """
 
 from __future__ import annotations
