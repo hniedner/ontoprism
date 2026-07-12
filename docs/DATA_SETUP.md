@@ -84,6 +84,70 @@ pdm run data-build embeddings
 pdm run data-build all
 ```
 
+## Validation tools (ROBOT + ELK)
+
+The non-circular validation harness uses the [OBO ROBOT CLI](https://robot.obolibrary.org/)
+(Apache-2.0) to check the OWL 2 EL profile and classify with the ELK reasoner (which ships
+with ROBOT).  ROBOT requires a Java 21 runtime.
+
+### Install Java 21
+
+**macOS (Homebrew):**
+```bash
+brew install openjdk@21
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install openjdk-21-jdk-headless
+```
+
+Verify: `java -version` → `openjdk version "21" …`.
+
+### Install ROBOT
+
+Download the latest `.jar` from the [releases page](https://github.com/ontodev/robot/releases)
+and place a wrapper script on PATH:
+
+```bash
+ROBOT_VERSION=1.9.6   # check latest at the releases page
+curl -sSLO "https://github.com/ontodev/robot/releases/download/v$ROBOT_VERSION/robot.jar"
+chmod +x robot.jar
+
+# Create a small launcher script (adjust JAVA_HOME as needed):
+cat > /usr/local/bin/robot << 'SCRIPT'
+#!/bin/bash
+exec java -jar /path/to/robot.jar "$@"
+SCRIPT
+chmod +x /usr/local/bin/robot
+```
+
+Alternatively, on macOS with Homebrew:
+```bash
+brew install robot
+```
+
+Verify: `robot --version` → prints a version string.
+
+### Usage
+
+All harness functions invoke `robot` via `subprocess`.  The EL profile gate and ELK
+classification use:
+
+```bash
+robot profile --input <ontology.owl> --profile EL
+robot reason --reasoner ELK --input <ontology.owl> --output <inferred.owl>
+```
+
+**Memory:** for large ontologies (e.g. the full NCIt stated build), pass JVM heap via the
+launcher or `JAVA_OPTS`:
+```bash
+robot reason --reasoner ELK -Xmx32g --input <ontology.owl> --output <inferred.owl>
+```
+
+The harness defaults to the standard `robot` executable on PATH; no Python dependency is
+added for Java or ROBOT.
+
 Notes:
 
 - **Large OWL loads use the offline bulk loader, not HTTP.** The *stated* build is ~713 MB
