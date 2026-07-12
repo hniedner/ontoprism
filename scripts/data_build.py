@@ -29,6 +29,9 @@ from ontolib.repositories.embeddings.generate import (
     generate_cde_embeddings,
     generate_ncit_embeddings,
 )
+from ontolib.repositories.xref.candidate_ingest import ingest_candidates
+from ontolib.repositories.xref.coverage import generate_coverage_report
+from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.owl_load import build_ncit_store
 from ontolib.terminologies.ncit.search_index import (
@@ -95,6 +98,44 @@ async def _build_embeddings() -> None:
     typer.echo(f"Embedded {ncit} NCIt concepts + {cde} CDEs into pgvector")
 
 
+async def _build_xref() -> None:
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    sf = make_sessionmaker(engine)
+    async with (
+        OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
+        OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
+    ):
+        store = XrefStore(sf)
+        ncit_version = (await ncit_client.version()) or "unknown"
+        uberon_version = "uberon-2026-01"
+        report = await ingest_candidates(
+            store,
+            ncit_client,
+            uberon_client,
+            ncit_version=ncit_version,
+            uberon_version=uberon_version,
+        )
+    await dispose_engine(engine)
+    typer.echo(f"xref candidates ingested: {report}")
+
+
+async def _build_xref_coverage() -> None:
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    sf = make_sessionmaker(engine)
+    async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+        store = XrefStore(sf)
+        report = await generate_coverage_report(
+            settings.cadsr_db_path,
+            store,
+            client,
+            role_codes=frozenset(),
+        )
+    await dispose_engine(engine)
+    typer.echo(str(report.as_dict()))
+
+
 @app.command()
 def owl() -> None:
     """Download + load the inferred (default) and stated (named graph) NCIt OWL."""
@@ -111,6 +152,18 @@ def cadsr() -> None:
 def embeddings() -> None:
     """Generate NCIt + caDSR embeddings into pgvector (needs the data-build extra)."""
     asyncio.run(_build_embeddings())
+
+
+@app.command()
+def xref() -> None:
+    """Populate concept_xref with Uberon/CL candidate mappings."""
+    asyncio.run(_build_xref())
+
+
+@app.command(name="xref-coverage")
+def xref_coverage() -> None:
+    """Print the CDE-level caDSR coverage report (COV)."""
+    asyncio.run(_build_xref_coverage())
 
 
 @app.command(name="all")

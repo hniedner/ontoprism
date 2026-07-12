@@ -124,3 +124,14 @@ class XrefStore:
                 {"run_id": run_id},
             )
             return [dict(row) for row in result.mappings().all()]
+
+    async def mapping_strength_by_subject(self) -> dict[str, set[tuple[str, str]]]:
+        sql = text("SELECT subject_id, predicate_id, lifecycle_state FROM concept_xref")
+        async with self._sf() as s:
+            result = await s.execute(sql)
+            out: dict[str, set[tuple[str, str]]] = {}
+            for r in result.mappings().all():
+                out.setdefault(r["subject_id"], set()).add(
+                    (r["predicate_id"], r["lifecycle_state"])
+                )
+            return out
