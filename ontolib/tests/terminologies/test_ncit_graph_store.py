@@ -10,6 +10,8 @@ from ontolib.terminologies.ncit.graph_store import (
 from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef, Relationship
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
+pytestmark = pytest.mark.xdist_group(name="ncit_graph_store")
+
 
 @pytest.mark.unit
 def test_rel_returns_none_when_rel_or_target_missing() -> None:
