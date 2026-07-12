@@ -74,10 +74,11 @@ jobs:
             # v0.7.3. Releasing HEAD is safe as long as the only drift from the
             # CI-validated tree is README.md; any other change means a genuine newer
             # merge is in flight, whose own (real) CI run will release it.
-            drift="$(git diff --name-only "$VALIDATED_SHA" "$head" -- 2>/dev/null || true)"
-            if [ -n "$drift" ] && printf '%s\n' "$drift" | grep -qvxF 'README.md'; then
+            drift="$(git diff --name-only "$VALIDATED_SHA" "$head" --)"
+            non_readme="$(printf '%s\n' "$drift" | grep -vxF 'README.md' || true)"
+            if [ -n "$non_readme" ]; then
               echo "main advanced past $VALIDATED_SHA with non-README changes; deferring to that merge's own CI run."
-              printf '%s\n' "$drift" | sed 's/^/  drift: /'
+              printf '%s\n' "$non_readme" | sed 's/^/  drift: /'
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
