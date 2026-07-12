@@ -74,6 +74,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data
+          # .coverage is a dotfile; upload-artifact@v4 excludes hidden files by default.
+          include-hidden-files: true
           path: |
             .coverage
             coverage.xml
