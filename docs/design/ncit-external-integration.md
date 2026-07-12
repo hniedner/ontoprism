@@ -265,7 +265,7 @@ correctness item. The gate has four hard requirements (D28):
    red herring — expressivity, not size, sets cost.
 4. **Committed infrastructure (D28): ELK via ROBOT — free, local, no cloud.** The classifier is
    **ELK** (OWL 2 EL, Apache-2.0), driven by **ROBOT** (`robot reason --reasoner ELK`; the
-   OBO-standard CLI, free) from the Python data-build/validation harness (#NEW-3). ELK classifies
+   OBO-standard CLI, free) from the Python data-build/validation harness (#73). ELK classifies
    SNOMED-scale (~300K-class) ontologies in seconds and is the reasoner Uberon/CL/Mondo themselves
    ship with, so EL-profiled NCIt+upstream is comfortably in budget. Run locally on the M4 Max
    (128 GB; JVM `-Xmx32g` — ELK needs single-digit GB); **no AWS required**. Full-DL fallback for any
@@ -706,7 +706,7 @@ Headline corrections to the first draft:
 
 ## Appendix A — GitHub issue drafts & updates (execution checklist for Claude Code)
 
-Ready-to-file. IDs are placeholders (`#NEW-x`); dependency order is explicit. Each carries acceptance
+Filed 2026-07-11 as epic #70 + children #71–#84 (placeholders replaced with real issue numbers below); dependency order is explicit. Each carries acceptance
 criteria phrased so an agent can verify completion. **Discipline:** every PR stays additive (no stated-OWL
 mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/protein) holds.
 
@@ -738,26 +738,26 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 ### New issues — Epic
 
-**#NEW-0 (EPIC): NCIt as a specialization of the OBO/SNOMED substrate — dual-canonical external integration**
+**#70 (EPIC): NCIt as a specialization of the OBO/SNOMED substrate — dual-canonical external integration**
 > Umbrella for the external-ontology bridge (design: `docs/design/ncit-external-integration.md`;
 > DECISIONS D24–D29). Delivers additive NCIt↔upstream mappings (SSSOM), cross-product logical
 > definitions, dual-canonical `$translate`, and a **published caDSR coverage report**, preserving
-> NCIt + caDSR anchoring. Children: #NEW-1…#NEW-14. Exit: §12 success criteria met — including the
+> NCIt + caDSR anchoring. Children: #71–#84. Exit: §12 success criteria met — including the
 > published caDSR coverage number (§13.3), not an unfalsifiable "for free" claim.
 
 ### New issues — Phase A (foundation)
 
-**#NEW-1: Generic xref ingest framework + `concept_xref`/`xref_run` schema + `ncit_upstream_xref` graph**
+**#71: Generic xref ingest framework + `concept_xref`/`xref_run` schema + `ncit_upstream_xref` graph**
 > Build `ontolib/terminologies/xref/` (source-parameterized), Alembic `0004_xref.py`, and the additive
 > named graph. **AC:** schema migrates + rolls back; a stub mapping round-trips through store + Postgres;
 > zero writes to the stated NCIt graph (assert in an integration test). Depends: none.
 
-**#NEW-2: Uberon + Cell Ontology mapping ingest over the role-target atom set**
+**#72: Uberon + Cell Ontology mapping ingest over the role-target atom set**
 > Ingest Uberon/CL `xref` + curated lexical matches for the ~20K `op:` fillers (anatomy + normal cell).
 > **AC:** ≥X% of neoplasm-branch `op:PrimarySite`/`op:CellOrigin` fillers carry an Uberon/CL mapping;
-> all stored with SKOS relation + provenance; open-license only. Depends: #NEW-1.
+> all stored with SKOS relation + provenance; open-license only. Depends: #71.
 
-**#NEW-3: Non-circular cross-ontology validation harness + committed reasoner infrastructure (D28)**
+**#73: Non-circular cross-ontology validation harness + committed reasoner infrastructure (D28)**
 > Promote candidates to a **separate curated `owl:equivalentClass` bridge** (never the SKOS annotation);
 > a mapping may not be its own evidence. **Reasoner = ELK (OWL 2 EL, Apache-2.0) via ROBOT** (`robot
 > reason --reasoner ELK`), shelled out from the Python data-build; input profiled to OWL 2 EL and
@@ -766,68 +766,68 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 > a smoke ontology; a bridge is promoted only on independent evidence + EL-valid classification; a known
 > non-equivalent pair is demoted; feeding SKOS as `equivalentClass` is rejected by a test; oracle
 > documented as neither `rdfs:subClassOf+` nor the inferred graph; EL-profile + satisfiability gate before
-> any classify. Depends: #NEW-1. **Gates:** all `owl:equivalentClass` bridges and `--emit-equivalence`.
+> any classify. Depends: #71. **Gates:** all `owl:equivalentClass` bridges and `--emit-equivalence`.
 
-**#NEW-12: Enumerate the caDSR anchor set `C_cadsr` + liveness normalization (§13.1–13.2)**
+**#74: Enumerate the caDSR anchor set `C_cadsr` + liveness normalization (§13.1–13.2)**
 > Query the caDSR read model for distinct NCIt codes across **all** `ConceptLink.concept_type` **and all**
 > `PermissibleValue.meaning_code`; partition single-code vs post-coordinated, DEC-anchor vs value-meaning;
 > resolve retired/merged codes via EVS/NCIm. **AC:** `C_cadsr` enumerated with counts; overlap with
-> `C_roles` reported; anchor-liveness status per code; unresolved codes listed, not dropped. Depends: #NEW-1.
+> `C_roles` reported; anchor-liveness status per code; unresolved codes listed, not dropped. Depends: #71.
 > **This is the systematic caDSR-mapping foundation.**
 
-**#NEW-13: Golden mapping set (SSSOM) + coverage-report generator (§13.3)**
+**#76: Golden mapping set (SSSOM) + coverage-report generator (§13.3)**
 > Build a curated golden mapping set (costed, not hand-waved) in SSSOM; implement the CDE-level coverage
 > report (COV, counted whole over post-coordinated lists). **AC:** golden set with justification/confidence/
 > versions; report emits the §13.3 block; raw-candidate precision reported alongside curated precision.
-> Depends: #NEW-12, #NEW-2.
+> Depends: #74, #72.
 
-**#NEW-14: Value/qualifier concept mapping workstream (`C_cadsr \ C_roles`)**
+**#75: Value/qualifier concept mapping workstream (`C_cadsr \ C_roles`)**
 > Map grade/laterality/yes-no/units value-meaning concepts that have no §5 axis; route to qualifier value
 > sets / NCIt-native; record `no-upstream-equivalent` where none is faithful. **AC:** every in-scope value
-> concept has a mapping or an explicit no-equivalent record; none silently missing. Depends: #NEW-12.
+> concept has a mapping or an explicit no-equivalent record; none silently missing. Depends: #74.
 
 ### New issues — Phase B (bind to decomposition)
 
-**#NEW-4: Attach `upstream_xref` to `op:` fillers in `ncit_decomposed`**
-> Extend the constituent/axis model; populate from #NEW-2. **AC:** a decomposed concept exposes upstream
-> equivalents per axis; additive; projection unaffected when xref absent. Depends: #NEW-2, #44 `op:` axes.
+**#77: Attach `upstream_xref` to `op:` fillers in `ncit_decomposed`**
+> Extend the constituent/axis model; populate from #72. **AC:** a decomposed concept exposes upstream
+> equivalents per axis; additive; projection unaffected when xref absent. Depends: #72, #44 `op:` axes.
 
-**#NEW-5: Uberon `part_of` tie-break re-test for R101 region-vs-organ ties (D16/D20 revisit)**
+**#78: Uberon `part_of` tie-break re-test for R101 region-vs-organ ties (D16/D20 revisit)**
 > Scoped spike: does Uberon containment resolve the residual region/organ ties D20 routes via
 > filler-semantic-type? **AC:** measured on the D16 4-concept set + D20 cases; written up as a DECISIONS
-> addendum; if no improvement, D16/D20 stand (documented null result is a valid outcome). Depends: #NEW-2.
+> addendum; if no improvement, D16/D20 stand (documented null result is a valid outcome). Depends: #72.
 
-**#NEW-6: Mondo/DO disease-genus mapping → cross-product genus**
+**#79: Mondo/DO disease-genus mapping → cross-product genus**
 > Ingest Mondo NCIt xrefs; bind the disease genus of decomposed concepts to Mondo. **AC:** neoplasm-branch
-> genus concepts carry a Mondo `exactMatch` (DL-validated); cross-product genus renders. Depends: #NEW-1, #NEW-3.
+> genus concepts carry a Mondo `exactMatch` (DL-validated); cross-product genus renders. Depends: #71, #73.
 
 ### New issues — Phase C (morphology + licensing)
 
-**#NEW-7: NCIm-driven SNOMED + ICD-O-3 morphology mapping (license-gated)**
+**#80: NCIm-driven SNOMED + ICD-O-3 morphology mapping (license-gated)**
 > Map `op:CellType`/`op:Morphology` fillers via NCIm CUIs. **AC:** behind a license build-flag; stores only
 > NCIt→code maps (no bulk upstream content); SKOS relations honest (mostly `closeMatch`); off by default.
-> Depends: #NEW-1, #NEW-3. **Note:** requires SNOMED affiliate + WHO ICD-O-3 license confirmation (D26).
+> Depends: #71, #73. **Note:** requires SNOMED affiliate + WHO ICD-O-3 license confirmation (D26).
 
-**#NEW-8: Morphology-from-parent query (owed since engine §6)**
+**#81: Morphology-from-parent query (owed since engine §6)**
 > Implement the `op:Morphology` axis query (taxonomic-parent morphology). **AC:** morphology axis populated
-> for the neoplasm branch; unit + integration tests. Depends: none (unblocks #NEW-7's ICD-O-3 binding).
+> for the neoplasm branch; unit + integration tests. Depends: none (unblocks #80's ICD-O-3 binding).
 
 ### New issues — Phase D (serve + interop)
 
-**#NEW-9: `/concept/{id}/mappings` + FHIR-style `$translate` endpoints + frontend panel**
+**#82: `/concept/{id}/mappings` + FHIR-style `$translate` endpoints + frontend panel**
 > Serve mappings both directions; frontend external-mappings panel + optional dual-plane graph overlay.
 > **AC:** `$translate` round-trips NCIt↔upstream; license-gated fields feature-flagged; frontend renders
-> relation+confidence badges. Depends: #NEW-1, #NEW-4.
+> relation+confidence badges. Depends: #71, #77.
 
-**#NEW-10: caDSR coverage report (not a sample walk) — the published guarantee**
+**#83: caDSR coverage report (not a sample walk) — the published guarantee**
 > Generate the §13.3 coverage report over **all** in-scope caDSR CDEs (not a sample), keyed on the true
 > anchor surfaces (`concept_type` + `permissible_value.meaning_code`), post-coordinated lists counted whole.
 > **AC:** `COV` published with the release; partial mappings reported as partial; regression-tracked. Depends:
-> #NEW-12, #NEW-13, #NEW-4, #NEW-9. **Supersedes the withdrawn "for free" claim.**
+> #74, #76, #77, #82. **Supersedes the withdrawn "for free" claim.**
 
 ### New issues — Phase E (grammar, folds into #6)
 
-**#NEW-11: MRCM ranges over upstream + upstream-bound `--emit-equivalence` cross-products**
+**#84: MRCM ranges over upstream + upstream-bound `--emit-equivalence` cross-products**
 > Grammar sanctioning references upstream ranges; `--emit-equivalence` emits reasoner-validated
 > cross-products. **AC:** a sanctioned post-coordinated expression validates against upstream ranges;
-> emitted cross-product round-trips to the source NCIt concept (D19/D21). Depends: #NEW-6, #NEW-9, #44 threshold.
+> emitted cross-product round-trips to the source NCIt concept (D19/D21). Depends: #79, #82, #44 threshold.
