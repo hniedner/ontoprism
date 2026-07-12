@@ -19,6 +19,42 @@ review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 
 ---
 
+## 0. Implementation status (2026-07-12)
+
+**Phase A is substantially implemented and TDD-tested** — the design below is now partly a record of
+built code, not only a forward plan. Verified against the tree:
+
+| Area | Status | Where |
+|---|---|---|
+| SSSOM record + SKOS/lifecycle vocab | **Done** | `ontolib/src/ontolib/repositories/xref/models.py`, `vocab.py` |
+| Postgres `xref_run`/`concept_xref` + migration | **Done** | `migrations/versions/0004_xref.py`; `repositories/xref/store.py` (`XrefStore`) |
+| Additive named graph `NCIT_UPSTREAM_XREF_GRAPH_IRI` | **Done** | `repositories/xref/vocab.py`, `ttl_writer.py` |
+| caDSR anchor enumeration + scope gate + liveness (D27 §13.1–13.2) | **Done** | `repositories/xref/cadsr_anchors.py` (`enumerate_anchors`, `filter_in_scope`, `check_liveness`) |
+| Uberon/CL candidate ingest (`closeMatch`) | **Done** | `repositories/xref/candidate_ingest.py` (`generate_candidates`, `ingest_candidates`) |
+| Non-circular ELK/ROBOT validation (D28) | **Done (primitives)** | `repositories/xref/validation.py` (`validate_and_classify`, `promote_candidate`); `docs/DATA_SETUP.md` ROBOT+ELK+Java 21 |
+| Tests (RED→GREEN) | **Done** | `ontolib/tests/repositories/xref/` (8 files) |
+| **Golden mapping set + `exactMatch` precision scorer** (part of #76) | **Seeded (scorer GAP)** | 12-pair NCIt-Uberon anatomy fixture in `golden/mappings.json`; scorer TBD in #76 |
+| **caDSR *CDE-level* coverage report (§13.3 `COV`)** (generator: #76; published: #83) | **GAP** | only *filler-level* `candidate_coverage_report` exists |
+| **xref orchestration CLI + `data-build` stage + Uberon-client wiring** | **GAP** | `ingest_candidates` exists but no `scripts`/`data_build` entrypoint; `uberon_sparql_url` unused |
+| **Validation end-to-end** (build merged EL ontology per candidate → classify → gather evidence → persist promotion + lifecycle) | **GAP** | `promote_candidate` is a pure fn taking `el_valid`; nothing drives it over real candidates |
+| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **GAP** | no `xref` router in `backend/` |
+| **Phase B**: bind `upstream_xref` to `op:` fillers / cross-product (#77); Mondo genus (#79); Uberon `part_of` spike (#78) | **Not started** | — |
+| **Phase C**: SNOMED/ICD-O-3 (#80), morphology-from-parent (#81), value/qualifier mapping (#75) | **Not started** | — |
+
+The **GAP/Not-started rows are the real "next issues"** (epic **#70**; roadmap §5). The immediate next
+is **#76** (golden mapping set + CDE-level coverage-report generator), then Phase B (#77). Per-issue
+TDD implementation plans live in the ephemeral `plan-issue-NN-*.md` working notes.
+
+**Codebase corrections to this doc's earlier assumptions** (the design predates the code): the xref
+module lives under `repositories/xref/` (not `terminologies/xref/`); there is **no ORM** — Postgres is
+raw SQL via `sqlalchemy.text()` and hand-written Alembic migrations (`target_metadata=None`); there is
+**no `terminologies/uberon/` module** — Uberon is queried through the generic `OxigraphHttpClient` and
+its SPARQL lives in `candidate_ingest.py`; ports are **NCIt :7888, Uberon :7889, Postgres :5433** (not
+7878/7879/5432); the NCIt role queries are in `terminologies/ncit/role_queries.py`. §8 paths below are
+annotated accordingly.
+
+---
+
 ## 1. Executive summary
 
 The strategic shift is one sentence: **NCIt becomes the oncology-specific *specialization* of a
