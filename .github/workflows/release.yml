@@ -58,12 +58,6 @@ jobs:
         run: |
           set -euo pipefail
           head="$(git rev-parse HEAD)"
-          if [ "$head" != "$VALIDATED_SHA" ]; then
-            echo "main is at $head but CI validated $VALIDATED_SHA."
-            echo "A newer merge already landed; its own CI run will release it."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           subject="$(git log -1 --pretty=%s)"
           case "$subject" in
             'chore(release):'*)
@@ -72,6 +66,23 @@ jobs:
               exit 0
               ;;
           esac
+          if [ "$head" != "$VALIDATED_SHA" ]; then
+            # main advanced past the CI-validated commit. The "Update README Code
+            # Stats" bot commits after every merge but — being pushed with the default
+            # GITHUB_TOKEN — never triggers its own CI/release run. So the old
+            # "defer, its CI will release it" assumption stranded EVERY release after
+            # v0.7.3. Releasing HEAD is safe as long as the only drift from the
+            # CI-validated tree is README.md; any other change means a genuine newer
+            # merge is in flight, whose own (real) CI run will release it.
+            drift="$(git diff --name-only "$VALIDATED_SHA" "$head" -- 2>/dev/null || true)"
+            if [ -n "$drift" ] && printf '%s\n' "$drift" | grep -qvxF 'README.md'; then
+              echo "main advanced past $VALIDATED_SHA with non-README changes; deferring to that merge's own CI run."
+              printf '%s\n' "$drift" | sed 's/^/  drift: /'
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "main advanced past $VALIDATED_SHA only by the README-stats bot (or not at all); safe to release HEAD."
+          fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Semantic release
@@ -95,7 +106,7 @@ jobs:
             echo "## Release"
             echo
             if [ "$SKIPPED" = "true" ]; then
-              echo "Skipped — main advanced past the validated commit, or the head is a release commit."
+              echo "Skipped — head is a release commit, or main advanced past the validated commit with non-README changes (that merge's own CI will release it)."
             elif [ "$RELEASED" = "true" ]; then
               echo "Released **$TAG** — $LINK"
             else
