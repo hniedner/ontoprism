@@ -9,8 +9,9 @@ Please report suspected vulnerabilities privately:
 - Preferred (once this repository is public): use GitHub's **private vulnerability
   reporting** — the **Report a vulnerability** button under the repository's
   **Security** tab. This opens a private advisory visible only to maintainers.
-- Otherwise: email the maintainer listed in the repository's project metadata
-  (`pyproject.toml` → `[project].authors`).
+- While the repository is private / if that is unavailable: contact the maintainer
+  directly through their GitHub profile (<https://github.com/hniedner>) to arrange a
+  private channel. Do not include exploit details in any public GitHub issue.
 
 Please include: affected component (`ontolib`, `backend`, or `frontend`), version or
 commit, a description, and reproduction steps. We aim to acknowledge within 5 business

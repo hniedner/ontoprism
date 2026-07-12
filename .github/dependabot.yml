@@ -27,5 +27,7 @@ updates:
     commit-message:
       prefix: "build"
     groups:
+      # Batch minor/patch npm updates into one PR. Major updates are intentionally
+      # left ungrouped so each lands as its own reviewable PR (up to the limit above).
       frontend-minor-patch:
         update-types: ["minor", "patch"]
