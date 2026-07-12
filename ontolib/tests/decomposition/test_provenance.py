@@ -203,6 +203,29 @@ async def test_list_runs_metrics_none_when_null() -> None:
 
 
 @pytest.mark.unit
+async def test_list_runs_corrupt_metrics_falls_back_to_empty() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "run-1",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.05d",
+            "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
+            "finished_at": None,
+            "metrics": "not valid json",
+        },
+    ]
+    store = ProvenanceStore(sf)
+    runs = await store.list_runs()
+    assert len(runs) == 1
+    r = runs[0]
+    assert r.total_in_scope is None  # corrupt → fallback to {}
+    assert r.decomposed is None
+
+
+@pytest.mark.unit
 async def test_list_runs_empty_when_no_rows() -> None:
     sf = _make_mock_sf()
     result_mock = sf().execute.return_value
@@ -280,3 +303,46 @@ async def test_list_minted_concepts_filtered_by_run_id_and_status() -> None:
     params = args[1]
     assert params["run_id"] == "run-1"
     assert params["status"] == "approved"
+
+
+@pytest.mark.unit
+async def test_list_minted_concepts_empty_when_no_rows() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = []
+    store = ProvenanceStore(sf)
+    mints = await store.list_minted_concepts()
+    assert mints == []
+
+
+@pytest.mark.unit
+async def test_list_minted_concepts_limit_offset() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "MINT-1",
+            "run_id": "run-1",
+            "axis": "op:A",
+            "label": "A",
+            "source_signal": "SigA",
+            "status": "proposed",
+        },
+        {
+            "id": "MINT-2",
+            "run_id": "run-1",
+            "axis": "op:B",
+            "label": "B",
+            "source_signal": "SigB",
+            "status": "proposed",
+        },
+    ]
+    store = ProvenanceStore(sf)
+    mints = await store.list_minted_concepts(limit=1, offset=1)
+    # DB does the filtering; mock returns all rows, so we verify
+    # that limit/offset were passed as query parameters.
+    assert len(mints) == 2
+    args, _ = sf().execute.call_args
+    params = args[1]
+    assert params["limit"] == 1
+    assert params["offset"] == 1

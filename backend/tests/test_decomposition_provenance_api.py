@@ -217,6 +217,28 @@ def test_list_minted_concepts_empty_when_no_match() -> None:
 
 
 @pytest.mark.api
+def test_list_minted_concepts_with_limit_and_offset() -> None:
+    mints = [
+        MintedConcept(
+            id=f"MINT-{i}",
+            run_id="run-1",
+            axis="op:A",
+            label="A",
+            source_signal="S",
+            status="proposed",
+        )
+        for i in range(3)
+    ]
+    fake = _FakeProvenanceStore(mints=mints)
+    client = next(_client(fake))
+    resp = client.get("/api/v1/decomposition/minted-concepts?limit=2&offset=1")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 2
+    assert body[0]["id"] == "MINT-1"
+    assert body[1]["id"] == "MINT-2"
+
+
 def test_list_runs_503_on_db_error() -> None:
     client = next(_client(_ErrorFakeStore()))
     resp = client.get("/api/v1/decomposition/runs")

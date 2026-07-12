@@ -17,6 +17,7 @@ async def list_runs(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[RunSummary]:
+    """List decomposition runs with coverage/decomposed/residual/minted counts."""
     try:
         return await store.list_runs(limit=limit, offset=offset)
     except SQLAlchemyError as exc:
@@ -25,6 +26,7 @@ async def list_runs(
 
 @router.get("/runs/{run_id}", response_model=RunSummary)
 async def get_run(store: ProvenanceReads, run_id: str) -> RunSummary:
+    """Return a single decomposition run summary by id; 404 if not found."""
     try:
         run = await store.get_run(run_id)
     except SQLAlchemyError as exc:
@@ -42,6 +44,7 @@ async def list_minted_concepts(
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[MintedConcept]:
+    """List minted-concept proposals, optionally filtered by run_id and status."""
     try:
         return await store.list_minted_concepts(
             run_id=run_id, status=status_filter, limit=limit, offset=offset

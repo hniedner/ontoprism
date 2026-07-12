@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json as _json
+import logging
 from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import Result, text
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
     from ontolib.decomposition.models import Constituent
 
 from ontolib.decomposition.provenance_models import MintedConcept, RunSummary
+
+_logger = logging.getLogger(__name__)
 
 
 class ProvenanceStore:
@@ -165,7 +168,16 @@ class ProvenanceStore:
     @staticmethod
     def _row_to_run(row: RowMapping) -> RunSummary:
         raw = row["metrics"]
-        m = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+        if isinstance(raw, str):
+            try:
+                m = _json.loads(raw)
+            except _json.JSONDecodeError:
+                _logger.warning(
+                    "Corrupt metrics JSON in decomp_run %s", row.get("id", "?")
+                )
+                m = {}
+        else:
+            m = raw or {}
         return RunSummary(
             id=row["id"],
             branch=row["branch"],
