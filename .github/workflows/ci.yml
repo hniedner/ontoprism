@@ -101,10 +101,11 @@ jobs:
           name: coverage-data
 
       - name: Verify ontolib coverage >= 90%
-        run: pdm run coverage report --include='*/ontolib/src/*' --fail-under=90
+        # `python -m coverage` (not `pdm run coverage`, which is a pdm script name).
+        run: pdm run python -m coverage report --include='*/ontolib/src/*' --fail-under=90
 
       - name: Verify backend coverage >= 90%
-        run: pdm run coverage report --include='*/backend/src/*' --fail-under=90
+        run: pdm run python -m coverage report --include='*/backend/src/*' --fail-under=90
 
   web-tests:
     name: web tests + coverage
