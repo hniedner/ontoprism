@@ -11,6 +11,7 @@
       "exactMatch = interchangeable senses (identity-grade); narrowMatch = object is NARROWER than the NCIt subject.",
       "Anatomy IDs are standard Uberon organ classes; NCIt codes are from the SME-validated D23 organ table.",
       "Composite NCIt staging organs (Colon,Rectum; Esophagus+GEJ) are deliberately NON-exact examples that exercise the scorer's predicate filter and must NOT count toward exactMatch precision.",
+      "TODO(#76): test consumer (conformance test + scorer) coming in #76; fixture is dead code until then.",
       "Cell-origin (op:CellOrigin -> Cell Ontology) pairs are intentionally DEFERRED: NCIt normal-cell -> CL mappings need SME + Uberon/CL label verification before entering an oracle. See _pending_cell below."
     ],
     "_pending_cell": {

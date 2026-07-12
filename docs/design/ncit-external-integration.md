@@ -33,7 +33,7 @@ built code, not only a forward plan. Verified against the tree:
 | Uberon/CL candidate ingest (`closeMatch`) | **Done** | `repositories/xref/candidate_ingest.py` (`generate_candidates`, `ingest_candidates`) |
 | Non-circular ELK/ROBOT validation (D28) | **Done (primitives)** | `repositories/xref/validation.py` (`validate_and_classify`, `promote_candidate`); `docs/DATA_SETUP.md` ROBOT+ELK+Java 21 |
 | Tests (RED→GREEN) | **Done** | `ontolib/tests/repositories/xref/` (8 files) |
-| **Golden mapping set + `exactMatch` precision scorer** (part of #76) | **GAP** | no curated golden mappings; only `closeMatch` candidates exist |
+| **Golden mapping set + `exactMatch` precision scorer** (part of #76) | **Seeded (scorer GAP)** | 12-pair NCIt-Uberon anatomy fixture in `golden/mappings.json`; scorer TBD in #76 |
 | **caDSR *CDE-level* coverage report (§13.3 `COV`)** (generator: #76; published: #83) | **GAP** | only *filler-level* `candidate_coverage_report` exists |
 | **xref orchestration CLI + `data-build` stage + Uberon-client wiring** | **GAP** | `ingest_candidates` exists but no `scripts`/`data_build` entrypoint; `uberon_sparql_url` unused |
 | **Validation end-to-end** (build merged EL ontology per candidate → classify → gather evidence → persist promotion + lifecycle) | **GAP** | `promote_candidate` is a pure fn taking `el_valid`; nothing drives it over real candidates |
