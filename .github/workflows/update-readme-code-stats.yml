@@ -5,8 +5,9 @@ on:
   push:
     branches: [main]
 
+# Least privilege: default read-only; the commit-and-push job elevates to write.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: update-readme-code-stats-main
@@ -16,8 +17,12 @@ jobs:
   update-readme:
     name: Update README line-count table
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # commit + push the regenerated README line-count table
     steps:
       - name: Checkout main branch
+        # zizmor: ignore[artipacked] — this job commits + pushes the README update,
+        # so it must keep the persisted token (persist-credentials cannot be false).
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: main
