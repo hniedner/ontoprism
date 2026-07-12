@@ -66,7 +66,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up PDM (cached)
-        uses: pdm-project/setup-pdm@94a823180e06fcde4ad29308721954a521c96ed0  # v4.4
+        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
           cache: true
@@ -98,7 +98,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up PDM (cached)
-        uses: pdm-project/setup-pdm@94a823180e06fcde4ad29308721954a521c96ed0  # v4.4
+        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
           cache: true
@@ -222,7 +222,7 @@ jobs:
             ghcr.io/oxigraph/oxigraph serve --location /data --bind 0.0.0.0:7878
 
       - name: Set up PDM (cached)
-        uses: pdm-project/setup-pdm@94a823180e06fcde4ad29308721954a521c96ed0  # v4.4
+        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
           cache: true
