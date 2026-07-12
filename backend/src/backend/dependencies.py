@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
@@ -45,6 +46,13 @@ def get_pubmed_client(request: Request) -> PubMedClient:
     return request.app.state.pubmed_client
 
 
+def get_provenance_store(
+    request: Request,
+) -> ProvenanceStore:  # pragma: no cover — trivial getter
+    """Return the process-wide decomposition provenance store."""
+    return request.app.state.provenance_store
+
+
 def get_ncit_search_index(
     request: Request,
 ) -> NcitSearchIndex:  # pragma: no cover — trivial getter
@@ -59,3 +67,4 @@ Embeddings = Annotated[EmbeddingStore, Depends(get_embedding_store)]
 ClinicalTrials = Annotated[ClinicalTrialsClient, Depends(get_clinicaltrials_client)]
 PubMed = Annotated[PubMedClient, Depends(get_pubmed_client)]
 NcitSearch = Annotated[NcitSearchIndex, Depends(get_ncit_search_index)]
+ProvenanceReads = Annotated[ProvenanceStore, Depends(get_provenance_store)]
