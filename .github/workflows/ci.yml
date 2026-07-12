@@ -28,6 +28,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -50,6 +51,16 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            docker:
+              # Image build inputs — catches bad FROM bumps / dependency-install breakage
+              # that the test jobs can't (CI never builds the images otherwise).
+              - 'backend/Dockerfile'
+              - 'frontend/Dockerfile'
+              - 'pyproject.toml'
+              - 'pdm.lock'
+              - 'frontend/package.json'
+              - 'frontend/package-lock.json'
               - '.github/workflows/ci.yml'
 
   # Static quality gates — runs the SAME pre-commit hooks developers run locally, so
@@ -252,11 +263,45 @@ jobs:
       - name: Integration tests (fixture-satisfiable)
         run: pdm run test-integration-ci
 
+  # Lightweight image-build smoke: only runs when Dockerfiles / their build inputs change.
+  # CI otherwise never builds the images, so a bad FROM bump or dependency-install break
+  # (e.g. a python major outside requires-python) would only surface at deploy time.
+  docker-build:
+    name: docker build smoke
+    needs: [changes]
+    if: ${{ needs.changes.outputs.docker == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v4.2.0
+
+      - name: Build backend image (no push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v7.3.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build frontend image (no push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v7.3.0
+        with:
+          context: ./frontend
+          file: frontend/Dockerfile
+          push: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
   # Single aggregate status: fails if any job failed/was cancelled; treats skipped
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.
   ci-summary:
     name: CI summary
-    needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests]
+    needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, docker-build]
     if: always()
     runs-on: ubuntu-latest
     steps:
