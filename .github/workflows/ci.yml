@@ -64,16 +64,10 @@ jobs:
         run: pdm install --dev
 
       - name: Run unit tests with coverage collection (no gate)
-        # Use `coverage run -m pytest` (no --cov flag) to avoid pytest-cov 7.1
-        # teardown crash on Python 3.13. pytest-cov's stop_global_capturing
-        # calls os.dup2 on a closed FD, yielding exit code 1 despite 0 failures.
-        # `coverage run` captures coverage independently without the crash.
-        run: |
-          pdm run coverage run --source=ontolib/src/ontolib,backend/src/backend \
-            -m pytest ontolib/tests backend/tests \
-            -m 'not integration' -n 0 -o cache_dir=/tmp/pytest-cache-coverage
-          pdm run coverage xml
-          pdm run coverage report
+        # -n auto (xdist): the suite's stub HTTP servers require parallel workers;
+        # pytest's serial global-capture teardown corrupts stdin fd (os.dup2 EBADF)
+        # when run with -n 0, so we keep xdist. Coverage gate lives in coverage-verify.
+        run: pdm run test-ci-no-gate
 
       - name: Upload coverage data
         if: always()

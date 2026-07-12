@@ -80,8 +80,8 @@ test-integration = "pytest ontolib/tests backend/tests -m integration"
 # CI integration run against a small seeded fixture (excludes full_build tests, which
 # assert the pinned 12.8M-triple production build / real generated embeddings).
 test-integration-ci = "pytest ontolib/tests backend/tests -m 'integration and not full_build and not slow'"
-test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=90 -n 0"
-test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n 0"
+test-ci = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=90 -n auto"
+test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
 # Coverage: runs unit tests with line+branch coverage for backend/ontolib and
 # frontend. Pass extra pytest args or test paths to narrow scope

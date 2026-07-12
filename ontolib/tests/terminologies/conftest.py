@@ -8,19 +8,14 @@ Two flavors of "real, no-mock" backing:
 
 from __future__ import annotations
 
-import json
+import functools
 import os
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import httpx
 import pytest
 
 from ontolib.terminologies.namespaces import NCIT_NS as NS
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 _DEFAULT_NCIT_URL = "http://localhost:7888"  # ontoprism's own store (fairdata is 7878)
 
@@ -184,31 +179,26 @@ def canned_ncit_response(query: str) -> dict[str, Any]:
     return _rows([])
 
 
-class _StubHandler(BaseHTTPRequestHandler):
-    def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
-        query = self.rfile.read(length).decode("utf-8")
-        body = json.dumps(canned_ncit_response(query)).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/sparql-results+json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *_args: Any) -> None:
-        pass
-
-
 @pytest.fixture
-def ncit_stub_url() -> Iterator[str]:
-    """A local HTTP server returning canned NCIt SPARQL-JSON (no live store needed)."""
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _StubHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        host, port = server.server_address[:2]
-        yield f"http://{host}:{port}"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+def ncit_stub_url(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Canned NCIt SPARQL-JSON via an in-process ``httpx.MockTransport``.
+
+    No real socket, thread, or port: the transport intercepts requests inside the
+    same process and replies with :func:`canned_ncit_response`, keyed by query shape.
+    Using a real threaded ``http.server`` here segfaulted xdist fork workers under
+    coverage on Linux CI (daemon thread + fork + C tracer); the mock transport removes
+    that failure mode entirely while keeping the exact same client code path.
+    """
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        query = request.content.decode("utf-8")
+        return httpx.Response(200, json=canned_ncit_response(query))
+
+    transport = httpx.MockTransport(_handler)
+    # OxigraphHttpClient builds ``httpx.AsyncClient(timeout=...)`` internally; inject
+    # the mock transport by wrapping the class the module references.
+    monkeypatch.setattr(
+        "ontolib.terminologies.oxigraph_http_client.httpx.AsyncClient",
+        functools.partial(httpx.AsyncClient, transport=transport),
+    )
+    return "http://ncit.stub"
