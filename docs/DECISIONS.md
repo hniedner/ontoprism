@@ -2,6 +2,33 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-12 — repository hardening for a public, bad-actor-resistant posture
+
+### D30. `main` integrity is enforced by a ruleset; require-PR/CI is documented but gated on a bot credential
+After the release-pipeline fix (#92) nothing *structurally* protected `main`. We hardened
+the repository's GitHub settings toward a safe public posture.
+
+**Decision:** a branch ruleset on `main` blocks **deletion** and **non-fast-forward
+(force) pushes**; Dependabot **vulnerability alerts** + **automated security fixes** are
+enabled; the default workflow `GITHUB_TOKEN` is read-only and Actions cannot approve PRs
+(already in place); merges remain squash-only with branch auto-delete. A `SECURITY.md`
+policy and `.github/dependabot.yml` (github-actions + npm version PRs) are tracked.
+
+**Why not also "require a PR + passing CI" on `main` yet:** the release automation
+(`release.yml` version commit/tag) and the README-stats bot (`update-readme-code-stats.yml`)
+push to `main` with the default `GITHUB_TOKEN`. On a **user-owned** repo the `github-actions`
+app cannot be added as a ruleset bypass actor, and a `GITHUB_TOKEN` push carries no
+bypassable role — so a require-PR/require-checks rule would block those pushes and re-break
+releases (exactly what #92 fixed). Enforcing it therefore requires either (a) a dedicated
+release-bot **GitHub App / PAT** added as a bypass actor, or (b) moving the repo under an
+organization. Deletion + force-push protection needs neither and is safe because the bots
+fast-forward-append (never force-push or delete).
+
+**Deferred to the public flip (free on public repos; unavailable/paid while private):**
+secret scanning + push protection, private vulnerability reporting, and fork-PR workflow
+approval for outside contributors. Flipping visibility to public is itself a deliberate
+human action pending a secret-history audit, not automated here.
+
 ## 2026-07-11 — corrections from peer-reviewed review + adversarial red-team (D24–D26 hardened)
 
 Design §13/§14 record the full evidence base. A literature pass and an independent adversarial review
