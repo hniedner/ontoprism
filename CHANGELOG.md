@@ -19,6 +19,329 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.8.0 (2026-07-12)
+
+### Bug Fixes
+
+- **ci**: Disable xdist, split coverage verify into separate job
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **ci**: Handle pytest-cov teardown crash exit code
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **ci**: Harden release guard drift check (no grep -q SIGPIPE flip, no fail-open)
+  ([#92](https://github.com/hniedner/ontoprism/pull/92),
+  [`4cc9e74`](https://github.com/hniedner/ontoprism/commit/4cc9e741f47055f9c3cbf7f8875d6c917e890ea8))
+
+- **ci**: Isolate test_ncit_graph_store.py from xdist to prevent worker crash
+  ([`003e4b0`](https://github.com/hniedner/ontoprism/commit/003e4b0e03de45170b963f602a73f164a6c35861))
+
+- **ci**: Make .coverage portable across jobs (relative_files) for coverage-verify
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **ci**: Release guard tolerates the README-stats bot commit (unstall releases)
+  ([#92](https://github.com/hniedner/ontoprism/pull/92),
+  [`4cc9e74`](https://github.com/hniedner/ontoprism/commit/4cc9e741f47055f9c3cbf7f8875d6c917e890ea8))
+
+- **ci**: Release guard tolerates trailing README-stats bot commit
+  ([#92](https://github.com/hniedner/ontoprism/pull/92),
+  [`4cc9e74`](https://github.com/hniedner/ontoprism/commit/4cc9e741f47055f9c3cbf7f8875d6c917e890ea8))
+
+- **ci**: Upload .coverage dotfile (include-hidden-files) for coverage-verify
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **ci**: Use coverage run -m pytest to avoid pytest-cov teardown crash
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **decomposition**: Add axis_name guard to _resolve_r101_with_organ_lookup; update stale
+  known_extractor_gaps in golden set ([#69](https://github.com/hniedner/ontoprism/pull/69),
+  [`14671f7`](https://github.com/hniedner/ontoprism/commit/14671f7444eda90576bca4c1d91718c4d038b8d0))
+
+- **decomposition**: Correct needs_review for R101 semantic-type split edge cases
+  ([#53](https://github.com/hniedner/ontoprism/pull/53),
+  [`df84097`](https://github.com/hniedner/ontoprism/commit/df840970fb2764daf09463394037a51d0cb3691a))
+
+- **decomposition**: Exempt lineage axis from most_specific collapse
+  ([#68](https://github.com/hniedner/ontoprism/pull/68),
+  [`635e4cd`](https://github.com/hniedner/ontoprism/commit/635e4cdb0a8432f6783f18e6d9bc274ba8a3c745))
+
+- **decomposition**: Populate anchoring_genus so D20 lineage routing fires
+  ([#68](https://github.com/hniedner/ontoprism/pull/68),
+  [`635e4cd`](https://github.com/hniedner/ontoprism/commit/635e4cdb0a8432f6783f18e6d9bc274ba8a3c745))
+
+- **decomposition**: Restore ?roleLabel projection in walker SPARQL + stale docstring
+  ([#54](https://github.com/hniedner/ontoprism/pull/54),
+  [`5cdafba`](https://github.com/hniedner/ontoprism/commit/5cdafbab1c653ef283fbe2a0aa46fa67aa6c234a))
+
+- **tests**: Pin ncit_graph_store tests to one xdist worker to prevent HTTP stub server conflicts
+  ([`f90084f`](https://github.com/hniedner/ontoprism/commit/f90084f57c9966bfddcf09931316bad67b5901a3))
+
+- **tests**: Replace monkeypatch+async pattern in neighborhood test to prevent xdist worker crash
+  ([`e5c907f`](https://github.com/hniedner/ontoprism/commit/e5c907f8685e3553cc4bcdda96bc693605282056))
+
+- **tests**: Replace ncit_stub_url threaded server with httpx.MockTransport
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **tests**: Stop test_classify closing real fd 3; fix coverage-verify cmd
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **xref**: Validate required SSSOM fields and fix rowcount edge cases
+  ([#87](https://github.com/hniedner/ontoprism/pull/87),
+  [`bc5a0f7`](https://github.com/hniedner/ontoprism/commit/bc5a0f772ceaf37faf8444fad665d48447e3bf96))
+
+### Chores
+
+- Untrack stray .coverage.* worker files, gitignore them
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **xref**: Add coverage pragmas for integration-only functions
+  ([`428681a`](https://github.com/hniedner/ontoprism/commit/428681ade62e0e95d32315852e463dd7a5718d37))
+
+### Documentation
+
+- Add external-integration design (D24-D29) and roadmap §5
+  ([#85](https://github.com/hniedner/ontoprism/pull/85),
+  [`2196242`](https://github.com/hniedner/ontoprism/commit/2196242610b4e3883c2d1ef4bceddcc081e54030))
+
+- Add post-coordination literature review and D22 (univocal relations, relation-quality-first,
+  SCG/ECL/MRCM grammar template) ([#64](https://github.com/hniedner/ontoprism/pull/64),
+  [`6901bed`](https://github.com/hniedner/ontoprism/commit/6901bed32c69d09d94450da4250a456f6c435f0b))
+
+- Add PR review fix cycle protocol to AGENTS.md
+  ([`1e7959f`](https://github.com/hniedner/ontoprism/commit/1e7959fb93103a4d233fbf92b3ef9370725a743c))
+
+- Correct ncit_stub_url module docstring (MockTransport, not http.server)
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- Expand README intro with NCIt/caDSR background, pre/post-coordination, problem-goal-approach, and
+  tech badges ([#52](https://github.com/hniedner/ontoprism/pull/52),
+  [`1075ab2`](https://github.com/hniedner/ontoprism/commit/1075ab251f87bd7917c0c6fcbd4f9986d1fa3c1e))
+
+- External-integration design (D24-D29), epic #70, and Phase-A verified assumptions
+  ([#85](https://github.com/hniedner/ontoprism/pull/85),
+  [`2196242`](https://github.com/hniedner/ontoprism/commit/2196242610b4e3883c2d1ef4bceddcc081e54030))
+
+- Link external-integration issue numbers ([#85](https://github.com/hniedner/ontoprism/pull/85),
+  [`2196242`](https://github.com/hniedner/ontoprism/commit/2196242610b4e3883c2d1ef4bceddcc081e54030))
+
+- Literature review editorial fixes ([#65](https://github.com/hniedner/ontoprism/pull/65),
+  [`33cc886`](https://github.com/hniedner/ontoprism/commit/33cc886b63d9d3b50b0afc77bd9448c032c320d7))
+
+- Post-coordination literature review + D22 (univocal relations, relation-quality-first,
+  SCG/ECL/MRCM grammar template) ([#64](https://github.com/hniedner/ontoprism/pull/64),
+  [`6901bed`](https://github.com/hniedner/ontoprism/commit/6901bed32c69d09d94450da4250a456f6c435f0b))
+
+- Reconcile caDSR anchor field names with code (D27/§13.1)
+  ([#85](https://github.com/hniedner/ontoprism/pull/85),
+  [`2196242`](https://github.com/hniedner/ontoprism/commit/2196242610b4e3883c2d1ef4bceddcc081e54030))
+
+- Sync decomposition design + record tmp/plans convention
+  ([#51](https://github.com/hniedner/ontoprism/pull/51),
+  [`b7555d5`](https://github.com/hniedner/ontoprism/commit/b7555d559b1cbde3d936a43ed109b77befb7eeda))
+
+- Sync decomposition design + tmp/plans convention (#44)
+  ([#51](https://github.com/hniedner/ontoprism/pull/51),
+  [`b7555d5`](https://github.com/hniedner/ontoprism/commit/b7555d559b1cbde3d936a43ed109b77befb7eeda))
+
+- Update README code line-count table
+  ([`55383c0`](https://github.com/hniedner/ontoprism/commit/55383c0bb7078c2697ff4c4aa60723244a9068a1))
+
+- Update README code line-count table
+  ([`b8aede6`](https://github.com/hniedner/ontoprism/commit/b8aede6491e61ae37f97b8ce4ca917ec7a44443f))
+
+- Update README code line-count table
+  ([`8b125dd`](https://github.com/hniedner/ontoprism/commit/8b125dddafade81eb17f760176aa090c8c81ee7c))
+
+- Update README code line-count table
+  ([`f6ebf0c`](https://github.com/hniedner/ontoprism/commit/f6ebf0ce263c036d6abe9bea5fa2eda5ce93961a))
+
+- Update README code line-count table
+  ([`74d75b9`](https://github.com/hniedner/ontoprism/commit/74d75b962eb762116f75ad740d71de353a2c8b93))
+
+- Update README code line-count table
+  ([`59d7c53`](https://github.com/hniedner/ontoprism/commit/59d7c53c60825a193eacbe8b29d78c0517682bea))
+
+- Update README code line-count table
+  ([`2e69a88`](https://github.com/hniedner/ontoprism/commit/2e69a88e0421dc07699417516d453116c0d681b7))
+
+- Update README code line-count table ([#90](https://github.com/hniedner/ontoprism/pull/90),
+  [`29e2dc0`](https://github.com/hniedner/ontoprism/commit/29e2dc01abd0371298df8777b481adcad209c67b))
+
+- Update README code line-count table
+  ([`87e6cca`](https://github.com/hniedner/ontoprism/commit/87e6cca7f7d5de0280db2ac5b2e8fabb37140e85))
+
+- Update README code line-count table
+  ([`122c454`](https://github.com/hniedner/ontoprism/commit/122c45484baf46f812deb4a9beebe0567107d624))
+
+- Update README code line-count table
+  ([`f1743b7`](https://github.com/hniedner/ontoprism/commit/f1743b76799cc031b545e8bcade8bf6a8f4295d4))
+
+- Update README code line-count table
+  ([`b64ae1c`](https://github.com/hniedner/ontoprism/commit/b64ae1c7d6cef118cecaf5e06d2da24a3d309707))
+
+- Update README code line-count table
+  ([`bdfe557`](https://github.com/hniedner/ontoprism/commit/bdfe5575701604d5ab401dec448729f97629377e))
+
+- Update README code line-count table
+  ([`11818d5`](https://github.com/hniedner/ontoprism/commit/11818d53a79608811e8d4c42fb23930012bc381f))
+
+- Update README code line-count table
+  ([`d0033e5`](https://github.com/hniedner/ontoprism/commit/d0033e572465ca1401cadce94df6dfe826cdccd8))
+
+- Update README code line-count table
+  ([`93aadd6`](https://github.com/hniedner/ontoprism/commit/93aadd67d4fc57b9f95aa2f9bd8f80cac85a11c2))
+
+- Update README code line-count table
+  ([`cc8c27c`](https://github.com/hniedner/ontoprism/commit/cc8c27c446bfd437dfc25b239827e7dd3a9a89e4))
+
+- Update README code line-count table
+  ([`cf039af`](https://github.com/hniedner/ontoprism/commit/cf039af10ae519710d7230d63d1018ea01aca780))
+
+- Update README code line-count table
+  ([`2640bd4`](https://github.com/hniedner/ontoprism/commit/2640bd404b80a4239a7b923aaeac059ee538146e))
+
+- Update README code line-count table
+  ([`78fdad3`](https://github.com/hniedner/ontoprism/commit/78fdad38561dab97553d38e6265768359cfe2f3d))
+
+- Update README code line-count table
+  ([`2270dd7`](https://github.com/hniedner/ontoprism/commit/2270dd7670a587de48adba518d520df46df7b34f))
+
+- Update README code line-count table
+  ([`4bfa15d`](https://github.com/hniedner/ontoprism/commit/4bfa15d4df54d7235cccc9029926c681f012f948))
+
+- Update README code line-count table
+  ([`4eae0b2`](https://github.com/hniedner/ontoprism/commit/4eae0b230dea1c4fce30449549c49eaaffdd2cdc))
+
+- Update README code line-count table
+  ([`a5c5b8f`](https://github.com/hniedner/ontoprism/commit/a5c5b8f842e64f809993525be22ce5ed7d58550d))
+
+- Update README code line-count table
+  ([`3c27ead`](https://github.com/hniedner/ontoprism/commit/3c27ead30d537f243a31f29235b69d265eda9d9c))
+
+- Update README code line-count table
+  ([`805ff26`](https://github.com/hniedner/ontoprism/commit/805ff26fe8f98135a7228f5c49463ed06b25ed32))
+
+- Update README code line-count table
+  ([`126002c`](https://github.com/hniedner/ontoprism/commit/126002c66720d3a10918b350270f21bc8cf33302))
+
+- **agents**: Require fixing all verifiable PR-review findings until none remain
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+### Features
+
+- **decomposition**: Add --walker-max-depth CLI flag (#44)
+  ([#56](https://github.com/hniedner/ontoprism/pull/56),
+  [`7e30f64`](https://github.com/hniedner/ontoprism/commit/7e30f6471a9059a11e5db43eed7d33fc92e45e2a))
+
+- **decomposition**: Add D23 with SME-approved R101 principle and minted concepts
+  ([#68](https://github.com/hniedner/ontoprism/pull/68),
+  [`635e4cd`](https://github.com/hniedner/ontoprism/commit/635e4cdb0a8432f6783f18e6d9bc274ba8a3c745))
+
+- **decomposition**: Add draft golden set with SME review infrastructure
+  ([#68](https://github.com/hniedner/ontoprism/pull/68),
+  [`635e4cd`](https://github.com/hniedner/ontoprism/commit/635e4cdb0a8432f6783f18e6d9bc274ba8a3c745))
+
+- **decomposition**: D19 groups + D20 axis routing in filler selection
+  ([#53](https://github.com/hniedner/ontoprism/pull/53),
+  [`df84097`](https://github.com/hniedner/ontoprism/commit/df840970fb2764daf09463394037a51d0cb3691a))
+
+- **decomposition**: D19 groups + D20 axis routing in filler selection (#44)
+  ([#53](https://github.com/hniedner/ontoprism/pull/53),
+  [`df84097`](https://github.com/hniedner/ontoprism/commit/df840970fb2764daf09463394037a51d0cb3691a))
+
+- **decomposition**: Draft golden set with SME-reviewed R101 resolution (D23)
+  ([#68](https://github.com/hniedner/ontoprism/pull/68),
+  [`635e4cd`](https://github.com/hniedner/ontoprism/commit/635e4cdb0a8432f6783f18e6d9bc274ba8a3c745))
+
+- **decomposition**: Emit op:group relationship-group triples
+  ([#65](https://github.com/hniedner/ontoprism/pull/65),
+  [`33cc886`](https://github.com/hniedner/ontoprism/commit/33cc886b63d9d3b50b0afc77bd9448c032c320d7))
+
+- **decomposition**: Emit op:group relationship-group triples (#58)
+  ([#65](https://github.com/hniedner/ontoprism/pull/65),
+  [`33cc886`](https://github.com/hniedner/ontoprism/commit/33cc886b63d9d3b50b0afc77bd9448c032c320d7))
+
+- **decomposition**: Emit owl:equivalentClass intersection axioms behind --emit-equivalence
+  ([#63](https://github.com/hniedner/ontoprism/pull/63),
+  [`dd3b3fc`](https://github.com/hniedner/ontoprism/commit/dd3b3fcfd21ebe5cd924c99025abed921f99fe99))
+
+- **decomposition**: Graduate genus-chain walker with D19/D20 routing
+  ([#54](https://github.com/hniedner/ontoprism/pull/54),
+  [`5cdafba`](https://github.com/hniedner/ontoprism/commit/5cdafbab1c653ef283fbe2a0aa46fa67aa6c234a))
+
+- **decomposition**: Graduate genus-chain walker with D19/D20 routing (#44)
+  ([#54](https://github.com/hniedner/ontoprism/pull/54),
+  [`5cdafba`](https://github.com/hniedner/ontoprism/commit/5cdafbab1c653ef283fbe2a0aa46fa67aa6c234a))
+
+- **decomposition**: Implement SME-validated D23 organ-lookup, StageSystem axis, and per-role
+  settings ([#69](https://github.com/hniedner/ontoprism/pull/69),
+  [`14671f7`](https://github.com/hniedner/ontoprism/commit/14671f7444eda90576bca4c1d91718c4d038b8d0))
+
+- **decomposition**: Morphology-from-parent extraction (#59)
+  ([#66](https://github.com/hniedner/ontoprism/pull/66),
+  [`116bc85`](https://github.com/hniedner/ontoprism/commit/116bc85f2dd98a35f47f074dc96d23687036d88a))
+
+- **decomposition**: Roundtrip_fidelity metric for --emit-equivalence (#58b)
+  ([#67](https://github.com/hniedner/ontoprism/pull/67),
+  [`f4af345`](https://github.com/hniedner/ontoprism/commit/f4af345f5a0dcfb77a4e227062bab5b12b592e61))
+
+- **decomposition**: Wire R82 part-of pairs into most-specific filler selection (#44)
+  ([#55](https://github.com/hniedner/ontoprism/pull/55),
+  [`be7bebc`](https://github.com/hniedner/ontoprism/commit/be7bebc2d3e18d9315f01d16e444eaaaf56c8015))
+
+- **xref**: Add concept_xref schema, SSSOM store, and named graph (#71)
+  ([#86](https://github.com/hniedner/ontoprism/pull/86),
+  [`2821af3`](https://github.com/hniedner/ontoprism/commit/2821af31a63cdad8c6f1ef29a5db5bdb65666dfa))
+
+- **xref**: Add non-circular validation harness with ELK/ROBOT
+  ([#88](https://github.com/hniedner/ontoprism/pull/88),
+  [`467f178`](https://github.com/hniedner/ontoprism/commit/467f178759ff2e70f9053fbfeb5397e7d8090251))
+
+- **xref**: Enumerate C_cadsr anchors from caDSR with scope and liveness
+  ([`a89cdca`](https://github.com/hniedner/ontoprism/commit/a89cdca863feee9eedf257973358a6f3728f37da))
+
+- **xref**: Ingest Uberon/CL closeMatch candidates with coverage report
+  ([#90](https://github.com/hniedner/ontoprism/pull/90),
+  [`29e2dc0`](https://github.com/hniedner/ontoprism/commit/29e2dc01abd0371298df8777b481adcad209c67b))
+
+### Refactoring
+
+- Move research scripts, boost coverage, add LOC tracking, restructure README
+  ([`f66078d`](https://github.com/hniedner/ontoprism/commit/f66078d918198b631017565c79c0e8a1a90e6ae8))
+
+### Testing
+
+- Close branch-coverage gaps and expand README intro
+  ([#52](https://github.com/hniedner/ontoprism/pull/52),
+  [`1075ab2`](https://github.com/hniedner/ontoprism/commit/1075ab251f87bd7917c0c6fcbd4f9986d1fa3c1e))
+
+- Make local test-ci gate per-package to match CI coverage-verify
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- Stop test_classify closing a real fd; split coverage-verify into its own CI job
+  ([#91](https://github.com/hniedner/ontoprism/pull/91),
+  [`b235d48`](https://github.com/hniedner/ontoprism/commit/b235d483d6e31f60fd1220ac0cf08c47c50512ac))
+
+- **backend,frontend,ontolib**: Close branch-coverage gaps across 12 test files
+  ([#52](https://github.com/hniedner/ontoprism/pull/52),
+  [`1075ab2`](https://github.com/hniedner/ontoprism/commit/1075ab251f87bd7917c0c6fcbd4f9986d1fa3c1e))
+
+- **decomposition**: Document LINEAGE_GENERIC_GENERA scope limitation
+  ([#68](https://github.com/hniedner/ontoprism/pull/68),
+  [`635e4cd`](https://github.com/hniedner/ontoprism/commit/635e4cdb0a8432f6783f18e6d9bc274ba8a3c745))
+
+
 ## v0.7.3 (2026-07-09)
 
 ### Bug Fixes
