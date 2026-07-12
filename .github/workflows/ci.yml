@@ -40,6 +40,8 @@ jobs:
               - 'scripts/**'
               - 'migrations/**'
               - 'data/**'
+              - 'conftest.py'
+              - 'alembic.ini'
               - 'pyproject.toml'
               - 'pdm.lock'
               - '.pre-commit-config.yaml'
