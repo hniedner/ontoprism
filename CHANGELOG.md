@@ -19,6 +19,151 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.9.0 (2026-07-12)
+
+### Bug Fixes
+
+- Handle corrupt JSONB metrics in _row_to_run; add pagination tests
+  ([#112](https://github.com/hniedner/ontoprism/pull/112),
+  [`6c9db7e`](https://github.com/hniedner/ontoprism/commit/6c9db7ec9a9510c1b48dc6031b2d31367b62bc4e))
+
+### Build System
+
+- Bump @types/node from 24.13.2 to 26.1.1 in /frontend
+  ([#98](https://github.com/hniedner/ontoprism/pull/98),
+  [`6ea07d8`](https://github.com/hniedner/ontoprism/commit/6ea07d8bdb0133603438a230f51ede5f83f262de))
+
+- Bump fallow ([#105](https://github.com/hniedner/ontoprism/pull/105),
+  [`e1e77e2`](https://github.com/hniedner/ontoprism/commit/e1e77e2cde0cd0dd453fa9766c5948e5a1d9c219))
+
+- Bump fallow from 2.102.0 to 2.104.0 in /frontend in the frontend-minor-patch group across 1
+  directory ([#105](https://github.com/hniedner/ontoprism/pull/105),
+  [`e1e77e2`](https://github.com/hniedner/ontoprism/commit/e1e77e2cde0cd0dd453fa9766c5948e5a1d9c219))
+
+- Bump the frontend-minor-patch group across 1 directory with 6 updates
+  ([#96](https://github.com/hniedner/ontoprism/pull/96),
+  [`22cd1c5`](https://github.com/hniedner/ontoprism/commit/22cd1c56c7a6b1bebf1b8522ecee64c7124ee6cc))
+
+- **security**: Digest-pin Docker base images + add docker to Dependabot
+  ([#107](https://github.com/hniedner/ontoprism/pull/107),
+  [`3d6610b`](https://github.com/hniedner/ontoprism/commit/3d6610b6162e5d0e12da1931ef2ac6fff85c76e2))
+
+- **security**: Digest-pin Docker base images + docker Dependabot ecosystem
+  ([#107](https://github.com/hniedner/ontoprism/pull/107),
+  [`3d6610b`](https://github.com/hniedner/ontoprism/commit/3d6610b6162e5d0e12da1931ef2ac6fff85c76e2))
+
+### Continuous Integration
+
+- Add conftest.py + alembic.ini to backend path filter
+  ([#103](https://github.com/hniedner/ontoprism/pull/103),
+  [`8e7a774`](https://github.com/hniedner/ontoprism/commit/8e7a774c8f8f3232bdf5232dd98dec6d8a397667))
+
+- Add lightweight docker build smoke job on Dockerfile changes
+  ([#111](https://github.com/hniedner/ontoprism/pull/111),
+  [`62e1d92`](https://github.com/hniedner/ontoprism/commit/62e1d92a7e390cfa7d0db2c9d8d6c41540fd4ddb))
+
+- Add lightweight docker build smoke job on Dockerfile/build-input changes
+  ([#111](https://github.com/hniedner/ontoprism/pull/111),
+  [`62e1d92`](https://github.com/hniedner/ontoprism/commit/62e1d92a7e390cfa7d0db2c9d8d6c41540fd4ddb))
+
+- Bump the github-actions group across 1 directory with 2 updates
+  ([#106](https://github.com/hniedner/ontoprism/pull/106),
+  [`0a1c087`](https://github.com/hniedner/ontoprism/commit/0a1c087001397af596c62809d659252b4aa786b6))
+
+- Bump the github-actions group with 5 updates
+  ([#95](https://github.com/hniedner/ontoprism/pull/95),
+  [`c54753f`](https://github.com/hniedner/ontoprism/commit/c54753f5ba49941d3ea608de721c0b4829a25e89))
+
+- Correct docker action pins to v4.2.0/v7.3.0; widen docker filter; fix comment
+  ([#111](https://github.com/hniedner/ontoprism/pull/111),
+  [`62e1d92`](https://github.com/hniedner/ontoprism/commit/62e1d92a7e390cfa7d0db2c9d8d6c41540fd4ddb))
+
+- Path-filter jobs, cache PDM deps, lighten coverage-verify, add summary gate
+  ([#103](https://github.com/hniedner/ontoprism/pull/103),
+  [`8e7a774`](https://github.com/hniedner/ontoprism/commit/8e7a774c8f8f3232bdf5232dd98dec6d8a397667))
+
+- **security**: Add CodeQL, dependency-review, and OpenSSF Scorecard workflows
+  ([#102](https://github.com/hniedner/ontoprism/pull/102),
+  [`37fdbff`](https://github.com/hniedner/ontoprism/commit/37fdbffef47a1a13ad2597683d33a70fbcb904a1))
+
+- **security**: Add dependency-review + OpenSSF Scorecard workflows
+  ([#102](https://github.com/hniedner/ontoprism/pull/102),
+  [`37fdbff`](https://github.com/hniedner/ontoprism/commit/37fdbffef47a1a13ad2597683d33a70fbcb904a1))
+
+- **security**: Add zizmor gate + SHA-pin actions, least-privilege tokens, cooldown
+  ([#104](https://github.com/hniedner/ontoprism/pull/104),
+  [`0f076e8`](https://github.com/hniedner/ontoprism/commit/0f076e89cc532be4b05fa0cd8d78afc0e54e6845))
+
+- **security**: Add zizmor gate; SHA-pin actions, least-privilege tokens, harden supply-chain
+  ([#104](https://github.com/hniedner/ontoprism/pull/104),
+  [`0f076e8`](https://github.com/hniedner/ontoprism/commit/0f076e89cc532be4b05fa0cd8d78afc0e54e6845))
+
+- **security**: Drop advanced CodeQL workflow; default setup already active
+  ([#102](https://github.com/hniedner/ontoprism/pull/102),
+  [`37fdbff`](https://github.com/hniedner/ontoprism/commit/37fdbffef47a1a13ad2597683d33a70fbcb904a1))
+
+- **security**: Pin codeql-action comment to exact v3.37.0 for auditability
+  ([#102](https://github.com/hniedner/ontoprism/pull/102),
+  [`37fdbff`](https://github.com/hniedner/ontoprism/commit/37fdbffef47a1a13ad2597683d33a70fbcb904a1))
+
+- **security**: Use explicit persist-credentials: true on README push checkout
+  ([#104](https://github.com/hniedner/ontoprism/pull/104),
+  [`0f076e8`](https://github.com/hniedner/ontoprism/commit/0f076e89cc532be4b05fa0cd8d78afc0e54e6845))
+
+### Documentation
+
+- Fix final review nits (ROADMAP D19/D20 xref, Appendix-A scope, D-range)
+  ([#110](https://github.com/hniedner/ontoprism/pull/110),
+  [`621adb1`](https://github.com/hniedner/ontoprism/commit/621adb1199c8126c2e3f778e6052db3d7988da7e))
+
+- Fix re-review findings + purge all tmp/ references from tracked docs
+  ([#110](https://github.com/hniedner/ontoprism/pull/110),
+  [`621adb1`](https://github.com/hniedner/ontoprism/commit/621adb1199c8126c2e3f778e6052db3d7988da7e))
+
+- Fix review findings on the sync PR ([#110](https://github.com/hniedner/ontoprism/pull/110),
+  [`621adb1`](https://github.com/hniedner/ontoprism/commit/621adb1199c8126c2e3f778e6052db3d7988da7e))
+
+- Sync to v0.8.1, public-repo posture, Phase-A-done, D31
+  ([#110](https://github.com/hniedner/ontoprism/pull/110),
+  [`621adb1`](https://github.com/hniedner/ontoprism/commit/621adb1199c8126c2e3f778e6052db3d7988da7e))
+
+- Update README code line-count table
+  ([`b1bf4f3`](https://github.com/hniedner/ontoprism/commit/b1bf4f321fe17f048e4187b5508789d6456add2f))
+
+- Update README code line-count table
+  ([`82a28cd`](https://github.com/hniedner/ontoprism/commit/82a28cd0cd52c2c64183298cbb8d15cd6e256eb1))
+
+- Update README code line-count table
+  ([`c07db2f`](https://github.com/hniedner/ontoprism/commit/c07db2fb53232951ac2b4cf5841c133588b19900))
+
+- Update README code line-count table
+  ([`e8798e6`](https://github.com/hniedner/ontoprism/commit/e8798e634b724eb1c29c41664dc0c8f51a8a85d6))
+
+- Update README code line-count table
+  ([`e552e76`](https://github.com/hniedner/ontoprism/commit/e552e764f230bca739488e29d5f66bb6694ca669))
+
+- Update README code line-count table
+  ([`ffad134`](https://github.com/hniedner/ontoprism/commit/ffad1346b2cb9541e519baa7b22b1ea0bac92473))
+
+- Update README code line-count table
+  ([`568d81b`](https://github.com/hniedner/ontoprism/commit/568d81b46e10820afb7f927c233280bd60551f7e))
+
+- Update README code line-count table
+  ([`1c55e68`](https://github.com/hniedner/ontoprism/commit/1c55e68ff3ff6cbba45487f8df33816374d0aa89))
+
+### Features
+
+- **api**: Decomposition run-summary + minted-concept endpoints
+  ([#112](https://github.com/hniedner/ontoprism/pull/112),
+  [`6c9db7e`](https://github.com/hniedner/ontoprism/commit/6c9db7ec9a9510c1b48dc6031b2d31367b62bc4e))
+
+### Testing
+
+- Add missing @pytest.mark.api on list_runs_503 test
+  ([#112](https://github.com/hniedner/ontoprism/pull/112),
+  [`6c9db7e`](https://github.com/hniedner/ontoprism/commit/6c9db7ec9a9510c1b48dc6031b2d31367b62bc4e))
+
+
 ## v0.8.1 (2026-07-12)
 
 ### Bug Fixes
