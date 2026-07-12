@@ -4,6 +4,18 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
 (FastAPI + Oxigraph/SPARQL + Postgres/pgvector backend, SvelteKit 5 frontend). See
 `README.md` for product goals and `docs/ARCHITECTURE.md` for the full layout.
 
+## Hard rules (never violate)
+
+- **NEVER merge a PR unless CI is green on the target branch (`main`).** Before any
+  `gh pr merge`, run `gh pr view <number> --json statusCheckRollup` and verify every
+  conclusion is `"SUCCESS"`. If any check failed or is pending, *stop* — ask the user
+  before proceeding.
+- **After merging any PR to `main`, watch the CI run to completion.** If it fails, fix
+  it before starting any new work. Do not begin Phase B tasks, create branches, or open
+  PRs while `main` CI is red.
+- **`pdm run test-ci` must pass locally (or match CI outcome) before pushing CI changes.**
+  If you can't reproduce a CI-only failure, isolate it from xdist rather than guessing.
+
 ## Repo layout (keep-names, 3 installable packages)
 
 - `ontolib/` — shared library, import name `ontolib` (storage, NCIt/Uberon
