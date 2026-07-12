@@ -107,7 +107,7 @@ test); several docstring inaccuracies.
    same restriction in both the thyroid and lung test concepts). A refined,
    evidence-based strategy for this (classify anchoring *genus concepts* by sense,
    additively — not a global role-splitting rewrite) is recorded in D17. Two further
-   decisions then closed the last open items (DECISIONS D17 §7): **D19** makes the
+   decisions then closed the last open items (DECISIONS D19/D20): **D19** makes the
    complete lossless `owl:equivalentClass` unfolding — multi-valued axes kept as
    SNOMED-style relationship groups — the reversible representation of record, and recasts
    the single most-specific view as an explicitly-lossy curated projection (most-specific
@@ -242,4 +242,4 @@ epics (#18, the external-integration epic #70) stay unassigned.
 | Goal 3 · Balanced graph | #5 |
 | Goal 4 · Post-coordination grammar | #6, #84 |
 
-Full issue drafts + `gh` creation/assignment commands: external-integration design doc Appendix A.
+Full issue drafts + acceptance criteria: external-integration design doc Appendix A.
