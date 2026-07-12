@@ -2,6 +2,178 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-11 — corrections from peer-reviewed review + adversarial red-team (D24–D26 hardened)
+
+Design §13/§14 record the full evidence base. A literature pass and an independent adversarial review
+found the first cut of D24–D26 over-claimed in three load-bearing ways; D27–D29 correct them. These are
+*corrections to*, not reversals of, D24's strategy — the dual-canonical specialization stands; its
+guarantees are made honest and measurable.
+
+### D27. The caDSR mapping target is the *enumerated caDSR anchor set*, not the role-target atoms — and the guarantee is a *published coverage number*, not "for free"
+The first draft claimed caDSR CDEs reach upstream "transitively, by construction" because NCIt is
+unmutated. **False** (red-team C1, verified against the caDSR read model). caDSR anchors NCIt at
+surfaces largely disjoint from the ~20K role-target fillers: `ConceptLink` on object-class/property/DEC
+concepts (the role-*bearing*, often pre-coordinated concept) and — critically — `PermissibleValue.
+meaning_code` value-domain concepts (*Grade 1/2/3*, laterality, *Positive/Negative*, units), which the
+assessment §3.4 confirms are **not** modelled as role fillers. caDSR is also NCI-wide, so many CDEs
+anchor outside the neoplasm scope gate. Components can be post-coordinated (a *list* of codes), so
+coverage holds only if **every** code is mapped.
+
+**Decision:** the mapping target is `M = C_roles ∪ C_cadsr`, where `C_cadsr` is enumerated from the
+caDSR read model across **all** `concept_type`s and **all** `permissible_value.meaning_code`s of in-scope
+CDEs (design §13.1). The "map to caDSR" requirement is discharged by a **published CDE-level coverage
+report** (§13.3): fraction of in-scope CDEs whose every live anchor carries an identity-grade upstream
+link, broken out by component type, anchor-liveness, and predicate strength — with an agreed target, not
+a claim of totality. Value/qualifier concepts in `C_cadsr \ C_roles` get their own workstream (no §5
+axis covers grade/laterality). This turns an unfalsifiable assertion into an auditable number and is the
+systematic mechanism the requirement demands. Evidence: ISO/IEC 11179; Covitz 2003; Nadkarni & Brandt
+2006; Jiang 2011/2012.
+
+**Field-level reconciliation (2026-07-11, verified against the code — see
+`tmp/plans/phaseA-verified-assumptions.md`):** caDSR is a read-only **SQLite** repository, not Postgres.
+The enumerable NCIt code is `cde_concepts.concept_code`; `concept_type`'s real vocabulary is
+`{object_class, property, representation, value_meaning}` (the DEC is a derived grouping in a separate
+`cde_decs` table). Value meanings are already first-class rows (`concept_type='value_meaning'`), so
+`C_cadsr` enumerates from the single `cde_concepts` table; `permissible_value.meaning_code` (in `cde_json`)
+is a cross-check, not the primary surface. Whole-DB denominators: 79,827 CDEs / 996,162 links /
+**64,001 distinct concept codes** — empirically confirming `C_cadsr` ⊄ `C_roles`. The decision (target set
++ published coverage number) is unchanged; only the field-level mechanics are corrected.
+
+### D28. Mapping validation must be non-circular, SSSOM-recorded, EL-profiled, and backed by committed reasoner infrastructure (or explicitly downgraded)
+D25 said "DL oracle confirms exactMatch." Under-specified in two dangerous ways (red-team C2, H1;
+lit F12/F13). SKOS mapping properties are **annotation properties with no logical semantics** — feeding
+them to a reasoner as `owl:equivalentClass` imports every mapping error as an axiom; *not* feeding them
+leaves the planes logically disconnected so no round-trip is provable. And EL reasoners scale (ELK) but
+NCIt+upstream merges can leave EL, where classification over a 10M+-triple graph is intractable.
+
+**Decision:**
+1. **Non-circularity is an invariant:** the evidence for an `owl:equivalentClass` bridge may never be the
+   mapping itself; it requires independent signals (label/definition + structural corroboration or human
+   curation). The logical bridge is a **separate curated axiom**, held apart from the `skos:*Match`
+   annotation.
+2. **Every mapping is an SSSOM record** (predicate, justification, confidence, both endpoint versions) —
+   Matentzoglu et al. 2022. `skos:exactMatch` is never derived from a shared UMLS CUI alone (CUI =
+   editorial synonymy). Volume of xrefs is not evidence of correctness.
+3. **Validation reasoner is profiled to OWL 2 EL**, satisfiability-checked before classification, over the
+   stated `owl:equivalentClass`/`intersectionOf` structure — never `rdfs:subClassOf+`, never the inferred
+   graph (D21). Triple count is not the cost driver; expressivity is.
+4. **Infrastructure is named or the criteria are downgraded:** #NEW-3 must commit tool/profile/runtime/
+   owner for the classification job, *or* the round-trip criteria (§12.5) fall back to D21's materialized-
+   definition structural check. Shipping a "reasoner-validated" number without committed infrastructure is
+   forbidden. Imports discipline: MIREOT partial imports (Courtot 2011), not full-OWL upstream imports.
+
+**Committed reasoner (2026-07-11): ELK, driven via ROBOT — free, local, no cloud.**
+- **ELK** (consequence-based OWL 2 EL reasoner; **Apache-2.0**, free) is the classifier. It classifies
+  SNOMED CT (~300K classes) in seconds on a laptop and is the reasoner the OBO ontologies we integrate
+  (Uberon/CL/Mondo) are themselves built and released with, so profile compatibility is a solved problem
+  on the upstream side. NCIt (~200K classes), profiled to EL per point 3, is comfortably within budget.
+- **ROBOT** (BMC Bioinformatics 2019; OBO-community-standard CLI wrapping the OWL API + ELK; free) is the
+  driver: `robot reason --reasoner ELK`, plus `relax`/`reduce`/`merge` and consistency checks. The
+  validation harness (#NEW-3) shells out to ROBOT from the Python data-build; `owlready2` is an optional
+  Python-native path for small ad-hoc checks only (it bundles HermiT/Pellet, which do **not** scale to
+  NCIt size — not for full classification).
+- **Fallback for any subset that escapes EL:** **Konclude** (parallel tableau OWL 2 DL reasoner;
+  **LGPLv3**, free) for full-DL classification of a bounded fragment. HermiT/Pellet/Openllet remain
+  free options but do not scale to the full NCIt class count.
+- **Runtime/host:** local Apple Silicon M4 Max, 128 GB — massively over-provisioned (ELK needs single-digit
+  GB and seconds–minutes for this workload). Give the JVM a generous heap (e.g. `-Xmx32g`). **No AWS
+  sandbox required**; reserve cloud only if a future full-DL Konclude run on a pathological fragment ever
+  needs it (not anticipated).
+- **Cost: $0.** Entire reasoning stack (ELK + ROBOT + Konclude) is free/open-source. Commercial engines
+  (RDFox, Stardog, GraphDB EE) are **not** needed: they do Datalog/OWL 2 RL *materialization*, not the EL
+  *classification* D28 requires — a different tool for a different job.
+- **Owner:** the mapping-validation harness (#NEW-3), invoked in the `data-build`/`map` pipeline.
+
+### D29. Mappings have a lifecycle and rot on release; the "identifiers-only" license safety is confirmed-then-served, not assumed; economics are curation-grade
+Three governance corrections (red-team H2/H3/H4/M3; lit F8/F9/F11/F14).
+1. **Lifecycle + drift.** A mapping is `proposed → validated → {active | quarantined | retired}`. An
+   endpoint version bump **re-runs validation** over the affected set (computable from SSSOM version
+   fields) and quarantines stale mappings — it does not merely "fail loudly." `$translate` never serves
+   non-`active` mappings, and translating an upstream expression into the NCIt plane must return the
+   **legacy anchor** where one exists (prevents dual-identity re-duplication). Expect ~6–10% error
+   re-injected per upstream release (Groß 2016; Dos Reis) — a **standing maintenance LOE**, separate from
+   the decomposition ~5–8 pm, not folded into it.
+2. **Economics honesty.** "Mappings largely already exist" is qualified: candidate xrefs exist in volume,
+   but oncology NCIt↔ICD-O-3/ICD-10 maps are missing/inconsistent (PMC5294908) and inter-terminology
+   precision is often low. Upgrading candidates to inference-grade `owl:equivalentClass` is curation-grade
+   authoring; the golden-mapping-set construction is a costed workstream (#NEW-13).
+3. **Licensing is served-gated and legally confirmed.** SNOMED CT is affiliate-licensed (UMLS Appendix 2);
+   ICD-O-3 is WHO-copyrighted content. A public `$translate` emitting SCTIDs/ICD-O-3 codes may itself
+   require affiliate/WHO compliance — the identifier-in-a-map can be the licensed artifact. Obtain a
+   **written license determination**, gate the **serving** surface by consumer entitlement (not just the
+   build flag), and rely on open Uberon/CL/Mondo (CC-BY/CC0) for a complete default product.
+
+## 2026-07-11 — strategy shift: NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical, additive)
+
+Full design-of-record: [`docs/design/ncit-external-integration.md`](design/ncit-external-integration.md).
+Origin: external feedback (`tmp/new_ncit_input.md`) recommending an OBO Foundry + SNOMED/ICD-O-3 +
+Mondo composite architecture for a next-generation NCIt.
+
+> **Note (2026-07-11, post-review):** D24–D26 below are *hardened by D27–D29 above* following a
+> peer-reviewed literature pass and an adversarial red-team. Read them together: the strategy is
+> unchanged; the caDSR guarantee is now enumerate-then-measure (D27), validation is non-circular and
+> reasoner-committed (D28), and mapping lifecycle/economics/licensing are corrected (D29).
+
+### D24. Adopt "NCIt as an oncology-specific specialization of a vetted upstream substrate," realized as a dual-canonical, additive bridge — not a re-platforming
+The feedback's correct intent (be compliant with, and build on, the vetted upstream ontologies —
+Uberon anatomy, Cell Ontology normal cells, SNOMED CT + ICD-O-3 morphology, Mondo/DO disease) is
+adopted. Its literal prescription — *extract NCIt's anatomy/cell axes and replace them with upstream
+IRIs* — is **rejected** because it violates the project's load-bearing invariant (additive, never
+mutate the stated OWL; D4/D19) and would break both backward compatibility and caDSR CDE anchoring.
+
+**Decision:** NCIt keeps what is genuinely its own — oncology-specific pre-coordinated combinations,
+AJCC staging, chemotherapy regimens, NCI-curated oncology vocabulary — and *defers* the general
+anatomy/cell/disease/morphology scaffolding to the upstream reference ontologies **by mapping to
+them, not absorbing or replacing them**. Realized as a **dual-canonical** model (user-chosen posture):
+- **Reference plane = NCIt (canonical-of-record for everything that exists today)** — un-mutated,
+  backward-compatible, the anchor caDSR CDEs point at.
+- **Canonical plane = the upstream stack (canonical for *new* post-coordinated authoring + interop)**.
+- **Join = an additive mapping layer** (`skos:*Match` + RO `has_location`/`derives_from`/
+  `has_material_basis_in` + FHIR `ConceptMap.$translate`), always present, both directions.
+
+The oncology concept is then an OBO-style **cross-product** (lit review §4.2, GO cross-products [26]):
+a decomposed NCIt neoplasm's `op:` axes point at upstream fillers over a Mondo disease genus — NCIt
+supplying the specialization, the substrate supplying the reusable parts.
+
+**Why this is the right synthesis and not a course reversal:** the `op:` univocal axes (D17/D20/D22/D23)
+*are already* the Relation-Ontology relations the feedback asks for; SNOMED relationship groups (D19),
+the SCG/ECL/MRCM grammar (D22), and FHIR `$translate` (D22) are already adopted. And the decisive
+empirical finding — decomposition surfaces ~20K role-target atoms, **100% already existing active
+concepts** (assessment §3.2) — means the atoms need not be imported; only *mapped*. Mirroring that,
+the mappings themselves largely already exist (NCIm UMLS CUIs for SNOMED/ICD-O-3; Mondo's own NCIt
+xrefs; Uberon/CL xrefs), so this is an ingest/validate/serve exercise, not a rewrite. Nothing that
+exists today breaks; caDSR is never touched and gains upstream reach transitively (D26).
+
+### D25. The mapping layer uses honest SKOS relations, versioned provenance, and a DL-classification oracle — the D21 rule extended across ontologies; Uberon is revisited as an xref/interop target (not a tie-break default, so D16 stands)
+Cross-ontology maps are curated assertions, not scrapes. **Decision:**
+1. **Honest relations, never a flat `sameAs`.** Record `skos:exactMatch`/`closeMatch`/`broadMatch`/
+   `narrowMatch`/`relatedMatch` per the true granularity; use RO object properties (`has_location`,
+   `derives_from`, `has_material_basis_in`) for typed non-identity bridges. UMLS co-occurrence ≠
+   equivalence.
+2. **Map-before-mint.** Author a mapping only where no vetted source (NCIm/Mondo/Uberon/CL xref)
+   supplies it; authored mappings enter the D23 review/provenance workflow (`concept_xref`/`xref_run`
+   tables, review status, confidence, UMLS CUI, run/version pins).
+3. **DL oracle, extended from D21.** A proposed `exactMatch` is promoted only if a real OWL reasoner
+   over the stated `owl:equivalentClass`/`owl:intersectionOf` structure confirms mutual subsumption;
+   otherwise it is demoted. **Never `rdfs:subClassOf+`, never the inferred graph** (D21; Bodenreider
+   et al. divergence [12]). This gates every `exactMatch` and the `--emit-equivalence` cross-product.
+4. **Uberon revisit — complementary to D16, not a reversal.** D16 declined Uberon *as the default fix
+   for R101 most-specific-filler ties* (only 1 of 4 residual ties looked like a Uberon win); that
+   finding stands. Uberon re-enters in a *different* role — equivalence mapping + interoperability
+   substrate (already loaded at :7879) — plus a **scoped** re-test of Uberon `part_of` against exactly
+   the region-vs-organ ties D20 routes via filler-semantic-type (Uberon containment is richer than
+   NCIt's sparse `R82`). If the re-test fails, D16/D20 stand; nothing regresses.
+
+### D26. Licensing is a first-class build gate; open ontologies carry the default experience, licensed sources are flag-gated and store only NCIt→code maps
+Uberon/CL/Mondo are open (CC-BY/CC0) and unconstrained. SNOMED CT requires a member/affiliate license;
+ICD-O-3 is WHO-licensed. **Decision:** SNOMED/ICD-O-3 mappings live behind a build flag, off by
+default; the platform stores and serves only **NCIt→upstream identifiers and relations** (the
+NCIm/UMLS-license-compatible surface), never bulk upstream content, and does not redistribute the
+licensed ontologies. Upstream releases are **version-pinned** in parallel to the NCIt build pin (D5);
+a bump fails loudly and re-runs mapping validation, because cross-ontology maps rot when either
+endpoint releases. The open-licensed anatomy/cell/disease mappings (Uberon/CL/Mondo) provide a
+complete default product without any licensed dependency.
+
 ## 2026-07-11 — SME review: organ-level R101 principle, op: namespace approval, and minted concepts
 
 ### D23. R101 resolution = the named organ (SME-approved principle); `op:StageSystem`, `op:MolecularAbnormality`, `op:MetastaticSite` are first-class axes; minted concepts for missing NCIt terms are tracked in git
