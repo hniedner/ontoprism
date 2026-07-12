@@ -4,6 +4,28 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 ## 2026-07-12 — repository hardening for a public, bad-actor-resistant posture
 
+### D31. Repository made public; free security scanning + committed security workflows enabled
+Follows D30. A full secret-history audit (`gh secret list`, gitleaks over all 120 commits + all
+tags, a supplementary regex sweep, and `.env`/key-file checks) found **no secrets** in the repo,
+GitHub Actions secrets, or history — so the repo was flipped to **public**.
+
+**Decision:** on going public we enabled the features that are free for public repos —
+**secret scanning + push protection**, **private vulnerability reporting**, and **fork-PR
+workflow approval for all outside contributors** — and added committed security workflows:
+**CodeQL** (default setup, python + js/ts + actions; Copilot Autofix on), **dependency-review**
+(blocks high-severity/disallowed-license deps on PRs), and **OpenSSF Scorecard** (weekly + on
+push; SARIF → code scanning). Supply-chain hardening: all GitHub Actions are **SHA-pinned**,
+Docker base images are **digest-pinned**, Dependabot covers **github-actions + npm + docker**
+with a 7-day **cooldown**, and a **zizmor** pre-commit hook catches workflow-security regressions
+(unpinned actions, excessive token perms, credential persistence) locally before CI.
+
+**Why:** these close the D30 "deferred to the public flip" list and make the workflow-level
+Scorecard checks enforceable locally. The two secret-scanning sub-features (non-provider patterns,
+validity checks) require paid GitHub Secret Protection and are unavailable on a personal free
+account; three CodeQL `py/path-injection` alerts were verified false positives (guarded by
+`_resolve_allowed`'s allowlist + API-key auth) and dismissed with justification. Full require-PR/CI
+enforcement on `main` remains gated on a release-bot credential (D30).
+
 ### D30. `main` integrity is enforced by a ruleset; require-PR/CI is documented but gated on a bot credential
 After the release-pipeline fix (#92) nothing *structurally* protected `main`. We hardened
 the repository's GitHub settings toward a safe public posture.
@@ -56,8 +78,7 @@ axis covers grade/laterality). This turns an unfalsifiable assertion into an aud
 systematic mechanism the requirement demands. Evidence: ISO/IEC 11179; Covitz 2003; Nadkarni & Brandt
 2006; Jiang 2011/2012.
 
-**Field-level reconciliation (2026-07-11, verified against the code — see
-`tmp/plans/phaseA-verified-assumptions.md`):** caDSR is a read-only **SQLite** repository, not Postgres.
+**Field-level reconciliation (2026-07-11, verified against the code):** caDSR is a read-only **SQLite** repository, not Postgres.
 The enumerable NCIt code is `cde_concepts.concept_code`; `concept_type`'s real vocabulary is
 `{object_class, property, representation, value_meaning}` (the DEC is a derived grouping in a separate
 `cde_decs` table). Value meanings are already first-class rows (`concept_type='value_meaning'`), so
@@ -133,7 +154,7 @@ Three governance corrections (red-team H2/H3/H4/M3; lit F8/F9/F11/F14).
 ## 2026-07-11 — strategy shift: NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical, additive)
 
 Full design-of-record: [`docs/design/ncit-external-integration.md`](design/ncit-external-integration.md).
-Origin: external feedback (`tmp/new_ncit_input.md`) recommending an OBO Foundry + SNOMED/ICD-O-3 +
+Origin: external feedback (a local input memo) recommending an OBO Foundry + SNOMED/ICD-O-3 +
 Mondo composite architecture for a next-generation NCIt.
 
 > **Note (2026-07-11, post-review):** D24–D26 below are *hardened by D27–D29 above* following a
@@ -267,7 +288,7 @@ SME identified that C27787 (testicular NSGCT) has no suitable NCIt cell type. De
 - Establishes minted-concept workflow for NCIt gaps (reproducible, git-tracked)
 - Flags two bugs blocking golden set completion
 
-**Evidence:** `tmp/plans/D23-site-specific-resolution-and-role-naming.md`, `tmp/plans/sme_decisions.json`, `ontolib/tests/decomposition/golden/minted-concepts.json`, SME Review Workbook.
+**Evidence:** SME review (workbook + decisions log) and `ontolib/tests/decomposition/golden/minted-concepts.json`.
 
 ---
 
@@ -357,7 +378,7 @@ which defined-class-to-defined-class subsumption can be read off `rdfs:subClassO
 **Why not just "fix the closure":** the entailment is genuine but unmaterialized; producing
 it requires OWL reasoning over the ~10.8M-triple stated build — a separate infrastructure
 decision, not a query fix. Recording the constraint costs nothing and prevents a silently
-wrong fidelity metric. Evidence: §6.4; narrative: `tmp/PLAN_44.md` §3.
+wrong fidelity metric. Evidence: `docs/design/ncit-decomposition-engine.md` §6.4.
 
 ## 2026-07-08 — round-trip-fidelity architecture + R101 open items resolved
 
@@ -410,7 +431,7 @@ relationship-groups model is only validated on a handful of concepts (§6.6). Co
 architecture now — and forbidding the lossy collapse of non-nested values — prevents the
 single-valued path from hardening into an irreversible design, while letting the complete
 layer be built incrementally behind `--emit-equivalence`. Full rationale:
-`docs/design/ncit-decomposition-engine.md` §6.5/§6.6, §4.4, §10; narrative: `tmp/PLAN_44.md`.
+`docs/design/ncit-decomposition-engine.md` §6.5/§6.6, §4.4, §10.
 
 ### D20. R101 needs two independent, composable refinements — resolves D17's open "region-vs-organ" question
 D17 adopted genus-concept-sense classification (site-specific vs. lineage/histology-generic)
@@ -449,7 +470,7 @@ D19, neither is a "pick one" any longer — each tie becomes distinct grouped fa
 curated projection can still surface a single primary site while the record-of-truth layer
 keeps every asserted site relationship. Validate via the same golden-set precision/recall
 methodology as D14/D15/D17. Full evidence: `docs/design/ncit-decomposition-engine.md`
-§6.4/§6.6; narrative: `tmp/PLAN_44.md`.
+§6.4/§6.6.
 
 ## 2026-07-08 — automated semantic versioning
 
@@ -533,7 +554,7 @@ hypothesis and commits the order (genus-sense first, filler-semantic-type second
 routed to D19's relationship-groups model rather than a forced single value.
 
 Full rationale, evidence, and the SNOMED CT relationship-groups prior art comparison:
-`docs/design/ncit-decomposition-engine.md` §6.5/§6.6; narrative: `tmp/PLAN_44.md`.
+`docs/design/ncit-decomposition-engine.md` §6.5/§6.6.
 
 ## 2026-07-08 — R101 anatomy resolution validated (partial), Uberon plan revised
 
@@ -571,7 +592,7 @@ plausible genuine Uberon win — one out of four concepts, not a validated gener
    primary-site axes, not an edge case to engineer away.
 
 Full data, per-concept tables, and reasoning: `docs/design/ncit-decomposition-engine.md`
-§6.4; research code (untracked): `tmp/anatomy_resolve.py`; narrative: `tmp/PLAN_44.md`.
+§6.4; research code was local and untracked.
 
 ## 2026-07-08 — multi-parent DAG traversal + most-specific filler policy
 
@@ -631,9 +652,8 @@ member at each intersection level (breadth-first over the DAG, memoized so re-co
 branches aren't re-walked twice), not "the" genus. `scripts/decomposition_spike.py`'s
 existing stack-based walk already does this correctly (it pushes every genus row it
 finds); the mental model implied by D13's linear diagram does not, and a naive
-reimplementation following that diagram will reproduce the bug. Research code:
-`tmp/walk_intersection.py` (untracked, `tmp/` is gitignored — see `tmp/PLAN_44.md` for
-the full investigation).
+reimplementation following that diagram will reproduce the bug. The investigation used
+local, untracked research code.
 
 ## 2026-07-06 — stated NCIt load + decomposition extraction
 

@@ -8,16 +8,19 @@ does **not** duplicate that design. It exists to tie together (a) the full 4-goa
 here rather than left to drift a second time. Promote a decision below into
 `docs/DECISIONS.md` once it's actually made; this file stays disposable scratch.
 
-**Every currently-open issue is covered below** (#4, #5, #6, #9, #18, #44) with a current
-status and a next action. #5 and #6 are deliberately *not* designed yet — see §3 — that is
-the correct sequencing per their own stated dependency on #4, not a gap in this plan.
+**Currently-open issues** span the three unbuilt README goals and the external-integration
+epic: #4/#5/#6 (goals), #9/#57/#60/#61/#62 (decomposition + frontend), #18 (tracking), and
+the epic #70. Phase-A children #71/#72/#73/#74 are **merged and closed**; #76 (golden mapping
+set + coverage generator) is the remaining open Phase-A item; Phase B–E are #75/#77/#78/#79/#80/#81/#82/#83/#84.
+#5 and #6 are deliberately *not*
+designed yet — see §3 — that is the correct sequencing per their dependency on #4, not a gap.
 
 **2026-07-11 strategy shift (§5):** a new design-of-record,
 [`docs/design/ncit-external-integration.md`](design/ncit-external-integration.md) (DECISIONS
 D24–D29), reframes the endgame: **NCIt becomes the oncology-specific specialization of a vetted
 upstream substrate** (Uberon / Cell Ontology / SNOMED CT + ICD-O-3 / Mondo), joined by a
 **dual-canonical, additive mapping layer** that preserves NCIt *and* caDSR anchoring. This adds a
-parallel enabling track (the external-integration epic, proposed issues #NEW-0…#NEW-14) that gates
+parallel enabling track — the external-integration epic **#70** (children **#71–#84**) — that gates
 goal-4 interoperability. It does **not** re-order the existing critical path or jump ahead of #44's
 relations-before-coverage rule (D22). The design was **hardened by a peer-reviewed literature pass
 and an adversarial red-team** (D27–D29, design §14): the caDSR guarantee is now *enumerate-then-measure*
@@ -30,17 +33,17 @@ non-circular + EL-profiled + reasoner-committed, and mapping economics/licensing
 | # | Goal | Status | Tracking |
 |---|---|---|---|
 | 1 | Rich explorer over NCIt + caDSR | **Done** | Closed: #1,#2,#3,#7,#8,#10,#11,#12,#13,#14,#15,#16,#17 |
-| 2 | Decomposed ("atomic") NCIt | **PR 5b merged (#45); engine/extractor curation (#44) ongoing** — see §2 | #4, #44, #9, #18 |
+| 2 | Decomposed ("atomic") NCIt | **Engine + SME golden-set curation loop landed (#45/#46/#47/#58/#59/#44 closed); golden-set expansion (#57) ongoing** — see §2 | #4, #9, #57, #60, #61, #62 |
 | 3 | Balanced concept graph | **Not started, correctly deferred** — see §3 | #5 |
 | 4 | Post-coordination expression syntax | **Not started**, but D19 puts its `--emit-equivalence` seam on goal 2's critical path — see §3; D24–D26 now bind its ranges to the upstream substrate — see §5 | #6 |
-| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **New (D24–D29), design-of-record written + peer-review/red-team hardened** — parallel enabling track — see §5 | #NEW-0…#NEW-14 |
+| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **Phase-A children #71–#74 merged & closed; #76 (golden mapping set) still open; design-of-record + peer-review/red-team hardened (D24–D29); Phase B–E pending** — parallel enabling track — see §5 | #70 (#75–#84) |
 
 Critical path (per #18): Phase 0 ✅ → Phase 1 ✅ → **#4 → #9 → #5 → #6**, with the
-external-integration track (#NEW-*) running **parallel to #44** and feeding goal 4 (§5). #9's read/serve
+external-integration track (#70/#71–#84) running **parallel to #44** and feeding goal 4 (§5). #9's read/serve
 surface already landed ahead of #4's writer (PRs #41/#42). #4's writer/orchestrator/CLI
 landed in PR #45 (merged), the role-sense-conflation findings in PR #46 (merged), and
 automated semantic versioning in PR #47 (merged; DECISIONS D18 — releases now cut on merge
-to main, currently at v0.7.2) — see §2.
+to main, **currently at v0.8.1**) — see §2.
 
 ## 2. Issue #4 (+ #44, #9, #18) — current state
 
@@ -76,8 +79,8 @@ test); several docstring inaccuracies.
 2. **#44 research is underway — real progress, not yet done.** A naive full-corpus
    baseline run was executed (branch `neoplasm`, no limit): `in_scope=28967
    decomposed=939 residual=0 minted=87 coverage=3.24%` — real data, but from the known-
-   naive flat-restriction extractor, not the fix below; kept in Postgres/`tmp/
-   ncit_decomposed_neoplasm.ttl` as a labeled baseline, not the target dataset.
+   naive flat-restriction extractor, not the fix below; kept as a labeled local baseline in
+   Postgres, not the target dataset.
    Separately, the boundary-heuristic research (design §6.2's own scoped workstream) has
    produced two resolved decisions — **DECISIONS D14** (the stated pre-coordination
    hierarchy is a multi-parent DAG, not a linear chain — a naive single-parent walk
@@ -104,21 +107,20 @@ test); several docstring inaccuracies.
    same restriction in both the thyroid and lung test concepts). A refined,
    evidence-based strategy for this (classify anchoring *genus concepts* by sense,
    additively — not a global role-splitting rewrite) is recorded in D17. Two further
-   decisions then closed the last open items (`tmp/PLAN_44.md` §7): **D19** makes the
+   decisions then closed the last open items (DECISIONS D19/D20): **D19** makes the
    complete lossless `owl:equivalentClass` unfolding — multi-valued axes kept as
    SNOMED-style relationship groups — the reversible representation of record, and recasts
    the single most-specific view as an explicitly-lossy curated projection (most-specific
    collapse restricted to *nested* candidates only); **D20** commits `R101`'s two composable
    refinements (genus-sense classification first, filler-semantic-type ranking second).
-   Full narrative: `tmp/PLAN_44.md`. Remaining before #44 can graduate: update the golden
+   Full narrative: DECISIONS D14–D20. Remaining before #44 can graduate: update the golden
    set's C6135 entry per D15, expand the golden set to more concepts, implement the
    validated is-a/part-of extension in `filler_selection.py`, prototype D20's two R101
    refinements + D17's genus classification for the confirmed lineage-generic ancestors,
    and stand up D19's complete-representation layer behind `--emit-equivalence` (the
    round-trip artifact of record) with the single-valued output derived from it.
-3. **Once #44 crosses its ≥0.9 threshold**, graduate the extractor from
-   `scripts/decomposition_spike.py`/`tmp/differentia_extractor.py` into
-   `ontolib/decomposition/` (issue #44's own acceptance criteria) and wire it into
+3. **Once #44 crosses its ≥0.9 threshold**, graduate the extractor from the local research
+   spike into `ontolib/decomposition/` (issue #44's own acceptance criteria) and wire it into
    `_decompose_one` in place of the current flat query — this is the one place PR #45's
    own module docstring says a future extractor swap needs real changes, not a drop-in.
 4. **Re-run `pdm run decompose --branch neoplasm`** once #44's extractor graduates, to
@@ -154,8 +156,8 @@ pre-↔post equivalence surface. Rationale and citations:
 §8.4. A design for graph balancing (#5) or
 a post-coordination grammar (#6) written against zero real decomposed concepts would be
 guessing. Note the gate is *trustworthy* data, not *any* data: a full-corpus run has already
-happened (§2.1 step 2 — `in_scope=28967 decomposed=939 coverage=3.24%`,
-`tmp/ncit_decomposed_neoplasm.ttl`), but from the naive flat-restriction extractor. §2.1
+happened (§2.1 step 2 — `in_scope=28967 decomposed=939 coverage=3.24%`, a labeled local
+baseline), but from the naive flat-restriction extractor. §2.1
 step 4 is what produces a dataset worth designing against. When
 that first real run exists, the next planning action is a `docs/design/ncit-balancing.md`
 written *against its actual coverage metrics* — mirroring how the assessment doc was written
@@ -163,7 +165,7 @@ against real store queries before the engine was designed.
 
 ## 4. Summary — what to do next, in order
 
-1. ~~Review and merge PR #45.~~ **Done** (#45/#46/#47 all merged; v0.7.1 released).
+1. ~~Review and merge PR #45.~~ **Done** (#45/#46/#47 all merged; latest release **v0.8.1**).
 2. Continue #44's curation loop. **Sequencing (D22): relation quality gates coverage** —
    the genus-sense routing that de-overloads `R101`/`R105` into univocal `op:` axes is a
    *precondition* for pushing coverage past the ~3.24% baseline, not a parallel nicety;
@@ -189,10 +191,12 @@ against real store queries before the engine was designed.
 6. Post a progress update on #18.
 7. Only then: start design work on #5, then #6.
 
-**Parallel enabling track (new, §5): the external-integration epic (#NEW-0…#NEW-11).** Phase A
-(open-license Uberon/CL mapping ingest + DL-validation harness) can start **now**, alongside #44,
-because its input — the ~20K role-target atoms — already exists. It does not consume #44's critical
-path; it enriches the same `op:` axes #44 curates.
+**Parallel enabling track (§5): the external-integration epic #70 (#71–#84).** Phase A
+(xref framework + SSSOM store + named graph #71; open-license Uberon/CL candidate ingest #72;
+caDSR anchor-set enumeration #74; non-circular ELK/ROBOT validation harness #73) is **merged and
+closed** (PRs #86/#90/#89/#88). The remaining Phase-A item is **#76** (golden mapping set + coverage
+generator); Phase B–E (#75, #77–#84) are pending; they enrich the same `op:` axes #57 curates and do
+not consume the decomposition critical path.
 
 ## 5. Strategy shift — NCIt as a specialization of the OBO/SNOMED substrate (D24–D26)
 
@@ -216,26 +220,26 @@ flag-gated (open Uberon/CL/Mondo carry the default experience). D16 is *revisite
 Uberon returns as an xref/interop target plus a scoped `part_of` tie-break re-test, not as the declined
 most-specific-filler default.
 
-**Sequencing (design §9, §13):** Phase A foundation (xref framework + SSSOM; Uberon/CL ingest;
-**caDSR anchor-set enumeration `C_cadsr` #NEW-12**; non-circular EL-profiled validation harness #NEW-3)
-∥ #44 → Phase B bind-to-decomposition (upstream on `op:` fillers, Mondo genus, Uberon tie-break spike)
-→ Phase C morphology + licensing (NCIm SNOMED/ICD-O-3, morphology-from-parent) + **value/qualifier
-mapping #NEW-14** → Phase D serve/interop (`/mappings`, `$translate`, frontend, **published caDSR
-coverage report #NEW-10** — not a sample walk) → Phase E grammar (folds into #6). The **caDSR coverage
-number is the artifact that proves the mapping guarantee** (§13.3). Full issue drafts + updates to
-#4/#5/#6/#9/#44 for Claude Code: design doc Appendix A.
+**Sequencing (design §9, §13):** Phase A foundation (xref framework + SSSOM #71; Uberon/CL ingest #72;
+**caDSR anchor-set enumeration `C_cadsr` #74**; non-circular EL-profiled validation harness #73) — **all
+merged & closed** — ∥ #44 → Phase B bind-to-decomposition (upstream on `op:` fillers #77, Mondo genus #79,
+Uberon tie-break spike #78) → Phase C morphology + licensing (NCIm SNOMED/ICD-O-3 #80, morphology-from-parent
+#81) + **value/qualifier mapping #75** → Phase D serve/interop (`/mappings`, `$translate`, frontend #82,
+**published caDSR coverage report #83** — not a sample walk) → Phase E grammar (#84, folds into #6). The
+**caDSR coverage number is the artifact that proves the mapping guarantee** (§13.3). Full issue drafts:
+design doc Appendix A.
 
 **Milestones (project-wide; none existed before 2026-07-11).** Issues are partitioned into six
 milestones — the three README goals plus three external-integration increments. The two cross-cutting
-epics (#18, the external-integration epic) stay unassigned.
+epics (#18, the external-integration epic #70) stay unassigned.
 
 | Milestone | Issues |
 |---|---|
 | Goal 2 · Decomposed NCIt | #4, #9, #57, #60, #61, #62 |
-| Ext-Integration · Phase A — Bridge foundation | #NEW-1, #NEW-2, #NEW-3, #NEW-12, #NEW-13 |
-| Ext-Integration · Phase B–C — Bind + morphology | #NEW-4, #NEW-5, #NEW-6, #NEW-7, #NEW-8, #NEW-14 |
-| Ext-Integration · Phase D — Serve & caDSR coverage | #NEW-9, #NEW-10 |
+| Ext-Integration · Phase A — Bridge foundation | #71, #72, #73, #74, #76 (✅ #71–#74 closed) |
+| Ext-Integration · Phase B–C — Bind + morphology | #77, #78, #79, #80, #81, #75 |
+| Ext-Integration · Phase D — Serve & caDSR coverage | #82, #83 |
 | Goal 3 · Balanced graph | #5 |
-| Goal 4 · Post-coordination grammar | #6, #NEW-11 |
+| Goal 4 · Post-coordination grammar | #6, #84 |
 
-Creation + assignment `gh` commands: `tmp/plans/external-integration-handover.md` §0.1b.
+Full issue drafts + acceptance criteria: external-integration design doc Appendix A.

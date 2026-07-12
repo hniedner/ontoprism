@@ -151,8 +151,9 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 | Layer | Status | Docs |
 |---|---|---|
 | NCIt + caDSR explorer | **Working** — search, browse, concept detail, graph explorer, CDE cross-links | |
-| Decomposition engine | **Working** — detector, extractor, writer, CLI (`pdm run decompose`) | [design docs](docs/design/) |
-| Extractor curation | **In progress** — improving coverage beyond 3.24% | [#44](https://github.com/hniedner/ontoprism/issues/44) |
+| Decomposition engine | **Working** — detector, extractor, writer, CLI (`pdm run decompose`); SME golden-set curation loop landed (#44) | [design docs](docs/design/) |
+| Extractor curation | **Ongoing** — expanding the SME-validated golden set | [#57](https://github.com/hniedner/ontoprism/issues/57) |
+| External integration (dual-canonical) | **Phase-A foundation landed** — xref store, caDSR anchors, Uberon/CL candidates, ELK/ROBOT validation (#76 golden mapping set still open); Phase B–E pending | [#70](https://github.com/hniedner/ontoprism/issues/70) |
 | Graph balancing | **Not started** — depends on trustworthy decomposition output | [#5](https://github.com/hniedner/ontoprism/issues/5) |
 | Post-coordination grammar | **Not started** — depends on graph balancing | [#6](https://github.com/hniedner/ontoprism/issues/6) |
 
@@ -191,7 +192,7 @@ pdm run pre-commit run --all-files  # Local quality gate
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1–D21)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1–D31)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->
