@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import Result, text
 
 from ontolib.repositories.xref.models import SSSOMRecord
-from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -96,8 +96,13 @@ class XrefStore:
                 return len(rows)
             return 0  # pragma: no cover
 
-    async def update_run_metrics(self, run_id: str, metrics: dict[str, Any]) -> None:
-        """Set ``finished_at``, ``status='completed'``, and *metrics* on a run.
+    async def update_run_metrics(
+        self, run_id: str, metrics: dict[str, Any], *, status: str = "completed"
+    ) -> None:
+        """Set ``finished_at``, *status*, and *metrics* on a run.
+
+        *status* is a parameter, not a constant: a run whose reasoner never ran must not
+        be recorded as ``completed`` just because it exited without an exception.
 
         ``metrics`` is a ``jsonb`` column and this is raw SQL, so the dict is
         serialized and cast explicitly — asyncpg will not adapt a bare dict.
@@ -107,13 +112,14 @@ class XrefStore:
             await s.execute(
                 text(
                     "UPDATE xref_run SET "
-                    "  finished_at = :now, status = 'completed', "
+                    "  finished_at = :now, status = :status, "
                     "  metrics = CAST(:metrics AS jsonb) "
                     "WHERE id = :run_id"
                 ),
                 {
                     "run_id": run_id,
                     "now": now,
+                    "status": status,
                     "metrics": json.dumps(metrics),
                 },
             )
@@ -154,16 +160,28 @@ class XrefStore:
             return out
 
     async def proposed_candidates(self) -> list[SSSOMRecord]:
-        """Every candidate awaiting validation (#73): ``proposed`` lifecycle."""
+        """Every candidate awaiting validation (#73): ``closeMatch`` + ``proposed``.
+
+        The predicate filter is load-bearing, not defensive tidiness: promotion rewrites
+        the predicate to ``exactMatch``, so a proposed ``narrowMatch`` (a curator saying
+        "the object is *narrower* than the subject" — the golden set has exactly such
+        rows) would be silently upgraded to identity-grade equivalence.  Only a
+        ``closeMatch`` is a candidate for identity.
+
+        ``DISTINCT`` because the same mapping re-ingested in a later run is the same
+        candidate, not two: without it each duplicate is re-validated (two JVM launches
+        apiece) and inflates the counts that land in ``xref_run.metrics``.
+        """
         sql = text(
-            "SELECT subject_id, predicate_id, object_id, mapping_justification, "
-            "confidence, subject_source_version, object_source_version, "
-            "lifecycle_state, review_status, author "
-            "FROM concept_xref WHERE lifecycle_state = 'proposed' "
+            "SELECT DISTINCT subject_id, predicate_id, object_id, "
+            "mapping_justification, confidence, subject_source_version, "
+            "object_source_version, lifecycle_state, review_status, author "
+            "FROM concept_xref "
+            "WHERE lifecycle_state = 'proposed' AND predicate_id = :close "
             "ORDER BY subject_id, object_id"
         )
         async with self._sf() as s:
-            result = await s.execute(sql)
+            result = await s.execute(sql, {"close": CLOSE_MATCH})
             return [SSSOMRecord(**dict(row)) for row in result.mappings().all()]
 
     async def validated_anchors(self) -> tuple[tuple[str, str], ...]:
@@ -184,23 +202,34 @@ class XrefStore:
                 (r["subject_id"], r["object_id"]) for r in result.mappings().all()
             )
 
-    async def quarantine_stale(self, *, ncit_version: str, source_version: str) -> int:
+    async def quarantine_stale(
+        self, *, ncit_version: str, source_version: str, source: str
+    ) -> int:
         """Quarantine validated bridges whose endpoint versions have moved on (D29).
 
         An endpoint release bumps the version fields; a bridge validated against an
         older release is no longer *known* good, so it is quarantined (not served,
         not deleted) until validation re-runs over it.
+
+        Scoped to *source*: an ``object_source_version`` is only comparable within its
+        own upstream. Sweeping unscoped would quarantine every Mondo bridge on a Uberon
+        release, because a Mondo version can never equal a Uberon one.
         """
         sql = text(
             "UPDATE concept_xref SET lifecycle_state = 'quarantined' "
             "WHERE lifecycle_state = 'validated' "
+            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
             "AND (subject_source_version <> :ncit_version "
             "     OR object_source_version <> :source_version)"
         )
         async with self._sf() as s:
             result: Result = await s.execute(
                 sql,
-                {"ncit_version": ncit_version, "source_version": source_version},
+                {
+                    "ncit_version": ncit_version,
+                    "source_version": source_version,
+                    "source": source,
+                },
             )
             await s.commit()
             return cast("int", result.rowcount)  # type: ignore[attr-defined]

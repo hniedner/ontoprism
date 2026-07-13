@@ -15,6 +15,7 @@ Config (store URL, DB paths) comes from the backend settings / env.
 from __future__ import annotations
 
 import asyncio
+import logging
 import zipfile
 from pathlib import Path
 
@@ -162,11 +163,15 @@ def _curated_pairs(golden: Path | None) -> frozenset[tuple[str, str]]:
     )
 
 
-async def _build_xref_promote(golden: Path | None) -> None:
+async def _build_xref_promote(golden: Path | None, uberon_version: str) -> None:
     """Validation-driven promotion (#73): closeMatch/proposed -> exactMatch/validated.
 
     Shells out to ROBOT/ELK per candidate (EL profile + satisfiability gate before any
     classification), so `robot` must be on PATH — see docs/DATA_SETUP.md.
+
+    Exits non-zero if the reasoner failed to run for any candidate: a promotion pass
+    that could not reason is a *failed* run, not a run that conservatively promoted
+    nothing, and the two must never look alike from the outside.
     """
     settings = get_settings()
     engine = make_engine(settings.database_url)
@@ -176,15 +181,27 @@ async def _build_xref_promote(golden: Path | None) -> None:
             OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
             OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
         ):
+            ncit_version = (await ncit_client.version()) or "unknown"
             report = await run_promotion(
                 XrefStore(sf),
                 ncit_client,
                 uberon_client,
+                ncit_version=ncit_version,
+                source_version=uberon_version,
                 curated_pairs=_curated_pairs(golden),
             )
     finally:
         await dispose_engine(engine)
+
     typer.echo(f"xref promotion: {report}")
+    if report["reasoner_errors"]:
+        typer.echo(
+            f"FAILED: the reasoner could not run for {report['reasoner_errors']} "
+            "candidate(s). This is NOT 'no candidate qualified' — check that `robot` "
+            "and Java are on PATH (docs/DATA_SETUP.md) and re-run.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -224,9 +241,17 @@ def xref_promote(
         help="Curated (SME-signed) SSSOM mapping set; its exactMatch pairs seed the "
         "trusted-anchor set that structural corroboration is measured against.",
     ),
+    uberon_version: str = typer.Option(
+        "uberon-2026-01",
+        help="The upstream release this run validates against. Bridges validated "
+        "against any other release are quarantined (D29).",
+    ),
 ) -> None:
     """Promote validated candidates to exactMatch (needs `robot` on PATH)."""
-    asyncio.run(_build_xref_promote(golden))
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
+    asyncio.run(_build_xref_promote(golden, uberon_version))
 
 
 @app.command(name="all")

@@ -34,6 +34,7 @@ _LUNG = URIRef(f"{NCIT_NS}C12468")
 _RESP_ORGAN = URIRef(f"{NCIT_NS}C12366")
 _UBERON_LUNG = URIRef("http://purl.obolibrary.org/obo/UBERON_0002048")
 _UBERON_RESP = URIRef("http://purl.obolibrary.org/obo/UBERON_0001004")
+_UBERON_NERVOUS = URIRef("http://purl.obolibrary.org/obo/UBERON_0001016")
 
 # NCIt: Lung ⊑ Respiratory System Organ.  Uberon: lung ⊑ respiratory system.
 _NCIT_EDGES = {("C12468", "C12366")}
@@ -168,6 +169,52 @@ def test_ontology_stays_within_the_el_vocabulary(candidate: SSSOMRecord) -> None
     )
     predicates = {t[1] for t in g}
     assert predicates <= {RDF.type, RDFS.subClassOf, OWL.equivalentClass}
+
+
+@pytest.mark.unit
+def test_disjointness_axioms_are_carried_into_the_merge(
+    candidate: SSSOMRecord,
+) -> None:
+    """Without disjointness the merge is trivially satisfiable — a TBox of only
+    subsumptions and equivalences over named classes has a model in which every class is
+    the whole domain.  ELK could then never derive ``⊥``, the satisfiability gate could
+    never fire, and the reasoner would contribute nothing a graph walk would not.  The
+    disjointness axioms are the reasoner's only refutation power.
+    """
+    g = _graph(
+        build_validation_ontology(
+            candidate,
+            ncit_edges=_NCIT_EDGES,
+            upstream_edges=_UPSTREAM_EDGES,
+            anchors=_ANCHORS,
+            disjoints=((str(_UBERON_RESP), str(_UBERON_NERVOUS)),),
+            include_bridge=True,
+        )
+    )
+    assert (_UBERON_RESP, OWL.disjointWith, _UBERON_NERVOUS) in g
+
+
+@pytest.mark.unit
+def test_disjointness_stays_within_the_el_vocabulary(candidate: SSSOMRecord) -> None:
+    """owl:disjointWith is in OWL 2 EL — carrying it must not push the merge out of
+    profile (which would make the gate reject our own well-formed output)."""
+    g = _graph(
+        build_validation_ontology(
+            candidate,
+            ncit_edges=_NCIT_EDGES,
+            upstream_edges=_UPSTREAM_EDGES,
+            anchors=_ANCHORS,
+            disjoints=((str(_UBERON_RESP), str(_UBERON_NERVOUS)),),
+            include_bridge=True,
+        )
+    )
+    predicates = {t[1] for t in g}
+    assert predicates <= {
+        RDF.type,
+        RDFS.subClassOf,
+        OWL.equivalentClass,
+        OWL.disjointWith,
+    }
 
 
 @pytest.mark.unit

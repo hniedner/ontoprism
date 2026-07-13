@@ -10,7 +10,15 @@ The ontology handed to ELK is deliberately *small* (MIREOT-style partial fragmen
 Courtot 2011): the stated named-class taxonomy around both endpoints, the already-
 validated anchor bridges, and — only when ``include_bridge`` — the candidate bridge
 under test.  We never classify the whole 10M-triple graph, and we stay inside OWL 2 EL
-by construction: class declarations, ``rdfs:subClassOf``, ``owl:equivalentClass``.
+by construction: class declarations, ``rdfs:subClassOf``, ``owl:equivalentClass``, and
+``owl:disjointWith`` (all four are OWL 2 EL).
+
+The disjointness axioms are what make the satisfiability gate *mean* anything.  A merge
+of only subsumptions and equivalences over named classes is trivially satisfiable —
+interpret every class as the whole domain — so ELK could never derive ``⊥`` and the
+gate would be decorative, the reasoner contributing nothing a graph walk would not.
+With the endpoints' disjointness carried in, a bridge that would place one class under
+two disjoint parents is *refuted*, which is the QC role D28 assigns the reasoner.
 
 The two builds are the heart of the non-circularity argument (D28):
 
@@ -30,7 +38,7 @@ from ontolib.repositories.xref.vocab import ALLOWED_PREDICATES
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from ontolib.repositories.xref.models import SSSOMRecord
 
@@ -70,6 +78,7 @@ def build_validation_ontology(
     ncit_edges: set[tuple[str, str]],
     upstream_edges: set[tuple[str, str]],
     anchors: Sequence[tuple[str, str]],
+    disjoints: Sequence[tuple[str, str]] = (),
     include_bridge: bool,
 ) -> str:
     """Assemble the small merged ontology for *record*, as Turtle.
@@ -79,6 +88,11 @@ def build_validation_ontology(
         ncit_edges: Stated ``(child_code, parent_code)`` NCIt named-class edges.
         upstream_edges: Stated ``(child_curie, parent_curie)`` upstream edges.
         anchors: Already-validated ``(ncit_code, upstream_curie)`` bridges.
+        disjoints: Stated ``owl:disjointWith`` pairs (IRIs, either plane).  **These are
+            what give the reasoner anything to refute with.**  A merge of only
+            subsumptions and equivalences over named classes is trivially satisfiable
+            (interpret every class as the whole domain), so without disjointness the
+            satisfiability gate can never fire and ELK degenerates into a graph walk.
         include_bridge: Assert the candidate's own ``owl:equivalentClass``.
 
     Raises:
@@ -99,20 +113,14 @@ def build_validation_ontology(
     classes: set[str] = {subject_iri, upstream_iri}
     axioms: list[str] = []
 
-    for child, parent in sorted(ncit_edges):
-        child_iri, parent_iri = _ncit_iri(child), _ncit_iri(parent)
-        classes |= {child_iri, parent_iri}
-        axioms.append(f"<{child_iri}> <{RDFS_NS}subClassOf> <{parent_iri}> .")
-
-    for child, parent in sorted(upstream_edges):
-        child_iri, parent_iri = object_iri(child), object_iri(parent)
-        classes |= {child_iri, parent_iri}
-        axioms.append(f"<{child_iri}> <{RDFS_NS}subClassOf> <{parent_iri}> .")
-
-    for code, curie in anchors:
-        anchor_ncit, anchor_upstream = _ncit_iri(code), object_iri(curie)
-        classes |= {anchor_ncit, anchor_upstream}
-        axioms.append(bridge_axiom(anchor_ncit, anchor_upstream))
+    for iris, axiom in (
+        *_subsumptions(ncit_edges, _ncit_iri),
+        *_subsumptions(upstream_edges, object_iri),
+        *_equivalences(anchors),
+        *_disjointness(disjoints),
+    ):
+        classes |= iris
+        axioms.append(axiom)
 
     if include_bridge:
         axioms.append(bridge_axiom(subject_iri, upstream_iri))
@@ -120,3 +128,33 @@ def build_validation_ontology(
     declarations = [f"<{iri}> a <{OWL_NS}Class> ." for iri in sorted(classes)]
     header = f"<{_ONTOLOGY_IRI}> a <{OWL_NS}Ontology> ."
     return "\n".join([header, *declarations, *axioms]) + "\n"
+
+
+def _subsumptions(
+    edges: set[tuple[str, str]], to_iri: Callable[[str], str]
+) -> list[tuple[set[str], str]]:
+    out: list[tuple[set[str], str]] = []
+    for child, parent in sorted(edges):
+        child_iri, parent_iri = to_iri(child), to_iri(parent)
+        out.append(
+            (
+                {child_iri, parent_iri},
+                f"<{child_iri}> <{RDFS_NS}subClassOf> <{parent_iri}> .",
+            )
+        )
+    return out
+
+
+def _equivalences(anchors: Sequence[tuple[str, str]]) -> list[tuple[set[str], str]]:
+    out: list[tuple[set[str], str]] = []
+    for code, curie in anchors:
+        ncit, upstream = _ncit_iri(code), object_iri(curie)
+        out.append(({ncit, upstream}, bridge_axiom(ncit, upstream)))
+    return out
+
+
+def _disjointness(pairs: Sequence[tuple[str, str]]) -> list[tuple[set[str], str]]:
+    return [
+        ({left, right}, f"<{left}> <{OWL_NS}disjointWith> <{right}> .")
+        for left, right in sorted(pairs)
+    ]

@@ -91,7 +91,19 @@ def gather_evidence(
     pair set, and whether the reasoner corroborated the pair through a separate
     anchor (computed over a merge that excludes this candidate's bridge).
     """
-    origin = _GENERATING_SIGNAL.get(record.mapping_justification)
+    if record.mapping_justification not in _GENERATING_SIGNAL:
+        # Fail closed. With an unrecognised justification we cannot know which signal
+        # produced this candidate, so we cannot drop it — and the xref that generated
+        # the mapping would be counted as independent evidence *for* that mapping,
+        # which is exactly the circularity this module exists to prevent (D28).
+        raise ValueError(
+            "cannot establish the generating signal for mapping_justification "
+            f"{record.mapping_justification!r}: refusing to gather evidence, because "
+            "the signal that produced a candidate may never also justify it (D28). "
+            f"Known justifications: {sorted(_GENERATING_SIGNAL)}"
+        )
+
+    origin = _GENERATING_SIGNAL[record.mapping_justification]
     candidates = [
         _label_agreement(subject_labels, object_labels),
         _xref_assertion(record.subject_id, object_xref_codes),

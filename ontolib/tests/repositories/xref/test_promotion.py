@@ -16,7 +16,6 @@ corroborate itself.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
@@ -37,9 +36,10 @@ from ontolib.repositories.xref.evidence import (
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.promotion import (
     REASON_INSUFFICIENT_EVIDENCE,
-    REASON_NOT_EL_VALID,
     REASON_PROMOTED,
+    REASON_REFUTED,
     PromotionContext,
+    PromotionEnvironmentError,
     elk_reasoner,
     is_structurally_corroborated,
     load_promotion_context,
@@ -47,6 +47,7 @@ from ontolib.repositories.xref.promotion import (
     promote_candidates,
     validate_candidate,
 )
+from ontolib.repositories.xref.validation import ReasonerUnavailableError
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -98,9 +99,29 @@ class _ElkLikeReasoner:
         return edges
 
 
-def _reject_all(ttl: str) -> None:
-    """A reasoner that rejects every merge (non-EL, or unsatisfiable)."""
-    return None
+class _RefutesTheBridge(_ElkLikeReasoner):
+    """Accepts the bridge-free merge; refutes any merge carrying the candidate bridge.
+
+    This is what a real refutation looks like: the anchors and taxonomy are fine, and
+    *adding the candidate equivalence* is what forces a class under two disjoint
+    parents.
+    """
+
+    def __call__(  # type: ignore[override]
+        self, ttl: str
+    ) -> set[tuple[str, str]] | None:
+        edges = super().__call__(ttl)
+        bridged = any(
+            {a, b} == {_LUNG_IRI, _UBERON_LUNG_IRI}
+            for a, b in edges
+            if (a, b) != (b, a)
+        )
+        return None if bridged else edges
+
+
+def _unavailable(ttl: str) -> set[tuple[str, str]] | None:
+    """A reasoner that cannot run at all (no Java, corrupt jar, OOM, timeout)."""
+    raise ReasonerUnavailableError("robot is not on PATH")
 
 
 def _record(
@@ -240,18 +261,61 @@ def test_curated_candidate_is_not_used_as_its_own_anchor() -> None:
 
 
 @pytest.mark.unit
-def test_candidate_is_not_promoted_when_the_merge_fails_the_el_gate() -> None:
-    """A merge that escapes EL or is unsatisfiable is *rejected*, not force-classified
-    — and no amount of evidence promotes it."""
+def test_candidate_refuted_by_the_reasoner_is_not_promoted() -> None:
+    """A bridge the reasoner *refutes* (it forces a class under two disjoint parents)
+    is rejected, not force-classified — and no amount of evidence promotes it."""
     outcome = validate_candidate(
         _record(),
         _context(curated_pairs=frozenset({("C12468", "UBERON:0002048")})),
-        reasoner=_reject_all,
+        reasoner=_RefutesTheBridge(),
     )
 
     assert outcome.promoted is None
     assert outcome.el_valid is False
-    assert outcome.reason == REASON_NOT_EL_VALID
+    assert outcome.reason == REASON_REFUTED
+
+
+@pytest.mark.unit
+def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
+    """An unusable reasoner (no Java, corrupt jar, OOM, timeout) must NOT be laundered
+    into 'this candidate did not qualify' — the run is failed, loudly.
+
+    This is the defect that hid three separate bugs in this module's history: a broken
+    reasoner call looks exactly like a clean, conservative zero-promotion run.
+    """
+    _, report = promote_candidates([_record()], _context(), reasoner=_unavailable)
+
+    assert report.as_dict() == {
+        "considered": 1,
+        "promoted": 0,
+        "insufficient_evidence": 0,
+        "refuted": 0,
+        "reasoner_errors": 1,
+    }
+    assert report.failed is True
+
+
+@pytest.mark.unit
+def test_refuting_the_bridge_free_merge_is_a_data_integrity_alarm() -> None:
+    """The bridge-free merge carries no candidate axiom, so it cannot legitimately be
+    refuted *about this candidate*.  If the reasoner refutes it, the validated anchors
+    contradict the taxonomy — raise, rather than bury it as 'not corroborated'."""
+
+    def _refuse_everything(ttl: str) -> None:
+        return None
+
+    with pytest.raises(PromotionEnvironmentError, match="anchors"):
+        validate_candidate(_record(), _context(), reasoner=_refuse_everything)
+
+
+@pytest.mark.unit
+def test_a_run_with_no_stated_ncit_edges_refuses_rather_than_reporting_zero() -> None:
+    """An unloaded stated graph would fail every candidate for a reason that has nothing
+    to do with the candidate — and would read as a conservative zero."""
+    with pytest.raises(PromotionEnvironmentError, match="stated"):
+        promote_candidates(
+            [_record()], _context(ncit_edges=set()), reasoner=_ElkLikeReasoner()
+        )
 
 
 @pytest.mark.unit
@@ -343,6 +407,30 @@ def test_structural_corroboration_follows_ncit_ancestors() -> None:
     )
 
 
+@pytest.mark.unit
+def test_a_disagreeing_anchor_image_is_not_silently_dropped() -> None:
+    """An NCIt class may carry more than one validated upstream image.  Collapsing the
+    anchors with ``dict()`` would keep only the last, so a *refuting* image could be
+    silently discarded and the candidate corroborated anyway — decided by dict ordering.
+    Every image of every anchored ancestor must hold.
+    """
+    inferred = {(_UBERON_LUNG_IRI, _UBERON_RESP_IRI)}
+    assert (
+        is_structurally_corroborated(
+            _record(),
+            inferred,
+            # C12366 is anchored to BOTH: the object sits under the first, but
+            # demonstrably not under the second.  That is a disagreement.
+            anchors=(
+                ("C12366", "UBERON:0001004"),
+                ("C12366", "UBERON:0000955"),
+            ),
+            ncit_edges={("C12468", "C12366")},
+        )
+        is False
+    )
+
+
 # ── the run: report + the number it moves ──────────────────────────────
 
 
@@ -361,25 +449,28 @@ def test_promotion_report_counts_every_outcome() -> None:
         "considered": 2,
         "promoted": 1,
         "insufficient_evidence": 1,
-        "not_el_valid": 0,
+        "refuted": 0,
+        "reasoner_errors": 0,
     }
+    assert report.failed is False
 
 
 @pytest.mark.unit
-def test_report_separates_el_rejections_from_weak_evidence() -> None:
-    """A curated pair whose merge the reasoner rejects is counted as an EL failure,
-    not as missing evidence — the two are different problems with different fixes."""
+def test_report_separates_refutations_from_weak_evidence() -> None:
+    """A curated pair the reasoner refutes is counted as a refutation, not as missing
+    evidence — they are different problems with different fixes."""
     _, report = promote_candidates(
         [_record(), _record(obj="UBERON:0000955")],
         _context(curated_pairs=frozenset({("C12468", "UBERON:0002048")})),
-        reasoner=_reject_all,
+        reasoner=_RefutesTheBridge(),
     )
 
     assert report.as_dict() == {
         "considered": 2,
         "promoted": 0,
         "insufficient_evidence": 1,
-        "not_el_valid": 1,
+        "refuted": 1,
+        "reasoner_errors": 0,
     }
 
 
@@ -459,13 +550,14 @@ def test_elk_reasoner_returns_none_when_the_el_gate_rejects(
 
 @pytest.mark.unit
 @patch("ontolib.repositories.xref.promotion.validate_and_classify")
-def test_elk_reasoner_returns_none_when_the_merge_is_unsatisfiable(
+def test_elk_reasoner_propagates_an_unusable_reasoner(
     mock_validate: MagicMock,
 ) -> None:
-    """ROBOT exits non-zero on unsatisfiable classes — that is the satisfiability
-    gate, and it must reject the merge rather than blow up the run."""
-    mock_validate.side_effect = subprocess.CalledProcessError(1, ["robot"])
-    assert elk_reasoner("<urn:a> a <urn:C> .") is None
+    """An unusable reasoner must NOT come back as None: None means 'refuted', and an
+    environment failure is not a verdict about the merge."""
+    mock_validate.side_effect = ReasonerUnavailableError("java not found")
+    with pytest.raises(ReasonerUnavailableError):
+        elk_reasoner("<urn:a> a <urn:C> .")
 
 
 @pytest.mark.unit
@@ -552,6 +644,37 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
 
 
 # ── integration: the real ELK ──────────────────────────────────────────
+
+
+@pytest.mark.integration
+def test_real_elk_refutes_a_bridge_that_violates_disjointness() -> None:
+    """The satisfiability gate, proven against the real reasoner.
+
+    Bridging NCIt Lung to Uberon *brain* forces brain under `respiratory system` (via
+    the trusted anchor on Lung's parent) while Uberon also puts it under `nervous
+    system` — and the two are disjoint.  ELK must derive ⊥ and refute the merge.
+
+    This is the test that could not exist before disjointness axioms were carried into
+    the merge: a TBox of only subsumptions and equivalences is trivially satisfiable, so
+    the gate could never fire and `el_valid` was unconditionally True.
+    """
+    if shutil.which("robot") is None:
+        pytest.skip("robot not on PATH")
+
+    resp, nervous = _UBERON_RESP_IRI, f"{_OBO}UBERON_0000010"
+    ctx = _context(disjoints=((resp, nervous),))
+    bad = _record(obj="UBERON:0000955")  # brain
+
+    # Give it enough evidence to reach the EL gate — the reasoner must be what stops it.
+    ctx = _context(
+        disjoints=((resp, nervous),),
+        curated_pairs=frozenset({(bad.subject_id, bad.object_id)}),
+    )
+    outcome = validate_candidate(bad, ctx, reasoner=elk_reasoner)
+
+    assert outcome.el_valid is False
+    assert outcome.promoted is None
+    assert outcome.reason == REASON_REFUTED
 
 
 @pytest.mark.integration

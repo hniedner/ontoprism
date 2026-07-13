@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +24,7 @@ from ontolib.repositories.xref.promotion import (
     parse_inferred_subclasses,
 )
 from ontolib.repositories.xref.validation import (
+    ReasonerUnavailableError,
     classify,
     promote_candidate,
     to_el_profile_and_check,
@@ -138,25 +140,94 @@ def test_el_profile_gate_invokes_robots_validate_profile_command(
 
 @pytest.mark.unit
 @patch("ontolib.repositories.xref.validation.subprocess.run")
-def test_to_el_profile_check_fails_on_nonzero_exit(
+def test_to_el_profile_check_reports_a_real_profile_violation(
     mock_run: MagicMock,
 ) -> None:
-    """to_el_profile_and_check returns False when ROBOT exits non-zero."""
-    mock_run.return_value = MagicMock(returncode=1)
+    """A non-zero exit that *reports a violation* is a genuine verdict: False."""
+    mock_run.return_value = MagicMock(
+        returncode=1,
+        stdout="EL Profile Violation: Use of undeclared object property",
+        stderr="",
+    )
     assert to_el_profile_and_check("/fake/path.owl") is False
 
 
 @pytest.mark.unit
 @patch("ontolib.repositories.xref.validation.subprocess.run")
-def test_to_el_profile_check_warns_on_failure(
+def test_a_broken_robot_is_not_reported_as_a_profile_violation(
+    mock_run: MagicMock,
+) -> None:
+    """THE silent-failure guard: a non-zero exit with no violation report means ROBOT
+    could not run (no Java, corrupt jar, OOM). That is NOT an EL verdict, and returning
+    False for it would silently reject every merge and promote nothing — which looks
+    exactly like 'no candidate qualified'.
+    """
+    mock_run.return_value = MagicMock(
+        returncode=127, stdout="", stderr="Error: Unable to access jarfile robot.jar"
+    )
+    with pytest.raises(ReasonerUnavailableError, match="environment failure"):
+        to_el_profile_and_check("/fake/path.owl")
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.validation.subprocess.run")
+def test_a_missing_robot_binary_raises_rather_than_rejecting(
+    mock_run: MagicMock,
+) -> None:
+    mock_run.side_effect = FileNotFoundError("robot")
+    with pytest.raises(ReasonerUnavailableError, match="not on PATH"):
+        to_el_profile_and_check("/fake/path.owl")
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.validation.subprocess.run")
+def test_a_robot_timeout_raises_rather_than_rejecting(
+    mock_run: MagicMock,
+) -> None:
+    """A hung JVM is an environment failure, not a verdict."""
+    mock_run.side_effect = subprocess.TimeoutExpired(["robot"], 300)
+    with pytest.raises(ReasonerUnavailableError, match="timed out"):
+        to_el_profile_and_check("/fake/path.owl")
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.validation.subprocess.run")
+def test_classify_returns_none_when_elk_refutes_the_merge(
+    mock_run: MagicMock,
+) -> None:
+    """An unsatisfiable merge is refuted — the satisfiability gate."""
+    mock_run.return_value = MagicMock(
+        returncode=1, stdout="", stderr="ERROR unsatisfiable classes: ..."
+    )
+    assert classify("/fake/input.ttl") is None
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.validation.subprocess.run")
+def test_classify_raises_when_elk_dies_for_an_unrelated_reason(
+    mock_run: MagicMock,
+) -> None:
+    """OOM / JVM crash must never be recorded as 'the merge was unsatisfiable'."""
+    mock_run.return_value = MagicMock(
+        returncode=137, stdout="", stderr="java.lang.OutOfMemoryError: Java heap space"
+    )
+    with pytest.raises(ReasonerUnavailableError, match="NOT a verdict"):
+        classify("/fake/input.ttl")
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.validation.subprocess.run")
+def test_to_el_profile_check_warns_on_a_real_violation(
     mock_run: MagicMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """to_el_profile_and_check logs a warning on profile failure."""
-    mock_run.return_value = MagicMock(returncode=1)
+    """A genuine profile violation is logged with ROBOT's own report, not a guess."""
+    mock_run.return_value = MagicMock(
+        returncode=1, stdout="EL Profile Violation: bad axiom", stderr=""
+    )
     with caplog.at_level(logging.WARNING):
         assert to_el_profile_and_check("/fake/path.owl") is False
-    assert "not in OWL 2 EL profile" in caplog.text
+    assert "EL profile violation" in caplog.text
 
 
 # ── test 3b: classify subprocess paths (unit) ──────────────────────────
@@ -176,7 +247,9 @@ def test_classify_creates_temp_output(
     # actually closed — closing a real in-use fd corrupts the xdist worker pipe
     # (BrokenPipe) or pytest's dup'd fds (teardown EBADF).
     mock_mkstemp.return_value = (3, "/fake/temp/test_elk.owl")
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
     out_path = classify("/fake/input.owl")
+    assert out_path is not None
     assert str(out_path) == "/fake/temp/test_elk.owl"
     # verify subprocess was called with ELK
     args = mock_run.call_args[0][0]

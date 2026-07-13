@@ -18,19 +18,30 @@ Per candidate:
 2. **Gather independent evidence** (:mod:`ontolib.repositories.xref.evidence`), minus
    the signal that generated the candidate.
 3. **Gate on EL.** Only if the evidence already suffices, classify the merge *with* the
-   bridge: ROBOT profiles it to OWL 2 EL, and a non-EL or unsatisfiable merge is
-   rejected (never force-classified).
+   bridge: ROBOT profiles it to OWL 2 EL and ELK classifies it.  A bridge that puts a
+   class under two disjoint parents is *refuted* and the candidate is rejected — never
+   force-classified.
 4. **Promote** (:func:`validation.promote_candidate`) and persist with the D29
    lifecycle: ``exactMatch`` + ``lifecycle_state='validated'``.  Un-promoted candidates
    are left exactly as they were, as ``closeMatch/proposed``.
 
 **The oracle.** ELK is an *error detector*, not ground truth for equivalence (D28;
-Bodenreider et al.): it can refute a candidate (unsatisfiable merge, or an anchored
-ancestor the object demonstrably does not sit under), never prove one — which is why a
-promotion additionally requires independent, human- or source-attested evidence.  The
-oracle is the stated ``owl:equivalentClass``/``subClassOf`` structure fed to the
+Bodenreider et al.): it can refute a candidate (a merge that forces a class under two
+disjoint parents), never prove one — which is why a promotion additionally requires
+independent, human- or source-attested evidence.  The oracle is the stated
+``owl:equivalentClass``/``subClassOf``/``owl:disjointWith`` structure fed to the
 reasoner; it is **neither** an ``rdfs:subClassOf+`` walk over NCIt **nor** NCIt's
 shipped inferred graph, neither of which materializes defined-class subsumption (D21).
+The reasoner's refutation power comes entirely from the **disjointness** axioms carried
+into the merge: without them a merge of subsumptions and equivalences is trivially
+satisfiable and the gate is decorative.
+
+**Three-valued reasoning, deliberately.** A merge is *accepted*, *refuted*, or **the
+reasoner never ran**.  The third state raises
+(:exc:`validation.ReasonerUnavailableError`) and is counted separately, because a
+broken reasoner otherwise looks exactly like "no candidate qualified" — a silent
+zero-promotion run that reads as a conservative verdict.  A run with any such error is
+reported as **failed**, never as a clean zero.
 """
 
 from __future__ import annotations
@@ -40,7 +51,6 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from subprocess import CalledProcessError
 from typing import TYPE_CHECKING, Any, Protocol
 
 from rdflib import Graph, URIRef
@@ -55,6 +65,7 @@ from ontolib.repositories.xref.candidate_ingest import (
 from ontolib.repositories.xref.evidence import Evidence, gather_evidence, is_independent
 from ontolib.repositories.xref.ttl_writer import object_iri
 from ontolib.repositories.xref.validation import (
+    ReasonerUnavailableError,
     promote_candidate,
     validate_and_classify,
 )
@@ -72,20 +83,35 @@ logger = logging.getLogger(__name__)
 
 REASON_PROMOTED = "promoted"
 REASON_INSUFFICIENT_EVIDENCE = "insufficient_independent_evidence"
-REASON_NOT_EL_VALID = "not_el_valid"
+REASON_REFUTED = "refuted_by_reasoner"
 
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
-_OBO_INOWL_NS = "http://www.geneontology.org/formats/oboInOwl#"
+_OWL_NS = "http://www.w3.org/2002/07/owl#"
 _OBO_NCI_PREFIX = "NCI:"
-_OWL_THING = URIRef("http://www.w3.org/2002/07/owl#Thing")
+_OWL_THING = URIRef(f"{_OWL_NS}Thing")
+
+_QUERY_BATCH_SIZE = 500
+
+
+class PromotionEnvironmentError(RuntimeError):
+    """The run cannot produce a meaningful verdict — refuse rather than report zero.
+
+    Raised when the inputs are degenerate (e.g. the stated NCIt graph is not loaded, so
+    *no* candidate could ever be corroborated) or when a merge that cannot legitimately
+    be refuted is refuted anyway (which means the anchor set itself is inconsistent).
+    Both would otherwise surface as a clean ``promoted: 0`` run and be misread as a
+    conservative verdict.
+    """
 
 
 class Reasoner(Protocol):
     """Classify a Turtle fragment; return its inferred named-class subsumptions.
 
-    Returns ``None`` when the merge is rejected — it escapes OWL 2 EL, or it is
-    unsatisfiable.  A rejected merge is never force-classified (D28).
+    Returns ``None`` **only** when the reasoner *refuted* the merge (it escapes OWL 2
+    EL, or it is unsatisfiable).  If the reasoner could not run, it must raise
+    :exc:`validation.ReasonerUnavailableError` — never return ``None``, which would
+    launder an environment failure into a verdict about the candidate.
     """
 
     def __call__(self, ttl: str) -> set[tuple[str, str]] | None: ...
@@ -102,6 +128,7 @@ class PromotionContext:
     upstream_edges: set[tuple[str, str]]
     anchors: tuple[tuple[str, str], ...]
     curated_pairs: frozenset[tuple[str, str]]
+    disjoints: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -120,18 +147,38 @@ class PromotionReport:
     considered: int
     promoted: int
     insufficient_evidence: int
-    not_el_valid: int
+    refuted: int
+    reasoner_errors: int = 0
+
+    @property
+    def failed(self) -> bool:
+        """Did the reasoner fail to run for any candidate?
+
+        A run with reasoner errors is **not** a clean zero-promotion run, and must not
+        be recorded as one.
+        """
+        return self.reasoner_errors > 0
 
     def as_dict(self) -> dict[str, int]:
         return {
             "considered": self.considered,
             "promoted": self.promoted,
             "insufficient_evidence": self.insufficient_evidence,
-            "not_el_valid": self.not_el_valid,
+            "refuted": self.refuted,
+            "reasoner_errors": self.reasoner_errors,
         }
 
 
 # ── the reasoner boundary ──────────────────────────────────────────────
+
+
+def _is_named_edge(child: object, parent: object) -> bool:
+    """Both ends are named classes, and the parent is not ``owl:Thing``."""
+    return (
+        isinstance(child, URIRef)
+        and isinstance(parent, URIRef)
+        and parent != _OWL_THING
+    )
 
 
 def parse_inferred_subclasses(path: str | Path) -> set[tuple[str, str]]:
@@ -159,30 +206,18 @@ def parse_inferred_subclasses(path: str | Path) -> set[tuple[str, str]]:
     return edges
 
 
-def _is_named_edge(child: object, parent: object) -> bool:
-    """Both ends are named classes, and the parent is not ``owl:Thing``."""
-    return (
-        isinstance(child, URIRef)
-        and isinstance(parent, URIRef)
-        and parent != _OWL_THING
-    )
-
-
 def elk_reasoner(ttl: str) -> set[tuple[str, str]] | None:
     """Profile-gate *ttl* to OWL 2 EL and classify it with ELK (via ROBOT).
 
-    Returns the inferred named-class subsumptions, or ``None`` when the merge is
-    rejected: it fails the EL profile gate, or ROBOT/ELK fails it (an unsatisfiable
-    merge exits non-zero — the satisfiability gate).
+    Returns the inferred named-class subsumptions, or ``None`` iff the reasoner
+    **refuted** the merge (non-EL, or unsatisfiable).  Raises
+    :exc:`validation.ReasonerUnavailableError` if the reasoner could not run — that is
+    not a verdict, and must never be recorded as one.
     """
     with tempfile.TemporaryDirectory() as tmp:
         source = Path(tmp) / "merged.ttl"
         source.write_text(ttl)
-        try:
-            inferred = validate_and_classify(str(source))
-        except CalledProcessError:
-            logger.warning("ROBOT/ELK rejected the merged ontology (unsatisfiable)")
-            return None
+        inferred = validate_and_classify(str(source))
         if inferred is None:
             return None
         try:
@@ -194,31 +229,35 @@ def elk_reasoner(ttl: str) -> set[tuple[str, str]] | None:
 # ── structural corroboration (over a merge WITHOUT the candidate) ──────
 
 
-def _ncit_ancestors(code: str, ncit_edges: set[tuple[str, str]]) -> set[str]:
-    """Walk the stated NCIt taxonomy upward from *code*."""
-    ancestors: set[str] = set()
-    frontier = {code}
+def _ancestors(seed: str, edges: set[tuple[str, str]]) -> set[str]:
+    """Every node reachable upward from *seed* over *edges*."""
+    seen: set[str] = set()
+    frontier = {seed}
     while frontier:
-        parents = {p for c, p in ncit_edges if c in frontier} - ancestors - {code}
-        ancestors |= parents
+        parents = {p for c, p in edges if c in frontier} - seen - {seed}
+        seen |= parents
         frontier = parents
-    return ancestors
+    return seen
 
 
 def _reachable_ancestors(start: str, edges: set[tuple[str, str]]) -> set[str]:
-    """Every class reachable upward from *start* over *edges*.
+    """Every class reachable upward from *start* over the inferred *edges*.
 
     ``robot reason`` emits the **direct** subsumptions — the hierarchy is transitively
     reduced, so ``A ⊑ B`` and ``B ⊑ C`` do not yield a stated ``A ⊑ C``.  Corroboration
     therefore has to walk, not test for membership.
     """
-    seen: set[str] = set()
-    frontier = {start}
-    while frontier:
-        parents = {p for c, p in edges if c in frontier} - seen - {start}
-        seen |= parents
-        frontier = parents
-    return seen
+    return _ancestors(start, edges)
+
+
+def _scoped_edges(seed: str, edges: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    """The subgraph of *edges* on the ancestor paths above *seed*.
+
+    Keeps the merge handed to ELK genuinely small (MIREOT-style), instead of shipping
+    the whole run's union graph to a fresh JVM once per candidate.
+    """
+    nodes = _ancestors(seed, edges) | {seed}
+    return {(c, p) for c, p in edges if c in nodes}
 
 
 def is_structurally_corroborated(
@@ -233,16 +272,22 @@ def is_structurally_corroborated(
     For every NCIt ancestor of the subject that carries a **separately validated**
     anchor (``P ≡ P'``), a correct candidate implies the upstream object sits under
     ``P'``.  Corroborated iff there is at least one such anchored ancestor and *every*
-    one of them holds: a single anchored ancestor the object demonstrably does not sit
-    under is a disagreement between the planes, not a detail.
+    anchor image of *every* anchored ancestor holds: a single anchored ancestor the
+    object demonstrably does not sit under is a disagreement between the planes, not a
+    detail.  (An NCIt class may carry more than one validated upstream image, so the
+    anchors are a multimap — collapsing them with ``dict()`` would silently drop the
+    disagreeing one.)
 
     No anchored ancestor at all means *no signal* (``False``) — not a failure of the
     candidate, just nothing to corroborate it with.  This is what bootstraps: the
     curated (SME) pairs are the first anchors.
     """
-    anchor_map = dict(anchors)
-    ancestors = _ncit_ancestors(record.subject_id, ncit_edges)
-    anchored = [anchor_map[a] for a in ancestors if a in anchor_map]
+    anchor_map: dict[str, list[str]] = {}
+    for code, curie in anchors:
+        anchor_map.setdefault(code, []).append(curie)
+
+    ancestors = _ancestors(record.subject_id, ncit_edges)
+    anchored = [curie for a in ancestors for curie in anchor_map.get(a, [])]
     if not anchored:
         return False
 
@@ -251,6 +296,24 @@ def is_structurally_corroborated(
 
 
 # ── the decision ───────────────────────────────────────────────────────
+
+
+def _merge_for(
+    record: SSSOMRecord,
+    ctx: PromotionContext,
+    anchors: Sequence[tuple[str, str]],
+    *,
+    include_bridge: bool,
+) -> str:
+    """Build the candidate's own small merge (its two ancestor paths, not the run's)."""
+    return build_validation_ontology(
+        record,
+        ncit_edges=_scoped_edges(record.subject_id, ctx.ncit_edges),
+        upstream_edges=_scoped_edges(record.object_id, ctx.upstream_edges),
+        anchors=anchors,
+        disjoints=ctx.disjoints,
+        include_bridge=include_bridge,
+    )
 
 
 def validate_candidate(
@@ -265,18 +328,21 @@ def validate_candidate(
     # circularity we forbid, so drop it before assembling this candidate's merges.
     anchors = tuple(a for a in ctx.anchors if a != candidate)
 
-    corroboration_merge = build_validation_ontology(
-        record,
-        ncit_edges=ctx.ncit_edges,
-        upstream_edges=ctx.upstream_edges,
-        anchors=anchors,
-        include_bridge=False,
-    )
-    inferred = reasoner(corroboration_merge)
-    corroborated = inferred is not None and is_structurally_corroborated(
+    inferred = reasoner(_merge_for(record, ctx, anchors, include_bridge=False))
+    if inferred is None:
+        # The bridge-free merge carries no candidate axiom.  If the reasoner refutes it,
+        # the *anchor set* contradicts the taxonomy — a data-integrity alarm.  Reporting
+        # it as "this candidate is not corroborated" would bury it.
+        raise PromotionEnvironmentError(
+            f"the reasoner refuted the bridge-free merge for {candidate}: the merge "
+            "contains no candidate bridge, so this means the validated anchors are "
+            "inconsistent with the stated taxonomy. Refusing to read that as a verdict "
+            "about this candidate."
+        )
+
+    corroborated = is_structurally_corroborated(
         record, inferred, anchors=anchors, ncit_edges=ctx.ncit_edges
     )
-
     evidence = tuple(
         gather_evidence(
             record,
@@ -297,14 +363,8 @@ def validate_candidate(
             reason=REASON_INSUFFICIENT_EVIDENCE,
         )
 
-    bridged_merge = build_validation_ontology(
-        record,
-        ncit_edges=ctx.ncit_edges,
-        upstream_edges=ctx.upstream_edges,
-        anchors=anchors,
-        include_bridge=True,
-    )
-    el_valid = reasoner(bridged_merge) is not None
+    bridged = reasoner(_merge_for(record, ctx, anchors, include_bridge=True))
+    el_valid = bridged is not None
     promoted = promote_candidate(record, evidence, el_valid=el_valid)
 
     return PromotionOutcome(
@@ -312,7 +372,7 @@ def validate_candidate(
         promoted=promoted,
         evidence=evidence,
         el_valid=el_valid,
-        reason=REASON_PROMOTED if promoted else REASON_NOT_EL_VALID,
+        reason=REASON_PROMOTED if promoted else REASON_REFUTED,
     )
 
 
@@ -322,24 +382,48 @@ def promote_candidates(
     *,
     reasoner: Reasoner,
 ) -> tuple[list[SSSOMRecord], PromotionReport]:
-    """Run :func:`validate_candidate` over *records*; return promotions + a report."""
+    """Run :func:`validate_candidate` over *records*; return promotions + a report.
+
+    A reasoner that cannot run is counted in ``reasoner_errors`` and does **not**
+    silently become "this candidate did not qualify"; the run is then reported failed.
+    """
+    if records and not ctx.ncit_edges:
+        raise PromotionEnvironmentError(
+            f"0 stated NCIt subClassOf edges loaded for {len(records)} candidates — "
+            f"the stated graph <{STATED_GRAPH_IRI}> is probably not loaded (run "
+            "`data-build owl`). Every candidate would fail corroboration for a reason "
+            "that has nothing to do with the candidate; refusing to run."
+        )
+
     promoted: list[SSSOMRecord] = []
-    insufficient = not_el_valid = 0
+    insufficient = refuted = errors = 0
 
     for record in records:
-        outcome = validate_candidate(record, ctx, reasoner=reasoner)
+        try:
+            outcome = validate_candidate(record, ctx, reasoner=reasoner)
+        except ReasonerUnavailableError as exc:
+            errors += 1
+            logger.error(
+                "reasoner unavailable for %s -> %s (NOT a verdict): %s",
+                record.subject_id,
+                record.object_id,
+                exc,
+            )
+            continue
+
         if outcome.promoted is not None:
             promoted.append(outcome.promoted)
         elif outcome.reason == REASON_INSUFFICIENT_EVIDENCE:
             insufficient += 1
         else:
-            not_el_valid += 1
+            refuted += 1
 
     return promoted, PromotionReport(
         considered=len(records),
         promoted=len(promoted),
         insufficient_evidence=insufficient,
-        not_el_valid=not_el_valid,
+        refuted=refuted,
+        reasoner_errors=errors,
     )
 
 
@@ -378,6 +462,23 @@ SELECT DISTINCT ?child ?parent WHERE {{
 """
 
 
+def build_disjoint_query(*, base_iri: str) -> str:
+    """Stated ``owl:disjointWith`` pairs among named classes under *base_iri*.
+
+    These are the axioms that let the reasoner refute a bridge at all; without them the
+    satisfiability gate is decorative (see :mod:`bridge`).
+    """
+    return f"""\
+PREFIX owl: <{_OWL_NS}>
+SELECT DISTINCT ?left ?right WHERE {{
+    ?left owl:disjointWith ?right .
+    FILTER(isIRI(?left) && isIRI(?right))
+    FILTER(STRSTARTS(STR(?left), "{base_iri}"))
+    FILTER(STRSTARTS(STR(?right), "{base_iri}"))
+}}
+"""
+
+
 def _curie(iri: str) -> str | None:
     if not iri.startswith(_OBO_BASE):
         return None
@@ -388,14 +489,21 @@ def _curie(iri: str) -> str | None:
     return f"{prefix}:{local}"
 
 
+def _batches(
+    items: Sequence[str], size: int = _QUERY_BATCH_SIZE
+) -> list[Sequence[str]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
 async def _subject_labels(
     client: OxigraphHttpClient, subjects: Sequence[str]
 ) -> dict[str, set[str]]:
     labels: dict[str, set[str]] = {}
-    for row in await client.select(build_ncit_label_query(list(subjects))):
-        code, label = row.get("code"), row.get("label")
-        if code and label:
-            labels.setdefault(code, set()).add(label)
+    for batch in _batches(subjects):
+        for row in await client.select(build_ncit_label_query(list(batch))):
+            code, label = row.get("code"), row.get("label")
+            if code and label:
+                labels.setdefault(code, set()).add(label)
     return labels
 
 
@@ -429,12 +537,16 @@ async def _ncit_edges(
     client: OxigraphHttpClient, subjects: Sequence[str]
 ) -> set[tuple[str, str]]:
     edges: set[tuple[str, str]] = set()
-    for row in await client.select(build_ncit_edges_query(list(subjects))):
-        child, parent = row.get("child"), row.get("parent")
-        if child and parent:
-            edges.add(
-                (str(child).removeprefix(NCIT_NS), str(parent).removeprefix(NCIT_NS))
-            )
+    for batch in _batches(subjects):
+        for row in await client.select(build_ncit_edges_query(list(batch))):
+            child, parent = row.get("child"), row.get("parent")
+            if child and parent:
+                edges.add(
+                    (
+                        str(child).removeprefix(NCIT_NS),
+                        str(parent).removeprefix(NCIT_NS),
+                    )
+                )
     return edges
 
 
@@ -442,12 +554,25 @@ async def _upstream_edges(
     client: OxigraphHttpClient, objects: Sequence[str]
 ) -> set[tuple[str, str]]:
     edges: set[tuple[str, str]] = set()
-    for row in await client.select(build_upstream_edges_query(list(objects))):
-        child = _curie(str(row.get("child") or ""))
-        parent = _curie(str(row.get("parent") or ""))
-        if child and parent:
-            edges.add((child, parent))
+    for batch in _batches(objects):
+        for row in await client.select(build_upstream_edges_query(list(batch))):
+            child = _curie(str(row.get("child") or ""))
+            parent = _curie(str(row.get("parent") or ""))
+            if child and parent:
+                edges.add((child, parent))
     return edges
+
+
+async def _disjoints(
+    ncit_client: OxigraphHttpClient, uberon_client: OxigraphHttpClient
+) -> tuple[tuple[str, str], ...]:
+    pairs: set[tuple[str, str]] = set()
+    for client, base in ((ncit_client, NCIT_NS), (uberon_client, _OBO_BASE)):
+        for row in await client.select(build_disjoint_query(base_iri=base)):
+            left, right = row.get("left"), row.get("right")
+            if left and right:
+                pairs.add((str(left), str(right)))
+    return tuple(sorted(pairs))
 
 
 async def load_promotion_context(
@@ -467,7 +592,7 @@ async def load_promotion_context(
     subjects = [r.subject_id for r in records]
     objects = [r.object_id for r in records]
 
-    return PromotionContext(
+    ctx = PromotionContext(
         subject_labels=await _subject_labels(ncit_client, subjects),
         object_labels=await _object_labels(uberon_client, set(objects)),
         object_xrefs=await _object_xrefs(uberon_client, set(objects)),
@@ -475,7 +600,24 @@ async def load_promotion_context(
         upstream_edges=await _upstream_edges(uberon_client, objects),
         anchors=tuple(dict.fromkeys([*validated_anchors, *sorted(curated_pairs)])),
         curated_pairs=curated_pairs,
+        disjoints=await _disjoints(ncit_client, uberon_client),
     )
+    logger.info(
+        "promotion context: %d candidates, %d NCIt edges, %d upstream edges, "
+        "%d anchors, %d disjointness axioms",
+        len(records),
+        len(ctx.ncit_edges),
+        len(ctx.upstream_edges),
+        len(ctx.anchors),
+        len(ctx.disjoints),
+    )
+    if records and not ctx.disjoints:
+        logger.warning(
+            "no owl:disjointWith axioms loaded — the reasoner has nothing to refute "
+            "with, so the satisfiability gate cannot fire and promotion rests entirely "
+            "on the evidence policy"
+        )
+    return ctx
 
 
 # ── persistence (D29 lifecycle) ────────────────────────────────────────
@@ -486,18 +628,19 @@ async def persist_promotions(
     promoted: Sequence[SSSOMRecord],
     report: PromotionReport,
     *,
+    ncit_version: str,
+    source_version: str,
     run_id: str | None = None,
     source: str = "promotion",
 ) -> str:
     """Write the promoted ``exactMatch/validated`` records as their own xref run.
 
     Promotions are additive: the original ``closeMatch/proposed`` candidates are left
-    untouched, so a promotion is auditable against the candidate it came from.
+    untouched, so a promotion is auditable against the candidate it came from.  The run
+    is stamped with the endpoint versions it was *validated against* — never mined out
+    of whichever record happened to sort first.
     """
     rid = run_id or uuid.uuid4().hex
-    ncit_version = promoted[0].subject_source_version if promoted else "unknown"
-    source_version = promoted[0].object_source_version if promoted else "unknown"
-
     await store.upsert_run(
         run_id=rid,
         source=source,
@@ -505,7 +648,9 @@ async def persist_promotions(
         source_version=source_version,
     )
     await store.upsert_records(rid, list(promoted))
-    await store.update_run_metrics(rid, report.as_dict())
+    await store.update_run_metrics(
+        rid, report.as_dict(), status="failed" if report.failed else "completed"
+    )
     return rid
 
 
@@ -514,10 +659,19 @@ async def run_promotion(
     ncit_client: OxigraphHttpClient,
     uberon_client: OxigraphHttpClient,
     *,
+    ncit_version: str,
+    source_version: str,
     curated_pairs: frozenset[tuple[str, str]] = frozenset(),
     reasoner: Reasoner = elk_reasoner,
-) -> dict[str, Any]:  # pragma: no cover — integration-only orchestration
-    """Promote every proposed candidate in the store, then quarantine stale bridges."""
+    source: str = "promotion",
+) -> dict[str, Any]:
+    """Promote every proposed candidate, then quarantine bridges a release left stale.
+
+    *ncit_version* / *source_version* are the endpoint versions this run validates
+    against; they stamp the run and drive the D29 staleness sweep.  The sweep runs
+    **unconditionally** — a release makes old bridges stale whether or not this run
+    happened to promote anything.
+    """
     candidates = await store.proposed_candidates()
     anchors = await store.validated_anchors()
     ctx = await load_promotion_context(
@@ -528,13 +682,22 @@ async def run_promotion(
         validated_anchors=anchors,
     )
     promoted, report = promote_candidates(candidates, ctx, reasoner=reasoner)
-    run_id = await persist_promotions(store, promoted, report)
-
-    quarantined = 0
-    if promoted:
-        quarantined = await store.quarantine_stale(
-            ncit_version=promoted[0].subject_source_version,
-            source_version=promoted[0].object_source_version,
-        )
-
-    return {**report.as_dict(), "run_id": run_id, "quarantined": quarantined}
+    run_id = await persist_promotions(
+        store,
+        promoted,
+        report,
+        ncit_version=ncit_version,
+        source_version=source_version,
+        source=source,
+    )
+    quarantined = await store.quarantine_stale(
+        ncit_version=ncit_version,
+        source_version=source_version,
+        source=source,
+    )
+    return {
+        **report.as_dict(),
+        "run_id": run_id,
+        "quarantined": quarantined,
+        "status": "failed" if report.failed else "completed",
+    }

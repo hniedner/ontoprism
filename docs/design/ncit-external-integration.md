@@ -337,13 +337,31 @@ The admissible signals are `label_agreement`, `xref_assertion` (the upstream pro
 distinct** signals — the same signal twice is one signal.
 
 **Gate 2 — the merged-EL classification.** Two small MIREOT-style fragments are assembled per candidate
-(never the 10M-triple graph): the stated named-class taxonomy around both endpoints plus the already-
-validated anchor bridges as curated `owl:equivalentClass` axioms. The merge **without** the candidate
-bridge is what `structural_corroboration` is computed over — the upstream object must be inferred to sit
-under the upstream image of every anchored NCIt ancestor of the subject, which can only follow from the
-upstream's own taxonomy plus a *separately validated* anchor. (With the bridge present this would be a
-tautology — precisely the circularity D28 forbids.) The merge **with** the bridge is then EL-profiled and
-classified; a non-EL or unsatisfiable merge is **rejected, not force-classified**.
+(never the 10M-triple graph, and scoped to that candidate's own two ancestor paths): the stated
+named-class taxonomy around both endpoints, the already-validated anchor bridges as curated
+`owl:equivalentClass` axioms, **and the endpoints' `owl:disjointWith` axioms**. The merge **without** the
+candidate bridge is what `structural_corroboration` is computed over — the upstream object must be
+inferred to sit under the upstream image of every anchored NCIt ancestor of the subject, which can only
+follow from the upstream's own taxonomy plus a *separately validated* anchor. (With the bridge present
+this would be a tautology — precisely the circularity D28 forbids.) The merge **with** the bridge is then
+EL-profiled and classified; a non-EL or unsatisfiable merge is **rejected, not force-classified**.
+
+**The disjointness axioms are what make Gate 2 mean anything, and they are not optional.** A merge of only
+subsumptions and equivalences over named classes is *trivially satisfiable* — interpret every class as the
+whole domain — so ELK could never derive `⊥`, the satisfiability gate could never fire, and the reasoner
+would contribute nothing a graph walk would not. Carrying the endpoints' disjointness in gives the
+reasoner its only refutation power: a bridge that forces a class under two disjoint parents is refuted.
+Where an upstream ships few disjointness axioms, the gate is correspondingly weak — the run logs a warning
+when it loads none, because in that state promotion rests entirely on the evidence policy and it would be
+dishonest to call the result "reasoner-validated".
+
+**Three-valued reasoning.** A merge is *accepted*, *refuted*, or **the reasoner never ran** (no Java,
+corrupt jar, OOM, timeout, a renamed ROBOT subcommand). The third state raises and is counted separately
+(`reasoner_errors`); a run with any such error is recorded as **failed** and the CLI exits non-zero. This
+is not defensive padding: a broken reasoner call is *indistinguishable* from "no candidate qualified", and
+exactly that conflation hid three real bugs in this module's history (a wrong ROBOT subcommand that
+rejected every merge, a jsonb write that never ran, and a transitive-closure assumption that silently
+missed valid anchors).
 
 **The oracle** is the stated `owl:equivalentClass`/`subClassOf` structure handed to ELK. It is **neither
 an `rdfs:subClassOf+` walk over NCIt nor NCIt's shipped inferred graph** — neither materializes

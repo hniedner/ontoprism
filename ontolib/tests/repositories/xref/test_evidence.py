@@ -232,3 +232,35 @@ def test_sme_curation_alone_is_independent() -> None:
         is_independent([Evidence(kind=SME_CURATION, source="golden/mappings.json")])
         is True
     )
+
+
+# ── fail closed on an unrecognised generating signal ───────────────────
+
+
+@pytest.mark.unit
+def test_unknown_mapping_justification_refuses_to_gather_evidence() -> None:
+    """If we cannot tell which signal produced the candidate, we cannot drop it — and
+    the xref that generated the mapping would then count as independent evidence *for*
+    that mapping.  That is the circularity D28 forbids, so fail closed, not open.
+
+    ``mapping_justification`` is free text in the DB with no CHECK constraint, so this
+    is one ingested row away from being live.
+    """
+    record = SSSOMRecord(
+        subject_id="C12468",
+        predicate_id=CLOSE_MATCH,
+        object_id="UBERON:0002048",
+        mapping_justification="semapv:SomeFutureMatching",
+        confidence=0.9,
+        subject_source_version="26.02d",
+        object_source_version="uberon-2026-01",
+    )
+    with pytest.raises(ValueError, match="generating signal"):
+        gather_evidence(
+            record,
+            subject_labels={"Lung"},
+            object_labels={"lung"},
+            object_xref_codes={"C12468"},
+            curated_pairs=frozenset(),
+            structurally_corroborated=False,
+        )
