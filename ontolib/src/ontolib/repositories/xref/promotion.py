@@ -457,11 +457,12 @@ def corroboration(
     ``part_of`` edges passed in), realising the sound ``subClassOf ∘ part_of ⊑ part_of``
     propagation.  Note the *deployed* reach is narrower than this walk primitive: its
     caller feeds ``part_of`` edges from :func:`build_upstream_partof_query`, which
-    gathers only a single ``part_of`` hop off the object's ``subClassOf*`` cone, so
-    end-to-end the pipeline reaches ``subClassOf*`` and ``subClassOf* ∘ part_of`` —
-    *not* transitive ``part_of ∘ part_of`` off the cone (see D32).  On the live store
-    the canonical path is ``lung ⊑* respiration organ`` (subClassOf) then ``respiration
-    organ part_of respiratory system`` — a single hop; neither leg reaches it alone.
+    gathers only a single ``part_of`` hop off the object's — and each anchor's —
+    ``subClassOf*`` cone, so end-to-end the pipeline reaches ``subClassOf*`` and
+    ``subClassOf* ∘ part_of`` — *not* transitive ``part_of ∘ part_of`` off the cone
+    (see D32).  On the live store the canonical path is
+    ``lung ⊑* respiration organ`` (subClassOf) then ``respiration organ part_of
+    respiratory system`` — a single hop; neither leg reaches it alone.
 
     *Honesty note.* ``part_of`` is supplied here as **stated** graph edges, not as an
     ELK entailment: ``robot reason`` classifies over named ``subClassOf``/

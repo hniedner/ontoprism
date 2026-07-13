@@ -107,8 +107,9 @@ def gather_evidence(
 
     All inputs are facts already fetched about the two endpoints: the labels of the
     subject and object, the NCIt codes the upstream object itself xrefs, the curated
-    pair set, and whether the reasoner corroborated the pair through a separate
-    anchor (computed over a merge that excludes this candidate's bridge).
+    pair set, and whether the pair was structurally corroborated (ELK's ``subClassOf``
+    entailments together with stated ``part_of`` edges) through a separate anchor,
+    computed over a merge that excludes this candidate's bridge.
     """
     if record.mapping_justification not in _GENERATING_SIGNAL:
         # Fail closed. With an unrecognised justification we cannot know which signal
@@ -164,7 +165,11 @@ def _sme_curation(
 def _corroboration(structurally_corroborated: bool) -> Evidence | None:
     if not structurally_corroborated:
         return None
-    return Evidence(kind=STRUCTURAL_CORROBORATION, source="elk:anchored-ancestor")
+    # Not "elk:": the verdict can turn on a stated part_of edge that never passes
+    # through the reasoner (ELK supplies only the subClassOf leg). See D32.
+    return Evidence(
+        kind=STRUCTURAL_CORROBORATION, source="structural:anchored-ancestor"
+    )
 
 
 def is_independent(evidence: Sequence[Evidence]) -> bool:

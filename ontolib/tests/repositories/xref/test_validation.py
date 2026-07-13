@@ -52,7 +52,7 @@ def _independent_evidence() -> list[Evidence]:
     """Two distinct signals, neither of them the mapping itself."""
     return [
         Evidence(kind=LABEL_AGREEMENT, source="rdfs:label"),
-        Evidence(kind=STRUCTURAL_CORROBORATION, source="elk:anchored-ancestor"),
+        Evidence(kind=STRUCTURAL_CORROBORATION, source="structural:anchored-ancestor"),
     ]
 
 
