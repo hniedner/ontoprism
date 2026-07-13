@@ -187,20 +187,40 @@ class XrefStore:
             result = await s.execute(sql, {"close": CLOSE_MATCH})
             return [SSSOMRecord(**dict(row)) for row in result.mappings().all()]
 
-    async def validated_anchors(self) -> tuple[tuple[str, str], ...]:
+    async def validated_anchors(
+        self, *, source: str | None = None
+    ) -> tuple[tuple[str, str], ...]:
         """Identity-grade bridges already validated — the trusted anchors for #73.
 
         Only ``exactMatch`` in a ``validated``/``active`` lifecycle counts: a proposed
         ``closeMatch`` is a candidate, never an anchor another candidate leans on.
+
+        *source* scopes to one upstream, and a promotion run must pass it. An anchor
+        from
+        another upstream is not merely irrelevant: its CURIE (``MONDO:…``) cannot be
+        expanded by ``ttl_writer.object_iri``, so it raises ``KeyError`` inside the
+        merge
+        builder and aborts the entire run.
         """
-        sql = text(
+        scoped = text(
+            "SELECT DISTINCT subject_id, object_id FROM concept_xref "
+            "WHERE predicate_id = :exact "
+            "AND lifecycle_state IN ('validated', 'active') "
+            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
+            "ORDER BY subject_id, object_id"
+        )
+        unscoped = text(
             "SELECT DISTINCT subject_id, object_id FROM concept_xref "
             "WHERE predicate_id = :exact "
             "AND lifecycle_state IN ('validated', 'active') "
             "ORDER BY subject_id, object_id"
         )
+        sql = scoped if source else unscoped
+        params: dict[str, str] = {"exact": EXACT_MATCH}
+        if source:
+            params["source"] = source
         async with self._sf() as s:
-            result = await s.execute(sql, {"exact": EXACT_MATCH})
+            result = await s.execute(sql, params)
             return tuple(
                 (r["subject_id"], r["object_id"]) for r in result.mappings().all()
             )

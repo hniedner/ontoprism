@@ -530,6 +530,36 @@ def test_a_run_that_only_imported_curated_pairs_says_so() -> None:
     )
 
 
+@pytest.mark.unit
+def test_two_qualifying_candidates_for_one_subject_promote_neither() -> None:
+    """Identity must be decided on evidence, never on CURIE sort order.
+
+    Both candidates here are curated, so both qualify. An earlier cut let the FIRST to
+    qualify claim the subject — so the winner was whichever CURIE sorted lower, and an
+    arbitrary identity was published as exactMatch/validated while
+    `conflicting_identity`
+    made it look like the ambiguity had been detected and handled. Neither may promote:
+    that is what "needs SME adjudication" actually means.
+    """
+    first = _record(obj="UBERON:0002048")
+    second = _record(
+        obj="UBERON:0001558"
+    )  # same subject, not disjoint — ELK is powerless
+    ctx = _context(
+        curated_pairs=frozenset(
+            {("C12468", "UBERON:0002048"), ("C12468", "UBERON:0001558")}
+        ),
+    )
+
+    promoted, report = promote_candidates(
+        [first, second], ctx, reasoner=_SatisfiabilityHonestReasoner()
+    )
+
+    assert promoted == []
+    assert report.conflicting_identity == 2
+    assert report.promoted == 0
+
+
 # ── the run: report + the number it moves ──────────────────────────────
 
 

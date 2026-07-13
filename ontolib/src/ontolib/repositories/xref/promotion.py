@@ -94,7 +94,7 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
     from ontolib.repositories.xref.models import SSSOMRecord
     from ontolib.repositories.xref.store import XrefStore
@@ -289,6 +289,16 @@ def elk_reasoner(ttl: str) -> set[tuple[str, str]] | None:
             return None
         try:
             entailed = parse_inferred_subclasses(inferred)
+        except Exception as exc:
+            # ROBOT exited 0 but wrote something unreadable (truncated, killed mid-
+            # write,
+            # disk full). That is an environment failure, not a verdict about the merge
+            # —
+            # letting it escape would abort the run and discard every promotion so far.
+            raise ReasonerUnavailableError(
+                f"`robot reason` exited 0 but its output is unparseable ({exc}). "
+                "This is NOT a verdict about the merge."
+            ) from exc
         finally:
             inferred.unlink(missing_ok=True)
 
@@ -705,6 +715,18 @@ def _validate_or_report_error(
             exc,
         )
         return None
+    except ValueError as exc:
+        # `gather_evidence` fails closed on an unrecognised mapping_justification —
+        # which
+        # is right, but it must fail closed for THAT CANDIDATE, not abort the run and
+        # discard every promotion computed before it.
+        logger.error(
+            "cannot score %s -> %s, skipping it: %s",
+            record.subject_id,
+            record.object_id,
+            exc,
+        )
+        return None
 
 
 def promote_candidates(
@@ -718,48 +740,32 @@ def promote_candidates(
 
     A reasoner that cannot run is counted in ``reasoner_errors`` and does **not**
     silently become "this candidate did not qualify"; the run is then reported failed.
+
+    **Identity is decided on evidence, never on sort order.** Ingest legitimately yields
+    several upstream candidates for one NCIt code, and promoting two asserts ``C ≡ U1``
+    and ``C ≡ U2`` — hence ``U1 ≡ U2``, an equivalence nobody curated and no reasoner
+    saw.  A refutation-only oracle cannot adjudicate that (ELK objects only if U1 and U2
+    are *provably disjoint*, which sibling Uberon terms never are), so it is enforced
+    structurally here.  Crucially it is a **two-pass** decision: an earlier cut let the
+    first candidate to qualify claim the subject, so the winner was whichever CURIE
+    sorted lower — an arbitrary identity, published as ``exactMatch/validated``, with a
+    ``conflicting_identity`` count that *looked* like the ambiguity had been detected
+    and handled.  Now every candidate is validated first, and if two qualify for the
+    same endpoint **neither** is promoted: that is what "needs SME adjudication" means.
     """
     _refuse_degenerate_context(records, ctx)
 
     records = _one_per_pair(records)
-    promoted: list[SSSOMRecord] = []
     counts: Counter[str] = Counter()
-    curation_only = 0
 
-    # Identity is functional, and a *refutation-only* oracle cannot be relied on to
-    # enforce that.  Ingest legitimately yields several upstream candidates for one NCIt
-    # code; promoting two asserts C ≡ U1 and C ≡ U2, hence U1 ≡ U2 — an equivalence
-    # nobody curated and no reasoner saw.  ELK only objects if U1 and U2 are *provably
-    # disjoint*, and the commonest ingest ambiguity (a parent/child or sibling pair in
-    # the same Uberon branch) never is.  So the constraint is enforced structurally
-    # here, not hoped for from the reasoner — and it is counted, so it shows up in the
-    # metrics instead of hiding inside `refuted`.
+    # Endpoints already claimed by an existing, still-current bridge. (Stale ones are
+    # excluded: one is about to be quarantined, and it must not block its replacement.)
     claimed_subjects, claimed_objects = _initial_claims(ctx, stale_anchors)
-    minted: list[tuple[str, str]] = []
 
-    for record in records:
-        pair = (record.subject_id, record.object_id)
-        if _claims_a_taken_endpoint(
-            pair, ctx, minted, claimed_subjects, claimed_objects
-        ):
-            counts[REASON_CONFLICTING_IDENTITY] += 1
-            continue
-
-        outcome = _validate_or_report_error(record, ctx, reasoner, minted)
-        if outcome is None:
-            counts[REASON_REASONER_ERROR] += 1
-            continue
-
-        counts[outcome.reason] += 1
-        if outcome.promoted is not None:
-            promoted.append(outcome.promoted)
-            if _curation_alone(outcome):
-                curation_only += 1
-            # Promotions become trusted anchors for the candidates after them, and claim
-            # their endpoints against the conflict check above.
-            minted.append(pair)
-            claimed_subjects.add(pair[0])
-            claimed_objects.add(pair[1])
+    qualified = _validate_all(
+        records, ctx, reasoner, counts, claimed_subjects, claimed_objects
+    )
+    promoted, curation_only = _promote_uncontested(qualified, counts)
 
     return promoted, PromotionReport(
         considered=len(records),
@@ -770,6 +776,74 @@ def promote_candidates(
         conflicting_identity=counts[REASON_CONFLICTING_IDENTITY],
         promoted_on_curation_alone=curation_only,
     )
+
+
+def _validate_all(
+    records: Sequence[SSSOMRecord],
+    ctx: PromotionContext,
+    reasoner: Reasoner,
+    counts: Counter[str],
+    claimed_subjects: set[str],
+    claimed_objects: set[str],
+) -> list[PromotionOutcome]:
+    """Pass 1 — validate every candidate, claiming nothing."""
+    qualified: list[PromotionOutcome] = []
+    for record in records:
+        pair = (record.subject_id, record.object_id)
+        if _claims_a_taken_endpoint(pair, ctx, (), claimed_subjects, claimed_objects):
+            counts[REASON_CONFLICTING_IDENTITY] += 1
+            continue
+
+        outcome = _validate_or_report_error(record, ctx, reasoner, ())
+        if outcome is None:
+            counts[REASON_REASONER_ERROR] += 1
+        elif outcome.promoted is None:
+            counts[outcome.reason] += 1
+        else:
+            qualified.append(outcome)
+    return qualified
+
+
+def _promote_uncontested(
+    qualified: Sequence[PromotionOutcome], counts: Counter[str]
+) -> tuple[list[SSSOMRecord], int]:
+    """Pass 2 — an endpoint two qualifying candidates claim promotes NEITHER."""
+    contested_subjects = _contested(o.record.subject_id for o in qualified)
+    contested_objects = _contested(o.record.object_id for o in qualified)
+
+    promoted: list[SSSOMRecord] = []
+    curation_only = 0
+    for outcome in qualified:
+        if _is_contested(outcome, contested_subjects, contested_objects):
+            counts[REASON_CONFLICTING_IDENTITY] += 1
+        elif outcome.promoted is not None:
+            counts[REASON_PROMOTED] += 1
+            promoted.append(outcome.promoted)
+            curation_only += int(_curation_alone(outcome))
+    return promoted, curation_only
+
+
+def _is_contested(
+    outcome: PromotionOutcome, subjects: set[str], objects: set[str]
+) -> bool:
+    record = outcome.record
+    if record.subject_id not in subjects and record.object_id not in objects:
+        return False
+    logger.warning(
+        "refusing %s -> %s: another candidate qualified for the same endpoint."
+        " Promoting both would assert an equivalence between the two upstream classes"
+        " that nobody curated and no reasoner saw. Neither is promoted — this needs SME"
+        " adjudication, not a coin toss on CURIE sort order.",
+        record.subject_id,
+        record.object_id,
+    )
+    return True
+
+
+def _contested(endpoints: Iterable[str]) -> set[str]:
+    """Endpoints claimed by more than one qualifying candidate."""
+    seen = Counter(endpoints)
+    return {endpoint for endpoint, n in seen.items() if n > 1}
 
 
 # ── context loading (SPARQL over both planes) ──────────────────────────
@@ -785,7 +859,8 @@ SELECT DISTINCT ?child ?parent WHERE {{
         VALUES ?seed {{ {iris} }}
         ?seed rdfs:subClassOf* ?child .
         ?child rdfs:subClassOf ?parent .
-        FILTER(isIRI(?parent))
+        FILTER(isIRI(?child) && isIRI(?parent))
+        FILTER(STRSTARTS(STR(?child), "{NCIT_NS}"))
         FILTER(STRSTARTS(STR(?parent), "{NCIT_NS}"))
     }}
 }}
@@ -1062,9 +1137,9 @@ async def run_promotion(
     *,
     ncit_version: str,
     source_version: str,
+    source: str,
     curated_pairs: frozenset[tuple[str, str]] = frozenset(),
     reasoner: Reasoner = elk_reasoner,
-    source: str = "promotion",
 ) -> dict[str, Any]:
     """Promote every proposed candidate, then quarantine bridges a release left stale.
 
@@ -1079,7 +1154,7 @@ async def run_promotion(
     number is unreliable until a sound run sweeps.
     """
     candidates = await store.proposed_candidates()
-    anchors = await store.validated_anchors()
+    anchors = await store.validated_anchors(source=source)
     ctx = await load_promotion_context(
         ncit_client,
         uberon_client,
