@@ -18,7 +18,10 @@ from ontolib.repositories.xref.evidence import (
     Evidence,
 )
 from ontolib.repositories.xref.models import SSSOMRecord
-from ontolib.repositories.xref.promotion import parse_inferred_subclasses
+from ontolib.repositories.xref.promotion import (
+    _reachable_ancestors,
+    parse_inferred_subclasses,
+)
 from ontolib.repositories.xref.validation import (
     classify,
     promote_candidate,
@@ -236,9 +239,12 @@ def _owl_el_fixture() -> str:
 def test_robot_elk_smoke(tmp_path: Path) -> None:
     """A small EL ontology passes the profile gate and is classified by ELK.
 
-    The classification assertion is that ELK *reasoned*: ``A ⊑ C`` is nowhere stated
-    (only ``A ⊑ B`` and ``B ⊑ C``), so its presence in the output is an inference.
-    An output file merely existing would prove nothing.
+    The assertion is on the property the promotion logic actually depends on: after
+    parsing ROBOT's output, ``A`` must resolve to ``C`` as an ancestor.  Note it does
+    **not** assert ``("A", "C") in inferred`` — ROBOT transitively reduces the
+    hierarchy, so ``A ⊑ C`` is never *stated* even though it holds.  Asserting
+    membership here is the very mistake that made corroboration miss any anchor above
+    a direct parent; the ancestry must be walked.
     """
     if shutil.which("robot") is None:
         pytest.skip("robot not on PATH")
@@ -252,7 +258,8 @@ def test_robot_elk_smoke(tmp_path: Path) -> None:
     assert out_path.exists()
 
     inferred = parse_inferred_subclasses(out_path)
-    assert ("http://example.org/A", "http://example.org/C") in inferred
+    ancestors = _reachable_ancestors("http://example.org/A", inferred)
+    assert "http://example.org/C" in ancestors
 
 
 # ── test 4: non-EL input rejected before classify ──────────────────────

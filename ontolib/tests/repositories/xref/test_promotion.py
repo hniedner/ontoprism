@@ -120,8 +120,15 @@ def _record(
 
 
 def _context(**overrides: Any) -> PromotionContext:
-    """NCIt: Lung ⊑ Respiratory System Organ.  Uberon: lung ⊑ respiratory system,
-    brain ⊑ nervous system.  Trusted anchor: C12366 ≡ UBERON:0001004."""
+    """NCIt: Lung ⊑ Respiratory System Organ.  Uberon: lung ⊑ lower respiratory tract
+    ⊑ respiratory system; brain ⊑ nervous system.  Trusted anchor: C12366 ≡
+    UBERON:0001004.
+
+    The upstream chain is deliberately **two** levels deep: the anchored class is not
+    the object's direct parent, so corroboration only succeeds if the inferred
+    hierarchy is walked.  ROBOT transitively reduces its output, so a depth-1 fixture
+    would pass even with the membership-test bug this guards against.
+    """
     base: dict[str, Any] = {
         "subject_labels": {"C12468": {"Lung"}},
         "object_labels": {
@@ -131,7 +138,8 @@ def _context(**overrides: Any) -> PromotionContext:
         "object_xrefs": {"UBERON:0002048": {"C12468"}},
         "ncit_edges": {("C12468", "C12366")},
         "upstream_edges": {
-            ("UBERON:0002048", "UBERON:0001004"),
+            ("UBERON:0002048", "UBERON:0001558"),
+            ("UBERON:0001558", "UBERON:0001004"),
             ("UBERON:0000955", "UBERON:0000010"),
         },
         "anchors": (("C12366", "UBERON:0001004"),),
