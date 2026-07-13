@@ -1028,6 +1028,41 @@ async def _disjoints(
     return tuple(sorted(pairs))
 
 
+def _is_expandable(curie: str) -> bool:
+    """Can ``ttl_writer.object_iri`` turn this CURIE back into an IRI?
+
+    Anything else must never reach the merge builder: ``object_iri`` raises ``KeyError``
+    there, the exception is not per-candidate, and the whole run dies — discarding every
+    promotion computed so far. Rows like this are real: ingest's lexical pass indexes
+    *every* labelled class in the upstream store, including ``GO:``/``COB:`` imports,
+    and a future upstream (Mondo) writes ``MONDO:`` anchors into the same table.
+    """
+    return curie.split(":", 1)[0] in SUPPORTED_PREFIXES
+
+
+def _expandable_anchors(
+    validated: Sequence[tuple[str, str]], curated: frozenset[tuple[str, str]]
+) -> tuple[tuple[str, str], ...]:
+    """Anchors this build can express, de-duplicated and order-stable."""
+    merged = dict.fromkeys([*validated, *sorted(curated)])
+    return tuple(a for a in merged if _is_expandable(a[1]))
+
+
+def _expandable_only(records: Sequence[SSSOMRecord]) -> list[SSSOMRecord]:
+    keep, dropped = [], []
+    for record in records:
+        (keep if _is_expandable(record.object_id) else dropped).append(record)
+    if dropped:
+        logger.warning(
+            "skipping %d candidate(s) whose upstream prefix this build cannot expand "
+            "(supported: %s); e.g. %s. They cannot enter a validation merge.",
+            len(dropped),
+            ", ".join(SUPPORTED_PREFIXES),
+            dropped[0].object_id,
+        )
+    return keep
+
+
 async def load_promotion_context(
     ncit_client: OxigraphHttpClient,
     uberon_client: OxigraphHttpClient,
@@ -1042,9 +1077,10 @@ async def load_promotion_context(
     pairs — the curated set is what bootstraps corroboration when nothing has been
     validated yet.
     """
+    records = _expandable_only(records)
     subjects = [r.subject_id for r in records]
     objects = [r.object_id for r in records]
-    anchors = tuple(dict.fromkeys([*validated_anchors, *sorted(curated_pairs)]))
+    anchors = _expandable_anchors(validated_anchors, curated_pairs)
 
     # The taxonomy fetch must be seeded from the ANCHOR endpoints as well as the
     # candidates'.  `_scoped_edges` can only select from what was fetched, so seeding

@@ -199,13 +199,20 @@ async def _endpoint_version(client: OxigraphHttpClient) -> str | None:
     to run, and the only escape is hand-typing a version — which is exactly what makes
     the D29 sweep self-consistent forever.
     """
-    if info := await client.version():
-        return info
     rows = await client.select(
         "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
-        "SELECT ?v WHERE { ?ont a owl:Ontology ; owl:versionIRI ?v } LIMIT 1"
+        "SELECT ?v WHERE { ?ont a owl:Ontology . "
+        "{ ?ont owl:versionInfo ?v } UNION { ?ont owl:versionIRI ?v } }"
     )
-    return rows[0].get("v") if rows else None
+    versions = sorted({str(r["v"]) for r in rows if r.get("v")})
+    if not versions:
+        return None
+    # Deterministic, and it does NOT silently pick one: a store holding two ontology
+    # headers (Uberon + CL in one endpoint — `SUPPORTED_PREFIXES` already admits CL)
+    # would otherwise return an arbitrary version per run under `LIMIT 1`. The version
+    # drives a *destructive* comparison: if it flips between runs, the D29 sweep
+    # quarantines every validated bridge and reports a normal-looking `quarantined: N`.
+    return " + ".join(versions)
 
 
 async def _endpoint_versions(
