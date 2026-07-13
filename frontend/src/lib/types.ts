@@ -127,6 +127,21 @@ export interface SimilarConcept {
 	score: number;
 }
 
+// External mapping (issue #82).
+
+export interface ExternalMapping {
+	object_id: string;
+	predicate: string;
+	lifecycle: string;
+	confidence: number;
+	is_identity: boolean;
+}
+
+export interface ConceptMappings {
+	code: string;
+	mappings: ExternalMapping[];
+}
+
 // Decomposition (non-pre-coordinated) read models (backend ontolib.decomposition).
 
 export interface DecompositionConstituent {

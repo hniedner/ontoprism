@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # at a mirror or a test double.
     clinicaltrials_api_url: str = "https://clinicaltrials.gov/api/v2"
 
+    # SNOMED/ICD-O-3 mappings require license confirmation (D26).
+    # When False, the $translate endpoint refuses to serve licensed sources.
+    enable_licensed_mappings: bool = False
+
     # PubMed / NCBI E-utilities client. An API key (optional) raises the rate limit from
     # 3 to 10 req/s; pubmed_requests_per_second throttles to stay within NCBI's policy.
     pubmed_api_url: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"

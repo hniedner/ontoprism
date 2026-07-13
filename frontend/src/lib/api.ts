@@ -7,6 +7,7 @@ import type {
 	CdeSummary,
 	ConceptDecomposition,
 	ConceptDetail,
+	ConceptMappings,
 	Neighborhood,
 	RefreshReport,
 	SearchPage,
@@ -111,6 +112,17 @@ export function getDecomposition(
 ): Promise<ConceptDecomposition> {
 	return getJson<ConceptDecomposition>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/decomposition`),
+		fetchImpl
+	);
+}
+
+/** All upstream mappings for an NCIt concept (both directions). */
+export function getMappings(
+	code: string,
+	fetchImpl?: typeof fetch
+): Promise<ConceptMappings> {
+	return getJson<ConceptMappings>(
+		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/mappings`),
 		fetchImpl
 	);
 }

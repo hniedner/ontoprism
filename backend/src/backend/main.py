@@ -17,6 +17,7 @@ from backend.api.v1 import (
     cadsr,
     clinicaltrials,
     decomposition,
+    mappings,
     ncit,
     pubmed,
     refresh,
@@ -155,6 +156,7 @@ def create_app() -> FastAPI:
         return {"ready": True, "ncit_version": version}
 
     app.include_router(ncit.router)
+    app.include_router(mappings.router)
     app.include_router(cadsr.router)
     app.include_router(refresh.router)
     app.include_router(sparql.router)

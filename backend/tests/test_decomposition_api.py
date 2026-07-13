@@ -37,7 +37,7 @@ class _FakeStore:
 class _FakeXrefStore:
     async def mappings_by_subjects(
         self, codes: set[str]
-    ) -> dict[str, list[tuple[str, str, str]]]:
+    ) -> dict[str, list[tuple[str, str, str, float]]]:
         return {}
 
 

@@ -4,7 +4,7 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 ``legacy-precoordinated`` with a list of constituents (axis + filler + provenance).
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 
@@ -13,14 +13,15 @@ class UpstreamMapping(BaseModel):
     """An upstream (Uberon/CL) equivalent of an NCIt code, from the xref layer.
 
     ``predicate`` is the full SKOS mapping IRI (verbatim); ``lifecycle`` is the
-    curation state (``proposed``/``validated``/``active``/``quarantined``/``retired``).
-    A derived ``is_identity`` convenience property flags
-    ``exactMatch + {validated,active}``.
+    curation state (``proposed``/``validated``/``active``/``quarantined``/``retired``);
+    ``confidence`` is the mapping confidence [0,1].  A derived ``is_identity``
+    convenience property flags ``exactMatch + {validated,active}``.
     """
 
     object_id: str
     predicate: str
     lifecycle: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @property
     def is_identity(self) -> bool:
