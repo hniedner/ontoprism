@@ -11,7 +11,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.store import XrefStore
-from ontolib.repositories.xref.vocab import CLOSE_MATCH
+from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
 
 @pytest.mark.integration
@@ -67,6 +67,63 @@ async def test_store_roundtrip() -> None:
             await s.execute(
                 text("DELETE FROM xref_run WHERE id = :rid"),
                 {"rid": run_id},
+            )
+            await s.commit()
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_mapping_strength_by_subject() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-strength-{uuid.uuid4().hex}"
+    try:
+        store = XrefStore(sf)
+        await store.upsert_run(run_id, "test", "26.02d", "test-1")
+        records = [
+            SSSOMRecord(
+                subject_id="C3262",
+                predicate_id=EXACT_MATCH,
+                object_id="UBERON:0002107",
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=1.0,
+                subject_source_version="26.02d",
+                object_source_version="uberon-2026-01",
+                lifecycle_state="validated",
+            ),
+            SSSOMRecord(
+                subject_id="C3262",
+                predicate_id=CLOSE_MATCH,
+                object_id="CL:0000057",
+                mapping_justification="semapv:LexicalMatching",
+                confidence=0.7,
+                subject_source_version="26.02d",
+                object_source_version="cl-2026-01",
+            ),
+            SSSOMRecord(
+                subject_id="C12345",
+                predicate_id=CLOSE_MATCH,
+                object_id="UBERON:0002048",
+                mapping_justification="semapv:LexicalMatching",
+                confidence=0.5,
+                subject_source_version="26.02d",
+                object_source_version="uberon-2026-01",
+            ),
+        ]
+        await store.upsert_records(run_id, records)
+        strength = await store.mapping_strength_by_subject()
+        assert "C3262" in strength
+        assert (EXACT_MATCH, "validated") in strength["C3262"]
+        assert (CLOSE_MATCH, "proposed") in strength["C3262"]
+        assert "C12345" in strength
+        assert (CLOSE_MATCH, "proposed") in strength["C12345"]
+    finally:
+        async with sf() as s:
+            await s.execute(
+                text("DELETE FROM concept_xref WHERE run_id = :rid"), {"rid": run_id}
+            )
+            await s.execute(
+                text("DELETE FROM xref_run WHERE id = :rid"), {"rid": run_id}
             )
             await s.commit()
         await dispose_engine(engine)
