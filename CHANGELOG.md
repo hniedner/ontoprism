@@ -19,6 +19,20 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.11.0 (2026-07-13)
+
+### Documentation
+
+- Update README code line-count table
+  ([`5304adb`](https://github.com/hniedner/ontoprism/commit/5304adba444cb29260dda48b9486c0454f835787))
+
+### Features
+
+- **decomposition**: Surface upstream xref on op: constituents
+  ([#115](https://github.com/hniedner/ontoprism/pull/115),
+  [`0d621c7`](https://github.com/hniedner/ontoprism/commit/0d621c77b853eb275b82b2d57b8dabc04fed9d15))
+
+
 ## v0.10.0 (2026-07-13)
 
 ### Documentation
