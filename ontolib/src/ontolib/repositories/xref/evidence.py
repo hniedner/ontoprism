@@ -35,7 +35,8 @@ LABEL_AGREEMENT = "label_agreement"
 # The upstream project independently asserts an `NCI:<code>` xref on the object.
 XREF_ASSERTION = "xref_assertion"
 # The upstream object sits under the upstream image of an NCIt ancestor of the
-# subject, established through a *separately validated* anchor bridge.
+# subject (reachable via subClassOf OR part_of), established through a *separately
+# validated* anchor bridge.
 STRUCTURAL_CORROBORATION = "structural_corroboration"
 # The pair is in the curated (SME-signed) mapping set.
 SME_CURATION = "sme_curation"

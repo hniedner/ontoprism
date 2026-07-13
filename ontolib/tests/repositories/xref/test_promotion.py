@@ -44,6 +44,7 @@ from ontolib.repositories.xref.promotion import (
     PromotionContext,
     PromotionEnvironmentError,
     build_disjoint_query,
+    build_upstream_partof_query,
     corroboration,
     elk_reasoner,
     load_promotion_context,
@@ -185,14 +186,18 @@ def _record(
 
 
 def _context(**overrides: Any) -> PromotionContext:
-    """NCIt: Lung ⊑ Respiratory System Organ.  Uberon: lung ⊑ lower respiratory tract
-    ⊑ respiratory system; brain ⊑ nervous system.  Trusted anchor: C12366 ≡
-    UBERON:0001004.
+    """NCIt: Lung ⊑ Respiratory System Organ.  Uberon: lung ⊑ respiration organ, which
+    is **part_of** respiratory system (BFO:0000050); brain ⊑ nervous system.  Trusted
+    anchor: C12366 ≡ UBERON:0001004 (respiratory system).
 
-    The upstream chain is deliberately **two** levels deep: the anchored class is not
-    the object's direct parent, so corroboration only succeeds if the inferred
-    hierarchy is walked.  ROBOT transitively reduces its output, so a depth-1 fixture
-    would pass even with the membership-test bug this guards against.
+    This mirrors the **real** store, and that is the point of #78: ``lung
+    rdfs:subClassOf* respiratory system`` is *false* on the live Uberon (checked in
+    ``test_upstream_data_contract``), so the anchored system is reached only by the
+    mixed ``subClassOf`` ∘ ``part_of`` walk — ``lung ⊑* respiration organ`` then
+    ``respiration organ part_of respiratory system``.  Neither leg reaches it alone.  An
+    earlier fixture modelled the link as ``subClassOf`` and so passed while the real
+    pipeline promoted nothing but curated pairs — exactly the fiction a data-shape
+    contract exists to kill.
     """
     base: dict[str, Any] = {
         "subject_labels": {"C12468": {"Lung"}},
@@ -203,9 +208,12 @@ def _context(**overrides: Any) -> PromotionContext:
         "object_xrefs": {"UBERON:0002048": {"C12468"}},
         "ncit_edges": {("C12468", "C12366")},
         "upstream_edges": {
-            ("UBERON:0002048", "UBERON:0001558"),
-            ("UBERON:0001558", "UBERON:0001004"),
-            ("UBERON:0000955", "UBERON:0000010"),
+            ("UBERON:0002048", "UBERON:0000171"),  # lung ⊑ respiration organ
+            ("UBERON:0000955", "UBERON:0000010"),  # brain ⊑ nervous system
+        },
+        "upstream_partof_edges": {
+            # respiration organ part_of respiratory system — the edge subClassOf lacks
+            ("UBERON:0000171", "UBERON:0001004"),
         },
         "anchors": (("C12366", "UBERON:0001004"),),
         "curated_pairs": frozenset(),
@@ -500,6 +508,87 @@ def test_no_entailed_anchor_image_is_not_entailed_and_grants_no_evidence() -> No
             ncit_edges={("C12468", "C12366")},
         )
         == NOT_ENTAILED
+    )
+
+
+# ── #78: the mixed subClassOf / part_of walk ────────────────────────────
+#
+# Uberon relates an organ to its system with part_of, not subClassOf (verified on the
+# live store in test_upstream_data_contract). The canonical correct pair therefore
+# reaches its anchored system ONLY through the mixed walk, and these tests pin exactly
+# that — including gate liveness: the SAME inputs minus the part_of edge must fall back
+# to NOT_ENTAILED, so we know the part_of leg is what flips the verdict rather than some
+# subClassOf path doing the work.
+
+_RESPIRATION_ORGAN_IRI = f"{_OBO}UBERON_0000171"
+
+
+@pytest.mark.unit
+def test_part_of_edge_is_what_corroborates_the_organ_under_its_system() -> None:
+    """lung ⊑* respiration organ (inferred subClassOf), respiration organ part_of
+    respiratory system (a part_of edge): the object reaches the anchored system only by
+    crossing from subClassOf to part_of mid-walk."""
+    inferred = {(_UBERON_LUNG_IRI, _RESPIRATION_ORGAN_IRI)}  # subClassOf, from ELK
+    partof = {
+        ("UBERON:0000171", "UBERON:0001004")
+    }  # respiration organ part_of resp sys
+
+    assert (
+        corroboration(
+            _record(),
+            inferred,
+            anchors=(("C12366", "UBERON:0001004"),),
+            ncit_edges={("C12468", "C12366")},
+            upstream_partof_edges=partof,
+        )
+        == CORROBORATED
+    )
+
+
+@pytest.mark.unit
+def test_without_the_part_of_edge_the_same_pair_is_not_entailed() -> None:
+    """Gate liveness for #78. Identical to the test above but with NO part_of edge: the
+    anchored system is now unreachable (subClassOf alone does not get there, which is
+    the real store's shape), so the verdict is NOT_ENTAILED.
+
+    If this ever returns CORROBORATED, a subClassOf path is quietly reaching the system
+    and the part_of walk is not the thing being exercised — the #78 tests above would be
+    passing for the wrong reason.
+    """
+    inferred = {(_UBERON_LUNG_IRI, _RESPIRATION_ORGAN_IRI)}
+
+    assert (
+        corroboration(
+            _record(),
+            inferred,
+            anchors=(("C12366", "UBERON:0001004"),),
+            ncit_edges={("C12468", "C12366")},
+            upstream_partof_edges=frozenset(),
+        )
+        == NOT_ENTAILED
+    )
+
+
+@pytest.mark.unit
+def test_part_of_is_transitive_across_a_multi_hop_chain() -> None:
+    """part_of is transitive, and the walk must follow it hop by hop: the object reaches
+    the anchored system through an intermediate (lower respiratory tract) it is only
+    *indirectly* part of."""
+    inferred: set[tuple[str, str]] = set()  # no subClassOf needed for this one
+    partof = {
+        ("UBERON:0002048", "UBERON:0001558"),  # lung part_of lower respiratory tract
+        ("UBERON:0001558", "UBERON:0001004"),  # lower resp tract part_of resp system
+    }
+
+    assert (
+        corroboration(
+            _record(),
+            inferred,
+            anchors=(("C12366", "UBERON:0001004"),),
+            ncit_edges={("C12468", "C12366")},
+            upstream_partof_edges=partof,
+        )
+        == CORROBORATED
     )
 
 
@@ -801,6 +890,13 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
     )
     uberon = _MockClient(
         {
+            # `onProperty` appears ONLY in the part_of query, and is matched before
+            # `?parent` (insertion order) so the two edge queries route to different
+            # canned rows — otherwise the mock cannot tell subClassOf from part_of and
+            # part_of loading would be untested.
+            "onProperty": [
+                {"child": f"{_OBO}UBERON_0000171", "parent": _UBERON_RESP_IRI},
+            ],
             # the junk rows are real: an upstream store carries IRIs that are not OBO
             # class IRIs at all.  They must be skipped, never crash the run.
             "?parent": [
@@ -836,6 +932,9 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
     assert ctx.object_xrefs == {"UBERON:0002048": {"C12468"}}
     assert ctx.ncit_edges == {("C12468", "C12366")}
     assert ctx.upstream_edges == {("UBERON:0002048", "UBERON:0001004")}
+    # part_of is loaded from a DISTINCT query and lands in its own field — the junk-row
+    # filtering applies here too (only expandable OBO CURIEs survive).
+    assert ctx.upstream_partof_edges == {("UBERON:0000171", "UBERON:0001004")}
     # curated pairs bootstrap the anchor set alongside already-validated bridges
     assert set(ctx.anchors) == {
         ("C12366", "UBERON:0001004"),
@@ -848,6 +947,49 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
 
 
 @pytest.mark.unit
+async def test_load_promotion_context_warns_when_a_signal_is_absent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Both silent-failure guards must actually fire, not just exist.
+
+    A run with candidates but no ``owl:disjointWith`` (the reasoner's only refutation
+    power) or no ``part_of`` edges (anatomy's only structural signal) still exits 0 with
+    ``promoted: 0`` — which reads as a conservative verdict. The warnings are what make
+    that state visible, so prove their branches are reachable on realistic input.
+    """
+    ncit = _MockClient(
+        {
+            "?parent": [{"child": f"{NCIT_NS}C12468", "parent": f"{NCIT_NS}C12366"}],
+            "rdfs:label": [{"code": "C12468", "label": "Lung"}],
+        }
+    )
+    # No `onProperty` rows (⇒ no part_of edges) and no `disjointWith` rows: both guards
+    # should trip. subClassOf edges still load, so the context is not degenerate.
+    uberon = _MockClient(
+        {
+            "onProperty": [],  # the part_of query matches here first ⇒ no part_of edges
+            "?parent": [{"child": _UBERON_LUNG_IRI, "parent": _UBERON_RESP_IRI}],
+            "rdfs:label": [{"concept": _UBERON_LUNG_IRI, "label": "lung"}],
+            "hasDbXref": [{"upstream": _UBERON_LUNG_IRI, "xref": "NCI:C12468"}],
+        }
+    )
+
+    with caplog.at_level("WARNING"):
+        ctx = await load_promotion_context(
+            ncit,  # type: ignore[arg-type]
+            uberon,  # type: ignore[arg-type]
+            [_record()],
+            curated_pairs=frozenset(),
+            validated_anchors=(("C12366", "UBERON:0001004"),),
+        )
+
+    assert ctx.upstream_partof_edges == set()
+    assert ctx.disjoints == ()
+    assert any("no owl:disjointWith axioms loaded" in m for m in caplog.messages)
+    assert any("no upstream part_of" in m for m in caplog.messages)
+
+
+@pytest.mark.unit
 def test_the_ncit_disjoint_query_reads_the_stated_graph() -> None:
     """NCIt's default graph is the *inferred* build.  Reading the reasoner's refutation
     power out of a shipped inferred graph is what D21 forbids."""
@@ -857,6 +999,26 @@ def test_the_ncit_disjoint_query_reads_the_stated_graph() -> None:
 
     # the upstream store has no named-graph split, so it is queried unscoped
     assert "GRAPH" not in build_disjoint_query(base_iri=_OBO)
+
+
+@pytest.mark.unit
+def test_the_part_of_query_targets_the_bfo_part_of_property() -> None:
+    """A typo in the property IRI would make the query return nothing — and an empty
+    result is indistinguishable from "this organ genuinely has no part_of", so
+    structural corroboration would silently die with no error. Pin the restriction
+    pattern.
+
+    The behavioural counterpart (that this query returns the real organ->system edge)
+    lives in ``test_upstream_data_contract`` against the live store; this unit test just
+    guards the query text so a rename fails in the fast suite too.
+    """
+    query = build_upstream_partof_query(["UBERON:0002048"])
+    assert "<http://purl.obolibrary.org/obo/BFO_0000050>" in query
+    assert "owl:onProperty" in query
+    assert "owl:someValuesFrom" in query
+    # both ends filtered to expandable prefixes (an unexpandable filler aborts the run)
+    assert 'STRSTARTS(STR(?child), "http://purl.obolibrary.org/obo/UBERON_")' in query
+    assert 'STRSTARTS(STR(?parent), "http://purl.obolibrary.org/obo/UBERON_")' in query
 
 
 # ── integration: the real ELK ──────────────────────────────────────────

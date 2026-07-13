@@ -355,10 +355,12 @@ Where an upstream ships few disjointness axioms, the gate is correspondingly wea
 when it loads none, because in that state promotion rests entirely on the evidence policy and it would be
 dishonest to call the result "reasoner-validated".
 
-**What structural corroboration can and cannot do (corrected 2026-07-13).** The corroboration
-walk follows `rdfs:subClassOf` only. **Uberon relates an organ to its system with `part_of`, not
-`subClassOf`** — verified against the live store: `lung rdfs:subClassOf* respiratory system` is
-**false**. Two consequences, both load-bearing:
+**What structural corroboration can and cannot do (corrected 2026-07-13; #78 landed).** The
+corroboration walk follows `rdfs:subClassOf` **∪ `part_of`** (BFO:0000050). **Uberon relates an
+organ to its system with `part_of`, not `subClassOf`** — verified against the live store: `lung
+rdfs:subClassOf* respiratory system` is **false**, while `lung ⊑* respiration organ` and
+`respiration organ part_of respiratory system` are both **true**. Two consequences, both
+load-bearing:
 
 1. **Absence of subsumption is NOT a contradiction.** Under the open-world assumption "not
    provably under X" means *unknown*, not *false*. An earlier cut treated it as a contradiction
@@ -368,10 +370,17 @@ walk follows `rdfs:subClassOf` only. **Uberon relates an organ to its system wit
    reasoner deriving `⊥` (the disjointness refutation), which already exists. The verdict is kept
    three-valued for observability (`CORROBORATED` / `NO_ANCHORED_ANCESTOR` / `NOT_ENTAILED`) but
    **never vetoes**.
-2. **`structural_corroboration` therefore rarely fires for Uberon anatomy at all.** Promotion
-   there rests on label agreement + the upstream's own xref + SME curation. Making this signal
-   real requires walking `part_of` — which is **#78**, now on the critical path for `COV` rather
-   than a nice-to-have tie-break spike.
+2. **`structural_corroboration` is now a live second signal for anatomy (#78).** The corroboration
+   walk reaches the anchored system through the mixed `subClassOf ∘ part_of ⊑ part_of` closure —
+   neither leg reaches it alone. `part_of` edges are supplied as **stated** graph edges straight to
+   the walk (`promotion.corroboration`), *not* pushed through ELK: `robot reason` classifies over
+   named `subClassOf`/`equivalentClass` and does not echo existential-restriction subsumptions back
+   as named edges, so routing `part_of` through the reasoner would not surface in its output. This
+   keeps corroboration a graph walk — which, per the honesty note below, is exactly what ELK's
+   *positive* entailments already reduce to over this fragment; ELK's distinct value remains the
+   *refutation* gate. Do **not** over-claim `part_of` as an equivalence arbiter (OAEI large-bio
+   shows partonomy alignment still yields false positives): it is one corroborating signal that
+   still requires a second independent one to promote.
 
 **Three-valued reasoning.** A merge is *accepted*, *refuted*, or **the reasoner never ran** (no Java,
 corrupt jar, OOM, timeout, a renamed ROBOT subcommand). The third state raises and is counted separately

@@ -36,7 +36,10 @@ from __future__ import annotations
 import pytest
 
 from backend.config import get_settings
-from ontolib.repositories.xref.promotion import build_upstream_edges_query
+from ontolib.repositories.xref.promotion import (
+    build_upstream_edges_query,
+    build_upstream_partof_query,
+)
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -45,6 +48,7 @@ pytestmark = pytest.mark.integration
 _OBO = "http://purl.obolibrary.org/obo/"
 _LUNG = f"{_OBO}UBERON_0002048"
 _RESPIRATORY_SYSTEM = f"{_OBO}UBERON_0001004"
+_RESPIRATION_ORGAN = f"{_OBO}UBERON_0000171"
 
 
 async def _uberon() -> OxigraphHttpClient | None:
@@ -152,3 +156,72 @@ async def test_the_upstream_store_can_name_its_own_version() -> None:
         "`data-build xref-promote` will refuse to run (by design: D29 staleness "
         "would be undetectable)"
     )
+
+
+# ── #78: the facts the mixed subClassOf / part_of corroboration walk relies on ──
+
+
+async def test_the_organ_reaches_its_system_by_subclass_then_part_of() -> None:
+    """THE #78 fact: an organ reaches its system only through ``subClassOf`` *then*
+    ``part_of``, never either alone.
+
+    On the live store ``lung ⊑* respiration organ`` (subClassOf) is true and
+    ``respiration organ part_of respiratory system`` is true, but ``lung ⊑* respiratory
+    system`` is false (pinned by ``test_an_organ_is_not_subsumed_by_its_system``). So
+    structural corroboration for the canonical correct pair exists *only* if the walk
+    crosses from subClassOf into part_of mid-path — which is exactly what
+    ``promotion.corroboration`` now does.
+
+    If this fails, either Uberon restructured the respiratory branch or
+    ``build_upstream_partof_query`` stopped finding the edge — in both cases structural
+    corroboration for anatomy silently dies, so fail here and name it.
+    """
+    client = await _uberon()
+    if client is None:
+        pytest.skip("Uberon store not loaded")
+    try:
+        lung_under_organ = await client.ask(
+            "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> "
+            f"ASK {{ <{_LUNG}> rdfs:subClassOf* <{_RESPIRATION_ORGAN}> }}"
+        )
+        partof_rows = await client.select(
+            build_upstream_partof_query(["UBERON:0002048"])
+        )
+    finally:
+        await client.aclose()
+
+    assert lung_under_organ is True, (
+        "Uberon no longer subsumes lung under 'respiration organ' — the subClassOf leg "
+        "of the mixed corroboration walk is broken; revisit promotion.corroboration."
+    )
+    edges = {(str(r["child"]), str(r["parent"])) for r in partof_rows}
+    assert (_RESPIRATION_ORGAN, _RESPIRATORY_SYSTEM) in edges, (
+        "build_upstream_partof_query no longer returns 'respiration organ part_of "
+        "respiratory system' for lung's ancestor cone — structural corroboration for "
+        "anatomy just went dark. Uberon changed, or the query's subClassOf* prefix / "
+        f"BFO_0000050 restriction pattern regressed. Got edges: {sorted(edges)[:8]}"
+    )
+
+
+async def test_the_part_of_walk_never_yields_a_curie_we_cannot_expand() -> None:
+    """Same trap as the subClassOf walk: the part_of query must filter BOTH ends to
+    expandable prefixes, or one ``GO:``/``COB:`` filler ``object_iri`` cannot expand
+    aborts the whole run.
+    """
+    client = await _uberon()
+    if client is None:
+        pytest.skip("Uberon store not loaded")
+    try:
+        rows = await client.select(build_upstream_partof_query(["UBERON:0002048"]))
+    finally:
+        await client.aclose()
+
+    assert rows, "expected some part_of ancestor edges for lung"
+    allowed = tuple(f"{_OBO}{prefix}_" for prefix in SUPPORTED_PREFIXES)
+    for row in rows:
+        for end in ("child", "parent"):
+            iri = str(row[end])
+            assert iri.startswith(allowed), (
+                f"{end} {iri} carries a prefix object_iri cannot expand — this would "
+                "KeyError and abort the whole run"
+            )

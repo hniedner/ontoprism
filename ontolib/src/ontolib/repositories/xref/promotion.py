@@ -11,10 +11,12 @@ Per candidate:
 1. **Corroborate, non-circularly.** Classify the merged NCIt+upstream fragment
    *without* the candidate bridge (:func:`bridge.build_validation_ontology` with
    ``include_bridge=False``).  The candidate is corroborated iff the upstream object is
-   inferred to sit under the upstream image of every anchored NCIt ancestor of the
-   subject — a fact that can only come from the upstream's own taxonomy plus a
-   **separately validated** anchor.  With the bridge present this would be a tautology,
-   which is exactly the circularity D28 forbids.
+   reachable — via ``subClassOf`` **or** Uberon ``part_of`` (#78) — to sit under the
+   upstream image of *some* anchored NCIt ancestor of the subject (``any``, not ``all``:
+   under the open-world assumption a non-reached image is *unknown*, not a disagreement)
+   — a fact that can only come from the upstream's own taxonomy plus a **separately
+   validated** anchor.  With the bridge present this would be a tautology, which is
+   exactly the circularity D28 forbids.
 2. **Gather independent evidence** (:mod:`ontolib.repositories.xref.evidence`), minus
    the signal that generated the candidate.
 3. **Gate on EL.** Only if the evidence already suffices, classify the merge *with* the
@@ -35,7 +37,13 @@ this module's bugs got in.
   entailed subsumptions **are** the transitive closure of the stated edges through the
   anchors.  A graph walk would compute the same set.  So this does **not** yet
   materialize the defined-class subsumption D21 is about; that would require carrying
-  the restriction fillers into the merge, which is not built.
+  the restriction fillers into the merge, which is not built.  Structural corroboration
+  therefore *is* a graph walk — and #78 widens it from ``subClassOf`` alone to
+  ``subClassOf`` / ``part_of`` (BFO:0000050), because Uberon relates an organ to its
+  system with ``part_of``, not ``subClassOf`` (verified on the live store).  The
+  ``part_of`` edges are supplied as stated data straight to the walk
+  (:func:`corroboration`), not through ELK, which does not echo existential-restriction
+  subsumptions back as named edges.
 * *Negatively*, ELK earns its place: it **refutes**.  A bridge that forces a class under
   two disjoint parents makes the merge unsatisfiable, and that is a genuine error
   detection a walk cannot perform.  This power comes **entirely** from the
@@ -65,7 +73,7 @@ import logging
 import tempfile
 import uuid
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -96,6 +104,7 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Set as AbstractSet
 
     from ontolib.repositories.xref.models import SSSOMRecord
     from ontolib.repositories.xref.store import XrefStore
@@ -114,6 +123,9 @@ _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _OWL_NS = "http://www.w3.org/2002/07/owl#"
 _OBO_NCI_PREFIX = "NCI:"
 _OWL_THING = URIRef(f"{_OWL_NS}Thing")
+# BFO:0000050 is the OBO ``part_of`` object property.  Uberon carries organ->system
+# containment as an existential restriction on it, never as ``subClassOf``.
+_BFO_PART_OF = f"{_OBO_BASE}BFO_0000050"
 # Upstream prefixes we can expand back to an IRI; anything else must not enter a merge.
 _OBO_PREFIXES = SUPPORTED_PREFIXES
 
@@ -156,6 +168,12 @@ class PromotionContext:
     anchors: tuple[tuple[str, str], ...]
     curated_pairs: frozenset[tuple[str, str]]
     disjoints: tuple[tuple[str, str], ...] = ()
+    # Upstream ``(child_curie, parent_curie)`` ``part_of`` (BFO:0000050) edges on the
+    # ancestor paths.  Uberon relates an organ to its system with ``part_of``, not
+    # ``subClassOf`` (verified on the live store: ``lung rdfs:subClassOf* respiratory
+    # system`` is *false*), so without these structural corroboration is near-dead for
+    # anatomy — the reason #78 moved from a tie-break spike onto the COV critical path.
+    upstream_partof_edges: set[tuple[str, str]] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -408,6 +426,7 @@ def corroboration(
     *,
     anchors: Sequence[tuple[str, str]],
     ncit_edges: set[tuple[str, str]],
+    upstream_partof_edges: AbstractSet[tuple[str, str]] = frozenset(),
 ) -> str:
     """Three-valued for *observability* — but only ``CORROBORATED`` is evidence, and
     **none of these states may veto a promotion**.
@@ -415,46 +434,73 @@ def corroboration(
     ``NO_ANCHORED_ANCESTOR`` — no anchored ancestor to reason from; the bootstrap has
     not reached here yet.
 
-    ``NOT_ENTAILED`` — there is an anchored ancestor, but the object is not *entailed*
-    to sit under its upstream image.  **This is not a contradiction.**  An earlier
-    version of this function treated it as one and vetoed the promotion; that was a
-    serious modelling error, caught only by querying the real store:
+    ``NOT_ENTAILED`` — there is an anchored ancestor, but the object is not reachable
+    (via ``subClassOf`` **or** ``part_of``) to sit under its upstream image.  **This is
+    not a contradiction.**  An earlier version of this function treated it as one and
+    vetoed the promotion; that was a serious modelling error, caught only by querying
+    the real store:
 
     * Under the **open-world assumption**, "not provably under X" means *unknown*, not
       *false*.  A genuine contradiction can only be established by the reasoner deriving
       ``⊥`` — which the disjointness refutation already does (``REASON_REFUTED``).  The
       veto was therefore both wrong and redundant.
-    * Empirically it is also the **normal case** for anatomy.  Uberon relates an organ
-      to its system with **``part_of``**, not ``subClassOf``: on the live store,
-      ``lung rdfs:subClassOf* respiratory system`` is **false**.  So the veto fired on
-      the canonical *correct* pair (NCIt Lung -> Uberon lung, under the
-      ``Respiratory System Organ ≡ respiratory system`` anchor), pinning coverage at
+    * Empirically ``subClassOf`` alone is not enough for anatomy.  Uberon relates an
+      organ to its system with **``part_of``**, not ``subClassOf``: on the live store,
+      ``lung rdfs:subClassOf* respiratory system`` is **false**.  So a ``subClassOf``-
+      only veto fired on the canonical *correct* pair (NCIt Lung -> Uberon lung, under
+      the ``Respiratory System Organ ≡ respiratory system`` anchor), pinning coverage at
       zero while logging "the two ontologies disagree" — a confident, false explanation.
 
-    Consequence, stated plainly: because this walk follows only ``subClassOf``,
-    ``STRUCTURAL_CORROBORATION`` rarely fires for Uberon anatomy at all, so promotion
-    there rests on label agreement + the upstream's own xref + SME curation.  Walking
-    ``part_of`` is issue #78; until then this signal is weak, not wrong.
+    **The reachability is mixed ``subClassOf`` / ``part_of`` (#78).** The upstream image
+    is reached when the object is a *subclass or part* of it — the sound EL closure of
+    ``subClassOf``, transitive ``part_of``, and the ``subClassOf ∘ part_of ⊑ part_of``
+    propagation.  On the live store the canonical path is
+    ``lung ⊑* respiration organ`` (subClassOf) then ``respiration organ part_of
+    respiratory system`` — neither leg reaches the system on its own.
+
+    *Honesty note.* ``part_of`` is supplied here as **stated** graph edges, not as an
+    ELK entailment: ``robot reason`` classifies over named ``subClassOf``/
+    ``equivalentClass`` and does not echo existential-restriction subsumptions back as
+    named edges, so pushing ``part_of`` through the reasoner would not surface in
+    *inferred*.  This keeps corroboration a structural graph walk — which, as the module
+    docstring states, is exactly what ELK's *positive* entailments already reduce to
+    over this fragment.  ELK's distinct contribution stays the *refutation* gate.
     """
-
-    anchor_map: dict[str, list[str]] = {}
-    for code, curie in anchors:
-        anchor_map.setdefault(code, []).append(curie)
-
-    ancestors = _ancestors(record.subject_id, ncit_edges)
-    anchored = [curie for a in ancestors for curie in anchor_map.get(a, [])]
+    anchored = _anchored_images(record.subject_id, anchors, ncit_edges)
     if not anchored:
         return NO_ANCHORED_ANCESTOR
 
-    upstream_ancestors = _reachable_ancestors(object_iri(record.object_id), inferred)
+    # part_of edges are stored as CURIEs (like upstream_edges); lift them into the same
+    # full-IRI space as ELK's inferred subClassOf edges so the single walk can cross
+    # freely between the two relations.
+    partof_iri_edges = {
+        (object_iri(child), object_iri(parent))
+        for child, parent in upstream_partof_edges
+    }
+    reachable = _reachable_ancestors(
+        object_iri(record.object_id), inferred | partof_iri_edges
+    )
     # `any`, not `all`.  Under the open-world reading, a non-entailed anchor image means
     # *unknown* — it cannot cancel a different anchored ancestor that IS entailed.
     # (`all` was the reverted veto's semantics: on the live store lung ⊑* organ is true
     # while lung ⊑* respiratory system is false, so `all` would silently withhold the
     # corroboration the organ anchor genuinely established.)
-    if any(object_iri(curie) in upstream_ancestors for curie in anchored):
+    if any(object_iri(curie) in reachable for curie in anchored):
         return CORROBORATED
     return NOT_ENTAILED
+
+
+def _anchored_images(
+    subject_id: str,
+    anchors: Sequence[tuple[str, str]],
+    ncit_edges: set[tuple[str, str]],
+) -> list[str]:
+    """Upstream CURIEs of the anchors whose NCIt code is an ancestor of *subject_id*."""
+    anchor_map: dict[str, list[str]] = {}
+    for code, curie in anchors:
+        anchor_map.setdefault(code, []).append(curie)
+    ancestors = _ancestors(subject_id, ncit_edges)
+    return [curie for a in ancestors for curie in anchor_map.get(a, [])]
 
 
 # ── the decision ───────────────────────────────────────────────────────
@@ -564,7 +610,13 @@ def _corroborate(
             "taxonomy or bridge.py emitted a non-EL merge. Refusing to read that as a "
             "verdict about this candidate."
         )
-    return corroboration(record, inferred, anchors=anchors, ncit_edges=ctx.ncit_edges)
+    return corroboration(
+        record,
+        inferred,
+        anchors=anchors,
+        ncit_edges=ctx.ncit_edges,
+        upstream_partof_edges=ctx.upstream_partof_edges,
+    )
 
 
 def validate_candidate(
@@ -1009,6 +1061,49 @@ SELECT DISTINCT ?child ?parent WHERE {{
 """
 
 
+def build_upstream_partof_query(curies: Sequence[str]) -> str:
+    """Stated upstream ``part_of`` (BFO:0000050) edges on the ancestor paths.
+
+    Emitted as ``(child_curie, parent_curie)`` for every ``?child`` that is a
+    ``subClassOf`` ancestor (or self) of a seed and carries an existential
+    ``part_of`` restriction ``?child ⊑ ∃ part_of . ?parent`` over a named class.
+
+    This is the edge the corroboration walk needs but ``subClassOf`` cannot supply.
+    Verified against the live store: ``lung ⊑* respiration organ`` (subClassOf) and
+    ``respiration organ part_of respiratory system`` (this query) — the two together
+    place lung under the anchored system; neither does alone, and lung's *own*
+    ``part_of`` chain (``pair of lungs -> lower respiratory tract``) never reaches the
+    system at all.  The ``subClassOf*`` prefix on ``?seed`` is what lets a part_of
+    restriction stated on an ancestor (``respiration organ``) rather than on the object
+    itself still be collected.
+
+    Both ends are restricted to expandable prefixes for the same reason as
+    :func:`build_upstream_edges_query`: ``object_iri`` raises ``KeyError`` on an
+    upper-ontology CURIE, and that is not caught per-candidate.
+    """
+    iris = " ".join(f"<{object_iri(c)}>" for c in sorted(curies))
+
+    def _supported(var: str) -> str:
+        return " || ".join(
+            f'STRSTARTS(STR(?{var}), "{_OBO_BASE}{prefix}_")'
+            for prefix in _OBO_PREFIXES
+        )
+
+    return f"""\
+PREFIX rdfs: <{_RDFS_NS}>
+PREFIX owl: <{_OWL_NS}>
+SELECT DISTINCT ?child ?parent WHERE {{
+    VALUES ?seed {{ {iris} }}
+    ?seed rdfs:subClassOf* ?child .
+    ?child rdfs:subClassOf ?restriction .
+    ?restriction owl:onProperty <{_BFO_PART_OF}> ; owl:someValuesFrom ?parent .
+    FILTER(isIRI(?child) && isIRI(?parent))
+    FILTER({_supported("child")})
+    FILTER({_supported("parent")})
+}}
+"""
+
+
 def build_disjoint_query(*, base_iri: str, graph_iri: str | None = None) -> str:
     """``owl:disjointWith`` pairs among named classes under *base_iri*.
 
@@ -1121,6 +1216,19 @@ async def _upstream_edges(
     return edges
 
 
+async def _upstream_partof_edges(
+    client: OxigraphHttpClient, objects: Sequence[str]
+) -> set[tuple[str, str]]:
+    edges: set[tuple[str, str]] = set()
+    for batch in _batches(objects):
+        for row in await client.select(build_upstream_partof_query(list(batch))):
+            child = _curie(str(row.get("child") or ""))
+            parent = _curie(str(row.get("parent") or ""))
+            if child and parent:
+                edges.add((child, parent))
+    return edges
+
+
 async def _disjoints(
     ncit_client: OxigraphHttpClient, uberon_client: OxigraphHttpClient
 ) -> tuple[tuple[str, str], ...]:
@@ -1204,26 +1312,49 @@ async def load_promotion_context(
         object_xrefs=await _object_xrefs(uberon_client, set(objects)),
         ncit_edges=await _ncit_edges(ncit_client, [*subjects, *anchor_codes]),
         upstream_edges=await _upstream_edges(uberon_client, [*objects, *anchor_curies]),
+        upstream_partof_edges=await _upstream_partof_edges(
+            uberon_client, [*objects, *anchor_curies]
+        ),
         anchors=anchors,
         curated_pairs=curated_pairs,
         disjoints=await _disjoints(ncit_client, uberon_client),
     )
     logger.info(
         "promotion context: %d candidates, %d NCIt edges, %d upstream edges, "
-        "%d anchors, %d disjointness axioms",
+        "%d part_of edges, %d anchors, %d disjointness axioms",
         len(records),
         len(ctx.ncit_edges),
         len(ctx.upstream_edges),
+        len(ctx.upstream_partof_edges),
         len(ctx.anchors),
         len(ctx.disjoints),
     )
+    _warn_on_missing_signals(records, ctx)
+    return ctx
+
+
+def _warn_on_missing_signals(
+    records: Sequence[SSSOMRecord], ctx: PromotionContext
+) -> None:
+    """Surface the two states that make a ``promoted: 0`` run a false conservative.
+
+    Neither is degenerate enough to refuse the run (unlike
+    :func:`_refuse_degenerate_context`), but each disables a whole promotion pathway
+    silently, so log a warning that names it.
+    """
     if records and not ctx.disjoints:
         logger.warning(
             "no owl:disjointWith axioms loaded — the reasoner has nothing to refute "
             "with, so the satisfiability gate cannot fire and promotion rests entirely "
             "on the evidence policy"
         )
-    return ctx
+    if records and not ctx.upstream_partof_edges:
+        logger.warning(
+            "no upstream part_of (BFO:0000050) edges loaded — structural corroboration "
+            "for anatomy relies on them (an organ is part_of, not subClassOf, its "
+            "system), so with none loaded that signal cannot fire and non-curated "
+            "candidates rest on label + xref agreement alone"
+        )
 
 
 # ── persistence (D29 lifecycle) ────────────────────────────────────────

@@ -2,6 +2,43 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-13 — #78: structural corroboration walks part_of (D16/D20 revisit)
+
+### D32. Cross-ontology structural corroboration walks `subClassOf` ∪ `part_of`, as stated graph edges, not through ELK
+`#73`/PR #117 shipped a corroboration walk that followed `rdfs:subClassOf` only. Verified against
+the **live Uberon store**, that made the reasoner-backed structural signal near-dead for the main
+use case: Uberon relates an organ to its system with **`part_of`** (BFO:0000050), not `subClassOf`.
+Concretely `ASK { UBERON:0002048 rdfs:subClassOf* UBERON:0001004 }` (lung ⊑* respiratory system) is
+**false**; the containment is `lung ⊑* respiration organ` (subClassOf) **then** `respiration organ
+part_of respiratory system` (part_of) — **neither leg reaches the system alone**, and lung's *own*
+part_of chain (`pair of lungs → lower respiratory tract`) dead-ends before the system. So on real
+data `structural_corroboration` fired for almost no anatomy pair, and `promoted ≡ |curated pairs|`.
+This is #78 (originally a D16/D20 region-vs-organ tie-break spike), reclassified onto the `COV`
+critical path.
+
+**Decision:** `promotion.corroboration` now reaches the anchored upstream image via the mixed
+`subClassOf` ∪ `part_of` closure (the sound OWL 2 EL rules: `part_of` transitive,
+`subClassOf ∘ part_of ⊑ part_of`). `part_of` edges are fetched by `build_upstream_partof_query`
+(BFO:0000050 existential restrictions on the object's `subClassOf*` ancestor cone, both ends
+filtered to expandable prefixes) into `PromotionContext.upstream_partof_edges`, and handed **as
+stated graph edges straight to the walk — not through ELK.**
+
+**Why not through the reasoner.** `robot reason` classifies over named `subClassOf`/`equivalentClass`
+and does **not** echo existential-restriction subsumptions (`∃part_of.X`) back as named edges, so
+emitting `part_of` restrictions into the merge would not surface in `inferred`. As the module and
+design §4.4.1 already state, ELK's *positive* entailments over this fragment reduce to the transitive
+closure a graph walk computes; corroboration was therefore always a graph walk, and widening its edge
+set to `part_of` keeps that honest. ELK's distinct contribution stays the **refutation** (disjointness)
+gate, unchanged.
+
+**Scope / non-claims.** `part_of` corroboration is **one** signal and still requires a second
+independent one to promote (D28 unchanged); it is **not** an equivalence arbiter (OAEI large-bio
+shows partonomy alignment still yields false positives — D16's caution stands). It does not
+materialize D21 defined-class subsumption. Guarded by: mixed-walk + gate-liveness unit tests
+(`test_promotion.py`), a query-shape unit test, a `load_promotion_context` routing test, and
+**live-store data-shape contracts** (`test_upstream_data_contract.py`, local integration gate) that
+pin the exact facts above so a future Uberon restructure fails loudly and names the assumption.
+
 ## 2026-07-12 — repository hardening for a public, bad-actor-resistant posture
 
 ### D31. Repository made public; free security scanning + committed security workflows enabled
