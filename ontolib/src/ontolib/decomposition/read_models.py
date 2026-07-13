@@ -4,7 +4,7 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 ``legacy-precoordinated`` with a list of constituents (axis + filler + provenance).
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 
@@ -21,7 +21,7 @@ class UpstreamMapping(BaseModel):
     object_id: str
     predicate: str
     lifecycle: str
-    confidence: float = 0.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @property
     def is_identity(self) -> bool:

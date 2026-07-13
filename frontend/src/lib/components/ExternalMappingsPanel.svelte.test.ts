@@ -15,10 +15,10 @@ describe('ExternalMappingsPanel', () => {
 		expect(mock).toHaveBeenCalledWith('C12400');
 	});
 
-	it('shows the fallback when the fetch fails', async () => {
+	it('shows an error message when the fetch fails', async () => {
 		mock.mockRejectedValue(new Error('network error'));
 		render(ExternalMappingsPanel, { code: 'C12400' });
-		expect(await screen.findByText('No upstream mappings.')).toBeInTheDocument();
+		expect(await screen.findByText(/Failed to load/)).toBeInTheDocument();
 	});
 
 	it('renders mapping entries with badge and confidence', async () => {

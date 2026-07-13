@@ -60,6 +60,34 @@ class CoverageReport:
     anchors_unmapped: int
     cde_coverage: float
 
+    def __post_init__(self) -> None:
+        if self.live + self.unresolved != self.distinct_anchors:
+            msg = (
+                f"Invariant: live ({self.live}) + unresolved ({self.unresolved}) "
+                f"!= distinct_anchors ({self.distinct_anchors})"
+            )
+            raise ValueError(msg)
+        if self.anchors_in_roles + self.anchors_new != self.distinct_anchors:
+            msg = (
+                f"Invariant: anchors_in_roles ({self.anchors_in_roles}) + "
+                f"anchors_new ({self.anchors_new}) "
+                f"!= distinct_anchors ({self.distinct_anchors})"
+            )
+            raise ValueError(msg)
+        mapped = (
+            self.anchors_identity_mapped
+            + self.anchors_close_only
+            + self.anchors_unmapped
+        )
+        if mapped != self.distinct_anchors:
+            msg = (
+                f"Invariant: identity ({self.anchors_identity_mapped}) + "
+                f"close ({self.anchors_close_only}) + "
+                f"unmapped ({self.anchors_unmapped}) "
+                f"!= distinct_anchors ({self.distinct_anchors})"
+            )
+            raise ValueError(msg)
+
     def as_dict(self) -> dict[str, float | int]:
         return {
             "n_cdes": self.n_cdes,

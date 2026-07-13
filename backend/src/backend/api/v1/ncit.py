@@ -4,7 +4,7 @@ mappings."""
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import (
@@ -43,7 +43,7 @@ class MappingEntry(BaseModel):
     object_id: str
     predicate: str
     lifecycle: str
-    confidence: float
+    confidence: float = Field(ge=0.0, le=1.0)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

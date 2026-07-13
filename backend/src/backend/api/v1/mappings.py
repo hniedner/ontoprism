@@ -1,7 +1,7 @@
 """Mappings + FHIR-style $translate endpoints (issue #82, design §8.4)."""
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.config import get_settings
 from backend.dependencies import XrefReads
@@ -12,7 +12,7 @@ from ontolib.repositories.xref.vocab import (
     NARROW_MATCH,
 )
 
-_LICENSED_PREFIXES = frozenset({"SNOMED", "ICD-O"})
+_LICENSED_PREFIXES = frozenset({"SNOMED", "ICD-O-3"})
 
 _SKOS_TO_EQUIVALENCE: dict[str, str] = {
     EXACT_MATCH: "equivalent",
@@ -39,7 +39,7 @@ class TranslateRequest(BaseModel):
     (``UBERON:0002046``).  The endpoint searches both directions.
     """
 
-    code: str
+    code: str = Field(min_length=1)
 
 
 class TranslateConcept(BaseModel):
@@ -54,7 +54,7 @@ class TranslateEntry(BaseModel):
 
     equivalence: str
     concept: TranslateConcept
-    confidence: float
+    confidence: float = Field(ge=0.0, le=1.0)
 
 
 class TranslateResponse(BaseModel):
@@ -99,8 +99,9 @@ async def translate(
 ) -> TranslateResponse:
     """FHIR-style ConceptMap ``$translate`` for NCIt↔upstream.
 
-    Never serves ``proposed``/``quarantined`` mappings (D29).  Licensed
-    sources (SNOMED, ICD-O-3) are filtered out when
+    Serves ``validated``/``active`` mappings, filtering
+    ``proposed``/``quarantined`` lifecycles.  Licensed sources
+    (SNOMED, ICD-O-3) are filtered out when
     ``enable_licensed_mappings`` is False (D26).  Returns ``unmatched``
     when no valid mapping exists.
     """

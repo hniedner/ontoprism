@@ -6,13 +6,17 @@
 
 	let mappings = $state<ExternalMapping[]>([]);
 	let loaded = $state(false);
+	let error = $state<string | null>(null);
 
 	$effect(() => {
+		let cancelled = false;
 		loaded = false;
+		error = null;
 		getMappings(code).then(
-			(m) => (mappings = m.mappings),
-			() => (mappings = [])
-		).finally(() => (loaded = true));
+			(m) => { if (!cancelled) mappings = m.mappings; },
+			(err: unknown) => { if (!cancelled) { error = err instanceof Error ? err.message : String(err); mappings = []; } }
+		).finally(() => { if (!cancelled) loaded = true; });
+		return () => { cancelled = true; };
 	});
 
 	function badgeClass(lifecycle: string): string {
@@ -39,7 +43,9 @@
 			>{loaded ? mappings.length : '…'}</span
 		>
 	</h3>
-	{#if loaded && mappings.length === 0}
+	{#if error}
+		<p class="text-sm italic text-red-500">Failed to load: {error}</p>
+	{:else if loaded && mappings.length === 0}
 		<p class="text-sm italic text-subtle">No upstream mappings.</p>
 	{:else}
 		<ul class="flex flex-col gap-2">
