@@ -38,7 +38,11 @@ external tool (ROBOT/ELK, a DB driver, a serializer) or on real store data, add:
 asserting the same verdict; (c) a **data-shape test** pinning what the *real store* looks like
 (`test_upstream_data_contract.py`); and (d) a **gate-liveness** test proving each gate's reject
 branch is reachable. The external tool must actually run in CI, or its tests silently skip and
-the bugs stay invisible.
+the bugs stay invisible (ROBOT is now installed in the CI integration job for exactly this
+reason). **Exception — data-shape contracts skip in CI by design**: they must interrogate the
+*real* store, and seeding a fixture would make them assert facts about the fixture. They are a
+**pre-merge local gate** (`pdm run test-integration` against the live stores); a skip is not a
+pass.
 
 **Test types.** Use the registered markers deliberately: `unit`, `api`, `security`,
 `integration` (real services), `full_build` (pinned build / real embeddings, excluded
