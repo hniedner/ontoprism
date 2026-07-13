@@ -66,18 +66,22 @@ _XREF = "semapv:DatabaseCrossReference"
 _LEXICAL = "semapv:LexicalMatching"
 
 
-# ── a real (tiny) EL reasoner double ───────────────────────────────────
+# ── an ELK-faithful reasoner double ────────────────────────────────────
 #
 # ``robot``/ELK is an external process and is not on PATH in the hermetic suite
 # (the real thing is exercised by ``test_promotion_with_real_elk``, below, and by
-# ``test_validation.py::test_robot_elk_smoke``).  This double does the *actual*
-# work ELK does for our fragments — transitive closure of subClassOf, with
-# equivalentClass read in both directions — so the assertions below are about
-# behaviour, not about a mock being called.
+# ``test_validation.py::test_robot_elk_smoke``).
+#
+# The double must be faithful on the one property the promotion logic leans on:
+# ``robot reason`` emits the **direct** subsumptions (the hierarchy is transitively
+# reduced), NOT the transitive closure — given ``A ⊑ B`` and ``B ⊑ C`` it does not
+# state ``A ⊑ C``.  A double that closed the hierarchy would let a bug through in
+# which corroboration only ever finds a *direct* anchored parent, so this one
+# deliberately does not close it: the production code must do the walk.
 
 
-class _ClosureReasoner:
-    """Compute the subsumption closure of a Turtle fragment, ELK-style."""
+class _ElkLikeReasoner:
+    """Return the direct subsumptions of a Turtle fragment, as ROBOT/ELK does."""
 
     def __init__(self) -> None:
         self.seen: list[str] = []
@@ -91,14 +95,7 @@ class _ClosureReasoner:
         for s, o in g.subject_objects(OWL.equivalentClass):
             edges.add((str(s), str(o)))
             edges.add((str(o), str(s)))
-        closure = set(edges)
-        while True:
-            grown = closure | {
-                (a, d) for a, b in closure for c, d in closure if b == c and a != d
-            }
-            if grown == closure:
-                return closure
-            closure = grown
+        return edges
 
 
 def _reject_all(ttl: str) -> None:
@@ -151,7 +148,7 @@ def _context(**overrides: Any) -> PromotionContext:
 def test_known_equivalent_pair_is_promoted() -> None:
     """Lung ↔ lung: label agreement (independent of the xref that generated it)
     plus structural corroboration through a *separate* anchored parent."""
-    outcome = validate_candidate(_record(), _context(), reasoner=_ClosureReasoner())
+    outcome = validate_candidate(_record(), _context(), reasoner=_ElkLikeReasoner())
 
     assert outcome.reason == REASON_PROMOTED
     assert outcome.promoted is not None
@@ -168,7 +165,7 @@ def test_known_equivalent_pair_is_promoted() -> None:
 
 @pytest.mark.unit
 def test_promoted_record_keeps_its_provenance() -> None:
-    outcome = validate_candidate(_record(), _context(), reasoner=_ClosureReasoner())
+    outcome = validate_candidate(_record(), _context(), reasoner=_ElkLikeReasoner())
     assert outcome.promoted is not None
     assert outcome.promoted.subject_source_version == _NCIT_VERSION
     assert outcome.promoted.object_source_version == _UBERON_VERSION
@@ -184,7 +181,7 @@ def test_known_non_equivalent_pair_is_not_promoted() -> None:
     """Lung ↔ brain: labels disagree and the upstream object does not sit under the
     upstream image of the subject's anchored parent, so nothing corroborates it."""
     outcome = validate_candidate(
-        _record(obj="UBERON:0000955"), _context(), reasoner=_ClosureReasoner()
+        _record(obj="UBERON:0000955"), _context(), reasoner=_ElkLikeReasoner()
     )
 
     assert outcome.promoted is None
@@ -196,7 +193,7 @@ def test_known_non_equivalent_pair_is_not_promoted() -> None:
 def test_a_single_signal_does_not_promote() -> None:
     """Label agreement alone (no anchored parent to corroborate) is not enough."""
     outcome = validate_candidate(
-        _record(), _context(anchors=()), reasoner=_ClosureReasoner()
+        _record(), _context(anchors=()), reasoner=_ElkLikeReasoner()
     )
 
     assert outcome.promoted is None
@@ -209,7 +206,7 @@ def test_sme_curated_pair_promotes_on_curation_alone() -> None:
     outcome = validate_candidate(
         _record(subject="C12377", obj="UBERON:0002110"),
         _context(curated_pairs=frozenset({("C12377", "UBERON:0002110")})),
-        reasoner=_ClosureReasoner(),
+        reasoner=_ElkLikeReasoner(),
     )
 
     assert outcome.promoted is not None
@@ -224,7 +221,7 @@ def test_curated_candidate_is_not_used_as_its_own_anchor() -> None:
     outcome = validate_candidate(
         _record(),
         _context(curated_pairs=frozenset({pair}), anchors=(pair,)),
-        reasoner=_ClosureReasoner(),
+        reasoner=_ElkLikeReasoner(),
     )
 
     assert outcome.promoted is not None
@@ -254,7 +251,7 @@ def test_structural_corroboration_never_sees_the_candidate_bridge() -> None:
     """THE non-circularity test: the merge the reasoner corroborates over must not
     contain owl:equivalentClass(subject, object) — otherwise the candidate proves
     itself and every mapping 'validates'."""
-    reasoner = _ClosureReasoner()
+    reasoner = _ElkLikeReasoner()
     validate_candidate(_record(), _context(), reasoner=reasoner)
 
     corroboration_merge = Graph().parse(data=reasoner.seen[0], format="turtle")
@@ -297,6 +294,33 @@ def test_structural_corroboration_fails_when_the_upstream_parent_disagrees() -> 
 
 
 @pytest.mark.unit
+def test_structural_corroboration_follows_upstream_ancestors() -> None:
+    """The anchored class may sit several levels above the object in the *upstream*
+    hierarchy.
+
+    ``robot reason`` emits the **direct** subsumptions (transitively reduced): given
+    ``lung ⊑ lower respiratory tract`` and ``lower respiratory tract ⊑ respiratory
+    system`` it does NOT state ``lung ⊑ respiratory system``.  Corroboration must walk
+    the inferred hierarchy, not test it for membership — otherwise only a *direct*
+    anchored parent could ever corroborate anything.
+    """
+    lower_tract = f"{_OBO}UBERON_0001558"
+    inferred = {
+        (_UBERON_LUNG_IRI, lower_tract),
+        (lower_tract, _UBERON_RESP_IRI),
+    }
+    assert (
+        is_structurally_corroborated(
+            _record(),
+            inferred,
+            anchors=(("C12366", "UBERON:0001004"),),
+            ncit_edges={("C12468", "C12366")},
+        )
+        is True
+    )
+
+
+@pytest.mark.unit
 def test_structural_corroboration_follows_ncit_ancestors() -> None:
     """The anchored NCIt class may be a *grand*parent of the subject."""
     inferred = {(_UBERON_LUNG_IRI, _UBERON_RESP_IRI)}
@@ -321,7 +345,7 @@ def test_promotion_report_counts_every_outcome() -> None:
         _record(obj="UBERON:0000955"),  # insufficient evidence
     ]
     promoted, report = promote_candidates(
-        records, _context(), reasoner=_ClosureReasoner()
+        records, _context(), reasoner=_ElkLikeReasoner()
     )
 
     assert [r.predicate_id for r in promoted] == [EXACT_MATCH]
@@ -375,7 +399,7 @@ def test_promotion_moves_the_published_cadsr_coverage_number() -> None:
     assert before.anchors_identity_mapped == 0
 
     promoted, _ = promote_candidates(
-        [_record()], _context(), reasoner=_ClosureReasoner()
+        [_record()], _context(), reasoner=_ElkLikeReasoner()
     )
     strength = {r.subject_id: {(r.predicate_id, r.lifecycle_state)} for r in promoted}
     after = build_coverage_report(
@@ -401,13 +425,18 @@ def test_parse_inferred_subclasses_reads_named_class_edges(tmp_path: Path) -> No
         f"""@prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 <{_UBERON_LUNG_IRI}> a owl:Class ; rdfs:subClassOf <{_UBERON_RESP_IRI}> .
-<{_UBERON_RESP_IRI}> a owl:Class ; rdfs:subClassOf owl:Thing .
+<{_UBERON_RESP_IRI}> a owl:Class ; rdfs:subClassOf owl:Thing ;
+    owl:equivalentClass <{NCIT_NS}C12366> .
 <{_LUNG_IRI}> a owl:Class ; rdfs:subClassOf [ a owl:Restriction ] .
 """
     )
 
+    # owl:Thing and the blank-node restriction carry no signal; an equivalence
+    # (a trusted anchor bridge) subsumes both ways, so it contributes both edges.
     assert parse_inferred_subclasses(inferred) == {
         (_UBERON_LUNG_IRI, _UBERON_RESP_IRI),
+        (_UBERON_RESP_IRI, f"{NCIT_NS}C12366"),
+        (f"{NCIT_NS}C12366", _UBERON_RESP_IRI),
     }
 
 

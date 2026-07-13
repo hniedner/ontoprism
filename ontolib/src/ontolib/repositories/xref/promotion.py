@@ -44,7 +44,7 @@ from subprocess import CalledProcessError
 from typing import TYPE_CHECKING, Any, Protocol
 
 from rdflib import Graph, URIRef
-from rdflib.namespace import RDFS
+from rdflib.namespace import OWL, RDFS
 
 from ontolib.repositories.xref.bridge import build_validation_ontology
 from ontolib.repositories.xref.candidate_ingest import (
@@ -78,6 +78,7 @@ _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _OBO_INOWL_NS = "http://www.geneontology.org/formats/oboInOwl#"
 _OBO_NCI_PREFIX = "NCI:"
+_OWL_THING = URIRef("http://www.w3.org/2002/07/owl#Thing")
 
 
 class Reasoner(Protocol):
@@ -137,15 +138,34 @@ def parse_inferred_subclasses(path: str | Path) -> set[tuple[str, str]]:
     """Read ROBOT's inferred ontology into ``(child_iri, parent_iri)`` pairs.
 
     Only named-class edges are kept: blank-node superclasses (restrictions) and
-    ``owl:Thing`` carry no subsumption signal we act on.
+    ``owl:Thing`` carry no subsumption signal we act on.  An ``owl:equivalentClass``
+    (the trusted anchor bridges) subsumes in both directions, so it contributes both
+    edges — that is what lets the walk cross from the upstream plane to the NCIt one.
+
+    Note these are the **direct** subsumptions: ROBOT transitively reduces the
+    hierarchy, so callers must walk it (:func:`_reachable_ancestors`), not test it for
+    membership.
     """
     graph = Graph().parse(str(path))
-    thing = URIRef("http://www.w3.org/2002/07/owl#Thing")
-    return {
+    edges = {
         (str(child), str(parent))
         for child, parent in graph.subject_objects(RDFS.subClassOf)
-        if isinstance(child, URIRef) and isinstance(parent, URIRef) and parent != thing
+        if _is_named_edge(child, parent)
     }
+    for left, right in graph.subject_objects(OWL.equivalentClass):
+        if _is_named_edge(left, right):
+            edges.add((str(left), str(right)))
+            edges.add((str(right), str(left)))
+    return edges
+
+
+def _is_named_edge(child: object, parent: object) -> bool:
+    """Both ends are named classes, and the parent is not ``owl:Thing``."""
+    return (
+        isinstance(child, URIRef)
+        and isinstance(parent, URIRef)
+        and parent != _OWL_THING
+    )
 
 
 def elk_reasoner(ttl: str) -> set[tuple[str, str]] | None:
@@ -185,6 +205,22 @@ def _ncit_ancestors(code: str, ncit_edges: set[tuple[str, str]]) -> set[str]:
     return ancestors
 
 
+def _reachable_ancestors(start: str, edges: set[tuple[str, str]]) -> set[str]:
+    """Every class reachable upward from *start* over *edges*.
+
+    ``robot reason`` emits the **direct** subsumptions — the hierarchy is transitively
+    reduced, so ``A ⊑ B`` and ``B ⊑ C`` do not yield a stated ``A ⊑ C``.  Corroboration
+    therefore has to walk, not test for membership.
+    """
+    seen: set[str] = set()
+    frontier = {start}
+    while frontier:
+        parents = {p for c, p in edges if c in frontier} - seen - {start}
+        seen |= parents
+        frontier = parents
+    return seen
+
+
 def is_structurally_corroborated(
     record: SSSOMRecord,
     inferred: set[tuple[str, str]],
@@ -210,8 +246,8 @@ def is_structurally_corroborated(
     if not anchored:
         return False
 
-    upstream_iri = object_iri(record.object_id)
-    return all((upstream_iri, object_iri(curie)) in inferred for curie in anchored)
+    upstream_ancestors = _reachable_ancestors(object_iri(record.object_id), inferred)
+    return all(object_iri(curie) in upstream_ancestors for curie in anchored)
 
 
 # ── the decision ───────────────────────────────────────────────────────
