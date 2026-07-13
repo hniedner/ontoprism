@@ -452,11 +452,16 @@ def corroboration(
       zero while logging "the two ontologies disagree" — a confident, false explanation.
 
     **The reachability is mixed ``subClassOf`` / ``part_of`` (#78).** The upstream image
-    is reached when the object is a *subclass or part* of it — the sound EL closure of
-    ``subClassOf``, transitive ``part_of``, and the ``subClassOf ∘ part_of ⊑ part_of``
-    propagation.  On the live store the canonical path is
-    ``lung ⊑* respiration organ`` (subClassOf) then ``respiration organ part_of
-    respiratory system`` — neither leg reaches the system on its own.
+    is reached when the object is a *subclass or part* of it.  This function's walk is a
+    plain transitive closure over the edges it is *given* (``inferred`` plus the
+    ``part_of`` edges passed in), realising the sound ``subClassOf ∘ part_of ⊑ part_of``
+    propagation.  Note the *deployed* reach is narrower than this walk primitive: its
+    caller feeds ``part_of`` edges from :func:`build_upstream_partof_query`, which
+    gathers only a single ``part_of`` hop off the object's ``subClassOf*`` cone, so
+    end-to-end the pipeline reaches ``subClassOf*`` and ``subClassOf* ∘ part_of`` —
+    *not* transitive ``part_of ∘ part_of`` off the cone (see D32).  On the live store
+    the canonical path is ``lung ⊑* respiration organ`` (subClassOf) then ``respiration
+    organ part_of respiratory system`` — a single hop; neither leg reaches it alone.
 
     *Honesty note.* ``part_of`` is supplied here as **stated** graph edges, not as an
     ELK entailment: ``robot reason`` classifies over named ``subClassOf``/
