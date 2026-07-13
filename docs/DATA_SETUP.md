@@ -161,10 +161,26 @@ pdm run data-build xref-promote --golden <curated-sssom.json>   # promote (needs
 pdm run data-build xref-coverage   # the published COV number
 ```
 
-`--golden` is optional but load-bearing on a cold store: the SME-signed `exactMatch`
-pairs it carries are the **trusted anchors** that structural corroboration is measured
-against.  With no anchors and no curation, nothing can be corroborated and the pass
-promotes nothing — which is the correct, conservative behaviour, not a bug.
+`--golden` is optional but load-bearing on a cold store. The SME-signed `exactMatch`
+pairs it carries do **two** jobs: they are the **trusted anchors** that structural
+corroboration is measured against for *other* candidates, and they are admissible
+standalone evidence for *themselves* (D28 accepts human curation alone), so the golden
+pairs promote directly — which is what first moves `COV` off zero.
+
+**When a zero-promotion run is trustworthy, and when it is a broken pipeline.** With no
+anchors and no curation, nothing can be corroborated and the pass promotes nothing —
+that is correct, conservative behaviour. But do **not** read every zero that way:
+
+- `considered: 0` means no candidates were ingested — run `data-build xref` first.
+- A non-zero `reasoner_errors`, or `status: failed`, means the reasoner could not run
+  (the command also exits non-zero). This is **not** "no candidate qualified" — check
+  that `robot` and Java are on PATH.
+- The run **refuses to start** (loudly) if the stated NCIt graph or the upstream store
+  is empty, because every candidate would then fail for a reason that has nothing to do
+  with the candidate.
+- If the log warns that **zero `owl:disjointWith` axioms** loaded, the reasoner has
+  nothing to refute with: promotion is resting entirely on the evidence policy, and the
+  result should not be described as "reasoner-validated".
 
 Notes:
 

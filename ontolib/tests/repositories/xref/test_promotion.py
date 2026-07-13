@@ -40,6 +40,7 @@ from ontolib.repositories.xref.promotion import (
     REASON_REFUTED,
     PromotionContext,
     PromotionEnvironmentError,
+    build_disjoint_query,
     elk_reasoner,
     is_structurally_corroborated,
     load_promotion_context,
@@ -50,6 +51,7 @@ from ontolib.repositories.xref.promotion import (
 from ontolib.repositories.xref.validation import ReasonerUnavailableError
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -111,12 +113,24 @@ class _RefutesTheBridge(_ElkLikeReasoner):
         self, ttl: str
     ) -> set[tuple[str, str]] | None:
         edges = super().__call__(ttl)
-        bridged = any(
-            {a, b} == {_LUNG_IRI, _UBERON_LUNG_IRI}
-            for a, b in edges
-            if (a, b) != (b, a)
-        )
+        bridged = any({a, b} == {_LUNG_IRI, _UBERON_LUNG_IRI} for a, b in edges)
         return None if bridged else edges
+
+
+class _RefutesAgainstMintedAnchor(_ElkLikeReasoner):
+    """Refutes a bridged merge whose subject already carries a *different* anchor.
+
+    Stands in for what real ELK does once `C ≡ U1` is an asserted anchor and the merge
+    then adds `C ≡ U2` with U1/U2 disjoint: the merge is unsatisfiable.
+    """
+
+    def __call__(  # type: ignore[override]
+        self, ttl: str
+    ) -> set[tuple[str, str]] | None:
+        edges = super().__call__(ttl)
+        equivalents = {b for a, b in edges if a == _LUNG_IRI and b.startswith(_OBO)}
+        bridged_conflict = len(equivalents) > 1
+        return None if bridged_conflict else edges
 
 
 def _unavailable(ttl: str) -> set[tuple[str, str]] | None:
@@ -431,6 +445,61 @@ def test_a_disagreeing_anchor_image_is_not_silently_dropped() -> None:
     )
 
 
+@pytest.mark.unit
+def test_an_empty_upstream_plane_refuses_rather_than_reporting_zero() -> None:
+    """The degenerate-context guard must be SYMMETRIC.  An unloaded Uberon store is if
+    anything the likelier misconfiguration (every other build step exercises the NCIt
+    endpoint; only ingest and this pass touch the upstream one), and it produces the
+    same clean `promoted: 0, completed, exit 0` that reads as a conservative verdict."""
+    with pytest.raises(PromotionEnvironmentError, match="upstream"):
+        promote_candidates(
+            [_record()], _context(upstream_edges=set()), reasoner=_ElkLikeReasoner()
+        )
+
+
+@pytest.mark.unit
+def test_the_el_gate_is_not_run_when_the_evidence_already_fails() -> None:
+    """`el_valid is None` means the gate never ran — distinct from False ('refuted').
+
+    Collapsing them would recreate, inside the outcome type, the very conflation this
+    module exists to forbid: a consumer counting `not el_valid` as reasoner rejections
+    would include every candidate the reasoner never looked at.  It also means we do not
+    pay two JVM launches to learn something we cannot act on.
+    """
+    reasoner = _ElkLikeReasoner()
+    outcome = validate_candidate(
+        _record(obj="UBERON:0000955"), _context(), reasoner=reasoner
+    )
+
+    assert outcome.reason == REASON_INSUFFICIENT_EVIDENCE
+    assert outcome.el_valid is None
+    assert reasoner.seen == []  # the reasoner was never invoked at all
+
+
+@pytest.mark.unit
+def test_a_run_never_asserts_two_identities_for_one_subject() -> None:
+    """Ingest legitimately yields several upstream candidates for one NCIt code.
+    Promoting two would assert C ≡ U1 and C ≡ U2 — hence U1 ≡ U2, an equivalence no
+    reasoner saw and nobody curated.  The second must be validated against the first."""
+    first = _record(obj="UBERON:0002048")
+    second = _record(obj="UBERON:0000955")
+    ctx = _context(
+        # both pairs are curated, so both would otherwise promote on SME evidence alone
+        curated_pairs=frozenset(
+            {("C12468", "UBERON:0002048"), ("C12468", "UBERON:0000955")}
+        ),
+        # brain is disjoint from the respiratory system the first bridge places it under
+        disjoints=((_UBERON_RESP_IRI, f"{_OBO}UBERON_0000010"),),
+    )
+
+    promoted, report = promote_candidates(
+        [first, second], ctx, reasoner=_RefutesAgainstMintedAnchor()
+    )
+
+    assert [r.object_id for r in promoted] == ["UBERON:0002048"]
+    assert report.refuted == 1
+
+
 # ── the run: report + the number it moves ──────────────────────────────
 
 
@@ -598,6 +667,7 @@ class _MockClient:
 async def test_load_promotion_context_gathers_both_planes() -> None:
     ncit = _MockClient(
         {
+            "disjointWith": [],  # NCIt ships essentially none — see the assertion below
             "?parent": [{"child": f"{NCIT_NS}C12468", "parent": f"{NCIT_NS}C12366"}],
             "rdfs:label": [{"code": "C12468", "label": "Lung"}],
         }
@@ -610,6 +680,9 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
                 {"child": _UBERON_LUNG_IRI, "parent": _UBERON_RESP_IRI},
                 {"child": "http://example.org/not-obo", "parent": _UBERON_RESP_IRI},
                 {"child": f"{_OBO}no-underscore", "parent": _UBERON_RESP_IRI},
+            ],
+            "disjointWith": [
+                {"left": _UBERON_RESP_IRI, "right": f"{_OBO}UBERON_0000010"}
             ],
             "hasDbXref": [
                 {"upstream": _UBERON_LUNG_IRI, "xref": "NCI:C12468"},
@@ -641,6 +714,22 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
         ("C12366", "UBERON:0001004"),
         ("C12377", "UBERON:0002110"),
     }
+    # The disjointness axioms are the reasoner's ONLY refutation power: if this link of
+    # the chain silently returns nothing, every merge is trivially satisfiable and the
+    # satisfiability gate is decorative again — the exact bug this PR was fixing.
+    assert ctx.disjoints == ((_UBERON_RESP_IRI, f"{_OBO}UBERON_0000010"),)
+
+
+@pytest.mark.unit
+def test_the_ncit_disjoint_query_reads_the_stated_graph() -> None:
+    """NCIt's default graph is the *inferred* build.  Reading the reasoner's refutation
+    power out of a shipped inferred graph is what D21 forbids."""
+    query = build_disjoint_query(base_iri=NCIT_NS, graph_iri=STATED_GRAPH_IRI)
+    assert f"GRAPH <{STATED_GRAPH_IRI}>" in query
+    assert "owl:disjointWith" in query
+
+    # the upstream store has no named-graph split, so it is queried unscoped
+    assert "GRAPH" not in build_disjoint_query(base_iri=_OBO)
 
 
 # ── integration: the real ELK ──────────────────────────────────────────
@@ -662,7 +751,6 @@ def test_real_elk_refutes_a_bridge_that_violates_disjointness() -> None:
         pytest.skip("robot not on PATH")
 
     resp, nervous = _UBERON_RESP_IRI, f"{_OBO}UBERON_0000010"
-    ctx = _context(disjoints=((resp, nervous),))
     bad = _record(obj="UBERON:0000955")  # brain
 
     # Give it enough evidence to reach the EL gate — the reasoner must be what stops it.

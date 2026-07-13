@@ -363,13 +363,24 @@ exactly that conflation hid three real bugs in this module's history (a wrong RO
 rejected every merge, a jsonb write that never ran, and a transitive-closure assumption that silently
 missed valid anchors).
 
-**The oracle** is the stated `owl:equivalentClass`/`subClassOf` structure handed to ELK. It is **neither
-an `rdfs:subClassOf+` walk over NCIt nor NCIt's shipped inferred graph** — neither materializes
-defined-class subsumption (D21). And ELK is an **error detector, not ground truth** (Bodenreider et al.):
-it can refute a candidate (unsatisfiable merge; an anchored ancestor the object demonstrably does not sit
-under), never prove one. That asymmetry is why a promotion *also* requires independent, human- or
-source-attested evidence, and why the curated (SME) pairs bootstrap the anchor set: with no anchors and no
-curation, nothing is corroborated and nothing promotes.
+**The oracle, stated honestly.** ELK here is a **refutation-only** oracle, and precision matters because
+overstating it is how this module's bugs got in:
+
+- *Positively*, the merge carries **no defined-class structure** — the edge queries filter to named classes,
+  so existential restrictions never enter it. Over declarations + named `subClassOf` + named
+  `equivalentClass`, ELK's entailed subsumptions **are** the transitive closure of the stated edges through
+  the anchors; a graph walk computes the same set. So this does **not** yet materialize the defined-class
+  subsumption D21 targets — that needs the restriction fillers in the merge, which is **not built**.
+- *Negatively*, ELK earns its place: it **refutes**. A bridge forcing a class under two disjoint parents
+  makes the merge unsatisfiable — an error detection a walk cannot perform.
+
+What is read is the **stated** structure (NCIt's stated named graph), never NCIt's shipped inferred graph
+(D21). ELK never *proves* an equivalence — hence the independent-evidence gate, and hence the curated (SME)
+pairs bootstrapping the anchor set: with no anchors and no curation, nothing is corroborated and nothing
+promotes. **The disjointness we get is a lower bound**: only binary `owl:disjointWith` is fetched (not
+`owl:AllDisjointClasses`), and NCIt ships almost none — so in practice the refutation power rests on the
+upstream plane. A run loading zero disjointness axioms logs a warning, because in that state calling the
+result "reasoner-validated" would be a false claim.
 
 **Lifecycle (D29).** Promotions are additive — they are written as their own `xref_run`, and the
 originating `closeMatch/proposed` candidate is left untouched, so every bridge is auditable back to the

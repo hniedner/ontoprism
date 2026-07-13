@@ -168,9 +168,12 @@ class XrefStore:
         rows) would be silently upgraded to identity-grade equivalence.  Only a
         ``closeMatch`` is a candidate for identity.
 
-        ``DISTINCT`` because the same mapping re-ingested in a later run is the same
-        candidate, not two: without it each duplicate is re-validated (two JVM launches
-        apiece) and inflates the counts that land in ``xref_run.metrics``.
+        ``DISTINCT`` collapses a byte-identical re-ingest (the same pair, same versions,
+        in a later run) — without it each duplicate is re-validated (two JVM launches
+        apiece) and inflates the counts that land in ``xref_run.metrics``.  Note it does
+        **not** collapse a re-ingest after a version bump: those rows differ in
+        ``*_source_version``, so the pair legitimately returns as a fresh candidate that
+        must be re-validated against the new release (D29).
         """
         sql = text(
             "SELECT DISTINCT subject_id, predicate_id, object_id, "
@@ -208,8 +211,16 @@ class XrefStore:
         """Quarantine validated bridges whose endpoint versions have moved on (D29).
 
         An endpoint release bumps the version fields; a bridge validated against an
-        older release is no longer *known* good, so it is quarantined (not served,
-        not deleted) until validation re-runs over it.
+        older release is no longer *known* good, so it is quarantined until validation
+        re-runs over it.
+
+        Precisely what "quarantined" buys today: the bridge stops counting toward the
+        published coverage number (``mapping_strength_by_subject`` -> ``_is_identity``
+        requires ``validated``/``active``) and stops acting as a trusted anchor
+        (``validated_anchors``).  It is **not** withheld from the read path —
+        ``mappings_by_subjects`` applies no lifecycle filter, so ``/concept/{id}``
+        still surfaces it, tagged with its lifecycle, and the client decides.  Do not
+        read this as "quarantined bridges are not served".
 
         Scoped to *source*: an ``object_source_version`` is only comparable within its
         own upstream. Sweeping unscoped would quarantine every Mondo bridge on a Uberon

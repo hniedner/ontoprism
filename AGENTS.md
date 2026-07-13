@@ -134,14 +134,31 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   flag are reconstructed history. Write the changelog by writing good commit subjects.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
-- **PR review fix cycle (mandatory, no exceptions): after creating a PR, run the
-  `pr-reviewer` subagent to inspect the diff. Fix EVERY verifiable issue it reports —
-  critical, important, AND sensible suggestions (anything you can confirm and act on) —
-  then push and re-run `pr-reviewer`. Repeat this loop until a run detects NO verifiable
-  issues. Only then is the PR ready. Do not skip the re-verification step, do not defer
-  fixable issues, do not merge with known-fixable findings outstanding. NO BUTS. The
-  only findings you may leave are ones that are genuinely not verifiable/actionable in
-  this repo — and you must call those out explicitly with the reason.**
+- **PR review fix cycle (mandatory, no exceptions): after creating a PR, review the diff
+  with the FULL `pr-review-toolkit` agent set — ALL FIVE, every round, no cherry-picking:**
+  1. `pr-review-toolkit:code-reviewer` — correctness, guideline compliance
+  2. `pr-review-toolkit:silent-failure-hunter` — swallowed errors, failures that look like
+     clean results
+  3. `pr-review-toolkit:pr-test-analyzer` — do the tests actually fail when the code is
+     wrong, or do they agree with a fiction?
+  4. `pr-review-toolkit:comment-analyzer` — do the docstrings claim guarantees the code
+     does not provide?
+  5. `pr-review-toolkit:type-design-analyzer` — are the invariants enforced by the types
+     or only by the caller's good manners?
+
+  **Run them in parallel; they find different classes of defect and they do not
+  substitute for one another.** On #73 the five caught, respectively: a vacuous
+  satisfiability gate, an environment failure laundered into a verdict, a test double
+  that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
+  guarantee the merge could not provide, and an invariant enforced only by convention.
+  Running two of the five would have shipped the other three.
+
+  Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
+  (anything you can confirm and act on) — then push and **re-run all five**. Repeat until
+  a round detects NO verifiable issues. Only then is the PR ready. Do not skip the
+  re-verification step, do not defer fixable issues, do not merge with known-fixable
+  findings outstanding. NO BUTS. The only findings you may leave are ones genuinely not
+  verifiable/actionable in this repo — call those out explicitly, with the reason.**
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go
   under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in

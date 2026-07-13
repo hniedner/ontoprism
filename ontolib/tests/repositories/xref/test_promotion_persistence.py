@@ -239,3 +239,107 @@ async def test_a_narrow_match_is_never_offered_up_for_promotion(
     candidates = await xref_store.proposed_candidates()
     pairs = {(c.subject_id, c.object_id) for c in candidates}
     assert ("C19184", "UBERON:0001155") not in pairs
+
+
+@pytest.mark.integration
+async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    """THE regression test for the self-quarantine bug.
+
+    A promoted record inherits the candidate's *ingest-time* versions.  The D29 sweep
+    compares exactly those columns against the versions the run validated against, so if
+    the two differ by a character — an operator passing `--uberon-version`, or NCIt
+    reloaded between ingest and promote — the run would promote N bridges and quarantine
+    those same N bridges moments later, while reporting `promoted: N` and exiting 0.
+    Coverage would stay at zero forever and nothing would say why.
+
+    `persist_promotions` therefore re-stamps each row with the versions the run actually
+    validated against, which is what the row asserts.
+    """
+    xref_store, run_ids = store
+    run_id = f"test-selfq-{uuid.uuid4().hex}"
+    run_ids.append(run_id)
+
+    # the candidate was ingested against an OLDER upstream release …
+    stale_candidate = SSSOMRecord(
+        subject_id="C12971",
+        predicate_id=EXACT_MATCH,
+        object_id="UBERON:0000310",
+        mapping_justification="semapv:ManualMappingCuration",
+        confidence=1.0,
+        subject_source_version=_NCIT_VERSION,
+        object_source_version="uberon-2025-06",
+        lifecycle_state="validated",
+    )
+    report = PromotionReport(
+        considered=1, promoted=1, insufficient_evidence=0, refuted=0
+    )
+
+    # … and the run validates against the CURRENT one
+    await persist_promotions(
+        xref_store,
+        [stale_candidate],
+        report,
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        run_id=run_id,
+    )
+    quarantined = await xref_store.quarantine_stale(
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        source="promotion",
+    )
+
+    # the bridge this run just validated must survive its own staleness sweep
+    assert ("C12971", "UBERON:0000310") in await xref_store.validated_anchors()
+    assert quarantined == 0
+
+
+@pytest.mark.integration
+async def test_a_failed_run_is_persisted_as_failed_not_completed(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    """A run whose reasoner never ran must not be recorded as a completed run that
+    conservatively promoted nothing — that is the lie this module exists to abolish."""
+    xref_store, run_ids = store
+    run_id = f"test-failed-{uuid.uuid4().hex}"
+    run_ids.append(run_id)
+
+    report = PromotionReport(
+        considered=2,
+        promoted=0,
+        insufficient_evidence=0,
+        refuted=0,
+        reasoner_errors=2,
+    )
+    assert report.failed is True
+
+    await persist_promotions(
+        xref_store,
+        [],
+        report,
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        run_id=run_id,
+    )
+
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    try:
+        async with sf() as s:
+            row = (
+                (
+                    await s.execute(
+                        text("SELECT status, metrics FROM xref_run WHERE id = :rid"),
+                        {"rid": run_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+    finally:
+        await dispose_engine(engine)
+
+    assert row["status"] == "failed"
+    assert row["metrics"]["reasoner_errors"] == 2

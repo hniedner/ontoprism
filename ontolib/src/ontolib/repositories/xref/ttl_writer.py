@@ -17,6 +17,11 @@ _PREFIX_BASE = {
     "CL": "http://purl.obolibrary.org/obo/CL_",
 }
 
+# The upstream sources we can round-trip CURIE <-> IRI. Anything outside this set must
+# never reach a validation merge: `object_iri` raises KeyError for it, and that would
+# abort a whole promotion run.
+SUPPORTED_PREFIXES = tuple(sorted(_PREFIX_BASE))
+
 
 def object_iri(curie: str) -> str:
     """Expand an upstream CURIE to its full IRI (``UBERON:0002048`` -> ``http://…``).

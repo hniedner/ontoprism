@@ -25,16 +25,31 @@ Per candidate:
    lifecycle: ``exactMatch`` + ``lifecycle_state='validated'``.  Un-promoted candidates
    are left exactly as they were, as ``closeMatch/proposed``.
 
-**The oracle.** ELK is an *error detector*, not ground truth for equivalence (D28;
-Bodenreider et al.): it can refute a candidate (a merge that forces a class under two
-disjoint parents), never prove one — which is why a promotion additionally requires
-independent, human- or source-attested evidence.  The oracle is the stated
-``owl:equivalentClass``/``subClassOf``/``owl:disjointWith`` structure fed to the
-reasoner; it is **neither** an ``rdfs:subClassOf+`` walk over NCIt **nor** NCIt's
-shipped inferred graph, neither of which materializes defined-class subsumption (D21).
-The reasoner's refutation power comes entirely from the **disjointness** axioms carried
-into the merge: without them a merge of subsumptions and equivalences is trivially
-satisfiable and the gate is decorative.
+**The oracle, stated honestly.** ELK here is a **refutation-only** oracle, and it is
+worth being precise about what that does and does not buy, because overstating it is how
+this module's bugs got in.
+
+* *Positively*, the merge contains no defined-class structure — the edge queries filter
+  to named classes (``isIRI``), so existential restrictions never enter it.  Over an
+  ontology of declarations + named ``subClassOf`` + named ``equivalentClass``, ELK's
+  entailed subsumptions **are** the transitive closure of the stated edges through the
+  anchors.  A graph walk would compute the same set.  So this does **not** yet
+  materialize the defined-class subsumption D21 is about; that would require carrying
+  the restriction fillers into the merge, which is not built.
+* *Negatively*, ELK earns its place: it **refutes**.  A bridge that forces a class under
+  two disjoint parents makes the merge unsatisfiable, and that is a genuine error
+  detection a walk cannot perform.  This power comes **entirely** from the
+  ``owl:disjointWith`` axioms carried into the merge — without them a merge of
+  subsumptions and equivalences is trivially satisfiable (interpret every class as the
+  whole domain) and the gate is decorative.
+
+What is read is the **stated** structure (NCIt's stated named graph), never NCIt's
+shipped inferred graph (D21).  And the reasoner never *proves* an equivalence — hence
+the independent-evidence gate.  Note the disjointness we actually get is a lower bound:
+only binary ``owl:disjointWith`` is fetched (not ``owl:AllDisjointClasses``), NCIt ships
+almost none, so in practice the refutation power rests on the upstream plane's axioms.
+A run that loads zero of them logs a warning, because in that state "reasoner-validated"
+would be a false claim.
 
 **Three-valued reasoning, deliberately.** A merge is *accepted*, *refuted*, or **the
 reasoner never ran**.  The third state raises
@@ -49,7 +64,7 @@ from __future__ import annotations
 import logging
 import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -63,7 +78,7 @@ from ontolib.repositories.xref.candidate_ingest import (
     build_upstream_labels_query,
 )
 from ontolib.repositories.xref.evidence import Evidence, gather_evidence, is_independent
-from ontolib.repositories.xref.ttl_writer import object_iri
+from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES, object_iri
 from ontolib.repositories.xref.validation import (
     ReasonerUnavailableError,
     promote_candidate,
@@ -90,6 +105,8 @@ _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _OWL_NS = "http://www.w3.org/2002/07/owl#"
 _OBO_NCI_PREFIX = "NCI:"
 _OWL_THING = URIRef(f"{_OWL_NS}Thing")
+# Upstream prefixes we can expand back to an IRI; anything else must not enter a merge.
+_OBO_PREFIXES = SUPPORTED_PREFIXES
 
 _QUERY_BATCH_SIZE = 500
 
@@ -133,12 +150,21 @@ class PromotionContext:
 
 @dataclass(frozen=True)
 class PromotionOutcome:
-    """What happened to one candidate, and why."""
+    """What happened to one candidate, and why.
+
+    ``el_valid`` is **tri-state**: ``True`` (ELK classified the bridged merge),
+    ``False`` (ELK *refuted* it), or ``None`` (**the gate never ran** — the evidence
+    was already insufficient, so we short-circuit rather than pay a JVM to tell us
+    something we cannot act on).  A plain ``bool`` would recreate, inside the outcome
+    type, the very conflation this module spends its docstring forbidding: a consumer
+    counting ``not el_valid`` as "reasoner rejections" would silently include every
+    candidate the reasoner never looked at.
+    """
 
     record: SSSOMRecord
     promoted: SSSOMRecord | None
     evidence: tuple[Evidence, ...]
-    el_valid: bool
+    el_valid: bool | None
     reason: str
 
 
@@ -149,6 +175,23 @@ class PromotionReport:
     insufficient_evidence: int
     refuted: int
     reasoner_errors: int = 0
+
+    def __post_init__(self) -> None:
+        # This is the number that lands in xref_run.metrics and moves the published
+        # coverage figure (§13.3). A miscount here is exactly the class of bug that
+        # matters, so make any future accounting drift fail loudly at the moment it
+        # happens rather than quietly publish.
+        counted = (
+            self.promoted
+            + self.insufficient_evidence
+            + self.refuted
+            + self.reasoner_errors
+        )
+        if counted != self.considered:
+            raise ValueError(
+                f"promotion accounting does not balance: considered={self.considered} "
+                f"but promoted+insufficient+refuted+errors={counted}"
+            )
 
     @property
     def failed(self) -> bool:
@@ -316,17 +359,58 @@ def _merge_for(
     )
 
 
+def _evidence_for(
+    record: SSSOMRecord, ctx: PromotionContext, *, structurally_corroborated: bool
+) -> tuple[Evidence, ...]:
+    return tuple(
+        gather_evidence(
+            record,
+            subject_labels=ctx.subject_labels.get(record.subject_id, set()),
+            object_labels=ctx.object_labels.get(record.object_id, set()),
+            object_xref_codes=ctx.object_xrefs.get(record.object_id, set()),
+            curated_pairs=ctx.curated_pairs,
+            structurally_corroborated=structurally_corroborated,
+        )
+    )
+
+
+def _insufficient(
+    record: SSSOMRecord, evidence: tuple[Evidence, ...]
+) -> PromotionOutcome:
+    return PromotionOutcome(
+        record=record,
+        promoted=None,
+        evidence=evidence,
+        el_valid=None,  # the EL gate never ran — not the same as "refuted"
+        reason=REASON_INSUFFICIENT_EVIDENCE,
+    )
+
+
 def validate_candidate(
     record: SSSOMRecord,
     ctx: PromotionContext,
     *,
     reasoner: Reasoner,
+    extra_anchors: Sequence[tuple[str, str]] = (),
 ) -> PromotionOutcome:
     """Decide whether *record* earns an identity-grade bridge.  See module docstring."""
     candidate = (record.subject_id, record.object_id)
     # A curated pair is a trusted anchor for *other* candidates; for itself it is the
     # circularity we forbid, so drop it before assembling this candidate's merges.
-    anchors = tuple(a for a in ctx.anchors if a != candidate)
+    anchors = tuple(a for a in (*ctx.anchors, *extra_anchors) if a != candidate)
+
+    # Short-circuit before paying for a JVM. Corroboration is worth at most ONE
+    # evidence kind, so a candidate that cannot clear the independence bar even when
+    # granted it cannot be saved by the reasoner — and that is the majority of the
+    # corpus (a lexical candidate with no back-xref and no curation can only ever reach
+    # one kind, since its generating signal is dropped). Two ROBOT invocations apiece
+    # across a full candidate set is the difference between a run that finishes and one
+    # that does not.
+    best_case = _evidence_for(record, ctx, structurally_corroborated=True)
+    if not is_independent(best_case):
+        return _insufficient(
+            record, _evidence_for(record, ctx, structurally_corroborated=False)
+        )
 
     inferred = reasoner(_merge_for(record, ctx, anchors, include_bridge=False))
     if inferred is None:
@@ -343,25 +427,9 @@ def validate_candidate(
     corroborated = is_structurally_corroborated(
         record, inferred, anchors=anchors, ncit_edges=ctx.ncit_edges
     )
-    evidence = tuple(
-        gather_evidence(
-            record,
-            subject_labels=ctx.subject_labels.get(record.subject_id, set()),
-            object_labels=ctx.object_labels.get(record.object_id, set()),
-            object_xref_codes=ctx.object_xrefs.get(record.object_id, set()),
-            curated_pairs=ctx.curated_pairs,
-            structurally_corroborated=corroborated,
-        )
-    )
-
+    evidence = _evidence_for(record, ctx, structurally_corroborated=corroborated)
     if not is_independent(evidence):
-        return PromotionOutcome(
-            record=record,
-            promoted=None,
-            evidence=evidence,
-            el_valid=False,
-            reason=REASON_INSUFFICIENT_EVIDENCE,
-        )
+        return _insufficient(record, evidence)
 
     bridged = reasoner(_merge_for(record, ctx, anchors, include_bridge=True))
     el_valid = bridged is not None
@@ -376,6 +444,41 @@ def validate_candidate(
     )
 
 
+def _refuse_degenerate_context(
+    records: Sequence[SSSOMRecord], ctx: PromotionContext
+) -> None:
+    """Refuse a run whose inputs make every candidate fail for a non-candidate reason.
+
+    The guard is symmetric across both planes on purpose.  An unloaded *upstream* store
+    is if anything the likelier misconfiguration — `ncit_sparql_url` is exercised by
+    every other build step, `uberon_sparql_url` only by ingest and this pass — and it
+    produces the same clean ``promoted: 0, status: completed, exit 0`` that would read
+    as a conservative verdict.  That is the lie this module exists to abolish.
+    """
+    if not records:
+        return
+    missing = [
+        name
+        for name, loaded in (
+            (
+                f"stated NCIt subClassOf edges (graph <{STATED_GRAPH_IRI}>)",
+                ctx.ncit_edges,
+            ),
+            ("upstream subClassOf edges", ctx.upstream_edges),
+            ("upstream labels", ctx.object_labels),
+        )
+        if not loaded
+    ]
+    if missing:
+        raise PromotionEnvironmentError(
+            f"nothing loaded for {len(records)} candidates: {', '.join(missing)}. The "
+            "endpoints are not loaded or not configured (run `data-build owl` / check "
+            "`uberon_sparql_url`). Every candidate would fail corroboration for a "
+            "reason unrelated to the candidate; refusing to run rather than reporting "
+            "a zero that looks conservative."
+        )
+
+
 def promote_candidates(
     records: Sequence[SSSOMRecord],
     ctx: PromotionContext,
@@ -387,20 +490,23 @@ def promote_candidates(
     A reasoner that cannot run is counted in ``reasoner_errors`` and does **not**
     silently become "this candidate did not qualify"; the run is then reported failed.
     """
-    if records and not ctx.ncit_edges:
-        raise PromotionEnvironmentError(
-            f"0 stated NCIt subClassOf edges loaded for {len(records)} candidates — "
-            f"the stated graph <{STATED_GRAPH_IRI}> is probably not loaded (run "
-            "`data-build owl`). Every candidate would fail corroboration for a reason "
-            "that has nothing to do with the candidate; refusing to run."
-        )
+    _refuse_degenerate_context(records, ctx)
 
     promoted: list[SSSOMRecord] = []
     insufficient = refuted = errors = 0
+    # Promotions made *in this run* become trusted anchors for the candidates after them
+    # — and, critically, guard identity itself: ingest legitimately produces several
+    # upstream candidates for one NCIt code, and promoting two of them would assert
+    # C ≡ U1 and C ≡ U2, hence U1 ≡ U2 — an equivalence no reasoner saw and nobody
+    # curated. The second candidate is now validated *against* the first (which is in
+    # its anchor set), so it is refuted rather than silently co-asserted.
+    minted: list[tuple[str, str]] = []
 
     for record in records:
         try:
-            outcome = validate_candidate(record, ctx, reasoner=reasoner)
+            outcome = validate_candidate(
+                record, ctx, reasoner=reasoner, extra_anchors=minted
+            )
         except ReasonerUnavailableError as exc:
             errors += 1
             logger.error(
@@ -413,6 +519,7 @@ def promote_candidates(
 
         if outcome.promoted is not None:
             promoted.append(outcome.promoted)
+            minted.append((record.subject_id, record.object_id))
         elif outcome.reason == REASON_INSUFFICIENT_EVIDENCE:
             insufficient += 1
         else:
@@ -448,8 +555,19 @@ SELECT DISTINCT ?child ?parent WHERE {{
 
 
 def build_upstream_edges_query(curies: Sequence[str]) -> str:
-    """Stated upstream named-class ``subClassOf`` edges on the ancestor paths."""
+    """Stated upstream named-class ``subClassOf`` edges on the ancestor paths.
+
+    The parent filter is restricted to the prefixes we can actually expand back to an
+    IRI (``ttl_writer._PREFIX_BASE``).  A real Uberon walk climbs into ``BFO_``/``GO_``/
+    ``PATO_`` upper-ontology classes; admitting them here would hand
+    ``build_validation_ontology`` a CURIE it cannot expand, and the resulting
+    ``KeyError`` would abort the whole run — discarding every promotion computed so far
+    — on the first real dataset.
+    """
     iris = " ".join(f"<{object_iri(c)}>" for c in sorted(curies))
+    supported = " || ".join(
+        f'STRSTARTS(STR(?parent), "{_OBO_BASE}{prefix}_")' for prefix in _OBO_PREFIXES
+    )
     return f"""\
 PREFIX rdfs: <{_RDFS_NS}>
 SELECT DISTINCT ?child ?parent WHERE {{
@@ -457,24 +575,35 @@ SELECT DISTINCT ?child ?parent WHERE {{
     ?seed rdfs:subClassOf* ?child .
     ?child rdfs:subClassOf ?parent .
     FILTER(isIRI(?parent))
-    FILTER(STRSTARTS(STR(?parent), "{_OBO_BASE}"))
+    FILTER({supported})
 }}
 """
 
 
-def build_disjoint_query(*, base_iri: str) -> str:
-    """Stated ``owl:disjointWith`` pairs among named classes under *base_iri*.
+def build_disjoint_query(*, base_iri: str, graph_iri: str | None = None) -> str:
+    """``owl:disjointWith`` pairs among named classes under *base_iri*.
 
     These are the axioms that let the reasoner refute a bridge at all; without them the
     satisfiability gate is decorative (see :mod:`bridge`).
+
+    *graph_iri* scopes the NCIt plane to the **stated** graph — the default graph holds
+    the *inferred* build (``owl_load``), and reading the reasoner's refutation power out
+    of a shipped inferred graph is exactly what D21 forbids.
+
+    Note this matches only binary ``owl:disjointWith``.  ``owl:AllDisjointClasses`` (an
+    n-ary form OBO ontologies also use) is **not** picked up, so the refutation power we
+    actually get is a lower bound on what the sources assert.
     """
-    return f"""\
-PREFIX owl: <{_OWL_NS}>
-SELECT DISTINCT ?left ?right WHERE {{
+    where = f"""\
     ?left owl:disjointWith ?right .
     FILTER(isIRI(?left) && isIRI(?right))
     FILTER(STRSTARTS(STR(?left), "{base_iri}"))
-    FILTER(STRSTARTS(STR(?right), "{base_iri}"))
+    FILTER(STRSTARTS(STR(?right), "{base_iri}"))"""
+    body = f"GRAPH <{graph_iri}> {{\n{where}\n    }}" if graph_iri else where
+    return f"""\
+PREFIX owl: <{_OWL_NS}>
+SELECT DISTINCT ?left ?right WHERE {{
+    {body}
 }}
 """
 
@@ -567,8 +696,12 @@ async def _disjoints(
     ncit_client: OxigraphHttpClient, uberon_client: OxigraphHttpClient
 ) -> tuple[tuple[str, str], ...]:
     pairs: set[tuple[str, str]] = set()
-    for client, base in ((ncit_client, NCIT_NS), (uberon_client, _OBO_BASE)):
-        for row in await client.select(build_disjoint_query(base_iri=base)):
+    for client, base, graph in (
+        (ncit_client, NCIT_NS, STATED_GRAPH_IRI),
+        (uberon_client, _OBO_BASE, None),
+    ):
+        query = build_disjoint_query(base_iri=base, graph_iri=graph)
+        for row in await client.select(query):
             left, right = row.get("left"), row.get("right")
             if left and right:
                 pairs.add((str(left), str(right)))
@@ -647,7 +780,21 @@ async def persist_promotions(
         ncit_version=ncit_version,
         source_version=source_version,
     )
-    await store.upsert_records(rid, list(promoted))
+    # Re-stamp with the versions this run actually validated against.  The candidate
+    # carried its *ingest-time* versions, and promote_candidate copies them through; if
+    # they differ from the run's by so much as a character, quarantine_stale (which
+    # compares exactly these columns) would demote every row this run just promoted, and
+    # the run would still report success.  The row asserts "validated against these
+    # endpoint versions" — so it must say which ones.
+    stamped = [
+        replace(
+            r,
+            subject_source_version=ncit_version,
+            object_source_version=source_version,
+        )
+        for r in promoted
+    ]
+    await store.upsert_records(rid, stamped)
     await store.update_run_metrics(
         rid, report.as_dict(), status="failed" if report.failed else "completed"
     )
@@ -690,11 +837,24 @@ async def run_promotion(
         source_version=source_version,
         source=source,
     )
-    quarantined = await store.quarantine_stale(
-        ncit_version=ncit_version,
-        source_version=source_version,
-        source=source,
-    )
+
+    # The staleness sweep is destructive (it demotes validated bridges) and a run whose
+    # reasoner never ran has established nothing — it must not also demote the bridges a
+    # working run had validated.
+    quarantined = 0
+    if report.failed:
+        logger.error(
+            "skipping the D29 staleness sweep: the reasoner failed for %d candidate(s)"
+            ", so this run established nothing and must not demote anything",
+            report.reasoner_errors,
+        )
+    else:
+        quarantined = await store.quarantine_stale(
+            ncit_version=ncit_version,
+            source_version=source_version,
+            source=source,
+        )
+
     return {
         **report.as_dict(),
         "run_id": run_id,

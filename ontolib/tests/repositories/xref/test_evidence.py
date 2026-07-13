@@ -67,6 +67,29 @@ def test_skos_mapping_iri_is_never_admissible_as_evidence_detail() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "curie",
+    ["skos:exactMatch", "skos:closeMatch", "skos:broadMatch", "skos:relatedMatch"],
+)
+def test_skos_mapping_curie_is_also_rejected(curie: str) -> None:
+    """The guard must reject the CURIE spelling, not just the full IRI.
+
+    Every ``source`` this module mints is CURIE-form (``rdfs:label``,
+    ``oboInOwl:hasDbXref``), so a guard that only knew the full IRI would reject a form
+    nobody writes while admitting the one they would — protection in name only.
+    """
+    with pytest.raises(ValueError, match="SKOS"):
+        Evidence(kind=LABEL_AGREEMENT, source=curie)
+
+
+@pytest.mark.unit
+def test_the_rejection_names_the_offending_field() -> None:
+    """A SKOS value in `detail` must be named in the error, not shadowed by `source`."""
+    with pytest.raises(ValueError, match="skos:exactMatch"):
+        Evidence(kind=LABEL_AGREEMENT, source="rdfs:label", detail="skos:exactMatch")
+
+
+@pytest.mark.unit
 def test_unknown_evidence_kind_is_rejected() -> None:
     with pytest.raises(ValueError, match="kind"):
         Evidence(kind="vibes", source="ncit:rdfs:label")

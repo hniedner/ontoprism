@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ontolib.repositories.xref.vocab import ALLOWED_PREDICATES
+from ontolib.repositories.xref.vocab import ALLOWED_PREDICATES, SKOS_NS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -55,6 +55,23 @@ _GENERATING_SIGNAL: dict[str, str] = {
 _MIN_INDEPENDENT_SIGNALS = 2
 
 
+def _is_skos_mapping(value: str) -> bool:
+    """Is *value* a SKOS mapping property, in **either** spelling?
+
+    Checking only the full IRIs (``ALLOWED_PREDICATES``) would be near-vacuous: every
+    ``source`` this module actually mints is CURIE-form (``rdfs:label``,
+    ``oboInOwl:hasDbXref``), so a caller writing ``skos:exactMatch`` — the natural
+    spelling, and precisely the thing D28 forbids as evidence — would sail through a
+    guard that only knows ``http://www.w3.org/2004/02/skos/core#exactMatch``.  A guard
+    that rejects only a form nobody writes is worse than no guard: it reads as
+    protection.
+    """
+    if value in ALLOWED_PREDICATES:
+        return True
+    local = value.split(":", 1)[-1] if value.startswith("skos:") else ""
+    return bool(local) and f"{SKOS_NS}{local}" in ALLOWED_PREDICATES
+
+
 @dataclass(frozen=True)
 class Evidence:
     """One independent corroborating signal, with its provenance."""
@@ -68,11 +85,12 @@ class Evidence:
             raise ValueError(f"unknown evidence kind: {self.kind}")
         if not self.source:
             raise ValueError("evidence source must be non-empty")
-        if self.source in ALLOWED_PREDICATES or self.detail in ALLOWED_PREDICATES:
-            raise ValueError(
-                "a SKOS mapping annotation may never serve as evidence for the "
-                f"bridge it annotates (D28): {self.source or self.detail}"
-            )
+        for field in (self.source, self.detail):
+            if _is_skos_mapping(field):
+                raise ValueError(
+                    "a SKOS mapping annotation may never serve as evidence for the "
+                    f"bridge it annotates (D28): {field}"
+                )
 
 
 def gather_evidence(
