@@ -19,6 +19,20 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.11.1 (2026-07-13)
+
+### Bug Fixes
+
+- **decomposition**: Wire has_parent_morphology to detector in _decompose_one
+  ([#116](https://github.com/hniedner/ontoprism/pull/116),
+  [`1f6fcc6`](https://github.com/hniedner/ontoprism/commit/1f6fcc60b6ff24b8d4842e90d96976249ab1f1c1))
+
+### Documentation
+
+- Update README code line-count table
+  ([`ae9bdaa`](https://github.com/hniedner/ontoprism/commit/ae9bdaa35788df6180161f5abf1e679dab4b4c2f))
+
+
 ## v0.11.0 (2026-07-13)
 
 ### Documentation
