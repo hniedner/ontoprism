@@ -135,7 +135,7 @@ All harness functions invoke `robot` via `subprocess`.  The EL profile gate and 
 classification use:
 
 ```bash
-robot profile --input <ontology.owl> --profile EL
+robot validate-profile --profile EL --input <ontology.owl>
 robot reason --reasoner ELK --input <ontology.owl> --output <inferred.owl>
 ```
 
@@ -147,6 +147,24 @@ robot reason --reasoner ELK -Xmx32g --input <ontology.owl> --output <inferred.ow
 
 The harness defaults to the standard `robot` executable on PATH; no Python dependency is
 added for Java or ROBOT.
+
+### Running the promotion pass (#73)
+
+Candidate ingest writes `closeMatch/proposed` records; **only the promotion pass turns
+them into the identity-grade `exactMatch/validated` bridges the caDSR coverage number
+(`COV`, §13.3) counts.**  It classifies a small merged fragment per candidate, so it
+needs `robot` on PATH:
+
+```bash
+pdm run data-build xref            # ingest candidates (closeMatch/proposed)
+pdm run data-build xref-promote --golden <curated-sssom.json>   # promote (needs robot)
+pdm run data-build xref-coverage   # the published COV number
+```
+
+`--golden` is optional but load-bearing on a cold store: the SME-signed `exactMatch`
+pairs it carries are the **trusted anchors** that structural corroboration is measured
+against.  With no anchors and no curation, nothing can be corroborated and the pass
+promotes nothing — which is the correct, conservative behaviour, not a bug.
 
 Notes:
 

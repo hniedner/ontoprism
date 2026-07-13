@@ -31,7 +31,10 @@ from ontolib.repositories.embeddings.generate import (
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import generate_coverage_report
+from ontolib.repositories.xref.mapping_score import load_golden_mappings
+from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
+from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.owl_load import build_ncit_store
 from ontolib.terminologies.ncit.search_index import (
@@ -148,6 +151,42 @@ async def _build_xref_coverage() -> None:
     typer.echo(str(report.as_dict()))
 
 
+def _curated_pairs(golden: Path | None) -> frozenset[tuple[str, str]]:
+    """Load the SME-signed ``exactMatch`` pairs from a curated SSSOM set."""
+    if golden is None:
+        return frozenset()
+    return frozenset(
+        (m["subject_id"], m["object_id"])
+        for m in load_golden_mappings(golden)
+        if m["predicate_id"] == EXACT_MATCH
+    )
+
+
+async def _build_xref_promote(golden: Path | None) -> None:
+    """Validation-driven promotion (#73): closeMatch/proposed -> exactMatch/validated.
+
+    Shells out to ROBOT/ELK per candidate (EL profile + satisfiability gate before any
+    classification), so `robot` must be on PATH — see docs/DATA_SETUP.md.
+    """
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    sf = make_sessionmaker(engine)
+    try:
+        async with (
+            OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
+            OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
+        ):
+            report = await run_promotion(
+                XrefStore(sf),
+                ncit_client,
+                uberon_client,
+                curated_pairs=_curated_pairs(golden),
+            )
+    finally:
+        await dispose_engine(engine)
+    typer.echo(f"xref promotion: {report}")
+
+
 @app.command()
 def owl() -> None:
     """Download + load the inferred (default) and stated (named graph) NCIt OWL."""
@@ -176,6 +215,18 @@ def xref() -> None:
 def xref_coverage() -> None:
     """Print the CDE-level caDSR coverage report (COV)."""
     asyncio.run(_build_xref_coverage())
+
+
+@app.command(name="xref-promote")
+def xref_promote(
+    golden: Path | None = typer.Option(  # noqa: B008 — typer option factory
+        None,
+        help="Curated (SME-signed) SSSOM mapping set; its exactMatch pairs seed the "
+        "trusted-anchor set that structural corroboration is measured against.",
+    ),
+) -> None:
+    """Promote validated candidates to exactMatch (needs `robot` on PATH)."""
+    asyncio.run(_build_xref_promote(golden))
 
 
 @app.command(name="all")

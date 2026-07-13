@@ -18,12 +18,20 @@ _PREFIX_BASE = {
 }
 
 
-def _object_iri(curie: str) -> str:
+def object_iri(curie: str) -> str:
+    """Expand an upstream CURIE to its full IRI (``UBERON:0002048`` -> ``http://…``).
+
+    Raises ``ValueError`` for a non-CURIE and ``KeyError`` for a prefix we have no
+    base IRI for — an unknown source must fail loudly, never be silently dropped.
+    """
     if ":" not in curie:
         raise ValueError(f"object_id is not a CURIE (missing ':'): {curie!r}")
     prefix, _, local = curie.partition(":")
-    base = _PREFIX_BASE[prefix]
-    return f"<{base}{local}>"
+    return f"{_PREFIX_BASE[prefix]}{local}"
+
+
+def _object_iri(curie: str) -> str:
+    return f"<{object_iri(curie)}>"
 
 
 def render_ttl(records: Iterable[SSSOMRecord]) -> str:

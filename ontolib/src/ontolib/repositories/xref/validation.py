@@ -14,9 +14,13 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ontolib.repositories.xref.evidence import is_independent
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from ontolib.repositories.xref.evidence import Evidence
     from ontolib.repositories.xref.models import SSSOMRecord
 
 logger = logging.getLogger(__name__)
@@ -32,11 +36,23 @@ def _robot_cmd() -> str:
 def to_el_profile_and_check(ontology_path: str) -> bool:
     """Check whether *ontology_path* is in the OWL 2 EL profile via ROBOT.
 
+    The command is ``validate-profile`` (ROBOT reports a profile violation as an
+    error, i.e. a non-zero exit).  It is *not* ``profile`` — that is not a ROBOT
+    command, and shelling out to it fails for every input, which would silently
+    reject every merge and promote nothing.
+
     Returns ``True`` if the ontology passes the profile gate, ``False``
     otherwise (also logs a warning).
     """
     result = subprocess.run(  # noqa: S603 — trusted input
-        [_robot_cmd(), "profile", "--input", ontology_path, "--profile", "EL"],
+        [
+            _robot_cmd(),
+            "validate-profile",
+            "--profile",
+            "EL",
+            "--input",
+            ontology_path,
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -87,18 +103,21 @@ def validate_and_classify(ontology_path: str) -> Path | None:
 
 def promote_candidate(
     record: SSSOMRecord,
-    evidence: list[str],
-    el_valid: bool = False,
+    evidence: Sequence[Evidence],
+    *,
+    el_valid: bool,
 ) -> SSSOMRecord | None:
-    """Return a promoted copy of *record* iff evidence is independent and EL-valid.
+    """Return a promoted copy of *record* iff the evidence is independent and EL-valid.
 
-    A SKOS annotation may **never** serve as its own equivalence evidence — if
-    the record's own ``predicate_id`` appears in *evidence* the candidate is
-    rejected.  The *el_valid* flag reflects whether a prior EL profile gate +
-    ELK classification confirmed the pair as equivalent.
+    Both gates are hard (D28).  *evidence* must satisfy
+    :func:`ontolib.repositories.xref.evidence.is_independent` — a SKOS annotation can
+    never be evidence for the bridge it annotates, which :class:`Evidence` enforces at
+    construction.  *el_valid* reflects whether the merged fragment carrying the curated
+    ``owl:equivalentClass`` bridge passed the EL profile + satisfiability gate and
+    classified.  Anything else stays a proposed ``closeMatch``.
     """
-    if record.predicate_id in evidence:
-        return None
     if not el_valid:
+        return None
+    if not is_independent(evidence):
         return None
     return replace(record, predicate_id=EXACT_MATCH, lifecycle_state="validated")

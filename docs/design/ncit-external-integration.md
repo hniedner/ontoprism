@@ -33,17 +33,19 @@ built code, not only a forward plan. Verified against the tree:
 | Uberon/CL candidate ingest (`closeMatch`) | **Done** | `repositories/xref/candidate_ingest.py` (`generate_candidates`, `ingest_candidates`) |
 | Non-circular ELK/ROBOT validation (D28) | **Done (primitives)** | `repositories/xref/validation.py` (`validate_and_classify`, `promote_candidate`); `docs/DATA_SETUP.md` ROBOT+ELK+Java 21 |
 | Tests (RED→GREEN) | **Done** | `ontolib/tests/repositories/xref/` (8 files) |
-| **Golden mapping set + `exactMatch` precision scorer** (part of #76) | **Seeded (scorer GAP)** | 12-pair NCIt-Uberon anatomy fixture in `golden/mappings.json`; scorer TBD in #76 |
-| **caDSR *CDE-level* coverage report (§13.3 `COV`)** (generator: #76; published: #83) | **GAP** | only *filler-level* `candidate_coverage_report` exists |
-| **xref orchestration CLI + `data-build` stage + Uberon-client wiring** | **GAP** | `ingest_candidates` exists but no `scripts`/`data_build` entrypoint; `uberon_sparql_url` unused |
-| **Validation end-to-end** (build merged EL ontology per candidate → classify → gather evidence → persist promotion + lifecycle) | **GAP** | `promote_candidate` is a pure fn taking `el_valid`; nothing drives it over real candidates |
-| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **GAP** | no `xref` router in `backend/` |
-| **Phase B**: bind `upstream_xref` to `op:` fillers / cross-product (#77); Mondo genus (#79); Uberon `part_of` spike (#78) | **Not started** | — |
-| **Phase C**: SNOMED/ICD-O-3 (#80), morphology-from-parent (#81), value/qualifier mapping (#75) | **Not started** | — |
+| Golden mapping set + `exactMatch` precision scorer (#76) | **Done** | `golden/mappings.json` (12 verified pairs) + `repositories/xref/mapping_score.py` (`score_mappings`, `load_golden_mappings`) |
+| caDSR *CDE-level* coverage report (§13.3 `COV`) generator (#76) | **Done** | `repositories/xref/coverage.py` (`cde_anchor_map`, `build_coverage_report`, `generate_coverage_report`) |
+| xref orchestration CLI + `data-build` stage + Uberon-client wiring (#76) | **Done** | `scripts/data_build.py` `xref` / `xref-coverage` commands (wires `uberon_sparql_url`) |
+| Read-side: `upstream` on decomposed `op:` constituents (#77) | **Done** | `decomposition/read_models.py` (`UpstreamMapping`), `read.py` (`attach_upstream`), `XrefStore.mappings_by_subjects` — PR #115 |
+| Validation end-to-end — independent-evidence policy, merged-EL bridge, ELK gate, promotion + D29 lifecycle (#73) | **Done** | `repositories/xref/evidence.py` (`gather_evidence`, `is_independent`), `bridge.py` (`build_validation_ontology`, `bridge_axiom`), `promotion.py` (`validate_candidate`, `promote_candidates`, `run_promotion`), `store.py` (`proposed_candidates`, `validated_anchors`, `quarantine_stale`); `data-build xref-promote` |
+| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Not started** | no `xref` router in `backend/` |
+| **Published** caDSR coverage number (#83) | **Not started** | generator exists (#76); publishing/serving it is #83 |
+| **Phase B design-heavy**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); Uberon `part_of` spike (#78) | **Not started** | reserved — needs design/SME |
+| **Phase C**: SNOMED/ICD-O-3 (#80), morphology-from-parent (#81), value/qualifier mapping (#75) | **Not started** | reserved — needs design/licensing |
 
-The **GAP/Not-started rows are the real "next issues"** (epic **#70**; roadmap §5). The immediate next
-is **#76** (golden mapping set + CDE-level coverage-report generator), then Phase B (#77). Per-issue
-TDD implementation plans live in the ephemeral `plan-issue-NN-*.md` working notes.
+**Phase A–B lower-tier work is complete** (#71–#74, #76, #77 merged & closed; roadmap §5). The
+remaining GAP/Not-started rows are the **reserved, design-heavy** items — see the reserved-work
+handover for the model/effort triage. (Per-issue working notes live in ephemeral `plan-issue-NN-*.md`.)
 
 **Codebase corrections to this doc's earlier assumptions** (the design predates the code): the xref
 module lives under `repositories/xref/` (not `terminologies/xref/`); there is **no ORM** — Postgres is
@@ -316,6 +318,45 @@ correctness item. The gate has four hard requirements (D28):
 
 This gate stands between every `skos:closeMatch`/candidate and any `owl:equivalentClass` bridge, and
 between the bridge and `--emit-equivalence` cross-product emission.
+
+#### 4.4.1 As built (#73) — what promotes a candidate, and what the oracle is
+
+Implemented in `repositories/xref/{evidence,bridge,promotion}.py`; run by `data-build xref-promote`.
+A candidate `closeMatch/proposed` becomes an `exactMatch/validated` bridge only when **both** gates pass.
+
+**Gate 1 — independent evidence.** Non-circularity has two teeth, and both are structural rather than
+conventions a caller can forget:
+1. A `skos:*Match` IRI is inadmissible as evidence at all — `Evidence` refuses to hold one, so the
+   annotation can never be the argument for the axiom it annotates.
+2. The signal that *generated* the candidate cannot be recycled as the evidence that promotes it. An
+   xref-derived candidate is not corroborated by that same Uberon `hasDbXref`; a lexically-derived
+   candidate is not corroborated by that same label match (keyed on `mapping_justification`).
+
+The admissible signals are `label_agreement`, `xref_assertion` (the upstream project's own editorial
+`NCI:` xref), `structural_corroboration`, and `sme_curation`. Promotion requires SME curation, or **two
+distinct** signals — the same signal twice is one signal.
+
+**Gate 2 — the merged-EL classification.** Two small MIREOT-style fragments are assembled per candidate
+(never the 10M-triple graph): the stated named-class taxonomy around both endpoints plus the already-
+validated anchor bridges as curated `owl:equivalentClass` axioms. The merge **without** the candidate
+bridge is what `structural_corroboration` is computed over — the upstream object must be inferred to sit
+under the upstream image of every anchored NCIt ancestor of the subject, which can only follow from the
+upstream's own taxonomy plus a *separately validated* anchor. (With the bridge present this would be a
+tautology — precisely the circularity D28 forbids.) The merge **with** the bridge is then EL-profiled and
+classified; a non-EL or unsatisfiable merge is **rejected, not force-classified**.
+
+**The oracle** is the stated `owl:equivalentClass`/`subClassOf` structure handed to ELK. It is **neither
+an `rdfs:subClassOf+` walk over NCIt nor NCIt's shipped inferred graph** — neither materializes
+defined-class subsumption (D21). And ELK is an **error detector, not ground truth** (Bodenreider et al.):
+it can refute a candidate (unsatisfiable merge; an anchored ancestor the object demonstrably does not sit
+under), never prove one. That asymmetry is why a promotion *also* requires independent, human- or
+source-attested evidence, and why the curated (SME) pairs bootstrap the anchor set: with no anchors and no
+curation, nothing is corroborated and nothing promotes.
+
+**Lifecycle (D29).** Promotions are additive — they are written as their own `xref_run`, and the
+originating `closeMatch/proposed` candidate is left untouched, so every bridge is auditable back to the
+candidate it came from. An endpoint version bump quarantines bridges validated against the older release
+(`XrefStore.quarantine_stale`) rather than continuing to serve them.
 
 ---
 

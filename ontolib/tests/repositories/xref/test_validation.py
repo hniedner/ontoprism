@@ -12,6 +12,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from ontolib.repositories.xref.evidence import (
+    LABEL_AGREEMENT,
+    STRUCTURAL_CORROBORATION,
+    Evidence,
+)
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.validation import (
     classify,
@@ -37,6 +42,14 @@ def close_match_record() -> SSSOMRecord:
     )
 
 
+def _independent_evidence() -> list[Evidence]:
+    """Two distinct signals, neither of them the mapping itself."""
+    return [
+        Evidence(kind=LABEL_AGREEMENT, source="rdfs:label"),
+        Evidence(kind=STRUCTURAL_CORROBORATION, source="elk:anchored-ancestor"),
+    ]
+
+
 # ── test 1: reject SKOS as own evidence (MOST IMPORTANT) ───────────────
 
 
@@ -44,13 +57,16 @@ def close_match_record() -> SSSOMRecord:
 def test_promotion_rejects_skos_as_own_evidence(
     close_match_record: SSSOMRecord,
 ) -> None:
-    """Own SKOS annotation as evidence → not promoted (returns None)."""
-    result = promote_candidate(
-        close_match_record,
-        evidence=[CLOSE_MATCH],
-        el_valid=True,
-    )
-    assert result is None
+    """A SKOS annotation cannot even be *expressed* as evidence (D28).
+
+    The invariant is structural, not a runtime check the caller can forget: the
+    only thing ``promote_candidate`` accepts is ``Evidence``, and ``Evidence``
+    refuses to hold a skos:*Match IRI — the record's own predicate or any other.
+    """
+    with pytest.raises(ValueError, match="SKOS"):
+        Evidence(kind=LABEL_AGREEMENT, source=close_match_record.predicate_id)
+    with pytest.raises(ValueError, match="SKOS"):
+        Evidence(kind=LABEL_AGREEMENT, source=EXACT_MATCH)
 
 
 # ── test 2: non-equivalent pair stays closeMatch ───────────────────────
@@ -63,8 +79,21 @@ def test_known_non_equivalent_pair_demoted(
     """Pair that does not classify as equivalent stays closeMatch."""
     result = promote_candidate(
         close_match_record,
-        evidence=["http://example.com/independent-evidence"],
+        _independent_evidence(),
         el_valid=False,
+    )
+    assert result is None
+
+
+@pytest.mark.unit
+def test_promotion_rejects_a_single_signal(
+    close_match_record: SSSOMRecord,
+) -> None:
+    """EL-valid but only one corroborating signal → stays a proposed closeMatch."""
+    result = promote_candidate(
+        close_match_record,
+        [Evidence(kind=LABEL_AGREEMENT, source="rdfs:label")],
+        el_valid=True,
     )
     assert result is None
 
@@ -81,6 +110,26 @@ def test_to_el_profile_check_passes_on_zero_exit(
     mock_run.return_value = MagicMock(returncode=0)
     assert to_el_profile_and_check("/fake/path.owl") is True
     mock_run.assert_called_once()
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.validation.subprocess.run")
+def test_el_profile_gate_invokes_robots_validate_profile_command(
+    mock_run: MagicMock,
+) -> None:
+    """The EL gate must shell out to ``robot validate-profile``.
+
+    ``robot profile`` is not a ROBOT command: it exits non-zero for *every* input,
+    so the gate would reject every merge and nothing could ever be promoted — a
+    failure that looks exactly like 'no candidate qualified'.
+    """
+    mock_run.return_value = MagicMock(returncode=0)
+    to_el_profile_and_check("/fake/path.owl")
+
+    argv = mock_run.call_args[0][0]
+    assert argv[1] == "validate-profile"
+    assert argv[argv.index("--profile") + 1] == "EL"
+    assert argv[argv.index("--input") + 1] == "/fake/path.owl"
 
 
 @pytest.mark.unit
@@ -218,10 +267,10 @@ def test_non_el_input_rejected_before_classify(
 def test_promoted_record_has_exact_match(
     close_match_record: SSSOMRecord,
 ) -> None:
-    """Valid evidence + valid classification → exactMatch + validated."""
+    """Independent evidence + valid classification → exactMatch + validated."""
     result = promote_candidate(
         close_match_record,
-        evidence=["http://example.com/independent-evidence"],
+        _independent_evidence(),
         el_valid=True,
     )
     assert result is not None
