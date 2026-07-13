@@ -5,6 +5,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.config import get_settings
 from backend.dependencies import get_ncit_client, get_ncit_store, get_xref_store
 from backend.main import create_app
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
@@ -32,6 +33,9 @@ class _FakeXrefStore:
             ],
             "C12345": [
                 ("ICD-O-3:1234", EXACT_MATCH, "validated", 0.9),
+            ],
+            "C50000": [
+                ("UBERON:0002107", EXACT_MATCH, "quarantined", 0.5),
             ],
         }
         self.reverse: dict[str, list[tuple[str, str, str, float]]] = {
@@ -158,3 +162,36 @@ def test_translate_filters_licensed_sources() -> None:
     # All mappings for C12345 are ICD-O-3 — gate removes them, fallback to unmatched
     assert len(body["result"]) == 1
     assert body["result"][0]["equivalence"] == "unmatched"
+
+
+@pytest.mark.api
+def test_translate_filters_quarantined_lifecycle() -> None:
+    """$translate must filter quarantined mappings (only quarantined → unmatched)."""
+    client = next(_client())
+    resp = client.post(
+        "/api/v1/mappings/$translate",
+        json={"code": "C50000"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["result"]) == 1
+    assert body["result"][0]["equivalence"] == "unmatched"
+
+
+@pytest.mark.api
+def test_translate_serves_licensed_sources_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """$translate serves ICD-O-3 when enable_licensed_mappings is True."""
+    monkeypatch.setattr(
+        "backend.api.v1.mappings.get_settings",
+        lambda: type(get_settings())(enable_licensed_mappings=True),
+    )
+    client = next(_client())
+    resp = client.post(
+        "/api/v1/mappings/$translate",
+        json={"code": "C12345"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert any(e["concept"]["code"] == "ICD-O-3:1234" for e in body["result"])

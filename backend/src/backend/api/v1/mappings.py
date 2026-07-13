@@ -100,7 +100,7 @@ async def translate(
     """FHIR-style ConceptMap ``$translate`` for NCIt↔upstream.
 
     Serves ``validated``/``active`` mappings, filtering
-    ``proposed``/``quarantined`` lifecycles.  Licensed sources
+    ``proposed``, ``quarantined``, and other non-active lifecycles.  Licensed sources
     (SNOMED, ICD-O-3) are filtered out when
     ``enable_licensed_mappings`` is False (D26).  Returns ``unmatched``
     when no valid mapping exists.
