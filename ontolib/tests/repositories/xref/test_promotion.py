@@ -882,27 +882,53 @@ def test_the_ncit_disjoint_query_reads_the_stated_graph() -> None:
 
 @pytest.mark.integration
 def test_real_elk_refutes_a_bridge_that_violates_disjointness() -> None:
-    """The satisfiability gate, proven against the real reasoner.
+    """The satisfiability gate, proven against the real reasoner — and it must be the
+    REASONER that stops this bridge, not an earlier gate.
 
-    Bridging NCIt Lung to Uberon *brain* forces brain under `respiratory system` (via
-    the trusted anchor on Lung's parent) while Uberon also puts it under `nervous
-    system` — and the two are disjoint.  ELK must derive ⊥ and refute the merge.
+    The candidate (NCIt Lung -> Uberon brain) is curated, so it clears the evidence bar
+    on SME curation alone, and its subject has **no anchored ancestor**, so structural
+    corroboration has no opinion and cannot veto it.  The only thing left that can
+    refute it is ELK:
 
-    This is the test that could not exist before disjointness axioms were carried into
-    the merge: a TBox of only subsumptions and equivalences is trivially satisfiable, so
-    the gate could never fire and `el_valid` was unconditionally True.
+        NCIt:   Lung ⊑ Respiratory-System-Organ
+                Respiratory-System-Organ  disjointWith  Nervous-System
+        anchor: Nervous-System ≡ UBERON:nervous system  (a SEPARATE validated bridge)
+        Uberon: brain ⊑ UBERON:nervous system
+        bridge: Lung ≡ brain
+             ⟹  Lung ⊑ Nervous-System ⊓ Respiratory-System-Organ  ⟹  ⊥
+
+    This exercises both round-4 fixes at once: the anchor is on the *object's* cone, not
+    an ancestor of the subject, so a one-sided anchor filter would drop it and the merge
+    could never be refuted — and the anchor's ancestor edges must actually have been
+    fetched, or its upstream image is a parentless floating class ELK cannot walk from.
     """
     if shutil.which("robot") is None:
         pytest.skip("robot not on PATH")
 
-    resp, nervous = _UBERON_RESP_IRI, f"{_OBO}UBERON_0000010"
+    ncit_nervous = "C12755"
+    uberon_nervous = f"{_OBO}UBERON_0000010"
     bad = _record(obj="UBERON:0000955")  # brain
 
-    # Give it enough evidence to reach the EL gate — the reasoner must be what stops it.
     ctx = _context(
-        disjoints=((resp, nervous),),
+        ncit_edges={("C12468", "C12366")},
+        upstream_edges={("UBERON:0000955", "UBERON:0000010")},
+        anchors=((ncit_nervous, "UBERON:0000010"),),
+        disjoints=((f"{NCIT_NS}C12366", f"{NCIT_NS}{ncit_nervous}"),),
         curated_pairs=frozenset({(bad.subject_id, bad.object_id)}),
     )
+
+    # the subject has no anchored ancestor, so corroboration cannot veto it …
+    assert (
+        corroboration(
+            bad,
+            {(f"{_OBO}UBERON_0000955", uberon_nervous)},
+            anchors=ctx.anchors,
+            ncit_edges=ctx.ncit_edges,
+        )
+        == NO_ANCHORED_ANCESTOR
+    )
+
+    # … so the refutation below is ELK's, and nothing else's.
     outcome = validate_candidate(bad, ctx, reasoner=elk_reasoner)
 
     assert outcome.el_valid is False
