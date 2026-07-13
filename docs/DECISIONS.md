@@ -16,12 +16,22 @@ data `structural_corroboration` fired for almost no anatomy pair, and `promoted 
 This is #78 (originally a D16/D20 region-vs-organ tie-break spike), reclassified onto the `COV`
 critical path.
 
-**Decision:** `promotion.corroboration` now reaches the anchored upstream image via the mixed
-`subClassOf` ∪ `part_of` closure (the sound OWL 2 EL rules: `part_of` transitive,
-`subClassOf ∘ part_of ⊑ part_of`). `part_of` edges are fetched by `build_upstream_partof_query`
-(BFO:0000050 existential restrictions on the object's `subClassOf*` ancestor cone, both ends
-filtered to expandable prefixes) into `PromotionContext.upstream_partof_edges`, and handed **as
-stated graph edges straight to the walk — not through ELK.**
+**Decision:** `promotion.corroboration` now reaches the anchored upstream image via a mixed
+`subClassOf` ∪ `part_of` graph walk. `part_of` edges are fetched by `build_upstream_partof_query`
+(BFO:0000050 existential restrictions on the object's — and each anchor's — `subClassOf*` ancestor
+cone, both ends filtered to expandable prefixes) into `PromotionContext.upstream_partof_edges`, and
+handed **as stated graph edges straight to the walk — not through ELK.**
+
+**Exact reach, stated honestly.** The walk itself is a plain transitive closure over the edges it is
+handed, but the *query* gathers part_of restrictions only **one hop off the `subClassOf*` cone** — it
+does not re-seed from a part_of parent. So the **deployed** reach is `subClassOf*` and
+`subClassOf* ∘ part_of` (a *single* part_of hop, the sound `subClassOf ∘ part_of ⊑ part_of`
+composition), **not** transitive `part_of ∘ part_of` off the cone. That single hop is exactly what the
+canonical organ→system case needs (`lung ⊑* respiration organ` then `respiration organ part_of
+respiratory system`, the system being the anchor). Deeper `part_of` chains whose intermediate is
+neither an object nor an anchor are not gathered — deliberately conservative: the failure mode is
+*under*-reach (a missed corroboration), never a false one. Widening the query to full transitive
+`part_of` is deferred until a real case needs it.
 
 **Why not through the reasoner.** `robot reason` classifies over named `subClassOf`/`equivalentClass`
 and does **not** echo existential-restriction subsumptions (`∃part_of.X`) back as named edges, so

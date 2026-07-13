@@ -571,9 +571,16 @@ def test_without_the_part_of_edge_the_same_pair_is_not_entailed() -> None:
 
 @pytest.mark.unit
 def test_part_of_is_transitive_across_a_multi_hop_chain() -> None:
-    """part_of is transitive, and the walk must follow it hop by hop: the object reaches
-    the anchored system through an intermediate (lower respiratory tract) it is only
-    *indirectly* part of."""
+    """The corroboration WALK is transitive over the part_of edges it is given: fed a
+    two-hop chain it must follow both hops.
+
+    This guards the walk primitive, not the end-to-end reach.
+    `build_upstream_partof_query` only gathers part_of edges one hop off the
+    `subClassOf*` cone (see D32), so the *deployed* pipeline rarely supplies a chain
+    like this; the canonical organ->system case is a single hop. The walk staying
+    transitive is still worth pinning so a future single-hop-only regression in the walk
+    fails here.
+    """
     inferred: set[tuple[str, str]] = set()  # no subClassOf needed for this one
     partof = {
         ("UBERON:0002048", "UBERON:0001558"),  # lung part_of lower respiratory tract
