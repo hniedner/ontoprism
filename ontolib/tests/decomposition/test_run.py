@@ -69,10 +69,12 @@ class _FakeClient:
         ancestors: list[dict[str, str | None]] | None = None,
         semantic_type_of_rows: list[dict[str, str | None]] | None = None,
         part_of_rows: list[dict[str, str | None]] | None = None,
+        label_rows: list[dict[str, str | None]] | None = None,
     ) -> None:
         self._version = version
         self._pages = pages if pages is not None else [[]]
         self._semantic_types = semantic_types or {}
+        self._label_rows = label_rows or []
         # Convert old role format to genus-walk rows
         self._genus_walk: dict[str, list[dict[str, str | None]]] = {}
         for code, role_rows in (roles or {}).items():
@@ -101,7 +103,9 @@ class _FakeClient:
                 return token
         return None
 
-    async def select(self, query: str) -> list[dict[str, str | None]]:
+    async def select(  # noqa: PLR0911 — test helper, many query-type branches
+        self, query: str
+    ) -> list[dict[str, str | None]]:
         self.queries.append(query)
         if "ORDER BY ?concept" in query:
             offset = int(query.split("OFFSET")[1].split(maxsplit=1)[0])
@@ -120,6 +124,8 @@ class _FakeClient:
             return self._semantic_type_of_rows
         if "R82>" in query:
             return self._part_of_rows
+        if "rdfs:label" in query and "GRAPH" in query:
+            return self._label_rows
         if "P106" in query and "VALUES" not in query:
             # Single-code semantic type query (build_semantic_type_query)
             code = self._code_in(query)
@@ -196,6 +202,39 @@ async def test_run_pipeline_atomic_concept_is_not_decomposed() -> None:
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 0
     provenance.upsert_constituents.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
+    """A single-role concept with a morphology-bearing parent is detected as
+    precoordinated because morphology-from-parent supplies the second axis."""
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={
+            "C1": ["Neoplastic Process"],
+            "C99": ["Neoplastic Process"],
+        },
+        roles={
+            "C1": [
+                _role("R101", "Has_Primary_Site", "C2"),
+            ]
+        },
+        # genus chain: C1's first intersectionOf member is C99 (distinct from
+        # C1), with a non-staging label → morphology_filler resolves to C99
+        label_rows=[{"label": "Medullary Carcinoma"}],
+    )
+    # Override genus-walk rows so C1's first member is C99 (its genus),
+    # not C1 itself.
+    c1_rows = [
+        {"member": _iri("C99")},
+        _old_role_to_genus_walk_row(_role("R101", "Has_Primary_Site", "C2")),
+    ]
+    client._genus_walk["C1"] = c1_rows
+    provenance = _mock_provenance()
+    config = RunConfig(branch="neoplasm")
+    metrics = await run_pipeline(config, client, provenance)
+    assert metrics.total_in_scope == 1
+    assert metrics.decomposed == 1
 
 
 @pytest.mark.unit
