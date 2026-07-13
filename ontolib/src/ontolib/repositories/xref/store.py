@@ -325,18 +325,46 @@ class XrefStore:
 
     async def mappings_by_subjects(
         self, codes: set[str]
-    ) -> dict[str, list[tuple[str, str, str]]]:
+    ) -> dict[str, list[tuple[str, str, str, float]]]:
         if not codes:
             return {}
         sql = text(
-            "SELECT subject_id, object_id, predicate_id, lifecycle_state "
+            "SELECT subject_id, object_id, predicate_id, lifecycle_state, confidence "
             "FROM concept_xref WHERE subject_id = ANY(:codes)"
         )
         async with self._sf() as s:
             result = await s.execute(sql, {"codes": list(codes)})
-            out: dict[str, list[tuple[str, str, str]]] = {}
+            out: dict[str, list[tuple[str, str, str, float]]] = {}
             for r in result.mappings().all():
                 out.setdefault(r["subject_id"], []).append(
-                    (r["object_id"], r["predicate_id"], r["lifecycle_state"])
+                    (
+                        r["object_id"],
+                        r["predicate_id"],
+                        r["lifecycle_state"],
+                        r["confidence"],
+                    )
+                )
+            return out
+
+    async def mappings_by_objects(
+        self, curies: set[str]
+    ) -> dict[str, list[tuple[str, str, str, float]]]:
+        if not curies:
+            return {}
+        sql = text(
+            "SELECT object_id, subject_id, predicate_id, lifecycle_state, confidence "
+            "FROM concept_xref WHERE object_id = ANY(:curies)"
+        )
+        async with self._sf() as s:
+            result = await s.execute(sql, {"curies": list(curies)})
+            out: dict[str, list[tuple[str, str, str, float]]] = {}
+            for r in result.mappings().all():
+                out.setdefault(r["object_id"], []).append(
+                    (
+                        r["subject_id"],
+                        r["predicate_id"],
+                        r["lifecycle_state"],
+                        r["confidence"],
+                    )
                 )
             return out

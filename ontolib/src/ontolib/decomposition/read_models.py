@@ -13,14 +13,15 @@ class UpstreamMapping(BaseModel):
     """An upstream (Uberon/CL) equivalent of an NCIt code, from the xref layer.
 
     ``predicate`` is the full SKOS mapping IRI (verbatim); ``lifecycle`` is the
-    curation state (``proposed``/``validated``/``active``/``quarantined``/``retired``).
-    A derived ``is_identity`` convenience property flags
-    ``exactMatch + {validated,active}``.
+    curation state (``proposed``/``validated``/``active``/``quarantined``/``retired``);
+    ``confidence`` is the mapping confidence [0,1].  A derived ``is_identity``
+    convenience property flags ``exactMatch + {validated,active}``.
     """
 
     object_id: str
     predicate: str
     lifecycle: str
+    confidence: float = 0.0
 
     @property
     def is_identity(self) -> bool:

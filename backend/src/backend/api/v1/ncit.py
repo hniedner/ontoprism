@@ -1,8 +1,10 @@
-"""NCIt repository read endpoints: concept detail, search, graph neighborhood."""
+"""NCIt repository read endpoints: concept detail, search, graph neighborhood,
+mappings."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, computed_field
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import (
@@ -16,16 +18,47 @@ from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.decomposition.read_queries import build_decomposition_query
+from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     Neighborhood,
     SearchPage,
     SimilarConcept,
 )
+from ontolib.terminologies.oxigraph_http_client import safe_iri
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
+
+
+class MappingEntry(BaseModel):
+    """One upstream mapping for an NCIt concept, serialized for the API.
+
+    ``is_identity`` mirrors ``UpstreamMapping.is_identity``: true when
+    the predicate is ``exactMatch`` and lifecycle is ``validated``/``active``.
+    """
+
+    object_id: str
+    predicate: str
+    lifecycle: str
+    confidence: float
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_identity(self) -> bool:
+        return self.predicate == EXACT_MATCH and self.lifecycle in (
+            "validated",
+            "active",
+        )
+
+
+class ConceptMappings(BaseModel):
+    """All upstream mappings for one NCIt concept code."""
+
+    code: str
+    mappings: list[MappingEntry]
 
 
 async def _attach_xref_upstream(
@@ -37,8 +70,8 @@ async def _attach_xref_upstream(
         upstream_rows = await xref_store.mappings_by_subjects(set(filler_codes))
         upstream_by_filler = {
             code: [
-                UpstreamMapping(object_id=o, predicate=p, lifecycle=lc)
-                for (o, p, lc) in rows
+                UpstreamMapping(object_id=o, predicate=p, lifecycle=lc, confidence=c)
+                for (o, p, lc, c) in rows
             ]
             for code, rows in upstream_rows.items()
         }
@@ -118,6 +151,37 @@ async def neighborhood(
         return await store.get_neighborhood(code, depth=depth)
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+
+
+@router.get("/concepts/{code}/mappings", response_model=ConceptMappings)
+async def concept_mappings(
+    store: NcitStore,
+    xref_store: XrefReads,
+    code: str,
+) -> ConceptMappings:
+    """Return all upstream mappings for an NCIt concept code.
+
+    Searches both by subject (NCIt code as subject) and by object
+    (NCIt code as object of an upstream-to-NCIt mapping), so
+    ``$translate``-style round-trips are covered from this endpoint alone.
+    """
+    try:
+        safe_iri(code, NCIT_NS)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+    upstream = await xref_store.mappings_by_subjects({code})
+    reverse = await xref_store.mappings_by_objects({code})
+    entries: list[MappingEntry] = [
+        MappingEntry(object_id=o, predicate=p, lifecycle=lc, confidence=c)
+        for rows in upstream.values()
+        for (o, p, lc, c) in rows
+    ]
+    entries.extend(
+        MappingEntry(object_id=s, predicate=p, lifecycle=lc, confidence=c)
+        for rows in reverse.values()
+        for (s, p, lc, c) in rows
+    )
+    return ConceptMappings(code=code, mappings=entries)
 
 
 @router.get("/concepts/{code}/decomposition", response_model=ConceptDecomposition)

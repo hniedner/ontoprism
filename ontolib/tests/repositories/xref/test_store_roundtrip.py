@@ -163,10 +163,11 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
         result = await store.mappings_by_subjects({"C3262"})
         assert "C3262" in result
         assert len(result["C3262"]) == 1
-        obj, pred, lifecycle = result["C3262"][0]
+        obj, pred, lifecycle, confidence = result["C3262"][0]
         assert obj == "UBERON:0002107"
         assert pred == EXACT_MATCH
         assert lifecycle == "validated"
+        assert confidence == 1.0
         assert "C12400" not in result
     finally:
         async with sf() as s:
@@ -200,5 +201,69 @@ async def test_upsert_records_empty_is_noop() -> None:
         store = XrefStore(sf)
         count = await store.upsert_records("nonexistent-run", [])
         assert count == 0
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_mappings_by_objects_reverse_lookup() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-mbo-{uuid.uuid4().hex}"
+    try:
+        store = XrefStore(sf)
+        await store.upsert_run(run_id, "test", "26.02d", "test-1")
+        records = [
+            SSSOMRecord(
+                subject_id="C3262",
+                predicate_id=EXACT_MATCH,
+                object_id="UBERON:0002107",
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=1.0,
+                subject_source_version="26.02d",
+                object_source_version="uberon-2026-01",
+                lifecycle_state="validated",
+            ),
+            SSSOMRecord(
+                subject_id="C12400",
+                predicate_id=CLOSE_MATCH,
+                object_id="UBERON:0002046",
+                mapping_justification="semapv:LexicalMatching",
+                confidence=0.7,
+                subject_source_version="26.02d",
+                object_source_version="uberon-2026-01",
+            ),
+        ]
+        await store.upsert_records(run_id, records)
+
+        result = await store.mappings_by_objects({"UBERON:0002107"})
+        assert "UBERON:0002107" in result
+        assert len(result["UBERON:0002107"]) == 1
+        subj, pred, lifecycle, confidence = result["UBERON:0002107"][0]
+        assert subj == "C3262"
+        assert pred == EXACT_MATCH
+        assert lifecycle == "validated"
+        assert confidence == 1.0
+        assert "UBERON:0002046" not in result
+    finally:
+        async with sf() as s:
+            await s.execute(
+                text("DELETE FROM concept_xref WHERE run_id = :rid"), {"rid": run_id}
+            )
+            await s.execute(
+                text("DELETE FROM xref_run WHERE id = :rid"), {"rid": run_id}
+            )
+            await s.commit()
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_mappings_by_objects_empty_returns_empty() -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        sf = make_sessionmaker(engine)
+        store = XrefStore(sf)
+        result = await store.mappings_by_objects(set())
+        assert result == {}
     finally:
         await dispose_engine(engine)

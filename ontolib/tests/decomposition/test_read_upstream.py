@@ -1,4 +1,4 @@
-"""Tests for upstream xref on decomposition constituents (issue #77)."""
+"""Tests for upstream xref on decomposition constituents (issues #77/#82)."""
 
 import pytest
 
@@ -19,6 +19,7 @@ def test_upstream_mapping_defaults() -> None:
     assert m.object_id == "UBERON:0002046"
     assert m.predicate == EXACT_MATCH
     assert m.lifecycle == "active"
+    assert m.confidence == 0.0
     assert m.is_identity is True
 
 
@@ -27,6 +28,30 @@ def test_upstream_mapping_not_identity() -> None:
     m = UpstreamMapping(
         object_id="UBERON:0002046", predicate=CLOSE_MATCH, lifecycle="proposed"
     )
+    assert m.is_identity is False
+
+
+@pytest.mark.unit
+def test_upstream_mapping_carries_confidence() -> None:
+    m = UpstreamMapping(
+        object_id="UBERON:0002046",
+        predicate=EXACT_MATCH,
+        lifecycle="validated",
+        confidence=0.9,
+    )
+    assert m.confidence == 0.9
+    assert m.is_identity is True
+
+
+@pytest.mark.unit
+def test_upstream_mapping_low_confidence_not_identity() -> None:
+    m = UpstreamMapping(
+        object_id="UBERON:0002046",
+        predicate=CLOSE_MATCH,
+        lifecycle="proposed",
+        confidence=0.7,
+    )
+    assert m.confidence == 0.7
     assert m.is_identity is False
 
 
