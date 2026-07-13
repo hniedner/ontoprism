@@ -19,6 +19,27 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.10.0 (2026-07-13)
+
+### Documentation
+
+- Sync AGENTS.md branch policy, design-doc status §0, and golden fixture
+  ([#113](https://github.com/hniedner/ontoprism/pull/113),
+  [`21614fc`](https://github.com/hniedner/ontoprism/commit/21614fcb285b916fd8ef51ac9174c8921c8fad3c))
+
+- Update README code line-count table
+  ([`994b1a2`](https://github.com/hniedner/ontoprism/commit/994b1a25729dd59a9adba49df3fed56a565950ef))
+
+- Update README code line-count table
+  ([`a010686`](https://github.com/hniedner/ontoprism/commit/a0106868f1698f36981171f8876a26eb0d3ea2de))
+
+### Features
+
+- **xref**: Golden mapping set + CDE-level caDSR coverage report
+  ([#114](https://github.com/hniedner/ontoprism/pull/114),
+  [`bccd4c2`](https://github.com/hniedner/ontoprism/commit/bccd4c2df48e30f788a47fd6a5e9ca1aee18ef28))
+
+
 ## v0.9.0 (2026-07-12)
 
 ### Bug Fixes
