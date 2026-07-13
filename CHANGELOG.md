@@ -19,6 +19,39 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.13.0 (2026-07-13)
+
+### Bug Fixes
+
+- Address 5-lens review findings ([#118](https://github.com/hniedner/ontoprism/pull/118),
+  [`dd00951`](https://github.com/hniedner/ontoprism/commit/dd0095145f084c41f519a71fd8f179025f016850))
+
+### Documentation
+
+- Update README code line-count table
+  ([`1616add`](https://github.com/hniedner/ontoprism/commit/1616add3a692373b72c0ba5ca2f7f924212c4b2e))
+
+### Features
+
+- **cadsr**: Mappings + $translate endpoints and external-mappings panel (#82)
+  ([#118](https://github.com/hniedner/ontoprism/pull/118),
+  [`dd00951`](https://github.com/hniedner/ontoprism/commit/dd0095145f084c41f519a71fd8f179025f016850))
+
+- **cadsr**: Mappings + endpoints and external-mappings panel
+  ([#118](https://github.com/hniedner/ontoprism/pull/118),
+  [`dd00951`](https://github.com/hniedner/ontoprism/commit/dd0095145f084c41f519a71fd8f179025f016850))
+
+- **cadsr**: Wire role_codes from decomposed graph, add regression baseline for coverage
+  ([#118](https://github.com/hniedner/ontoprism/pull/118),
+  [`dd00951`](https://github.com/hniedner/ontoprism/commit/dd0095145f084c41f519a71fd8f179025f016850))
+
+### Testing
+
+- Add quarantined lifecycle and licensed-mapping-enabled tests
+  ([#118](https://github.com/hniedner/ontoprism/pull/118),
+  [`dd00951`](https://github.com/hniedner/ontoprism/commit/dd0095145f084c41f519a71fd8f179025f016850))
+
+
 ## v0.12.0 (2026-07-13)
 
 ### Bug Fixes
