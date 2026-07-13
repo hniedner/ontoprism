@@ -9,6 +9,7 @@ from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
 from ontolib.repositories.pubmed.client import PubMedClient
+from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
@@ -60,6 +61,13 @@ def get_ncit_search_index(
     return request.app.state.ncit_search_index
 
 
+def get_xref_store(
+    request: Request,
+) -> XrefStore:  # pragma: no cover — trivial getter
+    """Return the process-wide xref mapping store."""
+    return request.app.state.xref_store
+
+
 NcitStore = Annotated[NcitGraphStore, Depends(get_ncit_store)]
 NcitClient = Annotated[OxigraphHttpClient, Depends(get_ncit_client)]
 CadsrRepo = Annotated[CdeRepository, Depends(get_cadsr_repo)]
@@ -68,3 +76,4 @@ ClinicalTrials = Annotated[ClinicalTrialsClient, Depends(get_clinicaltrials_clie
 PubMed = Annotated[PubMedClient, Depends(get_pubmed_client)]
 NcitSearch = Annotated[NcitSearchIndex, Depends(get_ncit_search_index)]
 ProvenanceReads = Annotated[ProvenanceStore, Depends(get_provenance_store)]
+XrefReads = Annotated[XrefStore, Depends(get_xref_store)]

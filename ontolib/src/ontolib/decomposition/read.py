@@ -11,6 +11,7 @@ from ontolib.decomposition import vocab
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
+    UpstreamMapping,
 )
 
 if TYPE_CHECKING:
@@ -66,3 +67,14 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
         decomposed_on=decomposed_on,
         constituents=sorted(constituents.values(), key=lambda c: (c.axis, c.filler)),
     )
+
+
+def attach_upstream(
+    decomp: ConceptDecomposition,
+    upstream_by_filler: dict[str, list[UpstreamMapping]],
+) -> ConceptDecomposition:
+    new_constituents = [
+        c.model_copy(update={"upstream": upstream_by_filler.get(c.filler, [])})
+        for c in decomp.constituents
+    ]
+    return decomp.model_copy(update={"constituents": new_constituents})
