@@ -355,6 +355,24 @@ Where an upstream ships few disjointness axioms, the gate is correspondingly wea
 when it loads none, because in that state promotion rests entirely on the evidence policy and it would be
 dishonest to call the result "reasoner-validated".
 
+**What structural corroboration can and cannot do (corrected 2026-07-13).** The corroboration
+walk follows `rdfs:subClassOf` only. **Uberon relates an organ to its system with `part_of`, not
+`subClassOf`** — verified against the live store: `lung rdfs:subClassOf* respiratory system` is
+**false**. Two consequences, both load-bearing:
+
+1. **Absence of subsumption is NOT a contradiction.** Under the open-world assumption "not
+   provably under X" means *unknown*, not *false*. An earlier cut treated it as a contradiction
+   and vetoed the promotion — which fired on the **canonical correct pair** (NCIt Lung → Uberon
+   lung under the `Respiratory System Organ ≡ respiratory system` anchor), pinning `COV` at zero
+   while logging "the two ontologies disagree". A genuine contradiction can only come from the
+   reasoner deriving `⊥` (the disjointness refutation), which already exists. The verdict is kept
+   three-valued for observability (`CORROBORATED` / `NO_ANCHORED_ANCESTOR` / `NOT_ENTAILED`) but
+   **never vetoes**.
+2. **`structural_corroboration` therefore rarely fires for Uberon anatomy at all.** Promotion
+   there rests on label agreement + the upstream's own xref + SME curation. Making this signal
+   real requires walking `part_of` — which is **#78**, now on the critical path for `COV` rather
+   than a nice-to-have tie-break spike.
+
 **Three-valued reasoning.** A merge is *accepted*, *refuted*, or **the reasoner never ran** (no Java,
 corrupt jar, OOM, timeout, a renamed ROBOT subcommand). The third state raises and is counted separately
 (`reasoner_errors`); a run with any such error is recorded as **failed** and the CLI exits non-zero. This

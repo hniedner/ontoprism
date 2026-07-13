@@ -74,6 +74,31 @@ pdm run test-smoke           # frontend vitest via npm
   two documented coverage exceptions (NCIt SPARQL parsing layer; sigma/canvas
   components not mountable in jsdom) are in `CLAUDE.local.md` — read it before writing
   tests.
+- **TDD does NOT catch false assumptions about external systems. Three extra test types
+  are mandatory whenever code depends on an external tool, library, or real data.**
+  Learned the hard way on #73 (PR #117): ~12 bugs shipped past a green, strictly-TDD'd
+  suite, and **not one was a logic error in our code** — every one was a false belief
+  about ROBOT's CLI, ELK's output shape, asyncpg, OWL/RDF serialization, or the real
+  Uberon data. The mechanism: *the test and the code are written from the same mental
+  model, so the hand-made double encodes the same false belief as the implementation.
+  They agree with each other, both are wrong, and the suite is green.* Three of the worst
+  bugs were actively **certified** by a test double implementing a rule the real tool does
+  not. So:
+  1. **Contract tests** — assert what the *external tool itself* does, not what our
+     wrapper does (`test_reasoner_contract.py`). A tool upgrade then fails loudly and
+     names the broken assumption, instead of surfacing months later as "no candidate
+     qualified".
+  2. **Double-fidelity tests** — run the *same* input through the double and the real
+     thing; assert they reach the same verdict. A double *stronger* than reality certifies
+     guards that do not exist; a double *weaker* than reality hides gates that cannot fire.
+  3. **Data-shape contract tests** — pin what the *real* store actually looks like
+     (`test_upstream_data_contract.py`). Fixtures encode only what their author believed:
+     Uberon relates organ→system by `part_of`, not `subClassOf`, and assuming otherwise
+     made a veto fire on the canonical *correct* mapping.
+
+  Plus **gate liveness**: for every gate, prove its *reject* branch is reachable on
+  production-shaped input. #73's satisfiability gate was vacuous for a whole round — it
+  could never fire — and every happy-path test still passed.
 - Frontend gotcha: fire-and-forget rejections inside a Svelte `$effect` trip vitest's
   unhandled-rejection guard on mock reset between tests — use `mockClear`, not
   `mockReset` (see `CLAUDE.local.md`).
