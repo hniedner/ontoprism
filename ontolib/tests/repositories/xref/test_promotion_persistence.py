@@ -17,7 +17,11 @@ from sqlalchemy import text
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.repositories.xref.models import SSSOMRecord
-from ontolib.repositories.xref.promotion import PromotionReport, persist_promotions
+from ontolib.repositories.xref.promotion import (
+    PromotionReport,
+    persist_promotions,
+    run_promotion,
+)
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH, NARROW_MATCH
 
@@ -99,6 +103,7 @@ async def test_promotion_persists_as_validated_exact_match(
         report,
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
+        source="promotion",
     )
     run_ids.append(promotion_run)
 
@@ -283,6 +288,7 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
         report,
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
+        source="promotion",
         run_id=run_id,
     )
     quarantined = await xref_store.quarantine_stale(
@@ -321,6 +327,7 @@ async def test_a_failed_run_is_persisted_as_failed_not_completed(
         report,
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
+        source="promotion",
         run_id=run_id,
     )
 
@@ -343,3 +350,97 @@ async def test_a_failed_run_is_persisted_as_failed_not_completed(
 
     assert row["status"] == "failed"
     assert row["metrics"]["reasoner_errors"] == 2
+
+
+class _StubClient:
+    """Canned SPARQL for the run-level test (the stores are not under test here)."""
+
+    def __init__(self, rows: dict[str, list[dict[str, str]]]) -> None:
+        self._rows = rows
+
+    async def select(self, query: str) -> list[dict[str, str | None]]:
+        for key, rows in self._rows.items():
+            if key in query:
+                return [dict(r) for r in rows]  # type: ignore[misc]
+        return []
+
+
+def _echo_reasoner(ttl: str) -> set[tuple[str, str]]:
+    """Accepts every merge, echoing its stated edges (ELK-shaped: no closure)."""
+    from rdflib import Graph  # noqa: PLC0415
+    from rdflib.namespace import OWL, RDFS  # noqa: PLC0415
+
+    g = Graph().parse(data=ttl, format="turtle")
+    edges = {(str(s), str(o)) for s, o in g.subject_objects(RDFS.subClassOf)}
+    for s_, o_ in g.subject_objects(OWL.equivalentClass):
+        edges.add((str(s_), str(o_)))
+        edges.add((str(o_), str(s_)))
+    return edges
+
+
+@pytest.mark.integration
+async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merge(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    """THE seam test. `run_promotion` is where the wiring lives, and it had NO test —
+    which is exactly how a boundary filter that rebound a local (and so filtered
+    nothing) shipped while its own log line announced that it had.
+
+    A `GO:` candidate is real (ingest's lexical pass indexes every labelled class in the
+    upstream store, imports included). If it reaches `build_validation_ontology`,
+    `object_iri` raises KeyError and the WHOLE run dies, discarding every promotion.
+    """
+    xref_store, run_ids = store
+    ingest_run = f"test-seam-{uuid.uuid4().hex}"
+    run_ids.append(ingest_run)
+
+    await xref_store.upsert_run(
+        run_id=ingest_run,
+        source="uberon-cl",
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+    )
+    await xref_store.upsert_records(
+        ingest_run,
+        [
+            _candidate("C12468", "UBERON:0002048"),  # expandable
+            _candidate("C99999", "GO:0110165"),  # NOT expandable — must never be scored
+        ],
+    )
+
+    ncit_ns = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
+    obo = "http://purl.obolibrary.org/obo/"
+    ncit = _StubClient(
+        {
+            "?parent": [{"child": f"{ncit_ns}C12468", "parent": f"{ncit_ns}C12366"}],
+            "rdfs:label": [{"code": "C12468", "label": "Lung"}],
+        }
+    )
+    uberon = _StubClient(
+        {
+            "?parent": [
+                {"child": f"{obo}UBERON_0002048", "parent": f"{obo}UBERON_0001004"}
+            ],
+            "rdfs:label": [{"concept": f"{obo}UBERON_0002048", "label": "lung"}],
+        }
+    )
+
+    report = await run_promotion(
+        xref_store,
+        ncit,  # type: ignore[arg-type]
+        uberon,  # type: ignore[arg-type]
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        source="test-promotion",
+        curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
+        reasoner=_echo_reasoner,
+    )
+    run_ids.append(report["run_id"])
+
+    # it did not crash, the GO row was never scored, and the drop is VISIBLE
+    assert report["skipped_unexpandable"] == 1
+    assert report["considered"] == 1
+    assert report["promoted"] == 1
+    # …and the run says plainly that curation, not the machinery, earned it
+    assert report["promoted_on_curation_alone"] == 1
+    assert report["promoted_with_structural_corroboration"] == 0

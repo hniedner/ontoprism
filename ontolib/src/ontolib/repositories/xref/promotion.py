@@ -80,6 +80,7 @@ from ontolib.repositories.xref.candidate_ingest import (
 )
 from ontolib.repositories.xref.evidence import (
     SME_CURATION,
+    STRUCTURAL_CORROBORATION,
     Evidence,
     gather_evidence,
     is_independent,
@@ -94,7 +95,7 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
     from ontolib.repositories.xref.models import SSSOMRecord
     from ontolib.repositories.xref.store import XrefStore
@@ -117,6 +118,7 @@ _OWL_THING = URIRef(f"{_OWL_NS}Thing")
 _OBO_PREFIXES = SUPPORTED_PREFIXES
 
 _QUERY_BATCH_SIZE = 500
+_XREF_JUSTIFICATION = "semapv:DatabaseCrossReference"
 
 
 class PromotionEnvironmentError(RuntimeError):
@@ -184,12 +186,19 @@ class PromotionReport:
     refuted: int
     reasoner_errors: int = 0
     conflicting_identity: int = 0
+    # Dropped before validation: this build cannot expand their upstream prefix. NOT
+    # part of `considered` (they were never scored), but they must be visible — a big
+    # drop otherwise reads as a small candidate set.
+    skipped_unexpandable: int = 0
     # Of `promoted`: how many rested on curation ALONE (no independent corroborating
     # signal), versus how many the non-circular machinery actually earned.  Without the
     # split, a run that merely imported a curated file reports exactly like a run in
     # which ELK, the anchors and the disjointness axioms did real work — and on the
     # current data that is precisely what happens.
     promoted_on_curation_alone: int = 0
+    # Of `promoted`: how many the reasoner corroborated through a separately validated
+    # anchor. This is the ONLY bucket the validation machinery can claim.
+    promoted_with_structural_corroboration: int = 0
 
     def __post_init__(self) -> None:
         # This is the number that lands in xref_run.metrics and moves the published
@@ -210,9 +219,17 @@ class PromotionReport:
             )
 
     @property
-    def promoted_on_corroboration(self) -> int:
-        """Promotions the validation machinery actually earned."""
-        return self.promoted - self.promoted_on_curation_alone
+    def promoted_on_source_agreement(self) -> int:
+        """Promoted on two independent *source* signals (label + the upstream's xref).
+
+        Real evidence — but the reasoner earned none of it: no anchor was used and no
+        structural corroboration fired; ELK merely failed to refute.
+        """
+        return (
+            self.promoted
+            - self.promoted_on_curation_alone
+            - self.promoted_with_structural_corroboration
+        )
 
     @property
     def failed(self) -> bool:
@@ -231,8 +248,11 @@ class PromotionReport:
             "refuted": self.refuted,
             "reasoner_errors": self.reasoner_errors,
             "conflicting_identity": self.conflicting_identity,
+            "skipped_unexpandable": self.skipped_unexpandable,
             "promoted_on_curation_alone": self.promoted_on_curation_alone,
-            "promoted_on_corroboration": self.promoted_on_corroboration,
+            "promoted_with_structural_corroboration": (
+                self.promoted_with_structural_corroboration
+            ),
         }
 
 
@@ -662,15 +682,20 @@ def _claims_a_taken_endpoint(
 
 
 def _curation_alone(outcome: PromotionOutcome) -> bool:
-    """Did this promotion rest on curation ALONE — no independent corroborating signal?
+    """Was the SME signal **load-bearing** — would this NOT have promoted without it?
 
-    SME curation stands alone under D28, which is correct.  But it means the validation
-    machinery contributed nothing to that promotion, and a report that cannot tell the
-    two apart lets a run that merely imported a curated file look exactly like a run in
-    which the reasoner did real work.
+    Not "was curation the only signal".  An earlier cut asked exactly that
+    (``kinds == {SME_CURATION}``) and undercounted badly: a curated pair whose labels
+    also agree has kinds ``{SME, LABEL}``, but one non-SME kind cannot clear
+    ``is_independent`` on its own — so curation still carried it, while the run booked
+    it as a promotion "the machinery earned".  Curated pairs almost always have agreeing
+    labels, so that was the routine case, not a corner.
     """
     kinds = {e.kind for e in outcome.evidence}
-    return kinds == {SME_CURATION}
+    if SME_CURATION not in kinds:
+        return False
+    without_sme = [e for e in outcome.evidence if e.kind != SME_CURATION]
+    return not is_independent(without_sme)
 
 
 def _one_per_pair(records: Sequence[SSSOMRecord]) -> list[SSSOMRecord]:
@@ -681,7 +706,13 @@ def _one_per_pair(records: Sequence[SSSOMRecord]) -> list[SSSOMRecord]:
     twice costs two JVM launches and double-counts ``promoted``, the number that lands
     in ``xref_run.metrics`` and moves the published coverage figure.
     """
-    return list({(r.subject_id, r.object_id): r for r in records}.values())
+    # Deterministic tie-break: the xref-derived row wins.  Which duplicate survives
+    # decides which evidence kind is suppressed as the generating signal, and Postgres
+    # leaves the tie order unspecified — so it must not be incidental.
+    ranked = sorted(
+        records, key=lambda r: r.mapping_justification != _XREF_JUSTIFICATION
+    )
+    return list({(r.subject_id, r.object_id): r for r in reversed(ranked)}.values())
 
 
 def _initial_claims(
@@ -715,7 +746,7 @@ def _validate_or_report_error(
             exc,
         )
         return None
-    except ValueError as exc:
+    except (ValueError, KeyError) as exc:
         # `gather_evidence` fails closed on an unrecognised mapping_justification —
         # which
         # is right, but it must fail closed for THAT CANDIDATE, not abort the run and
@@ -765,7 +796,9 @@ def promote_candidates(
     qualified = _validate_all(
         records, ctx, reasoner, counts, claimed_subjects, claimed_objects
     )
-    promoted, curation_only = _promote_uncontested(qualified, counts)
+    promoted, curation_only, corroborated = _promote_uncontested(
+        qualified, counts, stale_anchors
+    )
 
     return promoted, PromotionReport(
         considered=len(records),
@@ -775,6 +808,7 @@ def promote_candidates(
         reasoner_errors=counts[REASON_REASONER_ERROR],
         conflicting_identity=counts[REASON_CONFLICTING_IDENTITY],
         promoted_on_curation_alone=curation_only,
+        promoted_with_structural_corroboration=corroborated,
     )
 
 
@@ -805,22 +839,97 @@ def _validate_all(
 
 
 def _promote_uncontested(
-    qualified: Sequence[PromotionOutcome], counts: Counter[str]
-) -> tuple[list[SSSOMRecord], int]:
-    """Pass 2 — an endpoint two qualifying candidates claim promotes NEITHER."""
-    contested_subjects = _contested(o.record.subject_id for o in qualified)
-    contested_objects = _contested(o.record.object_id for o in qualified)
+    qualified: Sequence[PromotionOutcome],
+    counts: Counter[str],
+    stale_anchors: frozenset[tuple[str, str]],
+) -> tuple[list[SSSOMRecord], int, int]:
+    """Pass 2 — an endpoint two qualifying candidates claim promotes NEITHER.
 
+    With two exceptions a naive "contested ⇒ nobody wins" rule gets wrong:
+
+    * **An SME-curated bridge beats a machine rival.** D28 lets curation stand alone, so
+      it must also *settle* a contest.  Refusing both — and logging "needs SME
+      adjudication" about a pair an SME has already adjudicated — is absurd, and it
+      silently loses real coverage.
+    * **A bridge this run is about to quarantine cannot contest its replacement.** The
+      candidate row of a stale bridge survives (promotion is additive) and still
+      qualifies, so without this it would contest the very replacement
+      ``XrefStore.stale_anchors`` exists to let through, and then be quarantined —
+      leaving the concept with *no* bridge at all, which is the exact outcome that
+      method was written to prevent.
+    """
+    live = [o for o in qualified if _pair(o) not in stale_anchors]
+    contested_subjects = _contested(o.record.subject_id for o in live)
+    contested_objects = _contested(o.record.object_id for o in live)
+    settled = _sme_winners(live, contested_subjects, contested_objects)
+
+    return _settle_contests(
+        qualified, counts, settled, contested_subjects, contested_objects
+    )
+
+
+def _settle_contests(
+    qualified: Sequence[PromotionOutcome],
+    counts: Counter[str],
+    settled: set[tuple[str, str]],
+    subjects: set[str],
+    objects: set[str],
+) -> tuple[list[SSSOMRecord], int, int]:
     promoted: list[SSSOMRecord] = []
-    curation_only = 0
+    curation_only = corroborated = 0
     for outcome in qualified:
-        if _is_contested(outcome, contested_subjects, contested_objects):
+        if _loses_the_contest(outcome, settled, subjects, objects):
             counts[REASON_CONFLICTING_IDENTITY] += 1
         elif outcome.promoted is not None:
             counts[REASON_PROMOTED] += 1
             promoted.append(outcome.promoted)
             curation_only += int(_curation_alone(outcome))
-    return promoted, curation_only
+            corroborated += int(_structurally_corroborated(outcome))
+    return promoted, curation_only, corroborated
+
+
+def _loses_the_contest(
+    outcome: PromotionOutcome,
+    settled: set[tuple[str, str]],
+    subjects: set[str],
+    objects: set[str],
+) -> bool:
+    if _pair(outcome) in settled:
+        return False  # an SME already adjudicated this endpoint
+    return _is_contested(outcome, subjects, objects)
+
+
+def _structurally_corroborated(outcome: PromotionOutcome) -> bool:
+    return STRUCTURAL_CORROBORATION in {e.kind for e in outcome.evidence}
+
+
+def _pair(outcome: PromotionOutcome) -> tuple[str, str]:
+    return (outcome.record.subject_id, outcome.record.object_id)
+
+
+def _sme_winners(
+    qualified: Sequence[PromotionOutcome], subjects: set[str], objects: set[str]
+) -> set[tuple[str, str]]:
+    """Contested endpoints where exactly ONE contender is curated — curation settles."""
+    winners: set[tuple[str, str]] = set()
+    for endpoint in subjects:
+        winners |= _sole_curated(qualified, endpoint, lambda o: o.record.subject_id)
+    for endpoint in objects:
+        winners |= _sole_curated(qualified, endpoint, lambda o: o.record.object_id)
+    return winners
+
+
+def _sole_curated(
+    qualified: Sequence[PromotionOutcome],
+    endpoint: str,
+    key: Callable[[PromotionOutcome], str],
+) -> set[tuple[str, str]]:
+    curated = [
+        o
+        for o in qualified
+        if key(o) == endpoint and SME_CURATION in {e.kind for e in o.evidence}
+    ]
+    return {_pair(curated[0])} if len(curated) == 1 else set()
 
 
 def _is_contested(
@@ -1077,7 +1186,6 @@ async def load_promotion_context(
     pairs — the curated set is what bootstraps corroboration when nothing has been
     validated yet.
     """
-    records = _expandable_only(records)
     subjects = [r.subject_id for r in records]
     objects = [r.object_id for r in records]
     anchors = _expandable_anchors(validated_anchors, curated_pairs)
@@ -1128,8 +1236,8 @@ async def persist_promotions(
     *,
     ncit_version: str,
     source_version: str,
+    source: str,
     run_id: str | None = None,
-    source: str = "promotion",
 ) -> str:
     """Write the promoted ``exactMatch/validated`` records as their own xref run.
 
@@ -1166,6 +1274,26 @@ async def persist_promotions(
     return rid
 
 
+async def _load_candidates(store: XrefStore) -> tuple[list[SSSOMRecord], int]:
+    """Proposed candidates this build can actually express, plus how many it dropped.
+
+    Filtered ONCE, here, so the context and the validator see the SAME list. An earlier
+    cut filtered inside `load_promotion_context`, which rebinds a *local* — the caller's
+    list was untouched, so unexpandable candidates still reached the merge builder and
+    KeyError-ed the run to death, while the "skipping N candidates" log line claimed
+    otherwise. A fix that did not fix, announcing that it had.
+    """
+    raw = await store.proposed_candidates()
+    candidates = _expandable_only(raw)
+    if raw and not candidates:
+        raise PromotionEnvironmentError(
+            f"all {len(raw)} candidates carry an upstream prefix this build cannot "
+            f"expand (supported: {', '.join(SUPPORTED_PREFIXES)}). The endpoints are "
+            "loaded and fine — do not go looking at them."
+        )
+    return candidates, len(raw) - len(candidates)
+
+
 async def run_promotion(
     store: XrefStore,
     ncit_client: OxigraphHttpClient,
@@ -1189,7 +1317,13 @@ async def run_promotion(
     surfaced as ``stale_pending`` rather than left in a log line: the published coverage
     number is unreliable until a sound run sweeps.
     """
-    candidates = await store.proposed_candidates()
+    candidates, skipped = await _load_candidates(store)
+    # Filter ONCE, here, and hand the SAME list to the context and the validator. An
+    # earlier cut filtered inside `load_promotion_context`, which rebinds a *local* —
+    # the caller's list was untouched, so unexpandable candidates still reached the
+    # merge builder and KeyError-ed the run to death, while the "skipping N candidates"
+    # log line claimed otherwise. A fix that did not fix, announcing that it had.
+    curated_pairs = frozenset(p for p in curated_pairs if _is_expandable(p[1]))
     anchors = await store.validated_anchors(source=source)
     ctx = await load_promotion_context(
         ncit_client,
@@ -1204,6 +1338,9 @@ async def run_promotion(
     promoted, report = promote_candidates(
         candidates, ctx, reasoner=reasoner, stale_anchors=frozenset(stale)
     )
+    # The drop must be visible: a large silent drop is otherwise indistinguishable from
+    # a small candidate set, and xref_run.metrics is the auditable artifact.
+    report = replace(report, skipped_unexpandable=skipped)
     run_id = await persist_promotions(
         store,
         promoted,
@@ -1216,6 +1353,33 @@ async def run_promotion(
     # The staleness sweep is destructive (it demotes validated bridges) and a run whose
     # reasoner never ran has established nothing — it must not also demote the bridges a
     # working run had validated.
+    quarantined, stale_pending = await _sweep(
+        store, report, ncit_version, source_version, source
+    )
+
+    outcome_dict = {
+        **report.as_dict(),
+        "run_id": run_id,
+        "quarantined": quarantined,
+        "stale_pending": stale_pending,
+        "status": "failed" if report.failed else "completed",
+    }
+    await store.update_run_metrics(
+        run_id,
+        {k: v for k, v in outcome_dict.items() if k != "run_id"},
+        status="failed" if report.failed else "completed",
+    )
+    return outcome_dict
+
+
+async def _sweep(
+    store: XrefStore,
+    report: PromotionReport,
+    ncit_version: str,
+    source_version: str,
+    source: str,
+) -> tuple[int, int]:
+    """Run the D29 staleness sweep — unless the run established nothing."""
     quarantined = stale_pending = 0
     if report.failed:
         stale_pending = await store.count_stale(
@@ -1238,18 +1402,4 @@ async def run_promotion(
             source=source,
         )
 
-    outcome = {
-        **report.as_dict(),
-        "run_id": run_id,
-        "quarantined": quarantined,
-        "stale_pending": stale_pending,
-        "status": "failed" if report.failed else "completed",
-    }
-    # The sweep is the one destructive action here; persist its result so it is
-    # auditable in xref_run.metrics rather than only echoed to a terminal.
-    await store.update_run_metrics(
-        run_id,
-        {k: v for k, v in outcome.items() if k != "run_id"},
-        status="failed" if report.failed else "completed",
-    )
-    return outcome
+    return quarantined, stale_pending

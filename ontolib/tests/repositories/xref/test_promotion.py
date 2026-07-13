@@ -336,8 +336,9 @@ def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
         "refuted": 0,
         "reasoner_errors": 1,
         "conflicting_identity": 0,
+        "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
-        "promoted_on_corroboration": 0,
+        "promoted_with_structural_corroboration": 0,
     }
     assert report.failed is True
 
@@ -524,7 +525,7 @@ def test_a_run_that_only_imported_curated_pairs_says_so() -> None:
 
     assert len(promoted) == 1
     assert report.promoted_on_curation_alone == 1
-    assert report.promoted_on_corroboration == 0, (
+    assert report.promoted_with_structural_corroboration == 0, (
         "the reasoner, the anchors and the disjointness axioms contributed nothing to "
         "this promotion — the report must not imply otherwise"
     )
@@ -583,8 +584,9 @@ def test_promotion_report_counts_every_outcome() -> None:
         "refuted": 0,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
+        "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
-        "promoted_on_corroboration": 1,
+        "promoted_with_structural_corroboration": 1,
     }
     assert report.failed is False
 
@@ -606,8 +608,9 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "refuted": 1,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
+        "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
-        "promoted_on_corroboration": 0,
+        "promoted_with_structural_corroboration": 0,
     }
 
 
