@@ -657,6 +657,62 @@ def test_elk_reasoner_returns_none_when_the_el_gate_rejects(
 
 @pytest.mark.unit
 @patch("ontolib.repositories.xref.promotion.validate_and_classify")
+def test_elk_reasoner_tolerates_robots_redundancy_removal(
+    mock_validate: MagicMock, tmp_path: Path
+) -> None:
+    """`robot reason` REMOVES asserted subclass axioms its inferences make redundant
+    (`--remove-redundant-subclass-axioms` defaults to true).  So a stated edge can be
+    legitimately absent from the output as a direct triple while still being entailed.
+
+    The "did ROBOT actually classify this?" check must therefore test *reachability*,
+    not literal set inclusion — real ELK rejected the stricter version, and a false
+    alarm here would fail an entire sound run.
+    """
+    merged = f"""@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<{_UBERON_LUNG_IRI}> a owl:Class ; rdfs:subClassOf <{_UBERON_RESP_IRI}> .
+<{_UBERON_RESP_IRI}> a owl:Class .
+"""
+    # ROBOT's output routes the stated edge through an intermediate and drops the now
+    # redundant direct triple. The stated subsumption still HOLDS.
+    intermediate = f"{_OBO}UBERON_0001558"
+    inferred = tmp_path / "inferred.ttl"
+    inferred.write_text(
+        f"""@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<{_UBERON_LUNG_IRI}> rdfs:subClassOf <{intermediate}> .
+<{intermediate}> rdfs:subClassOf <{_UBERON_RESP_IRI}> .
+"""
+    )
+    mock_validate.return_value = inferred
+
+    entailed = elk_reasoner(merged)
+    assert entailed is not None
+    assert (_UBERON_LUNG_IRI, intermediate) in entailed
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.promotion.validate_and_classify")
+def test_elk_reasoner_rejects_an_output_that_lost_the_merge(
+    mock_validate: MagicMock, tmp_path: Path
+) -> None:
+    """ROBOT exiting 0 with an output that does not entail what it was given means it
+    did not classify our merge.  Returning that empty set would be `is not None` → the
+    EL gate reads `el_valid=True` → the candidate is PROMOTED on a classification that
+    never happened.  A false positive, not a conservative failure."""
+    merged = f"""@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<{_UBERON_LUNG_IRI}> a owl:Class ; rdfs:subClassOf <{_UBERON_RESP_IRI}> .
+"""
+    empty = tmp_path / "inferred.ttl"
+    empty.write_text("@prefix owl: <http://www.w3.org/2002/07/owl#> .\n")
+    mock_validate.return_value = empty
+
+    with pytest.raises(ReasonerUnavailableError, match="not entailed"):
+        elk_reasoner(merged)
+
+
+@pytest.mark.unit
+@patch("ontolib.repositories.xref.promotion.validate_and_classify")
 def test_elk_reasoner_propagates_an_unusable_reasoner(
     mock_validate: MagicMock,
 ) -> None:

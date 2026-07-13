@@ -274,19 +274,28 @@ def elk_reasoner(ttl: str) -> set[tuple[str, str]] | None:
         finally:
             inferred.unlink(missing_ok=True)
 
-    # `robot reason` emits the input axioms *plus* the inferred ones, so every stated
-    # subsumption we handed it must come back.  If they do not, ROBOT exited 0 without
-    # classifying our merge (an --output that went nowhere, a changed default, an
-    # ontology it failed to load quietly).  That must not be read as a verdict: an empty
-    # entailment set is `is not None`, so it would sail through the EL gate as
-    # `el_valid=True` and *promote* the candidate on a classification that never
-    # happened — a false positive, not a conservative failure.
+    # Sanity-check that ROBOT actually classified *our* merge.  An empty entailment set
+    # is `is not None`, so it would sail through the EL gate as `el_valid=True` and
+    # *promote* the candidate on a classification that never happened — a false
+    # positive, not a conservative failure.
+    #
+    # The check is on **reachability**, not set inclusion: `robot reason` removes
+    # asserted subclass axioms that its own inferences make redundant
+    # (`--remove-redundant-subclass-axioms` defaults to true), so a stated edge may
+    # legitimately be absent as a *direct* triple while still being entailed.  Requiring
+    # the literal axioms back is wrong, and real ELK rejects it — every stated
+    # subsumption must still hold in the output, not survive verbatim in it.
     stated = _stated_edges(ttl)
-    if not stated <= entailed:
+    unentailed = [
+        (child, parent)
+        for child, parent in stated
+        if parent not in _reachable_ancestors(child, entailed)
+    ]
+    if unentailed:
         raise ReasonerUnavailableError(
-            f"`robot reason` exited 0 but its output is missing "
-            f"{len(stated - entailed)} of the {len(stated)} axioms it was given — it "
-            "did not classify this merge. This is NOT a verdict."
+            f"`robot reason` exited 0 but {len(unentailed)} of the {len(stated)} "
+            "subsumptions it was given are not entailed by its output — it did not "
+            "classify this merge. This is NOT a verdict."
         )
     return entailed
 
