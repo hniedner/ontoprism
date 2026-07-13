@@ -6,6 +6,29 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 
 from pydantic import BaseModel
 
+from ontolib.repositories.xref.vocab import EXACT_MATCH
+
+
+class UpstreamMapping(BaseModel):
+    """An upstream (Uberon/CL) equivalent of an NCIt code, from the xref layer.
+
+    ``predicate`` is the full SKOS mapping IRI (verbatim); ``lifecycle`` is the
+    curation state (``proposed``/``validated``/``active``/``quarantined``/``retired``).
+    A derived ``is_identity`` convenience property flags
+    ``exactMatch + {validated,active}``.
+    """
+
+    object_id: str
+    predicate: str
+    lifecycle: str
+
+    @property
+    def is_identity(self) -> bool:
+        return self.predicate == EXACT_MATCH and self.lifecycle in (
+            "validated",
+            "active",
+        )
+
 
 class DecompositionConstituent(BaseModel):
     """One decomposed constituent: the axis and the concept that fills it.
@@ -21,6 +44,7 @@ class DecompositionConstituent(BaseModel):
     filler_label: str | None = None
     axis_source: str
     most_specific: bool = False
+    upstream: list[UpstreamMapping] = []
 
 
 class ConceptDecomposition(BaseModel):

@@ -5,10 +5,16 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import Embeddings, NcitClient, NcitSearch, NcitStore
+from backend.dependencies import (
+    Embeddings,
+    NcitClient,
+    NcitSearch,
+    NcitStore,
+    XrefReads,
+)
 from ontolib.core.logging_config import get_logger
-from ontolib.decomposition.read import decomposition_from_rows
-from ontolib.decomposition.read_models import ConceptDecomposition
+from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
+from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.decomposition.read_queries import build_decomposition_query
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
@@ -20,6 +26,24 @@ from ontolib.terminologies.ncit.models import (
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
+
+
+async def _attach_xref_upstream(
+    decomposition: ConceptDecomposition,
+    xref_store: XrefReads,
+    filler_codes: list[str],
+) -> ConceptDecomposition:
+    if filler_codes:
+        upstream_rows = await xref_store.mappings_by_subjects(set(filler_codes))
+        upstream_by_filler = {
+            code: [
+                UpstreamMapping(object_id=o, predicate=p, lifecycle=lc)
+                for (o, p, lc) in rows
+            ]
+            for code, rows in upstream_rows.items()
+        }
+        decomposition = attach_upstream(decomposition, upstream_by_filler)
+    return decomposition
 
 
 @router.get("/search", response_model=SearchPage)
@@ -98,13 +122,17 @@ async def neighborhood(
 
 @router.get("/concepts/{code}/decomposition", response_model=ConceptDecomposition)
 async def concept_decomposition(
-    client: NcitClient, store: NcitStore, code: str
+    client: NcitClient,
+    store: NcitStore,
+    xref_store: XrefReads,
+    code: str,
 ) -> ConceptDecomposition:
     """Return the concept's decomposition from the additive ``ncit_decomposed`` graph.
 
     Resolves even for a concept the engine has not decomposed
     (``is_legacy_precoordinated = false``, no constituents) so the UI can show "not
-    decomposed" rather than a 404. Filler labels are resolved for display.
+    decomposed" rather than a 404. Filler labels are resolved for display, and
+    upstream xref mappings (Uberon/CL equivalents) are attached per constituent.
     """
     try:
         query = build_decomposition_query(code)
@@ -116,4 +144,5 @@ async def concept_decomposition(
     labels = await store.labels_for(filler_codes) if filler_codes else {}
     for constituent in decomposition.constituents:
         constituent.filler_label = labels.get(constituent.filler)
+    decomposition = await _attach_xref_upstream(decomposition, xref_store, filler_codes)
     return decomposition

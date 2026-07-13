@@ -147,3 +147,21 @@ class XrefStore:
                 pair = (r["predicate_id"], r["lifecycle_state"])
                 out.setdefault(key, set()).add(pair)
             return out
+
+    async def mappings_by_subjects(
+        self, codes: set[str]
+    ) -> dict[str, list[tuple[str, str, str]]]:
+        if not codes:
+            return {}
+        sql = text(
+            "SELECT subject_id, object_id, predicate_id, lifecycle_state "
+            "FROM concept_xref WHERE subject_id = ANY(:codes)"
+        )
+        async with self._sf() as s:
+            result = await s.execute(sql, {"codes": list(codes)})
+            out: dict[str, list[tuple[str, str, str]]] = {}
+            for r in result.mappings().all():
+                out.setdefault(r["subject_id"], []).append(
+                    (r["object_id"], r["predicate_id"], r["lifecycle_state"])
+                )
+            return out
