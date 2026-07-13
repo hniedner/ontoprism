@@ -19,6 +19,108 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.12.0 (2026-07-13)
+
+### Bug Fixes
+
+- **xref**: Absence of subsumption is not a contradiction — revert the round-4 veto
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Check entailment, not literal axioms — ROBOT removes redundant subclasses
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Decide identity on evidence, not CURIE sort order; close round-5 mechanicals
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Give the EL gate real refutation power; stop laundering errors as verdicts
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Guard unexpandable CURIEs at the boundary; make the endpoint version deterministic
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Make the refutation gate able to fire; enforce identity structurally
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Repair the ROBOT/ELK smoke fixture and assert ELK actually reasons
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Round 6 — the boundary guard was a no-op; identity/accounting corrections
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Round-2 review — a run no longer quarantines what it just promoted
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Round-4 — three round-3 "fixes" did not do what they claimed
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: The report can no longer claim validation-driven promotion it did not do
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Walk the inferred hierarchy — ROBOT emits direct subsumptions only
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+### Documentation
+
+- Update README code line-count table
+  ([`5c23876`](https://github.com/hniedner/ontoprism/commit/5c23876fb677e2f9b66703a534c1b6070df985db))
+
+- **xref**: Align corroboration docstring with the honest D32 reach (review round 2)
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: D32 states the deployed part_of reach honestly (review round 1)
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Data-shape contracts skip in CI by design — a skip is not a pass
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Stop attributing stated-part_of corroboration to ELK (review round 3)
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+### Features
+
+- **xref**: Structural corroboration walks subClassOf ∪ part_of
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Validation-driven promotion with a non-circular ELK gate
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Validation-driven promotion with a non-circular ELK gate (#73)
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+### Testing
+
+- **xref**: Add the test types TDD cannot replace — contract, double-fidelity, data-shape
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Make the real-ELK refutation test prove ELK is what refutes
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+- **xref**: Stop asserting a closure ELK never emits; deepen the ELK fixtures
+  ([#117](https://github.com/hniedner/ontoprism/pull/117),
+  [`aedd33f`](https://github.com/hniedner/ontoprism/commit/aedd33f026d0cad6a3cf6f3d76d29f8da049319d))
+
+
 ## v0.11.1 (2026-07-13)
 
 ### Bug Fixes
