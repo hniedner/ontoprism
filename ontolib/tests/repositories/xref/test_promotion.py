@@ -35,14 +35,18 @@ from ontolib.repositories.xref.evidence import (
 )
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.promotion import (
+    CONTRADICTED,
+    CORROBORATED,
+    NO_ANCHORED_ANCESTOR,
+    REASON_CONTRADICTED,
     REASON_INSUFFICIENT_EVIDENCE,
     REASON_PROMOTED,
     REASON_REFUTED,
     PromotionContext,
     PromotionEnvironmentError,
     build_disjoint_query,
+    corroboration,
     elk_reasoner,
-    is_structurally_corroborated,
     load_promotion_context,
     parse_inferred_subclasses,
     promote_candidates,
@@ -333,6 +337,7 @@ def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
         "refuted": 0,
         "reasoner_errors": 1,
         "conflicting_identity": 0,
+        "contradicted": 0,
     }
     assert report.failed is True
 
@@ -381,13 +386,13 @@ def test_structural_corroboration_never_sees_the_candidate_bridge() -> None:
 def test_structural_corroboration_requires_an_anchored_parent() -> None:
     inferred = {(_UBERON_LUNG_IRI, _UBERON_RESP_IRI)}
     assert (
-        is_structurally_corroborated(
+        corroboration(
             _record(),
             inferred,
             anchors=(),
             ncit_edges={("C12468", "C12366")},
         )
-        is False
+        == NO_ANCHORED_ANCESTOR
     )
 
 
@@ -397,13 +402,13 @@ def test_structural_corroboration_fails_when_the_upstream_parent_disagrees() -> 
     (brain) is not inferred to sit under it → the anchor actively contradicts."""
     inferred = {(_UBERON_BRAIN_IRI, f"{_OBO}UBERON_0000010")}
     assert (
-        is_structurally_corroborated(
+        corroboration(
             _record(obj="UBERON:0000955"),
             inferred,
             anchors=(("C12366", "UBERON:0001004"),),
             ncit_edges={("C12468", "C12366")},
         )
-        is False
+        == CONTRADICTED
     )
 
 
@@ -424,13 +429,13 @@ def test_structural_corroboration_follows_upstream_ancestors() -> None:
         (lower_tract, _UBERON_RESP_IRI),
     }
     assert (
-        is_structurally_corroborated(
+        corroboration(
             _record(),
             inferred,
             anchors=(("C12366", "UBERON:0001004"),),
             ncit_edges={("C12468", "C12366")},
         )
-        is True
+        == CORROBORATED
     )
 
 
@@ -439,13 +444,13 @@ def test_structural_corroboration_follows_ncit_ancestors() -> None:
     """The anchored NCIt class may be a *grand*parent of the subject."""
     inferred = {(_UBERON_LUNG_IRI, _UBERON_RESP_IRI)}
     assert (
-        is_structurally_corroborated(
+        corroboration(
             _record(),
             inferred,
             anchors=(("C12366", "UBERON:0001004"),),
             ncit_edges={("C12468", "C99999"), ("C99999", "C12366")},
         )
-        is True
+        == CORROBORATED
     )
 
 
@@ -458,7 +463,7 @@ def test_a_disagreeing_anchor_image_is_not_silently_dropped() -> None:
     """
     inferred = {(_UBERON_LUNG_IRI, _UBERON_RESP_IRI)}
     assert (
-        is_structurally_corroborated(
+        corroboration(
             _record(),
             inferred,
             # C12366 is anchored to BOTH: the object sits under the first, but
@@ -469,7 +474,7 @@ def test_a_disagreeing_anchor_image_is_not_silently_dropped() -> None:
             ),
             ncit_edges={("C12468", "C12366")},
         )
-        is False
+        == CONTRADICTED
     )
 
 
@@ -534,6 +539,50 @@ def test_a_run_never_asserts_two_identities_for_one_subject() -> None:
     assert report.refuted == 0  # the reasoner could not have caught this
 
 
+@pytest.mark.unit
+def test_an_actively_contradicted_bridge_is_vetoed_even_when_curated() -> None:
+    """The planes disagreeing about where a concept sits is a VETO, not just one fewer
+    evidence kind.
+
+    Collapsing "the two ontologies actively contradict each other" into the same False
+    as "nothing has an opinion yet" threw away the cheapest wrong-bridge detector we
+    have: SME curation stands alone (D28), so a curated pair the anchored taxonomy
+    contradicts would otherwise promote regardless — unless a disjointness axiom fired.
+    """
+    bad = _record(obj="UBERON:0000955")  # brain, under nervous system
+    outcome = validate_candidate(
+        bad,
+        _context(curated_pairs=frozenset({(bad.subject_id, bad.object_id)})),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert outcome.promoted is None
+    assert outcome.reason == REASON_CONTRADICTED
+
+
+@pytest.mark.unit
+def test_a_stale_bridge_does_not_block_its_own_replacement() -> None:
+    """An upstream release obsoletes U1 in favour of U2.  The stale (C, U1) must not
+    claim C against the correct new (C, U2): it is about to be quarantined, and blocking
+    the replacement would leave C with no bridge at all — while blaming a row this same
+    run invalidates."""
+    replacement = _record(obj="UBERON:0001558")
+    ctx = _context(
+        anchors=(("C12468", "UBERON:0002048"),),  # the stale bridge
+        curated_pairs=frozenset({("C12468", "UBERON:0001558")}),
+    )
+
+    promoted, report = promote_candidates(
+        [replacement],
+        ctx,
+        reasoner=_ElkLikeReasoner(),
+        stale_anchors=frozenset({("C12468", "UBERON:0002048")}),
+    )
+
+    assert [r.object_id for r in promoted] == ["UBERON:0001558"]
+    assert report.conflicting_identity == 0
+
+
 # ── the run: report + the number it moves ──────────────────────────────
 
 
@@ -557,6 +606,7 @@ def test_promotion_report_counts_every_outcome() -> None:
         "refuted": 0,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
+        "contradicted": 0,
     }
     assert report.failed is False
 
@@ -578,6 +628,7 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "refuted": 1,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
+        "contradicted": 0,
     }
 
 

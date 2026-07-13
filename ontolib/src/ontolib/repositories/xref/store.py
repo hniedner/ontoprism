@@ -205,6 +205,36 @@ class XrefStore:
                 (r["subject_id"], r["object_id"]) for r in result.mappings().all()
             )
 
+    async def stale_anchors(
+        self, *, ncit_version: str, source_version: str, source: str
+    ) -> set[tuple[str, str]]:
+        """Validated bridges the current endpoint versions have already made stale.
+
+        These still corroborate (sweeping before promotion would leave a release with no
+        anchors at all and collapse coverage), but they must NOT *claim* their endpoints
+        against a replacement: an upstream release that obsoletes U1 in favour of U2
+        would otherwise see the stale (C, U1) block the correct new (C, U2) as a
+        "conflicting identity", and then quarantine (C, U1) moments later — leaving C
+        with no bridge at all, and blaming a row the same run invalidated.
+        """
+        sql = text(
+            "SELECT DISTINCT subject_id, object_id FROM concept_xref "
+            "WHERE lifecycle_state = 'validated' "
+            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
+            "AND (subject_source_version <> :ncit_version "
+            "     OR object_source_version <> :source_version)"
+        )
+        async with self._sf() as s:
+            result = await s.execute(
+                sql,
+                {
+                    "ncit_version": ncit_version,
+                    "source_version": source_version,
+                    "source": source,
+                },
+            )
+            return {(r["subject_id"], r["object_id"]) for r in result.mappings().all()}
+
     async def count_stale(
         self, *, ncit_version: str, source_version: str, source: str
     ) -> int:

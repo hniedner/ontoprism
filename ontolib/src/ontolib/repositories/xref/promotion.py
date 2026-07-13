@@ -102,6 +102,7 @@ REASON_INSUFFICIENT_EVIDENCE = "insufficient_independent_evidence"
 REASON_REFUTED = "refuted_by_reasoner"
 REASON_CONFLICTING_IDENTITY = "conflicting_identity"
 REASON_REASONER_ERROR = "reasoner_error"
+REASON_CONTRADICTED = "contradicted_by_anchored_taxonomy"
 
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
@@ -179,6 +180,7 @@ class PromotionReport:
     refuted: int
     reasoner_errors: int = 0
     conflicting_identity: int = 0
+    contradicted: int = 0
 
     def __post_init__(self) -> None:
         # This is the number that lands in xref_run.metrics and moves the published
@@ -191,6 +193,7 @@ class PromotionReport:
             + self.refuted
             + self.reasoner_errors
             + self.conflicting_identity
+            + self.contradicted
         )
         if counted != self.considered:
             raise ValueError(
@@ -215,6 +218,7 @@ class PromotionReport:
             "refuted": self.refuted,
             "reasoner_errors": self.reasoner_errors,
             "conflicting_identity": self.conflicting_identity,
+            "contradicted": self.contradicted,
         }
 
 
@@ -349,13 +353,32 @@ def _scoped_edges(seed: str, edges: set[tuple[str, str]]) -> set[tuple[str, str]
     return {(c, p) for c, p in edges if c in nodes}
 
 
-def is_structurally_corroborated(
+CORROBORATED = "corroborated"
+NO_ANCHORED_ANCESTOR = "no_anchored_ancestor"
+CONTRADICTED = "contradicted"
+
+
+def corroboration(
     record: SSSOMRecord,
     inferred: set[tuple[str, str]],
     *,
     anchors: Sequence[tuple[str, str]],
     ncit_edges: set[tuple[str, str]],
-) -> bool:
+) -> str:
+    """Three-valued, because ``False`` was hiding the most interesting signal.
+
+    ``NO_ANCHORED_ANCESTOR`` means *no opinion*: the bootstrap has not reached here yet.
+    Benign, and it shrinks as anchors accumulate.
+
+    ``CONTRADICTED`` means the two ontologies **actively disagree** about where this
+    concept sits — the object demonstrably does not sit under the upstream image of an
+    anchored NCIt ancestor of the subject.  That is a data alarm and the cheapest wrong-
+    bridge detector we have, and collapsing it into the same ``False`` as "no opinion"
+    threw it away: a curated pair contradicted by the anchored taxonomy would still
+    promote (SME curation stands alone), unless a disjointness axiom happened to fire.
+    It now vetoes.
+    """
+
     """Does the upstream plane agree with the NCIt plane about where *record* sits?
 
     For every NCIt ancestor of the subject that carries a **separately validated**
@@ -378,13 +401,33 @@ def is_structurally_corroborated(
     ancestors = _ancestors(record.subject_id, ncit_edges)
     anchored = [curie for a in ancestors for curie in anchor_map.get(a, [])]
     if not anchored:
-        return False
+        return NO_ANCHORED_ANCESTOR
 
     upstream_ancestors = _reachable_ancestors(object_iri(record.object_id), inferred)
-    return all(object_iri(curie) in upstream_ancestors for curie in anchored)
+    if all(object_iri(curie) in upstream_ancestors for curie in anchored):
+        return CORROBORATED
+    return CONTRADICTED
 
 
 # ── the decision ───────────────────────────────────────────────────────
+
+
+def _live_anchors(
+    record: SSSOMRecord,
+    ctx: PromotionContext,
+    anchors: Sequence[tuple[str, str]],
+) -> tuple[tuple[str, str], ...]:
+    """The anchors that can actually affect this candidate's merge.
+
+    Symmetric on purpose.  Keeping only anchors whose NCIt code is an ancestor of the
+    subject kills every NCIt-plane refutation *by construction*: a bridge is refuted via
+    NCIt disjointness precisely when the anchored class is **not** an ancestor of the
+    subject — that non-membership IS the contradiction.  A one-sided filter left NCIt's
+    disjointness axioms fetched, shipped to the JVM, and unable to ever fire.
+    """
+    subject_cone = _ancestors(record.subject_id, ctx.ncit_edges) | {record.subject_id}
+    object_cone = _ancestors(record.object_id, ctx.upstream_edges) | {record.object_id}
+    return tuple(a for a in anchors if a[0] in subject_cone or a[1] in object_cone)
 
 
 def _merge_for(
@@ -410,9 +453,7 @@ def _merge_for(
     the cone: an anchor *on the subject* is exactly what the same-subject conflict check
     leans on.
     """
-    subject_cone = _ancestors(record.subject_id, ctx.ncit_edges) | {record.subject_id}
-    live = tuple(a for a in anchors if a[0] in subject_cone)
-
+    live = _live_anchors(record, ctx, anchors)
     ncit_seeds = {record.subject_id, *(code for code, _ in live)}
     upstream_seeds = {record.object_id, *(curie for _, curie in live)}
 
@@ -443,6 +484,30 @@ def _evidence_for(
     )
 
 
+def _contradicted(
+    record: SSSOMRecord, evidence: tuple[Evidence, ...]
+) -> PromotionOutcome:
+    """The planes actively disagree about where this concept sits — a veto.
+
+    Not merely one fewer evidence kind: SME curation stands alone (D28), so a curated
+    pair the anchored taxonomy contradicts would otherwise promote regardless.
+    """
+    logger.warning(
+        "refusing %s -> %s: the upstream object does not sit under the upstream image "
+        "of an anchored NCIt ancestor of the subject — the two ontologies disagree "
+        "about this concept.",
+        record.subject_id,
+        record.object_id,
+    )
+    return PromotionOutcome(
+        record=record,
+        promoted=None,
+        evidence=evidence,
+        el_valid=None,
+        reason=REASON_CONTRADICTED,
+    )
+
+
 def _insufficient(
     record: SSSOMRecord, evidence: tuple[Evidence, ...]
 ) -> PromotionOutcome:
@@ -453,6 +518,29 @@ def _insufficient(
         el_valid=None,  # the EL gate never ran — not the same as "refuted"
         reason=REASON_INSUFFICIENT_EVIDENCE,
     )
+
+
+def _corroborate(
+    record: SSSOMRecord,
+    ctx: PromotionContext,
+    anchors: Sequence[tuple[str, str]],
+    *,
+    reasoner: Reasoner,
+) -> str:
+    """Classify the merge WITHOUT the candidate bridge, and read the verdict."""
+    inferred = reasoner(_merge_for(record, ctx, anchors, include_bridge=False))
+    if inferred is None:
+        # The bridge-free merge carries no candidate axiom.  If the reasoner refutes it,
+        # the *anchor set* contradicts the taxonomy — a data-integrity alarm.  Reporting
+        # it as "this candidate is not corroborated" would bury it.
+        raise PromotionEnvironmentError(
+            "the reasoner refuted the bridge-free merge for "
+            f"({record.subject_id}, {record.object_id}): it contains no candidate "
+            "bridge, so either the validated anchors are inconsistent with the stated "
+            "taxonomy or bridge.py emitted a non-EL merge. Refusing to read that as a "
+            "verdict about this candidate."
+        )
+    return corroboration(record, inferred, anchors=anchors, ncit_edges=ctx.ncit_edges)
 
 
 def validate_candidate(
@@ -481,22 +569,12 @@ def validate_candidate(
             record, _evidence_for(record, ctx, structurally_corroborated=False)
         )
 
-    inferred = reasoner(_merge_for(record, ctx, anchors, include_bridge=False))
-    if inferred is None:
-        # The bridge-free merge carries no candidate axiom.  If the reasoner refutes it,
-        # the *anchor set* contradicts the taxonomy — a data-integrity alarm.  Reporting
-        # it as "this candidate is not corroborated" would bury it.
-        raise PromotionEnvironmentError(
-            f"the reasoner refuted the bridge-free merge for {candidate}: the merge "
-            "contains no candidate bridge, so this means the validated anchors are "
-            "inconsistent with the stated taxonomy. Refusing to read that as a verdict "
-            "about this candidate."
-        )
-
-    corroborated = is_structurally_corroborated(
-        record, inferred, anchors=anchors, ncit_edges=ctx.ncit_edges
+    verdict = _corroborate(record, ctx, anchors, reasoner=reasoner)
+    evidence = _evidence_for(
+        record, ctx, structurally_corroborated=verdict == CORROBORATED
     )
-    evidence = _evidence_for(record, ctx, structurally_corroborated=corroborated)
+    if verdict == CONTRADICTED:
+        return _contradicted(record, evidence)
     if not is_independent(evidence):
         return _insufficient(record, evidence)
 
@@ -576,11 +654,56 @@ def _claims_a_taken_endpoint(
     return True
 
 
+def _one_per_pair(records: Sequence[SSSOMRecord]) -> list[SSSOMRecord]:
+    """One candidate per pair.
+
+    The same ``(subject, object)`` can legitimately come back twice — re-ingested at a
+    new version, or under a different justification.  It is ONE candidate: validating it
+    twice costs two JVM launches and double-counts ``promoted``, the number that lands
+    in ``xref_run.metrics`` and moves the published coverage figure.
+    """
+    return list({(r.subject_id, r.object_id): r for r in records}.values())
+
+
+def _initial_claims(
+    ctx: PromotionContext, stale_anchors: frozenset[tuple[str, str]]
+) -> tuple[set[str], set[str]]:
+    """Which endpoints an identity-grade bridge already claims.
+
+    Stale bridges are excluded: one is about to be quarantined by this very run, and
+    letting it claim its endpoints would block its own replacement (see
+    ``XrefStore.stale_anchors``).
+    """
+    current = [a for a in ctx.anchors if a not in stale_anchors]
+    return {code for code, _ in current}, {curie for _, curie in current}
+
+
+def _validate_or_report_error(
+    record: SSSOMRecord,
+    ctx: PromotionContext,
+    reasoner: Reasoner,
+    minted: Sequence[tuple[str, str]],
+) -> PromotionOutcome | None:
+    """``None`` iff the reasoner could not run — which is NOT a verdict, and is counted
+    separately so a broken reasoner can never read as "no candidate qualified"."""
+    try:
+        return validate_candidate(record, ctx, reasoner=reasoner, extra_anchors=minted)
+    except ReasonerUnavailableError as exc:
+        logger.error(
+            "reasoner unavailable for %s -> %s (NOT a verdict): %s",
+            record.subject_id,
+            record.object_id,
+            exc,
+        )
+        return None
+
+
 def promote_candidates(
     records: Sequence[SSSOMRecord],
     ctx: PromotionContext,
     *,
     reasoner: Reasoner,
+    stale_anchors: frozenset[tuple[str, str]] = frozenset(),
 ) -> tuple[list[SSSOMRecord], PromotionReport]:
     """Run :func:`validate_candidate` over *records*; return promotions + a report.
 
@@ -589,6 +712,7 @@ def promote_candidates(
     """
     _refuse_degenerate_context(records, ctx)
 
+    records = _one_per_pair(records)
     promoted: list[SSSOMRecord] = []
     counts: Counter[str] = Counter()
 
@@ -600,8 +724,7 @@ def promote_candidates(
     # the same Uberon branch) never is.  So the constraint is enforced structurally
     # here, not hoped for from the reasoner — and it is counted, so it shows up in the
     # metrics instead of hiding inside `refuted`.
-    claimed_subjects = {code for code, _ in ctx.anchors}
-    claimed_objects = {curie for _, curie in ctx.anchors}
+    claimed_subjects, claimed_objects = _initial_claims(ctx, stale_anchors)
     minted: list[tuple[str, str]] = []
 
     for record in records:
@@ -612,18 +735,9 @@ def promote_candidates(
             counts[REASON_CONFLICTING_IDENTITY] += 1
             continue
 
-        try:
-            outcome = validate_candidate(
-                record, ctx, reasoner=reasoner, extra_anchors=minted
-            )
-        except ReasonerUnavailableError as exc:
+        outcome = _validate_or_report_error(record, ctx, reasoner, minted)
+        if outcome is None:
             counts[REASON_REASONER_ERROR] += 1
-            logger.error(
-                "reasoner unavailable for %s -> %s (NOT a verdict): %s",
-                record.subject_id,
-                record.object_id,
-                exc,
-            )
             continue
 
         counts[outcome.reason] += 1
@@ -632,8 +746,8 @@ def promote_candidates(
             # Promotions become trusted anchors for the candidates after them, and claim
             # their endpoints against the conflict check above.
             minted.append(pair)
-            claimed_subjects.add(record.subject_id)
-            claimed_objects.add(record.object_id)
+            claimed_subjects.add(pair[0])
+            claimed_objects.add(pair[1])
 
     return promoted, PromotionReport(
         considered=len(records),
@@ -642,6 +756,7 @@ def promote_candidates(
         refuted=counts[REASON_REFUTED],
         reasoner_errors=counts[REASON_REASONER_ERROR],
         conflicting_identity=counts[REASON_CONFLICTING_IDENTITY],
+        contradicted=counts[REASON_CONTRADICTED],
     )
 
 
@@ -668,25 +783,32 @@ SELECT DISTINCT ?child ?parent WHERE {{
 def build_upstream_edges_query(curies: Sequence[str]) -> str:
     """Stated upstream named-class ``subClassOf`` edges on the ancestor paths.
 
-    The parent filter is restricted to the prefixes we can actually expand back to an
-    IRI (``ttl_writer._PREFIX_BASE``).  A real Uberon walk climbs into ``BFO_``/``GO_``/
-    ``PATO_`` upper-ontology classes; admitting them here would hand
-    ``build_validation_ontology`` a CURIE it cannot expand, and the resulting
-    ``KeyError`` would abort the whole run — discarding every promotion computed so far
-    — on the first real dataset.
+    **Both** ends are restricted to the prefixes we can expand back to an IRI
+    (``ttl_writer.SUPPORTED_PREFIXES``).  Filtering only the parent is not enough: the
+    ``subClassOf*`` walk passes *through* upper-ontology classes, so a real Uberon store
+    yields children like ``GO:0110165`` (which has UBERON/CL classes beneath it) and
+    ``COB:0000022``.  ``object_iri`` cannot expand those, and the ``KeyError`` would
+    abort the entire run — discarding every promotion computed so far — on the first
+    real dataset.  Truncating the cone at an unsupported class loses nothing: the merge
+    cannot express that class anyway.
     """
     iris = " ".join(f"<{object_iri(c)}>" for c in sorted(curies))
-    supported = " || ".join(
-        f'STRSTARTS(STR(?parent), "{_OBO_BASE}{prefix}_")' for prefix in _OBO_PREFIXES
-    )
+
+    def _supported(var: str) -> str:
+        return " || ".join(
+            f'STRSTARTS(STR(?{var}), "{_OBO_BASE}{prefix}_")'
+            for prefix in _OBO_PREFIXES
+        )
+
     return f"""\
 PREFIX rdfs: <{_RDFS_NS}>
 SELECT DISTINCT ?child ?parent WHERE {{
     VALUES ?seed {{ {iris} }}
     ?seed rdfs:subClassOf* ?child .
     ?child rdfs:subClassOf ?parent .
-    FILTER(isIRI(?parent))
-    FILTER({supported})
+    FILTER(isIRI(?child) && isIRI(?parent))
+    FILTER({_supported("child")})
+    FILTER({_supported("parent")})
 }}
 """
 
@@ -835,14 +957,23 @@ async def load_promotion_context(
     """
     subjects = [r.subject_id for r in records]
     objects = [r.object_id for r in records]
+    anchors = tuple(dict.fromkeys([*validated_anchors, *sorted(curated_pairs)]))
+
+    # The taxonomy fetch must be seeded from the ANCHOR endpoints as well as the
+    # candidates'.  `_scoped_edges` can only select from what was fetched, so seeding
+    # from candidates alone leaves every anchor image a parentless floating class in the
+    # merge: ELK cannot walk from it to a branch carrying a disjointness axiom, and the
+    # refutation gate under-fires — which looks exactly like "nothing was wrong".
+    anchor_codes = [code for code, _ in anchors]
+    anchor_curies = [curie for _, curie in anchors]
 
     ctx = PromotionContext(
         subject_labels=await _subject_labels(ncit_client, subjects),
         object_labels=await _object_labels(uberon_client, set(objects)),
         object_xrefs=await _object_xrefs(uberon_client, set(objects)),
-        ncit_edges=await _ncit_edges(ncit_client, subjects),
-        upstream_edges=await _upstream_edges(uberon_client, objects),
-        anchors=tuple(dict.fromkeys([*validated_anchors, *sorted(curated_pairs)])),
+        ncit_edges=await _ncit_edges(ncit_client, [*subjects, *anchor_codes]),
+        upstream_edges=await _upstream_edges(uberon_client, [*objects, *anchor_curies]),
+        anchors=anchors,
         curated_pairs=curated_pairs,
         disjoints=await _disjoints(ncit_client, uberon_client),
     )
@@ -944,7 +1075,12 @@ async def run_promotion(
         curated_pairs=curated_pairs,
         validated_anchors=anchors,
     )
-    promoted, report = promote_candidates(candidates, ctx, reasoner=reasoner)
+    stale = await store.stale_anchors(
+        ncit_version=ncit_version, source_version=source_version, source=source
+    )
+    promoted, report = promote_candidates(
+        candidates, ctx, reasoner=reasoner, stale_anchors=frozenset(stale)
+    )
     run_id = await persist_promotions(
         store,
         promoted,

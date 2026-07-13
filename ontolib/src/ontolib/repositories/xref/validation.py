@@ -155,6 +155,16 @@ def classify(ontology_path: str | Path) -> Path | None:
                 "reason",
                 "--reasoner",
                 "ELK",
+                # Keep the asserted axioms in the output.  ROBOT otherwise deletes an
+                # asserted `A ⊑ B` whose inference makes it redundant — and when the
+                # merge *entails* `A ≡ B`, its default axiom-generators ("subclass")
+                # never write the equivalence back, so A and B end up connected by
+                # nothing at all.  Our "did ROBOT actually classify this?" check would
+                # then false-alarm on a perfectly sound run (a cross-plane cycle needs
+                # only one anchor and one bad candidate), fail the whole run, skip the
+                # D29 sweep, and tell the operator to check their Java install.
+                "--remove-redundant-subclass-axioms",
+                "false",
                 "--input",
                 str(ontology_path),
                 "--output",

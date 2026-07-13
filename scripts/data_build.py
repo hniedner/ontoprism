@@ -163,6 +163,25 @@ def _curated_pairs(golden: Path | None) -> frozenset[tuple[str, str]]:
     )
 
 
+async def _endpoint_version(client: OxigraphHttpClient) -> str | None:
+    """The endpoint's version, from ``owl:versionInfo`` or else ``owl:versionIRI``.
+
+    Uberon (and most OBO releases) carry no ``owl:versionInfo`` — they carry a
+    ``owl:versionIRI`` like ``…/uberon/releases/2026-04-01/uberon.owl``.  That release
+    date is a *real* version, not a fabrication, so falling back to it is honest.
+    Without the fallback the documented happy path (`data-build xref-promote`) refuses
+    to run, and the only escape is hand-typing a version — which is exactly what makes
+    the D29 sweep self-consistent forever.
+    """
+    if info := await client.version():
+        return info
+    rows = await client.select(
+        "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+        "SELECT ?v WHERE { ?ont a owl:Ontology ; owl:versionIRI ?v } LIMIT 1"
+    )
+    return rows[0].get("v") if rows else None
+
+
 async def _endpoint_versions(
     ncit_client: OxigraphHttpClient, uberon_client: OxigraphHttpClient
 ) -> tuple[str, str]:
@@ -174,13 +193,15 @@ async def _endpoint_versions(
     is never true, so the sweep can never fire again, and stale bridges keep being
     served and counted — with a coverage number that simply never goes down.
     """
-    ncit, upstream = await ncit_client.version(), await uberon_client.version()
+    ncit = await _endpoint_version(ncit_client)
+    upstream = await _endpoint_version(uberon_client)
     missing = [name for name, v in (("NCIt", ncit), ("Uberon", upstream)) if not v]
     if missing:
         typer.echo(
-            f"No owl:versionInfo on: {', '.join(missing)}. A promotion run must be able"
-            " to name what it validated against, or D29 staleness can never be"
-            " detected. Load the store with a versionInfo (see docs/DATA_SETUP.md).",
+            f"No owl:versionInfo or owl:versionIRI on: {', '.join(missing)}. A"
+            " promotion run must be able to name what it validated against, or D29"
+            " staleness can never be detected. Load the store from a versioned release"
+            " (see docs/DATA_SETUP.md), or pass --uberon-version explicitly.",
             err=True,
         )
         raise typer.Exit(code=1)
