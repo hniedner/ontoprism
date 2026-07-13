@@ -135,7 +135,7 @@ All harness functions invoke `robot` via `subprocess`.  The EL profile gate and 
 classification use:
 
 ```bash
-robot profile --input <ontology.owl> --profile EL
+robot validate-profile --profile EL --input <ontology.owl>
 robot reason --reasoner ELK --input <ontology.owl> --output <inferred.owl>
 ```
 
@@ -147,6 +147,40 @@ robot reason --reasoner ELK -Xmx32g --input <ontology.owl> --output <inferred.ow
 
 The harness defaults to the standard `robot` executable on PATH; no Python dependency is
 added for Java or ROBOT.
+
+### Running the promotion pass (#73)
+
+Candidate ingest writes `closeMatch/proposed` records; **only the promotion pass turns
+them into the identity-grade `exactMatch/validated` bridges the caDSR coverage number
+(`COV`, §13.3) counts.**  It classifies a small merged fragment per candidate, so it
+needs `robot` on PATH:
+
+```bash
+pdm run data-build xref            # ingest candidates (closeMatch/proposed)
+pdm run data-build xref-promote --golden <curated-sssom.json>   # promote (needs robot)
+pdm run data-build xref-coverage   # the published COV number
+```
+
+`--golden` is optional but load-bearing on a cold store. The SME-signed `exactMatch`
+pairs it carries do **two** jobs: they are the **trusted anchors** that structural
+corroboration is measured against for *other* candidates, and they are admissible
+standalone evidence for *themselves* (D28 accepts human curation alone), so the golden
+pairs promote directly — which is what first moves `COV` off zero.
+
+**When a zero-promotion run is trustworthy, and when it is a broken pipeline.** With no
+anchors and no curation, nothing can be corroborated and the pass promotes nothing —
+that is correct, conservative behaviour. But do **not** read every zero that way:
+
+- `considered: 0` means no candidates were ingested — run `data-build xref` first.
+- A non-zero `reasoner_errors`, or `status: failed`, means the reasoner could not run
+  (the command also exits non-zero). This is **not** "no candidate qualified" — check
+  that `robot` and Java are on PATH.
+- The run **refuses to start** (loudly) if the stated NCIt graph or the upstream store
+  is empty, because every candidate would then fail for a reason that has nothing to do
+  with the candidate.
+- If the log warns that **zero `owl:disjointWith` axioms** loaded, the reasoner has
+  nothing to refute with: promotion is resting entirely on the evidence policy, and the
+  result should not be described as "reasoner-validated".
 
 Notes:
 

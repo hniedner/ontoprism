@@ -10,9 +10,11 @@ here rather than left to drift a second time. Promote a decision below into
 
 **Currently-open issues** span the three unbuilt README goals and the external-integration
 epic: #4/#5/#6 (goals), #9/#57/#61/#62 (decomposition + frontend), #18 (tracking), and
-the epic #70. Phase-A children #71/#72/#73/#74 are **merged and closed**; Phase A–B items
-#76 (golden mapping set + coverage generator) and #77 (upstream xref on `op:` fillers) are
-also **merged and closed**. Phase B–E remaining are #75/#78/#79/#80/#81/#82/#83/#84.
+the epic #70. Phase-A children #71/#74/#76 and Phase B–C children #77/#81 are **merged and
+closed**. **#73** (validation-driven promotion — the only thing that promotes `closeMatch` to
+`exactMatch`, and so the only thing that moves `COV` off ~0) and **#72** (its `candidate_recall`
+baseline is still unrecorded) were **reopened on 2026-07-12** after a tracker-vs-code audit.
+Phase B–E remaining are #75/#78/#79/#80/#82/#83/#84.
 #5 and #6 are deliberately *not*
 designed yet — see §3 — that is the correct sequencing per their dependency on #4, not a gap.
 
@@ -37,7 +39,7 @@ non-circular + EL-profiled + reasoner-committed, and mapping economics/licensing
 | 2 | Decomposed ("atomic") NCIt | **Engine + SME golden-set curation loop landed (#45/#46/#47/#58/#59/#44 closed); golden-set expansion (#57) ongoing** — see §2 | #4, #9, #57, #60, #61, #62 |
 | 3 | Balanced concept graph | **Not started, correctly deferred** — see §3 | #5 |
 | 4 | Post-coordination expression syntax | **Not started**, but D19 puts its `--emit-equivalence` seam on goal 2's critical path — see §3; D24–D26 now bind its ranges to the upstream substrate — see §5 | #6 |
-| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **Phase A–B children #71–#74, #76, #77 merged & closed; design-of-record + peer-review/red-team hardened (D24–D29); Phase C–E pending** — parallel enabling track — see §5 | #70 (#75, #78–#84) |
+| 5 | NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical) | **Phase A–B children #71, #74, #76, #77, #81 merged & closed; #73 (validation-driven promotion) + #72 (recall baseline) reopened 2026-07-12; design-of-record + peer-review/red-team hardened (D24–D29); Phase C–E pending** — parallel enabling track — see §5 | #70 (#72, #73, #75, #78–#80, #82–#84) |
 
 Critical path (per #18): Phase 0 ✅ → Phase 1 ✅ → **#4 → #9 → #5 → #6**, with the
 external-integration track (#70/#71–#84) running **parallel to #44** and feeding goal 4 (§5). #9's read/serve
@@ -194,10 +196,17 @@ against real store queries before the engine was designed.
 
 **Parallel enabling track (§5): the external-integration epic #70 (#71–#84).** Phase A
 (xref framework + SSSOM store + named graph #71; open-license Uberon/CL candidate ingest #72;
-caDSR anchor-set enumeration #74; non-circular ELK/ROBOT validation harness #73) is **merged and
-closed** (PRs #86/#90/#89/#88). Phase A–B items **#76** (golden mapping set + coverage generator,
-PR #114) and **#77** (upstream xref on `op:` fillers, PR #115) are also **merged and closed**.
-Phase C–E (#75, #78–#84) remain; they enrich the same `op:` axes #57 curates and do
+caDSR anchor-set enumeration #74; ELK/ROBOT validation primitives #73) is **merged**
+(PRs #86/#90/#89/#88), as are **#76** (golden mapping set + coverage generator, PR #114),
+**#77** (upstream xref on `op:` fillers, PR #115) and **#81** (morphology-from-parent).
+
+A 2026-07-12 audit of the tracker against the tree **reopened two of them**: **#73**, whose
+merged code was only the *primitives* (nothing built a merged-EL bridge, applied an evidence
+policy, or persisted a promotion — so no candidate had ever been promoted and `COV` was pinned
+at ~0), and **#72**, whose measure-first `candidate_recall` baseline was never recorded. The
+#73 orchestration (independent-evidence policy + non-circular ELK gate + D29 lifecycle) is the
+correctness core of the epic; everything downstream of the mapping store is cosmetic without it.
+Phase C–E (#75, #78–#80, #82–#84) remain; they enrich the same `op:` axes #57 curates and do
 not consume the decomposition critical path.
 
 ## 5. Strategy shift — NCIt as a specialization of the OBO/SNOMED substrate (D24–D26)
@@ -223,10 +232,11 @@ Uberon returns as an xref/interop target plus a scoped `part_of` tie-break re-te
 most-specific-filler default.
 
 **Sequencing (design §9, §13):** Phase A foundation (xref framework + SSSOM #71; Uberon/CL ingest #72;
-**caDSR anchor-set enumeration `C_cadsr` #74**; non-circular EL-profiled validation harness #73) — **all
-merged & closed** — ∥ #44 → Phase B bind-to-decomposition (**upstream on `op:` fillers #77 ✅ closed**,
+**caDSR anchor-set enumeration `C_cadsr` #74**; non-circular EL-profiled validation harness #73) — merged,
+with **#73 and #72 reopened 2026-07-12** (see above) — ∥ #44 → Phase B bind-to-decomposition
+(**upstream on `op:` fillers #77 ✅ closed**,
 Mondo genus #79, Uberon tie-break spike #78) → Phase C morphology + licensing (NCIm SNOMED/ICD-O-3 #80,
-morphology-from-parent #81, **value/qualifier mapping #75**) → Phase D serve/interop (`/mappings`,
+**morphology-from-parent #81 ✅ closed**, **value/qualifier mapping #75**) → Phase D serve/interop (`/mappings`,
 `$translate`, frontend #82, **published caDSR coverage report #83**) → Phase E grammar (#84, folds into #6).
 The **caDSR coverage number is the artifact that proves the mapping guarantee** (§13.3). Full issue drafts:
 design doc Appendix A.
@@ -238,8 +248,8 @@ epics (#18, the external-integration epic #70) stay unassigned.
 | Milestone | Issues |
 |---|---|
 | Goal 2 · Decomposed NCIt | #4, #9, #57, #60, #61, #62 |
-| Ext-Integration · Phase A — Bridge foundation | #71, #72, #73, #74, #76 (✅ #71–#74 closed) |
-| Ext-Integration · Phase B–C — Bind + morphology | #78, #79, #80, #81, #75 (✅ #77 closed) |
+| Ext-Integration · Phase A — Bridge foundation | #71, #72, #73, #74, #76 (✅ #71, #74, #76 closed; #72, #73 reopened) |
+| Ext-Integration · Phase B–C — Bind + morphology | #78, #79, #80, #75 (✅ #77, #81 closed) |
 | Ext-Integration · Phase D — Serve & caDSR coverage | #82, #83 |
 | Goal 3 · Balanced graph | #5 |
 | Goal 4 · Post-coordination grammar | #6, #84 |

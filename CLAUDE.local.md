@@ -27,6 +27,23 @@ not lower a gate to make a change pass — raise coverage instead.
 - Tests must be resilient to reasonable refactoring — assert contracts and outputs,
   not implementation details.
 
+**Contract / double-fidelity / data-shape tests are mandatory for external dependencies.**
+TDD does not catch false assumptions about an external tool or about the real data: the test
+and the code come from the same mental model, so the double encodes the same false belief as
+the implementation, they agree, and the suite is green while the system is broken. On #73 this
+produced ~12 bugs, *none* of them logic errors in our code. Whenever code depends on an
+external tool (ROBOT/ELK, a DB driver, a serializer) or on real store data, add:
+(a) a **contract test** asserting what the *tool itself* does (`test_reasoner_contract.py`);
+(b) a **double-fidelity test** running the same input through the double and the real thing,
+asserting the same verdict; (c) a **data-shape test** pinning what the *real store* looks like
+(`test_upstream_data_contract.py`); and (d) a **gate-liveness** test proving each gate's reject
+branch is reachable. The external tool must actually run in CI, or its tests silently skip and
+the bugs stay invisible (ROBOT is now installed in the CI integration job for exactly this
+reason). **Exception — data-shape contracts skip in CI by design**: they must interrogate the
+*real* store, and seeding a fixture would make them assert facts about the fixture. They are a
+**pre-merge local gate** (`pdm run test-integration` against the live stores); a skip is not a
+pass.
+
 **Test types.** Use the registered markers deliberately: `unit`, `api`, `security`,
 `integration` (real services), `full_build` (pinned build / real embeddings, excluded
 from the seeded-fixture CI run). Frontend: vitest unit + component (jsdom) and

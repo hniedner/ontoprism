@@ -244,6 +244,29 @@ jobs:
       - name: Install dependencies
         run: pdm install --dev
 
+      # ROBOT + ELK (D28): without these on PATH the non-circular validation tests
+      # (EL profile gate -> ELK classification -> promotion, #73) silently skip, and a
+      # broken reasoner call looks exactly like "no candidate qualified".
+      - name: Set up Java 21 (for ROBOT/ELK)
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00  # v4.7.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install ROBOT
+        env:
+          ROBOT_VERSION: "1.9.10"
+        run: |
+          curl -sSL -o "$HOME/robot.jar" \
+            "https://github.com/ontodev/robot/releases/download/v${ROBOT_VERSION}/robot.jar"
+          printf '#!/usr/bin/env bash\nexec java -Xmx4g -jar %s/robot.jar "$@"\n' "$HOME" \
+            > "$HOME/robot"
+          chmod +x "$HOME/robot"
+          echo "$HOME" >> "$GITHUB_PATH"
+
+      - name: Verify ROBOT
+        run: robot --version
+
       - name: Wait for Oxigraph
         run: |
           for i in $(seq 1 30); do

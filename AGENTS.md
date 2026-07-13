@@ -74,6 +74,31 @@ pdm run test-smoke           # frontend vitest via npm
   two documented coverage exceptions (NCIt SPARQL parsing layer; sigma/canvas
   components not mountable in jsdom) are in `CLAUDE.local.md` — read it before writing
   tests.
+- **TDD does NOT catch false assumptions about external systems. Three extra test types
+  are mandatory whenever code depends on an external tool, library, or real data.**
+  Learned the hard way on #73 (PR #117): ~12 bugs shipped past a green, strictly-TDD'd
+  suite, and **not one was a logic error in our code** — every one was a false belief
+  about ROBOT's CLI, ELK's output shape, asyncpg, OWL/RDF serialization, or the real
+  Uberon data. The mechanism: *the test and the code are written from the same mental
+  model, so the hand-made double encodes the same false belief as the implementation.
+  They agree with each other, both are wrong, and the suite is green.* Three of the worst
+  bugs were actively **certified** by a test double implementing a rule the real tool does
+  not. So:
+  1. **Contract tests** — assert what the *external tool itself* does, not what our
+     wrapper does (`test_reasoner_contract.py`). A tool upgrade then fails loudly and
+     names the broken assumption, instead of surfacing months later as "no candidate
+     qualified".
+  2. **Double-fidelity tests** — run the *same* input through the double and the real
+     thing; assert they reach the same verdict. A double *stronger* than reality certifies
+     guards that do not exist; a double *weaker* than reality hides gates that cannot fire.
+  3. **Data-shape contract tests** — pin what the *real* store actually looks like
+     (`test_upstream_data_contract.py`). Fixtures encode only what their author believed:
+     Uberon relates organ→system by `part_of`, not `subClassOf`, and assuming otherwise
+     made a veto fire on the canonical *correct* mapping.
+
+  Plus **gate liveness**: for every gate, prove its *reject* branch is reachable on
+  production-shaped input. #73's satisfiability gate was vacuous for a whole round — it
+  could never fire — and every happy-path test still passed.
 - Frontend gotcha: fire-and-forget rejections inside a Svelte `$effect` trip vitest's
   unhandled-rejection guard on mock reset between tests — use `mockClear`, not
   `mockReset` (see `CLAUDE.local.md`).
@@ -134,14 +159,31 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   flag are reconstructed history. Write the changelog by writing good commit subjects.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
-- **PR review fix cycle (mandatory, no exceptions): after creating a PR, run the
-  `pr-reviewer` subagent to inspect the diff. Fix EVERY verifiable issue it reports —
-  critical, important, AND sensible suggestions (anything you can confirm and act on) —
-  then push and re-run `pr-reviewer`. Repeat this loop until a run detects NO verifiable
-  issues. Only then is the PR ready. Do not skip the re-verification step, do not defer
-  fixable issues, do not merge with known-fixable findings outstanding. NO BUTS. The
-  only findings you may leave are ones that are genuinely not verifiable/actionable in
-  this repo — and you must call those out explicitly with the reason.**
+- **PR review fix cycle (mandatory, no exceptions): after creating a PR, review the diff
+  with the FULL `pr-review-toolkit` agent set — ALL FIVE, every round, no cherry-picking:**
+  1. `pr-review-toolkit:code-reviewer` — correctness, guideline compliance
+  2. `pr-review-toolkit:silent-failure-hunter` — swallowed errors, failures that look like
+     clean results
+  3. `pr-review-toolkit:pr-test-analyzer` — do the tests actually fail when the code is
+     wrong, or do they agree with a fiction?
+  4. `pr-review-toolkit:comment-analyzer` — do the docstrings claim guarantees the code
+     does not provide?
+  5. `pr-review-toolkit:type-design-analyzer` — are the invariants enforced by the types
+     or only by the caller's good manners?
+
+  **Run them in parallel; they find different classes of defect and they do not
+  substitute for one another.** On #73 the five caught, respectively: a vacuous
+  satisfiability gate, an environment failure laundered into a verdict, a test double
+  that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
+  guarantee the merge could not provide, and an invariant enforced only by convention.
+  Running two of the five would have shipped the other three.
+
+  Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
+  (anything you can confirm and act on) — then push and **re-run all five**. Repeat until
+  a round detects NO verifiable issues. Only then is the PR ready. Do not skip the
+  re-verification step, do not defer fixable issues, do not merge with known-fixable
+  findings outstanding. NO BUTS. The only findings you may leave are ones genuinely not
+  verifiable/actionable in this repo — call those out explicitly, with the reason.**
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go
   under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
