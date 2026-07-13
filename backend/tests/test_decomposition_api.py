@@ -5,7 +5,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.dependencies import get_ncit_client, get_ncit_store
+from backend.dependencies import get_ncit_client, get_ncit_store, get_xref_store
 from backend.main import create_app
 from ontolib.decomposition import vocab
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -34,10 +34,18 @@ class _FakeStore:
         return {c: known[c] for c in codes if c in known}
 
 
+class _FakeXrefStore:
+    async def mappings_by_subjects(
+        self, codes: set[str]
+    ) -> dict[str, list[tuple[str, str, str]]]:
+        return {}
+
+
 def _client(rows: list[dict[str, str | None]]) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_ncit_client] = lambda: _FakeClient(rows)
     app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = _FakeXrefStore
     with TestClient(app) as client:
         yield client
 
