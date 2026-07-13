@@ -35,10 +35,9 @@ from ontolib.repositories.xref.evidence import (
 )
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.promotion import (
-    CONTRADICTED,
     CORROBORATED,
     NO_ANCHORED_ANCESTOR,
-    REASON_CONTRADICTED,
+    NOT_ENTAILED,
     REASON_INSUFFICIENT_EVIDENCE,
     REASON_PROMOTED,
     REASON_REFUTED,
@@ -337,7 +336,6 @@ def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
         "refuted": 0,
         "reasoner_errors": 1,
         "conflicting_identity": 0,
-        "contradicted": 0,
     }
     assert report.failed is True
 
@@ -408,7 +406,7 @@ def test_structural_corroboration_fails_when_the_upstream_parent_disagrees() -> 
             anchors=(("C12366", "UBERON:0001004"),),
             ncit_edges={("C12468", "C12366")},
         )
-        == CONTRADICTED
+        == NOT_ENTAILED
     )
 
 
@@ -474,7 +472,7 @@ def test_a_disagreeing_anchor_image_is_not_silently_dropped() -> None:
             ),
             ncit_edges={("C12468", "C12366")},
         )
-        == CONTRADICTED
+        == NOT_ENTAILED
     )
 
 
@@ -540,24 +538,43 @@ def test_a_run_never_asserts_two_identities_for_one_subject() -> None:
 
 
 @pytest.mark.unit
-def test_an_actively_contradicted_bridge_is_vetoed_even_when_curated() -> None:
-    """The planes disagreeing about where a concept sits is a VETO, not just one fewer
-    evidence kind.
+def test_absence_of_subsumption_is_not_a_contradiction_and_must_not_veto() -> None:
+    """THE open-world regression test.
 
-    Collapsing "the two ontologies actively contradict each other" into the same False
-    as "nothing has an opinion yet" threw away the cheapest wrong-bridge detector we
-    have: SME curation stands alone (D28), so a curated pair the anchored taxonomy
-    contradicts would otherwise promote regardless — unless a disjointness axiom fired.
+    Uberon relates an organ to its system with `part_of`, NOT `subClassOf` — on the
+    live store, `lung rdfs:subClassOf* respiratory system` is **false**.  So for the
+    canonical CORRECT pair (NCIt Lung -> Uberon lung, anchored on `Respiratory System
+    Organ ≡ respiratory system`), the object is simply not *entailed* to sit under the
+    anchored image.
+
+    Under the open-world assumption that means *unknown*, not *false*.  Treating it as
+    a contradiction (as an earlier round did) vetoed the canonical correct mapping,
+    pinned coverage at zero, and logged "the two ontologies disagree about this
+    concept" — a confident and false explanation.  A real contradiction can only come
+    from the reasoner deriving ⊥, which the disjointness refutation already covers.
     """
-    bad = _record(obj="UBERON:0000955")  # brain, under nervous system
-    outcome = validate_candidate(
-        bad,
-        _context(curated_pairs=frozenset({(bad.subject_id, bad.object_id)})),
-        reasoner=_ElkLikeReasoner(),
+    # lung's only subClassOf parent here is an organ class; the respiratory *system*
+    # sits above it via part_of, which this walk deliberately does not follow (#78).
+    ctx = _context(
+        upstream_edges={("UBERON:0002048", "UBERON:0005178")},
+        anchors=(("C12366", "UBERON:0001004"),),
+        curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
     )
 
-    assert outcome.promoted is None
-    assert outcome.reason == REASON_CONTRADICTED
+    outcome = validate_candidate(_record(), ctx, reasoner=_ElkLikeReasoner())
+
+    assert (
+        corroboration(
+            _record(),
+            {(_UBERON_LUNG_IRI, f"{_OBO}UBERON_0005178")},
+            anchors=ctx.anchors,
+            ncit_edges=ctx.ncit_edges,
+        )
+        == NOT_ENTAILED
+    )
+    # … and the correct bridge is still promoted, on its curation + label evidence.
+    assert outcome.promoted is not None
+    assert outcome.promoted.predicate_id == EXACT_MATCH
 
 
 @pytest.mark.unit
@@ -606,7 +623,6 @@ def test_promotion_report_counts_every_outcome() -> None:
         "refuted": 0,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
-        "contradicted": 0,
     }
     assert report.failed is False
 
@@ -628,7 +644,6 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "refuted": 1,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
-        "contradicted": 0,
     }
 
 

@@ -102,7 +102,6 @@ REASON_INSUFFICIENT_EVIDENCE = "insufficient_independent_evidence"
 REASON_REFUTED = "refuted_by_reasoner"
 REASON_CONFLICTING_IDENTITY = "conflicting_identity"
 REASON_REASONER_ERROR = "reasoner_error"
-REASON_CONTRADICTED = "contradicted_by_anchored_taxonomy"
 
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
@@ -180,7 +179,6 @@ class PromotionReport:
     refuted: int
     reasoner_errors: int = 0
     conflicting_identity: int = 0
-    contradicted: int = 0
 
     def __post_init__(self) -> None:
         # This is the number that lands in xref_run.metrics and moves the published
@@ -193,7 +191,6 @@ class PromotionReport:
             + self.refuted
             + self.reasoner_errors
             + self.conflicting_identity
-            + self.contradicted
         )
         if counted != self.considered:
             raise ValueError(
@@ -218,7 +215,6 @@ class PromotionReport:
             "refuted": self.refuted,
             "reasoner_errors": self.reasoner_errors,
             "conflicting_identity": self.conflicting_identity,
-            "contradicted": self.contradicted,
         }
 
 
@@ -355,7 +351,7 @@ def _scoped_edges(seed: str, edges: set[tuple[str, str]]) -> set[tuple[str, str]
 
 CORROBORATED = "corroborated"
 NO_ANCHORED_ANCESTOR = "no_anchored_ancestor"
-CONTRADICTED = "contradicted"
+NOT_ENTAILED = "not_entailed"
 
 
 def corroboration(
@@ -365,18 +361,32 @@ def corroboration(
     anchors: Sequence[tuple[str, str]],
     ncit_edges: set[tuple[str, str]],
 ) -> str:
-    """Three-valued, because ``False`` was hiding the most interesting signal.
+    """Three-valued for *observability* — but only ``CORROBORATED`` is evidence, and
+    **none of these states may veto a promotion**.
 
-    ``NO_ANCHORED_ANCESTOR`` means *no opinion*: the bootstrap has not reached here yet.
-    Benign, and it shrinks as anchors accumulate.
+    ``NO_ANCHORED_ANCESTOR`` — no anchored ancestor to reason from; the bootstrap has
+    not reached here yet.
 
-    ``CONTRADICTED`` means the two ontologies **actively disagree** about where this
-    concept sits — the object demonstrably does not sit under the upstream image of an
-    anchored NCIt ancestor of the subject.  That is a data alarm and the cheapest wrong-
-    bridge detector we have, and collapsing it into the same ``False`` as "no opinion"
-    threw it away: a curated pair contradicted by the anchored taxonomy would still
-    promote (SME curation stands alone), unless a disjointness axiom happened to fire.
-    It now vetoes.
+    ``NOT_ENTAILED`` — there is an anchored ancestor, but the object is not *entailed*
+    to sit under its upstream image.  **This is not a contradiction.**  An earlier
+    version of this function treated it as one and vetoed the promotion; that was a
+    serious modelling error, caught only by querying the real store:
+
+    * Under the **open-world assumption**, "not provably under X" means *unknown*, not
+      *false*.  A genuine contradiction can only be established by the reasoner deriving
+      ``⊥`` — which the disjointness refutation already does (``REASON_REFUTED``).  The
+      veto was therefore both wrong and redundant.
+    * Empirically it is also the **normal case** for anatomy.  Uberon relates an organ
+      to its system with **``part_of``**, not ``subClassOf``: on the live store,
+      ``lung rdfs:subClassOf* respiratory system`` is **false**.  So the veto fired on
+      the canonical *correct* pair (NCIt Lung -> Uberon lung, under the
+      ``Respiratory System Organ ≡ respiratory system`` anchor), pinning coverage at
+      zero while logging "the two ontologies disagree" — a confident, false explanation.
+
+    Consequence, stated plainly: because this walk follows only ``subClassOf``,
+    ``STRUCTURAL_CORROBORATION`` rarely fires for Uberon anatomy at all, so promotion
+    there rests on label agreement + the upstream's own xref + SME curation.  Walking
+    ``part_of`` is issue #78; until then this signal is weak, not wrong.
     """
 
     """Does the upstream plane agree with the NCIt plane about where *record* sits?
@@ -406,7 +416,7 @@ def corroboration(
     upstream_ancestors = _reachable_ancestors(object_iri(record.object_id), inferred)
     if all(object_iri(curie) in upstream_ancestors for curie in anchored):
         return CORROBORATED
-    return CONTRADICTED
+    return NOT_ENTAILED
 
 
 # ── the decision ───────────────────────────────────────────────────────
@@ -484,30 +494,6 @@ def _evidence_for(
     )
 
 
-def _contradicted(
-    record: SSSOMRecord, evidence: tuple[Evidence, ...]
-) -> PromotionOutcome:
-    """The planes actively disagree about where this concept sits — a veto.
-
-    Not merely one fewer evidence kind: SME curation stands alone (D28), so a curated
-    pair the anchored taxonomy contradicts would otherwise promote regardless.
-    """
-    logger.warning(
-        "refusing %s -> %s: the upstream object does not sit under the upstream image "
-        "of an anchored NCIt ancestor of the subject — the two ontologies disagree "
-        "about this concept.",
-        record.subject_id,
-        record.object_id,
-    )
-    return PromotionOutcome(
-        record=record,
-        promoted=None,
-        evidence=evidence,
-        el_valid=None,
-        reason=REASON_CONTRADICTED,
-    )
-
-
 def _insufficient(
     record: SSSOMRecord, evidence: tuple[Evidence, ...]
 ) -> PromotionOutcome:
@@ -573,8 +559,6 @@ def validate_candidate(
     evidence = _evidence_for(
         record, ctx, structurally_corroborated=verdict == CORROBORATED
     )
-    if verdict == CONTRADICTED:
-        return _contradicted(record, evidence)
     if not is_independent(evidence):
         return _insufficient(record, evidence)
 
@@ -756,7 +740,6 @@ def promote_candidates(
         refuted=counts[REASON_REFUTED],
         reasoner_errors=counts[REASON_REASONER_ERROR],
         conflicting_identity=counts[REASON_CONFLICTING_IDENTITY],
-        contradicted=counts[REASON_CONTRADICTED],
     )
 
 
