@@ -18,6 +18,7 @@ from ontolib.repositories.xref.evidence import (
     Evidence,
 )
 from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.promotion import parse_inferred_subclasses
 from ontolib.repositories.xref.validation import (
     classify,
     promote_candidate,
@@ -206,25 +207,39 @@ def test_validate_and_classify_returns_classify_path(
 
 
 def _owl_el_fixture() -> str:
-    """Minimal OWL 2 EL ontology (3 classes, 1 subclass axiom)."""
+    """Minimal OWL 2 EL ontology (3 classes, 2 subclass axioms).
+
+    ``rdfs:subClassOf`` inside the ``owl:Class`` node is the *only* way RDF/XML
+    expresses a subclass axiom.  A bare ``<owl:SubClassOf>`` element (as this
+    fixture used to carry) is not one: RDF/XML reads it as a typed node using
+    ``owl:Class`` as an undeclared property, which is itself an EL-profile
+    violation — so the gate correctly rejected it, and the smoke test asserted the
+    opposite.  It never surfaced because ROBOT was not installed anywhere the suite
+    ran, so this test always skipped.
+    """
     return """<?xml version="1.0"?>
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
          xmlns:owl="http://www.w3.org/2002/07/owl#"
          xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#">
   <owl:Ontology rdf:about="http://example.org/test-ontology"/>
-  <owl:Class rdf:about="http://example.org/A"/>
-  <owl:Class rdf:about="http://example.org/B"/>
   <owl:Class rdf:about="http://example.org/C"/>
-  <owl:SubClassOf>
-    <owl:Class rdf:about="http://example.org/A"/>
-    <owl:Class rdf:about="http://example.org/B"/>
-  </owl:SubClassOf>
+  <owl:Class rdf:about="http://example.org/B">
+    <rdfs:subClassOf rdf:resource="http://example.org/C"/>
+  </owl:Class>
+  <owl:Class rdf:about="http://example.org/A">
+    <rdfs:subClassOf rdf:resource="http://example.org/B"/>
+  </owl:Class>
 </rdf:RDF>"""
 
 
 @pytest.mark.integration
 def test_robot_elk_smoke(tmp_path: Path) -> None:
-    """Small EL ontology classified by ROBOT/ELK returns a valid output path."""
+    """A small EL ontology passes the profile gate and is classified by ELK.
+
+    The classification assertion is that ELK *reasoned*: ``A ⊑ C`` is nowhere stated
+    (only ``A ⊑ B`` and ``B ⊑ C``), so its presence in the output is an inference.
+    An output file merely existing would prove nothing.
+    """
     if shutil.which("robot") is None:
         pytest.skip("robot not on PATH")
 
@@ -232,9 +247,12 @@ def test_robot_elk_smoke(tmp_path: Path) -> None:
     onto_path.write_text(_owl_el_fixture())
 
     assert to_el_profile_and_check(str(onto_path)) is True
+
     out_path = classify(str(onto_path))
     assert out_path.exists()
-    assert out_path.suffix == ".owl"
+
+    inferred = parse_inferred_subclasses(out_path)
+    assert ("http://example.org/A", "http://example.org/C") in inferred
 
 
 # ── test 4: non-EL input rejected before classify ──────────────────────
