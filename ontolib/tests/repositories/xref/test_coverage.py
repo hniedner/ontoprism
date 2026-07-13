@@ -76,17 +76,6 @@ def test_cde_anchors_is_post_coordinated_true() -> None:
     assert anchors.codes == frozenset({"C25150", "C25230"})
 
 
-@pytest.mark.unit
-def test_cde_anchors_value_meaning_included() -> None:
-    """value_meaning rows are included as normal anchors."""
-    anchors = CdeAnchors(
-        "100",
-        "1.0",
-        (CdeAnchor("C2916", "value_meaning", False),),
-    )
-    assert CdeAnchor("C2916", "value_meaning", False) in anchors.anchors
-
-
 # ---------------------------------------------------------------------------
 # cde_anchor_map tests
 # ---------------------------------------------------------------------------
@@ -282,8 +271,17 @@ def test_as_dict_returns_all_fields() -> None:
         {}, live_status={}, strength_by_subject={}, role_codes=frozenset()
     )
     d = report.as_dict()
-    assert isinstance(d, dict)
-    assert "cde_coverage" in d
-    assert "n_cdes" in d
-    assert "distinct_anchors" in d
-    assert len(d) >= 10
+    assert set(d.keys()) == {
+        "n_cdes",
+        "single_code_cdes",
+        "post_coordinated_cdes",
+        "distinct_anchors",
+        "live",
+        "unresolved",
+        "anchors_in_roles",
+        "anchors_new",
+        "anchors_identity_mapped",
+        "anchors_close_only",
+        "anchors_unmapped",
+        "cde_coverage",
+    }

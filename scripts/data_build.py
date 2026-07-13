@@ -102,37 +102,49 @@ async def _build_xref() -> None:
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
-    async with (
-        OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
-        OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
-    ):
-        store = XrefStore(sf)
-        ncit_version = (await ncit_client.version()) or "unknown"
-        uberon_version = "uberon-2026-01"
-        report = await ingest_candidates(
-            store,
-            ncit_client,
-            uberon_client,
-            ncit_version=ncit_version,
-            uberon_version=uberon_version,
-        )
-    await dispose_engine(engine)
+    try:
+        async with (
+            OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
+            OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
+        ):
+            store = XrefStore(sf)
+            ncit_version = (await ncit_client.version()) or "unknown"
+            uberon_version = "uberon-2026-01"
+            report = await ingest_candidates(
+                store,
+                ncit_client,
+                uberon_client,
+                ncit_version=ncit_version,
+                uberon_version=uberon_version,
+            )
+    finally:
+        await dispose_engine(engine)
     typer.echo(f"xref candidates ingested: {report}")
 
 
 async def _build_xref_coverage() -> None:
+    """Print the CDE-level coverage report.
+
+    Note: ``anchors_in_roles`` is 0 because ``role_codes`` is not yet
+    wired here — a populated decomposition run (with role-target fillers)
+    is needed to compute it. TODO(#78/#79): inject role codes from the
+    decomposed `ncit_decomposed` graph once Uberon ``part_of`` and Mondo
+    genus are available.
+    """
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
-    async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
-        store = XrefStore(sf)
-        report = await generate_coverage_report(
-            settings.cadsr_db_path,
-            store,
-            client,
-            role_codes=frozenset(),
-        )
-    await dispose_engine(engine)
+    try:
+        async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+            store = XrefStore(sf)
+            report = await generate_coverage_report(
+                settings.cadsr_db_path,
+                store,
+                client,
+                role_codes=frozenset(),
+            )
+    finally:
+        await dispose_engine(engine)
     typer.echo(str(report.as_dict()))
 
 

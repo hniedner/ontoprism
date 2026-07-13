@@ -195,9 +195,11 @@ async def generate_coverage_report(
     in_scope_only: bool = True,
 ) -> CoverageReport:
     anchor_map = cde_anchor_map(db_path)
+    all_codes: frozenset[str]
     if in_scope_only:
-        anchor_map, _ = await _filter_scope(anchor_map, client)
-    all_codes = frozenset(c for cde in anchor_map.values() for c in cde.codes)
+        anchor_map, all_codes = await _filter_scope(anchor_map, client)
+    else:
+        all_codes = frozenset(c for cde in anchor_map.values() for c in cde.codes)
     live_status = await check_liveness(all_codes, client)
     strength = await store.mapping_strength_by_subject()
     return build_coverage_report(

@@ -126,12 +126,24 @@ class XrefStore:
             return [dict(row) for row in result.mappings().all()]
 
     async def mapping_strength_by_subject(self) -> dict[str, set[tuple[str, str]]]:
+        """Return all ``(predicate_id, lifecycle_state)`` per subject across every run.
+
+        Because rows from multiple runs coalesce in the same set, callers
+        should be aware that the same ``(subject, predicate)`` may appear
+        with different lifecycle states (e.g. ``proposed`` in one run and
+        ``validated`` in another). The latest run's state is **not** applied
+        here — the downstream ``build_coverage_report`` treats *any*
+        ``exactMatch + {validated, active}`` as identity-grade.  This is
+        correct for Phase A where ingest produces ``closeMatch/proposed``
+        and validation (#73) promotes to ``exactMatch/validated``;
+        cross-run conflicts are resolved by dataset design, not by query.
+        """
         sql = text("SELECT subject_id, predicate_id, lifecycle_state FROM concept_xref")
         async with self._sf() as s:
             result = await s.execute(sql)
             out: dict[str, set[tuple[str, str]]] = {}
             for r in result.mappings().all():
-                out.setdefault(r["subject_id"], set()).add(
-                    (r["predicate_id"], r["lifecycle_state"])
-                )
+                key = r["subject_id"]
+                pair = (r["predicate_id"], r["lifecycle_state"])
+                out.setdefault(key, set()).add(pair)
             return out
