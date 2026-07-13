@@ -205,6 +205,34 @@ class XrefStore:
                 (r["subject_id"], r["object_id"]) for r in result.mappings().all()
             )
 
+    async def count_stale(
+        self, *, ncit_version: str, source_version: str, source: str
+    ) -> int:
+        """How many validated bridges the current endpoint versions have made stale.
+
+        Read-only twin of :meth:`quarantine_stale`. A run that *cannot* sweep (because
+        its reasoner failed) must still be able to say "N bridges are stale and I could
+        not act on them — the coverage number is currently unreliable", instead of
+        leaving that fact in a log line the pipeline swallows.
+        """
+        sql = text(
+            "SELECT count(*) FROM concept_xref "
+            "WHERE lifecycle_state = 'validated' "
+            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
+            "AND (subject_source_version <> :ncit_version "
+            "     OR object_source_version <> :source_version)"
+        )
+        async with self._sf() as s:
+            result = await s.execute(
+                sql,
+                {
+                    "ncit_version": ncit_version,
+                    "source_version": source_version,
+                    "source": source,
+                },
+            )
+            return int(result.scalar_one())
+
     async def quarantine_stale(
         self, *, ncit_version: str, source_version: str, source: str
     ) -> int:

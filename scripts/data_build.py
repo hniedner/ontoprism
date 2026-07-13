@@ -163,7 +163,31 @@ def _curated_pairs(golden: Path | None) -> frozenset[tuple[str, str]]:
     )
 
 
-async def _build_xref_promote(golden: Path | None, uberon_version: str) -> None:
+async def _endpoint_versions(
+    ncit_client: OxigraphHttpClient, uberon_client: OxigraphHttpClient
+) -> tuple[str, str]:
+    """The endpoint versions this run validates against — never fabricated.
+
+    A promoted bridge asserts "validated against these endpoint versions", and the D29
+    staleness sweep compares exactly those strings. A fabricated version (`"unknown"`,
+    or a hardcoded CLI default) is *self-consistent forever*: `"unknown" <> "unknown"`
+    is never true, so the sweep can never fire again, and stale bridges keep being
+    served and counted — with a coverage number that simply never goes down.
+    """
+    ncit, upstream = await ncit_client.version(), await uberon_client.version()
+    missing = [name for name, v in (("NCIt", ncit), ("Uberon", upstream)) if not v]
+    if missing:
+        typer.echo(
+            f"No owl:versionInfo on: {', '.join(missing)}. A promotion run must be able"
+            " to name what it validated against, or D29 staleness can never be"
+            " detected. Load the store with a versionInfo (see docs/DATA_SETUP.md).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return str(ncit), str(upstream)
+
+
+async def _build_xref_promote(golden: Path | None, uberon_version: str | None) -> None:
     """Validation-driven promotion (#73): closeMatch/proposed -> exactMatch/validated.
 
     Shells out to ROBOT/ELK per candidate (EL profile + satisfiability gate before any
@@ -181,13 +205,15 @@ async def _build_xref_promote(golden: Path | None, uberon_version: str) -> None:
             OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
             OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
         ):
-            ncit_version = (await ncit_client.version()) or "unknown"
+            ncit_version, endpoint_uberon = await _endpoint_versions(
+                ncit_client, uberon_client
+            )
             report = await run_promotion(
                 XrefStore(sf),
                 ncit_client,
                 uberon_client,
                 ncit_version=ncit_version,
-                source_version=uberon_version,
+                source_version=uberon_version or endpoint_uberon,
                 curated_pairs=_curated_pairs(golden),
             )
     finally:
@@ -241,10 +267,11 @@ def xref_promote(
         help="Curated (SME-signed) SSSOM mapping set; its exactMatch pairs seed the "
         "trusted-anchor set that structural corroboration is measured against.",
     ),
-    uberon_version: str = typer.Option(
-        "uberon-2026-01",
-        help="The upstream release this run validates against. Bridges validated "
-        "against any other release are quarantined (D29).",
+    uberon_version: str | None = typer.Option(
+        None,
+        help="Override the upstream release this run validates against. Defaults to "
+        "the endpoint's own owl:versionInfo — do not fabricate one, or the D29 "
+        "staleness sweep can never fire.",
     ),
 ) -> None:
     """Promote validated candidates to exactMatch (needs `robot` on PATH)."""

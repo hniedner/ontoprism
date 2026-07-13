@@ -64,6 +64,7 @@ from __future__ import annotations
 import logging
 import tempfile
 import uuid
+from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -99,6 +100,8 @@ logger = logging.getLogger(__name__)
 REASON_PROMOTED = "promoted"
 REASON_INSUFFICIENT_EVIDENCE = "insufficient_independent_evidence"
 REASON_REFUTED = "refuted_by_reasoner"
+REASON_CONFLICTING_IDENTITY = "conflicting_identity"
+REASON_REASONER_ERROR = "reasoner_error"
 
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
@@ -175,6 +178,7 @@ class PromotionReport:
     insufficient_evidence: int
     refuted: int
     reasoner_errors: int = 0
+    conflicting_identity: int = 0
 
     def __post_init__(self) -> None:
         # This is the number that lands in xref_run.metrics and moves the published
@@ -186,11 +190,12 @@ class PromotionReport:
             + self.insufficient_evidence
             + self.refuted
             + self.reasoner_errors
+            + self.conflicting_identity
         )
         if counted != self.considered:
             raise ValueError(
                 f"promotion accounting does not balance: considered={self.considered} "
-                f"but promoted+insufficient+refuted+errors={counted}"
+                f"but the outcome buckets sum to {counted}"
             )
 
     @property
@@ -209,6 +214,7 @@ class PromotionReport:
             "insufficient_evidence": self.insufficient_evidence,
             "refuted": self.refuted,
             "reasoner_errors": self.reasoner_errors,
+            "conflicting_identity": self.conflicting_identity,
         }
 
 
@@ -264,9 +270,40 @@ def elk_reasoner(ttl: str) -> set[tuple[str, str]] | None:
         if inferred is None:
             return None
         try:
-            return parse_inferred_subclasses(inferred)
+            entailed = parse_inferred_subclasses(inferred)
         finally:
             inferred.unlink(missing_ok=True)
+
+    # `robot reason` emits the input axioms *plus* the inferred ones, so every stated
+    # subsumption we handed it must come back.  If they do not, ROBOT exited 0 without
+    # classifying our merge (an --output that went nowhere, a changed default, an
+    # ontology it failed to load quietly).  That must not be read as a verdict: an empty
+    # entailment set is `is not None`, so it would sail through the EL gate as
+    # `el_valid=True` and *promote* the candidate on a classification that never
+    # happened — a false positive, not a conservative failure.
+    stated = _stated_edges(ttl)
+    if not stated <= entailed:
+        raise ReasonerUnavailableError(
+            f"`robot reason` exited 0 but its output is missing "
+            f"{len(stated - entailed)} of the {len(stated)} axioms it was given — it "
+            "did not classify this merge. This is NOT a verdict."
+        )
+    return entailed
+
+
+def _stated_edges(ttl: str) -> set[tuple[str, str]]:
+    """The named-class subsumptions asserted *in the input merge* (not inferred)."""
+    graph = Graph().parse(data=ttl, format="turtle")
+    edges = {
+        (str(c), str(p))
+        for c, p in graph.subject_objects(RDFS.subClassOf)
+        if _is_named_edge(c, p)
+    }
+    for left, right in graph.subject_objects(OWL.equivalentClass):
+        if _is_named_edge(left, right):
+            edges.add((str(left), str(right)))
+            edges.add((str(right), str(left)))
+    return edges
 
 
 # ── structural corroboration (over a merge WITHOUT the candidate) ──────
@@ -348,12 +385,35 @@ def _merge_for(
     *,
     include_bridge: bool,
 ) -> str:
-    """Build the candidate's own small merge (its two ancestor paths, not the run's)."""
+    """Build the candidate's own small merge — and make sure the anchors can *bite*.
+
+    Scoping the taxonomy to the candidate's own two endpoints (which is all the first
+    cut did) quietly neuters the whole gate: an anchor contributes ``P ≡ P'`` and a
+    declaration of ``P'``, but **none of P''s own ancestor edges**, so ``P'`` enters the
+    merge as a parentless floating class.  ELK can then never walk from it to a branch
+    where a disjointness axiom could fire, and the refutation gate under-fires across
+    the board — which looks exactly like "nothing was wrong".
+
+    So each anchor brings its own ancestor paths, on both planes.  Anchors outside the
+    subject's ancestor cone cannot affect this merge at all, so they are dropped rather
+    than shipped to the JVM (the merge stays MIREOT-small; the anchor set no longer
+    grows the merge with every promotion the run makes).  The subject itself is kept in
+    the cone: an anchor *on the subject* is exactly what the same-subject conflict check
+    leans on.
+    """
+    subject_cone = _ancestors(record.subject_id, ctx.ncit_edges) | {record.subject_id}
+    live = tuple(a for a in anchors if a[0] in subject_cone)
+
+    ncit_seeds = {record.subject_id, *(code for code, _ in live)}
+    upstream_seeds = {record.object_id, *(curie for _, curie in live)}
+
     return build_validation_ontology(
         record,
-        ncit_edges=_scoped_edges(record.subject_id, ctx.ncit_edges),
-        upstream_edges=_scoped_edges(record.object_id, ctx.upstream_edges),
-        anchors=anchors,
+        ncit_edges=set().union(*(_scoped_edges(s, ctx.ncit_edges) for s in ncit_seeds)),
+        upstream_edges=set().union(
+            *(_scoped_edges(s, ctx.upstream_edges) for s in upstream_seeds)
+        ),
+        anchors=live,
         disjoints=ctx.disjoints,
         include_bridge=include_bridge,
     )
@@ -466,6 +526,10 @@ def _refuse_degenerate_context(
             ),
             ("upstream subClassOf edges", ctx.upstream_edges),
             ("upstream labels", ctx.object_labels),
+            # label agreement needs BOTH sides. NCIt labels load from the *default*
+            # graph while the edges load from the stated named graph — two independent
+            # load paths, so this can fail on its own.
+            ("NCIt labels", ctx.subject_labels),
         )
         if not loaded
     ]
@@ -477,6 +541,30 @@ def _refuse_degenerate_context(
             "reason unrelated to the candidate; refusing to run rather than reporting "
             "a zero that looks conservative."
         )
+
+
+def _claims_a_taken_endpoint(
+    pair: tuple[str, str],
+    ctx: PromotionContext,
+    minted: Sequence[tuple[str, str]],
+    claimed_subjects: set[str],
+    claimed_objects: set[str],
+) -> bool:
+    """Would promoting *pair* give an endpoint two identity-grade bridges?"""
+    subject, obj = pair
+    if pair in ctx.anchors or pair in minted:
+        return False  # the same bridge, not a competing one
+    if subject not in claimed_subjects and obj not in claimed_objects:
+        return False
+    logger.warning(
+        "refusing %s -> %s: an identity-grade bridge already claims one of its "
+        "endpoints. Promoting both would assert an equivalence between the two "
+        "upstream classes that nobody curated and no reasoner saw. Needs SME "
+        "adjudication.",
+        subject,
+        obj,
+    )
+    return True
 
 
 def promote_candidates(
@@ -493,22 +581,34 @@ def promote_candidates(
     _refuse_degenerate_context(records, ctx)
 
     promoted: list[SSSOMRecord] = []
-    insufficient = refuted = errors = 0
-    # Promotions made *in this run* become trusted anchors for the candidates after them
-    # — and, critically, guard identity itself: ingest legitimately produces several
-    # upstream candidates for one NCIt code, and promoting two of them would assert
-    # C ≡ U1 and C ≡ U2, hence U1 ≡ U2 — an equivalence no reasoner saw and nobody
-    # curated. The second candidate is now validated *against* the first (which is in
-    # its anchor set), so it is refuted rather than silently co-asserted.
+    counts: Counter[str] = Counter()
+
+    # Identity is functional, and a *refutation-only* oracle cannot be relied on to
+    # enforce that.  Ingest legitimately yields several upstream candidates for one NCIt
+    # code; promoting two asserts C ≡ U1 and C ≡ U2, hence U1 ≡ U2 — an equivalence
+    # nobody curated and no reasoner saw.  ELK only objects if U1 and U2 are *provably
+    # disjoint*, and the commonest ingest ambiguity (a parent/child or sibling pair in
+    # the same Uberon branch) never is.  So the constraint is enforced structurally
+    # here, not hoped for from the reasoner — and it is counted, so it shows up in the
+    # metrics instead of hiding inside `refuted`.
+    claimed_subjects = {code for code, _ in ctx.anchors}
+    claimed_objects = {curie for _, curie in ctx.anchors}
     minted: list[tuple[str, str]] = []
 
     for record in records:
+        pair = (record.subject_id, record.object_id)
+        if _claims_a_taken_endpoint(
+            pair, ctx, minted, claimed_subjects, claimed_objects
+        ):
+            counts[REASON_CONFLICTING_IDENTITY] += 1
+            continue
+
         try:
             outcome = validate_candidate(
                 record, ctx, reasoner=reasoner, extra_anchors=minted
             )
         except ReasonerUnavailableError as exc:
-            errors += 1
+            counts[REASON_REASONER_ERROR] += 1
             logger.error(
                 "reasoner unavailable for %s -> %s (NOT a verdict): %s",
                 record.subject_id,
@@ -517,20 +617,22 @@ def promote_candidates(
             )
             continue
 
+        counts[outcome.reason] += 1
         if outcome.promoted is not None:
             promoted.append(outcome.promoted)
-            minted.append((record.subject_id, record.object_id))
-        elif outcome.reason == REASON_INSUFFICIENT_EVIDENCE:
-            insufficient += 1
-        else:
-            refuted += 1
+            # Promotions become trusted anchors for the candidates after them, and claim
+            # their endpoints against the conflict check above.
+            minted.append(pair)
+            claimed_subjects.add(record.subject_id)
+            claimed_objects.add(record.object_id)
 
     return promoted, PromotionReport(
         considered=len(records),
-        promoted=len(promoted),
-        insufficient_evidence=insufficient,
-        refuted=refuted,
-        reasoner_errors=errors,
+        promoted=counts[REASON_PROMOTED],
+        insufficient_evidence=counts[REASON_INSUFFICIENT_EVIDENCE],
+        refuted=counts[REASON_REFUTED],
+        reasoner_errors=counts[REASON_REASONER_ERROR],
+        conflicting_identity=counts[REASON_CONFLICTING_IDENTITY],
     )
 
 
@@ -815,9 +917,14 @@ async def run_promotion(
     """Promote every proposed candidate, then quarantine bridges a release left stale.
 
     *ncit_version* / *source_version* are the endpoint versions this run validates
-    against; they stamp the run and drive the D29 staleness sweep.  The sweep runs
-    **unconditionally** — a release makes old bridges stale whether or not this run
-    happened to promote anything.
+    against; they stamp the promoted rows and drive the D29 staleness sweep.
+
+    The sweep runs whenever the run is sound — a release makes old bridges stale whether
+    or not this run promoted anything — but is **skipped when the reasoner failed**: a
+    run that established nothing must not also demote bridges a working run validated.
+    In that case the stale bridges keep being served *and counted*, so the count is
+    surfaced as ``stale_pending`` rather than left in a log line: the published coverage
+    number is unreliable until a sound run sweeps.
     """
     candidates = await store.proposed_candidates()
     anchors = await store.validated_anchors()
@@ -841,12 +948,20 @@ async def run_promotion(
     # The staleness sweep is destructive (it demotes validated bridges) and a run whose
     # reasoner never ran has established nothing — it must not also demote the bridges a
     # working run had validated.
-    quarantined = 0
+    quarantined = stale_pending = 0
     if report.failed:
+        stale_pending = await store.count_stale(
+            ncit_version=ncit_version,
+            source_version=source_version,
+            source=source,
+        )
         logger.error(
-            "skipping the D29 staleness sweep: the reasoner failed for %d candidate(s)"
-            ", so this run established nothing and must not demote anything",
+            "skipping the D29 staleness sweep: the reasoner failed for %d candidate(s),"
+            " so this run established nothing and must not demote anything. %d"
+            " bridge(s) are stale and still being served and counted — the published"
+            " coverage number is unreliable until a sound run sweeps.",
             report.reasoner_errors,
+            stale_pending,
         )
     else:
         quarantined = await store.quarantine_stale(
@@ -855,9 +970,18 @@ async def run_promotion(
             source=source,
         )
 
-    return {
+    outcome = {
         **report.as_dict(),
         "run_id": run_id,
         "quarantined": quarantined,
+        "stale_pending": stale_pending,
         "status": "failed" if report.failed else "completed",
     }
+    # The sweep is the one destructive action here; persist its result so it is
+    # auditable in xref_run.metrics rather than only echoed to a terminal.
+    await store.update_run_metrics(
+        run_id,
+        {k: v for k, v in outcome.items() if k != "run_id"},
+        status="failed" if report.failed else "completed",
+    )
+    return outcome

@@ -117,20 +117,47 @@ class _RefutesTheBridge(_ElkLikeReasoner):
         return None if bridged else edges
 
 
-class _RefutesAgainstMintedAnchor(_ElkLikeReasoner):
-    """Refutes a bridged merge whose subject already carries a *different* anchor.
+def _closure(edges: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    closed = set(edges)
+    while True:
+        grown = closed | {
+            (a, d) for a, b in closed for c, d in closed if b == c and a != d
+        }
+        if grown == closed:
+            return closed
+        closed = grown
 
-    Stands in for what real ELK does once `C ≡ U1` is an asserted anchor and the merge
-    then adds `C ≡ U2` with U1/U2 disjoint: the merge is unsatisfiable.
+
+class _SatisfiabilityHonestReasoner(_ElkLikeReasoner):
+    """Refutes iff the merge really entails ⊥ — some class inferred under two classes
+    asserted ``owl:disjointWith``.
+
+    That is the ONLY refutation rule ELK can apply over the fragment we emit
+    (declarations + named subClassOf + named equivalentClass + disjointWith).  An
+    earlier double refuted whenever a subject had more than one equivalent — a rule ELK
+    does not implement.  It encoded the guard we *wanted* instead of the reasoner's
+    behaviour, and so it certified a same-subject guard that did not exist in the code.
+    A test double must be at most as strong as the real thing, never stronger.
     """
 
     def __call__(  # type: ignore[override]
         self, ttl: str
     ) -> set[tuple[str, str]] | None:
         edges = super().__call__(ttl)
-        equivalents = {b for a, b in edges if a == _LUNG_IRI and b.startswith(_OBO)}
-        bridged_conflict = len(equivalents) > 1
-        return None if bridged_conflict else edges
+        graph = Graph().parse(data=ttl, format="turtle")
+        disjoint = {
+            (str(a), str(b)) for a, b in graph.subject_objects(OWL.disjointWith)
+        }
+        if not disjoint:
+            return edges
+
+        closure = _closure(edges)
+        classes = {c for c, _ in closure} | {p for _, p in closure}
+        for cls in classes:
+            above = {p for c, p in closure if c == cls} | {cls}
+            if any(a in above and b in above for a, b in disjoint):
+                return None  # cls sits under two disjoint classes -> unsatisfiable
+        return edges
 
 
 def _unavailable(ttl: str) -> set[tuple[str, str]] | None:
@@ -305,6 +332,7 @@ def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
         "insufficient_evidence": 0,
         "refuted": 0,
         "reasoner_errors": 1,
+        "conflicting_identity": 0,
     }
     assert report.failed is True
 
@@ -479,25 +507,31 @@ def test_the_el_gate_is_not_run_when_the_evidence_already_fails() -> None:
 @pytest.mark.unit
 def test_a_run_never_asserts_two_identities_for_one_subject() -> None:
     """Ingest legitimately yields several upstream candidates for one NCIt code.
-    Promoting two would assert C ≡ U1 and C ≡ U2 — hence U1 ≡ U2, an equivalence no
-    reasoner saw and nobody curated.  The second must be validated against the first."""
-    first = _record(obj="UBERON:0002048")
-    second = _record(obj="UBERON:0000955")
+    Promoting two asserts C ≡ U1 and C ≡ U2 — hence U1 ≡ U2, an equivalence nobody
+    curated and no reasoner saw.
+
+    This must be enforced STRUCTURALLY, not left to the reasoner: ELK only objects if U1
+    and U2 are provably disjoint, and the commonest ingest ambiguity (two terms in the
+    same Uberon branch, e.g. lung and lower respiratory tract) never is.  Note the pair
+    below is deliberately NOT disjoint — a refutation-only oracle is powerless here, and
+    a satisfiability-honest reasoner will happily accept both.
+    """
+    first = _record(obj="UBERON:0002048")  # lung
+    second = _record(obj="UBERON:0001558")  # lower respiratory tract — NOT disjoint
     ctx = _context(
-        # both pairs are curated, so both would otherwise promote on SME evidence alone
+        # both curated, so both would otherwise promote on SME evidence alone
         curated_pairs=frozenset(
-            {("C12468", "UBERON:0002048"), ("C12468", "UBERON:0000955")}
+            {("C12468", "UBERON:0002048"), ("C12468", "UBERON:0001558")}
         ),
-        # brain is disjoint from the respiratory system the first bridge places it under
-        disjoints=((_UBERON_RESP_IRI, f"{_OBO}UBERON_0000010"),),
     )
 
     promoted, report = promote_candidates(
-        [first, second], ctx, reasoner=_RefutesAgainstMintedAnchor()
+        [first, second], ctx, reasoner=_SatisfiabilityHonestReasoner()
     )
 
     assert [r.object_id for r in promoted] == ["UBERON:0002048"]
-    assert report.refuted == 1
+    assert report.conflicting_identity == 1
+    assert report.refuted == 0  # the reasoner could not have caught this
 
 
 # ── the run: report + the number it moves ──────────────────────────────
@@ -507,7 +541,9 @@ def test_a_run_never_asserts_two_identities_for_one_subject() -> None:
 def test_promotion_report_counts_every_outcome() -> None:
     records = [
         _record(),  # promotes
-        _record(obj="UBERON:0000955"),  # insufficient evidence
+        # a *different* subject, so this is a plain evidence failure rather than an
+        # identity conflict with the promotion above
+        _record(subject="C12377", obj="UBERON:0000955"),  # insufficient evidence
     ]
     promoted, report = promote_candidates(
         records, _context(), reasoner=_ElkLikeReasoner()
@@ -520,6 +556,7 @@ def test_promotion_report_counts_every_outcome() -> None:
         "insufficient_evidence": 1,
         "refuted": 0,
         "reasoner_errors": 0,
+        "conflicting_identity": 0,
     }
     assert report.failed is False
 
@@ -540,6 +577,7 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "insufficient_evidence": 1,
         "refuted": 1,
         "reasoner_errors": 0,
+        "conflicting_identity": 0,
     }
 
 

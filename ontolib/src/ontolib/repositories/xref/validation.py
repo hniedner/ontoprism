@@ -65,6 +65,22 @@ def _marks(output: str, markers: tuple[str, ...]) -> bool:
     return any(marker in lowered for marker in markers)
 
 
+def _refuse_if_killed(result: subprocess.CompletedProcess[str], what: str) -> None:
+    """A process killed by a signal never rendered a judgment about anything.
+
+    Checked *before* the marker match, because a dying JVM's partial output can contain
+    the marker words by accident — `VerifyError: Inconsistent stackmap frames` carries
+    "inconsistent", and a crash dump carries "violation". Reading those as a verdict is
+    exactly the laundering this module forbids.
+    """
+    if result.returncode < 0:
+        raise ReasonerUnavailableError(
+            f"ROBOT ({what}) was killed by signal {-result.returncode} (OOM-killer? "
+            "JVM crash?). Its partial output is not a verdict, whatever words it "
+            f"happens to contain.\nstderr: {result.stderr.strip()[:1000]}"
+        )
+
+
 def _run_robot(args: list[str]) -> subprocess.CompletedProcess[str]:
     """Invoke ROBOT, converting any *inability to run it* into an explicit error."""
     try:
@@ -104,6 +120,7 @@ def to_el_profile_and_check(ontology_path: str) -> bool:
     if result.returncode == 0:
         return True
 
+    _refuse_if_killed(result, "validate-profile")
     if not _marks(result.stdout + result.stderr, _PROFILE_VIOLATION_MARKERS):
         raise ReasonerUnavailableError(
             f"`robot validate-profile` exited {result.returncode} without reporting a "
@@ -132,21 +149,28 @@ def classify(ontology_path: str | Path) -> Path | None:
     os.close(fd)
     out_path = Path(path)
 
-    result = _run_robot(
-        [
-            "reason",
-            "--reasoner",
-            "ELK",
-            "--input",
-            str(ontology_path),
-            "--output",
-            str(out_path),
-        ]
-    )
+    try:
+        result = _run_robot(
+            [
+                "reason",
+                "--reasoner",
+                "ELK",
+                "--input",
+                str(ontology_path),
+                "--output",
+                str(out_path),
+            ]
+        )
+    except ReasonerUnavailableError:
+        # do not leak one temp file per failing candidate
+        out_path.unlink(missing_ok=True)
+        raise
+
     if result.returncode == 0:
         return out_path
 
     out_path.unlink(missing_ok=True)
+    _refuse_if_killed(result, "reason")
     if _marks(result.stdout + result.stderr, _UNSATISFIABLE_MARKERS):
         logger.warning(
             "ELK refuted the merge %s (unsatisfiable):\n%s",
