@@ -78,7 +78,12 @@ from ontolib.repositories.xref.candidate_ingest import (
     build_uberon_xref_query,
     build_upstream_labels_query,
 )
-from ontolib.repositories.xref.evidence import Evidence, gather_evidence, is_independent
+from ontolib.repositories.xref.evidence import (
+    SME_CURATION,
+    Evidence,
+    gather_evidence,
+    is_independent,
+)
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES, object_iri
 from ontolib.repositories.xref.validation import (
     ReasonerUnavailableError,
@@ -179,6 +184,12 @@ class PromotionReport:
     refuted: int
     reasoner_errors: int = 0
     conflicting_identity: int = 0
+    # Of `promoted`: how many rested on curation ALONE (no independent corroborating
+    # signal), versus how many the non-circular machinery actually earned.  Without the
+    # split, a run that merely imported a curated file reports exactly like a run in
+    # which ELK, the anchors and the disjointness axioms did real work — and on the
+    # current data that is precisely what happens.
+    promoted_on_curation_alone: int = 0
 
     def __post_init__(self) -> None:
         # This is the number that lands in xref_run.metrics and moves the published
@@ -199,6 +210,11 @@ class PromotionReport:
             )
 
     @property
+    def promoted_on_corroboration(self) -> int:
+        """Promotions the validation machinery actually earned."""
+        return self.promoted - self.promoted_on_curation_alone
+
+    @property
     def failed(self) -> bool:
         """Did the reasoner fail to run for any candidate?
 
@@ -215,6 +231,8 @@ class PromotionReport:
             "refuted": self.refuted,
             "reasoner_errors": self.reasoner_errors,
             "conflicting_identity": self.conflicting_identity,
+            "promoted_on_curation_alone": self.promoted_on_curation_alone,
+            "promoted_on_corroboration": self.promoted_on_corroboration,
         }
 
 
@@ -389,21 +407,6 @@ def corroboration(
     ``part_of`` is issue #78; until then this signal is weak, not wrong.
     """
 
-    """Does the upstream plane agree with the NCIt plane about where *record* sits?
-
-    For every NCIt ancestor of the subject that carries a **separately validated**
-    anchor (``P ≡ P'``), a correct candidate implies the upstream object sits under
-    ``P'``.  Corroborated iff there is at least one such anchored ancestor and *every*
-    anchor image of *every* anchored ancestor holds: a single anchored ancestor the
-    object demonstrably does not sit under is a disagreement between the planes, not a
-    detail.  (An NCIt class may carry more than one validated upstream image, so the
-    anchors are a multimap — collapsing them with ``dict()`` would silently drop the
-    disagreeing one.)
-
-    No anchored ancestor at all means *no signal* (``False``) — not a failure of the
-    candidate, just nothing to corroborate it with.  This is what bootstraps: the
-    curated (SME) pairs are the first anchors.
-    """
     anchor_map: dict[str, list[str]] = {}
     for code, curie in anchors:
         anchor_map.setdefault(code, []).append(curie)
@@ -414,7 +417,12 @@ def corroboration(
         return NO_ANCHORED_ANCESTOR
 
     upstream_ancestors = _reachable_ancestors(object_iri(record.object_id), inferred)
-    if all(object_iri(curie) in upstream_ancestors for curie in anchored):
+    # `any`, not `all`.  Under the open-world reading, a non-entailed anchor image means
+    # *unknown* — it cannot cancel a different anchored ancestor that IS entailed.
+    # (`all` was the reverted veto's semantics: on the live store lung ⊑* organ is true
+    # while lung ⊑* respiratory system is false, so `all` would silently withhold the
+    # corroboration the organ anchor genuinely established.)
+    if any(object_iri(curie) in upstream_ancestors for curie in anchored):
         return CORROBORATED
     return NOT_ENTAILED
 
@@ -587,7 +595,12 @@ def _refuse_degenerate_context(
     as a conservative verdict.  That is the lie this module exists to abolish.
     """
     if not records:
-        return
+        raise PromotionEnvironmentError(
+            "no proposed candidates: ingest has not run, or ran against an empty "
+            "store. A run with nothing to validate cannot mint a single replacement — "
+            "so sweeping would demote validated bridges and collapse coverage on a run "
+            "that established nothing. Run `data-build xref` first."
+        )
     missing = [
         name
         for name, loaded in (
@@ -636,6 +649,18 @@ def _claims_a_taken_endpoint(
         obj,
     )
     return True
+
+
+def _curation_alone(outcome: PromotionOutcome) -> bool:
+    """Did this promotion rest on curation ALONE — no independent corroborating signal?
+
+    SME curation stands alone under D28, which is correct.  But it means the validation
+    machinery contributed nothing to that promotion, and a report that cannot tell the
+    two apart lets a run that merely imported a curated file look exactly like a run in
+    which the reasoner did real work.
+    """
+    kinds = {e.kind for e in outcome.evidence}
+    return kinds == {SME_CURATION}
 
 
 def _one_per_pair(records: Sequence[SSSOMRecord]) -> list[SSSOMRecord]:
@@ -699,6 +724,7 @@ def promote_candidates(
     records = _one_per_pair(records)
     promoted: list[SSSOMRecord] = []
     counts: Counter[str] = Counter()
+    curation_only = 0
 
     # Identity is functional, and a *refutation-only* oracle cannot be relied on to
     # enforce that.  Ingest legitimately yields several upstream candidates for one NCIt
@@ -727,6 +753,8 @@ def promote_candidates(
         counts[outcome.reason] += 1
         if outcome.promoted is not None:
             promoted.append(outcome.promoted)
+            if _curation_alone(outcome):
+                curation_only += 1
             # Promotions become trusted anchors for the candidates after them, and claim
             # their endpoints against the conflict check above.
             minted.append(pair)
@@ -740,6 +768,7 @@ def promote_candidates(
         refuted=counts[REASON_REFUTED],
         reasoner_errors=counts[REASON_REASONER_ERROR],
         conflicting_identity=counts[REASON_CONFLICTING_IDENTITY],
+        promoted_on_curation_alone=curation_only,
     )
 
 

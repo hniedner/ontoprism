@@ -15,6 +15,7 @@ Config (store URL, DB paths) comes from the backend settings / env.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import zipfile
 from pathlib import Path
@@ -152,10 +153,35 @@ async def _build_xref_coverage() -> None:
     typer.echo(str(report.as_dict()))
 
 
-def _curated_pairs(golden: Path | None) -> frozenset[tuple[str, str]]:
-    """Load the SME-signed ``exactMatch`` pairs from a curated SSSOM set."""
+def _curated_pairs(
+    golden: Path | None, *, trust_unsigned: bool = False
+) -> frozenset[tuple[str, str]]:
+    """Load the SME-signed ``exactMatch`` pairs from a curated SSSOM set.
+
+    A curated pair is admitted as ``SME_CURATION`` evidence, which **stands alone**
+    under D28 — it promotes a bridge to identity-grade by itself. So the file had better
+    actually be signed. The shipped `golden/mappings.json` says of itself:
+    ``"curated_by": "seed (engine) — REQUIRES SME sign-off"``, ``"status": "seed"`` —
+    i.e. machine-generated. Minting engine guesses as human curation, writing them as
+    `exactMatch/validated`, and counting them as published coverage is exactly the
+    unfalsifiable claim this epic exists to replace.
+    """
     if golden is None:
         return frozenset()
+
+    with open(golden) as f:
+        status = json.load(f).get("_meta", {}).get("status")
+    if status != "sme-signed" and not trust_unsigned:
+        typer.echo(
+            f"refusing to use {golden} as curation evidence: its _meta.status is "
+            f"{status!r}, not 'sme-signed'. SME curation promotes a bridge to "
+            "identity-grade on its own, so an unsigned (engine-seeded) set would "
+            "publish machine guesses as human-validated coverage. Pass "
+            "--trust-unsigned-golden to override deliberately.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     return frozenset(
         (m["subject_id"], m["object_id"])
         for m in load_golden_mappings(golden)
@@ -208,7 +234,9 @@ async def _endpoint_versions(
     return str(ncit), str(upstream)
 
 
-async def _build_xref_promote(golden: Path | None, uberon_version: str | None) -> None:
+async def _build_xref_promote(
+    golden: Path | None, uberon_version: str | None, trust_unsigned: bool = False
+) -> None:
     """Validation-driven promotion (#73): closeMatch/proposed -> exactMatch/validated.
 
     Shells out to ROBOT/ELK per candidate (EL profile + satisfiability gate before any
@@ -235,7 +263,7 @@ async def _build_xref_promote(golden: Path | None, uberon_version: str | None) -
                 uberon_client,
                 ncit_version=ncit_version,
                 source_version=uberon_version or endpoint_uberon,
-                curated_pairs=_curated_pairs(golden),
+                curated_pairs=_curated_pairs(golden, trust_unsigned=trust_unsigned),
             )
     finally:
         await dispose_engine(engine)
@@ -288,6 +316,11 @@ def xref_promote(
         help="Curated (SME-signed) SSSOM mapping set; its exactMatch pairs seed the "
         "trusted-anchor set that structural corroboration is measured against.",
     ),
+    trust_unsigned_golden: bool = typer.Option(
+        False,
+        help="Use an unsigned (engine-seeded) golden set as curation evidence anyway. "
+        "It will publish machine guesses as human-validated coverage.",
+    ),
     uberon_version: str | None = typer.Option(
         None,
         help="Override the upstream release this run validates against. Defaults to "
@@ -299,7 +332,7 @@ def xref_promote(
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
-    asyncio.run(_build_xref_promote(golden, uberon_version))
+    asyncio.run(_build_xref_promote(golden, uberon_version, trust_unsigned_golden))
 
 
 @app.command(name="all")

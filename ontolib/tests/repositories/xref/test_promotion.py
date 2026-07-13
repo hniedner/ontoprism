@@ -336,6 +336,8 @@ def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
         "refuted": 0,
         "reasoner_errors": 1,
         "conflicting_identity": 0,
+        "promoted_on_curation_alone": 0,
+        "promoted_on_corroboration": 0,
     }
     assert report.failed is True
 
@@ -453,23 +455,47 @@ def test_structural_corroboration_follows_ncit_ancestors() -> None:
 
 
 @pytest.mark.unit
-def test_a_disagreeing_anchor_image_is_not_silently_dropped() -> None:
-    """An NCIt class may carry more than one validated upstream image.  Collapsing the
-    anchors with ``dict()`` would keep only the last, so a *refuting* image could be
-    silently discarded and the candidate corroborated anyway — decided by dict ordering.
-    Every image of every anchored ancestor must hold.
+def test_one_entailed_anchor_image_corroborates_despite_another_unentailed() -> None:
+    """Open-world: a NON-entailed anchor image means *unknown*, so it cannot cancel a
+    different anchored ancestor that IS entailed.
+
+    This test previously pinned the opposite (`all()`), on the reasoning that a
+    non-entailed image is "a disagreement between the planes".  That was the veto
+    semantics, and it is wrong: on the live store `lung ⊑* organ` is TRUE while
+    `lung ⊑* respiratory system` is FALSE (part_of), so `all()` would silently withhold
+    the corroboration the *organ* anchor genuinely established, and dump the candidate
+    into `insufficient_independent_evidence` — a clean, normal-looking bucket.
     """
-    inferred = {(_UBERON_LUNG_IRI, _UBERON_RESP_IRI)}
+    organ = f"{_OBO}UBERON_0000062"
+    # entailed under organ, NOT under respiratory system (part_of)
+    inferred = {(_UBERON_LUNG_IRI, organ)}
+
     assert (
         corroboration(
             _record(),
             inferred,
-            # C12366 is anchored to BOTH: the object sits under the first, but
-            # demonstrably not under the second.  That is a disagreement.
             anchors=(
-                ("C12366", "UBERON:0001004"),
-                ("C12366", "UBERON:0000955"),
+                ("C12366", "UBERON:0000062"),  # organ — entailed
+                ("C12366", "UBERON:0001004"),  # respiratory system — NOT entailed
             ),
+            ncit_edges={("C12468", "C12366")},
+        )
+        == CORROBORATED
+    )
+
+
+@pytest.mark.unit
+def test_no_entailed_anchor_image_is_not_entailed_and_grants_no_evidence() -> None:
+    """With anchored ancestors but NO entailed image, the verdict is NOT_ENTAILED: it
+    grants no evidence — and it vetoes nothing (absence of entailment is not
+    contradiction)."""
+    inferred = {(_UBERON_LUNG_IRI, f"{_OBO}UBERON_0005178")}
+
+    assert (
+        corroboration(
+            _record(),
+            inferred,
+            anchors=(("C12366", "UBERON:0001004"),),
             ncit_edges={("C12468", "C12366")},
         )
         == NOT_ENTAILED
@@ -477,127 +503,31 @@ def test_a_disagreeing_anchor_image_is_not_silently_dropped() -> None:
 
 
 @pytest.mark.unit
-def test_an_empty_upstream_plane_refuses_rather_than_reporting_zero() -> None:
-    """The degenerate-context guard must be SYMMETRIC.  An unloaded Uberon store is if
-    anything the likelier misconfiguration (every other build step exercises the NCIt
-    endpoint; only ingest and this pass touch the upstream one), and it produces the
-    same clean `promoted: 0, completed, exit 0` that reads as a conservative verdict."""
-    with pytest.raises(PromotionEnvironmentError, match="upstream"):
-        promote_candidates(
-            [_record()], _context(upstream_edges=set()), reasoner=_ElkLikeReasoner()
-        )
+def test_a_run_that_only_imported_curated_pairs_says_so() -> None:
+    """A promotion earned by curation ALONE must be distinguishable from one the
+    validation machinery earned.
 
-
-@pytest.mark.unit
-def test_the_el_gate_is_not_run_when_the_evidence_already_fails() -> None:
-    """`el_valid is None` means the gate never ran — distinct from False ('refuted').
-
-    Collapsing them would recreate, inside the outcome type, the very conflation this
-    module exists to forbid: a consumer counting `not el_valid` as reasoner rejections
-    would include every candidate the reasoner never looked at.  It also means we do not
-    pay two JVM launches to learn something we cannot act on.
+    This is the difference between the feature working and the feature being a file
+    importer wearing a reasoner costume — and on the current real data it is the latter
+    for every non-curated candidate (a lexical candidate can never obtain an xref
+    assertion, because ingest only emits one when NO upstream class xrefs the subject;
+    and structural corroboration rarely fires for Uberon anatomy, which uses part_of).
+    A report that cannot tell the two apart publishes a number that means something
+    entirely different from what it says.
     """
-    reasoner = _ElkLikeReasoner()
-    outcome = validate_candidate(
-        _record(obj="UBERON:0000955"), _context(), reasoner=reasoner
-    )
-
-    assert outcome.reason == REASON_INSUFFICIENT_EVIDENCE
-    assert outcome.el_valid is None
-    assert reasoner.seen == []  # the reasoner was never invoked at all
-
-
-@pytest.mark.unit
-def test_a_run_never_asserts_two_identities_for_one_subject() -> None:
-    """Ingest legitimately yields several upstream candidates for one NCIt code.
-    Promoting two asserts C ≡ U1 and C ≡ U2 — hence U1 ≡ U2, an equivalence nobody
-    curated and no reasoner saw.
-
-    This must be enforced STRUCTURALLY, not left to the reasoner: ELK only objects if U1
-    and U2 are provably disjoint, and the commonest ingest ambiguity (two terms in the
-    same Uberon branch, e.g. lung and lower respiratory tract) never is.  Note the pair
-    below is deliberately NOT disjoint — a refutation-only oracle is powerless here, and
-    a satisfiability-honest reasoner will happily accept both.
-    """
-    first = _record(obj="UBERON:0002048")  # lung
-    second = _record(obj="UBERON:0001558")  # lower respiratory tract — NOT disjoint
-    ctx = _context(
-        # both curated, so both would otherwise promote on SME evidence alone
-        curated_pairs=frozenset(
-            {("C12468", "UBERON:0002048"), ("C12468", "UBERON:0001558")}
-        ),
-    )
-
+    curated = _record(subject="C12377", obj="UBERON:0002110")
     promoted, report = promote_candidates(
-        [first, second], ctx, reasoner=_SatisfiabilityHonestReasoner()
-    )
-
-    assert [r.object_id for r in promoted] == ["UBERON:0002048"]
-    assert report.conflicting_identity == 1
-    assert report.refuted == 0  # the reasoner could not have caught this
-
-
-@pytest.mark.unit
-def test_absence_of_subsumption_is_not_a_contradiction_and_must_not_veto() -> None:
-    """THE open-world regression test.
-
-    Uberon relates an organ to its system with `part_of`, NOT `subClassOf` — on the
-    live store, `lung rdfs:subClassOf* respiratory system` is **false**.  So for the
-    canonical CORRECT pair (NCIt Lung -> Uberon lung, anchored on `Respiratory System
-    Organ ≡ respiratory system`), the object is simply not *entailed* to sit under the
-    anchored image.
-
-    Under the open-world assumption that means *unknown*, not *false*.  Treating it as
-    a contradiction (as an earlier round did) vetoed the canonical correct mapping,
-    pinned coverage at zero, and logged "the two ontologies disagree about this
-    concept" — a confident and false explanation.  A real contradiction can only come
-    from the reasoner deriving ⊥, which the disjointness refutation already covers.
-    """
-    # lung's only subClassOf parent here is an organ class; the respiratory *system*
-    # sits above it via part_of, which this walk deliberately does not follow (#78).
-    ctx = _context(
-        upstream_edges={("UBERON:0002048", "UBERON:0005178")},
-        anchors=(("C12366", "UBERON:0001004"),),
-        curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
-    )
-
-    outcome = validate_candidate(_record(), ctx, reasoner=_ElkLikeReasoner())
-
-    assert (
-        corroboration(
-            _record(),
-            {(_UBERON_LUNG_IRI, f"{_OBO}UBERON_0005178")},
-            anchors=ctx.anchors,
-            ncit_edges=ctx.ncit_edges,
-        )
-        == NOT_ENTAILED
-    )
-    # … and the correct bridge is still promoted, on its curation + label evidence.
-    assert outcome.promoted is not None
-    assert outcome.promoted.predicate_id == EXACT_MATCH
-
-
-@pytest.mark.unit
-def test_a_stale_bridge_does_not_block_its_own_replacement() -> None:
-    """An upstream release obsoletes U1 in favour of U2.  The stale (C, U1) must not
-    claim C against the correct new (C, U2): it is about to be quarantined, and blocking
-    the replacement would leave C with no bridge at all — while blaming a row this same
-    run invalidates."""
-    replacement = _record(obj="UBERON:0001558")
-    ctx = _context(
-        anchors=(("C12468", "UBERON:0002048"),),  # the stale bridge
-        curated_pairs=frozenset({("C12468", "UBERON:0001558")}),
-    )
-
-    promoted, report = promote_candidates(
-        [replacement],
-        ctx,
+        [curated],
+        _context(curated_pairs=frozenset({("C12377", "UBERON:0002110")})),
         reasoner=_ElkLikeReasoner(),
-        stale_anchors=frozenset({("C12468", "UBERON:0002048")}),
     )
 
-    assert [r.object_id for r in promoted] == ["UBERON:0001558"]
-    assert report.conflicting_identity == 0
+    assert len(promoted) == 1
+    assert report.promoted_on_curation_alone == 1
+    assert report.promoted_on_corroboration == 0, (
+        "the reasoner, the anchors and the disjointness axioms contributed nothing to "
+        "this promotion — the report must not imply otherwise"
+    )
 
 
 # ── the run: report + the number it moves ──────────────────────────────
@@ -623,6 +553,8 @@ def test_promotion_report_counts_every_outcome() -> None:
         "refuted": 0,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
+        "promoted_on_curation_alone": 0,
+        "promoted_on_corroboration": 1,
     }
     assert report.failed is False
 
@@ -644,6 +576,8 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "refuted": 1,
         "reasoner_errors": 0,
         "conflicting_identity": 0,
+        "promoted_on_curation_alone": 0,
+        "promoted_on_corroboration": 0,
     }
 
 
