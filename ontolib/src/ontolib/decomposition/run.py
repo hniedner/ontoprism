@@ -11,9 +11,10 @@ Scope of this orchestrator (documented boundaries, not oversights):
   traverse ``owl:equivalentClass``/``owl:intersectionOf`` members, collecting role
   restrictions from defined classes. A ``_CORE_NEOPLASM_ROLES`` boundary filter
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
-- Morphology-from-parent (design §6, the ``op:Morphology`` axis) is not wired: there is
-  no query yet for "nearest morphology-bearing taxonomic parent". ``parent_morphology``
-  is always passed as ``None`` to ``filler_selection.select_constituents``.
+- Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
+  ``stated_queries.resolve_morphology_filler`` walks the genus chain for the first
+  non-staging genus, ``filler_selection._append_morphology`` adds the ``op:Morphology``
+  constituent, and ``detector.detect`` counts it as a decomposable axis.
 - ``--load`` (pushing the written TTL into the store) is a CLI-layer concern, not this
   function's — ``run_pipeline`` only ever writes the file at ``config.out``. The CLI
   script performs the store load afterwards using the concrete client's ``.load()``.
@@ -280,7 +281,13 @@ async def _decompose_one(
         )
         semantic_type_of = extract.semantic_type_of_from_rows(rows)
 
-    result = detector.detect(code, semantic_types, roles, label=label)
+    result = detector.detect(
+        code,
+        semantic_types,
+        roles,
+        has_parent_morphology=morphology_filler is not None,
+        label=label,
+    )
     if not result.is_precoordinated:
         return _CandidateResult(decomposition=None, stated_roles=[])
 
@@ -337,12 +344,10 @@ async def _persist_candidate(
 ) -> None:
     """Classify one decomposed candidate's outcome into *metrics* and persist it."""
     if not decomposition.constituents:
-        # Not reachable today: reaching is_precoordinated requires >=2 decomposable
-        # axes, and every defining role/NLP aspect present always yields >=1
-        # constituent (see select_constituents / resolve_aspects) — so this only
-        # activates once morphology-from-parent (design §6, not wired here) can
-        # contribute an axis with no filler of its own. Kept for that forward
-        # compatibility rather than dropped as unreachable.
+        # A concept flagged as precoordinated (≥2 decomposable axes including
+        # morphology-from-parent) that somehow produced zero constituents.
+        # Currently unreachable: every defining role or NLP aspect yields ≥1
+        # constituent. Kept as a safety net for future edge cases.
         metrics.residual += 1
         return
 
