@@ -32,7 +32,13 @@ from ontolib.repositories.embeddings.generate import (
     generate_ncit_embeddings,
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
-from ontolib.repositories.xref.coverage import generate_coverage_report
+from ontolib.repositories.xref.coverage import (
+    detect_coverage_regression,
+    fetch_role_codes,
+    generate_coverage_report,
+    load_coverage_baseline,
+    save_coverage_baseline,
+)
 from ontolib.repositories.xref.mapping_score import load_golden_mappings
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
@@ -128,29 +134,42 @@ async def _build_xref() -> None:
 
 
 async def _build_xref_coverage() -> None:
-    """Print the CDE-level coverage report.
-
-    Note: ``anchors_in_roles`` is 0 because ``role_codes`` is not yet
-    wired here — a populated decomposition run (with role-target fillers)
-    is needed to compute it. TODO(#78/#79): inject role codes from the
-    decomposed `ncit_decomposed` graph once Uberon ``part_of`` and Mondo
-    genus are available.
-    """
+    """Print the CDE-level coverage report and check for regression."""
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     try:
         async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
             store = XrefStore(sf)
+            role_codes = await fetch_role_codes(client)
             report = await generate_coverage_report(
                 settings.cadsr_db_path,
                 store,
                 client,
-                role_codes=frozenset(),
+                role_codes=role_codes,
             )
     finally:
         await dispose_engine(engine)
-    typer.echo(str(report.as_dict()))
+    data = report.as_dict()
+    typer.echo(str(data))
+
+    # Check regression if a baseline exists
+    baseline_path = Path("data/cov-baseline.json")
+    if baseline_path.exists():
+        prev = load_coverage_baseline(baseline_path)
+        if detect_coverage_regression(prev, report):
+            typer.echo(
+                f"COVERAGE REGRESSION: {prev.cde_coverage} -> {report.cde_coverage}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        typer.echo(
+            f"Baseline COV: {prev.cde_coverage}, current: {report.cde_coverage} — ok"
+        )
+
+    # Also save as the new baseline
+    save_coverage_baseline(baseline_path, report)
+    typer.echo(f"Saved baseline to {baseline_path}")
 
 
 def _curated_pairs(

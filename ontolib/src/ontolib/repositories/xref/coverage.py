@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
@@ -11,8 +12,10 @@ if TYPE_CHECKING:
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
+from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.repositories.xref.cadsr_anchors import check_liveness, filter_in_scope
 from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.terminologies.namespaces import NCIT_NS
 
 _IDENTITY_LIFECYCLES = frozenset({"validated", "active"})
 
@@ -184,6 +187,50 @@ async def _filter_scope(
     filtered = {k: v for k, v in anchor_map.items() if v.codes <= keep}
     scoped_codes = frozenset(c for cde in filtered.values() for c in cde.codes)
     return filtered, scoped_codes
+
+
+async def fetch_role_codes(client: OxigraphHttpClient) -> frozenset[str]:
+    """Return all distinct role-target filler codes from the decomposed graph.
+
+    Queries ``ncit_decomposed`` for every ``op:filler`` value, strips the
+    ``NCIT_NS`` prefix to return bare codes (``C12400``).  Returns an empty
+    set when no decomposition has been run.
+    """
+    query = (
+        "PREFIX op: <https://w3id.org/ontoprism/vocab#> "
+        f"SELECT DISTINCT ?filler WHERE {{ "
+        f"  GRAPH <{decomp_vocab.DECOMPOSED_GRAPH_IRI}> {{ "
+        f"    ?s op:hasConstituent ?c . ?c op:filler ?filler "
+        f"  }} "
+        f"}}"
+    )
+    rows = await client.select(query)
+    codes: set[str] = set()
+    for row in rows:
+        iri = row.get("filler")
+        if iri and isinstance(iri, str) and iri.startswith(NCIT_NS):
+            codes.add(iri[len(NCIT_NS) :])
+    return frozenset(codes)
+
+
+def save_coverage_baseline(path: str | Path, report: CoverageReport) -> None:
+    """Persist a coverage report as a JSON baseline snapshot."""
+    with open(path, "w") as f:
+        json.dump(report.as_dict(), f, indent=2)
+
+
+def load_coverage_baseline(path: str | Path) -> CoverageReport:
+    """Load a ``CoverageReport`` from a JSON baseline snapshot."""
+    with open(path) as f:
+        data = json.load(f)
+    return CoverageReport(**data)
+
+
+def detect_coverage_regression(
+    prev: CoverageReport, cur: CoverageReport, *, threshold: float = 0.01
+) -> bool:
+    """True when coverage has dropped by *threshold* or more."""
+    return cur.cde_coverage < prev.cde_coverage - threshold
 
 
 async def generate_coverage_report(

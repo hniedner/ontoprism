@@ -8,8 +8,12 @@ import pytest
 from ontolib.repositories.xref.coverage import (
     CdeAnchor,
     CdeAnchors,
+    CoverageReport,
     build_coverage_report,
     cde_anchor_map,
+    detect_coverage_regression,
+    load_coverage_baseline,
+    save_coverage_baseline,
 )
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -285,3 +289,86 @@ def test_as_dict_returns_all_fields() -> None:
         "anchors_unmapped",
         "cde_coverage",
     }
+
+
+# --- Baseline / regression (issue #83) ---
+
+
+@pytest.mark.unit
+def test_save_and_load_coverage_baseline(tmp_path: Path) -> None:
+    report = build_coverage_report(
+        {}, live_status={}, strength_by_subject={}, role_codes=frozenset()
+    )
+    path = tmp_path / "cov-baseline.json"
+    save_coverage_baseline(path, report)
+    loaded = load_coverage_baseline(path)
+    assert loaded.cde_coverage == report.cde_coverage
+    assert loaded.n_cdes == report.n_cdes
+
+
+@pytest.mark.unit
+def test_detect_regression_detects_drop() -> None:
+    prev = CoverageReport(
+        n_cdes=100,
+        single_code_cdes=80,
+        post_coordinated_cdes=20,
+        distinct_anchors=50,
+        live=50,
+        unresolved=0,
+        anchors_in_roles=10,
+        anchors_new=40,
+        anchors_identity_mapped=45,
+        anchors_close_only=5,
+        anchors_unmapped=0,
+        cde_coverage=0.9,
+    )
+    cur = CoverageReport(
+        n_cdes=100,
+        single_code_cdes=80,
+        post_coordinated_cdes=20,
+        distinct_anchors=50,
+        live=50,
+        unresolved=0,
+        anchors_in_roles=10,
+        anchors_new=40,
+        anchors_identity_mapped=30,
+        anchors_close_only=15,
+        anchors_unmapped=5,
+        cde_coverage=0.6,
+    )
+    dropped = detect_coverage_regression(prev, cur)
+    assert dropped is True
+
+
+@pytest.mark.unit
+def test_detect_regression_accepts_improvement() -> None:
+    prev = CoverageReport(
+        n_cdes=100,
+        single_code_cdes=80,
+        post_coordinated_cdes=20,
+        distinct_anchors=50,
+        live=50,
+        unresolved=0,
+        anchors_in_roles=10,
+        anchors_new=40,
+        anchors_identity_mapped=30,
+        anchors_close_only=15,
+        anchors_unmapped=5,
+        cde_coverage=0.6,
+    )
+    cur = CoverageReport(
+        n_cdes=100,
+        single_code_cdes=80,
+        post_coordinated_cdes=20,
+        distinct_anchors=50,
+        live=50,
+        unresolved=0,
+        anchors_in_roles=10,
+        anchors_new=40,
+        anchors_identity_mapped=45,
+        anchors_close_only=5,
+        anchors_unmapped=0,
+        cde_coverage=0.9,
+    )
+    dropped = detect_coverage_regression(prev, cur)
+    assert dropped is False
