@@ -2,6 +2,59 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-13 — #73: implementing D33 Option 1 (what it actually took)
+
+### D34. Two passes that independently produce the same pair yield ONE composite candidate, and that candidate's evidence drops nothing
+Implementing D33 Option 1 surfaced two facts that make the decision as written a **no-op**, and this
+entry records what the option actually requires. Both were invisible to the (green, strictly-TDD'd)
+hermetic suite, and both were found only by interrogating the live stores — the failure mode AGENTS.md
+§Testing describes.
+
+**1. The xref pass never matched anything on real data.** Uberon/CL write their NCIt cross-references as
+`oboInOwl:hasDbXref "NCIT:C12468"`. Ingest and promotion filtered on the prefix `"NCI:"`, and
+`STRSTARTS("NCIT:C12468", "NCI:")` is **false** — so on the live store *zero* of the 2,542 UBERON/CL
+classes carrying an `NCIT:` xref were seen: no xref candidates, and `XREF_ASSERTION` evidence that could
+never fire for any candidate anywhere. This, not the ingest partition alone, is the mechanical reason
+#73 "promoted only curated pairs". Every fixture in the suite spelled the prefix exactly as wrongly as
+the code did, so the tests agreed with the bug. It is now pinned by a data-shape contract
+(`test_upstream_data_contract`) that reads the real store. Fixed prefix: `NCIT:`.
+
+**2. Emitting two records for one pair loses the agreement at the database.** `concept_xref` is keyed
+on `(run_id, subject_id, predicate_id, object_id)` and both candidates are `closeMatch`, so the xref row
+and the lexical row for the same pair collide on the primary key (`ON CONFLICT … DO NOTHING`) and the
+second is discarded. Dropping the `fillers - matched_via_xref` exclusion therefore changes nothing
+downstream by itself: the surviving row is still single-source, `gather_evidence` still drops its one
+generating signal, and the pair still has one evidence kind where `is_independent` needs two.
+
+**Decision.** Ingest runs both passes over all fillers (D33 Option 1) and, where they converge on the
+same pair, records **one** candidate justified `semapv:CompositeMatching` (a published semapv term: "a
+matching process based on multiple matching processes"), confidence 0.95. `evidence.py` maps a
+justification to the **set** of signals that generated the candidate and drops that set; for a composite
+candidate the set is **empty**.
+
+**Why that is not a hole in D28.** D28's rule is "the signal that generated a candidate may not be
+recycled as the evidence that promotes it", written when exactly one signal could generate one
+candidate. A composite pair was produced by two independent processes: the label match corroborates the
+xref-derived candidate, and the upstream's xref corroborates the lexically-derived one. Neither is its
+own evidence. (Formally the evidence for a pair is the union, over its candidate records, of each
+record's evidence-minus-its-origin — and that union drops precisely the *intersection* of the origins,
+which is empty when the two passes differ. The one record is a storage detail, not a semantic one.)
+Dropping both origins would instead make the strongest candidates — an independent OBO curator asserted
+the cross-reference **and** the names agree — the only ones that could never promote.
+
+**What does not change.** The bar stays two distinct kinds (or SME curation). A single-source candidate
+still drops its origin and still cannot promote on one signal, even with structural corroboration. The
+justification is never taken on trust: every signal is re-derived from the store, so a composite row
+whose labels have since diverged gathers one kind and stops promoting. The EL/ELK refutation gate and
+the D29 lifecycle are untouched, and the PR #117 can't-lie reporting split
+(`promoted_on_curation_alone` / `_with_structural_corroboration` / `_on_source_agreement`) is what makes
+the new promotion mix legible — `promoted_on_source_agreement` was unreachable before this and is the
+bucket Option 1 opens.
+
+**Effect on real data:** 157 of 172 site/cell-origin fillers now have an xref candidate (was 0), and 115
+pairs carry both signals — 115 candidates eligible for source-agreement promotion where there were none.
+Option 2 (#78 structural corroboration as an effective second signal) is unchanged and still follows.
+
 ## 2026-07-13 — #73: promotion evidence policy (unblock auto-promotion)
 
 ### D33. Auto-promotion requires two independent signals; reach it first by co-generating xref + lexical candidates (Option 1), then by strengthening structural corroboration (Option 2); curated-only is the honest interim, not the goal

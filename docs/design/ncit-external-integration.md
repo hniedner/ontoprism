@@ -37,7 +37,7 @@ built code, not only a forward plan. Verified against the tree:
 | caDSR *CDE-level* coverage report (§13.3 `COV`) generator (#76) | **Done** | `repositories/xref/coverage.py` (`cde_anchor_map`, `build_coverage_report`, `generate_coverage_report`) |
 | xref orchestration CLI + `data-build` stage + Uberon-client wiring (#76) | **Done** | `scripts/data_build.py` `xref` / `xref-coverage` commands (wires `uberon_sparql_url`) |
 | Read-side: `upstream` on decomposed `op:` constituents (#77) | **Done** | `decomposition/read_models.py` (`UpstreamMapping`), `read.py` (`attach_upstream`), `XrefStore.mappings_by_subjects` — PR #115 |
-| Validation machinery — evidence policy, merged-EL bridge, ELK gate, D29 lifecycle (#73) | **Code landed (PR #117); issue REOPENED** | `repositories/xref/evidence.py`, `bridge.py`, `promotion.py`, `store.py`; `data-build xref-promote`. **Honest caveat:** on real data the gate promotes **only curated pairs** (ELK/anchors/disjointness contribute 0, by an ingest partitioning); it is currently "a validation gate that only rejects." Needs a **design decision** (drop the `fillers - matched_via_xref` exclusion and/or make #78 `part_of` an effective 2nd signal). |
+| Validation machinery — evidence policy, merged-EL bridge, ELK gate, D29 lifecycle (#73) | **Code landed (PR #117); promotion unblocked (D33 Option 1 / D34)** | `repositories/xref/evidence.py`, `bridge.py`, `promotion.py`, `store.py`; `data-build xref-promote`. The gate promoted **only curated pairs** until D33/D34: the xref pass filtered on the prefix `NCI:` while Uberon writes `NCIT:` (so `XREF_ASSERTION` never fired at all), and ingest partitioned the fillers so no candidate could hold two signals. Both fixed; a pair both passes produce is now one `semapv:CompositeMatching` candidate and promotes on **source agreement**. Option 2 (make #78 `part_of` an *effective* second signal) still open. |
 | `op:Morphology` from taxonomic parent (#81) | **Done** | delivered via #59 / PR #116 (`decomposition/stated_queries.py::build_morphology_query`, `filler_selection.py`) |
 | Uberon `part_of` structural corroboration (#78) | **Landed (PR #117)** | fires rarely on cold data — on #73's critical path, not a nice-to-have |
 | **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 license gate, D29 lifecycle filter, confidence badges. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). |
@@ -331,10 +331,13 @@ conventions a caller can forget:
    annotation can never be the argument for the axiom it annotates.
 2. The signal that *generated* the candidate cannot be recycled as the evidence that promotes it. An
    xref-derived candidate is not corroborated by that same Uberon `hasDbXref`; a lexically-derived
-   candidate is not corroborated by that same label match (keyed on `mapping_justification`).
+   candidate is not corroborated by that same label match (keyed on `mapping_justification`). **Where
+   both ingest passes independently produced the same pair** (`semapv:CompositeMatching`), there is no
+   sole generating signal and nothing is dropped: each signal corroborates the candidate the other one
+   generated (D34).
 
 The admissible signals are `label_agreement`, `xref_assertion` (the upstream project's own editorial
-`NCI:` xref), `structural_corroboration`, and `sme_curation`. Promotion requires SME curation, or **two
+`NCIT:` xref), `structural_corroboration`, and `sme_curation`. Promotion requires SME curation, or **two
 distinct** signals — the same signal twice is one signal.
 
 **Gate 2 — the merged-EL classification.** Two small MIREOT-style fragments are assembled per candidate
