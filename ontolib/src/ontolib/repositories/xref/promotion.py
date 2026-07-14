@@ -254,6 +254,15 @@ class PromotionReport:
                 f"promotion accounting does not balance: considered={self.considered} "
                 f"but the outcome buckets sum to {counted}"
             )
+        sub_buckets = (
+            self.promoted_on_curation_alone
+            + self.promoted_with_structural_corroboration
+        )
+        if sub_buckets > self.promoted:
+            raise ValueError(
+                f"promoted sub-buckets ({sub_buckets}) exceed promoted "
+                f"({self.promoted}) — counters are not mutually exclusive"
+            )
 
     @property
     def promoted_on_source_agreement(self) -> int:
@@ -262,11 +271,10 @@ class PromotionReport:
         Real evidence — but the reasoner earned none of it: no anchor was used and no
         structural corroboration fired; ELK merely failed to refute.
         """
-        return max(
-            0,
+        return (
             self.promoted
             - self.promoted_on_curation_alone
-            - self.promoted_with_structural_corroboration,
+            - self.promoted_with_structural_corroboration
         )
 
     @property
@@ -973,8 +981,10 @@ def _settle_contests(
         elif outcome.promoted is not None:
             counts[REASON_PROMOTED] += 1
             promoted.append(outcome.promoted)
-            curation_only += int(_curation_alone(outcome))
-            corroborated += int(_structurally_corroborated(outcome))
+            if _structurally_corroborated(outcome):
+                corroborated += 1
+            elif _curation_alone(outcome):
+                curation_only += 1
     return promoted, curation_only, corroborated
 
 
