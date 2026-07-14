@@ -2,6 +2,22 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-13 — PR/D35: issue-close policy
+
+### D35. PR bodies must only reference issues they resolve; issues must be scoped to a single PR unless they are epics
+
+PR #117's body contained `Closes #73`, but #73 required a follow-up to make
+structural corroboration an effective second signal — so the issue auto-closed
+prematurely and had to be reopened. Mechanism: GitHub keyword-based auto-close
+(`Closes`, `Fixes`) fires on merge regardless of tracking scope, while the
+sidebar-linked setting (D35's companion toggle) is already enabled.
+
+**Policy:**
+1. PR bodies may use `Closes #X` / `Fixes #X` only when the PR *fully resolves*
+   the referenced issue.
+2. Every issue (except those labeled `epic`) must be scoped to fit in a single PR.
+   Epics track multi-PR bodies of work and are never referenced in a `Closes` keyword.
+
 ## 2026-07-13 — #73: implementing D33 Option 1 (what it actually took)
 
 ### D34. Two passes that independently produce the same pair yield ONE composite candidate, and that candidate's evidence drops nothing

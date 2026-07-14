@@ -148,6 +148,9 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   via PR. The only exception is the auto-generated `Update README Code Stats` bot commit
   pushed by CI (with `GITHUB_TOKEN`).
 - Branches: `feat/<slug>-<issue#>`, `fix/...`, `docs/...`; PRs merge into `main`.
+- **PR bodies must only reference issues they fully resolve.** Use `Closes #X` /
+  `Fixes #X` only when the PR completely resolves the issue (see D35). Issues labeled
+  `epic` must never be referenced in a `Closes` keyword.
 - **PR titles must be Conventional Commits** (`type(scope)?!?: subject`) — CI enforces
   this (`.github/workflows/pr-title.yml`), because the release workflow derives the
   version bump from them. `feat` → minor, `fix`/`perf` → patch, `!` or a
