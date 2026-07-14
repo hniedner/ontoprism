@@ -44,7 +44,7 @@ built code, not only a forward plan. Verified against the tree:
 | **Published** caDSR coverage number (#83) | **Landed (PR #118)** | `coverage.py` (`fetch_role_codes`, `save_coverage_baseline`, `detect_coverage_regression`); `data-build xref-coverage` fails on a drop. Whole-corpus, not a sample. **Gaps (#124):** no breakdown by target ontology, no `permissible_value.meaning_code` cross-check. The regression gate is inert until a real run commits `data/cov-baseline.json` (#121). |
 | **Reserved (design-heavy)**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); SNOMED/ICD-O-3 (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6) | **Not started** | needs design/SME/licensing |
 
-**Live issue status is in [`../ROADMAP.md`](../ROADMAP.md) §5** — this table is a design→code map, not a
+**Live issue status lives on the GitHub tracker (epic #70 and its milestones)** — this table is a design→code map, not a
 live tracker. Phase A is complete; Phase B/C are partially landed with #73 promotion unblocked (D33/D34:
 a pair both ingest passes produce now promotes on source agreement). D33 Option 2 — making
 #78 `part_of` an *effective* second signal — remains open.
@@ -842,8 +842,8 @@ Headline corrections to the first draft:
 
 ---
 
-*Companion artifacts: DECISIONS **D24–D29** (`../DECISIONS.md`); revised **ROADMAP** critical path
-(`../ROADMAP.md`); the GitHub issue drafts and updates for execution are in
+*Companion artifacts: DECISIONS **D24–D29** (`../DECISIONS.md`); the critical path and live status
+live on the GitHub tracker (epic #70, milestones M1–M6); the GitHub issue drafts and updates for execution are in
 [Appendix A](#appendix-a--github-issue-drafts--updates-execution-checklist-for-claude-code).*
 
 ---

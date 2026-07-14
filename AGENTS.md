@@ -190,5 +190,5 @@ cooldown) + secret scanning + push protection are enabled repo-side.
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go
   under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
-  the tracked docs (`docs/ROADMAP.md`, `docs/DECISIONS.md`, `docs/design/`) and the GitHub
+  the tracked docs (`docs/DECISIONS.md`, `docs/design/`) and the GitHub
   issues; never reference a `tmp/` path from a tracked file or a GitHub issue.
