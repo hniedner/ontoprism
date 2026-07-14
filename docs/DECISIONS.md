@@ -44,6 +44,24 @@ disagrees with the embedding geometry" is not evidence of an NCIt defect — con
 manufacture findings. The falsifiable questions are: **which concepts does the literature discuss that
 NCIt cannot express, and which NCIt concepts does nobody ever use?**
 
+**4b. The stage-4 guardrail must survive into stage 5 — or it was decoration.** Correction 3 says to
+"target enrichment where coverage is thin," and stage 4 is what identifies thin. Read carelessly, those
+two compose into exactly the bias stage 4 disowns: *enrichment driven by publication density enriches
+where the field publishes*, not where the ontology is genuinely weak — importing funding and fashion
+straight into the terminology's shape, one enrichment at a time, while each individual step looks
+evidence-driven. So enrichment is targeted on the **falsifiable signal only** (concepts the literature
+can express that NCIt cannot), **never on attention or cluster density**. A cluster being large is not
+a reason to subdivide a branch.
+
+**5. "Grounded in a vetted substrate" does not mean "losslessly equivalent to it."** The mapping layer
+is a **maintenance liability**, and the design already says so (D24–D29, design §14): cross-ontology
+maps rot at roughly 6–10% per upstream release (hence the D29 lifecycle and the staleness sweep), and
+SKOS `broadMatch`/`narrowMatch` are **not** identity — only a validated `exactMatch` is. As of today
+`COV` is still ~0 and mapping precision is gated on SME sign-off of the golden set plus #73's promotion
+(which now reaches source-agreement pairs and nothing further). Stage 3 is therefore the claim with the
+most distance left to travel, and the vision must not read as though the grounding is already achieved
+or is free to maintain.
+
 **Why:** every one of these corrections converts an unfalsifiable or unbuildable claim into a measured
 one. That is the same discipline that produced the published `COV` number instead of an
 "interoperability for free" assertion, and the same discipline that caught #73 promoting nothing while
@@ -75,6 +93,24 @@ label expresses"):
 - It is computable with machinery that already exists (`decomposition/detector.py`), and it is
   reachable — a metric that can only ever read 0 is not a metric, and must be proved non-zero on input
   that should trigger it.
+
+**The limit of this metric, stated plainly (do not let it be forgotten).** `residual_precoordination`
+is **detector-relative**: it measures *reducibility as seen by our detector*, not ground-truth
+atomicity. It is a fixed point of `detector.py`. Two consequences follow, and both must be reported
+alongside the number:
+1. If the detector **under-detects**, the metric reads artificially low — the ontology looks more atomic
+   than it is, which is the direction of error that flatters us.
+2. A **detector improvement moves the metric with no ontology change at all.** That is a milder form of
+   the very objection used above to reject the label-coverage reading, and honesty requires naming it
+   rather than pretending the asymmetry away. It is milder for two reasons — the detector is applied
+   consistently everywhere (so the metric stays internally comparable), and the detector is *our own
+   deliberate model of pre-coordination* rather than a third-party NLP artifact whose behaviour we do
+   not control. But it is real.
+
+**Therefore the metric must be pinned against the curated golden set (#57), not only reported.** Track
+`residual_precoordination` on the SME-validated concepts as well as on the corpus: when the two diverge,
+the detector has drifted, and the corpus number silently changed meaning. A detector-relative metric
+without a ground-truth anchor is a number that can improve while the ontology gets worse.
 
 ## 2026-07-14 — #122: where per-promotion evidence lives
 

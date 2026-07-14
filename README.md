@@ -104,7 +104,10 @@ each stage is subtly wrong, and the wrong version is the one that sounds better.
 
 **1 · Decompose.** Every pre-coordinated NCIt concept gets a defining expression over
 atomic constituents, with an `owl:equivalentClass` axiom that makes the decomposition
-*reversible* (D19/D21).
+*reversible* (D19/D21) — reversibility being **asserted by the emitted axiom and measured
+by `roundtrip_fidelity`**, not proven by a reasoner: this deployment does not materialize
+defined-class subsumption (D21), so the word is carrying a claim we verify empirically
+rather than one the logic hands us for free.
 
 > **Guardrail — the target is zero *unanalyzed* pre-coordination, not zero
 > pre-coordinated concepts.** These are not the same thing, and only the first is
@@ -115,7 +118,10 @@ atomic constituents, with an `owl:equivalentClass` axiom that makes the decompos
 > follow SNOMED. Success is: **no pre-coordinated concept without a sanctioned,
 > reversible, genuinely atomic definition** — measured by `roundtrip_fidelity` (did we
 > capture everything the source asserts?) and `residual_precoordination` (is what we
-> produced actually atomic?).
+> produced actually atomic?). The second is **detector-relative**: it measures reducibility
+> *as our detector sees it*, not ground-truth atomicity, so a better detector moves the
+> number with no ontology change. It is therefore pinned against the SME-curated golden set,
+> where drift becomes visible (D37).
 
 **2 · Disambiguate the roles.** Some NCIt roles carry more than one sense (`R101` site
 vs. region, `R105` cell-of-origin vs. lineage). Composition over a conflated role
@@ -134,6 +140,13 @@ substrate lacks.
 > **Uberon/CL/Mondo are open and can be depended on definitionally; SNOMED CT and
 > ICD-O-3 are licence-gated and may only be *mapped to***. An NCIt that is definitionally
 > dependent on SNOMED cannot be redistributed, which would defeat the point.
+>
+> **And "grounded in" is not "losslessly equivalent to."** The mapping layer is a standing
+> maintenance liability, not a one-time conquest: cross-ontology maps rot at roughly
+> **6–10% per upstream release** (hence the D29 lifecycle and the staleness sweep), and
+> SKOS `broadMatch`/`narrowMatch` are **not** identity — only a validated `exactMatch` is.
+> Today `COV` is still ~0. This is the stage with the most distance left to travel, and it
+> is measured precisely so that nobody can claim otherwise.
 
 **4 · Compare against the literature.** Embed and cluster PubMed oncology abstracts, and
 compare that landscape with NCIt's.
@@ -154,7 +167,13 @@ of oncology.
 > be uneven. Enforcing homogeneity would mean merging genuinely distinct concepts or
 > minting concepts nobody needs — destroying information in the name of symmetry. So:
 > **measure and publish the imbalance, and use it to target enrichment where coverage is
-> demonstrably thin** relative to what stage 4 shows the field actually discusses.
+> demonstrably thin.**
+>
+> **Stage 4's guardrail carries forward, or it was decoration.** Enrichment driven by
+> *publication density* would enrich where the field publishes — importing funding and
+> fashion into the terminology's shape one evidence-looking step at a time. So enrichment
+> is targeted on the **falsifiable signal only**: concepts the literature can express that
+> NCIt cannot. **A cluster being large is not a reason to subdivide a branch.**
 
 Throughout, one non-negotiable: **every claim is measured, and a number that cannot move
 is reported as such.** The published caDSR coverage figure (`COV`) exists precisely
