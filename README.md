@@ -113,8 +113,11 @@ pre-coordinated concepts intact for backward compatibility.
 The goal above is stage one of five. The end state is an oncology terminology that is
 **systematically composed, grounded in vetted upstream ontologies, and demonstrably
 covers what oncology actually talks about**. Each stage depends on the one before it,
-and each has a guardrail that keeps it honest — stated here because the naive version of
-each stage is subtly wrong, and the wrong version is the one that sounds better.
+and four of the five carry a **guardrail** (stage 2's constraint is stated inline). Each
+guardrail names **the version of that stage that sounds better** — the one you would put
+on a slide — and then says why it fails. They are spelled out because in every case the
+seductive form is the wrong one, and three of them would quietly *destroy information* if
+built as stated.
 
 **1 · Decompose.** Every pre-coordinated NCIt concept gets a defining expression over
 atomic constituents, with an `owl:equivalentClass` axiom that makes the decomposition
@@ -123,8 +126,8 @@ by `roundtrip_fidelity`**, not proven by a reasoner: this deployment does not ma
 defined-class subsumption (D21), so the word is carrying a claim we verify empirically
 rather than one the logic hands us for free.
 
-> **Guardrail — the target is zero *unanalyzed* pre-coordination, not zero
-> pre-coordinated concepts.** These are not the same thing, and only the first is
+> **Guardrail.** *Sounds better:* **"zero pre-coordinated concepts."** *Why it fails:*
+> the target is zero **unanalyzed** pre-coordination, not zero pre-coordinated concepts. These are not the same thing, and only the first is
 > coherent: an equivalence axiom needs a left-hand side, and caDSR's CDEs reference
 > pre-coordinated NCIt codes, so deleting them would break the very anchoring the caDSR
 > coverage guarantee exists to protect. GALEN attempted full elimination and was not
@@ -147,8 +150,8 @@ coverage is chased (D15/D17/D22: relation quality gates coverage).
 and cell type, Mondo for disease genus — extended where oncology needs granularity the
 substrate lacks.
 
-> **Guardrail — a mapping layer, not a subset.** NCIt is *not* a subset of the upstream
-> ontologies: it holds concepts with no upstream counterpart, and its class structure
+> **Guardrail.** *Sounds better:* **"NCIt becomes a subset of the vetted
+> ontologies."** *Why it fails:* NCIt is *not* a subset of the upstream ontologies: it holds concepts with no upstream counterpart, and its class structure
 > genuinely differs. The bridge is therefore **dual-canonical and additive** (D24–D26) —
 > NCIt and caDSR anchoring are both preserved. And the substrate splits on licence:
 > **Uberon/CL/Mondo are open and can be depended on definitionally; SNOMED CT and
@@ -165,7 +168,8 @@ substrate lacks.
 **4 · Compare against the literature.** Embed and cluster PubMed oncology abstracts, and
 compare that landscape with NCIt's.
 
-> **Guardrail — this finds gaps; it does not measure balance.** Clustering abstracts
+> **Guardrail.** *Sounds better:* **"cluster the literature and see where NCIt's shape
+> disagrees."** *Why it fails:* this finds **gaps**; it does not measure balance. Clustering abstracts
 > yields a **literature-attention** landscape, and cosine distance in an embedding space
 > is not semantic distance in an ontology. Publication counts are skewed by funding and
 > fashion, so "NCIt disagrees with the embedding geometry" is not evidence of an NCIt
@@ -176,7 +180,8 @@ compare that landscape with NCIt's.
 between siblings (horizontally) and between parent and child (vertically) — across all
 of oncology.
 
-> **Guardrail — balance is a metric to improve, not an invariant to enforce.** Concept
+> **Guardrail.** *Sounds better:* **"make semantic distance uniform across oncology."**
+> *Why it fails:* balance is a metric to **improve**, not an invariant to **enforce**. Concept
 > density in a real terminology follows clinical and research need; it is *supposed* to
 > be uneven. Enforcing homogeneity would mean merging genuinely distinct concepts or
 > minting concepts nobody needs — destroying information in the name of symmetry. So:
