@@ -2,6 +2,45 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-13 — #73: promotion evidence policy (unblock auto-promotion)
+
+### D33. Auto-promotion requires two independent signals; reach it first by co-generating xref + lexical candidates (Option 1), then by strengthening structural corroboration (Option 2); curated-only is the honest interim, not the goal
+`#73`/PR #117 shipped a correct-but-inert promotion gate: on real data it promotes **only SME-curated
+pairs** (`promoted ≡ |curated pairs|`); ELK, anchors, and disjointness contribute zero. Root cause is
+not the gate but candidate *generation*: `candidate_ingest.py` partitions fillers
+(`remaining = fillers - matched_via_xref`) and runs the lexical pass only over `remaining`, so a filler
+is ever recorded as **either** an xref candidate **or** a lexical candidate — never both. A candidate
+therefore cannot accumulate two independent signals (an xref candidate can't use its own xref as
+corroboration per D28 non-circularity; a lexical candidate can't have an xref by construction), so the
+two-signal bar is unreachable for everything except human-signed pairs.
+
+**Decision (precision-vs-recall + effort trade-off, resolved):**
+1. **Option 1 — do now (recommended first).** Drop the `fillers - matched_via_xref` exclusion so both
+   passes run over all fillers and one filler can hold **both** an xref candidate and a lexical
+   candidate. "OBO xref agrees **and** labels agree" then becomes a reachable two-signal promotion —
+   the documented intent. Small, low-blast-radius ingest change; auto-promotes exactly the
+   high-confidence set (an independent OBO curator asserted the cross-reference *and* the names match).
+   Caveat: xref- and label-agreement are *mostly* (not perfectly) independent — acceptable, and the
+   standard SSSOM/UMLS "independent-sources-agree" logic.
+2. **Option 2 — do next.** Make #78's `part_of` structural corroboration an *effective* second signal
+   (it "barely fires" on cold data today). This is the more principled, genuinely-independent signal
+   (graph structure, not strings) and extends promotion to cases Option 1 cannot reach — higher effort,
+   lower yield, so it follows Option 1 rather than gating it.
+3. **Option 3 — the honest interim, not a chosen alternative.** Until 1/2 land, #73 *is* "a curated-set
+   importer with a validation gate that only rejects"; `COV` stays ~0 and must be reported as such.
+   Choosing 3 *alone* defeats the caDSR-coverage guarantee, so it is the accurate description of the
+   in-between state, not the destination. (Second lever: the golden set is `status: seed`, not
+   `sme-signed`, so even the curated path is gated off without `--trust-unsigned-golden` or SME sign-off.)
+
+**Guardrail (unchanged, D28):** the two signals must be genuinely independent; a mapping is never its
+own evidence. Keep the can't-lie reporting from PR #117 (`promoted_on_curation_alone` /
+`_with_structural_corroboration` / `_on_source_agreement`) so the promotion mix stays legible.
+
+**Why:** Option 1 is cheap, low-risk, matches intent, and moves `COV` off zero for the obvious wins;
+Option 2 is the correct depth investment for the harder cases; Option 3 names the interim honestly.
+Sequencing 1 → 2 (with 3 as the truthful default in between) maximizes near-term coverage without
+weakening the independence guarantee. Full rationale + code map: the reserved-work handover (§2·B, §3).
+
 ## 2026-07-13 — #78: structural corroboration walks part_of (D16/D20 revisit)
 
 ### D32. Cross-ontology structural corroboration walks `subClassOf` ∪ `part_of`, as stated graph edges, not through ELK
