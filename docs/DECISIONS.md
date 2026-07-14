@@ -2,6 +2,103 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-14 — the vision of record, and the four ways its naive form is wrong
+
+### D38. ONTOPRISM's end state, stated so that it is achievable and falsifiable
+The project's ambition has grown past what the README's four goals describe: decompose NCIt, split the
+conflated roles, rebuild NCIt as a specialization of vetted upstream ontologies, compare its concept
+landscape against the oncology literature, and end with a *balanced* terminology covering all of
+oncology and compatible with the other medical ontologies. That arc is now written into `README.md`
+("The Vision"). This entry records the four corrections applied to it, because in each case the
+natural phrasing is subtly wrong, and the wrong version is the one that sounds better.
+
+**1. "Zero pre-coordinated concepts" → "no pre-coordinated concept without a sanctioned, reversible,
+genuinely atomic definition."** The literal goal contradicts backwards compatibility: an
+`owl:equivalentClass` axiom needs a left-hand side, and caDSR's CDEs reference pre-coordinated NCIt
+codes, so deleting those concepts breaks the anchoring the caDSR coverage guarantee (§13.3) exists to
+protect. It also contradicts the prior art we are otherwise following: GALEN attempted full
+elimination and was not adopted; SNOMED CT retains pre-coordination and *sanctions* post-coordination
+(MRCM). The achievable goal is zero **unanalyzed** pre-coordination, measured by two metrics that
+bracket it — `roundtrip_fidelity` (did we capture everything the source asserts?) and
+`residual_precoordination` (is what we produced actually atomic? — see D37).
+
+**2. "NCIt as a subset of Uberon/SNOMED/ICD-O-3" → a dual-canonical mapping layer, split by licence.**
+NCIt is not a subset: it holds concepts with no upstream counterpart and its class structure differs.
+D24–D26 already say *additive, dual-canonical mapping*, and that is right. Added here is the licence
+boundary, which is a hard constraint on what can be *built*, not a legal footnote: **Uberon / CL /
+Mondo are open and may be depended on definitionally; SNOMED CT and ICD-O-3 are licence-gated and may
+only be mapped to.** An NCIt whose definitions depend on SNOMED cannot be redistributed — which would
+defeat the purpose of building it. (#80 stays blocked on a written licence determination, D29.)
+
+**3. "Balanced = equal semantic distance" → balance is a metric to improve, not an invariant to
+enforce.** Concept density in a real terminology follows clinical and research need and is *supposed*
+to be uneven. Enforcing homogeneity means merging genuinely distinct concepts or minting concepts
+nobody needs — destroying information in the name of symmetry. So we **measure and publish the
+imbalance and use it to target enrichment where coverage is demonstrably thin.** #5 is reframed
+accordingly.
+
+**4. The PubMed comparison finds gaps; it does not measure balance.** Embedding and clustering
+abstracts yields a **literature-attention** landscape, and cosine distance in an embedding space is not
+semantic distance in an ontology. Publication counts are skewed by funding and fashion, so "NCIt
+disagrees with the embedding geometry" is not evidence of an NCIt defect — conflating the two would
+manufacture findings. The falsifiable questions are: **which concepts does the literature discuss that
+NCIt cannot express, and which NCIt concepts does nobody ever use?**
+
+**Why:** every one of these corrections converts an unfalsifiable or unbuildable claim into a measured
+one. That is the same discipline that produced the published `COV` number instead of an
+"interoperability for free" assertion, and the same discipline that caught #73 promoting nothing while
+reporting success.
+
+## 2026-07-14 — #126: what `residual_precoordination` actually counts
+
+### D37. Residual pre-coordination = a decomposition whose own constituents are not atomic
+Design §10 asks for a `residual_precoordination` metric and defines it only as "candidates left with an
+unresolved multi-aspect label after roles+NLP" — a description, not an operational rule, which is why
+`run.py` has carried a "not implemented yet" note rather than a wrong implementation. Two readings were
+on the table.
+
+**Decision: a concept is residually pre-coordinated iff it decomposed (produced at least one
+constituent) and at least one emitted constituent is *itself* classified as pre-coordinated by the same
+detector.** It is reported as a fraction of decomposed concepts.
+
+**Why this and not the label-coverage reading** ("the constituents do not account for every aspect the
+label expresses"):
+- The label-coverage question **is already answered, and better**, by `roundtrip_fidelity` (D21.3): the
+  fraction of *stated OWL restrictions* covered by the emitted equivalence axiom. That is the same
+  question asked of the source's own axioms rather than of NLP-extracted "aspects".
+- A metric built on NLP aspect extraction moves when the NLP model changes. It would measure our NLP,
+  not our ontology — and a quality metric that drifts with an unrelated component is worse than none.
+- The two metrics then bracket the goal cleanly and independently: `roundtrip_fidelity` asks **"did we
+  capture everything?"** (completeness); `residual_precoordination` asks **"is what we produced
+  actually atomic?"** (irreducibility). Nothing else measures the second, and per D38 it is the
+  measure of the project's core claim.
+- It is computable with machinery that already exists (`decomposition/detector.py`), and it is
+  reachable — a metric that can only ever read 0 is not a metric, and must be proved non-zero on input
+  that should trigger it.
+
+## 2026-07-14 — #122: where per-promotion evidence lives
+
+### D36. Persist promotion evidence as a `jsonb` column on `concept_xref`
+A promoted bridge records *that* it was promoted and never *why*: `PromotionReport.as_dict()` lands
+aggregate counts in `xref_run.metrics`, while the per-candidate `Evidence` tuples that actually drove
+the decision are computed in `validate_candidate` and discarded. An SME reviewing a bridge, and anyone
+asking "why did this pair stop promoting after the release?", needs the second.
+
+**Decision: add an `evidence jsonb` column to `concept_xref`** (a new migration in the raw-SQL style of
+`0004_xref.py`), carrying the `Evidence` tuples (kind, source, detail) behind each promotion.
+
+**Rejected — repurpose `mapping_justification`.** It is the *generating* signal, and it is load-bearing
+for `evidence._GENERATING_SIGNALS` (the D28/D34 non-circularity rule): overloading it would couple two
+unrelated things and break the composite-candidate rule.
+
+**Rejected — a separate `xref_evidence` table.** Evidence is 1:1 with the bridge and is never queried
+independently, so normalization buys a join on every read and nothing else.
+
+**Implementation note (not optional):** asyncpg does **not** adapt a bare dict to `jsonb`. The working
+pattern is already in-tree — `XrefStore.update_run_metrics` does `json.dumps(...)` plus
+`CAST(:x AS jsonb)`. A mocked test will happily accept a dict and pass; only a real-Postgres test
+catches it.
+
 ## 2026-07-13 — PR/D35: issue-close policy
 
 ### D35. PR bodies must only reference issues they resolve; issues must be scoped to a single PR unless they are epics
