@@ -18,7 +18,9 @@ Per candidate:
    validated** anchor.  With the bridge present this would be a tautology, which is
    exactly the circularity D28 forbids.
 2. **Gather independent evidence** (:mod:`ontolib.repositories.xref.evidence`), minus
-   the signal that generated the candidate.
+   the signal(s) that generated the candidate — none, for a candidate both ingest
+   passes produced independently, since there each signal corroborates the candidate
+   the *other* one generated (D34).
 3. **Gate on EL.** Only if the evidence already suffices, classify the merge *with* the
    bridge: ROBOT profiles it to OWL 2 EL and ELK classifies it.  A bridge that puts a
    class under two disjoint parents is *refuted* and the candidate is rejected — never
@@ -99,6 +101,11 @@ from ontolib.repositories.xref.validation import (
     promote_candidate,
     validate_and_classify,
 )
+from ontolib.repositories.xref.vocab import (
+    COMPOSITE_MATCHING,
+    DATABASE_CROSS_REFERENCE,
+    LEXICAL_MATCHING,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
@@ -121,7 +128,11 @@ REASON_REASONER_ERROR = "reasoner_error"
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _OWL_NS = "http://www.w3.org/2002/07/owl#"
-_OBO_NCI_PREFIX = "NCI:"
+# `NCIT:`, not `NCI:` — see `candidate_ingest._OBO_NCIT_PREFIX`.  This one feeds
+# `ctx.object_xrefs`, i.e. the XREF_ASSERTION *evidence*: with the wrong prefix it
+# stayed empty for every candidate, so nothing machine-generated could ever reach a
+# second independent signal.
+_OBO_NCIT_PREFIX = "NCIT:"
 _OWL_THING = URIRef(f"{_OWL_NS}Thing")
 # BFO:0000050 is the OBO ``part_of`` object property.  Uberon carries organ->system
 # containment as an existential restriction on it, never as ``subClassOf``.
@@ -130,7 +141,15 @@ _BFO_PART_OF = f"{_OBO_BASE}BFO_0000050"
 _OBO_PREFIXES = SUPPORTED_PREFIXES
 
 _QUERY_BATCH_SIZE = 500
-_XREF_JUSTIFICATION = "semapv:DatabaseCrossReference"
+
+# Preference order when the same pair arrives under several justifications (see
+# `_one_per_pair`): the row produced by the most ingest passes wins, because it is the
+# one whose evidence policy suppresses the fewest signals.
+_JUSTIFICATION_RANK: dict[str, int] = {
+    COMPOSITE_MATCHING: 0,
+    DATABASE_CROSS_REFERENCE: 1,
+    LEXICAL_MATCHING: 2,
+}
 
 
 class PromotionEnvironmentError(RuntimeError):
@@ -211,8 +230,8 @@ class PromotionReport:
     # Of `promoted`: how many rested on curation ALONE (no independent corroborating
     # signal), versus how many the non-circular machinery actually earned.  Without the
     # split, a run that merely imported a curated file reports exactly like a run in
-    # which ELK, the anchors and the disjointness axioms did real work — and on the
-    # current data that is precisely what happens.
+    # which ELK, the anchors and the disjointness axioms did real work — and until #73
+    # Option 1 (D33/D34) that was precisely what happened on real data.
     promoted_on_curation_alone: int = 0
     # Of `promoted`: how many the reasoner corroborated through a separately validated
     # anchor. This is the ONLY bucket the validation machinery can claim.
@@ -234,6 +253,15 @@ class PromotionReport:
             raise ValueError(
                 f"promotion accounting does not balance: considered={self.considered} "
                 f"but the outcome buckets sum to {counted}"
+            )
+        sub_buckets = (
+            self.promoted_on_curation_alone
+            + self.promoted_with_structural_corroboration
+        )
+        if sub_buckets > self.promoted:
+            raise ValueError(
+                f"promoted sub-buckets ({sub_buckets}) exceed promoted "
+                f"({self.promoted}) — counters are not mutually exclusive"
             )
 
     @property
@@ -271,6 +299,7 @@ class PromotionReport:
             "promoted_with_structural_corroboration": (
                 self.promoted_with_structural_corroboration
             ),
+            "promoted_on_source_agreement": self.promoted_on_source_agreement,
         }
 
 
@@ -763,14 +792,25 @@ def _one_per_pair(records: Sequence[SSSOMRecord]) -> list[SSSOMRecord]:
     new version, or under a different justification.  It is ONE candidate: validating it
     twice costs two JVM launches and double-counts ``promoted``, the number that lands
     in ``xref_run.metrics`` and moves the published coverage figure.
+
+    The tie-break is load-bearing, not tidiness.  Which duplicate survives decides which
+    signals are suppressed as generating (:mod:`evidence`), and Postgres leaves the
+    order of equal rows unspecified — so the **most corroborated** row must win, or a
+    pair the two sources agree on silently degrades to a single-signal candidate that
+    can never promote.  A composite row therefore outranks a single-source row (an
+    earlier ingest leaves one behind: the rows differ in ``mapping_justification``, so
+    the ``DISTINCT`` in ``proposed_candidates`` cannot collapse them), and an xref row
+    outranks a lexical one.
     """
-    # Deterministic tie-break: the xref-derived row wins.  Which duplicate survives
-    # decides which evidence kind is suppressed as the generating signal, and Postgres
-    # leaves the tie order unspecified — so it must not be incidental.
-    ranked = sorted(
-        records, key=lambda r: r.mapping_justification != _XREF_JUSTIFICATION
-    )
+    ranked = sorted(records, key=_justification_rank)
     return list({(r.subject_id, r.object_id): r for r in reversed(ranked)}.values())
+
+
+def _justification_rank(record: SSSOMRecord) -> int:
+    """Lower is better: more generating passes behind the row, more signals to use."""
+    return _JUSTIFICATION_RANK.get(
+        record.mapping_justification, len(_JUSTIFICATION_RANK)
+    )
 
 
 def _initial_claims(
@@ -915,10 +955,17 @@ def _promote_uncontested(
       ``XrefStore.stale_anchors`` exists to let through, and then be quarantined —
       leaving the concept with *no* bridge at all, which is the exact outcome that
       method was written to prevent.
+
+    ``_one_per_pair`` deduplicates the old candidate row and the replacement (same
+    pair), so the stale bridge's candidate row never reaches ``qualified``.  The
+    *replacement*
+    must still be visible in contest detection: a separate same-endpoint candidate must
+    not slip past because the replacement was filtered out.  Contest endpoints are
+    therefore computed from ALL qualified outcomes, not from a stale-filtered subset.
     """
     live = [o for o in qualified if _pair(o) not in stale_anchors]
-    contested_subjects = _contested(o.record.subject_id for o in live)
-    contested_objects = _contested(o.record.object_id for o in live)
+    contested_subjects = _contested(o.record.subject_id for o in qualified)
+    contested_objects = _contested(o.record.object_id for o in qualified)
     settled = _sme_winners(live, contested_subjects, contested_objects)
 
     return _settle_contests(
@@ -941,8 +988,14 @@ def _settle_contests(
         elif outcome.promoted is not None:
             counts[REASON_PROMOTED] += 1
             promoted.append(outcome.promoted)
-            curation_only += int(_curation_alone(outcome))
-            corroborated += int(_structurally_corroborated(outcome))
+            # Structural corroboration takes priority over curation alone:
+            # if the reasoner contributed, the promotion is booked under the
+            # machinery bucket, not curation (promoted_on_curation_alone means
+            # "curation ALONE — no independent corroborating signal").
+            if _structurally_corroborated(outcome):
+                corroborated += 1
+            elif _curation_alone(outcome):
+                curation_only += 1
     return promoted, curation_only, corroborated
 
 
@@ -1185,9 +1238,9 @@ async def _object_xrefs(
     for row in await client.select(build_uberon_xref_query()):
         iri, xref = row.get("upstream"), row.get("xref")
         curie = _curie(str(iri)) if iri else None
-        if curie in objects and xref and str(xref).startswith(_OBO_NCI_PREFIX):
+        if curie in objects and xref and str(xref).startswith(_OBO_NCIT_PREFIX):
             xrefs.setdefault(str(curie), set()).add(
-                str(xref).removeprefix(_OBO_NCI_PREFIX)
+                str(xref).removeprefix(_OBO_NCIT_PREFIX)
             )
     return xrefs
 

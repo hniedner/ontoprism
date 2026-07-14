@@ -14,6 +14,23 @@ bridge may never be the mapping itself.**  Two teeth:
 
 Promotion then requires *independent* evidence (:func:`is_independent`): either human
 curation, or at least two distinct corroborating signals.
+
+**Two passes can generate the same pair (D34).**  Ingest runs the xref pass and the
+lexical pass over every filler, and where both produce the same ``(subject, object)`` it
+mints a single ``semapv:CompositeMatching`` candidate.  For that record tooth 2 drops
+**nothing**, and this is not a loophole but the only reading that keeps the rule
+coherent: two independent processes produced the pair, so the label match corroborates
+the xref-derived candidate and the xref corroborates the lexically-derived one — neither
+is its own evidence.  (Formally: the evidence for a pair is the union, over its
+candidate records, of each record's evidence-minus-its-origin — and that union drops
+exactly the *intersection* of the origins, which is empty when the two passes differ.)
+Dropping both
+would instead make the strongest candidates — an independent OBO curator asserted the
+cross-reference *and* the names agree — the only ones that can never promote.
+
+The justification is never taken on trust: every signal is re-derived here from the
+store's own facts, so a composite record whose labels have since diverged gathers one
+signal, not two, and stops promoting.
 """
 
 from __future__ import annotations
@@ -21,18 +38,28 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ontolib.repositories.xref.vocab import ALLOWED_PREDICATES, SKOS_NS
+from ontolib.repositories.xref.vocab import (
+    ALLOWED_PREDICATES,
+    COMPOSITE_MATCHING,
+    DATABASE_CROSS_REFERENCE,
+    LEXICAL_MATCHING,
+    SKOS_NS,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from ontolib.repositories.xref.models import SSSOMRecord
 
+# -- module constants ---------------------------------------------------
+
+_NCIT_CODE_PREFIX = "NCIT:"
+
 # ── evidence kinds ─────────────────────────────────────────────────────
 
 # NCIt label agrees with an upstream label (case-folded).
 LABEL_AGREEMENT = "label_agreement"
-# The upstream project independently asserts an `NCI:<code>` xref on the object.
+# The upstream project independently asserts an `NCIT:<code>` xref on the object.
 XREF_ASSERTION = "xref_assertion"
 # The upstream object sits under the upstream image of an NCIt ancestor of the
 # subject (reachable via subClassOf OR part_of), established through a *separately
@@ -45,11 +72,13 @@ EVIDENCE_KINDS = frozenset(
     {LABEL_AGREEMENT, XREF_ASSERTION, STRUCTURAL_CORROBORATION, SME_CURATION}
 )
 
-# The signal each mapping_justification is derived from — that signal is the
-# candidate's *origin*, so it can never also be its evidence.
-_GENERATING_SIGNAL: dict[str, str] = {
-    "semapv:LexicalMatching": LABEL_AGREEMENT,
-    "semapv:DatabaseCrossReference": XREF_ASSERTION,
+# The signals each mapping_justification was derived from — a candidate's *origins* can
+# never also be its evidence.  A composite candidate has NO sole origin: two independent
+# passes produced it, and each corroborates the candidate the other generated (D34).
+_GENERATING_SIGNALS: dict[str, frozenset[str]] = {
+    LEXICAL_MATCHING: frozenset({LABEL_AGREEMENT}),
+    DATABASE_CROSS_REFERENCE: frozenset({XREF_ASSERTION}),
+    COMPOSITE_MATCHING: frozenset(),
 }
 
 # Absent human curation, a bridge needs corroboration from two *different* signals.
@@ -111,7 +140,7 @@ def gather_evidence(
     entailments together with stated ``part_of`` edges) through a separate anchor,
     computed over a merge that excludes this candidate's bridge.
     """
-    if record.mapping_justification not in _GENERATING_SIGNAL:
+    if record.mapping_justification not in _GENERATING_SIGNALS:
         # Fail closed. With an unrecognised justification we cannot know which signal
         # produced this candidate, so we cannot drop it — and the xref that generated
         # the mapping would be counted as independent evidence *for* that mapping,
@@ -120,17 +149,17 @@ def gather_evidence(
             "cannot establish the generating signal for mapping_justification "
             f"{record.mapping_justification!r}: refusing to gather evidence, because "
             "the signal that produced a candidate may never also justify it (D28). "
-            f"Known justifications: {sorted(_GENERATING_SIGNAL)}"
+            f"Known justifications: {sorted(_GENERATING_SIGNALS)}"
         )
 
-    origin = _GENERATING_SIGNAL[record.mapping_justification]
+    origins = _GENERATING_SIGNALS[record.mapping_justification]
     candidates = [
         _label_agreement(subject_labels, object_labels),
         _xref_assertion(record.subject_id, object_xref_codes),
         _sme_curation(record, curated_pairs),
         _corroboration(structurally_corroborated),
     ]
-    return [e for e in candidates if e is not None and e.kind != origin]
+    return [e for e in candidates if e is not None and e.kind not in origins]
 
 
 def _label_agreement(
@@ -150,7 +179,7 @@ def _xref_assertion(subject_id: str, object_xref_codes: set[str]) -> Evidence | 
     return Evidence(
         kind=XREF_ASSERTION,
         source="oboInOwl:hasDbXref",
-        detail=f"NCI:{subject_id}",
+        detail=f"{_NCIT_CODE_PREFIX}{subject_id}",
     )
 
 

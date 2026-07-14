@@ -36,11 +36,17 @@ from __future__ import annotations
 import pytest
 
 from backend.config import get_settings
+from ontolib.repositories.xref.candidate_ingest import (
+    _build_xref_index,
+    fetch_uberon_xrefs,
+    generate_candidates,
+)
 from ontolib.repositories.xref.promotion import (
     build_upstream_edges_query,
     build_upstream_partof_query,
 )
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
+from ontolib.repositories.xref.vocab import COMPOSITE_MATCHING
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 pytestmark = pytest.mark.integration
@@ -53,6 +59,18 @@ _RESPIRATION_ORGAN = f"{_OBO}UBERON_0000171"
 
 async def _uberon() -> OxigraphHttpClient | None:
     client = OxigraphHttpClient(get_settings().uberon_sparql_url)
+    try:
+        if await client.count() == 0:
+            await client.aclose()
+            return None
+    except Exception:
+        await client.aclose()
+        return None
+    return client
+
+
+async def _ncit() -> OxigraphHttpClient | None:
+    client = OxigraphHttpClient(get_settings().ncit_sparql_url)
     try:
         if await client.count() == 0:
             await client.aclose()
@@ -200,6 +218,77 @@ async def test_the_organ_reaches_its_system_by_subclass_then_part_of() -> None:
         "respiratory system' for lung's ancestor cone — structural corroboration for "
         "anatomy just went dark. Uberon changed, or the query's subClassOf* prefix / "
         f"BFO_0000050 restriction pattern regressed. Got edges: {sorted(edges)[:8]}"
+    )
+
+
+async def test_the_upstream_spells_its_ncit_xrefs_ncit_and_ingest_reads_them() -> None:
+    """The xref pass's entire input, pinned to what the store actually writes.
+
+    Uberon/CL write ``oboInOwl:hasDbXref "NCIT:C12468"``.  The ingest and promotion
+    filters were written for ``NCI:`` — and ``STRSTARTS("NCIT:C12468", "NCI:")`` is
+    **false**, so the xref pass matched nothing on every real run: zero xref candidates,
+    ``XREF_ASSERTION`` evidence that could never fire, and therefore no non-curated
+    promotion at all.  The whole hermetic suite stayed green throughout, because the
+    fixtures spelled the prefix exactly as wrongly as the code did.  That is the failure
+    this file exists to catch, and it can only be caught by asking the store.
+    """
+    client = await _uberon()
+    if client is None:
+        pytest.skip("Uberon store not loaded")
+    try:
+        rows = await fetch_uberon_xrefs(client)
+    finally:
+        await client.aclose()
+
+    index = _build_xref_index(rows)
+    assert index, (
+        "the xref pass reads NOTHING out of the real upstream store: one of the two "
+        "ingest signals — and the only one independent of the labels — is dead. Check "
+        "the prefix in `candidate_ingest._OBO_NCI_PREFIX` against what "
+        "`oboInOwl:hasDbXref` actually carries."
+    )
+    assert index.get("C12468") == ["UBERON:0002048"], (
+        "the canonical pair (NCIt Lung -> Uberon lung) is no longer reachable through "
+        "the upstream's own cross-reference — source-agreement promotion loses its "
+        "reference case"
+    )
+
+
+async def test_the_real_stores_co_generate_source_agreeing_candidates() -> None:
+    """THE premise of D33 Option 1, asked of the real stores rather than of a fixture.
+
+    Auto-promotion without curation now rests on a pair being produced by BOTH ingest
+    passes: an OBO curator asserted ``NCIT:<code>`` on the upstream class *and* the two
+    labels agree.  A fixture can always be built so that this happens; the question no
+    fixture can answer is whether it happens on the live NCIt + Uberon/CL.  If it never
+    does, ``promoted_on_source_agreement`` stays zero, ``COV`` stays pinned, and #73 is
+    still a curated-set importer — while every hermetic test in the suite passes.
+
+    So run the real ingest against both live stores and demand at least one composite
+    candidate.  If this drops to zero after a release, promotion has silently reverted
+    to curated-pairs-only, and it must fail *here*, naming the reason.
+    """
+    ncit = await _ncit()
+    uberon = await _uberon()
+    if ncit is None or uberon is None:
+        for client in (ncit, uberon):
+            if client is not None:
+                await client.aclose()
+        pytest.skip("NCIt (:7888) and/or Uberon (:7889) store not loaded")
+    try:
+        records, _ = await generate_candidates(
+            ncit, uberon, "ncit-contract", "uberon-contract"
+        )
+    finally:
+        await ncit.aclose()
+        await uberon.aclose()
+
+    composites = [r for r in records if r.mapping_justification == COMPOSITE_MATCHING]
+    assert composites, (
+        "no filler on the anatomic-site / cell-origin axes is BOTH xref'd by an "
+        "upstream class and label-identical to it. Source agreement is the only "
+        "non-curated promotion path there is, so promotion is back to importing "
+        "curated pairs and COV cannot move — see D33/D34 and issue #73."
     )
 
 

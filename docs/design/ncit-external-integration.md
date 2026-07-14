@@ -37,15 +37,17 @@ built code, not only a forward plan. Verified against the tree:
 | caDSR *CDE-level* coverage report (§13.3 `COV`) generator (#76) | **Done** | `repositories/xref/coverage.py` (`cde_anchor_map`, `build_coverage_report`, `generate_coverage_report`) |
 | xref orchestration CLI + `data-build` stage + Uberon-client wiring (#76) | **Done** | `scripts/data_build.py` `xref` / `xref-coverage` commands (wires `uberon_sparql_url`) |
 | Read-side: `upstream` on decomposed `op:` constituents (#77) | **Done** | `decomposition/read_models.py` (`UpstreamMapping`), `read.py` (`attach_upstream`), `XrefStore.mappings_by_subjects` — PR #115 |
-| Validation end-to-end — independent-evidence policy, merged-EL bridge, ELK gate, promotion + D29 lifecycle (#73) | **Done** | `repositories/xref/evidence.py` (`gather_evidence`, `is_independent`), `bridge.py` (`build_validation_ontology`, `bridge_axiom`), `promotion.py` (`validate_candidate`, `promote_candidates`, `run_promotion`), `store.py` (`proposed_candidates`, `validated_anchors`, `quarantine_stale`); `data-build xref-promote` |
-| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Not started** | no `xref` router in `backend/` |
-| **Published** caDSR coverage number (#83) | **Not started** | generator exists (#76); publishing/serving it is #83 |
-| **Phase B design-heavy**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); Uberon `part_of` spike (#78) | **Not started** | reserved — needs design/SME |
-| **Phase C**: SNOMED/ICD-O-3 (#80), morphology-from-parent (#81), value/qualifier mapping (#75) | **Not started** | reserved — needs design/licensing |
+| Validation machinery — evidence policy, merged-EL bridge, ELK gate, D29 lifecycle (#73) | **Code landed (PR #117); promotion unblocked (D33 Option 1 / D34)** | `repositories/xref/evidence.py`, `bridge.py`, `promotion.py`, `store.py`; `data-build xref-promote`. The gate promoted **only curated pairs** until D33/D34: the xref pass filtered on the prefix `NCI:` while Uberon writes `NCIT:` (so `XREF_ASSERTION` never fired at all), and ingest partitioned the fillers so no candidate could hold two signals. Both fixed; a pair both passes produce is now one `semapv:CompositeMatching` candidate and promotes on **source agreement**. Option 2 (make #78 `part_of` an *effective* second signal) still open. |
+| `op:Morphology` from taxonomic parent (#81) | **Done** | delivered via #59 / PR #116 (`decomposition/stated_queries.py::build_morphology_query`, `filler_selection.py`) |
+| Uberon `part_of` structural corroboration (#78) | **Landed (PR #117)** | fires rarely on cold data — on #73's critical path, not a nice-to-have |
+| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 license gate, D29 lifecycle filter, confidence badges. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). |
+| **Published** caDSR coverage number (#83) | **Not started** | generator exists (#76); publishing/serving + regression-tracking is #83 |
+| **Reserved (design-heavy)**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); SNOMED/ICD-O-3 (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6) | **Not started** | needs design/SME/licensing |
 
-**Phase A–B lower-tier work is complete** (#71–#74, #76, #77 merged & closed; roadmap §5). The
-remaining GAP/Not-started rows are the **reserved, design-heavy** items — see the reserved-work
-handover for the model/effort triage. (Per-issue working notes live in ephemeral `plan-issue-NN-*.md`.)
+**Live issue status is in [`../ROADMAP.md`](../ROADMAP.md) §5** — this table is a design→code map, not a
+live tracker. Phase A is complete; Phase B/C are partially landed with #73 promotion unblocked (D33/D34:
+a pair both ingest passes produce now promotes on source agreement). D33 Option 2 — making
+#78 `part_of` an *effective* second signal — remains open.
 
 **Codebase corrections to this doc's earlier assumptions** (the design predates the code): the xref
 module lives under `repositories/xref/` (not `terminologies/xref/`); there is **no ORM** — Postgres is
@@ -330,10 +332,13 @@ conventions a caller can forget:
    annotation can never be the argument for the axiom it annotates.
 2. The signal that *generated* the candidate cannot be recycled as the evidence that promotes it. An
    xref-derived candidate is not corroborated by that same Uberon `hasDbXref`; a lexically-derived
-   candidate is not corroborated by that same label match (keyed on `mapping_justification`).
+   candidate is not corroborated by that same label match (keyed on `mapping_justification`). **Where
+   both ingest passes independently produced the same pair** (`semapv:CompositeMatching`), there is no
+   sole generating signal and nothing is dropped: each signal corroborates the candidate the other one
+   generated (D34).
 
 The admissible signals are `label_agreement`, `xref_assertion` (the upstream project's own editorial
-`NCI:` xref), `structural_corroboration`, and `sme_curation`. Promotion requires SME curation, or **two
+`NCIT:` xref), `structural_corroboration`, and `sme_curation`. Promotion requires SME curation, or **two
 distinct** signals — the same signal twice is one signal.
 
 **Gate 2 — the merged-EL classification.** Two small MIREOT-style fragments are assembled per candidate

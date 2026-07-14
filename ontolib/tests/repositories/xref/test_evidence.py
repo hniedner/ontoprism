@@ -25,13 +25,13 @@ from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
     CLOSE_MATCH,
+    COMPOSITE_MATCHING,
+    DATABASE_CROSS_REFERENCE,
     EXACT_MATCH,
+    LEXICAL_MATCHING,
     NARROW_MATCH,
     RELATED_MATCH,
 )
-
-_XREF_JUSTIFICATION = "semapv:DatabaseCrossReference"
-_LEXICAL_JUSTIFICATION = "semapv:LexicalMatching"
 
 
 def _record(justification: str) -> SSSOMRecord:
@@ -108,7 +108,7 @@ def test_evidence_source_must_be_non_empty() -> None:
 def test_xref_derived_candidate_does_not_count_its_own_xref_as_evidence() -> None:
     """An xref-generated candidate may not be promoted by that same xref."""
     evidence = gather_evidence(
-        _record(_XREF_JUSTIFICATION),
+        _record(DATABASE_CROSS_REFERENCE),
         subject_labels={"Lung"},
         object_labels={"lung"},
         object_xref_codes={"C12468"},  # the very xref that generated the candidate
@@ -124,7 +124,7 @@ def test_xref_derived_candidate_does_not_count_its_own_xref_as_evidence() -> Non
 def test_lexically_derived_candidate_does_not_count_its_own_label_as_evidence() -> None:
     """A lexically-generated candidate may not be promoted by that same label match."""
     evidence = gather_evidence(
-        _record(_LEXICAL_JUSTIFICATION),
+        _record(LEXICAL_MATCHING),
         subject_labels={"Lung"},
         object_labels={"lung"},  # the very label match that generated the candidate
         object_xref_codes={"C12468"},
@@ -136,13 +136,60 @@ def test_lexically_derived_candidate_does_not_count_its_own_label_as_evidence() 
     assert kinds == {XREF_ASSERTION}
 
 
+# ── two generating signals corroborate each other (D34, #73 Option 1) ──
+
+
+@pytest.mark.unit
+def test_a_composite_candidate_counts_both_of_the_signals_that_generated_it() -> None:
+    """Ingest mints a composite ONLY when both passes independently produced the pair.
+
+    Dropping both origins would leave it with no evidence at all — making the strongest
+    candidates (an OBO curator asserted the xref AND the names agree) the least
+    promotable, which is the opposite of what D28 is for.  Nothing is recycled as its
+    own evidence here: the xref corroborates the lexically-derived candidate, and the
+    label match corroborates the xref-derived one.
+    """
+    evidence = gather_evidence(
+        _record(COMPOSITE_MATCHING),
+        subject_labels={"Lung"},
+        object_labels={"lung"},
+        object_xref_codes={"C12468"},
+        curated_pairs=frozenset(),
+        structurally_corroborated=False,
+    )
+
+    assert {e.kind for e in evidence} == {LABEL_AGREEMENT, XREF_ASSERTION}
+    assert is_independent(evidence) is True
+
+
+@pytest.mark.unit
+def test_a_composite_justification_is_not_a_promotion_token() -> None:
+    """Every signal is re-derived from the store, never taken on the record's word.
+
+    A composite row asserts "two passes agreed *at ingest time*".  If an NCIt release
+    renames the concept the label agreement is simply gone, and the pair must fall back
+    to one signal and stop promoting rather than ride on a justification string.
+    """
+    evidence = gather_evidence(
+        _record(COMPOSITE_MATCHING),
+        subject_labels={"Pulmonary Organ"},  # the release renamed it
+        object_labels={"lung"},
+        object_xref_codes={"C12468"},
+        curated_pairs=frozenset(),
+        structurally_corroborated=False,
+    )
+
+    assert {e.kind for e in evidence} == {XREF_ASSERTION}
+    assert is_independent(evidence) is False
+
+
 # ── evidence gathering ─────────────────────────────────────────────────
 
 
 @pytest.mark.unit
 def test_label_agreement_is_case_folded() -> None:
     evidence = gather_evidence(
-        _record(_XREF_JUSTIFICATION),
+        _record(DATABASE_CROSS_REFERENCE),
         subject_labels={"LUNG"},
         object_labels={"lung"},
         object_xref_codes=set(),
@@ -155,7 +202,7 @@ def test_label_agreement_is_case_folded() -> None:
 @pytest.mark.unit
 def test_disagreeing_labels_yield_no_label_evidence() -> None:
     evidence = gather_evidence(
-        _record(_XREF_JUSTIFICATION),
+        _record(DATABASE_CROSS_REFERENCE),
         subject_labels={"Lung"},
         object_labels={"brain"},
         object_xref_codes=set(),
@@ -168,7 +215,7 @@ def test_disagreeing_labels_yield_no_label_evidence() -> None:
 @pytest.mark.unit
 def test_curated_pair_yields_sme_evidence() -> None:
     evidence = gather_evidence(
-        _record(_XREF_JUSTIFICATION),
+        _record(DATABASE_CROSS_REFERENCE),
         subject_labels=set(),
         object_labels=set(),
         object_xref_codes=set(),
@@ -181,7 +228,7 @@ def test_curated_pair_yields_sme_evidence() -> None:
 @pytest.mark.unit
 def test_curated_pair_for_a_different_object_is_not_evidence() -> None:
     evidence = gather_evidence(
-        _record(_XREF_JUSTIFICATION),
+        _record(DATABASE_CROSS_REFERENCE),
         subject_labels=set(),
         object_labels=set(),
         object_xref_codes=set(),
@@ -194,7 +241,7 @@ def test_curated_pair_for_a_different_object_is_not_evidence() -> None:
 @pytest.mark.unit
 def test_structural_corroboration_is_recorded_as_evidence() -> None:
     evidence = gather_evidence(
-        _record(_XREF_JUSTIFICATION),
+        _record(DATABASE_CROSS_REFERENCE),
         subject_labels=set(),
         object_labels=set(),
         object_xref_codes=set(),

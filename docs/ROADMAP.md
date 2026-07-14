@@ -12,9 +12,11 @@ here rather than left to drift a second time. Promote a decision below into
 epic: #4/#5/#6 (goals), #9/#57/#61/#62 (decomposition + frontend), #18 (tracking), and
 the epic #70. Phase-A children #71/#74/#76 and Phase B–C children #77/#81 are **merged and
 closed**. **#73** (validation-driven promotion — the only thing that promotes `closeMatch` to
-`exactMatch`, and so the only thing that moves `COV` off ~0) and **#72** (its `candidate_recall`
-baseline is still unrecorded) were **reopened on 2026-07-12** after a tracker-vs-code audit.
-Phase B–E remaining are #75/#78/#79/#80/#82/#83/#84.
+`exactMatch`, and so the only thing that moves `COV` off ~0) shipped its machinery in PR #117 but
+promoted *only curated pairs* on real data; D33/D34 unblocked it (source agreement: a pair both
+ingest passes produce carries two independent signals). **#72**'s `candidate_recall` baseline is
+still unrecorded. #82 landed (PR #118). Phase B–E remaining are #75/#78 (D33 Option 2 —
+`part_of` as an *effective* second signal)/#79/#80/#83/#84.
 #5 and #6 are deliberately *not*
 designed yet — see §3 — that is the correct sequencing per their dependency on #4, not a gap.
 
@@ -206,6 +208,13 @@ policy, or persisted a promotion — so no candidate had ever been promoted and 
 at ~0), and **#72**, whose measure-first `candidate_recall` baseline was never recorded. The
 #73 orchestration (independent-evidence policy + non-circular ELK gate + D29 lifecycle) is the
 correctness core of the epic; everything downstream of the mapping store is cosmetic without it.
+PR #117 built that orchestration — and then promoted nothing but curated pairs, because the xref
+signal was dead on real data (the pass filtered for an `NCI:` prefix; Uberon writes `NCIT:`) and
+ingest partitioned the fillers so that no candidate could ever hold two independent signals.
+**D33/D34** fix both: a pair produced by *both* passes is one `semapv:CompositeMatching`
+candidate and promotes on **source agreement**, which is the first non-curated promotion path
+the epic has ever had. D33 Option 2 — making #78's `part_of` corroboration an *effective* second
+signal, for the pairs source agreement cannot reach — remains open on **#78**.
 Phase C–E (#75, #78–#80, #82–#84) remain; they enrich the same `op:` axes #57 curates and do
 not consume the decomposition critical path.
 

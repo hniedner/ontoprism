@@ -43,6 +43,9 @@ from ontolib.repositories.xref.promotion import (
     REASON_REFUTED,
     PromotionContext,
     PromotionEnvironmentError,
+    PromotionReport,
+    _curation_alone,
+    _refuse_degenerate_context,
     build_disjoint_query,
     build_upstream_partof_query,
     corroboration,
@@ -53,7 +56,12 @@ from ontolib.repositories.xref.promotion import (
     validate_candidate,
 )
 from ontolib.repositories.xref.validation import ReasonerUnavailableError
-from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
+from ontolib.repositories.xref.vocab import (
+    CLOSE_MATCH,
+    COMPOSITE_MATCHING,
+    DATABASE_CROSS_REFERENCE,
+    EXACT_MATCH,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
@@ -68,10 +76,6 @@ _UBERON_BRAIN_IRI = f"{_OBO}UBERON_0000955"
 
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
-
-_XREF = "semapv:DatabaseCrossReference"
-_LEXICAL = "semapv:LexicalMatching"
-
 
 # ── an ELK-faithful reasoner double ────────────────────────────────────
 #
@@ -172,7 +176,7 @@ def _unavailable(ttl: str) -> set[tuple[str, str]] | None:
 def _record(
     subject: str = "C12468",
     obj: str = "UBERON:0002048",
-    justification: str = _XREF,
+    justification: str = DATABASE_CROSS_REFERENCE,
 ) -> SSSOMRecord:
     return SSSOMRecord(
         subject_id=subject,
@@ -295,6 +299,49 @@ def test_sme_curated_pair_promotes_on_curation_alone() -> None:
 
 
 @pytest.mark.unit
+def test_curated_pair_with_structural_corroboration_is_not_curation_alone() -> None:
+    """A curated pair that also has an anchored ancestor is booked as structural
+    corroboration, not curation alone — the buckets are mutually exclusive."""
+    # Default _context() provides a structural path (C12468→C12366≡UBERON:0001004
+    # and lung→respiration organ→respiratory system). Give C12468 a label that
+    # does NOT match "lung" to prevent label agreement, producing {SME, STRUCTURAL}.
+    promoted, report = promote_candidates(
+        [_record()],
+        _context(
+            curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
+            subject_labels={"C12468": {"Pulmonary Organ"}},
+        ),
+        reasoner=_ElkLikeReasoner(),
+    )
+    assert len(promoted) == 1
+    assert report.promoted_with_structural_corroboration == 1
+    assert report.promoted_on_curation_alone == 0
+
+
+@pytest.mark.unit
+def test_curated_pair_with_label_agreement_is_also_curation_alone() -> None:
+    """A curated pair whose labels also agree is still booked as curation alone.
+
+    Without this, every curated pair with agreeing labels would be counted as
+    ``promoted_on_source_agreement`` — making curation-investment indistinguishable from
+    machine-generated corroboration and hiding the fact that the curated portfolio was
+    still load-bearing.
+    """
+    outcome = validate_candidate(
+        _record(),
+        _no_anchor_context(
+            curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
+        ),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert outcome.promoted is not None
+    assert SME_CURATION in {e.kind for e in outcome.evidence}
+    assert LABEL_AGREEMENT in {e.kind for e in outcome.evidence}
+    assert _curation_alone(outcome) is True
+
+
+@pytest.mark.unit
 def test_curated_candidate_is_not_used_as_its_own_anchor() -> None:
     """A curated pair is a trusted anchor for *other* candidates — but when it is
     itself the candidate under test, it must be dropped from the anchor set."""
@@ -347,6 +394,7 @@ def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
         "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
         "promoted_with_structural_corroboration": 0,
+        "promoted_on_source_agreement": 0,
     }
     assert report.failed is True
 
@@ -372,6 +420,15 @@ def test_a_run_with_no_stated_ncit_edges_refuses_rather_than_reporting_zero() ->
         promote_candidates(
             [_record()], _context(ncit_edges=set()), reasoner=_ElkLikeReasoner()
         )
+
+
+@pytest.mark.unit
+def test_refuse_degenerate_context_rejects_empty_records() -> None:
+    """An empty records list means ingest hasn't run — refuse rather than report
+    a zero that looks like a conservative verdict."""
+    ctx = _context()
+    with pytest.raises(PromotionEnvironmentError, match="no proposed candidates"):
+        _refuse_degenerate_context([], ctx)
 
 
 @pytest.mark.unit
@@ -605,12 +662,10 @@ def test_a_run_that_only_imported_curated_pairs_says_so() -> None:
     validation machinery earned.
 
     This is the difference between the feature working and the feature being a file
-    importer wearing a reasoner costume — and on the current real data it is the latter
-    for every non-curated candidate (a lexical candidate can never obtain an xref
-    assertion, because ingest only emits one when NO upstream class xrefs the subject;
-    and structural corroboration rarely fires for Uberon anatomy, which uses part_of).
-    A report that cannot tell the two apart publishes a number that means something
-    entirely different from what it says.
+    importer wearing a reasoner costume — which is what it was for every non-curated
+    candidate until #73 Option 1 (D33/D34) made source agreement reachable.  A report
+    that cannot tell the two apart publishes a number that means something entirely
+    different from what it says, so the split stays whatever the promotion mix becomes.
     """
     curated = _record(subject="C12377", obj="UBERON:0002110")
     promoted, report = promote_candidates(
@@ -625,6 +680,100 @@ def test_a_run_that_only_imported_curated_pairs_says_so() -> None:
         "the reasoner, the anchors and the disjointness axioms contributed nothing to "
         "this promotion — the report must not imply otherwise"
     )
+
+
+# ── source agreement: the promotion path D33/Option 1 opens (D34) ──────
+
+
+def _no_anchor_context(**overrides: Any) -> PromotionContext:
+    """The same two planes, with NO anchors and NO curation.
+
+    Structural corroboration therefore *cannot* fire and curation cannot carry anything:
+    whatever promotes here promoted on source agreement alone, so the bucket the report
+    credits is not a coincidence of the fixture.
+    """
+    base: dict[str, Any] = {
+        "anchors": (),
+        "subject_labels": {"C12468": {"Lung"}, "C12377": {"Pancreas"}},
+        "object_labels": {
+            "UBERON:0002048": {"lung"},
+            "UBERON:0002110": {"pancreas"},
+        },
+        "object_xrefs": {
+            "UBERON:0002048": {"C12468"},
+            "UBERON:0002110": {"C12377"},
+        },
+    }
+    base.update(overrides)
+    return _context(**base)
+
+
+@pytest.mark.unit
+def test_an_xref_the_labels_agree_with_promotes_on_source_agreement() -> None:
+    """GATE LIVENESS (the point of #73 Option 1): two independent sources agreeing is a
+    reachable promotion, with no curation and no anchored ancestor anywhere.
+
+    Before this, `promoted_on_source_agreement` could never be non-zero: ingest never
+    produced a candidate that could hold both signals, and `gather_evidence` dropped
+    whichever one had generated it — so the machinery promoted curated pairs and nothing
+    else, on real data.
+    """
+    promoted, report = promote_candidates(
+        [_record(justification=COMPOSITE_MATCHING)],
+        _no_anchor_context(),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert len(promoted) == 1
+    assert promoted[0].predicate_id == EXACT_MATCH
+    assert promoted[0].lifecycle_state == "validated"
+    assert report.promoted == 1
+    assert report.promoted_on_source_agreement == 1
+    assert report.promoted_on_curation_alone == 0
+    assert report.promoted_with_structural_corroboration == 0
+
+
+@pytest.mark.unit
+def test_a_single_source_candidate_still_does_not_promote() -> None:
+    """GATE LIVENESS, reject branch: the bar is unchanged for everything else.
+
+    Identical facts to the test above — the labels agree and the upstream object xrefs
+    the subject — but the row says only the xref pass produced it, so that signal is its
+    origin and cannot also justify it (D28).  One kind of evidence is not two.
+    """
+    promoted, report = promote_candidates(
+        [_record(justification=DATABASE_CROSS_REFERENCE)],
+        _no_anchor_context(),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert promoted == []
+    assert report.promoted == 0
+    assert report.insufficient_evidence == 1
+
+
+@pytest.mark.unit
+def test_a_composite_row_outranks_a_stale_single_source_row_for_the_same_pair() -> None:
+    """A re-ingest leaves BOTH rows in `concept_xref`, and `proposed_candidates` returns
+    both — they differ in `mapping_justification`, so `DISTINCT` cannot collapse them.
+
+    Which duplicate survives dedup decides which signals are suppressed as generating,
+    and Postgres leaves the tie order unspecified.  If the single-source row wins, the
+    pair silently reverts to one evidence kind and never promotes — the bug this issue
+    exists to fix, reintroduced through the back door.
+    """
+    promoted, report = promote_candidates(
+        [
+            _record(justification=DATABASE_CROSS_REFERENCE),
+            _record(justification=COMPOSITE_MATCHING),
+        ],
+        _no_anchor_context(),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert report.considered == 1, "the same pair twice is ONE candidate"
+    assert len(promoted) == 1
+    assert report.promoted_on_source_agreement == 1
 
 
 @pytest.mark.unit
@@ -657,6 +806,53 @@ def test_two_qualifying_candidates_for_one_subject_promote_neither() -> None:
     assert report.promoted == 0
 
 
+@pytest.mark.unit
+def test_stale_anchor_replacement_promotes_alone() -> None:
+    """A replacement for a stale bridge promotes when no other candidate claims
+    the same subject — the stale anchor's endpoint claim is released."""
+    promoted, report = promote_candidates(
+        [_record(justification=COMPOSITE_MATCHING)],
+        _no_anchor_context(),
+        stale_anchors=frozenset({("C12468", "UBERON:0002048")}),
+        reasoner=_ElkLikeReasoner(),
+    )
+    assert len(promoted) == 1
+    assert report.promoted == 1
+    assert report.conflicting_identity == 0
+
+
+@pytest.mark.unit
+def test_stale_anchor_replacement_does_not_hide_a_separate_contest() -> None:
+    """GATE LIVENESS (stale-anchor blind spot): a stale pair's replacement must
+    not silently coexist with another candidate for the same endpoint —
+    contested-endpoint detection must consider ALL qualified outcomes."""
+    promoted, report = promote_candidates(
+        [
+            _record(justification=COMPOSITE_MATCHING),  # replacement for stale
+            _record(  # separate same-subject candidate
+                obj="UBERON:0000955",
+                justification=COMPOSITE_MATCHING,
+            ),
+        ],
+        _no_anchor_context(
+            subject_labels={"C12468": {"Lung", "Brain"}},
+            object_labels={
+                "UBERON:0002048": {"lung"},
+                "UBERON:0000955": {"brain"},
+            },
+            object_xrefs={
+                "UBERON:0002048": {"C12468"},
+                "UBERON:0000955": {"C12468"},
+            },
+        ),
+        stale_anchors=frozenset({("C12468", "UBERON:0002048")}),
+        reasoner=_ElkLikeReasoner(),
+    )
+    assert promoted == [], "both must be contested — neither may promote"
+    assert report.conflicting_identity == 2
+    assert report.promoted == 0
+
+
 # ── the run: report + the number it moves ──────────────────────────────
 
 
@@ -683,6 +879,7 @@ def test_promotion_report_counts_every_outcome() -> None:
         "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
         "promoted_with_structural_corroboration": 1,
+        "promoted_on_source_agreement": 0,
     }
     assert report.failed is False
 
@@ -707,7 +904,22 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
         "promoted_with_structural_corroboration": 0,
+        "promoted_on_source_agreement": 0,
     }
+
+
+@pytest.mark.unit
+def test_report_rejects_overlapping_sub_buckets() -> None:
+    """The sub-bucket invariant catches a future miscount before it publishes."""
+    with pytest.raises(ValueError, match="promoted sub-buckets"):
+        PromotionReport(
+            considered=5,
+            promoted=3,
+            insufficient_evidence=1,
+            refuted=1,
+            promoted_on_curation_alone=2,
+            promoted_with_structural_corroboration=2,
+        )
 
 
 @pytest.mark.unit
@@ -915,9 +1127,9 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
                 {"left": _UBERON_RESP_IRI, "right": f"{_OBO}UBERON_0000010"}
             ],
             "hasDbXref": [
-                {"upstream": _UBERON_LUNG_IRI, "xref": "NCI:C12468"},
+                {"upstream": _UBERON_LUNG_IRI, "xref": "NCIT:C12468"},
                 {"upstream": _UBERON_LUNG_IRI, "xref": "UMLS:C0024109"},
-                {"upstream": "http://example.org/not-obo", "xref": "NCI:C99999"},
+                {"upstream": "http://example.org/not-obo", "xref": "NCIT:C99999"},
             ],
             "rdfs:label": [
                 {"concept": _UBERON_LUNG_IRI, "label": "lung"},
@@ -977,7 +1189,7 @@ async def test_load_promotion_context_warns_when_a_signal_is_absent(
             "onProperty": [],  # the part_of query matches here first ⇒ no part_of edges
             "?parent": [{"child": _UBERON_LUNG_IRI, "parent": _UBERON_RESP_IRI}],
             "rdfs:label": [{"concept": _UBERON_LUNG_IRI, "label": "lung"}],
-            "hasDbXref": [{"upstream": _UBERON_LUNG_IRI, "xref": "NCI:C12468"}],
+            "hasDbXref": [{"upstream": _UBERON_LUNG_IRI, "xref": "NCIT:C12468"}],
         }
     )
 
