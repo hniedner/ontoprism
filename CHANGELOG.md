@@ -19,6 +19,56 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.14.0 (2026-07-14)
+
+### Bug Fixes
+
+- **xref**: Address 5-lens review round 1 — prefix rename, provenance guard, report clamping, test
+  gaps ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+- **xref**: Make report sub-buckets mutually exclusive with invariant check
+  ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+- **xref**: Prevent stale-anchor blind spot in contest detection + add dual-evidence test
+  ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+### Documentation
+
+- Add D35 issue-close policy — PR bodies must only reference fully-resolved issues; issues scoped to
+  single PR ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+- Record D33 (#73 promotion evidence policy) and refresh the design-to-code map
+  ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+- Record D34 (composite candidates + the NCIT: prefix bug) and refresh §5/§0
+  ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+- Update README code line-count table
+  ([`3f9b64b`](https://github.com/hniedner/ontoprism/commit/3f9b64b1655b853fd0315595114f0234392aad98))
+
+### Features
+
+- **xref**: Promote pairs both ingest passes produce, and fix the dead xref prefix
+  ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+- **xref**: Promote pairs on source agreement with D33/D34 composite candidates
+  ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+### Testing
+
+- **xref**: Add __post_init__ invariant test and document sub-bucket priority
+  ([#119](https://github.com/hniedner/ontoprism/pull/119),
+  [`b6156b6`](https://github.com/hniedner/ontoprism/commit/b6156b695b37350b3577637232b6e1bc85b30fc0))
+
+
 ## v0.13.0 (2026-07-13)
 
 ### Bug Fixes
