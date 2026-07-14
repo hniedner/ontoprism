@@ -16,7 +16,7 @@ closed**. **#73** (validation-driven promotion — the only thing that promotes 
 promoted *only curated pairs* on real data; D33/D34 unblocked it (source agreement: a pair both
 ingest passes produce carries two independent signals). **#72**'s `candidate_recall` baseline is
 still unrecorded. #82 landed (PR #118). Phase B–E remaining are #75/#78 (D33 Option 2 —
-`part_of` as an *effective* second signal)/#79/#80/#83/#84.
+`part_of` as an *effective* second signal)/#79/#80/#84. #83 landed (PR #118).
 #5 and #6 are deliberately *not*
 designed yet — see §3 — that is the correct sequencing per their dependency on #4, not a gap.
 
@@ -257,9 +257,10 @@ epics (#18, the external-integration epic #70) stay unassigned.
 | Milestone | Issues |
 |---|---|
 | Goal 2 · Decomposed NCIt | #4, #9, #57, #60, #61, #62 |
-| Ext-Integration · Phase A — Bridge foundation | #71, #72, #73, #74, #76 (✅ #71, #74, #76 closed; #72, #73 reopened) |
+| Ext-Integration · Phase A — Bridge foundation | #71, #72, #73, #74, #76 (✅ #71, #73, #74, #76 closed; #72 open — baseline unrecorded) |
 | Ext-Integration · Phase B–C — Bind + morphology | #78, #79, #80, #75 (✅ #77, #81 closed) |
-| Ext-Integration · Phase D — Serve & caDSR coverage | #82, #83 |
+| Ext-Integration · Phase D — Serve & caDSR coverage | ✅ #82, #83 closed (PR #118) |
+| Ext-Integration · follow-ups from closed children | #120 ($translate is not FHIR), #121 (real run: promotion mix + COV off ~0), #122 (persist per-promotion evidence), #123 (scope disjoints), #124 (§13.3 by-target + meaning_code) |
 | Goal 3 · Balanced graph | #5 |
 | Goal 4 · Post-coordination grammar | #6, #84 |
 
