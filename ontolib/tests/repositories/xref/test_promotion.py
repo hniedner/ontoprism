@@ -43,6 +43,8 @@ from ontolib.repositories.xref.promotion import (
     REASON_REFUTED,
     PromotionContext,
     PromotionEnvironmentError,
+    _curation_alone,
+    _refuse_degenerate_context,
     build_disjoint_query,
     build_upstream_partof_query,
     corroboration,
@@ -53,7 +55,12 @@ from ontolib.repositories.xref.promotion import (
     validate_candidate,
 )
 from ontolib.repositories.xref.validation import ReasonerUnavailableError
-from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
+from ontolib.repositories.xref.vocab import (
+    CLOSE_MATCH,
+    COMPOSITE_MATCHING,
+    DATABASE_CROSS_REFERENCE,
+    EXACT_MATCH,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
@@ -68,11 +75,6 @@ _UBERON_BRAIN_IRI = f"{_OBO}UBERON_0000955"
 
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
-
-_XREF = "semapv:DatabaseCrossReference"
-_LEXICAL = "semapv:LexicalMatching"
-_COMPOSITE = "semapv:CompositeMatching"
-
 
 # ── an ELK-faithful reasoner double ────────────────────────────────────
 #
@@ -173,7 +175,7 @@ def _unavailable(ttl: str) -> set[tuple[str, str]] | None:
 def _record(
     subject: str = "C12468",
     obj: str = "UBERON:0002048",
-    justification: str = _XREF,
+    justification: str = DATABASE_CROSS_REFERENCE,
 ) -> SSSOMRecord:
     return SSSOMRecord(
         subject_id=subject,
@@ -296,6 +298,29 @@ def test_sme_curated_pair_promotes_on_curation_alone() -> None:
 
 
 @pytest.mark.unit
+def test_curated_pair_with_label_agreement_is_also_curation_alone() -> None:
+    """A curated pair whose labels also agree is still booked as curation alone.
+
+    Without this, every curated pair with agreeing labels would be counted as
+    ``promoted_on_source_agreement`` — making curation-investment indistinguishable from
+    machine-generated corroboration and hiding the fact that the curated portfolio was
+    still load-bearing.
+    """
+    outcome = validate_candidate(
+        _record(),
+        _no_anchor_context(
+            curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
+        ),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert outcome.promoted is not None
+    assert SME_CURATION in {e.kind for e in outcome.evidence}
+    assert LABEL_AGREEMENT in {e.kind for e in outcome.evidence}
+    assert _curation_alone(outcome) is True
+
+
+@pytest.mark.unit
 def test_curated_candidate_is_not_used_as_its_own_anchor() -> None:
     """A curated pair is a trusted anchor for *other* candidates — but when it is
     itself the candidate under test, it must be dropped from the anchor set."""
@@ -348,6 +373,7 @@ def test_a_reasoner_that_cannot_run_is_never_read_as_a_verdict() -> None:
         "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
         "promoted_with_structural_corroboration": 0,
+        "promoted_on_source_agreement": 0,
     }
     assert report.failed is True
 
@@ -373,6 +399,15 @@ def test_a_run_with_no_stated_ncit_edges_refuses_rather_than_reporting_zero() ->
         promote_candidates(
             [_record()], _context(ncit_edges=set()), reasoner=_ElkLikeReasoner()
         )
+
+
+@pytest.mark.unit
+def test_refuse_degenerate_context_rejects_empty_records() -> None:
+    """An empty records list means ingest hasn't run — refuse rather than report
+    a zero that looks like a conservative verdict."""
+    ctx = _context()
+    with pytest.raises(PromotionEnvironmentError, match="no proposed candidates"):
+        _refuse_degenerate_context([], ctx)
 
 
 @pytest.mark.unit
@@ -663,7 +698,7 @@ def test_an_xref_the_labels_agree_with_promotes_on_source_agreement() -> None:
     else, on real data.
     """
     promoted, report = promote_candidates(
-        [_record(justification=_COMPOSITE)],
+        [_record(justification=COMPOSITE_MATCHING)],
         _no_anchor_context(),
         reasoner=_ElkLikeReasoner(),
     )
@@ -686,7 +721,7 @@ def test_a_single_source_candidate_still_does_not_promote() -> None:
     origin and cannot also justify it (D28).  One kind of evidence is not two.
     """
     promoted, report = promote_candidates(
-        [_record(justification=_XREF)],
+        [_record(justification=DATABASE_CROSS_REFERENCE)],
         _no_anchor_context(),
         reasoner=_ElkLikeReasoner(),
     )
@@ -707,7 +742,10 @@ def test_a_composite_row_outranks_a_stale_single_source_row_for_the_same_pair() 
     exists to fix, reintroduced through the back door.
     """
     promoted, report = promote_candidates(
-        [_record(justification=_XREF), _record(justification=_COMPOSITE)],
+        [
+            _record(justification=DATABASE_CROSS_REFERENCE),
+            _record(justification=COMPOSITE_MATCHING),
+        ],
         _no_anchor_context(),
         reasoner=_ElkLikeReasoner(),
     )
@@ -773,6 +811,7 @@ def test_promotion_report_counts_every_outcome() -> None:
         "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
         "promoted_with_structural_corroboration": 1,
+        "promoted_on_source_agreement": 0,
     }
     assert report.failed is False
 
@@ -797,6 +836,7 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "skipped_unexpandable": 0,
         "promoted_on_curation_alone": 0,
         "promoted_with_structural_corroboration": 0,
+        "promoted_on_source_agreement": 0,
     }
 
 

@@ -51,6 +51,10 @@ if TYPE_CHECKING:
 
     from ontolib.repositories.xref.models import SSSOMRecord
 
+# -- module constants ---------------------------------------------------
+
+_NCIT_CODE_PREFIX = "NCIT:"
+
 # ── evidence kinds ─────────────────────────────────────────────────────
 
 # NCIt label agrees with an upstream label (case-folded).
@@ -175,7 +179,7 @@ def _xref_assertion(subject_id: str, object_xref_codes: set[str]) -> Evidence | 
     return Evidence(
         kind=XREF_ASSERTION,
         source="oboInOwl:hasDbXref",
-        detail=f"NCIT:{subject_id}",
+        detail=f"{_NCIT_CODE_PREFIX}{subject_id}",
     )
 
 

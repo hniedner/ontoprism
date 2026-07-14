@@ -128,11 +128,11 @@ REASON_REASONER_ERROR = "reasoner_error"
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 _OWL_NS = "http://www.w3.org/2002/07/owl#"
-# `NCIT:`, not `NCI:` — see `candidate_ingest._OBO_NCI_PREFIX`.  This one feeds
+# `NCIT:`, not `NCI:` — see `candidate_ingest._OBO_NCIT_PREFIX`.  This one feeds
 # `ctx.object_xrefs`, i.e. the XREF_ASSERTION *evidence*: with the wrong prefix it
 # stayed empty for every candidate, so nothing machine-generated could ever reach a
 # second independent signal.
-_OBO_NCI_PREFIX = "NCIT:"
+_OBO_NCIT_PREFIX = "NCIT:"
 _OWL_THING = URIRef(f"{_OWL_NS}Thing")
 # BFO:0000050 is the OBO ``part_of`` object property.  Uberon carries organ->system
 # containment as an existential restriction on it, never as ``subClassOf``.
@@ -262,10 +262,11 @@ class PromotionReport:
         Real evidence — but the reasoner earned none of it: no anchor was used and no
         structural corroboration fired; ELK merely failed to refute.
         """
-        return (
+        return max(
+            0,
             self.promoted
             - self.promoted_on_curation_alone
-            - self.promoted_with_structural_corroboration
+            - self.promoted_with_structural_corroboration,
         )
 
     @property
@@ -290,6 +291,7 @@ class PromotionReport:
             "promoted_with_structural_corroboration": (
                 self.promoted_with_structural_corroboration
             ),
+            "promoted_on_source_agreement": self.promoted_on_source_agreement,
         }
 
 
@@ -1215,9 +1217,9 @@ async def _object_xrefs(
     for row in await client.select(build_uberon_xref_query()):
         iri, xref = row.get("upstream"), row.get("xref")
         curie = _curie(str(iri)) if iri else None
-        if curie in objects and xref and str(xref).startswith(_OBO_NCI_PREFIX):
+        if curie in objects and xref and str(xref).startswith(_OBO_NCIT_PREFIX):
             xrefs.setdefault(str(curie), set()).add(
-                str(xref).removeprefix(_OBO_NCI_PREFIX)
+                str(xref).removeprefix(_OBO_NCIT_PREFIX)
             )
     return xrefs
 

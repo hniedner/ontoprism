@@ -23,8 +23,8 @@ ALLOWED_PREDICATES = frozenset(
 
 # SSSOM `mapping_justification` values — the process that produced a candidate.
 #
-# `LEXICAL_MATCHING`, `COMPOSITE_MATCHING` and `MANUAL_MAPPING_CURATION` are published
-# semapv terms (`mapping-commons/semantic-mapping-vocabulary`, `semapv-terms.tsv`).
+# `LEXICAL_MATCHING` and `COMPOSITE_MATCHING` are published semapv terms
+# (`mapping-commons/semantic-mapping-vocabulary`, `semapv-terms.tsv`).
 # `DATABASE_CROSS_REFERENCE` is NOT: semapv has no term for "an upstream database
 # asserts a cross-reference", and this one predates the vocabulary check. It is kept
 # because it is the string persisted in `concept_xref.mapping_justification` on every

@@ -258,7 +258,7 @@ async def test_the_real_stores_co_generate_source_agreeing_candidates() -> None:
     """THE premise of D33 Option 1, asked of the real stores rather than of a fixture.
 
     Auto-promotion without curation now rests on a pair being produced by BOTH ingest
-    passes: an OBO curator asserted ``NCI:<code>`` on the upstream class *and* the two
+    passes: an OBO curator asserted ``NCIT:<code>`` on the upstream class *and* the two
     labels agree.  A fixture can always be built so that this happens; the question no
     fixture can answer is whether it happens on the live NCIt + Uberon/CL.  If it never
     does, ``promoted_on_source_agreement`` stays zero, ``COV`` stays pinned, and #73 is

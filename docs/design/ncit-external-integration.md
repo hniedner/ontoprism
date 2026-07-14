@@ -45,8 +45,9 @@ built code, not only a forward plan. Verified against the tree:
 | **Reserved (design-heavy)**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); SNOMED/ICD-O-3 (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6) | **Not started** | needs design/SME/licensing |
 
 **Live issue status is in [`../ROADMAP.md`](../ROADMAP.md) §5** — this table is a design→code map, not a
-live tracker. Phase A is complete; Phase B/C are partially landed with #73 the load-bearing open thread
-(promotion currently promotes only curated pairs — a user design decision is required).
+live tracker. Phase A is complete; Phase B/C are partially landed with #73 promotion unblocked (D33/D34:
+a pair both ingest passes produce now promotes on source agreement). D33 Option 2 — making
+#78 `part_of` an *effective* second signal — remains open.
 
 **Codebase corrections to this doc's earlier assumptions** (the design predates the code): the xref
 module lives under `repositories/xref/` (not `terminologies/xref/`); there is **no ORM** — Postgres is

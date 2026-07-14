@@ -67,7 +67,7 @@ _TARGET_ROLES: frozenset[str] = frozenset({"R101", "R100", "R102", "R105"})
 # promoted only curated pairs.  It is pinned by `test_upstream_data_contract` — the
 # only kind of test that could have caught it, since every fixture in the suite had the
 # prefix wrong in exactly the same way as the code.
-_OBO_NCI_PREFIX = "NCIT:"
+_OBO_NCIT_PREFIX = "NCIT:"
 _OBO_BASE = "http://purl.obolibrary.org/obo/"
 _OBO_INOWL_NS = "http://www.geneontology.org/formats/oboInOwl#"
 _RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
@@ -123,7 +123,7 @@ def build_uberon_xref_query() -> str:
 PREFIX oboInOwl: <{_OBO_INOWL_NS}>
 SELECT ?upstream ?xref WHERE {{
     ?upstream oboInOwl:hasDbXref ?xref .
-    FILTER(STRSTARTS(?xref, "{_OBO_NCI_PREFIX}"))
+    FILTER(STRSTARTS(?xref, "{_OBO_NCIT_PREFIX}"))
 }}
 """
 
@@ -229,9 +229,9 @@ def _build_xref_index(
     index: dict[str, list[str]] = {}
     for x in xrefs:
         xref_val = x["xref"]
-        if not xref_val.startswith(_OBO_NCI_PREFIX):
+        if not xref_val.startswith(_OBO_NCIT_PREFIX):
             continue
-        nci_code = xref_val.removeprefix(_OBO_NCI_PREFIX)
+        nci_code = xref_val.removeprefix(_OBO_NCIT_PREFIX)
         curie = _iri_to_curie(x["upstream"])
         if curie:
             index.setdefault(nci_code, []).append(curie)
@@ -253,7 +253,9 @@ def _provenance(*, from_xref: bool, from_lexical: bool) -> tuple[str, float]:
         return COMPOSITE_MATCHING, _COMPOSITE_CONFIDENCE
     if from_xref:
         return DATABASE_CROSS_REFERENCE, _XREF_CONFIDENCE
-    return LEXICAL_MATCHING, _LEXICAL_CONFIDENCE
+    if from_lexical:
+        return LEXICAL_MATCHING, _LEXICAL_CONFIDENCE
+    raise ValueError("_provenance called with neither xref nor lexical signal")
 
 
 def _records_for_filler(
@@ -386,7 +388,12 @@ async def ingest_candidates(
         source_version=uberon_version,
     )
 
-    await store.upsert_records(rid, records)
+    inserted = await store.upsert_records(rid, records)
+    if inserted != len(records):
+        raise RuntimeError(
+            f"expected {len(records)} upserted records, got {inserted}. "
+            "The DB state no longer matches the in-memory report."
+        )
 
     ttl = render_ttl(records)
     await ncit_client.load(
