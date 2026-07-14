@@ -43,6 +43,7 @@ from ontolib.repositories.xref.promotion import (
     REASON_REFUTED,
     PromotionContext,
     PromotionEnvironmentError,
+    PromotionReport,
     _curation_alone,
     _refuse_degenerate_context,
     build_disjoint_query,
@@ -838,6 +839,20 @@ def test_report_separates_refutations_from_weak_evidence() -> None:
         "promoted_with_structural_corroboration": 0,
         "promoted_on_source_agreement": 0,
     }
+
+
+@pytest.mark.unit
+def test_report_rejects_overlapping_sub_buckets() -> None:
+    """The sub-bucket invariant catches a future miscount before it publishes."""
+    with pytest.raises(ValueError, match="promoted sub-buckets"):
+        PromotionReport(
+            considered=5,
+            promoted=3,
+            insufficient_evidence=1,
+            refuted=1,
+            promoted_on_curation_alone=2,
+            promoted_with_structural_corroboration=2,
+        )
 
 
 @pytest.mark.unit

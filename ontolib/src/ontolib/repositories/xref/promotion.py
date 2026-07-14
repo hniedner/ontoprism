@@ -981,6 +981,10 @@ def _settle_contests(
         elif outcome.promoted is not None:
             counts[REASON_PROMOTED] += 1
             promoted.append(outcome.promoted)
+            # Structural corroboration takes priority over curation alone:
+            # if the reasoner contributed, the promotion is booked under the
+            # machinery bucket, not curation (promoted_on_curation_alone means
+            # "curation ALONE — no independent corroborating signal").
             if _structurally_corroborated(outcome):
                 corroborated += 1
             elif _curation_alone(outcome):
