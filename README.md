@@ -94,6 +94,91 @@ complex meaning can be *composed* on demand — expressed purely as combinations
 simple concepts using formally defined roles — while keeping the original
 pre-coordinated concepts intact for backward compatibility.
 
+## The Vision — the long arc
+
+The goal above is stage one of five. The end state is an oncology terminology that is
+**systematically composed, grounded in vetted upstream ontologies, and demonstrably
+covers what oncology actually talks about**. Each stage depends on the one before it,
+and each has a guardrail that keeps it honest — stated here because the naive version of
+each stage is subtly wrong, and the wrong version is the one that sounds better.
+
+**1 · Decompose.** Every pre-coordinated NCIt concept gets a defining expression over
+atomic constituents, with an `owl:equivalentClass` axiom that makes the decomposition
+*reversible* (D19/D21) — reversibility being **asserted by the emitted axiom and measured
+by `roundtrip_fidelity`**, not proven by a reasoner: this deployment does not materialize
+defined-class subsumption (D21), so the word is carrying a claim we verify empirically
+rather than one the logic hands us for free.
+
+> **Guardrail — the target is zero *unanalyzed* pre-coordination, not zero
+> pre-coordinated concepts.** These are not the same thing, and only the first is
+> coherent: an equivalence axiom needs a left-hand side, and caDSR's CDEs reference
+> pre-coordinated NCIt codes, so deleting them would break the very anchoring the caDSR
+> coverage guarantee exists to protect. GALEN attempted full elimination and was not
+> adopted; SNOMED CT retains pre-coordination and *sanctions* post-coordination. We
+> follow SNOMED. Success is: **no pre-coordinated concept without a sanctioned,
+> reversible, genuinely atomic definition** — measured by `roundtrip_fidelity` (did we
+> capture everything the source asserts?) and `residual_precoordination` (is what we
+> produced actually atomic?). The second is **detector-relative**: it measures reducibility
+> *as our detector sees it*, not ground-truth atomicity, so a better detector moves the
+> number with no ontology change. It is therefore pinned against the SME-curated golden set,
+> where drift becomes visible (D37).
+
+**2 · Disambiguate the roles.** Some NCIt roles carry more than one sense (`R101` site
+vs. region, `R105` cell-of-origin vs. lineage). Composition over a conflated role
+produces confident nonsense, so the roles are split into univocal `op:` axes *before*
+coverage is chased (D15/D17/D22: relation quality gates coverage).
+
+**3 · Ground in the upstream substrate.** NCIt becomes the oncology-specific
+**specialization layer** over vetted ontologies — Uberon and Cell Ontology for anatomy
+and cell type, Mondo for disease genus — extended where oncology needs granularity the
+substrate lacks.
+
+> **Guardrail — a mapping layer, not a subset.** NCIt is *not* a subset of the upstream
+> ontologies: it holds concepts with no upstream counterpart, and its class structure
+> genuinely differs. The bridge is therefore **dual-canonical and additive** (D24–D26) —
+> NCIt and caDSR anchoring are both preserved. And the substrate splits on licence:
+> **Uberon/CL/Mondo are open and can be depended on definitionally; SNOMED CT and
+> ICD-O-3 are licence-gated and may only be *mapped to***. An NCIt that is definitionally
+> dependent on SNOMED cannot be redistributed, which would defeat the point.
+>
+> **And "grounded in" is not "losslessly equivalent to."** The mapping layer is a standing
+> maintenance liability, not a one-time conquest: cross-ontology maps rot at roughly
+> **6–10% per upstream release** (hence the D29 lifecycle and the staleness sweep), and
+> SKOS `broadMatch`/`narrowMatch` are **not** identity — only a validated `exactMatch` is.
+> Today `COV` is still ~0. This is the stage with the most distance left to travel, and it
+> is measured precisely so that nobody can claim otherwise.
+
+**4 · Compare against the literature.** Embed and cluster PubMed oncology abstracts, and
+compare that landscape with NCIt's.
+
+> **Guardrail — this finds gaps; it does not measure balance.** Clustering abstracts
+> yields a **literature-attention** landscape, and cosine distance in an embedding space
+> is not semantic distance in an ontology. Publication counts are skewed by funding and
+> fashion, so "NCIt disagrees with the embedding geometry" is not evidence of an NCIt
+> defect. The falsifiable questions are: **which concepts does the literature discuss
+> that NCIt cannot express, and which NCIt concepts does nobody ever use?**
+
+**5 · Balance.** Drive granularity toward homogeneity — comparable semantic distance
+between siblings (horizontally) and between parent and child (vertically) — across all
+of oncology.
+
+> **Guardrail — balance is a metric to improve, not an invariant to enforce.** Concept
+> density in a real terminology follows clinical and research need; it is *supposed* to
+> be uneven. Enforcing homogeneity would mean merging genuinely distinct concepts or
+> minting concepts nobody needs — destroying information in the name of symmetry. So:
+> **measure and publish the imbalance, and use it to target enrichment where coverage is
+> demonstrably thin.**
+>
+> **Stage 4's guardrail carries forward, or it was decoration.** Enrichment driven by
+> *publication density* would enrich where the field publishes — importing funding and
+> fashion into the terminology's shape one evidence-looking step at a time. So enrichment
+> is targeted on the **falsifiable signal only**: concepts the literature can express that
+> NCIt cannot. **A cluster being large is not a reason to subdivide a branch.**
+
+Throughout, one non-negotiable: **every claim is measured, and a number that cannot move
+is reported as such.** The published caDSR coverage figure (`COV`) exists precisely
+because "interoperability for free" is otherwise unfalsifiable.
+
 ## The Approach
 
 1. **Detect** — Identify pre-coordinated concepts via a semantic-type gate
