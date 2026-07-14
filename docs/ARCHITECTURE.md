@@ -32,7 +32,7 @@ ontoprism/
 │   │   └── api/…/routers/    #   repo/graph/search/sparql/refresh + decomp (M6)
 │   └── tests/
 ├── frontend/                 # LIFTED SvelteKit 5 app (M4)
-└── docs/  ARCHITECTURE.md  ROADMAP.md  DECISIONS.md  DATA_SETUP.md  design/  postcoordination-literature-review.md
+└── docs/  ARCHITECTURE.md  DECISIONS.md  DATA_SETUP.md  design/  postcoordination-literature-review.md
 ```
 
 ## Data planes

@@ -39,12 +39,12 @@ built code, not only a forward plan. Verified against the tree:
 | Read-side: `upstream` on decomposed `op:` constituents (#77) | **Done** | `decomposition/read_models.py` (`UpstreamMapping`), `read.py` (`attach_upstream`), `XrefStore.mappings_by_subjects` — PR #115 |
 | Validation machinery — evidence policy, merged-EL bridge, ELK gate, D29 lifecycle (#73) | **Code landed (PR #117); promotion unblocked (D33 Option 1 / D34)** | `repositories/xref/evidence.py`, `bridge.py`, `promotion.py`, `store.py`; `data-build xref-promote`. The gate promoted **only curated pairs** until D33/D34: the xref pass filtered on the prefix `NCI:` while Uberon writes `NCIT:` (so `XREF_ASSERTION` never fired at all), and ingest partitioned the fillers so no candidate could hold two signals. Both fixed; a pair both passes produce is now one `semapv:CompositeMatching` candidate and promotes on **source agreement**. Option 2 (make #78 `part_of` an *effective* second signal) still open. |
 | `op:Morphology` from taxonomic parent (#81) | **Done** | delivered via #59 / PR #116 (`decomposition/stated_queries.py::build_morphology_query`, `filler_selection.py`) |
-| Uberon `part_of` structural corroboration (#78) | **Landed (PR #117)** | fires rarely on cold data — on #73's critical path, not a nice-to-have |
-| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 license gate, D29 lifecycle filter, confidence badges. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). |
-| **Published** caDSR coverage number (#83) | **Not started** | generator exists (#76); publishing/serving + regression-tracking is #83 |
+| Uberon `part_of` structural corroboration (#78) | **Landed (PR #117); does not yet fire** | the mixed `subClassOf`/`part_of` walk exists (D32) but rarely fires on cold data. Now **D33 Option 2**: the second signal for pairs source agreement cannot reach — no longer the sole lever, since #119 made source agreement a live promotion path |
+| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 license gate, D29 lifecycle filter, confidence badges. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). Tracked as **#120**. |
+| **Published** caDSR coverage number (#83) | **Landed (PR #118)** | `coverage.py` (`fetch_role_codes`, `save_coverage_baseline`, `detect_coverage_regression`); `data-build xref-coverage` fails on a drop. Whole-corpus, not a sample. **Gaps (#124):** no breakdown by target ontology, no `permissible_value.meaning_code` cross-check. The regression gate is inert until a real run commits `data/cov-baseline.json` (#121). |
 | **Reserved (design-heavy)**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); SNOMED/ICD-O-3 (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6) | **Not started** | needs design/SME/licensing |
 
-**Live issue status is in [`../ROADMAP.md`](../ROADMAP.md) §5** — this table is a design→code map, not a
+**Live issue status lives on the GitHub tracker (epic #70 and its milestones)** — this table is a design→code map, not a
 live tracker. Phase A is complete; Phase B/C are partially landed with #73 promotion unblocked (D33/D34:
 a pair both ingest passes produce now promotes on source agreement). D33 Option 2 — making
 #78 `part_of` an *effective* second signal — remains open.
@@ -842,8 +842,8 @@ Headline corrections to the first draft:
 
 ---
 
-*Companion artifacts: DECISIONS **D24–D29** (`../DECISIONS.md`); revised **ROADMAP** critical path
-(`../ROADMAP.md`); the GitHub issue drafts and updates for execution are in
+*Companion artifacts: DECISIONS **D24–D29** (`../DECISIONS.md`); the critical path and live status
+live on the GitHub tracker (epic #70, milestones M1–M6); the GitHub issue drafts and updates for execution are in
 [Appendix A](#appendix-a--github-issue-drafts--updates-execution-checklist-for-claude-code).*
 
 ---
