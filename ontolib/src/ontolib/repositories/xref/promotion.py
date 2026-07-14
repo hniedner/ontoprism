@@ -955,10 +955,17 @@ def _promote_uncontested(
       ``XrefStore.stale_anchors`` exists to let through, and then be quarantined —
       leaving the concept with *no* bridge at all, which is the exact outcome that
       method was written to prevent.
+
+    ``_one_per_pair`` deduplicates the old candidate row and the replacement (same
+    pair), so the stale bridge's candidate row never reaches ``qualified``.  The
+    *replacement*
+    must still be visible in contest detection: a separate same-endpoint candidate must
+    not slip past because the replacement was filtered out.  Contest endpoints are
+    therefore computed from ALL qualified outcomes, not from a stale-filtered subset.
     """
     live = [o for o in qualified if _pair(o) not in stale_anchors]
-    contested_subjects = _contested(o.record.subject_id for o in live)
-    contested_objects = _contested(o.record.object_id for o in live)
+    contested_subjects = _contested(o.record.subject_id for o in qualified)
+    contested_objects = _contested(o.record.object_id for o in qualified)
     settled = _sme_winners(live, contested_subjects, contested_objects)
 
     return _settle_contests(

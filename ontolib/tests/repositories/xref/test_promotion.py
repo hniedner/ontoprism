@@ -299,6 +299,26 @@ def test_sme_curated_pair_promotes_on_curation_alone() -> None:
 
 
 @pytest.mark.unit
+def test_curated_pair_with_structural_corroboration_is_not_curation_alone() -> None:
+    """A curated pair that also has an anchored ancestor is booked as structural
+    corroboration, not curation alone — the buckets are mutually exclusive."""
+    # Default _context() provides a structural path (C12468→C12366≡UBERON:0001004
+    # and lung→respiration organ→respiratory system). Give C12468 a label that
+    # does NOT match "lung" to prevent label agreement, producing {SME, STRUCTURAL}.
+    promoted, report = promote_candidates(
+        [_record()],
+        _context(
+            curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
+            subject_labels={"C12468": {"Pulmonary Organ"}},
+        ),
+        reasoner=_ElkLikeReasoner(),
+    )
+    assert len(promoted) == 1
+    assert report.promoted_with_structural_corroboration == 1
+    assert report.promoted_on_curation_alone == 0
+
+
+@pytest.mark.unit
 def test_curated_pair_with_label_agreement_is_also_curation_alone() -> None:
     """A curated pair whose labels also agree is still booked as curation alone.
 
@@ -782,6 +802,53 @@ def test_two_qualifying_candidates_for_one_subject_promote_neither() -> None:
     )
 
     assert promoted == []
+    assert report.conflicting_identity == 2
+    assert report.promoted == 0
+
+
+@pytest.mark.unit
+def test_stale_anchor_replacement_promotes_alone() -> None:
+    """A replacement for a stale bridge promotes when no other candidate claims
+    the same subject — the stale anchor's endpoint claim is released."""
+    promoted, report = promote_candidates(
+        [_record(justification=COMPOSITE_MATCHING)],
+        _no_anchor_context(),
+        stale_anchors=frozenset({("C12468", "UBERON:0002048")}),
+        reasoner=_ElkLikeReasoner(),
+    )
+    assert len(promoted) == 1
+    assert report.promoted == 1
+    assert report.conflicting_identity == 0
+
+
+@pytest.mark.unit
+def test_stale_anchor_replacement_does_not_hide_a_separate_contest() -> None:
+    """GATE LIVENESS (stale-anchor blind spot): a stale pair's replacement must
+    not silently coexist with another candidate for the same endpoint —
+    contested-endpoint detection must consider ALL qualified outcomes."""
+    promoted, report = promote_candidates(
+        [
+            _record(justification=COMPOSITE_MATCHING),  # replacement for stale
+            _record(  # separate same-subject candidate
+                obj="UBERON:0000955",
+                justification=COMPOSITE_MATCHING,
+            ),
+        ],
+        _no_anchor_context(
+            subject_labels={"C12468": {"Lung", "Brain"}},
+            object_labels={
+                "UBERON:0002048": {"lung"},
+                "UBERON:0000955": {"brain"},
+            },
+            object_xrefs={
+                "UBERON:0002048": {"C12468"},
+                "UBERON:0000955": {"C12468"},
+            },
+        ),
+        stale_anchors=frozenset({("C12468", "UBERON:0002048")}),
+        reasoner=_ElkLikeReasoner(),
+    )
+    assert promoted == [], "both must be contested — neither may promote"
     assert report.conflicting_identity == 2
     assert report.promoted == 0
 
