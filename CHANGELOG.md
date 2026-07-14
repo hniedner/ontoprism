@@ -19,6 +19,54 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.14.1 (2026-07-14)
+
+### Bug Fixes
+
+- **search**: Close the review findings — live gates, total order, honest skips
+  ([#128](https://github.com/hniedner/ontoprism/pull/128),
+  [`c50e6c6`](https://github.com/hniedner/ontoprism/commit/c50e6c65c304a67467ccd466952766bc11a0fecc))
+
+- **search**: Normalize the raw query before probing for an exact name
+  ([#128](https://github.com/hniedner/ontoprism/pull/128),
+  [`c50e6c6`](https://github.com/hniedner/ontoprism/commit/c50e6c65c304a67467ccd466952766bc11a0fecc))
+
+- **search**: Rank a concept's own name above concepts that merely mention it
+  ([#128](https://github.com/hniedner/ontoprism/pull/128),
+  [`c50e6c6`](https://github.com/hniedner/ontoprism/commit/c50e6c65c304a67467ccd466952766bc11a0fecc))
+
+### Documentation
+
+- Delete ROADMAP.md; GitHub is the source of truth for status
+  ([#125](https://github.com/hniedner/ontoprism/pull/125),
+  [`78cbd99`](https://github.com/hniedner/ontoprism/commit/78cbd9947a76c9538e0450b60199c87f98664efe))
+
+- Harden the vision — detector-relativity, enrichment bias, mapping rot
+  ([#129](https://github.com/hniedner/ontoprism/pull/129),
+  [`bfcb54a`](https://github.com/hniedner/ontoprism/commit/bfcb54a02450bdef2b8e28995e121bca787f59c0))
+
+- Record the vision of record (D38) and ratify D36/D37
+  ([#129](https://github.com/hniedner/ontoprism/pull/129),
+  [`bfcb54a`](https://github.com/hniedner/ontoprism/commit/bfcb54a02450bdef2b8e28995e121bca787f59c0))
+
+- Retire ROADMAP.md and make GitHub the source of truth for status
+  ([#125](https://github.com/hniedner/ontoprism/pull/125),
+  [`78cbd99`](https://github.com/hniedner/ontoprism/commit/78cbd9947a76c9538e0450b60199c87f98664efe))
+
+- Sync the design map and roadmap with the tracker after #119
+  ([#125](https://github.com/hniedner/ontoprism/pull/125),
+  [`78cbd99`](https://github.com/hniedner/ontoprism/commit/78cbd9947a76c9538e0450b60199c87f98664efe))
+
+- Update README code line-count table
+  ([`4854c37`](https://github.com/hniedner/ontoprism/commit/4854c371e9f0abbb30c7361b1d8b712a51ea2d06))
+
+- Update README code line-count table
+  ([`351a000`](https://github.com/hniedner/ontoprism/commit/351a0002137ef8ce8e4a0211a6f4e93bf907ea60))
+
+- Update README code line-count table
+  ([`299815a`](https://github.com/hniedner/ontoprism/commit/299815ad08b7d8049a2a0c86e54675181e52363c))
+
+
 ## v0.14.0 (2026-07-14)
 
 ### Bug Fixes
