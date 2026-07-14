@@ -23,11 +23,24 @@ if TYPE_CHECKING:
 
 # websearch_to_tsquery gives users familiar query syntax (quoted phrases, OR, -term)
 # while being injection-safe. COUNT(*) OVER () returns the full total in one query.
+#
+# The ORDER BY has three tiers, and the first two are load-bearing:
+#
+# 1. An EXACT NAME MATCH WINS. `ts_rank` scores by weighted term frequency, so every
+#    concept whose label contains the term once scores *identically* -- searching
+#    "neoplasm" tied C3262 (whose label IS "Neoplasm") with hundreds of "... Neoplasm"
+#    concepts, and the tie fell through to the `label` tie-break, burying the obvious
+#    answer at rank ~223. Alphabetical order is not relevance.
+# 2. THEN WEIGHTED RELEVANCE. `tsv` is `setweight`ed at the index (migration
+#    0005_search_weights): label 'A', synonyms 'B'. Without it, a concept listing the
+#    term across thirty synonyms outranked the concept *named* for it, because raw
+#    frequency was all that counted.
+# 3. `label` only as a deterministic final tie-break, so paging stays stable.
 _SEARCH_SQL = """
     SELECT code, label, semantic_type, COUNT(*) OVER () AS total
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
-    ORDER BY ts_rank(tsv, q) DESC, label
+    ORDER BY (lower(label) = lower(:q)) DESC, ts_rank(tsv, q) DESC, label
     LIMIT :limit OFFSET :offset
 """
 
