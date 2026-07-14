@@ -2,6 +2,44 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-14 — staging editions are not duplicates (a domain error in our own motivating example)
+
+### D39. Never collapse concepts that differ only in staging edition or in a negated finding — they are different assertions, not re-enumerations
+`README.md` described "Stage III Thyroid Gland Medullary Carcinoma **AJCC v7**" and its **v8**
+counterpart as *"identical clinical entities re-enumerated for a terminology update"*, and #61 carried a
+task to *"collapse version/finding siblings into one core entity."* **Both were wrong**, and the error
+sat in the project's motivating example.
+
+**The domain fact.** The AJCC 8th edition is not a re-print of the 7th. The 7th staged on anatomy alone
+(tumour size and spread); the 8th incorporates tumour biology — HPV status in oropharyngeal cancer,
+depth of invasion in oral cancer — and constructs prognostic stage groups from genetic, molecular and
+biological factors. The documented consequence is **stage migration**: the same patient is upstaged or
+downstaged between editions. "Stage III per v7" and "Stage III per v8" therefore describe **different
+populations with different prognoses**.
+
+**Decision.**
+1. **Concepts differing only in staging edition are NOT merged, grouped as equivalent, or treated as
+   duplicates.** The edition is semantically load-bearing, and it is already modelled correctly: D23
+   makes the staging manual a **first-class axis** (`decomposition/axes.py`). Decomposition *factors the
+   edition out*; it never collapses across it.
+2. **The same holds for `with`/`without <finding>` pairs.** They are distinguished by **negation** —
+   presence versus absence of a finding. Merging them would assert that a finding both holds and does
+   not.
+3. Any future "group the variants" feature is a **presentation** grouping for navigation ("this concept
+   has variants across staging editions"), and **may never assert sameness**. #132 is re-scoped
+   accordingly.
+
+**Why this matters beyond the wording.** The pre-coordination defect in this example was never
+redundancy — it is **fusion**: a real semantic dimension welded into a name, so it cannot be reasoned
+over, queried, or versioned independently. The fix is post-coordination (compose disease core + stage +
+edition), not de-duplication. Mistaking fusion for redundancy points the whole engine at merging
+concepts that disagree, which is the most destructive thing a terminology refactor can do — and it
+would have been *invisible*, because merged concepts do not fail a test.
+
+**Provenance:** flagged by the user, 2026-07-14, against the AJCC 7th/8th-edition literature. The engine
+was already right (D23); the *narrative* was wrong, which is the harder kind of error to catch — nothing
+in CI reads the README.
+
 ## 2026-07-14 — the vision of record, and the four ways its naive form is wrong
 
 ### D38. ONTOPRISM's end state, stated so that it is achievable and falsifiable

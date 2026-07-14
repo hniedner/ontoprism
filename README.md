@@ -74,9 +74,23 @@ be combined.
 NCIt contains tens of thousands of **pre-coordinated** concepts — named classes that
 package multiple semantic dimensions into a single node (55,044 concepts carry two or
 more role restrictions). For example, "Stage III Thyroid Gland Medullary Carcinoma
-AJCC v7" and its near-duplicate "Stage III Thyroid Gland Medullary Carcinoma AJCC v8"
-encode disease site, histology, abnormal cell, and staging version in one concept
-each — identical clinical entities re-enumerated for a terminology update. This
+AJCC v7" and "Stage III Thyroid Gland Medullary Carcinoma AJCC v8" each fuse disease
+site, histology, abnormal cell, **and the staging edition** into one node.
+
+**Note what this example is — and what it is not.** These two are *not* duplicates, and
+the goal is not to merge them. The AJCC 8th edition is not a re-print of the 7th: where
+v7 staged on anatomy alone (tumour size and spread), v8 folds in tumour biology — HPV
+status in oropharyngeal cancer, depth of invasion in oral cancer — producing documented
+**stage migration**, where the same patient is upstaged or downstaged between editions.
+So "Stage III … v7" and "Stage III … v8" are *different clinical assertions about
+different populations*, and collapsing them would destroy exactly the information the
+edition exists to carry (D39).
+
+The pre-coordination problem here is not redundancy but **fusion**: the staging edition
+is a semantic dimension welded into the concept's name, so it cannot be reasoned over,
+queried, or versioned independently. Decomposition factors it out into a first-class
+staging axis (D23) — the two concepts then share a disease core and differ *explicitly*
+in the axis that genuinely distinguishes them, instead of differing in a string. This
 approach:
 
 - **Bloats the terminology** — every new combination requires a new concept
