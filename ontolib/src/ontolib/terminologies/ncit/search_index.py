@@ -23,11 +23,41 @@ if TYPE_CHECKING:
 
 # websearch_to_tsquery gives users familiar query syntax (quoted phrases, OR, -term)
 # while being injection-safe. COUNT(*) OVER () returns the full total in one query.
-_SEARCH_SQL = """
+#
+# The ORDER BY has four tiers, and every one of them is load-bearing:
+#
+# 1. An EXACT NAME MATCH wins. `ts_rank` scores by weighted term frequency, so every
+#    concept whose label contains the term once scores *identically* -- searching
+#    "neoplasm" tied C3262 (whose label IS "Neoplasm") with hundreds of "... Neoplasm"
+#    concepts. `:q` is the RAW user string, so the probe must normalize it: a trailing
+#    space, a newline or tab from a paste, or a quoted phrase ("neoplasm") each made the
+#    comparison miss and dropped C3262 straight back behind "Abdominal Neoplasm,
+#    Excluding Pancreas Neoplasm" -- which wins on ts_rank because it says the word
+#    twice. Tier 3 does NOT rescue that: ts_rank separates them before length is ever
+#    consulted. Hence btrim over whitespace AND quotes.
+#    Genuine DSL queries (`OR`, `-x`) still never match a label, by design -- they carry
+#    more than one term, so no single concept is "the" name for them.
+# 2. THEN WEIGHTED RELEVANCE. `tsv` is `setweight`ed at the index (migration
+#    0005_search_weights): label 'A', synonyms 'B'. Without it, a concept listing the
+#    term across thirty synonyms outranked the concept *named* for it, because raw
+#    frequency was all that counted. This is the tier that governs every *partial*
+#    query ("breast neoplasm"), which is most real searches -- tier 1 cannot help there.
+# 3. THEN THE SHORTER LABEL. Equal relevance breaks toward the more specific name, not
+#    toward the alphabet. Without this, a `ts_rank` tie fell through to alphabetical
+#    order, which is not relevance -- it is what buried "Neoplasm" behind hundreds of
+#    equally-scored "... Neoplasm" concepts, and it is what a quoted or operator query
+#    (which tier 1 cannot rescue) would still hit.
+# 4. `label`, then `code`, purely to make the order TOTAL. `label` is not unique in
+#    NCIt (204,373 rows, 204,238 distinct labels), so without the primary key the sort
+#    is underdetermined and a tied row can appear on two pages of a LIMIT/OFFSET walk,
+#    or on none.
+_SEARCH_SQL = r"""
     SELECT code, label, semantic_type, COUNT(*) OVER () AS total
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
-    ORDER BY ts_rank(tsv, q) DESC, label
+    ORDER BY (lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC,
+             ts_rank(tsv, q) DESC,
+             length(label), label, code
     LIMIT :limit OFFSET :offset
 """
 
