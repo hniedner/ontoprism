@@ -19,6 +19,7 @@ from http import HTTPStatus
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import InterfaceError, OperationalError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -42,7 +43,12 @@ def _embedding_rows(table: str) -> int:
 
     try:
         return asyncio.run(_count())
-    except Exception:
+    except (OSError, OperationalError, InterfaceError):
+        # Server down, refused, or bad credentials -- a genuine environment gap.
+        # Everything else (a dropped/renamed table, a missing `vector` extension, a
+        # broken driver) is a SCHEMA regression and must fail loudly: a bare `except`
+        # here would report "Postgres is off" about a Postgres that is running fine,
+        # which is the same conflation this module's docstring exists to forbid.
         return -1
 
 
@@ -52,16 +58,27 @@ def _require_embeddings(table: str) -> None:
         pytest.skip("Embedding DB (pgvector) not reachable")
     if rows == 0:
         pytest.skip(
-            f"no embeddings loaded in `{table}` -- these are full_build tests. Run "
-            "`pdm install -G data-build`, then `pdm run data-build embeddings`."
+            f"`{table}` holds no vectors, so this full_build test cannot verify "
+            "anything. Either the corpus was never built (`pdm install -G data-build`, "
+            "then `pdm run data-build embeddings`) or the embed step wrote nothing -- "
+            "a skip here is NOT a pass, and does not mean the corpus is sound."
         )
 
 
 def _similar(client: TestClient, path: str) -> list[dict]:
+    """Call *path*. Every caller has already established that vectors are loaded.
+
+    So there is no 503 skip here: the endpoint maps *any* ``SQLAlchemyError`` to 503
+    (`api/v1/ncit.py`), which means a dropped HNSW index, a renamed column or a broken
+    cosine cast would all arrive as 503. Skipping on that would turn precisely the
+    regression these tests exist to catch into a green run.
+    """
     resp = client.get(path)
-    if resp.status_code == HTTPStatus.SERVICE_UNAVAILABLE:
-        pytest.skip("Embedding DB (pgvector) not available")
-    assert resp.status_code == HTTPStatus.OK
+    assert resp.status_code == HTTPStatus.OK, (
+        f"{path} returned {resp.status_code} with embeddings loaded -- the endpoint "
+        f"maps any SQLAlchemyError to 503, so this is a bug, not a missing corpus: "
+        f"{resp.text[:300]}"
+    )
     return resp.json()
 
 
