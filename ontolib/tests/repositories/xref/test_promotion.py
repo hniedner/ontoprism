@@ -71,6 +71,7 @@ _UBERON_VERSION = "uberon-2026-01"
 
 _XREF = "semapv:DatabaseCrossReference"
 _LEXICAL = "semapv:LexicalMatching"
+_COMPOSITE = "semapv:CompositeMatching"
 
 
 # ── an ELK-faithful reasoner double ────────────────────────────────────
@@ -605,12 +606,10 @@ def test_a_run_that_only_imported_curated_pairs_says_so() -> None:
     validation machinery earned.
 
     This is the difference between the feature working and the feature being a file
-    importer wearing a reasoner costume — and on the current real data it is the latter
-    for every non-curated candidate (a lexical candidate can never obtain an xref
-    assertion, because ingest only emits one when NO upstream class xrefs the subject;
-    and structural corroboration rarely fires for Uberon anatomy, which uses part_of).
-    A report that cannot tell the two apart publishes a number that means something
-    entirely different from what it says.
+    importer wearing a reasoner costume — which is what it was for every non-curated
+    candidate until #73 Option 1 (D33/D34) made source agreement reachable.  A report
+    that cannot tell the two apart publishes a number that means something entirely
+    different from what it says, so the split stays whatever the promotion mix becomes.
     """
     curated = _record(subject="C12377", obj="UBERON:0002110")
     promoted, report = promote_candidates(
@@ -625,6 +624,97 @@ def test_a_run_that_only_imported_curated_pairs_says_so() -> None:
         "the reasoner, the anchors and the disjointness axioms contributed nothing to "
         "this promotion — the report must not imply otherwise"
     )
+
+
+# ── source agreement: the promotion path D33/Option 1 opens (D34) ──────
+
+
+def _no_anchor_context(**overrides: Any) -> PromotionContext:
+    """The same two planes, with NO anchors and NO curation.
+
+    Structural corroboration therefore *cannot* fire and curation cannot carry anything:
+    whatever promotes here promoted on source agreement alone, so the bucket the report
+    credits is not a coincidence of the fixture.
+    """
+    base: dict[str, Any] = {
+        "anchors": (),
+        "subject_labels": {"C12468": {"Lung"}, "C12377": {"Pancreas"}},
+        "object_labels": {
+            "UBERON:0002048": {"lung"},
+            "UBERON:0002110": {"pancreas"},
+        },
+        "object_xrefs": {
+            "UBERON:0002048": {"C12468"},
+            "UBERON:0002110": {"C12377"},
+        },
+    }
+    base.update(overrides)
+    return _context(**base)
+
+
+@pytest.mark.unit
+def test_an_xref_the_labels_agree_with_promotes_on_source_agreement() -> None:
+    """GATE LIVENESS (the point of #73 Option 1): two independent sources agreeing is a
+    reachable promotion, with no curation and no anchored ancestor anywhere.
+
+    Before this, `promoted_on_source_agreement` could never be non-zero: ingest never
+    produced a candidate that could hold both signals, and `gather_evidence` dropped
+    whichever one had generated it — so the machinery promoted curated pairs and nothing
+    else, on real data.
+    """
+    promoted, report = promote_candidates(
+        [_record(justification=_COMPOSITE)],
+        _no_anchor_context(),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert len(promoted) == 1
+    assert promoted[0].predicate_id == EXACT_MATCH
+    assert promoted[0].lifecycle_state == "validated"
+    assert report.promoted == 1
+    assert report.promoted_on_source_agreement == 1
+    assert report.promoted_on_curation_alone == 0
+    assert report.promoted_with_structural_corroboration == 0
+
+
+@pytest.mark.unit
+def test_a_single_source_candidate_still_does_not_promote() -> None:
+    """GATE LIVENESS, reject branch: the bar is unchanged for everything else.
+
+    Identical facts to the test above — the labels agree and the upstream object xrefs
+    the subject — but the row says only the xref pass produced it, so that signal is its
+    origin and cannot also justify it (D28).  One kind of evidence is not two.
+    """
+    promoted, report = promote_candidates(
+        [_record(justification=_XREF)],
+        _no_anchor_context(),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert promoted == []
+    assert report.promoted == 0
+    assert report.insufficient_evidence == 1
+
+
+@pytest.mark.unit
+def test_a_composite_row_outranks_a_stale_single_source_row_for_the_same_pair() -> None:
+    """A re-ingest leaves BOTH rows in `concept_xref`, and `proposed_candidates` returns
+    both — they differ in `mapping_justification`, so `DISTINCT` cannot collapse them.
+
+    Which duplicate survives dedup decides which signals are suppressed as generating,
+    and Postgres leaves the tie order unspecified.  If the single-source row wins, the
+    pair silently reverts to one evidence kind and never promotes — the bug this issue
+    exists to fix, reintroduced through the back door.
+    """
+    promoted, report = promote_candidates(
+        [_record(justification=_XREF), _record(justification=_COMPOSITE)],
+        _no_anchor_context(),
+        reasoner=_ElkLikeReasoner(),
+    )
+
+    assert report.considered == 1, "the same pair twice is ONE candidate"
+    assert len(promoted) == 1
+    assert report.promoted_on_source_agreement == 1
 
 
 @pytest.mark.unit
@@ -915,9 +1005,9 @@ async def test_load_promotion_context_gathers_both_planes() -> None:
                 {"left": _UBERON_RESP_IRI, "right": f"{_OBO}UBERON_0000010"}
             ],
             "hasDbXref": [
-                {"upstream": _UBERON_LUNG_IRI, "xref": "NCI:C12468"},
+                {"upstream": _UBERON_LUNG_IRI, "xref": "NCIT:C12468"},
                 {"upstream": _UBERON_LUNG_IRI, "xref": "UMLS:C0024109"},
-                {"upstream": "http://example.org/not-obo", "xref": "NCI:C99999"},
+                {"upstream": "http://example.org/not-obo", "xref": "NCIT:C99999"},
             ],
             "rdfs:label": [
                 {"concept": _UBERON_LUNG_IRI, "label": "lung"},
@@ -977,7 +1067,7 @@ async def test_load_promotion_context_warns_when_a_signal_is_absent(
             "onProperty": [],  # the part_of query matches here first ⇒ no part_of edges
             "?parent": [{"child": _UBERON_LUNG_IRI, "parent": _UBERON_RESP_IRI}],
             "rdfs:label": [{"concept": _UBERON_LUNG_IRI, "label": "lung"}],
-            "hasDbXref": [{"upstream": _UBERON_LUNG_IRI, "xref": "NCI:C12468"}],
+            "hasDbXref": [{"upstream": _UBERON_LUNG_IRI, "xref": "NCIT:C12468"}],
         }
     )
 

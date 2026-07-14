@@ -32,6 +32,7 @@ from ontolib.repositories.xref.vocab import (
 
 _XREF_JUSTIFICATION = "semapv:DatabaseCrossReference"
 _LEXICAL_JUSTIFICATION = "semapv:LexicalMatching"
+_COMPOSITE_JUSTIFICATION = "semapv:CompositeMatching"
 
 
 def _record(justification: str) -> SSSOMRecord:
@@ -134,6 +135,53 @@ def test_lexically_derived_candidate_does_not_count_its_own_label_as_evidence() 
     kinds = {e.kind for e in evidence}
     assert LABEL_AGREEMENT not in kinds
     assert kinds == {XREF_ASSERTION}
+
+
+# ── two generating signals corroborate each other (D34, #73 Option 1) ──
+
+
+@pytest.mark.unit
+def test_a_composite_candidate_counts_both_of_the_signals_that_generated_it() -> None:
+    """Ingest mints a composite ONLY when both passes independently produced the pair.
+
+    Dropping both origins would leave it with no evidence at all — making the strongest
+    candidates (an OBO curator asserted the xref AND the names agree) the least
+    promotable, which is the opposite of what D28 is for.  Nothing is recycled as its
+    own evidence here: the xref corroborates the lexically-derived candidate, and the
+    label match corroborates the xref-derived one.
+    """
+    evidence = gather_evidence(
+        _record(_COMPOSITE_JUSTIFICATION),
+        subject_labels={"Lung"},
+        object_labels={"lung"},
+        object_xref_codes={"C12468"},
+        curated_pairs=frozenset(),
+        structurally_corroborated=False,
+    )
+
+    assert {e.kind for e in evidence} == {LABEL_AGREEMENT, XREF_ASSERTION}
+    assert is_independent(evidence) is True
+
+
+@pytest.mark.unit
+def test_a_composite_justification_is_not_a_promotion_token() -> None:
+    """Every signal is re-derived from the store, never taken on the record's word.
+
+    A composite row asserts "two passes agreed *at ingest time*".  If an NCIt release
+    renames the concept the label agreement is simply gone, and the pair must fall back
+    to one signal and stop promoting rather than ride on a justification string.
+    """
+    evidence = gather_evidence(
+        _record(_COMPOSITE_JUSTIFICATION),
+        subject_labels={"Pulmonary Organ"},  # the release renamed it
+        object_labels={"lung"},
+        object_xref_codes={"C12468"},
+        curated_pairs=frozenset(),
+        structurally_corroborated=False,
+    )
+
+    assert {e.kind for e in evidence} == {XREF_ASSERTION}
+    assert is_independent(evidence) is False
 
 
 # ── evidence gathering ─────────────────────────────────────────────────

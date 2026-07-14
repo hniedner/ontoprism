@@ -19,7 +19,12 @@ from ontolib.repositories.xref.candidate_ingest import (
     generate_candidates,
 )
 from ontolib.repositories.xref.models import SSSOMRecord
-from ontolib.repositories.xref.vocab import CLOSE_MATCH
+from ontolib.repositories.xref.vocab import (
+    CLOSE_MATCH,
+    COMPOSITE_MATCHING,
+    DATABASE_CROSS_REFERENCE,
+    LEXICAL_MATCHING,
+)
 
 # -- Mock SPARQL client -------------------------------------------------
 
@@ -59,10 +64,15 @@ _XREF_FIXTURE: list[tuple[str, str, str, str]] = [
     (
         "C3262",
         "http://purl.obolibrary.org/obo/UBERON_0002107",
-        "NCI:C3262",
+        "NCIT:C3262",
         "UBERON:0002107",
     ),
-    ("C12345", "http://purl.obolibrary.org/obo/CL_0000057", "NCI:C12345", "CL:0000057"),
+    (
+        "C12345",
+        "http://purl.obolibrary.org/obo/CL_0000057",
+        "NCIT:C12345",
+        "CL:0000057",
+    ),
 ]
 
 # Fillers with no xref (matched via lexical).
@@ -94,7 +104,7 @@ def test_uberon_xref_query_structure() -> None:
     """The Uberon xref SPARQL query has the expected shape."""
     query = build_uberon_xref_query()
     assert "hasDbXref" in query
-    assert "NCI:" in query
+    assert "NCIT:" in query
     assert "oboInOwl" in query
 
 
@@ -119,11 +129,11 @@ def test_iri_to_curie() -> None:
 
 @pytest.mark.unit
 def test_build_xref_index_skips_non_nci() -> None:
-    """Xref entries not starting with NCI: are skipped."""
+    """Xref entries not starting with NCIT: are skipped."""
     xrefs = [
         {
             "upstream": "http://purl.obolibrary.org/obo/UBERON_0002107",
-            "xref": "NCI:C3262",
+            "xref": "NCIT:C3262",
         },
         {"upstream": "http://purl.obolibrary.org/obo/CL_0000057", "xref": "SNOMED:123"},
     ]
@@ -288,6 +298,106 @@ async def test_filler_without_label_is_none() -> None:
     assert filler_to_source.get("C77777") == "none"
 
 
+# -- Tests: source agreement (#73 / D33 Option 1, D34) ------------------
+#
+# Both passes now run over ALL fillers.  Where they converge on the same pair, that pair
+# was produced by two independent processes and is recorded as ONE composite candidate —
+# `concept_xref` is keyed on (run_id, subject_id, predicate_id, object_id), so two rows
+# differing only in `mapping_justification` collide on the primary key and the second is
+# silently discarded.  Emitting both records would therefore lose the agreement at the
+# store; the composite record is what carries it through.
+
+_LUNG_IRI = "http://purl.obolibrary.org/obo/UBERON_0002048"
+_BRAIN_IRI = "http://purl.obolibrary.org/obo/UBERON_0000955"
+
+
+@pytest.mark.unit
+async def test_agreeing_xref_and_label_yield_one_composite_candidate() -> None:
+    """The two-signal case: Uberon xrefs NCIT:C12468 *and* the labels match."""
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?fillerCode": [{"fillerCode": "C12468"}],
+            "SELECT ?code ?label WHERE": [{"code": "C12468", "label": "Lung"}],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "hasDbXref": [{"upstream": _LUNG_IRI, "xref": "NCIT:C12468"}],
+            "SELECT ?concept ?label WHERE": [{"concept": _LUNG_IRI, "label": "lung"}],
+        }
+    )
+
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
+    )
+
+    assert len(records) == 1, "one pair must yield one row, or the store drops one"
+    assert records[0].subject_id == "C12468"
+    assert records[0].object_id == "UBERON:0002048"
+    assert records[0].mapping_justification == COMPOSITE_MATCHING
+    assert records[0].confidence > 0.9  # stronger than either source alone
+    assert filler_to_source["C12468"] == "both"
+
+
+@pytest.mark.unit
+async def test_the_lexical_pass_also_runs_over_a_filler_that_has_an_xref() -> None:
+    """The xref and the label can point at *different* upstream classes.
+
+    The old `fillers - matched_via_xref` partition suppressed the lexical candidate
+    entirely whenever any xref existed, so this disagreement was invisible: the xref
+    candidate was published unchallenged.  Now both are proposed, neither can promote
+    (each carries a single signal), and they contest the same subject.
+    """
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?fillerCode": [{"fillerCode": "C12468"}],
+            "SELECT ?code ?label WHERE": [{"code": "C12468", "label": "Lung"}],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "hasDbXref": [{"upstream": _LUNG_IRI, "xref": "NCIT:C12468"}],
+            "SELECT ?concept ?label WHERE": [{"concept": _BRAIN_IRI, "label": "lung"}],
+        }
+    )
+
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
+    )
+
+    assert {(r.object_id, r.mapping_justification) for r in records} == {
+        ("UBERON:0002048", DATABASE_CROSS_REFERENCE),
+        ("UBERON:0000955", LEXICAL_MATCHING),
+    }
+    assert filler_to_source["C12468"] == "both"
+
+
+@pytest.mark.unit
+async def test_an_xref_filler_whose_label_matches_nothing_stays_xref() -> None:
+    """A composite justification is minted ONLY when two passes really did converge."""
+    ncit = _MockClient(
+        {
+            "SELECT DISTINCT ?fillerCode": [{"fillerCode": "C12468"}],
+            "SELECT ?code ?label WHERE": [{"code": "C12468", "label": "Lung"}],
+        }
+    )
+    uberon = _MockClient(
+        {
+            "hasDbXref": [{"upstream": _LUNG_IRI, "xref": "NCIT:C12468"}],
+            "SELECT ?concept ?label WHERE": [{"concept": _BRAIN_IRI, "label": "brain"}],
+        }
+    )
+
+    records, filler_to_source = await generate_candidates(
+        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
+    )
+
+    assert len(records) == 1
+    assert records[0].mapping_justification == DATABASE_CROSS_REFERENCE
+    assert records[0].confidence == 0.9
+    assert filler_to_source["C12468"] == "xref"
+
+
 @pytest.mark.unit
 async def test_generate_candidates_handles_empty_fillers() -> None:
     """No filler codes yields no records."""
@@ -342,6 +452,48 @@ def test_coverage_report_shape() -> None:
     expected = report["via_xref"] + report["via_lexical_only"] + report["no_candidate"]
     assert expected == report["total_fillers"]
     assert report["candidate_recall"] == 0.7
+
+
+@pytest.mark.unit
+def test_coverage_report_counts_the_pairs_two_sources_agree_on() -> None:
+    """`source_agreement_pairs` is the count that makes D33's yield legible.
+
+    It is the only bucket that can promote without curation or structural corroboration,
+    so a run in which it is zero has (again) promoted nothing but curated pairs — and
+    must say so rather than leave the operator to infer it from `promoted`.
+    """
+    fillers = {"C1", "C2", "C3", "C4"}
+    records = [
+        SSSOMRecord(
+            subject_id=subject,
+            predicate_id=CLOSE_MATCH,
+            object_id=obj,
+            mapping_justification=justification,
+            confidence=confidence,
+            subject_source_version=_NCIT_VERSION,
+            object_source_version=_UBERON_VERSION,
+        )
+        for subject, obj, justification, confidence in (
+            ("C1", "UBERON:0002048", COMPOSITE_MATCHING, 0.95),
+            ("C2", "UBERON:0000955", DATABASE_CROSS_REFERENCE, 0.9),
+            ("C3", "UBERON:0000948", LEXICAL_MATCHING, 0.5),
+        )
+    ]
+    source = {"C1": "both", "C2": "xref", "C3": "lexical", "C4": "none"}
+
+    report = candidate_coverage_report(fillers, records, source)
+
+    assert report["source_agreement_pairs"] == 1
+    # a "both" filler holds an xref candidate, so it still counts under via_xref —
+    # the three buckets must keep partitioning the filler set exactly
+    assert report["via_xref"] == 2
+    assert report["via_lexical_only"] == 1
+    assert report["no_candidate"] == 1
+    assert (
+        report["via_xref"] + report["via_lexical_only"] + report["no_candidate"]
+        == report["total_fillers"]
+    )
+    assert report["candidate_recall"] == 0.75
 
 
 @pytest.mark.unit
