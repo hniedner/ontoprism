@@ -157,35 +157,62 @@ async def test_the_concept_named_for_the_term_beats_longer_labels() -> None:
     )
 
 
-async def test_a_trailing_space_does_not_disable_the_exact_name_tier() -> None:
-    """``:q`` is the raw user string, and a paste carries whitespace.
+@pytest.mark.parametrize(
+    "typed",
+    [
+        f"{_TERM} ",  # trailing space -- the commonest paste
+        f" {_TERM}",
+        f"{_TERM}\n",  # a newline survives a copy from a PDF or a table cell
+        f"{_TERM}\t",
+        f'"{_TERM}"',  # a user quoting the phrase they want
+    ],
+    ids=["trailing-space", "leading-space", "newline", "tab", "quoted"],
+)
+async def test_a_pasted_query_still_finds_the_concept_by_that_name(typed: str) -> None:
+    """``:q`` is the RAW user string, and real queries arrive with baggage.
 
-    Before ``btrim``, ``lower(label) = lower(:q)`` silently missed for ``"zorbulax "``
-    and the query fell straight back to the tie-break that caused the bug -- a failure
-    that returns 200 OK with plausible-looking results and no signal at all.
+    Each of these silently missed the exact-name comparison and dropped the concept the
+    user searched for back behind a longer, higher-frequency label -- returning 200 OK
+    with plausible results and no signal that relevance had collapsed.
+
+    The length tier does **not** rescue them: ``ts_rank`` separates the rows first, and
+    the decoy here says the term twice.  (Measured on the live store, a newline paste of
+    "neoplasm" returned "Abdominal Neoplasm, Excluding Pancreas Neoplasm" -- which
+    outscores "Neoplasm" precisely because it says the word twice.)  So the probe must
+    normalize, and this is the test that says so.
     """
-    rows = [
-        {"code": "TEST-EXACT", "label": "Zorbulax", "semantic_type": _TYPE, "syn": ""},
-        {
-            "code": "TEST-LONGER",
-            "label": "Blithering Quibblewort Snarfblat Zorbulax",
-            "semantic_type": _TYPE,
-            "syn": "",
-        },
-    ]
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     try:
         async with sf() as session:
-            await session.execute(_INSERT, rows)
+            await session.execute(
+                _INSERT,
+                [
+                    {
+                        "code": "TEST-EXACT",
+                        "label": "Zorbulax",
+                        "semantic_type": _TYPE,
+                        "syn": "",
+                    },
+                    {
+                        "code": "TEST-LOUDER",
+                        # says the term TWICE, so it wins on ts_rank -- only the
+                        # exact-name tier can put the plain name back on top
+                        "label": "Zorbulax Quibblewort Excluding Snarfblat Zorbulax",
+                        "semantic_type": _TYPE,
+                        "syn": "",
+                    },
+                ],
+            )
             await session.commit()
-        page = await NcitSearchIndex(sf).search(f"{_TERM} ", limit=10, offset=0)
+        page = await NcitSearchIndex(sf).search(typed, limit=10, offset=0)
     finally:
         await dispose_engine(engine)
 
     codes = [hit.code for hit in page.hits]
     assert codes[0] == "TEST-EXACT", (
-        f"a trailing space disabled the exact-name tier; got {codes}"
+        f"typing {typed!r} disabled the exact-name tier; got {codes}. The raw query "
+        "string must be normalized before it is compared against a label"
     )
 
 
