@@ -3,14 +3,14 @@
 #   docker build -t ontoprism-web ./frontend
 # At runtime the app proxies /api to the backend; set ORIGIN for correct URLs.
 
-FROM node:22-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf AS builder
+FROM node:23-slim@sha256:86191b94d2a163be41f3dc7fe5e5fcaca8ba2f1be7275d98a06343483c17414a AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . ./
 RUN npm run build && npm prune --omit=dev
 
-FROM node:22-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
+FROM node:23-slim@sha256:86191b94d2a163be41f3dc7fe5e5fcaca8ba2f1be7275d98a06343483c17414a
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/build ./build
