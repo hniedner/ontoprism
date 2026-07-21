@@ -19,6 +19,51 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.15.0 (2026-07-21)
+
+### Continuous Integration
+
+- **release**: Add a manual dispatch hatch so a lost release can be recovered
+  ([#130](https://github.com/hniedner/ontoprism/pull/130),
+  [`0198422`](https://github.com/hniedner/ontoprism/commit/019842249cefa1df00da2ddb7e812f74efdbceb9))
+
+### Documentation
+
+- AJCC editions are not duplicates (D39) — fix the motivating example
+  ([#133](https://github.com/hniedner/ontoprism/pull/133),
+  [`a79974e`](https://github.com/hniedner/ontoprism/commit/a79974ed914759907b1930efa395da84b9eafc58))
+
+- Name the seductive version of each stage explicitly
+  ([#133](https://github.com/hniedner/ontoprism/pull/133),
+  [`a79974e`](https://github.com/hniedner/ontoprism/commit/a79974ed914759907b1930efa395da84b9eafc58))
+
+- NCIt ↔ caDSR ↔ NAACCR registry strategy (D40)
+  ([#137](https://github.com/hniedner/ontoprism/pull/137),
+  [`bc207c2`](https://github.com/hniedner/ontoprism/commit/bc207c21a47f9599c3e170a298106c7426a1c96d))
+
+- NCIt ↔ caDSR ↔ NAACCR registry strategy (D40) + downstream-ecosystem series
+  ([#137](https://github.com/hniedner/ontoprism/pull/137),
+  [`bc207c2`](https://github.com/hniedner/ontoprism/commit/bc207c21a47f9599c3e170a298106c7426a1c96d))
+
+- Update README code line-count table
+  ([`6eb9afd`](https://github.com/hniedner/ontoprism/commit/6eb9afd8d8115687348666b34688f88f7e3a50f2))
+
+- Update README code line-count table
+  ([`2e035f6`](https://github.com/hniedner/ontoprism/commit/2e035f65dc3aac4b2aad53650c15008064eaecaa))
+
+- Update README code line-count table
+  ([`ea0a18f`](https://github.com/hniedner/ontoprism/commit/ea0a18f6c597f09d74c3e32c4b581c8d85c77918))
+
+- Update README code line-count table
+  ([`7577439`](https://github.com/hniedner/ontoprism/commit/75774399cd975671c1bdf39c876fdb546b6d38e6))
+
+### Features
+
+- **xref**: Persist per-promotion evidence on concept_xref
+  ([#122](https://github.com/hniedner/ontoprism/pull/122),
+  [`c93a2a1`](https://github.com/hniedner/ontoprism/commit/c93a2a171ab11655c2fa937af3b02ec35bc759d8))
+
+
 ## v0.14.1 (2026-07-14)
 
 ### Bug Fixes
