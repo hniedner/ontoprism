@@ -229,4 +229,12 @@ def promote_candidate(
         return None
     if not is_independent(evidence):
         return None
-    return replace(record, predicate_id=EXACT_MATCH, lifecycle_state="validated")
+    # Carry the evidence onto the promoted bridge so persistence can record *why* it was
+    # promoted, not just that it was (#122, D36). This is the record that lands in
+    # concept_xref, so it is where the evidence has to ride.
+    return replace(
+        record,
+        predicate_id=EXACT_MATCH,
+        lifecycle_state="validated",
+        evidence=tuple(evidence),
+    )

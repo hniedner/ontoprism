@@ -9,6 +9,7 @@ against the older release rather than keep serving them (D29).
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -16,6 +17,12 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.repositories.xref.evidence import (
+    LABEL_AGREEMENT,
+    SME_CURATION,
+    XREF_ASSERTION,
+    Evidence,
+)
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.promotion import (
     PromotionReport,
@@ -74,6 +81,113 @@ async def store() -> AsyncIterator[tuple[XrefStore, list[str]]]:
             await s.execute(text("DELETE FROM xref_run WHERE id = :rid"), {"rid": rid})
         await s.commit()
     await dispose_engine(engine)
+
+
+def _with_evidence(record: SSSOMRecord, *evidence: Evidence) -> SSSOMRecord:
+    return replace(record, evidence=evidence)
+
+
+@pytest.mark.integration
+async def test_a_promoted_bridge_persists_the_evidence_the_decision_used(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    """The evidence behind a bridge round-trips through Postgres (#122, D36).
+
+    This is the test the asyncpg trap can only be caught by: ``evidence`` is a ``jsonb``
+    column, and asyncpg will not adapt a bare list/dict — it must be ``json.dumps`` + an
+    explicit ``CAST`` (as ``update_run_metrics`` already does). A fake session would
+    accept a Python list and pass; only a real DB round-trip proves the serialization.
+    """
+    xref_store, run_ids = store
+    rid = f"test-promo-{uuid.uuid4().hex}"
+    run_ids.append(rid)
+
+    promoted = _with_evidence(
+        _promoted("C12468", "UBERON:0002048"),
+        Evidence(kind=LABEL_AGREEMENT, source="rdfs:label", detail="lung"),
+        Evidence(
+            kind=XREF_ASSERTION, source="oboInOwl:hasDbXref", detail="NCIT:C12468"
+        ),
+    )
+    await persist_promotions(
+        xref_store,
+        [promoted],
+        PromotionReport(considered=1, promoted=1, insufficient_evidence=0, refuted=0),
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        source="promotion",
+        run_id=rid,
+    )
+
+    by_pair = await xref_store.evidence_by_pair(rid)
+    stored = by_pair[("C12468", "UBERON:0002048")]
+    assert {e["kind"] for e in stored} == {LABEL_AGREEMENT, XREF_ASSERTION}
+    # provenance survives, not just the kind
+    xref = next(e for e in stored if e["kind"] == XREF_ASSERTION)
+    assert xref["source"] == "oboInOwl:hasDbXref"
+    assert xref["detail"] == "NCIT:C12468"
+
+
+@pytest.mark.integration
+async def test_a_curated_promotion_is_distinguishable_from_source_agreement_per_row(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    """A row's evidence list distinguishes a curation-alone promotion
+    (``sme_curation``) from a source-agreement one (``label_agreement`` +
+    ``xref_assertion``) — the row
+    itself carries the provenance, not only the aggregate run metrics (#122).
+    """
+    xref_store, run_ids = store
+    rid = f"test-mix-{uuid.uuid4().hex}"
+    run_ids.append(rid)
+
+    curated = _with_evidence(
+        _promoted("C1", "UBERON:0000001"),
+        Evidence(kind=SME_CURATION, source="curated-mapping-set"),
+    )
+    source_agree = _with_evidence(
+        _promoted("C2", "UBERON:0000002"),
+        Evidence(kind=LABEL_AGREEMENT, source="rdfs:label", detail="x"),
+        Evidence(kind=XREF_ASSERTION, source="oboInOwl:hasDbXref", detail="NCIT:C2"),
+    )
+    await persist_promotions(
+        xref_store,
+        [curated, source_agree],
+        PromotionReport(considered=2, promoted=2, insufficient_evidence=0, refuted=0),
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        source="promotion",
+        run_id=rid,
+    )
+
+    by_pair = await xref_store.evidence_by_pair(rid)
+    assert {e["kind"] for e in by_pair[("C1", "UBERON:0000001")]} == {SME_CURATION}
+    assert {e["kind"] for e in by_pair[("C2", "UBERON:0000002")]} == {
+        LABEL_AGREEMENT,
+        XREF_ASSERTION,
+    }
+
+
+@pytest.mark.integration
+async def test_an_unpromoted_candidate_persists_empty_evidence(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    """A proposed candidate has no evidence — the column stores ``[]``, never null,
+    so read-back is always an iterable."""
+    xref_store, run_ids = store
+    rid = f"test-cand-{uuid.uuid4().hex}"
+    run_ids.append(rid)
+
+    await xref_store.upsert_run(
+        run_id=rid,
+        source="uberon-cl",
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+    )
+    await xref_store.upsert_records(rid, [_candidate("C3", "UBERON:0000003")])
+
+    by_pair = await xref_store.evidence_by_pair(rid)
+    assert by_pair[("C3", "UBERON:0000003")] == []
 
 
 @pytest.mark.integration
@@ -444,3 +558,11 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
     # …and the run says plainly that curation, not the machinery, earned it
     assert report["promoted_on_curation_alone"] == 1
     assert report["promoted_with_structural_corroboration"] == 0
+
+    # GATE LIVENESS for #122: the evidence that curation earned it survived the ENTIRE
+    # real path (validate_candidate → promote_candidate → _settle_contests → persist),
+    # not just a hand-built record — so a future refactor that drops evidence between
+    # promote_candidates and the row would fail here. The isolated persistence test
+    # cannot catch that; only reading evidence off a run the machinery produced.
+    by_pair = await xref_store.evidence_by_pair(report["run_id"])
+    assert SME_CURATION in {e["kind"] for e in by_pair[("C12468", "UBERON:0002048")]}

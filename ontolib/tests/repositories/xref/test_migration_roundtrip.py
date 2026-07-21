@@ -16,6 +16,48 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine
 
 
+async def _evidence_column_exists(engine: object) -> bool:
+    async with engine.connect() as conn:  # type: ignore[attr-defined]
+        rows = await conn.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'concept_xref' AND column_name = 'evidence'"
+            )
+        )
+        return bool(list(rows))
+
+
+@pytest.mark.integration
+async def test_evidence_column_added_and_removed_by_0006(tmp_path: object) -> None:
+    """The per-promotion ``evidence`` column exists after ``upgrade head`` and is gone
+    after a downgrade past 0006 (#122, D36) — a schema fact, asked of Postgres."""
+    engine = make_engine(get_settings().database_url)
+    env = {**os.environ, "PYTHONPATH": "."}
+    alembic = shutil.which("alembic") or "alembic"
+
+    def _alembic(*args: str) -> None:
+        subprocess.run(  # noqa: S603
+            [alembic, *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+            cwd=os.getcwd(),
+        )
+
+    try:
+        assert await _evidence_column_exists(engine), (
+            "evidence column missing at head — migration 0006 did not run"
+        )
+        _alembic("downgrade", "0005_search_weights")
+        assert not await _evidence_column_exists(engine), (
+            "evidence column survived the downgrade — 0006.downgrade is not an inverse"
+        )
+    finally:
+        _alembic("upgrade", "head")
+        await dispose_engine(engine)
+
+
 @pytest.mark.integration
 async def test_migration_up_and_down_roundtrip() -> None:
     engine = make_engine(get_settings().database_url)

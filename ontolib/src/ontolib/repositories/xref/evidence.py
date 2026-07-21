@@ -36,7 +36,7 @@ signal, not two, and stops promoting.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from ontolib.repositories.xref.vocab import (
     ALLOWED_PREDICATES,
@@ -45,6 +45,21 @@ from ontolib.repositories.xref.vocab import (
     LEXICAL_MATCHING,
     SKOS_NS,
 )
+
+
+class EvidenceDict(TypedDict):
+    """The jsonb shape of one :class:`Evidence`, written and read back verbatim.
+
+    A single named contract shared by :meth:`Evidence.as_dict` (the writer) and
+    :meth:`XrefStore.evidence_by_pair` (the reader), so the
+    ``kind``/``source``/``detail`` schema is stated once, not duplicated as a bare
+    ``dict[str, str]`` on each side.
+    """
+
+    kind: str
+    source: str
+    detail: str
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -121,6 +136,10 @@ class Evidence:
                     "a SKOS mapping annotation may never serve as evidence for the "
                     f"bridge it annotates (D28): {field}"
                 )
+
+    def as_dict(self) -> EvidenceDict:
+        """Serialize for the ``concept_xref.evidence`` jsonb column (#122, D36)."""
+        return {"kind": self.kind, "source": self.source, "detail": self.detail}
 
 
 def gather_evidence(
