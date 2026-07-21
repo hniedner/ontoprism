@@ -13,7 +13,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class SSSOMRecord:
-    """NCIt<->upstream mapping with provenance (all fields required except author)."""
+    """NCIt<->upstream mapping with provenance.
+
+    The five id/version fields are required; ``lifecycle_state``, ``review_status``,
+    ``author`` and ``evidence`` carry defaults.
+    """
 
     subject_id: str
     predicate_id: str
@@ -26,11 +30,16 @@ class SSSOMRecord:
     review_status: str = "unreviewed"
     author: str = ""
     # The independent signals that promoted this bridge (#122, D36). Empty for a
-    # candidate — evidence exists only once a promotion decision has gathered it.
-    # `compare=False` keeps it out of equality and hashing: two rows with the same
-    # (subject, predicate, object, versions) are the SAME mapping (the concept_xref PK
-    # says so), regardless of the evidence attached, so candidate equality and the
-    # `_one_per_pair` dedup are unaffected by adding this field.
+    # candidate; a record acquires evidence only by being promoted — `promote_candidate`
+    # is the sole writer, and it sets `evidence` in the same `replace()` that flips the
+    # predicate to `exactMatch` and the lifecycle to `validated`. So evidence rides only
+    # on validated bridges, by construction, not by convention.
+    #
+    # `compare=False` keeps it out of equality and hashing, because evidence is
+    # provenance, not identity: the mapping is the same bridge whatever justified it.
+    # Nothing currently compares whole records or keys a set/dict on one anyway (the
+    # `_one_per_pair` dedup keys on an explicit `(subject_id, object_id)` tuple), so
+    # this is a guard against a future caller doing so, not a fix for a live path.
     evidence: tuple[Evidence, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:

@@ -16,6 +16,7 @@ corroborate itself.
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
@@ -32,6 +33,7 @@ from ontolib.repositories.xref.evidence import (
     LABEL_AGREEMENT,
     SME_CURATION,
     STRUCTURAL_CORROBORATION,
+    Evidence,
 )
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.promotion import (
@@ -260,12 +262,11 @@ def test_promoted_record_keeps_its_provenance() -> None:
 
 @pytest.mark.unit
 def test_a_promoted_record_carries_the_evidence_that_promoted_it() -> None:
-    """The promoted bridge must carry its own evidence, so persistence can record *why*
-    it was promoted — not just that it was (#122, D36).
+    """The promoted bridge carries the evidence the decision used, so persistence can
+    record *why* it was promoted, not just that it was (#122, D36).
 
-    Today the evidence is on ``PromotionOutcome.evidence`` and is dropped when the
-    record is written; the promoted record is what lands in ``concept_xref``, so it is
-    where the evidence has to ride.
+    The promoted record — not ``PromotionOutcome`` — is what lands in ``concept_xref``,
+    so the evidence has to ride on the record.
     """
     outcome = validate_candidate(_record(), _context(), reasoner=_ElkLikeReasoner())
     assert outcome.promoted is not None
@@ -282,9 +283,23 @@ def test_a_proposed_candidate_carries_no_evidence_by_default() -> None:
     """A candidate is not a promotion; it has no evidence until one is gathered for it.
 
     The default must be empty (not None) so the persistence layer always has an
-    iterable to serialize, and so equality/dedup of candidates is unaffected.
+    iterable to serialize.
     """
     assert _record().evidence == ()
+
+
+@pytest.mark.unit
+def test_evidence_is_not_part_of_a_records_identity() -> None:
+    """`compare=False` on the evidence field is load-bearing for the claim that adding
+    it leaves candidate equality and dedup untouched (#122). Two records that differ
+    *only* in evidence are the same mapping — equal and hash-equal — so nothing that
+    keys a set/dict on a record can be split by the evidence attached to it.
+    """
+    bare = _record()
+    with_ev = replace(bare, evidence=(Evidence(kind=SME_CURATION, source="x"),))
+    assert with_ev == bare
+    assert hash(with_ev) == hash(bare)
+    assert len({bare, with_ev}) == 1
 
 
 # ── the unhappy path: a known non-equivalent pair is not promoted ───────

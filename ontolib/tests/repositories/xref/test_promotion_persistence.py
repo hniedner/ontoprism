@@ -132,8 +132,10 @@ async def test_a_promoted_bridge_persists_the_evidence_the_decision_used(
 async def test_a_curated_promotion_is_distinguishable_from_source_agreement_per_row(
     store: tuple[XrefStore, list[str]],
 ) -> None:
-    """The point of the issue: today only the aggregate run metrics can tell a
-    curation-alone promotion from a source-agreement one. Now the row itself says.
+    """A row's evidence list distinguishes a curation-alone promotion
+    (``sme_curation``) from a source-agreement one (``label_agreement`` +
+    ``xref_assertion``) — the row
+    itself carries the provenance, not only the aggregate run metrics (#122).
     """
     xref_store, run_ids = store
     rid = f"test-mix-{uuid.uuid4().hex}"
@@ -556,3 +558,11 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
     # …and the run says plainly that curation, not the machinery, earned it
     assert report["promoted_on_curation_alone"] == 1
     assert report["promoted_with_structural_corroboration"] == 0
+
+    # GATE LIVENESS for #122: the evidence that curation earned it survived the ENTIRE
+    # real path (validate_candidate → promote_candidate → _settle_contests → persist),
+    # not just a hand-built record — so a future refactor that drops evidence between
+    # promote_candidates and the row would fail here. The isolated persistence test
+    # cannot catch that; only reading evidence off a run the machinery produced.
+    by_pair = await xref_store.evidence_by_pair(report["run_id"])
+    assert SME_CURATION in {e["kind"] for e in by_pair[("C12468", "UBERON:0002048")]}

@@ -14,6 +14,8 @@ from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+    from ontolib.repositories.xref.evidence import EvidenceDict
+
 
 class XrefStore:
     """Persistence for xref run manifests and concept_xref mapping rows."""
@@ -52,6 +54,15 @@ class XrefStore:
             return cast("int", result.rowcount)  # type: ignore[attr-defined]
 
     async def upsert_records(self, run_id: str, records: list[SSSOMRecord]) -> int:
+        """Insert *records* into ``concept_xref`` (additive; ``ON CONFLICT``
+        ``DO NOTHING``).
+
+        Evidence (#122) is **write-once per run row**: a row is keyed on
+        ``(run_id, subject_id, predicate_id, object_id)``, so re-calling with the same
+        ``run_id`` keeps the first row's evidence and drops the second's. A promotion
+        is a fresh ``run_id`` per pass, so this is not reachable in ``run_promotion``,
+        but a caller reusing a ``run_id`` to *correct* evidence would find it cannot.
+        """
         if not records:
             return 0
         rows = [
@@ -130,13 +141,19 @@ class XrefStore:
 
     async def evidence_by_pair(
         self, run_id: str
-    ) -> dict[tuple[str, str], list[dict[str, str]]]:
+    ) -> dict[tuple[str, str], list[EvidenceDict]]:
         """The persisted evidence behind each row of *run_id* (#122, D36).
 
         Keyed by ``(subject_id, object_id)``; each value is the list of evidence dicts
         (``kind``/``source``/``detail``) the promotion decision used. A candidate row
         carries ``[]`` — so a curation-alone promotion is distinguishable from a
         source-agreement one at the row level, not only in the aggregate run metrics.
+
+        Assumes **one predicate per pair** within the run: the key omits
+        ``predicate_id``, so pointing this at an ingest run (which may hold a
+        ``closeMatch`` and a ``narrowMatch`` for one pair) would let the rows overwrite
+        each other. Promotion runs are one-``exactMatch``-per-pair by construction
+        (``_one_per_pair``), which is the intended caller.
         """
         async with self._sf() as s:
             result = await s.execute(
@@ -146,14 +163,16 @@ class XrefStore:
                 ),
                 {"run_id": run_id},
             )
-            out: dict[tuple[str, str], list[dict[str, str]]] = {}
+            out: dict[tuple[str, str], list[EvidenceDict]] = {}
             for r in result.mappings().all():
                 # asyncpg returns jsonb already decoded; SQLite/others may hand back a
-                # string — normalize so the caller always gets a list.
+                # string. The column is NOT NULL DEFAULT '[]', so a null is unreachable
+                # today — but normalize it to [] rather than let a future schema slip
+                # surface as a TypeError at the caller's `for e in ...`.
                 ev = r["evidence"]
-                out[(r["subject_id"], r["object_id"])] = (
-                    json.loads(ev) if isinstance(ev, str) else ev
-                )
+                if isinstance(ev, str):
+                    ev = json.loads(ev)
+                out[(r["subject_id"], r["object_id"])] = ev if ev is not None else []
             return out
 
     async def records_for_run(self, run_id: str) -> list[dict]:
