@@ -67,6 +67,9 @@ class XrefStore:
                 "lifecycle_state": r.lifecycle_state,
                 "review_status": r.review_status,
                 "author": r.author,
+                # jsonb column, raw SQL: asyncpg will not adapt a bare list, so
+                # serialize and CAST explicitly, as update_run_metrics does (#122/D36).
+                "evidence": json.dumps([e.as_dict() for e in r.evidence]),
             }
             for r in records
         ]
@@ -77,11 +80,11 @@ class XrefStore:
                     "(run_id, subject_id, predicate_id, object_id, "
                     "mapping_justification, "
                     "confidence, subject_source_version, object_source_version, "
-                    "lifecycle_state, review_status, author) "
+                    "lifecycle_state, review_status, author, evidence) "
                     "VALUES (:run_id, :subject_id, :predicate_id, :object_id, "
                     ":mapping_justification, :confidence, :subject_source_version, "
                     ":object_source_version, :lifecycle_state, "
-                    ":review_status, :author) "
+                    ":review_status, :author, CAST(:evidence AS jsonb)) "
                     "ON CONFLICT (run_id, subject_id, predicate_id, object_id) "
                     "DO NOTHING"
                 ),
@@ -124,6 +127,34 @@ class XrefStore:
                 },
             )
             await s.commit()
+
+    async def evidence_by_pair(
+        self, run_id: str
+    ) -> dict[tuple[str, str], list[dict[str, str]]]:
+        """The persisted evidence behind each row of *run_id* (#122, D36).
+
+        Keyed by ``(subject_id, object_id)``; each value is the list of evidence dicts
+        (``kind``/``source``/``detail``) the promotion decision used. A candidate row
+        carries ``[]`` — so a curation-alone promotion is distinguishable from a
+        source-agreement one at the row level, not only in the aggregate run metrics.
+        """
+        async with self._sf() as s:
+            result = await s.execute(
+                text(
+                    "SELECT subject_id, object_id, evidence "
+                    "FROM concept_xref WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+            out: dict[tuple[str, str], list[dict[str, str]]] = {}
+            for r in result.mappings().all():
+                # asyncpg returns jsonb already decoded; SQLite/others may hand back a
+                # string — normalize so the caller always gets a list.
+                ev = r["evidence"]
+                out[(r["subject_id"], r["object_id"])] = (
+                    json.loads(ev) if isinstance(ev, str) else ev
+                )
+            return out
 
     async def records_for_run(self, run_id: str) -> list[dict]:
         async with self._sf() as s:

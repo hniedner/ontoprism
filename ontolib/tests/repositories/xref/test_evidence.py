@@ -90,6 +90,17 @@ def test_the_rejection_names_the_offending_field() -> None:
 
 
 @pytest.mark.unit
+def test_evidence_serializes_to_a_jsonb_ready_dict() -> None:
+    """`as_dict` is what `upsert_records` writes to the `evidence` jsonb column."""
+    ev = Evidence(kind=LABEL_AGREEMENT, source="rdfs:label", detail="lung")
+    assert ev.as_dict() == {
+        "kind": LABEL_AGREEMENT,
+        "source": "rdfs:label",
+        "detail": "lung",
+    }
+
+
+@pytest.mark.unit
 def test_unknown_evidence_kind_is_rejected() -> None:
     with pytest.raises(ValueError, match="kind"):
         Evidence(kind="vibes", source="ncit:rdfs:label")

@@ -122,6 +122,10 @@ class Evidence:
                     f"bridge it annotates (D28): {field}"
                 )
 
+    def as_dict(self) -> dict[str, str]:
+        """Serialize for the ``concept_xref.evidence`` jsonb column (#122, D36)."""
+        return {"kind": self.kind, "source": self.source, "detail": self.detail}
+
 
 def gather_evidence(
     record: SSSOMRecord,

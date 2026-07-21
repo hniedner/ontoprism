@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ontolib.repositories.xref.vocab import ALLOWED_PREDICATES, LIFECYCLE_STATES
+
+if TYPE_CHECKING:
+    from ontolib.repositories.xref.evidence import Evidence
 
 
 @dataclass(frozen=True)
@@ -21,17 +25,24 @@ class SSSOMRecord:
     lifecycle_state: str = "proposed"
     review_status: str = "unreviewed"
     author: str = ""
+    # The independent signals that promoted this bridge (#122, D36). Empty for a
+    # candidate — evidence exists only once a promotion decision has gathered it.
+    # `compare=False` keeps it out of equality and hashing: two rows with the same
+    # (subject, predicate, object, versions) are the SAME mapping (the concept_xref PK
+    # says so), regardless of the evidence attached, so candidate equality and the
+    # `_one_per_pair` dedup are unaffected by adding this field.
+    evidence: tuple[Evidence, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
-        for field in (
+        for field_name in (
             "subject_id",
             "object_id",
             "mapping_justification",
             "subject_source_version",
             "object_source_version",
         ):
-            if not getattr(self, field):
-                raise ValueError(f"{field} must be non-empty")
+            if not getattr(self, field_name):
+                raise ValueError(f"{field_name} must be non-empty")
         if self.predicate_id not in ALLOWED_PREDICATES:
             raise ValueError(f"predicate_id not allowed: {self.predicate_id}")
         if self.lifecycle_state not in LIFECYCLE_STATES:

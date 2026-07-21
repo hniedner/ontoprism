@@ -258,6 +258,35 @@ def test_promoted_record_keeps_its_provenance() -> None:
     assert outcome.promoted.object_id == "UBERON:0002048"
 
 
+@pytest.mark.unit
+def test_a_promoted_record_carries_the_evidence_that_promoted_it() -> None:
+    """The promoted bridge must carry its own evidence, so persistence can record *why*
+    it was promoted — not just that it was (#122, D36).
+
+    Today the evidence is on ``PromotionOutcome.evidence`` and is dropped when the
+    record is written; the promoted record is what lands in ``concept_xref``, so it is
+    where the evidence has to ride.
+    """
+    outcome = validate_candidate(_record(), _context(), reasoner=_ElkLikeReasoner())
+    assert outcome.promoted is not None
+    assert {e.kind for e in outcome.promoted.evidence} == {
+        LABEL_AGREEMENT,
+        STRUCTURAL_CORROBORATION,
+    }
+    # and it is exactly the evidence the decision used, not a re-derivation
+    assert set(outcome.promoted.evidence) == set(outcome.evidence)
+
+
+@pytest.mark.unit
+def test_a_proposed_candidate_carries_no_evidence_by_default() -> None:
+    """A candidate is not a promotion; it has no evidence until one is gathered for it.
+
+    The default must be empty (not None) so the persistence layer always has an
+    iterable to serialize, and so equality/dedup of candidates is unaffected.
+    """
+    assert _record().evidence == ()
+
+
 # ── the unhappy path: a known non-equivalent pair is not promoted ───────
 
 
