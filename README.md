@@ -198,6 +198,22 @@ Throughout, one non-negotiable: **every claim is measured, and a number that can
 is reported as such.** The published caDSR coverage figure (`COV`) exists precisely
 because "interoperability for free" is otherwise unfalsifiable.
 
+### Serving the downstream NCI ecosystem
+
+A cross-cutting objective (not a sixth sequential stage): the decomposed, substrate-grounded
+NCIt must be **usable by the programs that actually collect oncology data** — starting with
+**cancer registries**. The touchpoint is **caDSR**, which already registers the NAACCR/SEER
+data standards and anchors each data element to NCIt. The posture is *backbone, not
+replacement*: NCIt becomes the reference terminology a FHIR/mCODE-modernized NAACCR binds to
+through caDSR; NAACCR keeps its exchange format, operational rules, and mandate.
+
+> **Guardrail — measured through caDSR, and never by importing NAACCR's flat legacy.** Registry
+> mappability is the existing `COV` *scoped to the NAACCR/SEER caDSR-CDE subset*; its critical
+> path is the value-meaning workstream (#75), and every mapping runs through the decomposed
+> `op:` representation with an honest predicate. Full strategy, tactics, and references:
+> [`docs/ecosystem/ncit-cadsr-naaccr.md`](docs/ecosystem/ncit-cadsr-naaccr.md) — first of a
+> series covering the NCI CTRP / ClinicalTrials.gov, CRDC, and CCDI relationships.
+
 ## The Approach
 
 1. **Detect** — Identify pre-coordinated concepts via a semantic-type gate

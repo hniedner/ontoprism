@@ -2,6 +2,27 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-14 — cancer-registry usability: the NCIt ↔ caDSR ↔ NAACCR touchpoint
+
+### D40. NCIt is the reference backbone a FHIR/mCODE-modernized NAACCR binds to *through caDSR* — not a replacement for NAACCR; registry coverage is a caDSR-scoped `COV` number whose critical path is #75
+Cancer registries are a critical consumer, so straightforward mappability to NAACCR is a first-class
+objective — but "map NCIt to NAACCR" is the wrong frame and risks importing NAACCR's flat legacy.
+**Decision:** treat **caDSR as the concrete touchpoint** (caDSR already registers the NAACCR/SEER data
+standards and anchors each CDE's semantics + value domain to NCIt), and adopt the posture: NCIt supplies
+only NAACCR's *terminology* layer; NAACCR keeps its exchange format, operational rules (reportability,
+Solid Tumor Rules, edits), and governance/mandate. Tactics are all measured and additive: (1) the
+NAACCR-mappability number is the existing `COV` (§13.3) **scoped to the NAACCR/SEER caDSR-CDE subset** —
+a filter, not a new build; (2) registry coverage lives in the **value-meaning** layer, so its critical
+path is **#75** (value/qualifier mapping), not the anatomy/cell filler work (#77–#79) — which is why
+registry `COV` reads ~0 today; (3) a **tri-partite, owner-attributed gap loop** (NAACCR-no-CDE /
+caDSR-annotation-gap / NCIt-cannot-express) keeps NAACCR from "poisoning the well"; (4) map through the
+**decomposed `op:` representation**, never the flat legacy code. **Why:** it converts an unfalsifiable
+"NCIt could serve registries" into a measured, scoped number, reuses the caDSR machinery already built,
+and rides the FHIR/mCODE convergence registries are already adopting instead of forking a parallel
+standard. Full strategy, tactics, references, and risks:
+[`docs/ecosystem/ncit-cadsr-naaccr.md`](ecosystem/ncit-cadsr-naaccr.md) (first of a downstream-program
+series; CTRP/ClinicalTrials.gov, CRDC, and CCDI docs to follow).
+
 ## 2026-07-14 — staging editions are not duplicates (a domain error in our own motivating example)
 
 ### D39. Never collapse concepts that differ only in staging edition or in a negated finding — they are different assertions, not re-enumerations
