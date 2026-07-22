@@ -17,6 +17,7 @@ from ontolib.decomposition.run import (
     _persist_candidate,
     _precoordinated_fillers,
     _residual_count,
+    _store_resident_constituent_fillers,
     enumerate_in_scope_codes,
     run_pipeline,
 )
@@ -627,6 +628,30 @@ def test_residual_count_flags_a_decomposition_whose_constituent_is_precoordinate
 
 
 @pytest.mark.unit
+def test_minted_fillers_are_excluded_and_do_not_change_the_count() -> None:
+    """``MINT-*`` fillers never exist in the store — detecting one is wasted round-trips
+    that always read atomic — so they are dropped before detection. Dropping them cannot
+    change the metric: a minted filler was never in the pre-coordinated set to begin
+    with. Locks that value-invariance against a future detector that stops gating on
+    in-scope (which would otherwise start classifying MINT- codes).
+    """
+    d = Decomposition(
+        code="C1",
+        semantic_type="Neoplastic Process",
+        constituents=[
+            Constituent(axis="R101", filler_code="C2001", axis_source="role"),
+            Constituent(
+                axis="op:Laterality", filler_code="MINT-abc123", axis_source="nlp"
+            ),
+        ],
+    )
+    # The MINT- filler is dropped before detection, so it can never enter the
+    # pre-coordinated set — which is what makes the exclusion value-preserving: the
+    # numerator is computed only over the codes that survive here.
+    assert _store_resident_constituent_fillers([d]) == ["C2001"]
+
+
+@pytest.mark.unit
 def test_residual_count_is_zero_when_every_constituent_is_atomic() -> None:
     """Reject branch: a decomposition all of whose constituents are atomic is not
     residual — this is the state a fully-reduced ontology should converge toward."""
@@ -676,6 +701,30 @@ async def test_precoordinated_fillers_detects_a_compound_constituent() -> None:
     )
     assert precoordinated == {"C2001"}
     assert _residual_count(decompositions, precoordinated_fillers=precoordinated) == 1
+
+
+@pytest.mark.unit
+async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A store failure during the metric post-pass must surface LOUDLY, naming the
+    filler — never vanish into a quiet 0 (the #73 cardinal sin). The post-pass runs
+    outside the main loop's try/except, so it logs its own context then re-raises.
+    """
+
+    class _BoomClient:
+        async def select(self, query: str) -> list[dict[str, str | None]]:
+            raise RuntimeError("store down")
+
+        async def version(self) -> str | None:
+            return "x"
+
+    decompositions = [_decomp("C1", "C_boom")]
+    with pytest.raises(RuntimeError, match="store down"):
+        await _precoordinated_fillers(
+            decompositions, _BoomClient(), None, walker_max_depth=5
+        )
+    assert any("C_boom" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.unit

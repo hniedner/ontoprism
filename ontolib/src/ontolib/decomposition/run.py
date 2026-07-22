@@ -120,7 +120,7 @@ class RunMetrics:
     * ``residual_precoordinated_count`` / :attr:`residual_precoordination` — **D37's
       metric**: decomposed concepts at least one of whose *emitted constituents is
       itself* classified as pre-coordinated by the same detector. This is "is what we
-      produced actually atomic?" (irreducibility), the complement of
+      produced actually atomic?" (irreducibility), the counterpart of
       ``roundtrip_fidelity``'s "did we capture everything?" (completeness).
 
       It is **detector-relative** — defined purely in terms of what ``detector.detect``
@@ -128,15 +128,23 @@ class RunMetrics:
       improvement moves it with no ontology change (D37). Track it against the SME
       golden set (#57) as well as the corpus, so divergence surfaces detector drift.
 
-      **What it can and cannot fire on (a structural bound, not a bug).** ``detect``
-      gates on the in-scope semantic types (neoplasm/disease/dysfunction), so the metric
-      can only flag a constituent filler that is *itself* an in-scope compound (a
-      differentia neoplasm/disease with >=2 axes). Anatomic-site and morphology fillers
-      are out of scope and read atomic by construction, and minted/NLP fillers are
-      atomic by definition. So a **real** run reading 0 may mean the detector never met
-      an in-scope compound filler, not that the corpus is clean — which is exactly why
-      D37 says a 0 on the first real run (#127) is a signal to suspect the detector, and
-      why the number is proved reachable there, on real data, not only in unit tests.
+      **What it can fire on.** ``detect`` gates on the in-scope semantic types
+      (neoplasm/disease/dysfunction) *and* >=2 decomposable axes, so the metric flags a
+      constituent filler only when the filler is *itself* an in-scope compound. Two
+      classes of filler therefore never fire, for different reasons: **anatomic-site**
+      fillers are out of scope by *semantic type* (``Body Part, Organ, or Organ
+      Component`` is not in scope), and **minted/NLP** fillers are atomic by definition
+      (and excluded before detection). But **morphology/genus** fillers do *not* get a
+      pass — the morphology constituent's filler is the genus code, a store-resident
+      neoplasm that is squarely in scope, and it fires precisely when that genus is
+      itself a defined >=2-axis class. That is the *most likely* source of a non-zero
+      reading (the genus chain is exactly where compounds nest), and it is a legitimate
+      residual signal, not a blind spot. So a **real** run reading 0 means either the
+      corpus genuinely bottoms out on atomic in-scope fillers, or the detector never met
+      an in-scope compound filler at all — indistinguishable without the real run, which
+      is why D37 makes a 0 on the first run (#127) a signal to suspect the detector, and
+      why the number is proved reachable there (start at the morphology/genus path), on
+      real data, not only in unit tests.
 
     ``roundtrip_fidelity`` is computed only when ``emit_equivalence=True`` — the
     fraction of stated defining restrictions covered by the emitted
@@ -441,9 +449,22 @@ async def _precoordinated_fillers(
     labels = await get_labels(fillers) if get_labels is not None else {}
     precoordinated: set[str] = set()
     for filler in fillers:
-        result, _roles, _morph = await _detect_concept(
-            filler, client, label=labels.get(filler), walker_max_depth=walker_max_depth
-        )
+        try:
+            result, _roles, _morph = await _detect_concept(
+                filler,
+                client,
+                label=labels.get(filler),
+                walker_max_depth=walker_max_depth,
+            )
+        except Exception:
+            # Match the main loop's contextual log-then-reraise (this pass is not in
+            # it): a bare traceback from the metric post-pass otherwise names no filler
+            # and no phase. Still fail-fast — re-raise; the metric never swallows a
+            # store error into a quiet 0.
+            logger.exception(
+                "residual-precoordination detection failed for filler_code=%s", filler
+            )
+            raise
         if result.is_precoordinated:
             precoordinated.add(filler)
     return precoordinated
