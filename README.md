@@ -328,12 +328,12 @@ _This table is auto-updated by CI after successful builds on `main`._
 | TypeScript | 62 | 4,280 |
 | Svelte | 39 | 3,263 |
 | CSS | 3 | 1,993 |
-| YAML | 10 | 1,030 |
+| YAML | 10 | 1,041 |
 | TOML | 3 | 332 |
 | Shell | 1 | 95 |
 | JavaScript | 1 | 38 |
 | HTML | 1 | 21 |
-| **Total** | **349** | **63,110** |
+| **Total** | **349** | **63,121** |
 <!-- CODEBASE_LINE_COUNT_TABLE:END -->
 
 ## Provenance
