@@ -8,13 +8,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from ontolib.decomposition.minting import MintedConcept
-from ontolib.decomposition.models import Decomposition
+from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.run import (
     RunConfig,
     RunMetrics,
     _CandidateResult,
     _persist_candidate,
+    _precoordinated_fillers,
+    _residual_count,
     enumerate_in_scope_codes,
     run_pipeline,
 )
@@ -590,6 +592,90 @@ async def test_run_pipeline_total_limit_caps_codes_processed() -> None:
         RunConfig(branch="neoplasm"), client, provenance, total_limit=2
     )
     assert metrics.total_in_scope == 2
+
+
+# ── residual_precoordination (D37, #126) ──────────────────────────────
+
+
+def _decomp(code: str, *filler_codes: str) -> Decomposition:
+    return Decomposition(
+        code=code,
+        semantic_type="Neoplastic Process",
+        constituents=[
+            Constituent(axis="R101", filler_code=f, axis_source="role")
+            for f in filler_codes
+        ],
+    )
+
+
+@pytest.mark.unit
+def test_residual_count_flags_a_decomposition_whose_constituent_is_precoordinated() -> (
+    None
+):
+    """GATE LIVENESS (D37): the metric must be NON-ZERO on input that should trigger it.
+
+    A concept that decomposed, but one of whose emitted constituents is *itself* a
+    pre-coordinated concept, is residually pre-coordinated — decomposition bottomed out
+    on a compound. This is the whole point of the metric; if it can only ever read 0 it
+    is not a metric (the #73 vacuous-gate lesson).
+    """
+    decompositions = [
+        _decomp("C1", "C_atomic", "C_compound"),  # one constituent is precoordinated
+        _decomp("C2", "C_atomic"),  # fully atomic
+    ]
+    assert _residual_count(decompositions, precoordinated_fillers={"C_compound"}) == 1
+
+
+@pytest.mark.unit
+def test_residual_count_is_zero_when_every_constituent_is_atomic() -> None:
+    """Reject branch: a decomposition all of whose constituents are atomic is not
+    residual — this is the state a fully-reduced ontology should converge toward."""
+    decompositions = [_decomp("C1", "C_a", "C_b"), _decomp("C2", "C_c")]
+    assert _residual_count(decompositions, precoordinated_fillers=set()) == 0
+
+
+@pytest.mark.unit
+def test_residual_precoordination_is_the_fraction_of_decomposed_concepts() -> None:
+    m = RunMetrics(decomposed=4, residual_precoordinated=1)
+    assert m.residual_precoordination == pytest.approx(0.25)
+
+
+@pytest.mark.unit
+def test_residual_precoordination_is_zero_when_nothing_decomposed() -> None:
+    """No division by zero, and 'nothing decomposed' is honestly 0, not undefined."""
+    assert RunMetrics().residual_precoordination == 0.0
+
+
+@pytest.mark.unit
+async def test_precoordinated_fillers_detects_a_compound_constituent() -> None:
+    """GATE LIVENESS through the REAL detector: a constituent filler that is itself
+    in-scope with >=2 defining roles comes back pre-coordinated, while an atomic filler
+    does not. This proves the metric can fire end-to-end (detection wiring), not only in
+    the pure counting logic — the difference the #73 vacuous-gate history turns on.
+    """
+    decompositions = [_decomp("C2000", "C2001", "C2002")]
+    client = _FakeClient(
+        semantic_types={
+            "C2001": ["Neoplastic Process"],  # compound: in scope + 2 roles
+            "C2002": ["Neoplastic Process"],  # atomic: in scope, no defining roles
+        },
+        roles={
+            "C2001": [
+                _role("R101", "Has_Primary_Site", "C3001"),
+                _role("R100", "Has_Associated_Site", "C3002"),
+            ],
+            "C2002": [],
+        },
+    )
+
+    async def _labels(codes: list[str]) -> dict[str, str]:
+        return {c: f"label-{c}" for c in codes}
+
+    precoordinated = await _precoordinated_fillers(
+        decompositions, client, _labels, walker_max_depth=5
+    )
+    assert precoordinated == {"C2001"}
+    assert _residual_count(decompositions, precoordinated_fillers=precoordinated) == 1
 
 
 @pytest.mark.unit
