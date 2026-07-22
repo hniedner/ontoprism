@@ -150,7 +150,7 @@ def main(
         f"coverage={metrics.coverage:.2%} "
         # detector-relative (D37): reducibility as the detector sees it (not truth)
         f"residual_precoordination={metrics.residual_precoordination:.2%} "
-        f"({metrics.residual_precoordinated}/{metrics.decomposed})"
+        f"({metrics.residual_precoordinated_count}/{metrics.decomposed})"
     )
 
 

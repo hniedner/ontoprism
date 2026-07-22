@@ -26,8 +26,9 @@ Scope of this orchestrator (documented boundaries, not oversights):
   (design §9/§13) — roles are version-pinned, so mixing two builds in one manifest would
   silently corrupt it.
 - ``total_in_scope`` reflects the *full* branch enumeration on every invocation
-  (including a resume); ``decomposed``/``residual``/``minted_count`` cover only the
-  pending subset actually processed *this* invocation. So on a resumed run,
+  (including a resume); ``decomposed``/``residual``/``residual_precoordinated_count``/
+  ``minted_count`` cover only the pending subset actually processed *this* invocation.
+  So on a resumed run,
   ``coverage``/``pct_decomposed`` understates true cumulative progress — it is not
   self-consistently scoped to "this invocation" the way the other counters are.
 """
@@ -116,16 +117,26 @@ class RunMetrics:
       constituents. A degenerate safety net (currently unreachable: every defining role
       or NLP aspect yields >=1 constituent — see ``_persist_candidate``). NOT design
       §10's residual metric.
-    * ``residual_precoordinated`` / :attr:`residual_precoordination` — **D37's metric**:
-      decomposed concepts at least one of whose *emitted constituents is itself*
-      classified as pre-coordinated by the same detector. This is "is what we produced
-      actually atomic?" (irreducibility), the complement of ``roundtrip_fidelity``'s
-      "did we capture everything?" (completeness). It is **detector-relative** — a fixed
-      point of ``detector.detect`` — so an under-detecting detector reads it
-      artificially low, and a detector improvement moves it with no ontology change
-      (D37). Track it
-      against the SME golden set (#57) as well as the corpus so that divergence surfaces
-      detector drift.
+    * ``residual_precoordinated_count`` / :attr:`residual_precoordination` — **D37's
+      metric**: decomposed concepts at least one of whose *emitted constituents is
+      itself* classified as pre-coordinated by the same detector. This is "is what we
+      produced actually atomic?" (irreducibility), the complement of
+      ``roundtrip_fidelity``'s "did we capture everything?" (completeness).
+
+      It is **detector-relative** — defined purely in terms of what ``detector.detect``
+      flags — so an under-detecting detector reads it artificially low, and a detector
+      improvement moves it with no ontology change (D37). Track it against the SME
+      golden set (#57) as well as the corpus, so divergence surfaces detector drift.
+
+      **What it can and cannot fire on (a structural bound, not a bug).** ``detect``
+      gates on the in-scope semantic types (neoplasm/disease/dysfunction), so the metric
+      can only flag a constituent filler that is *itself* an in-scope compound (a
+      differentia neoplasm/disease with >=2 axes). Anatomic-site and morphology fillers
+      are out of scope and read atomic by construction, and minted/NLP fillers are
+      atomic by definition. So a **real** run reading 0 may mean the detector never met
+      an in-scope compound filler, not that the corpus is clean — which is exactly why
+      D37 says a 0 on the first real run (#127) is a signal to suspect the detector, and
+      why the number is proved reachable there, on real data, not only in unit tests.
 
     ``roundtrip_fidelity`` is computed only when ``emit_equivalence=True`` — the
     fraction of stated defining restrictions covered by the emitted
@@ -135,7 +146,7 @@ class RunMetrics:
     total_in_scope: int = 0
     decomposed: int = 0
     residual: int = 0
-    residual_precoordinated: int = 0
+    residual_precoordinated_count: int = 0
     minted_count: int = 0
     pct_decomposed: float = 0.0
     roundtrip_fidelity: float = 0.0
@@ -156,7 +167,7 @@ class RunMetrics:
         """
         if self.decomposed == 0:
             return 0.0
-        return self.residual_precoordinated / self.decomposed
+        return self.residual_precoordinated_count / self.decomposed
 
 
 @dataclass
@@ -388,6 +399,27 @@ def _residual_count(
     )
 
 
+def _store_resident_constituent_fillers(
+    decompositions: Sequence[Decomposition],
+) -> list[str]:
+    """Distinct constituent filler codes that exist in the stated graph, sorted.
+
+    Minted/NLP fillers (``MINT-*``) are dropped: they are freshly-proposed atomic
+    single-aspect concepts by construction, they do not exist in the stated graph, and
+    running the detector on one is three SPARQL round-trips that can only ever return
+    "atomic" (empty semantic types -> out of scope). So the residual metric is over
+    *store-resident, role-sourced* constituents — the only ones the detector can judge.
+    """
+    return sorted(
+        {
+            c.filler_code
+            for d in decompositions
+            for c in d.constituents
+            if not c.filler_code.startswith("MINT-")
+        }
+    )
+
+
 async def _precoordinated_fillers(
     decompositions: Sequence[Decomposition],
     client: SparqlClient,
@@ -397,14 +429,13 @@ async def _precoordinated_fillers(
 ) -> set[str]:
     """The constituent filler codes that are themselves pre-coordinated (D37).
 
-    Every distinct filler across all decompositions is classified once, by the SAME
-    detector that classified the concepts (:func:`_detect_concept`) — a filler judged
-    pre-coordinated means decomposition bottomed out on a compound. De-duplicated
-    because
-    one filler recurs across many concepts; this is a post-pass over the run, so its
-    cost is one detection per distinct filler, not per constituent.
+    Every distinct store-resident filler is classified once, by the SAME detector that
+    classified the concepts (:func:`_detect_concept`) — a filler judged pre-coordinated
+    means decomposition bottomed out on a compound. De-duplicated because one filler
+    recurs across many concepts; this is a post-pass over the run, so its cost is one
+    detection per distinct filler, not per constituent.
     """
-    fillers = sorted({c.filler_code for d in decompositions for c in d.constituents})
+    fillers = _store_resident_constituent_fillers(decompositions)
     if not fillers:
         return set()
     labels = await get_labels(fillers) if get_labels is not None else {}
@@ -622,7 +653,7 @@ async def run_pipeline(
     precoordinated = await _precoordinated_fillers(
         decompositions, client, get_labels, walker_max_depth=config.walker_max_depth
     )
-    metrics.residual_precoordinated = _residual_count(
+    metrics.residual_precoordinated_count = _residual_count(
         decompositions, precoordinated_fillers=precoordinated
     )
 

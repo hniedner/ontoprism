@@ -636,7 +636,7 @@ def test_residual_count_is_zero_when_every_constituent_is_atomic() -> None:
 
 @pytest.mark.unit
 def test_residual_precoordination_is_the_fraction_of_decomposed_concepts() -> None:
-    m = RunMetrics(decomposed=4, residual_precoordinated=1)
+    m = RunMetrics(decomposed=4, residual_precoordinated_count=1)
     assert m.residual_precoordination == pytest.approx(0.25)
 
 
@@ -676,6 +676,43 @@ async def test_precoordinated_fillers_detects_a_compound_constituent() -> None:
     )
     assert precoordinated == {"C2001"}
     assert _residual_count(decompositions, precoordinated_fillers=precoordinated) == 1
+
+
+@pytest.mark.unit
+async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
+    """SEAM: the metric must be set by a real ``run_pipeline`` call, not only by the
+    isolated helpers. Deleting the post-pass wiring in ``run_pipeline`` leaves every
+    isolated test green — this is the only test that fails when the wiring is dropped.
+
+    C6135 decomposes; its R101 site filler C12400 is itself in-scope with two defining
+    roles, so it is pre-coordinated — C6135's decomposition bottomed out on a compound.
+    """
+    client = _FakeClient(
+        pages=[["C6135"]],
+        semantic_types={
+            "C6135": ["Neoplastic Process"],
+            "C12400": ["Neoplastic Process"],  # the constituent filler is in scope…
+        },
+        roles={
+            "C6135": [
+                _role("R88", "Has_Stage", "C27970"),
+                _role("R101", "Has_Primary_Site", "C12400"),
+            ],
+            "C12400": [  # …and compound: two defining roles -> pre-coordinated
+                _role("R101", "Has_Primary_Site", "C3001"),
+                _role("R100", "Has_Associated_Site", "C3002"),
+            ],
+        },
+    )
+    provenance = _mock_provenance()
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    assert metrics.decomposed == 1
+    assert metrics.residual_precoordinated_count == 1
+    assert metrics.residual_precoordination == pytest.approx(1.0)
+    # persisted honestly (the count is a field; the fraction is derived on read)
+    persisted = provenance.finish_run.call_args.kwargs["metrics"]
+    assert persisted["residual_precoordinated_count"] == 1
 
 
 @pytest.mark.unit
