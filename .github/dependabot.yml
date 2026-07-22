@@ -13,9 +13,14 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     # Wait before proposing brand-new releases, to dodge freshly-compromised
-    # versions (supply-chain campaigns typically get yanked within days).
+    # versions (supply-chain campaigns are typically yanked within days). The window
+    # scales with blast radius: major/minor wait 14 days, a patch waits 7. Security
+    # updates bypass cooldown entirely, so an advisory fix is never delayed.
     cooldown:
       default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 14
+      semver-patch-days: 7
     commit-message:
       prefix: "ci"
     groups:
@@ -30,6 +35,9 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 14
+      semver-patch-days: 7
     commit-message:
       prefix: "build"
     groups:
@@ -49,5 +57,8 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 14
+      semver-patch-days: 7
     commit-message:
       prefix: "build"
