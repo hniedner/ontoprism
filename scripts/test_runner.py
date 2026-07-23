@@ -7,7 +7,7 @@ renders one row per test *type*, grouped Backend / Frontend, with a TOTAL, in th
 style as fairdata's runner. Exits non-zero if any suite failed.
 
     pdm run test            # hermetic suites: backend unit/api/security + frontend
-    pdm run test --all      # also run the slow suites (live-store integration, e2e)
+    pdm run test --all      # also run disposable integration and e2e
 
 Coverage is a separate gated flow (`pdm run test-ci` / `test:coverage`), not shown here.
 """
@@ -110,7 +110,10 @@ _PARSERS = {
 def _pytest(
     group: str, kind: str, marker: str, path: str, *, slow: bool = False
 ) -> Suite:
-    cmd = ["pytest", path, "-m", marker]
+    if kind == "integration":
+        cmd = ["python", "scripts/run_safe_integration.py", path, "-m", marker]
+    else:
+        cmd = ["pytest", path, "-m", marker]
     return Suite(f"{group} {kind}", group, kind, "pytest", cmd, slow=slow)
 
 
@@ -118,11 +121,23 @@ def suites(include_slow: bool) -> list[Suite]:
     """Hermetic suites by default; add integration + e2e when *include_slow*."""
     all_suites = [
         _pytest("ontolib", "unit", "unit", "ontolib/tests"),
-        _pytest("ontolib", "integration", "integration", "ontolib/tests", slow=True),
+        _pytest(
+            "ontolib",
+            "integration",
+            "integration and not full_store",
+            "ontolib/tests",
+            slow=True,
+        ),
         _pytest("backend", "unit", "unit", "backend/tests"),
         _pytest("backend", "api", "api", "backend/tests"),
         _pytest("backend", "security", "security", "backend/tests"),
-        _pytest("backend", "integration", "integration", "backend/tests", slow=True),
+        _pytest(
+            "backend",
+            "integration",
+            "integration and not full_store",
+            "backend/tests",
+            slow=True,
+        ),
         Suite(
             "frontend vitest",
             "frontend",
@@ -270,7 +285,7 @@ def main() -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="also run the slow suites (live-store integration, e2e)",
+        help="also run the slow suites (disposable integration, e2e)",
     )
     args = parser.parse_args()
 

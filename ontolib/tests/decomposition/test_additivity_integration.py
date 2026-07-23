@@ -5,7 +5,7 @@ triples into a named graph via the same mechanism the engine uses
 (``client.load(..., graph_iri=..., replace=True)``) never changes the default graph's
 triple count. Uses a dedicated *test-only* graph IRI (never the real
 ``DECOMPOSED_GRAPH_IRI``) and cleans it up unconditionally, so it never leaves data
-behind in a developer's live store.
+behind in a disposable store.
 """
 
 from __future__ import annotations

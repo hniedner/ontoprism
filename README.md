@@ -313,7 +313,7 @@ pdm run pre-commit run --all-files  # Local quality gate
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1–D31)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1–D41)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->

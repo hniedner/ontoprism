@@ -3,15 +3,28 @@
 from __future__ import annotations
 
 import ast
+import os
+import shutil
+import subprocess
 import tomllib
 from pathlib import Path
 
 import pytest
 import yaml
+from scripts.test_runner import suites
 from test_support.integration_resources import (
+    IntegrationConnectionPolicy,
     IntegrationResourceOwner,
+    IntegrationTestDeclaration,
+    MutatorManifestEntry,
     ResourceOwnershipError,
+    build_safe_integration_environment,
+    find_persistent_mutator_tests,
+    find_persistent_mutators,
     find_unmanifested_mutators,
+    remove_owned_container_by_name,
+    validate_integration_test_declaration,
+    validate_mutator_manifest_entries,
 )
 
 
@@ -52,6 +65,13 @@ def test_owner_builds_collision_resistant_scoped_resource_names() -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
 
     assert owner.database_name == "ontoprism_test_019f8d64b0e274e2931a15452959797a"
+    assert owner.database_role == "ontoprism_test_019f8d64b0e274e2931a15452959797a"
+    assert owner.database_role_comment == (
+        "ontoprism-test-owner:019f8d64b0e274e2931a15452959797a"
+    )
+    assert owner.postgres_container_name == (
+        "ontoprism-postgres-test-019f8d64b0e274e2931a15452959797a"
+    )
     assert (
         owner.oxigraph_container_name
         == "ontoprism-oxigraph-test-019f8d64b0e274e2931a15452959797a"
@@ -65,14 +85,21 @@ def test_owner_builds_collision_resistant_scoped_resource_names() -> None:
 def test_database_ownership_requires_exact_name_and_nonce_marker() -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
 
-    owner.verify_database(owner.database_name, owner.nonce)
+    owner.verify_database(database_name=owner.database_name, marker=owner.nonce)
 
     with pytest.raises(ResourceOwnershipError, match="database name"):
-        owner.verify_database("ontoprism", owner.nonce)
+        owner.verify_database(database_name="ontoprism", marker=owner.nonce)
     with pytest.raises(ResourceOwnershipError, match="database name"):
-        owner.verify_database("ontoprism_test_some_other_run", owner.nonce)
+        owner.verify_database(
+            database_name="ontoprism_test_some_other_run", marker=owner.nonce
+        )
     with pytest.raises(ResourceOwnershipError, match="owner marker"):
-        owner.verify_database(owner.database_name, "another-run")
+        owner.verify_database(database_name=owner.database_name, marker="another-run")
+    owner.verify_database_role(owner.database_role, owner.database_role_comment)
+    with pytest.raises(ResourceOwnershipError, match="database owner role"):
+        owner.verify_database_role("ontoprism", owner.database_role_comment)
+    with pytest.raises(ResourceOwnershipError, match="role marker"):
+        owner.verify_database_role(owner.database_role, "another-run")
 
 
 @pytest.mark.unit
@@ -93,16 +120,246 @@ def test_owner_derives_admin_and_isolated_database_urls() -> None:
     assert owner.postgres_admin_url(configured) == (
         "postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/postgres"
     )
-    assert owner.database_url(configured) == (
+    assert owner.postgres_admin_database_url(configured) == (
         "postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/"
+        "ontoprism_test_019f8d64b0e274e2931a15452959797a"
+    )
+    assert owner.database_url(configured) == (
+        "postgresql+asyncpg://ontoprism_test_019f8d64b0e274e2931a15452959797a:"
+        "019f8d64b0e274e2931a15452959797a@localhost:5433/"
         "ontoprism_test_019f8d64b0e274e2931a15452959797a"
     )
 
 
 @pytest.mark.unit
+def test_safe_lane_separates_provisioning_credentials_from_application_targets(
+    tmp_path: Path,
+) -> None:
+    configured = "postgresql+asyncpg://admin:secret@localhost:5433/ontoprism"
+    data_root = tmp_path / "owned-data"
+
+    environment = build_safe_integration_environment(
+        {
+            "DATABASE_URL": configured,
+            "NCIT_SPARQL_URL": "http://localhost:7888",
+            "ONTOPRISM_TEST_POSTGRES_ADMIN_URL": configured,
+        },
+        data_root=data_root,
+    )
+
+    assert "ONTOPRISM_TEST_POSTGRES_ADMIN_URL" not in environment
+    assert environment["DATABASE_URL"] == (
+        "postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/"
+        "ontoprism_test_forbidden"
+    )
+    assert environment["NCIT_SPARQL_URL"] == "http://127.0.0.1:9"
+    assert environment["UBERON_SPARQL_URL"] == "http://127.0.0.1:9"
+    assert environment["CADSR_DB_PATH"] == str(data_root / "cadsr/cde_repository.db")
+    assert environment["CADSR_DATA_DIR"] == str(data_root / "cadsr")
+    assert environment["NCIT_OWL_DIR"] == str(data_root / "ncit-owl")
+    assert environment["RELOAD_ALLOWED_DIR"] == str(data_root)
+    assert environment["ONTOPRISM_SAFE_INTEGRATION"] == "1"
+
+
+@pytest.mark.unit
+def test_connection_policy_rejects_every_unregistered_tcp_target() -> None:
+    policy = IntegrationConnectionPolicy()
+
+    with pytest.raises(ResourceOwnershipError, match="not owned"):
+        policy.verify_socket_address(("127.0.0.1", 7888))
+    with pytest.raises(ResourceOwnershipError, match="not owned"):
+        policy.verify_socket_address(("203.0.113.10", 443))
+    with pytest.raises(ResourceOwnershipError, match="not owned"):
+        policy.verify_socket_address("/var/run/postgresql/.s.PGSQL.5432")
+    with pytest.raises(ResourceOwnershipError, match="malformed"):
+        policy.verify_socket_address(("127.0.0.1",))
+
+    policy.register_url("http://127.0.0.1:49152")
+    policy.verify_socket_address(("127.0.0.1", 49152))
+    policy.unregister_url("http://127.0.0.1:49152")
+    with pytest.raises(ResourceOwnershipError, match="not owned"):
+        policy.verify_socket_address(("127.0.0.1", 49152))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("declaration", "rules", "detected", "message"),
+    [
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_write",
+                markers=frozenset(
+                    {"integration", "full_store", "mutating_integration"}
+                ),
+                fixtures=frozenset({"isolated_postgres_settings"}),
+            ),
+            (),
+            (),
+            "both full_store and mutating_integration",
+        ),
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_write",
+                markers=frozenset({"integration", "mutating_integration"}),
+                fixtures=frozenset(),
+            ),
+            (),
+            ("persistent SQL write",),
+            "missing from integration_mutators.toml",
+        ),
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_read",
+                markers=frozenset({"integration"}),
+                fixtures=frozenset(),
+            ),
+            (),
+            ("persistent SQL write",),
+            "write signals but lacks mutating_integration",
+        ),
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_write",
+                markers=frozenset({"integration", "mutating_integration"}),
+                fixtures=frozenset({"isolated_oxigraph_settings"}),
+            ),
+            (
+                MutatorManifestEntry(
+                    path="backend/tests/test_mixed.py",
+                    fixtures=frozenset({"isolated_postgres_settings"}),
+                    tests=frozenset({"test_write"}),
+                ),
+            ),
+            ("persistent SQL write",),
+            "missing owned fixtures",
+        ),
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_write",
+                markers=frozenset({"integration", "mutating_integration"}),
+                fixtures=frozenset({"unrelated_fixture"}),
+            ),
+            (
+                MutatorManifestEntry(
+                    path="backend/tests/test_mixed.py",
+                    fixtures=frozenset({"unrelated_fixture"}),
+                ),
+            ),
+            ("persistent SQL write",),
+            "Postgres write without an owned database",
+        ),
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_write",
+                markers=frozenset({"integration", "mutating_integration"}),
+                fixtures=frozenset({"unrelated_fixture"}),
+            ),
+            (
+                MutatorManifestEntry(
+                    path="backend/tests/test_mixed.py",
+                    fixtures=frozenset({"unrelated_fixture"}),
+                ),
+            ),
+            ("Oxigraph write",),
+            "Oxigraph write without an owned store",
+        ),
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_write",
+                markers=frozenset({"integration", "mutating_integration"}),
+                fixtures=frozenset({"isolated_postgres_settings"}),
+            ),
+            (
+                MutatorManifestEntry(
+                    path="backend/tests/test_mixed.py",
+                    fixtures=frozenset({"isolated_postgres_settings"}),
+                ),
+            ),
+            ("persistent API write",),
+            "persistent API write without both owned services",
+        ),
+        (
+            IntegrationTestDeclaration(
+                path="backend/tests/test_mixed.py",
+                name="test_write",
+                markers=frozenset({"integration", "mutating_integration"}),
+                fixtures=frozenset({"isolated_postgres_settings"}),
+            ),
+            (
+                MutatorManifestEntry(
+                    path="backend/tests/test_mixed.py",
+                    fixtures=frozenset({"isolated_postgres_settings"}),
+                ),
+                MutatorManifestEntry(
+                    path="backend/tests/test_mixed.py",
+                    fixtures=frozenset({"isolated_postgres_settings"}),
+                    tests=frozenset({"test_write"}),
+                ),
+            ),
+            (),
+            "matches multiple",
+        ),
+    ],
+)
+def test_collected_integration_declarations_fail_closed(
+    declaration: IntegrationTestDeclaration,
+    rules: tuple[MutatorManifestEntry, ...],
+    detected: tuple[str, ...],
+    message: str,
+) -> None:
+    errors = validate_integration_test_declaration(
+        declaration,
+        manifest=rules,
+        detected_reasons=detected,
+    )
+
+    assert any(message in error for error in errors)
+
+
+@pytest.mark.unit
+def test_mutator_manifest_rejects_stale_paths_and_test_selectors() -> None:
+    declarations = (
+        IntegrationTestDeclaration(
+            path="backend/tests/test_current.py",
+            name="test_write",
+            markers=frozenset({"integration", "mutating_integration"}),
+            fixtures=frozenset({"isolated_postgres_settings"}),
+        ),
+    )
+    manifest = (
+        MutatorManifestEntry(
+            path="backend/tests/test_deleted.py",
+            fixtures=frozenset({"isolated_postgres_settings"}),
+        ),
+        MutatorManifestEntry(
+            path="backend/tests/test_current.py",
+            fixtures=frozenset({"isolated_postgres_settings"}),
+            tests=frozenset({"test_renamed"}),
+        ),
+    )
+
+    errors = validate_mutator_manifest_entries(
+        manifest=manifest,
+        declarations=declarations,
+    )
+
+    assert any("test_deleted.py" in error for error in errors)
+    assert any("test_renamed" in error for error in errors)
+
+
+@pytest.mark.unit
 def test_oxigraph_command_is_loopback_disposable_and_digest_pinned() -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
-    data_dir = Path("/private/tmp/ontoprism-test-019f8d64b0e274e2931a15452959797a")
+    data_dir = Path(
+        "/private/tmp/ontoprism-oxigraph-019f8d64b0e274e2931a15452959797a-fixture"
+    )
 
     assert owner.oxigraph_run_command(data_dir) == [
         "docker",
@@ -124,40 +381,96 @@ def test_oxigraph_command_is_loopback_disposable_and_digest_pinned() -> None:
         "--bind",
         "0.0.0.0:7878",
     ]
+    with pytest.raises(ResourceOwnershipError, match="data directory"):
+        owner.oxigraph_run_command(
+            Path("/private/tmp/prefix-019f8d64b0e274e2931a15452959797a-suffix")
+        )
+
+    assert owner.postgres_run_command() == [
+        "docker",
+        "run",
+        "--detach",
+        "--name",
+        "ontoprism-postgres-test-019f8d64b0e274e2931a15452959797a",
+        "--label",
+        "org.ontoprism.test-owner=019f8d64b0e274e2931a15452959797a",
+        "--publish",
+        "127.0.0.1::5432",
+        "--tmpfs",
+        "/var/lib/postgresql/data:rw",
+        "--env",
+        "POSTGRES_USER=ontoprism_admin",
+        "--env",
+        f"POSTGRES_PASSWORD={owner.nonce}",
+        "--env",
+        "POSTGRES_DB=postgres",
+        "pgvector/pgvector@sha256:"
+        "7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742",
+    ]
 
 
 @pytest.mark.unit
 def test_oxigraph_ownership_requires_label_mount_and_file_marker() -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
-    data_dir = Path("/private/tmp/ontoprism-test-019f8d64b0e274e2931a15452959797a")
+    data_dir = Path(
+        "/private/tmp/ontoprism-oxigraph-019f8d64b0e274e2931a15452959797a-fixture"
+    )
 
+    owner.verify_container_label(owner.nonce)
+    with pytest.raises(ResourceOwnershipError, match="label"):
+        owner.verify_container_label("another-run")
     owner.verify_oxigraph(
-        label=owner.nonce,
         mounted_data_dir=data_dir,
         expected_data_dir=data_dir,
         file_marker=owner.nonce,
     )
-    with pytest.raises(ResourceOwnershipError, match="label"):
-        owner.verify_oxigraph(
-            label="another-run",
-            mounted_data_dir=data_dir,
-            expected_data_dir=data_dir,
-            file_marker=owner.nonce,
-        )
     with pytest.raises(ResourceOwnershipError, match="mount"):
         owner.verify_oxigraph(
-            label=owner.nonce,
             mounted_data_dir=Path("/private/tmp/familiar-prefix-decoy"),
             expected_data_dir=data_dir,
             file_marker=owner.nonce,
         )
     with pytest.raises(ResourceOwnershipError, match="file marker"):
         owner.verify_oxigraph(
-            label=owner.nonce,
             mounted_data_dir=data_dir,
             expected_data_dir=data_dir,
             file_marker="another-run",
         )
+    owner.verify_oxigraph_data_dir(data_dir, owner.nonce)
+    with pytest.raises(ResourceOwnershipError, match="directory owner"):
+        owner.verify_oxigraph_data_dir(
+            Path("/private/tmp/ontoprism-test-another-run"), owner.nonce
+        )
+    with pytest.raises(ResourceOwnershipError, match="directory owner"):
+        owner.verify_oxigraph_data_dir(
+            Path("/private/tmp/prefix-019f8d64b0e274e2931a15452959797a-suffix"),
+            owner.nonce,
+        )
+    with pytest.raises(ResourceOwnershipError, match="file marker"):
+        owner.verify_oxigraph_data_dir(data_dir, "another-run")
+
+
+@pytest.mark.unit
+def test_cleanup_does_not_treat_a_docker_daemon_error_as_absence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+
+    def failed_inspect(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        del args, check
+        return subprocess.CompletedProcess(
+            args=["docker", "inspect"],
+            returncode=1,
+            stdout="",
+            stderr="Cannot connect to the Docker daemon",
+        )
+
+    monkeypatch.setattr("test_support.integration_resources.run_docker", failed_inspect)
+
+    with pytest.raises(RuntimeError, match="Docker inspect failed"):
+        remove_owned_container_by_name(owner, owner.oxigraph_container_name)
 
 
 @pytest.mark.unit
@@ -166,6 +479,7 @@ def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> Non
     manifest_path = root / "test_support/integration_mutators.toml"
     with manifest_path.open("rb") as stream:
         entries = tomllib.load(stream)["mutator"]
+    detected = find_persistent_mutators(root)
 
     assert entries
     for entry in entries:
@@ -176,6 +490,26 @@ def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> Non
         assert set(entry["fixtures"]) <= fixtures, (
             f"{entry['path']} does not request {entry['fixtures']}"
         )
+        reasons = set(detected.get(entry["path"], ()))
+        if reasons & {"Oxigraph write", "HTTP write"}:
+            assert "isolated_oxigraph_settings" in fixtures or (
+                "isolated_oxigraph_url" in fixtures
+            ), f"{entry['path']} has an Oxigraph write without an owned store"
+        if reasons & {
+            "persistent SQL write",
+            "repository write",
+            "schema migration",
+        }:
+            assert "isolated_postgres_settings" in fixtures or (
+                "isolated_postgres_url" in fixtures
+            ), f"{entry['path']} has a Postgres write without an owned database"
+        if "persistent API write" in reasons:
+            assert {
+                "isolated_postgres_settings",
+                "isolated_oxigraph_settings",
+            } <= fixtures, (
+                f"{entry['path']} has a persistent API write without both services"
+            )
 
 
 @pytest.mark.unit
@@ -197,6 +531,146 @@ async def test_unowned_write(connection):
 
     assert find_unmanifested_mutators(tmp_path, manifested_paths=frozenset()) == {
         "backend/tests/test_new_integration.py": ("persistent SQL write",)
+    }
+
+
+@pytest.mark.unit
+def test_mutation_scanner_reports_every_resource_kind_used_by_a_module(
+    tmp_path: Path,
+) -> None:
+    test_root = tmp_path / "backend/tests"
+    test_root.mkdir(parents=True)
+    path = test_root / "test_mixed_integration.py"
+    path.write_text(
+        """
+import pytest
+
+pytestmark = pytest.mark.integration
+
+async def test_unowned_writes(connection, client):
+    await connection.execute("INSERT INTO developer_data VALUES (1)")
+    await client.load(b"<urn:s> <urn:p> <urn:o> .")
+""".lstrip()
+    )
+
+    assert find_persistent_mutators(tmp_path) == {
+        "backend/tests/test_mixed_integration.py": (
+            "Oxigraph write",
+            "persistent SQL write",
+        )
+    }
+
+
+@pytest.mark.unit
+def test_mutation_scanner_keeps_mixed_module_test_scopes_separate(
+    tmp_path: Path,
+) -> None:
+    test_root = tmp_path / "backend/tests"
+    test_root.mkdir(parents=True)
+    path = test_root / "test_mixed_contracts.py"
+    path.write_text(
+        """
+import pytest
+from alembic import command
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_configured_read(connection):
+    await connection.execute("SELECT 1")
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_owned_migration():
+    command.downgrade("base")
+""".lstrip()
+    )
+
+    assert find_persistent_mutator_tests(tmp_path) == {
+        "backend/tests/test_mixed_contracts.py": {
+            "test_owned_migration": ("schema migration",)
+        }
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("statement", "expected"),
+    [
+        (
+            "await session.execute(insert(records).values(code='C1'))",
+            ("persistent SQL write",),
+        ),
+        (
+            "session.add(record)\n    await session.commit()",
+            ("persistent SQL write",),
+        ),
+        (
+            'await client.request("PUT", "/store?default", content=b"data")',
+            ("HTTP write",),
+        ),
+        (
+            "await store.upsert_records(records)",
+            ("repository write",),
+        ),
+        (
+            'await client.post("/refresh/ncit/search-index")',
+            ("persistent API write",),
+        ),
+    ],
+)
+def test_mutation_scanner_detects_common_library_write_shapes(
+    tmp_path: Path,
+    statement: str,
+    expected: tuple[str, ...],
+) -> None:
+    test_root = tmp_path / "backend/tests"
+    test_root.mkdir(parents=True)
+    path = test_root / "test_library_write.py"
+    path.write_text(
+        (
+            """
+import pytest
+
+@pytest.mark.integration
+async def test_write(session, client, records, record):
+    __STATEMENT__
+"""
+        )
+        .replace("__STATEMENT__", statement)
+        .lstrip()
+    )
+
+    assert find_persistent_mutator_tests(tmp_path) == {
+        "backend/tests/test_library_write.py": {"test_write": expected}
+    }
+
+
+@pytest.mark.unit
+def test_mutation_scanner_follows_local_helpers_and_class_markers(
+    tmp_path: Path,
+) -> None:
+    test_root = tmp_path / "backend/tests"
+    test_root.mkdir(parents=True)
+    path = test_root / "test_class_write.py"
+    path.write_text(
+        """
+import pytest
+
+async def persist(connection):
+    await connection.execute("DELETE FROM developer_data")
+
+@pytest.mark.integration
+class TestWrites:
+    async def test_helper_write(self, connection):
+        await persist(connection)
+""".lstrip()
+    )
+
+    assert find_persistent_mutator_tests(tmp_path) == {
+        "backend/tests/test_class_write.py": {
+            "test_helper_write": ("persistent SQL write",)
+        }
     }
 
 
@@ -226,19 +700,97 @@ def test_default_integration_command_excludes_explicit_full_store_contracts() ->
 
 
 @pytest.mark.unit
-def test_ci_integration_step_cannot_open_configured_serving_resources() -> None:
+def test_full_store_runner_fails_when_a_selected_contract_skips(tmp_path: Path) -> None:
+    pytest_executable = shutil.which("pytest")
+    assert pytest_executable is not None
+    root = Path(__file__).resolve().parents[2]
+    environment = {
+        **os.environ,
+        "DATABASE_URL": (
+            "postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/"
+            "ontoprism_test_forbidden"
+        ),
+    }
+
+    result = subprocess.run(  # noqa: S603
+        [
+            pytest_executable,
+            "--require-full-store",
+            "backend/tests/test_migrations_integration.py::"
+            "test_migration_matches_cloned_db_schema",
+            "-q",
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "full-store gate rejected 1 skipped contract" in (
+        result.stdout + result.stderr
+    )
+
+
+@pytest.mark.unit
+def test_full_store_runner_fails_when_no_contract_is_selected() -> None:
+    pytest_executable = shutil.which("pytest")
+    assert pytest_executable is not None
+    root = Path(__file__).resolve().parents[2]
+
+    result = subprocess.run(  # noqa: S603
+        [
+            pytest_executable,
+            "--require-full-store",
+            "backend/tests/test_migrations_integration.py",
+            "-k",
+            "no_such_contract",
+            "-q",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "full-store gate ran no contracts" in result.stdout + result.stderr
+
+
+@pytest.mark.unit
+def test_all_runner_keeps_full_store_contracts_explicit() -> None:
+    integration_suites = [
+        suite for suite in suites(include_slow=True) if suite.kind == "integration"
+    ]
+
+    assert integration_suites
+    assert all(
+        "integration and not full_store" in suite.cmd for suite in integration_suites
+    )
+
+
+@pytest.mark.unit
+def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
-    steps = workflow["jobs"]["integration-tests"]["steps"]
+    job = workflow["jobs"]["integration-tests"]
+    steps = job["steps"]
     test_step = next(
         step for step in steps if step.get("run") == "pdm run test-integration-ci"
     )
 
-    assert test_step["env"] == {
+    assert job["env"] == {
         "DATABASE_URL": (
-            "postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/"
-            "ontoprism_ci_must_not_be_opened"
+            "postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/"
+            "ontoprism_test_forbidden"
         ),
         "NCIT_SPARQL_URL": "http://127.0.0.1:9",
         "UBERON_SPARQL_URL": "http://127.0.0.1:9",
     }
+    assert "env" not in test_step
+    step_names = {step.get("name") for step in steps}
+    assert "Start Oxigraph" not in step_names
+    assert "Provision Postgres schema (Alembic migrations)" not in step_names
+    assert "Seed the fixture (Oxigraph graph + caDSR DB)" not in step_names
+    assert "services" not in job

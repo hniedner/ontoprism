@@ -65,6 +65,9 @@ pdm run test-smoke           # frontend vitest via npm
   outer `ontolib/`/`backend/` dirs shadow the editable install (see `docs/DECISIONS.md`
   D6). `pdm run pytest` / the `pdm run test*` scripts use the correct console-script
   resolution; the root `conftest.py` also fixes `sys.path` for xdist workers.
+  For a mutating/seeded integration node, retain the fail-closed lane:
+  `pdm run python scripts/run_safe_integration.py <path>::<test> -v`.
+  Run a read-only `full_store` node with `pdm run test-integration-full-store -k <name>`.
 - Frontend single test: `cd frontend && npx vitest run <path>` (or `-t <name>`).
 - Markers (registered in root `pyproject.toml`): `unit`, `api`, `security`,
   `integration` (real services), `mutating_integration` (nonce-owned disposable

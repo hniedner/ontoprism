@@ -1,8 +1,8 @@
-"""Integration test for the decomposition read path against a live Oxigraph.
+"""Integration test for the decomposition read path against disposable Oxigraph.
 
 Seeds a tiny ``op:`` graph into DECOMPOSED_GRAPH_IRI and reads it back through the real
 query + assembly — validating the read layer end-to-end without the (not-yet-built)
-writer. Skips when the store is unreachable.
+writer. The required disposable store failing to start is a test failure.
 """
 
 from __future__ import annotations

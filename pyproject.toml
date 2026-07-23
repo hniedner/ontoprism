@@ -72,15 +72,15 @@ lint = [
 [tool.pdm.scripts]
 # Default `test`: the grouped, colored summary runner over the hermetic suites
 # (backend unit/api/security + frontend vitest). `pdm run test --all` adds the slow
-# suites (live-store integration, e2e). Coverage is the separate `test-ci` gate.
+# suites (disposable integration, e2e). Coverage is the separate `test-ci` gate.
 test = "python scripts/test_runner.py"
 test-unit = "pytest ontolib/tests backend/tests -m unit -n auto"
 test-backend-unit = "pytest backend/tests -m unit -n auto"
-test-integration = "pytest ontolib/tests backend/tests -m 'integration and not full_store'"
-test-integration-full-store = "pytest ontolib/tests backend/tests -m 'integration and full_store'"
+test-integration = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store'"
+test-integration-full-store = "pytest --require-full-store ontolib/tests backend/tests -m 'integration and full_store'"
 # CI integration run against a small seeded fixture (excludes full_build tests, which
 # assert the pinned 12.8M-triple production build / real generated embeddings).
-test-integration-ci = "pytest ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow'"
+test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow'"
 test-ci = { shell = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml -n auto && python -m coverage report --include='*ontolib/src/*' --fail-under=90 && python -m coverage report --include='*backend/src/*' --fail-under=90" }
 test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
@@ -133,7 +133,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "unit: Fast unit tests with mocked externalities only",
-    "integration: Tests against real running services (Oxigraph :7888/:7889, Postgres :5433)",
+    "integration: Tests against real services; mutators use run-owned disposables",
     "mutating_integration: Tests that require exact current-run-owned disposable persistent resources",
     "full_store: Read-only contracts that explicitly require configured full-corpus stores",
     "full_build: Integration tests that require the full pinned NCIt build / real generated embeddings (excluded from the seeded-fixture CI run)",

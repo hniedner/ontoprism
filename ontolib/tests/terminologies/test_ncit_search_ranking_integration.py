@@ -43,7 +43,7 @@ pytestmark = [
     pytest.mark.usefixtures("isolated_postgres_settings"),
 ]
 
-# A nonsense term, so the assertions remain independent from the seeded fixture.
+# A nonsense term, so assertions depend only on rows this module inserts.
 _TERM = "zorbulax"
 _TYPE = "Neoplastic Process"
 

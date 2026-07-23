@@ -3,8 +3,8 @@
 Verifies the migration (a) produces the exact pgvector schema the similarity endpoints
 need, (b) round-trips (upgrade→downgrade), and (c) matches the live/cloned DB — the
 parity that makes ``migrate-stamp`` on the clone safe. The mutating round-trip requires
-disposable Postgres; the separately marked full-store parity contract skips only when
-the explicitly configured corpus is unavailable.
+disposable Postgres; the separately marked full-store parity contract skips when its
+configured database or migrated embedding tables are unavailable.
 """
 
 import asyncio

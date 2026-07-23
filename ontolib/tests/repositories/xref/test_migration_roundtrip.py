@@ -66,6 +66,19 @@ async def test_evidence_column_added_and_removed_by_0006(tmp_path: object) -> No
 @pytest.mark.integration
 async def test_migration_up_and_down_roundtrip() -> None:
     engine = make_engine(get_settings().database_url)
+    env = {**os.environ, "PYTHONPATH": "."}
+    alembic = shutil.which("alembic") or "alembic"
+
+    def _alembic(*args: str) -> None:
+        subprocess.run(  # noqa: S603
+            [alembic, *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+            cwd=os.getcwd(),
+        )
+
     try:
         async with engine.connect() as conn:
             rows = await conn.execute(
@@ -77,17 +90,7 @@ async def test_migration_up_and_down_roundtrip() -> None:
             )
             assert {row[0] for row in rows} == {"xref_run", "concept_xref"}
 
-        env = {**os.environ, "PYTHONPATH": "."}
-        alembic = shutil.which("alembic") or "alembic"
-
-        subprocess.run(  # noqa: ASYNC221, S603
-            [alembic, "downgrade", "0003_decomposition"],
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env,
-            cwd=os.getcwd(),
-        )
+        _alembic("downgrade", "0003_decomposition")
 
         async with engine.connect() as conn:
             rows = await conn.execute(
@@ -101,15 +104,7 @@ async def test_migration_up_and_down_roundtrip() -> None:
         assert "xref_run" not in tables
         assert "concept_xref" not in tables
 
-        # note: check=True is fine; alembic path is from shutil.which
-        subprocess.run(  # noqa: ASYNC221, S603
-            [alembic, "upgrade", "head"],
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env,
-            cwd=os.getcwd(),
-        )
+        _alembic("upgrade", "head")
 
         async with engine.connect() as conn:
             rows = await conn.execute(
@@ -123,4 +118,5 @@ async def test_migration_up_and_down_roundtrip() -> None:
         assert "xref_run" in tables
         assert "concept_xref" in tables
     finally:
+        _alembic("upgrade", "head")
         await dispose_engine(engine)

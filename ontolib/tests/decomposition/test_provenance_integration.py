@@ -3,7 +3,7 @@
 Every existing unit test in ``test_provenance.py`` mocks the session entirely — none
 of the raw SQL (composite-key ``ON CONFLICT``, the FK to ``decomp_run``, the ``jsonb``
 metrics column) has ever run against a real database. This round-trips the store
-against the project's live Postgres and cleans up unconditionally. Skips when
+against a run-owned disposable Postgres database and cleans up exactly. Fails when
 Postgres is unreachable.
 """
 

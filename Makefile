@@ -5,7 +5,7 @@ help:
 	@echo "  install         PDM install (Python 3.13) + editable local packages"
 	@echo "  test            Run the full test suite (pdm run test)"
 	@echo "  test-unit       Unit tests only"
-	@echo "  test-integration  Integration tests (need live Oxigraph/Postgres)"
+	@echo "  test-integration  Integration tests (owned disposable services)"
 	@echo "  test-ci         Tests with coverage (xml + term-missing)"
 	@echo "  lint            ruff check + basedpyright"
 	@echo "  fmt             ruff format"

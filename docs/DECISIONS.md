@@ -10,9 +10,14 @@ Fixed database/graph names and prefix cleanup did not prove ownership and could 
 developer store or another concurrent run. **Decision:** every persistent mutator is
 declared in `test_support/integration_mutators.toml`, marked `mutating_integration`, and
 receives a random current-run database and/or a pinned disposable Oxigraph process. The
-fixture creates an exact nonce marker and refuses teardown unless the exact resource name
-and marker match; cleanup never uses a prefix wildcard. A static behavioral guard catches
-unmanifested integration code with persistent-write signals.
+Postgres database is hosted in its own pinned, loopback-only disposable container and
+uses a nonce-owned restricted role; Oxigraph likewise runs in a pinned, loopback-only
+container with a nonce-owned data directory. Teardown records immutable container IDs
+and refuses destructive cleanup unless independent owner labels, database catalog/schema
+markers, and filesystem markers match. Cleanup never uses a prefix wildcard. The safe
+runner poisons normal application endpoints before pytest starts, CI provisions no
+serving service, collected-item validation enforces marker/fixture ownership per test,
+and a static behavioral scanner provides an additional defense-in-depth signal.
 
 `pdm run test-integration` is consequently safe-by-default and excludes `full_store`.
 Seeded behavior contracts run against the same bounded disposable Oxigraph fixture.
@@ -20,8 +25,10 @@ Contracts whose purpose is to interrogate the configured real corpus are separat
 marked `full_store`, are read-only, and run only through
 `pdm run test-integration-full-store`. Environment absence is a failure for the default
 disposable suite; a skipped full-store data-shape contract is still not a pass when that
-contract is an applicable pre-merge gate. **Why:** a test name, endpoint, database prefix,
-or cleanup convention is not an ownership boundary; exact current-run identity is.
+contract is an applicable pre-merge gate. `pdm run test --all` also excludes
+`full_store`; it is never an implicit real-corpus run. **Why:** a test name, endpoint,
+database prefix, or cleanup convention is not an ownership boundary; exact current-run
+identity is.
 
 ## 2026-07-14 — cancer-registry usability: the NCIt ↔ caDSR ↔ NAACCR touchpoint
 
