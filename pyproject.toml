@@ -1,6 +1,6 @@
 [project]
 name = "ontoprism"
-version = "0.15.0"
+version = "0.16.0"
 description = "Ontology storage, query, and graph-visualization platform producing a decomposed (non-pre-coordinated) NCIt."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"

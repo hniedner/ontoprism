@@ -19,6 +19,36 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.16.0 (2026-07-23)
+
+### Continuous Integration
+
+- Bump the github-actions group across 1 directory with 2 updates
+  ([#140](https://github.com/hniedner/ontoprism/pull/140),
+  [`1243b95`](https://github.com/hniedner/ontoprism/commit/1243b95e5652b10e50d9c68f8cfda458db15a8c8))
+
+- **dependabot**: Scale cooldown with blast radius (major/minor 14d, patch 7d)
+  ([#141](https://github.com/hniedner/ontoprism/pull/141),
+  [`e3816c4`](https://github.com/hniedner/ontoprism/commit/e3816c469d9a1ea9485c3dbb1f3c5ad4a06f0a8d))
+
+### Documentation
+
+- Update README code line-count table
+  ([`24148d6`](https://github.com/hniedner/ontoprism/commit/24148d65016835f7c16ce8ddcb87ee97669972e4))
+
+- Update README code line-count table
+  ([`ad5a7c9`](https://github.com/hniedner/ontoprism/commit/ad5a7c9be46a890b30b589fe30bcf99428b441dd))
+
+- Update README code line-count table
+  ([`eaec1a4`](https://github.com/hniedner/ontoprism/commit/eaec1a47af2ea4858f93c7c514ef225943b6db2b))
+
+### Features
+
+- **decomposition**: Implement residual_precoordination metric
+  ([#126](https://github.com/hniedner/ontoprism/pull/126),
+  [`e22db28`](https://github.com/hniedner/ontoprism/commit/e22db280ae8847b4c3a16ec0595074312b327985))
+
+
 ## v0.15.0 (2026-07-21)
 
 ### Continuous Integration
