@@ -1,0 +1,47 @@
+[[mutator]]
+path = "backend/tests/test_data_build_integration.py"
+fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "backend/tests/test_ncit_search_index_integration.py"
+fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "backend/tests/test_integration_resources_integration.py"
+fixtures = ["isolated_postgres_url", "isolated_oxigraph_url"]
+
+[[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_provenance_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_read_integration.py"
+fixtures = ["isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_additivity_integration.py"
+fixtures = ["isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "ontolib/tests/repositories/xref/test_additivity_integration.py"
+fixtures = ["isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "ontolib/tests/repositories/xref/test_migration_roundtrip.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/repositories/xref/test_promotion_persistence.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/repositories/xref/test_store_roundtrip.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/terminologies/test_ncit_search_ranking_integration.py"
+fixtures = ["isolated_postgres_settings"]

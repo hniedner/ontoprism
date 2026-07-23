@@ -1,7 +1,7 @@
 """Integration tests for embedding generation → pgvector (fake embedder, real DB).
 
 Uses a deterministic stub embedder so the whole generate→upsert path is exercised
-against real Postgres/pgvector (and the live NCIt store for the concept path) without
+against disposable real Postgres/pgvector and a bounded disposable NCIt store without
 the heavy ML dependency. Not `full_build` — runs in the CI services job.
 """
 
@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -29,6 +28,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_postgres_settings", "isolated_oxigraph_settings"),
+]
 
 
 class _StubEmbedder:
@@ -53,10 +57,6 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     try:
         async with sf() as session:
             await session.execute(text("SELECT 1"))
-    except SQLAlchemyError:
-        await dispose_engine(engine)
-        pytest.skip("Postgres not reachable")
-    try:
         yield sf
     finally:
         await dispose_engine(engine)
@@ -71,19 +71,13 @@ async def test_generate_cde_embeddings_writes_vectors(
     count = await generate_cde_embeddings(str(db), _StubEmbedder(), session_factory)
     assert count == 1
     async with session_factory() as session:
-        try:
-            row = await session.execute(
-                text(
-                    "SELECT vector_dims(embedding) AS d FROM cde_repository "
-                    "WHERE doc_id = '2517527:1.0'"
-                )
+        row = await session.execute(
+            text(
+                "SELECT vector_dims(embedding) AS d FROM cde_repository "
+                "WHERE doc_id = '2517527:1.0'"
             )
-            assert row.scalar_one() == EMBED_DIM
-        finally:
-            await session.execute(
-                text("DELETE FROM cde_repository WHERE doc_id = '2517527:1.0'")
-            )
-            await session.commit()
+        )
+        assert row.scalar_one() == EMBED_DIM
 
 
 @pytest.mark.integration
@@ -92,22 +86,14 @@ async def test_generate_ncit_embeddings_from_store(
 ) -> None:
     url = get_settings().ncit_sparql_url
     async with OxigraphHttpClient(url) as client:
-        try:
-            await client.count()
-        except Exception:
-            pytest.skip(f"NCIt store not reachable at {url}")
         store = NcitGraphStore(client)
         count = await generate_ncit_embeddings(store, _StubEmbedder(), session_factory)
-    assert count >= 1
+    assert 1 <= count <= 11
     async with session_factory() as session:
-        try:
-            present = await session.execute(
-                text("SELECT 1 FROM ncit_concepts WHERE doc_id = 'C3262'")
-            )
-            assert present.scalar_one_or_none() == 1
-        finally:
-            await session.execute(text("DELETE FROM ncit_concepts"))
-            await session.commit()
+        present = await session.execute(
+            text("SELECT 1 FROM ncit_concepts WHERE doc_id = 'C3262'")
+        )
+        assert present.scalar_one_or_none() == 1
 
 
 def _write(tmp_path: Path, xml: str) -> Path:

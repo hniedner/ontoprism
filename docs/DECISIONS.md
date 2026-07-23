@@ -2,6 +2,27 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-23 — integration tests own every persistent mutation
+
+### D41. Mutating integration tests use nonce-owned disposable services; full-store contracts are explicitly read-only
+Integration tests previously wrote configured Postgres databases and Oxigraph graphs.
+Fixed database/graph names and prefix cleanup did not prove ownership and could damage a
+developer store or another concurrent run. **Decision:** every persistent mutator is
+declared in `test_support/integration_mutators.toml`, marked `mutating_integration`, and
+receives a random current-run database and/or a pinned disposable Oxigraph process. The
+fixture creates an exact nonce marker and refuses teardown unless the exact resource name
+and marker match; cleanup never uses a prefix wildcard. A static behavioral guard catches
+unmanifested integration code with persistent-write signals.
+
+`pdm run test-integration` is consequently safe-by-default and excludes `full_store`.
+Seeded behavior contracts run against the same bounded disposable Oxigraph fixture.
+Contracts whose purpose is to interrogate the configured real corpus are separately
+marked `full_store`, are read-only, and run only through
+`pdm run test-integration-full-store`. Environment absence is a failure for the default
+disposable suite; a skipped full-store data-shape contract is still not a pass when that
+contract is an applicable pre-merge gate. **Why:** a test name, endpoint, database prefix,
+or cleanup convention is not an ownership boundary; exact current-run identity is.
+
 ## 2026-07-14 — cancer-registry usability: the NCIt ↔ caDSR ↔ NAACCR touchpoint
 
 ### D40. NCIt is the reference backbone a FHIR/mCODE-modernized NAACCR binds to *through caDSR* — not a replacement for NAACCR; registry coverage is a caDSR-scoped `COV` number whose critical path is #75

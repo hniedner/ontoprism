@@ -6,11 +6,9 @@ for the right reason when run against a non-existent implementation.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from typing import TYPE_CHECKING
 
-import httpx
 import pytest
 
 from ontolib.repositories.xref.cadsr_anchors import (
@@ -23,35 +21,6 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-# ---------------------------------------------------------------------------
-# Helpers — ncxt fixture replacement (follows pattern from
-# test_additivity_integration.py, which lives in the same testdir and cannot
-# use the ``ncit_url`` fixture from ``tests/terminologies/conftest.py``).
-# ---------------------------------------------------------------------------
-
-_DEFAULT_NCIT_URL = "http://localhost:7888"
-
-
-def _ncit_url() -> str:
-    url = os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL)
-    try:
-        resp = httpx.post(
-            f"{url.rstrip('/')}/query",
-            content=b"ASK {}",
-            headers={
-                "Content-Type": "application/sparql-query",
-                "Accept": "application/sparql-results+json",
-            },
-            timeout=2.0,
-        )
-    except httpx.HTTPError:
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
-        raise
-    if resp.status_code != 200:
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
-    return url
 
 
 # ---------------------------------------------------------------------------
@@ -255,15 +224,14 @@ def test_null_concept_code_ignored(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-async def test_in_scope_filter() -> None:
+async def test_in_scope_filter(isolated_oxigraph_url: str) -> None:
     """Only neoplasm descendant codes survive the scope gate.
 
     C3262 (Neoplasm) is the root — kept.
     C12345 is not a descendant of C3262 — dropped.
     """
-    url = _ncit_url()
     codes = frozenset({"C3262", "C12345"})
-    async with OxigraphHttpClient(url) as client:
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
         in_scope = await filter_in_scope(codes, client)
 
     assert "C3262" in in_scope
@@ -271,11 +239,12 @@ async def test_in_scope_filter() -> None:
 
 
 @pytest.mark.integration
-async def test_unresolved_code_reported_not_dropped() -> None:
+async def test_unresolved_code_reported_not_dropped(
+    isolated_oxigraph_url: str,
+) -> None:
     """A bogus code is flagged 'unresolved' but not dropped from the output."""
-    url = _ncit_url()
     codes = frozenset({"C3262", "FOOBAR"})
-    async with OxigraphHttpClient(url) as client:
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
         statuses = await check_liveness(codes, client)
 
     assert statuses["C3262"] == "live"

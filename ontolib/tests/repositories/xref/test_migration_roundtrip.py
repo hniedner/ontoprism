@@ -15,6 +15,11 @@ from sqlalchemy import text
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine
 
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_postgres_settings"),
+]
+
 
 async def _evidence_column_exists(engine: object) -> bool:
     async with engine.connect() as conn:  # type: ignore[attr-defined]

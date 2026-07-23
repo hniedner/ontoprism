@@ -41,13 +41,15 @@ branch is reachable. The external tool must actually run in CI, or its tests sil
 the bugs stay invisible (ROBOT is now installed in the CI integration job for exactly this
 reason). **Exception — data-shape contracts skip in CI by design**: they must interrogate the
 *real* store, and seeding a fixture would make them assert facts about the fixture. They are a
-**pre-merge local gate** (`pdm run test-integration` against the live stores); a skip is not a
-pass.
+**pre-merge local gate** (`pdm run test-integration-full-store` against the configured
+live stores); a skip is not a pass. The safe default `pdm run test-integration` uses
+nonce-owned disposable services and excludes `full_store`.
 
 **Test types.** Use the registered markers deliberately: `unit`, `api`, `security`,
-`integration` (real services), `full_build` (pinned build / real embeddings, excluded
-from the seeded-fixture CI run). Frontend: vitest unit + component (jsdom) and
-Playwright e2e. `pdm run test` shows the per-type breakdown.
+`integration` (real services), `mutating_integration` (nonce-owned disposable
+resources), `full_store` (read-only configured real corpora), `full_build` (pinned build
+/ real embeddings, excluded from the seeded-fixture CI run). Frontend: vitest unit +
+component (jsdom) and Playwright e2e. `pdm run test` shows the per-type breakdown.
 
 **If a change genuinely cannot reach 90% for a specific module** (e.g. a thin CLI glue
 or an optional-dependency branch), that is a deliberate, justified exception — call it

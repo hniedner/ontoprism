@@ -19,18 +19,14 @@ from ontolib.decomposition.provenance import ProvenanceStore
 
 _RUN_ID = "test-provenance-integration-run"
 
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_postgres_settings"),
+]
+
 
 def _asyncpg_dsn(sqlalchemy_url: str) -> str:
     return sqlalchemy_url.replace("+asyncpg", "")
-
-
-async def _pg_reachable(dsn: str) -> bool:
-    try:
-        conn = await asyncpg.connect(dsn, timeout=2)
-    except (OSError, asyncpg.PostgresError):
-        return False
-    await conn.close()
-    return True
 
 
 async def _cleanup(dsn: str) -> None:
@@ -46,9 +42,6 @@ async def _cleanup(dsn: str) -> None:
 @pytest.mark.integration
 async def test_run_manifest_round_trips_against_real_postgres() -> None:
     dsn = _asyncpg_dsn(get_settings().database_url)
-    if not await _pg_reachable(dsn):
-        pytest.skip("Postgres not reachable")
-
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     store = ProvenanceStore(sf)
@@ -79,9 +72,6 @@ async def test_minted_concept_status_survives_a_rerun() -> None:
     # status="proposed" by default (minting.py); the engine's upsert must never
     # clobber a curator's prior approve/reject decision on that row.
     dsn = _asyncpg_dsn(get_settings().database_url)
-    if not await _pg_reachable(dsn):
-        pytest.skip("Postgres not reachable")
-
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     store = ProvenanceStore(sf)

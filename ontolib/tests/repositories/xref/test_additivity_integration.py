@@ -19,33 +19,19 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 _DEFAULT_NCIT_URL = "http://localhost:7888"
 _TEST_GRAPH_IRI = "http://ontoprism.invalid/test-xref-additivity"
 
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_oxigraph_settings"),
+]
+
 
 def _url() -> str:
     return os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL)
 
 
-def _reachable(url: str) -> bool:
-    try:
-        resp = httpx.post(
-            f"{url.rstrip('/')}/query",
-            content=b"ASK {}",
-            headers={
-                "Content-Type": "application/sparql-query",
-                "Accept": "application/sparql-results+json",
-            },
-            timeout=2.0,
-        )
-    except httpx.HTTPError:
-        return False
-    return resp.status_code == 200
-
-
 @pytest.mark.integration
 async def test_loading_xref_graph_leaves_default_graph_unchanged() -> None:
     url = _url()
-    if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
-
     records = [
         SSSOMRecord(
             subject_id="C3262",

@@ -49,7 +49,7 @@ from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
 from ontolib.repositories.xref.vocab import COMPOSITE_MATCHING
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.full_store]
 
 _OBO = "http://purl.obolibrary.org/obo/"
 _LUNG = f"{_OBO}UBERON_0002048"

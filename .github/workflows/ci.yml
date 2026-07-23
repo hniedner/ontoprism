@@ -287,6 +287,12 @@ jobs:
         run: pdm run python scripts/ci/seed_fixtures.py
 
       - name: Integration tests (fixture-satisfiable)
+        env:
+          # The safe lane may use server credentials only to create its exact
+          # nonce-owned DB. Any attempt to open configured serving state must fail.
+          DATABASE_URL: postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/ontoprism_ci_must_not_be_opened
+          NCIT_SPARQL_URL: http://127.0.0.1:9
+          UBERON_SPARQL_URL: http://127.0.0.1:9
         run: pdm run test-integration-ci
 
   # Lightweight image-build smoke: only runs when Dockerfiles / their build inputs change.

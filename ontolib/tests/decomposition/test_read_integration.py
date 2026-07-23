@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 
-import httpx
 import pytest
 
 from ontolib.decomposition import vocab
@@ -19,6 +18,11 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 _DEFAULT_NCIT_URL = "http://localhost:7888"
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
+
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_oxigraph_settings"),
+]
 
 # A hand-written decomposed-graph fixture (what the engine will emit for C6135).
 _SEED_TTL = f"""
@@ -38,28 +42,9 @@ def _url() -> str:
     return os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL)
 
 
-def _reachable(url: str) -> bool:
-    try:
-        resp = httpx.post(
-            f"{url.rstrip('/')}/query",
-            content=b"ASK {}",
-            headers={
-                "Content-Type": "application/sparql-query",
-                "Accept": "application/sparql-results+json",
-            },
-            timeout=2.0,
-        )
-    except httpx.HTTPError:
-        return False
-    return resp.status_code == 200
-
-
 @pytest.mark.integration
 async def test_decomposition_round_trips_through_the_decomposed_graph() -> None:
     url = _url()
-    if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
-
     async with OxigraphHttpClient(url) as client:
         # Seed the decomposed graph (replace=True isolates the test to its own graph).
         await client.load(
