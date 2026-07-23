@@ -26,8 +26,9 @@ Scope of this orchestrator (documented boundaries, not oversights):
   (design §9/§13) — roles are version-pinned, so mixing two builds in one manifest would
   silently corrupt it.
 - ``total_in_scope`` reflects the *full* branch enumeration on every invocation
-  (including a resume); ``decomposed``/``residual``/``minted_count`` cover only the
-  pending subset actually processed *this* invocation. So on a resumed run,
+  (including a resume); ``decomposed``/``residual``/``residual_precoordinated_count``/
+  ``minted_count`` cover only the pending subset actually processed *this* invocation.
+  So on a resumed run,
   ``coverage``/``pct_decomposed`` understates true cumulative progress — it is not
   self-consistently scoped to "this invocation" the way the other counters are.
 """
@@ -108,14 +109,42 @@ class RunConfig:
 
 @dataclass
 class RunMetrics:
-    """Coverage metrics for a decomposition run (design §10, the subset implemented).
+    """Coverage metrics for a decomposition run (design §10).
 
-    ``residual`` here is narrower than design §10's ``residual_precoordination``
-    ("candidates left with an unresolved multi-aspect label after roles+NLP"): this
-    field counts candidates detected as precoordinated that still produced *zero*
-    constituents (currently unreachable — see ``_persist_candidate``), not candidates
-    with leftover ambiguity after a genuine attempt. The design's actual
-    ``residual_precoordination`` metric is not implemented yet.
+    **Two distinct residual counters — do not conflate them:**
+
+    * ``residual`` — a concept detected as pre-coordinated that produced *zero*
+      constituents. A degenerate safety net (currently unreachable: every defining role
+      or NLP aspect yields >=1 constituent — see ``_persist_candidate``). NOT design
+      §10's residual metric.
+    * ``residual_precoordinated_count`` / :attr:`residual_precoordination` — **D37's
+      metric**: decomposed concepts at least one of whose *emitted constituents is
+      itself* classified as pre-coordinated by the same detector. This is "is what we
+      produced actually atomic?" (irreducibility), the counterpart of
+      ``roundtrip_fidelity``'s "did we capture everything?" (completeness).
+
+      It is **detector-relative** — defined purely in terms of what ``detector.detect``
+      flags — so an under-detecting detector reads it artificially low, and a detector
+      improvement moves it with no ontology change (D37). Track it against the SME
+      golden set (#57) as well as the corpus, so divergence surfaces detector drift.
+
+      **What it can fire on.** ``detect`` gates on the in-scope semantic types
+      (neoplasm/disease/dysfunction) *and* >=2 decomposable axes, so the metric flags a
+      constituent filler only when the filler is *itself* an in-scope compound. Two
+      classes of filler therefore never fire, for different reasons: **anatomic-site**
+      fillers are out of scope by *semantic type* (``Body Part, Organ, or Organ
+      Component`` is not in scope), and **minted/NLP** fillers are atomic by definition
+      (and excluded before detection). But **morphology/genus** fillers do *not* get a
+      pass — the morphology constituent's filler is the genus code, a store-resident
+      neoplasm that is squarely in scope, and it fires precisely when that genus is
+      itself a defined >=2-axis class. That is the *most likely* source of a non-zero
+      reading (the genus chain is exactly where compounds nest), and it is a legitimate
+      residual signal, not a blind spot. So a **real** run reading 0 means either the
+      corpus genuinely bottoms out on atomic in-scope fillers, or the detector never met
+      an in-scope compound filler at all — indistinguishable without the real run, which
+      is why D37 makes a 0 on the first run (#127) a signal to suspect the detector, and
+      why the number is proved reachable there (start at the morphology/genus path), on
+      real data, not only in unit tests.
 
     ``roundtrip_fidelity`` is computed only when ``emit_equivalence=True`` — the
     fraction of stated defining restrictions covered by the emitted
@@ -125,6 +154,7 @@ class RunMetrics:
     total_in_scope: int = 0
     decomposed: int = 0
     residual: int = 0
+    residual_precoordinated_count: int = 0
     minted_count: int = 0
     pct_decomposed: float = 0.0
     roundtrip_fidelity: float = 0.0
@@ -135,6 +165,17 @@ class RunMetrics:
         if self.total_in_scope == 0:
             return 0.0
         return self.decomposed / self.total_in_scope
+
+    @property
+    def residual_precoordination(self) -> float:
+        """D37: fraction of decomposed concepts that are residually pre-coordinated.
+
+        Detector-relative (see the class docstring). ``0.0`` when nothing decomposed —
+        honestly zero, not undefined.
+        """
+        if self.decomposed == 0:
+            return 0.0
+        return self.residual_precoordinated_count / self.decomposed
 
 
 @dataclass
@@ -236,6 +277,40 @@ async def enumerate_in_scope_codes(
         offset += page_size
 
 
+async def _detect_concept(
+    code: str,
+    client: SparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+) -> tuple[detector.DetectionResult, list[RoleRestriction], str | None]:
+    """Run the detector on *code*: semantic types, genus-chain roles, and morphology.
+
+    Returns the ``DetectionResult`` plus the ``roles`` and ``morphology_filler`` the
+    caller reuses, so this same machinery classifies both a decomposition candidate
+    (in :func:`_decompose_one`) and, unchanged, each emitted constituent's filler when
+    computing ``residual_precoordination`` (D37): the metric is only meaningful if a
+    constituent is judged by the *same* detector as the concept it came from.
+    """
+    semantic_types = extract.semantic_types_from_rows(
+        await client.select(stated_queries.build_semantic_type_query(code))
+    )
+    roles = await stated_queries.walk_genus_chain(
+        client.select, code, max_depth=walker_max_depth
+    )
+    morphology_filler = await stated_queries.resolve_morphology_filler(
+        client.select, code, max_depth=walker_max_depth
+    )
+    result = detector.detect(
+        code,
+        semantic_types,
+        roles,
+        has_parent_morphology=morphology_filler is not None,
+        label=label,
+    )
+    return result, roles, morphology_filler
+
+
 async def _decompose_one(
     code: str,
     client: SparqlClient,
@@ -247,27 +322,17 @@ async def _decompose_one(
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
     concept is not a decomposition candidate at all (atomic — never counted as residual,
     only a candidate that yields zero constituents is residual)."""
-    semantic_types = extract.semantic_types_from_rows(
-        await client.select(stated_queries.build_semantic_type_query(code))
-    )
-
-    # Phase 1: walk the genus chain — works for both primitive and defined
-    # classes. For primitive concepts (no owl:equivalentClass), the walker
-    # returns zero roles, which is correct — nothing to decompose.
-    roles = await stated_queries.walk_genus_chain(
-        client.select, code, max_depth=walker_max_depth
+    # Phase 1: detect (semantic types + genus-chain roles + morphology-from-parent).
+    # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
+    # which is correct — nothing to decompose.
+    result, roles, morphology_filler = await _detect_concept(
+        code, client, label=label, walker_max_depth=walker_max_depth
     )
 
     # Phase 1a: resolve immediate genus for the equivalence axiom (the first
     # ``owl:intersectionOf`` member of the starting concept).  ``None`` for
     # primitive concepts — no equivalentClass to read it from.
     genus_code = await stated_queries.resolve_starting_genus(client.select, code)
-
-    # Phase 1a.5: resolve morphology filler from genus chain (design §6).
-    # First non-staging genus code, or None if no morphology-bearing parent.
-    morphology_filler = await stated_queries.resolve_morphology_filler(
-        client.select, code, max_depth=walker_max_depth
-    )
 
     # Phase 1b: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
@@ -281,13 +346,6 @@ async def _decompose_one(
         )
         semantic_type_of = extract.semantic_type_of_from_rows(rows)
 
-    result = detector.detect(
-        code,
-        semantic_types,
-        roles,
-        has_parent_morphology=morphology_filler is not None,
-        label=label,
-    )
     if not result.is_precoordinated:
         return _CandidateResult(decomposition=None, stated_roles=[])
 
@@ -331,6 +389,85 @@ async def _decompose_one(
     return _CandidateResult(
         decomposition=decomposition, minted=minted, stated_roles=roles
     )
+
+
+def _residual_count(
+    decompositions: Sequence[Decomposition],
+    *,
+    precoordinated_fillers: set[str],
+) -> int:
+    """D37: how many decompositions have >=1 constituent that is itself pre-coordinated.
+
+    Pure — the "which fillers are pre-coordinated" judgement is made once, up front, by
+    :func:`_precoordinated_fillers` (running the real detector), and passed in as a set.
+    """
+    return sum(
+        any(c.filler_code in precoordinated_fillers for c in d.constituents)
+        for d in decompositions
+    )
+
+
+def _store_resident_constituent_fillers(
+    decompositions: Sequence[Decomposition],
+) -> list[str]:
+    """Distinct constituent filler codes that exist in the stated graph, sorted.
+
+    Minted/NLP fillers (``MINT-*``) are dropped: they are freshly-proposed atomic
+    single-aspect concepts by construction, they do not exist in the stated graph, and
+    running the detector on one is three SPARQL round-trips that can only ever return
+    "atomic" (empty semantic types -> out of scope). So the residual metric is over
+    *store-resident, role-sourced* constituents — the only ones the detector can judge.
+    """
+    return sorted(
+        {
+            c.filler_code
+            for d in decompositions
+            for c in d.constituents
+            if not c.filler_code.startswith("MINT-")
+        }
+    )
+
+
+async def _precoordinated_fillers(
+    decompositions: Sequence[Decomposition],
+    client: SparqlClient,
+    get_labels: GetLabels | None,
+    *,
+    walker_max_depth: int,
+) -> set[str]:
+    """The constituent filler codes that are themselves pre-coordinated (D37).
+
+    Every distinct store-resident filler is classified once, by the SAME detector that
+    classified the concepts (:func:`_detect_concept`) — a filler judged pre-coordinated
+    means decomposition bottomed out on a compound. De-duplicated because one filler
+    recurs across many concepts; this is a post-pass over the run, so its cost is one
+    detection per distinct filler, not per constituent.
+    """
+    fillers = _store_resident_constituent_fillers(decompositions)
+    if not fillers:
+        return set()
+    labels = await get_labels(fillers) if get_labels is not None else {}
+    precoordinated: set[str] = set()
+    for filler in fillers:
+        try:
+            result, _roles, _morph = await _detect_concept(
+                filler,
+                client,
+                label=labels.get(filler),
+                walker_max_depth=walker_max_depth,
+            )
+        except Exception:
+            # Match the main loop's contextual log-then-reraise (this pass is not in
+            # it): a bare traceback from the metric post-pass otherwise names no filler
+            # and no phase. Still fail-fast — re-raise; the metric never swallows a
+            # store error into a quiet 0.
+            logger.exception(
+                "residual-precoordination detection failed for filler_code=%s", filler
+            )
+            raise
+        if result.is_precoordinated:
+            precoordinated.add(filler)
+    return precoordinated
 
 
 async def _persist_candidate(
@@ -529,6 +666,17 @@ async def run_pipeline(
         )
 
     metrics.pct_decomposed = metrics.coverage
+
+    # D37: a decomposition is residually pre-coordinated when one of its own emitted
+    # constituents is itself pre-coordinated (decomposition bottomed out on a compound).
+    # Judged by the same detector, after the run so each distinct filler is classified
+    # once. See RunMetrics for the detector-relative caveat.
+    precoordinated = await _precoordinated_fillers(
+        decompositions, client, get_labels, walker_max_depth=config.walker_max_depth
+    )
+    metrics.residual_precoordinated_count = _residual_count(
+        decompositions, precoordinated_fillers=precoordinated
+    )
 
     _finalize_fidelity(metrics, fidelity_scores, config.emit_equivalence)
 
