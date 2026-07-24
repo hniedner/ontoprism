@@ -471,7 +471,7 @@ def test_manifest_files_reject_missing_paths_and_uncollected_selectors(
         MutatorManifestEntry(
             path="backend/tests/test_real.py",
             fixtures=frozenset({"isolated_postgres_settings"}),
-            tests=frozenset({"test_missing"}),
+            tests=frozenset({"test_present", "test_missing"}),
         ),
     )
 
@@ -481,7 +481,9 @@ def test_manifest_files_reject_missing_paths_and_uncollected_selectors(
         "test_absent.py" in error and "does not exist" in error for error in errors
     )
     assert any("test_missing" in error for error in errors)
-    # A present path whose selector resolves is not flagged.
+    # A selector that resolves to a real function is not flagged, while the bogus
+    # sibling selector in the same entry still is — proving `entry.tests - names`
+    # reports only unresolved selectors.
     assert not any("test_present" in error for error in errors)
 
 
