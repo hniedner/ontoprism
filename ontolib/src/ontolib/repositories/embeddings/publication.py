@@ -142,6 +142,20 @@ class CorpusManifest:
     completed_at: datetime | None
 
     def __post_init__(self) -> None:
+        _validate_build(
+            CorpusBuild(
+                build_id=self.build_id,
+                corpus=self.corpus,
+                source_version=self.source_version,
+                source_hash=self.source_hash,
+                model_id=self.model_id,
+                model_revision=self.model_revision,
+                vector_dimension=self.vector_dimension,
+                expected_row_count=self.expected_row_count,
+                code_commit=self.code_commit,
+                required_doc_ids=self.required_doc_ids,
+            )
+        )
         validators = {
             "building": _validate_building_manifest,
             "failed": _validate_failed_manifest,
@@ -592,6 +606,10 @@ async def _acquire_source_lock(connection: Any, key: str) -> None:
         await asyncio.shield(task)
     except asyncio.CancelledError:
         await task
+        try:
+            await _release_source_lock(connection, key)
+        except BaseException:
+            await connection.invalidate()
         raise
 
 

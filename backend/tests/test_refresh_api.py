@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from backend.config import get_settings
 from backend.dependencies import (
@@ -175,6 +176,39 @@ def test_reload_success_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert resp.status_code == 200
     assert resp.json() == {"triples_before": 42, "triples_after": 42}
     assert events == ["enter:ncit", "exit:ncit"]
+
+
+@pytest.mark.api
+def test_reload_coordination_failure_is_503_without_loading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
+    ttl = tmp_path / "graph.ttl"
+    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
+    loaded = False
+
+    class _Client(_OkClient):
+        async def load(self, *args: Any, **kwargs: Any) -> None:
+            nonlocal loaded
+            del args, kwargs
+            loaded = True
+
+    class _UnavailableEmbeddings:
+        @asynccontextmanager
+        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
+            raise OperationalError("postgres down", None, Exception())
+            yield
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _Client
+    app.dependency_overrides[get_embedding_store] = _UnavailableEmbeddings
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
+        )
+
+    assert response.status_code == 503
+    assert not loaded
 
 
 class _FakeNcitStore:

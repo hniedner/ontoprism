@@ -693,6 +693,47 @@ async def test_unlock_failure_invalidates_physical_connection(
     assert len(invalidated) == 1
 
 
+async def test_cancelled_lock_wait_releases_after_eventual_acquisition(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    engine = session_factory.kw["bind"]
+    key = "embedding:ncit"
+    async with engine.connect() as blocker:
+        await blocker.execute(
+            text("SELECT pg_advisory_lock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+        await blocker.commit()
+
+        async def replace() -> None:
+            async with replacing_corpus_source(session_factory, Corpus.NCIT):
+                pass
+
+        task = asyncio.create_task(replace())
+        await asyncio.sleep(0.1)
+        task.cancel()
+        await asyncio.sleep(0.1)
+        assert not task.done()
+        await blocker.execute(
+            text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+        await blocker.commit()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    async with engine.connect() as probe:
+        acquired = await probe.scalar(
+            text("SELECT pg_try_advisory_lock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+        assert acquired
+        await probe.execute(
+            text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+
+
 @pytest.mark.parametrize(
     ("state", "is_active", "expected", "actual", "sentinels", "error", "completed"),
     [

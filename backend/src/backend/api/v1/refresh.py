@@ -108,12 +108,6 @@ async def _ncit_status(client: NcitClient) -> RepoStatus:
     try:
         count = await client.count()
         version = await client.version()
-    except SQLAlchemyError as exc:
-        logger.exception("Embedding coordination failed before NCIt reload")
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Embedding publication database unavailable.",
-        ) from exc
     except StorageError as exc:
         return RepoStatus(name="ncit", healthy=False, error=str(exc))
     return RepoStatus(name="ncit", healthy=True, version=version, item_count=count)
@@ -156,6 +150,12 @@ async def reload_ncit(
                 path.read_bytes(), content_type=content_type, replace=body.replace
             )
         after = await client.count()
+    except SQLAlchemyError as exc:
+        logger.exception("Embedding coordination failed before NCIt reload")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Embedding publication database unavailable.",
+        ) from exc
     except StorageError as exc:
         # A 5xx from a real store fault would otherwise leave no server-side trace
         # (HTTPException responses are not logged by the error handler).
@@ -190,7 +190,8 @@ async def download_ncit(
     """Download the NCIt OWL from NCI EVS; with ``load=True``, reload it into the store.
 
     Loads into the default graph (a full store refresh). The download lands in the
-    configured managed dir; a failed download or load returns 502.
+    configured managed dir; a failed download/load returns 502, while unavailable
+    embedding-publication coordination returns 503 before source mutation.
     """
     settings = get_settings()
     result = await download_ncit_owl(
