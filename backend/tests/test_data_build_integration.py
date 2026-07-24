@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
+from scripts import data_build
 from scripts.data_build import _publish_cadsr_embeddings, _publish_ncit_embeddings
 from sqlalchemy import text
 
@@ -315,6 +316,99 @@ async def test_production_cadsr_publisher_records_file_provenance(
     assert len(manifest.source_hash) == 64
     assert manifest.actual_row_count == 1
     assert manifest.is_active
+
+
+@pytest.mark.integration
+async def test_production_ncit_source_drift_fails_candidate_and_preserves_active(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = get_settings().ncit_sparql_url
+    async with OxigraphHttpClient(url) as client:
+        store = NcitGraphStore(client)
+        count, fingerprint = await data_build.ncit_source_fingerprint(store)
+        embedder = _StubEmbedder()
+        old = _publisher(session_factory, Corpus.NCIT, count, embedder)
+        await generate_ncit_embeddings(store, embedder, old)
+    monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
+    monkeypatch.setattr("scripts.data_build._code_commit", lambda: "f" * 40)
+    calls = 0
+
+    async def drifting_fingerprint(store: NcitGraphStore):
+        nonlocal calls
+        del store
+        calls += 1
+        return (count, fingerprint if calls == 1 else "0" * 64)
+
+    monkeypatch.setattr(data_build, "ncit_source_fingerprint", drifting_fingerprint)
+    get_settings.cache_clear()
+    candidate_id = uuid4()
+
+    with pytest.raises(RuntimeError, match="source changed"):
+        await _publish_ncit_embeddings(
+            candidate_id, restart=False, embedder=_StubEmbedder()
+        )
+
+    async with session_factory() as session:
+        active = await session.scalar(
+            text(
+                "SELECT build_id FROM embedding_corpus_manifest "
+                "WHERE corpus = 'ncit' AND is_active"
+            )
+        )
+        candidate = (
+            await session.execute(
+                text(
+                    "SELECT state, error_message FROM embedding_corpus_manifest "
+                    "WHERE build_id = :build_id"
+                ),
+                {"build_id": candidate_id},
+            )
+        ).one()
+    assert active == old.build.build_id
+    assert candidate.state == "failed"
+    assert "source changed" in candidate.error_message
+
+
+@pytest.mark.integration
+async def test_production_cadsr_source_drift_fails_candidate_and_preserves_active(
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = tmp_path / "cde.db"
+    build_database([_write(tmp_path, _CADSR_XML)], db)
+    embedder = _StubEmbedder()
+    old = _publisher(session_factory, Corpus.CADSR, 1, embedder)
+    await generate_cde_embeddings(str(db), embedder, old)
+    monkeypatch.setenv("CADSR_DB_PATH", str(db))
+    monkeypatch.setenv("CADSR_EMBEDDING_EXPECTED_ROWS", "1")
+    monkeypatch.setattr("scripts.data_build._code_commit", lambda: "9" * 40)
+    real_hash = data_build._sha256(db)
+    hashes = iter((real_hash, "0" * 64))
+    monkeypatch.setattr(data_build, "_sha256", lambda _path: next(hashes))
+    get_settings.cache_clear()
+    candidate_id = uuid4()
+
+    with pytest.raises(RuntimeError, match="source changed"):
+        await _publish_cadsr_embeddings(
+            candidate_id, restart=False, embedder=_StubEmbedder()
+        )
+
+    async with session_factory() as session:
+        active = await session.scalar(
+            text(
+                "SELECT build_id FROM embedding_corpus_manifest "
+                "WHERE corpus = 'cadsr' AND is_active"
+            )
+        )
+        state = await session.scalar(
+            text(
+                "SELECT state FROM embedding_corpus_manifest WHERE build_id = :build_id"
+            ),
+            {"build_id": candidate_id},
+        )
+    assert active == old.build.build_id
+    assert state == "failed"
 
 
 def _write(tmp_path: Path, xml: str) -> Path:

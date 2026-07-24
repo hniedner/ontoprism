@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -553,24 +554,44 @@ async def replacing_corpus_source(
     session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
 ) -> AsyncIterator[None]:
     """Commit deactivation, then hold a session lock across source replacement."""
-    async with session_factory() as session:
-        await session.execute(
+    engine = session_factory.kw.get("bind")
+    if not isinstance(engine, AsyncEngine):
+        raise TypeError("embedding session factory must be bound to an AsyncEngine")
+    async with engine.connect() as connection:
+        await connection.execute(
             text("SELECT pg_advisory_lock(hashtextextended(:corpus, 0))"),
             {"corpus": f"embedding:{corpus.value}"},
         )
+        await connection.commit()
         try:
-            await session.execute(
+            await connection.execute(
                 text(
                     "UPDATE embedding_corpus_manifest SET is_active = false "
                     "WHERE corpus = :corpus AND is_active"
                 ),
                 {"corpus": corpus.value},
             )
-            await session.commit()
+            await connection.commit()
             yield
-        finally:
-            await session.execute(
+        except BaseException as original:
+            try:
+                unlocked = await connection.scalar(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
+                    {"corpus": f"embedding:{corpus.value}"},
+                )
+                await connection.commit()
+                if not unlocked:
+                    original.add_note("Failed to release embedding source lock")
+            except Exception as unlock_error:
+                original.add_note(
+                    f"Failed to release embedding source lock: {unlock_error}"
+                )
+            raise
+        else:
+            unlocked = await connection.scalar(
                 text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
                 {"corpus": f"embedding:{corpus.value}"},
             )
-            await session.commit()
+            await connection.commit()
+            if not unlocked:
+                raise RuntimeError("failed to release embedding source lock")

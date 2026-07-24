@@ -617,6 +617,32 @@ async def test_failed_source_replacement_keeps_manifest_inactive(
     assert active_after == 0
 
 
+async def test_source_replacement_blocks_publication_until_lock_release(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+    candidate = EmbeddingCorpusPublisher(session_factory, _build(_NEW_BUILD))
+    await candidate.start()
+    await candidate.stage([_row("C3262", 1.0), _row("NEW", 0.9)])
+
+    async with replacing_corpus_source(session_factory, Corpus.NCIT):
+        publish_task = asyncio.create_task(candidate.publish())
+        await asyncio.sleep(0.1)
+        assert not publish_task.done()
+        async with session_factory() as observer:
+            active = await observer.scalar(
+                text(
+                    "SELECT count(*) FROM embedding_corpus_manifest "
+                    "WHERE corpus = 'ncit' AND is_active"
+                )
+            )
+        assert active == 0
+
+    manifest = await publish_task
+    assert manifest.is_active
+    assert await _active_rows(session_factory) == ["C3262", "NEW"]
+
+
 @pytest.mark.parametrize(
     ("state", "is_active", "expected", "actual", "sentinels", "error", "completed"),
     [
