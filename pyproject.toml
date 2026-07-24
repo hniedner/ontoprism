@@ -82,7 +82,8 @@ test-integration-full-build = "pytest --require-full-store ontolib/tests backend
 # CI integration run against a small seeded fixture (excludes full_build tests, which
 # assert the pinned 12.8M-triple production build / real generated embeddings).
 test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow'"
-test-ci = { shell = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml -n auto && python -m coverage report --include='*ontolib/src/*' --fail-under=90 && python -m coverage report --include='*backend/src/*' --fail-under=90" }
+test-integration-ci-coverage = { shell = "COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report=" }
+test-ci = { shell = "COVERAGE_FILE=.coverage.unit pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml -n auto && COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report= && coverage combine .coverage.unit .coverage.integration && coverage report --include='*ontolib/src/*' --fail-under=90 && coverage report --include='*backend/src/*' --fail-under=90" }
 test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n auto"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
 # Coverage: runs unit tests with line+branch coverage for backend/ontolib and

@@ -10,9 +10,11 @@ from uuid import UUID
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.repositories.embeddings import publication
 from ontolib.repositories.embeddings.publication import (
     Corpus,
     CorpusBuild,
@@ -665,6 +667,30 @@ async def test_source_validator_runs_only_after_replacement_lock_releases(
     manifest = await publish_task
     assert validated == ["validated"]
     assert manifest.is_active
+
+
+async def test_unlock_failure_invalidates_physical_connection(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalidated: list[AsyncConnection] = []
+    original_invalidate = AsyncConnection.invalidate
+
+    async def record_invalidate(connection: AsyncConnection) -> None:
+        invalidated.append(connection)
+        await original_invalidate(connection)
+
+    async def fail_unlock(_connection: object, _key: str) -> None:
+        raise RuntimeError("injected unlock failure")
+
+    monkeypatch.setattr(AsyncConnection, "invalidate", record_invalidate)
+    monkeypatch.setattr(publication, "_release_source_lock", fail_unlock)
+
+    with pytest.raises(RuntimeError, match="injected unlock failure"):
+        async with replacing_corpus_source(session_factory, Corpus.NCIT):
+            pass
+
+    assert len(invalidated) == 1
 
 
 @pytest.mark.parametrize(

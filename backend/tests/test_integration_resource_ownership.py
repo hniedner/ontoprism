@@ -1151,7 +1151,9 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     job = workflow["jobs"]["integration-tests"]
     steps = job["steps"]
     test_step = next(
-        step for step in steps if step.get("run") == "pdm run test-integration-ci"
+        step
+        for step in steps
+        if step.get("run") == "pdm run test-integration-ci-coverage"
     )
 
     assert job["env"] == {

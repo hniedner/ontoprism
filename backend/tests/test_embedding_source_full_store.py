@@ -23,7 +23,7 @@ async def test_ncit_embedding_source_count_fingerprint_and_page_order_are_stable
         first = await store.embedding_records(limit=2)
         repeated = await store.embedding_records(limit=2)
         second = await store.embedding_records(limit=2, after=first[-1]["iri"])
-        sentinel = await store.get_concept("C3262")
+        sentinel = await store.get_concept_detail("C3262")
 
     assert count == settings.ncit_embedding_expected_rows == 204_373
     assert fingerprint == _NCIT_2602D_EMBEDDING_FINGERPRINT

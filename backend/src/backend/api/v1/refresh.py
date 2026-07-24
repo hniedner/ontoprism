@@ -108,6 +108,12 @@ async def _ncit_status(client: NcitClient) -> RepoStatus:
     try:
         count = await client.count()
         version = await client.version()
+    except SQLAlchemyError as exc:
+        logger.exception("Embedding coordination failed before NCIt reload")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Embedding publication database unavailable.",
+        ) from exc
     except StorageError as exc:
         return RepoStatus(name="ncit", healthy=False, error=str(exc))
     return RepoStatus(name="ncit", healthy=True, version=version, item_count=count)
@@ -209,6 +215,12 @@ async def download_ncit(
                 replace=True,
             )
         after = await client.count()
+    except SQLAlchemyError as exc:
+        logger.exception("Embedding coordination failed before NCIt OWL load")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Embedding publication database unavailable.",
+        ) from exc
     except (StorageError, OSError) as exc:
         logger.exception("NCIt OWL load failed for %s", result.file_path)
         raise HTTPException(

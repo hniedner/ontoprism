@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from contextlib import asynccontextmanager
@@ -208,7 +209,11 @@ class EmbeddingCorpusPublisher:
         build: CorpusBuild,
     ) -> None:
         self._sf = session_factory
-        self.build = build
+        self._build = build
+
+    @property
+    def build(self) -> CorpusBuild:
+        return self._build
 
     async def start(self, *, restart: bool = False) -> CorpusManifest:
         """Create the build manifest, or explicitly restart its failed attempt."""
@@ -535,20 +540,6 @@ async def corpus_manifests(
         return tuple(_manifest(row) for row in rows)
 
 
-async def deactivate_corpus(
-    session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
-) -> None:
-    """Invalidate active embeddings before the official source is replaced."""
-    async with session_factory() as session, session.begin():
-        await session.execute(
-            text(
-                "UPDATE embedding_corpus_manifest SET is_active = false "
-                "WHERE corpus = :corpus AND is_active"
-            ),
-            {"corpus": corpus.value},
-        )
-
-
 @asynccontextmanager
 async def replacing_corpus_source(
     session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
@@ -558,12 +549,11 @@ async def replacing_corpus_source(
     if not isinstance(engine, AsyncEngine):
         raise TypeError("embedding session factory must be bound to an AsyncEngine")
     async with engine.connect() as connection:
-        await connection.execute(
-            text("SELECT pg_advisory_lock(hashtextextended(:corpus, 0))"),
-            {"corpus": f"embedding:{corpus.value}"},
-        )
-        await connection.commit()
+        key = f"embedding:{corpus.value}"
+        lock_acquired = False
         try:
+            await _acquire_source_lock(connection, key)
+            lock_acquired = True
             await connection.execute(
                 text(
                     "UPDATE embedding_corpus_manifest SET is_active = false "
@@ -575,26 +565,49 @@ async def replacing_corpus_source(
             yield
         except BaseException as original:
             try:
-                unlocked = await connection.scalar(
-                    text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
-                    {"corpus": f"embedding:{corpus.value}"},
-                )
-                await connection.commit()
-                if not unlocked:
-                    original.add_note("Failed to release embedding source lock")
-                    await connection.invalidate()
-            except Exception as unlock_error:
+                if lock_acquired:
+                    await _release_source_lock(connection, key)
+            except BaseException as unlock_error:
                 original.add_note(
                     f"Failed to release embedding source lock: {unlock_error}"
                 )
                 await connection.invalidate()
             raise
         else:
-            unlocked = await connection.scalar(
-                text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
-                {"corpus": f"embedding:{corpus.value}"},
-            )
-            await connection.commit()
-            if not unlocked:
+            try:
+                await _release_source_lock(connection, key)
+            except BaseException:
                 await connection.invalidate()
-                raise RuntimeError("failed to release embedding source lock")
+                raise
+
+
+async def _acquire_source_lock(connection: Any, key: str) -> None:
+    task = asyncio.create_task(
+        connection.execute(
+            text("SELECT pg_advisory_lock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+    )
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
+
+async def _release_source_lock(connection: Any, key: str) -> None:
+    async def release() -> None:
+        unlocked = await connection.scalar(
+            text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+        await connection.commit()
+        if not unlocked:
+            raise RuntimeError("failed to release embedding source lock")
+
+    task = asyncio.create_task(release())
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise

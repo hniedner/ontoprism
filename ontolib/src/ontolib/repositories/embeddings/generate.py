@@ -112,9 +112,17 @@ class SentenceTransformerEmbedder:
         import importlib  # noqa: PLC0415
 
         st = importlib.import_module("sentence_transformers")
-        self.model_id = model_name
-        self.model_revision = model_revision
+        self._model_id = model_name
+        self._model_revision = model_revision
         self._model = st.SentenceTransformer(model_name, revision=model_revision)
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def model_revision(self) -> str:
+        return self._model_revision
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [vec.tolist() for vec in self._model.encode(texts)]
