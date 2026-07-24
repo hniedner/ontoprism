@@ -82,6 +82,7 @@ def _publisher(
     session_factory: async_sessionmaker[AsyncSession],
     corpus: Corpus,
     expected: int,
+    embedder: _StubEmbedder | _FailAfterOneBatchEmbedder,
 ) -> EmbeddingCorpusPublisher:
     return EmbeddingCorpusPublisher(
         session_factory,
@@ -90,8 +91,8 @@ def _publisher(
             corpus=corpus,
             source_version="test-source",
             source_hash="a" * 64,
-            model_id="test-model",
-            model_revision="b" * 40,
+            model_id=embedder.model_id,
+            model_revision=embedder.model_revision,
             vector_dimension=EMBED_DIM,
             expected_row_count=expected,
             code_commit="c" * 40,
@@ -120,8 +121,9 @@ async def test_generate_cde_embeddings_writes_vectors(
 ) -> None:
     db = tmp_path / "cde.db"
     build_database([_write(tmp_path, _CADSR_XML)], db)
+    embedder = _StubEmbedder()
     manifest = await generate_cde_embeddings(
-        str(db), _StubEmbedder(), _publisher(session_factory, Corpus.CADSR, 1)
+        str(db), embedder, _publisher(session_factory, Corpus.CADSR, 1, embedder)
     )
     assert manifest.actual_row_count == 1
     async with session_factory() as session:
@@ -142,10 +144,11 @@ async def test_generate_ncit_embeddings_from_store(
     async with OxigraphHttpClient(url) as client:
         store = NcitGraphStore(client)
         count = await store.embedding_record_count()
+        embedder = _StubEmbedder()
         manifest = await generate_ncit_embeddings(
             store,
-            _StubEmbedder(),
-            _publisher(session_factory, Corpus.NCIT, count),
+            embedder,
+            _publisher(session_factory, Corpus.NCIT, count, embedder),
         )
     assert manifest.actual_row_count == count
     assert 1 <= count <= 11
@@ -173,17 +176,20 @@ async def test_interrupted_ncit_build_does_not_change_serving_corpus(
 
     url = get_settings().ncit_sparql_url
     async with OxigraphHttpClient(url) as client:
+        embedder = _FailAfterOneBatchEmbedder()
+        publisher = _publisher(
+            session_factory,
+            Corpus.NCIT,
+            await NcitGraphStore(client).embedding_record_count(),
+            embedder,
+        )
         with pytest.raises(
             RuntimeError, match="injected embedding failure after first batch"
         ):
             await generate_ncit_embeddings(
                 NcitGraphStore(client),
-                _FailAfterOneBatchEmbedder(),
-                _publisher(
-                    session_factory,
-                    Corpus.NCIT,
-                    await NcitGraphStore(client).embedding_record_count(),
-                ),
+                embedder,
+                publisher,
                 batch_size=1,
             )
 

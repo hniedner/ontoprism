@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
@@ -11,13 +12,16 @@ from typing import TYPE_CHECKING, Any, Literal
 from sqlalchemy import text
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
     from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-EmbeddingRow = tuple[str, list[float], dict[str, Any]]
+type JsonValue = (
+    str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+)
+EmbeddingRow = tuple[str, list[float], dict[str, JsonValue]]
 ManifestState = Literal["building", "failed", "complete"]
 EMBEDDING_VECTOR_DIMENSION = 768
 
@@ -257,7 +261,9 @@ class EmbeddingCorpusPublisher:
                 params,
             )
 
-    async def publish(self) -> CorpusManifest:
+    async def publish(
+        self, source_validator: Callable[[], Awaitable[None]] | None = None
+    ) -> CorpusManifest:
         """Validate and atomically replace serving rows plus the active manifest."""
         table = _SERVING_TABLE[self.build.corpus]
         index = _SERVING_INDEX[self.build.corpus]
@@ -280,6 +286,8 @@ class EmbeddingCorpusPublisher:
                 )
             self._require_same_contract(manifest)
             count = await self._validate_candidate(session)
+            if source_validator is not None:
+                await source_validator()
             # The stable table's HNSW graph is mutated in place. Block similarity
             # readers until replacement and a clean index rebuild commit together;
             # otherwise concurrent scans can traverse dead/uncommitted graph nodes.
@@ -538,3 +546,23 @@ async def deactivate_corpus(
             ),
             {"corpus": corpus.value},
         )
+
+
+@asynccontextmanager
+async def replacing_corpus_source(
+    session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
+) -> AsyncIterator[None]:
+    """Serialize source replacement against validation/activation for one corpus."""
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:corpus, 0))"),
+            {"corpus": f"embedding:{corpus.value}"},
+        )
+        await session.execute(
+            text(
+                "UPDATE embedding_corpus_manifest SET is_active = false "
+                "WHERE corpus = :corpus AND is_active"
+            ),
+            {"corpus": corpus.value},
+        )
+        yield

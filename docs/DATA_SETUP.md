@@ -75,7 +75,7 @@ pdm run data-build owl
 #    (cdes + cde_concepts + the cdes_fts FTS5 index).
 pdm run data-build cadsr
 
-# 3. Inspect active embedding manifests. This is read-only and exits non-zero rather
+# 3. Inspect all embedding build manifests. This is read-only and exits non-zero rather
 #    than writing implicitly:
 pdm install -G data-build
 pdm run data-build embeddings

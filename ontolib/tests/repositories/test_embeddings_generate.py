@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -19,7 +20,11 @@ from ontolib.repositories.embeddings.generate import (
     stage_cde_embeddings,
     stage_ncit_embeddings,
 )
-from ontolib.repositories.embeddings.publication import CorpusManifest
+from ontolib.repositories.embeddings.publication import (
+    Corpus,
+    CorpusBuild,
+    CorpusManifest,
+)
 
 
 class _StubEmbedder:
@@ -47,12 +52,30 @@ class _FakeSink:
 
 
 class _LifecyclePublisher(_FakeSink):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        corpus: Corpus = Corpus.CADSR,
+        *,
+        model_id: str = _StubEmbedder.model_id,
+        model_revision: str = _StubEmbedder.model_revision,
+    ) -> None:
         super().__init__()
         self.started: list[bool] = []
         self.failures: list[str] = []
         self.published = False
         self.start_manifest: object | None = None
+        self.build = CorpusBuild(
+            build_id=UUID("00000000-0000-0000-0000-000000000001"),
+            corpus=corpus,
+            source_version="test",
+            source_hash="a" * 64,
+            model_id=model_id,
+            model_revision=model_revision,
+            vector_dimension=768,
+            expected_row_count=1,
+            code_commit="b" * 40,
+            required_doc_ids=("C3262",),
+        )
 
     async def start(self, *, restart: bool = False) -> CorpusManifest:
         self.started.append(restart)
@@ -60,7 +83,9 @@ class _LifecyclePublisher(_FakeSink):
             return self.start_manifest  # type: ignore[return-value]
         return SimpleNamespace(state="building")  # type: ignore[return-value]
 
-    async def publish(self) -> CorpusManifest:
+    async def publish(self, source_validator=None) -> CorpusManifest:  # type: ignore[no-untyped-def]
+        if source_validator is not None:
+            await source_validator()
         self.published = True
         return SimpleNamespace(actual_row_count=1)  # type: ignore[return-value]
 
@@ -298,7 +323,11 @@ async def test_generate_ncit_marks_failed_manifest_on_encoder_error() -> None:
             }
         ]
     )
-    publisher = _LifecyclePublisher()
+    publisher = _LifecyclePublisher(
+        Corpus.NCIT,
+        model_id=_BrokenEmbedder.model_id,
+        model_revision=_BrokenEmbedder.model_revision,
+    )
 
     with pytest.raises(RuntimeError, match="encoder exploded"):
         await generate_ncit_embeddings(
@@ -325,7 +354,10 @@ async def test_generate_cde_marks_failed_manifest_on_encoder_error(
 
     db = tmp_path / "cde.db"
     _make_cde_db(db, [_cde_row("100", "2.0")])
-    publisher = _LifecyclePublisher()
+    publisher = _LifecyclePublisher(
+        model_id=_BrokenEmbedder.model_id,
+        model_revision=_BrokenEmbedder.model_revision,
+    )
 
     with pytest.raises(RuntimeError, match="cde encoder exploded"):
         await generate_cde_embeddings(
@@ -424,7 +456,11 @@ async def test_generation_preserves_original_error_when_failure_recording_fails(
             del texts
             raise ValueError("original failure")
 
-    publisher = _FailingPublisher()
+    publisher = _FailingPublisher(
+        Corpus.NCIT,
+        model_id=_BrokenEmbedder.model_id,
+        model_revision=_BrokenEmbedder.model_revision,
+    )
     store = _FakeNcitStore(
         [
             {

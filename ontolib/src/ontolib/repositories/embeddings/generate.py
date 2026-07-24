@@ -18,12 +18,16 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from ontolib.repositories.embeddings.publication import (
+        CorpusBuild,
         CorpusManifest,
         EmbeddingRow,
     )
 
 from ontolib.core.logging_config import get_logger
-from ontolib.repositories.embeddings.publication import EMBEDDING_VECTOR_DIMENSION
+from ontolib.repositories.embeddings.publication import (
+    EMBEDDING_VECTOR_DIMENSION,
+    Corpus,
+)
 
 logger = get_logger(__name__)
 
@@ -55,6 +59,9 @@ class EmbeddingBatchSink(Protocol):
 
 
 class EmbeddingPublisher(EmbeddingBatchSink, Protocol):
+    @property
+    def build(self) -> CorpusBuild: ...
+
     async def start(self, *, restart: bool = False) -> CorpusManifest: ...
 
     async def publish(self) -> CorpusManifest: ...
@@ -76,6 +83,19 @@ class NcitEmbeddingRecord(TypedDict):
     definition: str | None
     semantic_type: str | None
     synonyms: str
+
+
+def _require_publisher_identity(
+    publisher: EmbeddingPublisher, embedder: Embedder, corpus: Corpus
+) -> None:
+    build = publisher.build
+    if build.corpus is not corpus:
+        raise ValueError(f"publisher corpus is {build.corpus}, expected {corpus}")
+    if (build.model_id, build.model_revision) != (
+        embedder.model_id,
+        embedder.model_revision,
+    ):
+        raise ValueError("publisher model provenance does not match the encoder")
 
 
 class SentenceTransformerEmbedder:
@@ -293,13 +313,14 @@ async def generate_cde_embeddings(
     restart: bool = False,
 ) -> CorpusManifest:
     """Stage, validate, and atomically publish the complete caDSR corpus."""
+    _require_publisher_identity(publisher, embedder, Corpus.CADSR)
     started = await publisher.start(restart=restart)
     if started.state == "complete":
         return started
     try:
         await stage_cde_embeddings(db_path, embedder, publisher, batch_size=batch_size)
         return await publisher.publish()
-    except Exception as exc:
+    except BaseException as exc:
         await _record_failure(publisher, exc)
         raise
 
@@ -313,12 +334,13 @@ async def generate_ncit_embeddings(
     restart: bool = False,
 ) -> CorpusManifest:
     """Stage, validate, and atomically publish the complete NCIt corpus."""
+    _require_publisher_identity(publisher, embedder, Corpus.NCIT)
     started = await publisher.start(restart=restart)
     if started.state == "complete":
         return started
     try:
         await stage_ncit_embeddings(store, embedder, publisher, batch_size=batch_size)
         return await publisher.publish()
-    except Exception as exc:
+    except BaseException as exc:
         await _record_failure(publisher, exc)
         raise

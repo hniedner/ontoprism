@@ -45,7 +45,7 @@ from ontolib.repositories.embeddings.publication import (
     CorpusBuild,
     EmbeddingCorpusPublisher,
     corpus_manifests,
-    deactivate_corpus,
+    replacing_corpus_source,
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
@@ -117,8 +117,10 @@ async def _build_owl() -> None:
     settings = get_settings()
     engine = make_engine(settings.database_url)
     try:
-        await deactivate_corpus(make_sessionmaker(engine), Corpus.NCIT)
-        async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+        async with (
+            replacing_corpus_source(make_sessionmaker(engine), Corpus.NCIT),
+            OxigraphHttpClient(settings.ncit_sparql_url) as client,
+        ):
             loaded = await build_ncit_store(client, Path(settings.ncit_owl_dir))
     finally:
         await dispose_engine(engine)
@@ -129,10 +131,13 @@ def _build_cadsr() -> None:
     settings = get_settings()
     data_dir = Path(settings.cadsr_data_dir)
 
-    async def _deactivate() -> None:
+    async def _replace_source() -> int:
         engine = make_engine(settings.database_url)
         try:
-            await deactivate_corpus(make_sessionmaker(engine), Corpus.CADSR)
+            async with replacing_corpus_source(make_sessionmaker(engine), Corpus.CADSR):
+                return await asyncio.to_thread(
+                    build_database, xml_paths, Path(settings.cadsr_db_path)
+                )
         finally:
             await dispose_engine(engine)
 
@@ -151,8 +156,7 @@ def _build_cadsr() -> None:
     if not xml_paths:
         typer.echo("No CDE XML found in the downloaded archive.", err=True)
         raise typer.Exit(code=1)
-    asyncio.run(_deactivate())
-    count = build_database(xml_paths, Path(settings.cadsr_db_path))
+    count = asyncio.run(_replace_source())
     if count == 0:
         typer.echo("caDSR build produced 0 CDEs — aborting.", err=True)
         raise typer.Exit(code=1)
@@ -267,23 +271,26 @@ async def _publish_ncit_embeddings(
                 staged_count, staged_hash = await stage_ncit_embeddings(
                     store, encoder, publisher
                 )
-                final_version = await client.version()
-                final_count, final_hash = await ncit_source_fingerprint(store)
                 if (staged_count, staged_hash) != (expected, source_hash):
                     raise RuntimeError(
                         "NCIt staged records differ from validated source: "
                         f"{staged_count}/{staged_hash} != {expected}/{source_hash}"
                     )
-                _require_stable_ncit_source(
-                    (source_version, expected, source_hash),
-                    (final_version, final_count, final_hash),
-                )
+
+                async def validate_source() -> None:
+                    final_version = await client.version()
+                    final_count, final_hash = await ncit_source_fingerprint(store)
+                    _require_stable_ncit_source(
+                        (source_version, expected, source_hash),
+                        (final_version, final_count, final_hash),
+                    )
+
                 # This independent cache refresh completes before embedding activation;
                 # an FTS failure therefore cannot make an active embedding build look
                 # failed to the operator.
                 await populate_from_store(store, NcitSearchIndex(sf))
-                manifest = await publisher.publish()
-            except Exception as exc:
+                manifest = await publisher.publish(validate_source)
+            except BaseException as exc:
                 await _record_build_failure(publisher, exc)
                 raise
     finally:
@@ -331,16 +338,19 @@ async def _publish_cadsr_embeddings(
         await publisher.start(restart=restart)
         try:
             await stage_cde_embeddings(str(db_path), encoder, publisher)
-            final_hash = _sha256(db_path)
-            with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as connection:
-                final_count = int(
-                    connection.execute("SELECT count(*) FROM cdes").fetchone()[0]
+
+            async def validate_source() -> None:
+                final_hash = _sha256(db_path)
+                with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as connection:
+                    final_count = int(
+                        connection.execute("SELECT count(*) FROM cdes").fetchone()[0]
+                    )
+                _require_stable_cadsr_source(
+                    (source_hash, expected), (final_hash, final_count)
                 )
-            _require_stable_cadsr_source(
-                (source_hash, expected), (final_hash, final_count)
-            )
-            manifest = await publisher.publish()
-        except Exception as exc:
+
+            manifest = await publisher.publish(validate_source)
+        except BaseException as exc:
             await _record_build_failure(publisher, exc)
             raise
     finally:
@@ -589,7 +599,7 @@ def embeddings(
         help="Publish only `ncit` or `cadsr`; default publishes each independently.",
     ),
 ) -> None:
-    """Inspect active manifests; write only with explicit `--publish`."""
+    """Inspect all embedding build manifests; write only with explicit `--publish`."""
     asyncio.run(_build_embeddings(publish=publish, corpus=corpus, restart=False))
 
 

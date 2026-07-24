@@ -13,10 +13,10 @@ from ontolib.repositories.embeddings.store import EmbeddingStore
 
 
 class _FakeResult:
-    def __init__(self, rows: list[tuple[str, float]]) -> None:
+    def __init__(self, rows: list[Any]) -> None:
         self._rows = rows
 
-    def all(self) -> list[tuple[str, float]]:
+    def all(self) -> list[Any]:
         return self._rows
 
 
@@ -45,6 +45,14 @@ class _FakeSession:
 
     async def execute(self, sql: Any, params: dict[str, Any]) -> _FakeResult:
         self._calls.append((str(sql), params))
+        if "WITH active AS" in str(sql):
+            rows = [
+                (doc_id, score, self._available, self._source_exists)
+                for doc_id, score in self._rows
+            ]
+            if not rows:
+                rows = [(None, None, self._available, self._source_exists)]
+            return _FakeResult(rows)
         return _FakeResult(self._rows)
 
     async def scalar(self, sql: Any, params: dict[str, Any]) -> bool:
@@ -84,10 +92,10 @@ async def test_similar_ncit_queries_concept_table_and_coerces_scores() -> None:
 
     assert hits == [("C9305", 0.91), ("C12345", 0.0)]
     assert all(isinstance(score, float) for _, score in hits)
-    sql, params = sf.calls[2]
+    sql, params = sf.calls[0]
     assert "ncit_concepts" in sql
-    assert "manifest.state = 'complete'" in sql
-    assert "manifest.is_active" in sql
+    assert "state = 'complete'" in sql
+    assert "is_active" in sql
     assert params == {"corpus": "ncit", "doc_id": "C3262", "limit": 5}
 
 
@@ -99,9 +107,9 @@ async def test_similar_cde_builds_composite_doc_id_for_cde_table() -> None:
     hits = await store.similar_cde("100", "2.0", limit=3)
 
     assert hits == [("200:1.0", 0.8)]
-    sql, params = sf.calls[2]
+    sql, params = sf.calls[0]
     assert "cde_repository" in sql
-    assert "manifest.state = 'complete'" in sql
+    assert "state = 'complete'" in sql
     # doc_id is the composite {public_id}:{version} key, not the bare public_id.
     assert params == {"corpus": "cadsr", "doc_id": "100:2.0", "limit": 3}
 

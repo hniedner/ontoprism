@@ -145,10 +145,10 @@ async def reload_ncit(
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")
     try:
         before = await client.count()
-        await embeddings.deactivate(Corpus.NCIT)
-        await client.load(
-            path.read_bytes(), content_type=content_type, replace=body.replace
-        )
+        async with embeddings.replacing(Corpus.NCIT):
+            await client.load(
+                path.read_bytes(), content_type=content_type, replace=body.replace
+            )
         after = await client.count()
     except StorageError as exc:
         # A 5xx from a real store fault would otherwise leave no server-side trace
@@ -202,12 +202,12 @@ async def download_ncit(
         return OwlDownloadReport(download=result)
     try:
         before = await client.count()
-        await embeddings.deactivate(Corpus.NCIT)
-        await client.load(
-            Path(result.file_path).read_bytes(),
-            content_type=_OWL_CONTENT_TYPE,
-            replace=True,
-        )
+        async with embeddings.replacing(Corpus.NCIT):
+            await client.load(
+                Path(result.file_path).read_bytes(),
+                content_type=_OWL_CONTENT_TYPE,
+                replace=True,
+            )
         after = await client.count()
     except (StorageError, OSError) as exc:
         logger.exception("NCIt OWL load failed for %s", result.file_path)

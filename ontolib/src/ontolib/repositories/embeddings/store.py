@@ -15,29 +15,36 @@ from sqlalchemy import text
 from ontolib.repositories.embeddings.publication import (
     Corpus,
     CorpusUnavailableError,
-    deactivate_corpus,
+    replacing_corpus_source,
 )
 
 _TABLE = {Corpus.NCIT: "ncit_concepts", Corpus.CADSR: "cde_repository"}
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # cosine distance operator is ``<=>``; similarity = 1 - distance.
 _SIMILAR_SQL = """
-    SELECT t.doc_id, (1 - (t.embedding <=> q.embedding)) AS score
-    FROM {table} t, (SELECT embedding FROM {table} WHERE doc_id = :doc_id) q
-    WHERE t.doc_id <> :doc_id
-      AND EXISTS (
-          SELECT 1 FROM embedding_corpus_manifest manifest
-          WHERE manifest.corpus = :corpus
-            AND manifest.state = 'complete'
-            AND manifest.is_active
-      )
-    ORDER BY t.embedding <=> q.embedding
-    LIMIT :limit
+    WITH active AS (
+        SELECT 1 FROM embedding_corpus_manifest
+        WHERE corpus = :corpus AND state = 'complete' AND is_active
+    ), source AS (
+        SELECT embedding FROM {table}
+        WHERE doc_id = :doc_id AND EXISTS (SELECT 1 FROM active)
+    ), hits AS (
+        SELECT t.doc_id, (1 - (t.embedding <=> q.embedding)) AS score
+        FROM {table} t, source q
+        WHERE t.doc_id <> :doc_id
+        ORDER BY t.embedding <=> q.embedding
+        LIMIT :limit
+    )
+    SELECT doc_id, score, true AS available, true AS source_exists FROM hits
+    UNION ALL
+    SELECT NULL, NULL, EXISTS (SELECT 1 FROM active), EXISTS (SELECT 1 FROM source)
+    WHERE NOT EXISTS (SELECT 1 FROM hits)
 """
-_SOURCE_EXISTS_SQL = "SELECT EXISTS (SELECT 1 FROM {table} WHERE doc_id = :doc_id)"
 
 
 class EmbeddingStore:
@@ -54,28 +61,25 @@ class EmbeddingStore:
         table = _TABLE[corpus]
         sql = text(_SIMILAR_SQL.format(table=table))
         async with self._sf() as session:
-            available = await session.scalar(
-                text(
-                    "SELECT EXISTS (SELECT 1 FROM embedding_corpus_manifest "
-                    "WHERE corpus = :corpus AND state = 'complete' AND is_active)"
-                ),
-                {"corpus": corpus.value},
+            result = await session.execute(
+                sql, {"corpus": corpus.value, "doc_id": doc_id, "limit": limit}
             )
+            rows = result.all()
+            available = bool(rows and rows[0][2])
             if not available:
                 raise CorpusUnavailableError(
                     f"no completed active {corpus.value} embedding corpus"
                 )
-            source_exists = await session.scalar(
-                text(_SOURCE_EXISTS_SQL.format(table=table)), {"doc_id": doc_id}
-            )
+            source_exists = bool(rows[0][3])
             if not source_exists:
                 raise CorpusUnavailableError(
                     f"active {corpus.value} embedding corpus lacks {doc_id}"
                 )
-            result = await session.execute(
-                sql, {"corpus": corpus.value, "doc_id": doc_id, "limit": limit}
-            )
-            return [(row[0], float(row[1])) for row in result.all()]
+            return [
+                (row[0], float(row[1]))
+                for row in rows
+                if row[0] is not None and row[1] is not None
+            ]
 
     async def similar_ncit(
         self, code: str, *, limit: int = 10
@@ -89,6 +93,6 @@ class EmbeddingStore:
         """Return (``public_id:version``, similarity) most similar to a CDE."""
         return await self._similar(Corpus.CADSR, f"{public_id}:{version}", limit)
 
-    async def deactivate(self, corpus: Corpus) -> None:
-        """Invalidate a corpus before its official source is replaced."""
-        await deactivate_corpus(self._sf, corpus)
+    def replacing(self, corpus: Corpus) -> AbstractAsyncContextManager[None]:
+        """Lock and invalidate a corpus for the duration of source replacement."""
+        return replacing_corpus_source(self._sf, corpus)
