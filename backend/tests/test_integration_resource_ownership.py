@@ -31,6 +31,7 @@ from test_support.integration_resources import (
     remove_owned_container_by_name,
     validate_integration_test_declaration,
     validate_mutator_manifest_entries,
+    validate_mutator_manifest_files,
 )
 
 if TYPE_CHECKING:
@@ -187,13 +188,14 @@ def test_secret_is_independent_random_material_not_derived_from_the_nonce() -> N
     # secret is excluded from equality/repr: identity is nonce-based only.
     assert owner == same_nonce
     assert "secret" not in repr(owner)
-    # secret is `init=False`: unlike `nonce` it is interpolated verbatim into raw,
-    # non-parameterized SQL and has no format validation, so it must never be
-    # externally settable. Constructing with a caller-supplied secret must fail.
+    # secret is `init=False`: like `nonce` it is interpolated verbatim into raw,
+    # non-parameterized SQL, but unlike `nonce` it has no format validation, so it
+    # must never be externally settable. Constructing with a caller-supplied secret
+    # must fail.
     with pytest.raises(TypeError):
-        IntegrationResourceOwner(  # type: ignore[call-arg]
+        IntegrationResourceOwner(
             nonce="019f8d64b0e274e2931a15452959797a",
-            secret="attacker-controlled",  # noqa: S106
+            secret="attacker-controlled",  # type: ignore[call-arg]  # noqa: S106
         )
 
 
@@ -249,8 +251,8 @@ def test_connection_policy_rejects_every_unregistered_tcp_target() -> None:
     # so a caller cannot seed a pre-approved target past the loopback checks by
     # constructing the policy with an initial `_allowed` set.
     with pytest.raises(TypeError):
-        IntegrationConnectionPolicy(  # type: ignore[call-arg]
-            _allowed={("203.0.113.10", 443)},
+        IntegrationConnectionPolicy(
+            _allowed={("203.0.113.10", 443)},  # type: ignore[call-arg]
         )
 
 
@@ -445,6 +447,42 @@ def test_mutator_manifest_rejects_stale_paths_and_test_selectors() -> None:
 
     assert any("test_deleted.py" in error for error in errors)
     assert any("test_renamed" in error for error in errors)
+
+
+@pytest.mark.unit
+def test_manifest_files_reject_missing_paths_and_uncollected_selectors(
+    tmp_path: Path,
+) -> None:
+    """`validate_mutator_manifest_files` AST-scans the tree, not pytest collection.
+
+    Drives the reject branch of the function this commit rewrote to build
+    `_ParsedTestName`: a manifest path with no source file, and a real file whose
+    `tests=` selector names a function that does not exist, must both be reported.
+    """
+    real = tmp_path / "backend/tests/test_real.py"
+    real.parent.mkdir(parents=True)
+    real.write_text("def test_present() -> None:\n    pass\n")
+
+    manifest = (
+        MutatorManifestEntry(
+            path="backend/tests/test_absent.py",
+            fixtures=frozenset({"isolated_postgres_settings"}),
+        ),
+        MutatorManifestEntry(
+            path="backend/tests/test_real.py",
+            fixtures=frozenset({"isolated_postgres_settings"}),
+            tests=frozenset({"test_missing"}),
+        ),
+    )
+
+    errors = validate_mutator_manifest_files(tmp_path, manifest=manifest)
+
+    assert any(
+        "test_absent.py" in error and "does not exist" in error for error in errors
+    )
+    assert any("test_missing" in error for error in errors)
+    # A present path whose selector resolves is not flagged.
+    assert not any("test_present" in error for error in errors)
 
 
 @pytest.mark.unit

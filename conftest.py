@@ -512,6 +512,13 @@ def _provision_oxigraph(
             seed_store(url)
             yield url, container_id
     finally:
+        # Each resource is removed only after ITS OWN marker verifies: the container
+        # by `_verify_oxigraph_owner`, the data dir by `_verify_oxigraph_data_dir`.
+        # Data-dir cleanup runs in a nested `finally` so it happens even if container
+        # verification/removal raised — an unverifiable container is left in place
+        # (fail-closed) while our own marked data dir is still reclaimed. Both steps
+        # are fail-closed (any failure propagates); if both raise, the data-dir error
+        # surfaces over the container error, which is a diagnostic-only ordering.
         try:
             if container_id is not None:
                 _verify_oxigraph_owner(
@@ -600,12 +607,20 @@ def postgres_readiness_failure_provisioner() -> Callable[
 
 
 @pytest.fixture
-def postgres_docker_run_failure_provisioner() -> Callable[
-    [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+def postgres_docker_run_failure_provisioner() -> tuple[
+    Callable[[IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]],
+    list[tuple[str, ...]],
 ]:
-    """Return a context factory that injects failure at the `docker run` step."""
+    """Return a `(context factory, recorded docker calls)` pair.
+
+    The factory injects failure at the `docker run` step; the recorded-calls list
+    lets a test assert that the fail-closed cleanup path (remove-by-name) actually
+    fired, rather than trivially observing that a never-created container is absent.
+    """
+    calls: list[tuple[str, ...]] = []
 
     def fail_at_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
         if args and args[0] == "run":
             return subprocess.CompletedProcess(
                 args=list(args),
@@ -615,7 +630,7 @@ def postgres_docker_run_failure_provisioner() -> Callable[
             )
         return run_docker(*args, check=check)
 
-    return lambda owner: _provision_postgres(owner, docker_run=fail_at_run)
+    return (lambda owner: _provision_postgres(owner, docker_run=fail_at_run), calls)
 
 
 @pytest.fixture

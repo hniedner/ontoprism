@@ -197,7 +197,7 @@ exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 [tool.basedpyright]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
-include = ["ontolib/src", "backend/src"]
+include = ["ontolib/src", "backend/src", "test_support"]
 extraPaths = ["ontolib/src", "backend/src"]
 reportMissingImports = true
 

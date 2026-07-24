@@ -495,17 +495,29 @@ def test_oxigraph_docker_id_failure_removes_the_real_started_container(
 
 @pytest.mark.integration
 def test_postgres_docker_run_failure_removes_partial_container(
-    postgres_docker_run_failure_provisioner: Callable[
-        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    postgres_docker_run_failure_provisioner: tuple[
+        Callable[[IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]],
+        list[tuple[str, ...]],
     ],
 ) -> None:
+    provisioner, calls = postgres_docker_run_failure_provisioner
     owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
 
     with (
         pytest.raises(pytest.fail.Exception),
-        postgres_docker_run_failure_provisioner(owner),
+        provisioner(owner),
     ):
         pass
+
+    # The run-failure path must attempt cleanup by exact name (an inspect), not skip
+    # it. `docker run` was faked, so nothing was created: the real inspect reports
+    # absence and no `rm` is issued. Asserting the inspect fired makes this a live
+    # gate — deleting the remove_owned_container_by_name call on the failure branch
+    # would drop the inspect and fail this test.
+    assert ("inspect", owner.postgres_container_name) in [
+        (call[0], call[1]) for call in calls if len(call) >= 2
+    ]
+    assert not any(call and call[0] == "rm" for call in calls)
 
     docker = shutil.which("docker")
     assert docker is not None

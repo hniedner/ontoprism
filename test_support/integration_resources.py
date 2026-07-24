@@ -146,9 +146,9 @@ class IntegrationConnectionPolicy:
         """Allow *url* only for this context, guaranteeing symmetric removal.
 
         This is the only public way to widen the allow-list: hand-pairing a
-        register/unregister call is not possible from outside this class, so a
-        forgotten ``finally`` can no longer permanently widen or narrow it for the
-        rest of this worker process.
+        register/unregister call is not part of the public API (the underscore-
+        prefixed helpers are internal), so a forgotten ``finally`` can no longer
+        permanently widen or narrow it for the rest of this worker process.
         """
         self._register_url(url)
         try:
@@ -194,10 +194,12 @@ class IntegrationResourceOwner:
     # recovers `nonce` through those channels recovers the credential in one line.
     # Excluded from equality/repr so two owners sharing a nonce (there are none in
     # this codebase, but nothing prevents it) are still equal by identity, without
-    # ever printing the credential. `init=False`: unlike `nonce`, this value is
-    # interpolated verbatim into raw (non-parameterized) SQL — `nonce` is validated
-    # against a strict format for exactly that reason; `secret` has no such
-    # validation, so it must never be externally settable.
+    # ever printing the credential. `init=False`: like `nonce`, this value is
+    # interpolated verbatim into raw (non-parameterized) SQL, but unlike `nonce` it
+    # is not validated against a strict format (`nonce` is, for exactly that reason).
+    # `secrets.token_hex(32)` is hex-only and so literal-safe, but that safety must
+    # not depend on the caller — a caller-supplied `secret` could be anything, so it
+    # must never be externally settable.
     secret: str = field(
         default_factory=lambda: secrets.token_hex(32),
         compare=False,
