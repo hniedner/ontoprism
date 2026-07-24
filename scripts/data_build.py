@@ -71,6 +71,16 @@ logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
 
 
+async def _run_thread_to_completion(function, /, *args):  # type: ignore[no-untyped-def]
+    """Keep a source-replacement worker alive under cancellation until it stops."""
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
+
 def _require_ncit_source(
     version: str | None,
     count: int,
@@ -135,7 +145,7 @@ def _build_cadsr() -> None:
         engine = make_engine(settings.database_url)
         try:
             async with replacing_corpus_source(make_sessionmaker(engine), Corpus.CADSR):
-                return await asyncio.to_thread(
+                return await _run_thread_to_completion(
                     build_database, xml_paths, Path(settings.cadsr_db_path)
                 )
         finally:

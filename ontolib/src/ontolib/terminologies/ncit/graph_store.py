@@ -386,7 +386,7 @@ class NcitGraphStore:
     async def embedding_records(
         self, *, limit: int, after: str | None = None
     ) -> list[NcitEmbeddingRecord]:
-        """A page of ``{code,preferred_name,definition,semantic_type,synonyms}`` for
+        """A page of ``{iri,code,preferred_name,definition,semantic_type,synonyms}`` for
         the embedding build, canonically aggregated from ordered raw values.
 
         The inner subquery pages distinct concept IDs. The outer query returns every

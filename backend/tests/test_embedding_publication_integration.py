@@ -615,6 +615,8 @@ async def test_failed_source_replacement_keeps_manifest_inactive(
             )
         )
     assert active_after == 0
+    async with replacing_corpus_source(session_factory, Corpus.NCIT):
+        pass  # reacquiring proves the exceptional path released its session lock
 
 
 async def test_source_replacement_blocks_publication_until_lock_release(
@@ -641,6 +643,28 @@ async def test_source_replacement_blocks_publication_until_lock_release(
     manifest = await publish_task
     assert manifest.is_active
     assert await _active_rows(session_factory) == ["C3262", "NEW"]
+
+
+async def test_source_validator_runs_only_after_replacement_lock_releases(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    candidate = EmbeddingCorpusPublisher(session_factory, _build(_NEW_BUILD))
+    await candidate.start()
+    await candidate.stage([_row("C3262", 1.0), _row("NEW", 0.9)])
+    validated: list[str] = []
+
+    async def validate() -> None:
+        validated.append("validated")
+
+    async with replacing_corpus_source(session_factory, Corpus.NCIT):
+        publish_task = asyncio.create_task(candidate.publish(validate))
+        await asyncio.sleep(0.1)
+        assert not publish_task.done()
+        assert validated == []
+
+    manifest = await publish_task
+    assert validated == ["validated"]
+    assert manifest.is_active
 
 
 @pytest.mark.parametrize(

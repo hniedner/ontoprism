@@ -1,7 +1,9 @@
 """Behavioral guards for embedding publication source preflight/stability."""
 
+import asyncio
 import shutil
 import subprocess
+import threading
 
 import pytest
 from scripts.data_build import (
@@ -9,6 +11,7 @@ from scripts.data_build import (
     _require_ncit_source,
     _require_stable_cadsr_source,
     _require_stable_ncit_source,
+    _run_thread_to_completion,
 )
 
 
@@ -81,3 +84,27 @@ def test_code_commit_requires_clean_repo_and_returns_exact_head(tmp_path) -> Non
     (tmp_path / "tracked.txt").write_text("dirty")
     with pytest.raises(RuntimeError, match="clean worktree"):
         _code_commit(tmp_path)
+
+
+@pytest.mark.unit
+async def test_cancelled_thread_worker_finishes_before_cancellation_propagates() -> (
+    None
+):
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def worker() -> None:
+        started.set()
+        release.wait()
+        finished.set()
+
+    task = asyncio.create_task(_run_thread_to_completion(worker))
+    await asyncio.to_thread(started.wait)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert finished.is_set()

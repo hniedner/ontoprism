@@ -582,10 +582,12 @@ async def replacing_corpus_source(
                 await connection.commit()
                 if not unlocked:
                     original.add_note("Failed to release embedding source lock")
+                    await connection.invalidate()
             except Exception as unlock_error:
                 original.add_note(
                     f"Failed to release embedding source lock: {unlock_error}"
                 )
+                await connection.invalidate()
             raise
         else:
             unlocked = await connection.scalar(
@@ -594,4 +596,5 @@ async def replacing_corpus_source(
             )
             await connection.commit()
             if not unlocked:
+                await connection.invalidate()
                 raise RuntimeError("failed to release embedding source lock")
