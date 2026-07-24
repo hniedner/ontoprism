@@ -21,6 +21,7 @@ from ontolib.repositories.embeddings.publication import (
     CorpusValidationError,
     EmbeddingCorpusPublisher,
     active_manifests,
+    replacing_corpus_source,
 )
 from ontolib.repositories.embeddings.store import EmbeddingStore
 
@@ -584,6 +585,36 @@ async def test_published_corpus_has_usable_rebuilt_hnsw_index(
 
     assert before_node != after_node
     assert "idx_ncit_concepts_hnsw" in plan
+
+
+async def test_failed_source_replacement_keeps_manifest_inactive(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+
+    async def replace_then_fail() -> None:
+        async with replacing_corpus_source(session_factory, Corpus.NCIT):
+            async with session_factory() as observer:
+                active = await observer.scalar(
+                    text(
+                        "SELECT count(*) FROM embedding_corpus_manifest "
+                        "WHERE corpus = 'ncit' AND is_active"
+                    )
+                )
+            assert active == 0
+            raise RuntimeError("source replacement failed")
+
+    with pytest.raises(RuntimeError, match="source replacement failed"):
+        await replace_then_fail()
+
+    async with session_factory() as session:
+        active_after = await session.scalar(
+            text(
+                "SELECT count(*) FROM embedding_corpus_manifest "
+                "WHERE corpus = 'ncit' AND is_active"
+            )
+        )
+    assert active_after == 0
 
 
 @pytest.mark.parametrize(

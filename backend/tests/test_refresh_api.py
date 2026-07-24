@@ -2,6 +2,7 @@
 
 import sqlite3
 from collections.abc import AsyncIterator, Iterator, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -11,12 +12,14 @@ from fastapi.testclient import TestClient
 from backend.config import get_settings
 from backend.dependencies import (
     get_cadsr_repo,
+    get_embedding_store,
     get_ncit_client,
     get_ncit_search_index,
     get_ncit_store,
 )
 from backend.main import create_app
 from ontolib.core.exceptions import StorageError
+from ontolib.repositories.embeddings.publication import Corpus
 
 
 @pytest.fixture(autouse=True)
@@ -154,11 +157,24 @@ def test_reload_success_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
     app = create_app()
     app.dependency_overrides[get_ncit_client] = _OkClient
+    events: list[str] = []
+
+    class _Embeddings:
+        @asynccontextmanager
+        async def replacing(self, corpus: Corpus):  # type: ignore[no-untyped-def]
+            events.append(f"enter:{corpus.value}")
+            try:
+                yield
+            finally:
+                events.append(f"exit:{corpus.value}")
+
+    app.dependency_overrides[get_embedding_store] = _Embeddings
     with TestClient(app) as client:
         body = {"source_path": str(ttl), "replace": True}
         resp = client.post("/api/v1/refresh/ncit/reload", json=body)
     assert resp.status_code == 200
     assert resp.json() == {"triples_before": 42, "triples_after": 42}
+    assert events == ["enter:ncit", "exit:ncit"]
 
 
 class _FakeNcitStore:

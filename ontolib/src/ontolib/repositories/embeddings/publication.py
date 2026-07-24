@@ -52,7 +52,7 @@ class CorpusBuildStateError(RuntimeError):
 
 
 class CorpusUnavailableError(RuntimeError):
-    """No completed active corpus is available to similarity readers."""
+    """The corpus is uncertified or unusable for the requested similarity read."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -552,17 +552,25 @@ async def deactivate_corpus(
 async def replacing_corpus_source(
     session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
 ) -> AsyncIterator[None]:
-    """Serialize source replacement against validation/activation for one corpus."""
-    async with session_factory() as session, session.begin():
+    """Commit deactivation, then hold a session lock across source replacement."""
+    async with session_factory() as session:
         await session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:corpus, 0))"),
+            text("SELECT pg_advisory_lock(hashtextextended(:corpus, 0))"),
             {"corpus": f"embedding:{corpus.value}"},
         )
-        await session.execute(
-            text(
-                "UPDATE embedding_corpus_manifest SET is_active = false "
-                "WHERE corpus = :corpus AND is_active"
-            ),
-            {"corpus": corpus.value},
-        )
-        yield
+        try:
+            await session.execute(
+                text(
+                    "UPDATE embedding_corpus_manifest SET is_active = false "
+                    "WHERE corpus = :corpus AND is_active"
+                ),
+                {"corpus": corpus.value},
+            )
+            await session.commit()
+            yield
+        finally:
+            await session.execute(
+                text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
+                {"corpus": f"embedding:{corpus.value}"},
+            )
+            await session.commit()

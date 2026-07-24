@@ -1,10 +1,12 @@
 """Unit tests for embedding text, deterministic source staging, and lifecycle glue."""
 
+import asyncio
 import importlib
 import sqlite3
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -95,15 +97,32 @@ class _LifecyclePublisher(_FakeSink):
 
 
 class _FakeNcitStore:
-    def __init__(self, records: list[NcitEmbeddingRecord]) -> None:
-        self._records = records
-        self.pages: list[tuple[int, int]] = []
+    def __init__(self, records: Sequence[Mapping[str, str | None]]) -> None:
+        self._records = [
+            cast(
+                "NcitEmbeddingRecord",
+                {
+                    **record,
+                    "iri": f"http://ncicb.nci.nih.gov/xml/owl/EVS/{record['code']}",
+                    "synonyms": record.get("synonyms") or "",
+                },
+            )
+            for record in records
+        ]
+        self.pages: list[tuple[int, str | None]] = []
 
     async def embedding_records(
-        self, *, limit: int, offset: int
+        self, *, limit: int, after: str | None = None
     ) -> list[NcitEmbeddingRecord]:
-        self.pages.append((limit, offset))
-        return self._records[offset : offset + limit]
+        self.pages.append((limit, after))
+        start = 0
+        if after is not None:
+            start = next(
+                index + 1
+                for index, record in enumerate(self._records)
+                if record["iri"] == after
+            )
+        return self._records[start : start + limit]
 
 
 def _make_cde_db(path: Path, rows: list[dict[str, str | None]]) -> None:
@@ -232,7 +251,7 @@ async def test_generate_cde_embeddings_empty_db_is_noop(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 async def test_generate_ncit_embeddings_pages_until_exhausted() -> None:
-    records: list[NcitEmbeddingRecord] = [
+    records: list[dict[str, str | None]] = [
         {
             "code": f"C{i}",
             "preferred_name": f"Concept {i}",
@@ -253,7 +272,11 @@ async def test_generate_ncit_embeddings_pages_until_exhausted() -> None:
     assert count == 3
     assert len(fingerprint) == 64
     # Paged 0,2 then 4 (empty) -> break.
-    assert store.pages == [(2, 0), (2, 2), (2, 4)]
+    assert store.pages == [
+        (2, None),
+        (2, "http://ncicb.nci.nih.gov/xml/owl/EVS/C1"),
+        (2, "http://ncicb.nci.nih.gov/xml/owl/EVS/C2"),
+    ]
     # Two non-empty batches were staged (sizes 2 and 1).
     assert [len(b) for b in sink.batches] == [2, 1]
     staged_codes = {row[0] for batch in sink.batches for row in batch}
@@ -429,7 +452,7 @@ async def test_ncit_source_fingerprint_changes_with_record_content_and_order() -
             },
         ]
     )
-    reversed_store = _FakeNcitStore(list(reversed(first._records)))
+    reversed_store = _FakeNcitStore(cast("Any", list(reversed(first._records))))
 
     original = await ncit_source_fingerprint(first, batch_size=1)
     content = await ncit_source_fingerprint(changed, batch_size=1)
@@ -481,6 +504,65 @@ async def test_generation_preserves_original_error_when_failure_recording_fails(
         )
 
     assert any("manifest unavailable" in note for note in captured.value.__notes__)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("corpus", "model_id", "model_revision", "message"),
+    [
+        (Corpus.NCIT, _StubEmbedder.model_id, _StubEmbedder.model_revision, "corpus"),
+        (Corpus.CADSR, "wrong", _StubEmbedder.model_revision, "model provenance"),
+        (Corpus.CADSR, _StubEmbedder.model_id, "wrong", "model provenance"),
+    ],
+)
+async def test_generation_rejects_publisher_identity_mismatch(
+    tmp_path: Path,
+    corpus: Corpus,
+    model_id: str,
+    model_revision: str,
+    message: str,
+) -> None:
+    db = tmp_path / "cde.db"
+    _make_cde_db(db, [_cde_row("100", "2.0")])
+    publisher = _LifecyclePublisher(
+        corpus, model_id=model_id, model_revision=model_revision
+    )
+
+    with pytest.raises(ValueError, match=message):
+        await generate_cde_embeddings(str(db), _StubEmbedder(), publisher)
+
+    assert publisher.batches == []
+
+
+@pytest.mark.unit
+async def test_generation_records_and_reraises_cancellation() -> None:
+    class _CancelledEmbedder:
+        model_id = "cancelled"
+        model_revision = "1"
+
+        def encode(self, texts: list[str]) -> list[list[float]]:
+            del texts
+            raise asyncio.CancelledError
+
+    publisher = _LifecyclePublisher(
+        Corpus.NCIT, model_id="cancelled", model_revision="1"
+    )
+    store = _FakeNcitStore(
+        [
+            {
+                "code": "C3262",
+                "preferred_name": "Neoplasm",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            }
+        ]
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await generate_ncit_embeddings(store, _CancelledEmbedder(), publisher)
+
+    assert publisher.failures == ["CancelledError: "]
 
 
 class _FakeVector:

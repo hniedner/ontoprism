@@ -8,6 +8,9 @@ from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 pytestmark = [pytest.mark.integration, pytest.mark.full_store, pytest.mark.full_build]
+_NCIT_2602D_EMBEDDING_FINGERPRINT = (
+    "56d86424bcb413ba97bb9b79ad29b90037c5e2f1457f577afc62fce8b287e41a"
+)
 
 
 async def test_ncit_embedding_source_count_fingerprint_and_page_order_are_stable() -> (
@@ -16,23 +19,18 @@ async def test_ncit_embedding_source_count_fingerprint_and_page_order_are_stable
     settings = get_settings()
     async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
         store = NcitGraphStore(client)
-        count, fingerprint = await ncit_source_fingerprint(store)
-        repeated_count, repeated_fingerprint = await ncit_source_fingerprint(store)
-        first = await store.embedding_records(limit=2, offset=0)
-        repeated = await store.embedding_records(limit=2, offset=0)
-        final = await store.embedding_records(limit=2, offset=count - 2)
+        count, fingerprint = await ncit_source_fingerprint(store, batch_size=1000)
+        first = await store.embedding_records(limit=2)
+        repeated = await store.embedding_records(limit=2)
+        second = await store.embedding_records(limit=2, after=first[-1]["iri"])
         sentinel = await store.get_concept("C3262")
 
     assert count == settings.ncit_embedding_expected_rows == 204_373
-    assert fingerprint
-    assert (repeated_count, repeated_fingerprint) == (count, fingerprint)
+    assert fingerprint == _NCIT_2602D_EMBEDDING_FINGERPRINT
     assert first == repeated
     assert [record["code"] for record in first] == sorted(
         record["code"] for record in first
     )
-    assert [record["code"] for record in final] == sorted(
-        record["code"] for record in final
-    )
-    assert first[0]["code"] != final[-1]["code"]
+    assert first[-1]["iri"] < second[0]["iri"]
     assert sentinel is not None
     assert sentinel.code == "C3262"

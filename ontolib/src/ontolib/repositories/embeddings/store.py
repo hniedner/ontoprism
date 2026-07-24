@@ -48,7 +48,7 @@ _SIMILAR_SQL = """
 
 
 class EmbeddingStore:
-    """Read-only nearest-neighbor queries over the embedding tables."""
+    """Nearest-neighbor reads plus explicit source-replacement coordination."""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """Wrap an async session factory bound to the pgvector database."""
@@ -94,5 +94,5 @@ class EmbeddingStore:
         return await self._similar(Corpus.CADSR, f"{public_id}:{version}", limit)
 
     def replacing(self, corpus: Corpus) -> AbstractAsyncContextManager[None]:
-        """Lock and invalidate a corpus for the duration of source replacement."""
+        """Commit invalidation and serialize publication during source replacement."""
         return replacing_corpus_source(self._sf, corpus)

@@ -73,11 +73,12 @@ class NcitEmbeddingSource(Protocol):
     """The stable ordered-record surface required by NCIt embedding generation."""
 
     async def embedding_records(
-        self, *, limit: int, offset: int
+        self, *, limit: int, after: str | None = None
     ) -> list[NcitEmbeddingRecord]: ...
 
 
 class NcitEmbeddingRecord(TypedDict):
+    iri: str
     code: str
     preferred_name: str | None
     definition: str | None
@@ -255,17 +256,17 @@ async def stage_ncit_embeddings(
     doc_id = concept code. Returns the count and exact ordered-record fingerprint.
     """
     total = 0
-    offset = 0
+    after: str | None = None
     digest = hashlib.sha256()
     while True:
-        records = await store.embedding_records(limit=batch_size, offset=offset)
+        records = await store.embedding_records(limit=batch_size, after=after)
         if not records:
             break
         _update_record_digest(digest, records)
         batch = _ncit_batch(records, embedder)
         await sink.stage(batch)
         total += len(batch)
-        offset += batch_size
+        after = records[-1]["iri"]
     logger.info("Staged %d NCIt concept embeddings", total)
     return total, digest.hexdigest()
 
@@ -276,14 +277,14 @@ async def ncit_source_fingerprint(
     """Hash the exact ordered records used as NCIt embedding input."""
     digest = hashlib.sha256()
     total = 0
-    offset = 0
+    after: str | None = None
     while True:
-        records = await store.embedding_records(limit=batch_size, offset=offset)
+        records = await store.embedding_records(limit=batch_size, after=after)
         if not records:
             break
         _update_record_digest(digest, records)
         total += len(records)
-        offset += batch_size
+        after = records[-1]["iri"]
     return total, digest.hexdigest()
 
 

@@ -18,8 +18,8 @@ permissions:
 jobs:
   # Path filter so scoped PRs skip irrelevant job trees. Conservative: the heavy test
   # jobs also run unconditionally on push to main (post-merge full validation), and the
-  # universal `quality` gate below is never skipped. (docker-build is the exception — it
-  # is path-gated even on push, since it only needs to run when image inputs change.)
+  # universal `quality` gate below is never skipped. Docker-build and the heavy pinned
+  # model contract are path-gated even on push because their inputs are explicit.
   changes:
     name: detect changes
     runs-on: ubuntu-latest

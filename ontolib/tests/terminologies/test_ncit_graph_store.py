@@ -232,7 +232,7 @@ async def test_embedding_records_returns_records_with_all_fields(
     ncit_stub_url: str,
 ) -> None:
     async with OxigraphHttpClient(ncit_stub_url) as client:
-        records = await NcitGraphStore(client).embedding_records(limit=200, offset=0)
+        records = await NcitGraphStore(client).embedding_records(limit=200)
 
     assert len(records) == 1
     assert records[0]["code"] == "C3262"

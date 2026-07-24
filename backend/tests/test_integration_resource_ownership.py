@@ -1136,7 +1136,8 @@ def test_all_runner_keeps_full_store_contracts_explicit() -> None:
 
     assert integration_suites
     assert all(
-        "integration and not full_store" in suite.cmd for suite in integration_suites
+        "integration and not full_store and not full_build" in suite.cmd
+        for suite in integration_suites
     )
     assert all(
         "scripts/run_safe_integration.py" in suite.cmd for suite in integration_suites
