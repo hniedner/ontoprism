@@ -1,4 +1,8 @@
-"""NCIt read-API contracts against a bounded disposable store (no mocks)."""
+"""NCIt read-API contracts against a bounded disposable store (no mocks).
+
+Two `full_store`-marked contracts (list-without-query, guarded SPARQL) still run
+against the configured real store; see AGENTS.md's `full_store` marker.
+"""
 
 import pytest
 from fastapi.testclient import TestClient

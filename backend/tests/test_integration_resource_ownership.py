@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import ast
+import fcntl
+import json
 import os
 import shutil
 import subprocess
+import tempfile
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
 from scripts.test_runner import suites
 from test_support.integration_resources import (
+    DockerRun,
     IntegrationConnectionPolicy,
     IntegrationResourceOwner,
     IntegrationTestDeclaration,
@@ -26,6 +32,42 @@ from test_support.integration_resources import (
     validate_integration_test_declaration,
     validate_mutator_manifest_entries,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    _DockerRunner = DockerRun
+    _ContainerInspector = Callable[
+        [IntegrationResourceOwner, str, _DockerRunner], dict[str, object]
+    ]
+    _OxigraphOwnerVerifier = Callable[
+        [IntegrationResourceOwner, str, Path, _DockerRunner], None
+    ]
+
+
+# xdist collection is a synchronized barrier: every worker collects independently
+# and the controller verifies all collections match *before* dispatching any test
+# to run, so a file written during test *execution* can never affect any worker's
+# collection phase (confirmed against pytest-xdist's documented behavior and every
+# publicly reported "Different tests were collected" cause, all of which trace to
+# non-deterministic collection-time state, never a same-run filesystem write). The
+# real race is at *execution* time: this probe test and the two scanner tests below
+# each independently re-scan the live `backend/tests/` tree while other tests run
+# concurrently on other workers, so a transient probe write can be observed by a
+# concurrently-executing scanner as an unmanifested mutator. A cross-process file
+# lock — every worker is a separate OS process — is the correct fix for that.
+_TREE_SCAN_LOCK = Path(tempfile.gettempdir()) / "ontoprism-tree-scan.lock"
+
+
+@contextmanager
+def _exclusive_tree_scan() -> Iterator[None]:
+    """Serialize real-tree scans against the collection-hook probe test."""
+    with _TREE_SCAN_LOCK.open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _declared_markers_and_fixtures(source: str) -> tuple[set[str], set[str]]:
@@ -126,9 +168,33 @@ def test_owner_derives_admin_and_isolated_database_urls() -> None:
     )
     assert owner.database_url(configured) == (
         "postgresql+asyncpg://ontoprism_test_019f8d64b0e274e2931a15452959797a:"
-        "019f8d64b0e274e2931a15452959797a@localhost:5433/"
+        f"{owner.secret}@localhost:5433/"
         "ontoprism_test_019f8d64b0e274e2931a15452959797a"
     )
+
+
+@pytest.mark.unit
+def test_secret_is_independent_random_material_not_derived_from_the_nonce() -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    same_nonce = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+
+    assert owner.secret != owner.nonce
+    assert owner.nonce not in owner.secret
+    # Two owners sharing a nonce must NOT share a secret: unlike a deterministic
+    # hash of nonce, recovering one owner's nonce (via an inspectable channel)
+    # must never let anyone derive another (or the same) owner's credential.
+    assert owner.secret != same_nonce.secret
+    # secret is excluded from equality/repr: identity is nonce-based only.
+    assert owner == same_nonce
+    assert "secret" not in repr(owner)
+    # secret is `init=False`: unlike `nonce` it is interpolated verbatim into raw,
+    # non-parameterized SQL and has no format validation, so it must never be
+    # externally settable. Constructing with a caller-supplied secret must fail.
+    with pytest.raises(TypeError):
+        IntegrationResourceOwner(  # type: ignore[call-arg]
+            nonce="019f8d64b0e274e2931a15452959797a",
+            secret="attacker-controlled",  # noqa: S106
+        )
 
 
 @pytest.mark.unit
@@ -174,11 +240,38 @@ def test_connection_policy_rejects_every_unregistered_tcp_target() -> None:
     with pytest.raises(ResourceOwnershipError, match="malformed"):
         policy.verify_socket_address(("127.0.0.1",))
 
-    policy.register_url("http://127.0.0.1:49152")
-    policy.verify_socket_address(("127.0.0.1", 49152))
-    policy.unregister_url("http://127.0.0.1:49152")
+    with policy.registered("http://127.0.0.1:49152"):
+        policy.verify_socket_address(("127.0.0.1", 49152))
     with pytest.raises(ResourceOwnershipError, match="not owned"):
         policy.verify_socket_address(("127.0.0.1", 49152))
+
+    # The allow-list is `init=False`: `registered()` is the only way to widen it,
+    # so a caller cannot seed a pre-approved target past the loopback checks by
+    # constructing the policy with an initial `_allowed` set.
+    with pytest.raises(TypeError):
+        IntegrationConnectionPolicy(  # type: ignore[call-arg]
+            _allowed={("203.0.113.10", 443)},
+        )
+
+
+def _verify_then_raise_while_registered(
+    policy: IntegrationConnectionPolicy, url: str, address: tuple[str, int]
+) -> None:
+    with policy.registered(url):
+        policy.verify_socket_address(address)  # succeeds while registered
+        raise RuntimeError("boom")
+
+
+@pytest.mark.unit
+def test_registered_unregisters_even_when_the_context_body_raises() -> None:
+    policy = IntegrationConnectionPolicy()
+    url = "http://127.0.0.1:49200"
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _verify_then_raise_while_registered(policy, url, ("127.0.0.1", 49200))
+
+    with pytest.raises(ResourceOwnershipError, match="not owned"):
+        policy.verify_socket_address(("127.0.0.1", 49200))
 
 
 @pytest.mark.unit
@@ -401,7 +494,7 @@ def test_oxigraph_command_is_loopback_disposable_and_digest_pinned() -> None:
         "--env",
         "POSTGRES_USER=ontoprism_admin",
         "--env",
-        f"POSTGRES_PASSWORD={owner.nonce}",
+        f"POSTGRES_PASSWORD={owner.secret}",
         "--env",
         "POSTGRES_DB=postgres",
         "pgvector/pgvector@sha256:"
@@ -451,9 +544,7 @@ def test_oxigraph_ownership_requires_label_mount_and_file_marker() -> None:
 
 
 @pytest.mark.unit
-def test_cleanup_does_not_treat_a_docker_daemon_error_as_absence(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_cleanup_does_not_treat_a_docker_daemon_error_as_absence() -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
 
     def failed_inspect(
@@ -467,10 +558,122 @@ def test_cleanup_does_not_treat_a_docker_daemon_error_as_absence(
             stderr="Cannot connect to the Docker daemon",
         )
 
-    monkeypatch.setattr("test_support.integration_resources.run_docker", failed_inspect)
-
     with pytest.raises(RuntimeError, match="Docker inspect failed"):
-        remove_owned_container_by_name(owner, owner.oxigraph_container_name)
+        remove_owned_container_by_name(
+            owner, owner.oxigraph_container_name, docker_run=failed_inspect
+        )
+
+
+@pytest.mark.unit
+def test_cleanup_treats_a_genuinely_absent_container_as_a_clean_no_op() -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    calls: list[tuple[str, ...]] = []
+
+    def absent_inspect(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        del check
+        calls.append(args)
+        # The real Docker CLI shape for a nonexistent object: lowercase, "error: "
+        # prefixed — not the capitalized "No such object" the old code assumed.
+        return subprocess.CompletedProcess(
+            args=["docker", *args],
+            returncode=1,
+            stdout="",
+            stderr=f"error: no such object: {args[1]}",
+        )
+
+    remove_owned_container_by_name(
+        owner, owner.oxigraph_container_name, docker_run=absent_inspect
+    )
+
+    assert calls == [("inspect", owner.oxigraph_container_name)]
+
+
+@pytest.mark.unit
+def test_inspect_owned_container_rejects_an_id_mismatch(
+    owned_container_inspector: _ContainerInspector,
+) -> None:
+    """Defense-in-depth: unreachable via a real single-full-ID `docker inspect`
+    call, but must fail closed if Docker ever returned a mismatched identity."""
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    requested_id = "0" * 64
+    returned_id = "1" * 64
+
+    def mismatched_id(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        del check
+        return subprocess.CompletedProcess(
+            args=list(args),
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "Id": returned_id,
+                        "Config": {"Labels": {"org.ontoprism.test-owner": owner.nonce}},
+                        "Mounts": [],
+                    }
+                ]
+            ),
+            stderr="",
+        )
+
+    with pytest.raises(ResourceOwnershipError, match="container ID changed"):
+        owned_container_inspector(owner, requested_id, mismatched_id)
+
+
+@pytest.mark.unit
+def test_inspect_owned_container_rejects_a_malformed_config(
+    owned_container_inspector: _ContainerInspector,
+) -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    container_id = "0" * 64
+
+    def malformed_config(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        del check
+        return subprocess.CompletedProcess(
+            args=list(args),
+            returncode=0,
+            stdout=json.dumps([{"Id": container_id, "Config": None, "Mounts": []}]),
+            stderr="",
+        )
+
+    with pytest.raises(ResourceOwnershipError, match="configuration is malformed"):
+        owned_container_inspector(owner, container_id, malformed_config)
+
+
+@pytest.mark.unit
+def test_verify_oxigraph_owner_rejects_malformed_mounts(
+    oxigraph_owner_verifier: _OxigraphOwnerVerifier,
+    tmp_path: Path,
+) -> None:
+    owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
+    container_id = "0" * 64
+
+    def malformed_mounts(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        del check
+        return subprocess.CompletedProcess(
+            args=list(args),
+            returncode=0,
+            stdout=json.dumps(
+                [
+                    {
+                        "Id": container_id,
+                        "Config": {"Labels": {"org.ontoprism.test-owner": owner.nonce}},
+                        "Mounts": "not-a-list",
+                    }
+                ]
+            ),
+            stderr="",
+        )
+
+    with pytest.raises(ResourceOwnershipError, match="mounts are malformed"):
+        oxigraph_owner_verifier(owner, container_id, tmp_path, malformed_mounts)
 
 
 @pytest.mark.unit
@@ -479,7 +682,8 @@ def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> Non
     manifest_path = root / "test_support/integration_mutators.toml"
     with manifest_path.open("rb") as stream:
         entries = tomllib.load(stream)["mutator"]
-    detected = find_persistent_mutators(root)
+    with _exclusive_tree_scan():
+        detected = find_persistent_mutators(root)
 
     assert entries
     for entry in entries:
@@ -594,6 +798,42 @@ def test_owned_migration():
 
 
 @pytest.mark.unit
+def test_mutation_scanner_ignores_hermetic_setup_sql_next_to_an_integration_test(
+    tmp_path: Path,
+) -> None:
+    """A hermetic unit test's own temp-SQLite DDL string must not be mistaken for
+    an integration write signal just because an unrelated integration test lives
+    in the same module."""
+    test_root = tmp_path / "backend/tests"
+    test_root.mkdir(parents=True)
+    path = test_root / "test_mixed_hermetic_and_integration.py"
+    path.write_text(
+        """
+import sqlite3
+
+import pytest
+
+
+def test_hermetic_unit_builds_a_temp_sqlite_schema(tmp_path):
+    conn = sqlite3.connect(tmp_path / "scratch.db")
+    conn.executescript("CREATE TABLE tmp (id INTEGER PRIMARY KEY)")
+    conn.close()
+
+
+@pytest.mark.integration
+async def test_owned_write(connection):
+    await connection.execute("DELETE FROM developer_data")
+""".lstrip()
+    )
+
+    assert find_persistent_mutator_tests(tmp_path) == {
+        "backend/tests/test_mixed_hermetic_and_integration.py": {
+            "test_owned_write": ("persistent SQL write",)
+        }
+    }
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("statement", "expected"),
     [
@@ -682,7 +922,8 @@ def test_every_detected_persistent_mutator_is_in_the_ownership_manifest() -> Non
         entries = tomllib.load(stream)["mutator"]
     manifested = frozenset(entry["path"] for entry in entries)
 
-    assert find_unmanifested_mutators(root, manifested_paths=manifested) == {}
+    with _exclusive_tree_scan():
+        assert find_unmanifested_mutators(root, manifested_paths=manifested) == {}
 
 
 @pytest.mark.unit
@@ -697,6 +938,29 @@ def test_default_integration_command_excludes_explicit_full_store_contracts() ->
     assert "not full_store" in scripts["test-integration"]
     assert "integration and full_store" in scripts["test-integration-full-store"]
     assert any(marker.startswith("full_store:") for marker in markers)
+
+
+@pytest.mark.unit
+def test_mutating_integration_commands_actually_invoke_the_safe_wrapper() -> None:
+    """Marker filtering alone does not prove the safe lane runs: a regression that
+    dropped `scripts/run_safe_integration.py` from these two `pyproject.toml`
+    command strings would leave the sibling marker-only test above green while
+    every mutating test connects with an unpoisoned application environment.
+    `test_all_runner_keeps_full_store_contracts_explicit` below covers the other
+    dispatch path, `scripts/test_runner.py`'s `pdm run test --all`."""
+    root = Path(__file__).resolve().parents[2]
+    with (root / "pyproject.toml").open("rb") as stream:
+        project = tomllib.load(stream)
+    scripts = project["tool"]["pdm"]["scripts"]
+
+    assert "scripts/run_safe_integration.py" in scripts["test-integration"]
+    assert "scripts/run_safe_integration.py" in scripts["test-integration-ci"]
+    # The explicit real-corpus lane must NOT poison application settings — it
+    # needs the actually-configured store, so it must not route through the
+    # safe wrapper.
+    assert (
+        "scripts/run_safe_integration.py" not in scripts["test-integration-full-store"]
+    )
 
 
 @pytest.mark.unit
@@ -759,6 +1023,70 @@ def test_full_store_runner_fails_when_no_contract_is_selected() -> None:
 
 
 @pytest.mark.unit
+def test_collection_hook_rejects_real_noncompliant_tests_end_to_end() -> None:
+    """The `pytest_collection_modifyitems` hook itself — not just the pure
+    validators it calls — must actually reject noncompliant collected tests,
+    across all three reject paths: a marker-only check (mutating_integration
+    without integration), a manifest-only check (missing from
+    integration_mutators.toml), and the scanner-dependent check (a real write
+    signal with `integration` but no `mutating_integration`), which requires a
+    real on-disk file the AST scanner (`test_root.rglob("test_*.py")`) can find.
+    The probe must therefore match that glob, so it holds the shared tree-scan
+    lock for its window: the two scanner tests above independently re-scan the
+    same live tree while other tests execute concurrently on other workers, and
+    must never observe the probe mid-write as an unmanifested mutator.
+    """
+    root = Path(__file__).resolve().parents[2]
+    probe = root / "backend/tests/test_zz_collection_hook_probe.py"
+    with _exclusive_tree_scan():
+        probe.write_text(
+            """
+import pytest
+
+
+@pytest.mark.mutating_integration
+def test_missing_integration_marker() -> None:
+    pass
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_unmanifested_write(connection):
+    await connection.execute("DELETE FROM developer_data")
+
+
+@pytest.mark.integration
+async def test_write_without_mutating_marker(connection):
+    await connection.execute("DELETE FROM developer_data")
+""".lstrip()
+        )
+        try:
+            pytest_executable = shutil.which("pytest")
+            assert pytest_executable is not None
+            result = subprocess.run(  # noqa: S603
+                [pytest_executable, str(probe), "-q"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            probe.unlink(missing_ok=True)
+
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert (
+        "test_missing_integration_marker is mutating_integration without integration"
+        in output
+    )
+    assert "test_unmanifested_write is missing from integration_mutators.toml" in output
+    assert (
+        "test_write_without_mutating_marker has write signals but lacks "
+        "mutating_integration" in output
+    )
+
+
+@pytest.mark.unit
 def test_all_runner_keeps_full_store_contracts_explicit() -> None:
     integration_suites = [
         suite for suite in suites(include_slow=True) if suite.kind == "integration"
@@ -767,6 +1095,9 @@ def test_all_runner_keeps_full_store_contracts_explicit() -> None:
     assert integration_suites
     assert all(
         "integration and not full_store" in suite.cmd for suite in integration_suites
+    )
+    assert all(
+        "scripts/run_safe_integration.py" in suite.cmd for suite in integration_suites
     )
 
 

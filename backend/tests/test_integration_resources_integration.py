@@ -201,7 +201,7 @@ def test_postgres_cleanup_does_not_touch_a_familiar_prefix_decoy(
             make_url(database_url)
             .set(
                 username="ontoprism_admin",
-                password=protected.nonce,
+                password=protected.secret,
                 database="postgres",
             )
             .render_as_string(hide_password=False)
@@ -223,6 +223,125 @@ def test_postgres_cleanup_does_not_touch_a_familiar_prefix_decoy(
                 await connection.close()
 
         assert asyncio.run(owner_marker()) == protected.nonce
+
+
+@pytest.mark.integration
+def test_create_database_refuses_and_cleans_up_a_stale_own_role(
+    postgres_resource_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+    postgres_database_creator: Callable[[IntegrationResourceOwner, str], None],
+) -> None:
+    """A crashed prior attempt can leave this run's own role behind with no
+    database. Retrying creation must refuse (the collision guard) and clean up
+    the orphaned role, without touching the unrelated live fixture database."""
+    protected = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+    stale = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with postgres_resource_provisioner(protected) as (database_url, _container_id):
+        admin_url = (
+            make_url(database_url)
+            .set(
+                username="ontoprism_admin",
+                password=protected.secret,
+                database="postgres",
+            )
+            .render_as_string(hide_password=False)
+        )
+
+        async def precreate_stale_role() -> None:
+            connection = await asyncpg.connect(
+                admin_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+            )
+            try:
+                await connection.execute(
+                    f'CREATE ROLE "{stale.database_role}" '
+                    f"LOGIN PASSWORD '{stale.secret}'"
+                )
+                await connection.execute(
+                    f'COMMENT ON ROLE "{stale.database_role}" IS '
+                    f"'{stale.database_role_comment}'"
+                )
+            finally:
+                await connection.close()
+
+        asyncio.run(precreate_stale_role())
+
+        with pytest.raises(ResourceOwnershipError, match="pre-existing"):
+            postgres_database_creator(stale, admin_url)
+
+        async def role_exists(role: str) -> bool:
+            connection = await asyncpg.connect(
+                admin_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+            )
+            try:
+                return bool(
+                    await connection.fetchval(
+                        "SELECT 1 FROM pg_roles WHERE rolname = $1", role
+                    )
+                )
+            finally:
+                await connection.close()
+
+        assert asyncio.run(role_exists(stale.database_role)) is False
+        assert asyncio.run(role_exists(protected.database_role)) is True
+
+
+@pytest.mark.integration
+def test_create_database_preserves_a_foreign_role_it_cannot_verify(
+    postgres_resource_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+    postgres_database_creator: Callable[[IntegrationResourceOwner, str], None],
+) -> None:
+    """A same-named role this run does not actually own (no matching marker) must
+    survive a refused creation attempt — cleanup fails closed, preserving
+    evidence, rather than silently dropping a role it cannot prove is ours."""
+    protected = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+    foreign = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with postgres_resource_provisioner(protected) as (database_url, _container_id):
+        admin_url = (
+            make_url(database_url)
+            .set(
+                username="ontoprism_admin",
+                password=protected.secret,
+                database="postgres",
+            )
+            .render_as_string(hide_password=False)
+        )
+
+        async def precreate_foreign_role() -> None:
+            connection = await asyncpg.connect(
+                admin_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+            )
+            try:
+                await connection.execute(
+                    f'CREATE ROLE "{foreign.database_role}" LOGIN PASSWORD '
+                    "'unrelated-credential'"
+                )
+            finally:
+                await connection.close()
+
+        asyncio.run(precreate_foreign_role())
+
+        with pytest.raises(ResourceOwnershipError, match="role marker"):
+            postgres_database_creator(foreign, admin_url)
+
+        async def role_exists(role: str) -> bool:
+            connection = await asyncpg.connect(
+                admin_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+            )
+            try:
+                return bool(
+                    await connection.fetchval(
+                        "SELECT 1 FROM pg_roles WHERE rolname = $1", role
+                    )
+                )
+            finally:
+                await connection.close()
+
+        assert asyncio.run(role_exists(foreign.database_role)) is True
 
 
 @pytest.mark.integration
@@ -289,3 +408,163 @@ def test_oxigraph_start_failure_removes_owned_directory(
 
     data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
     assert list(data_dirs) == []
+
+
+@pytest.mark.integration
+def test_oxigraph_docker_port_failure_removes_container_and_directory(
+    oxigraph_docker_port_failure_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+) -> None:
+    owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with (
+        pytest.raises(RuntimeError, match="unexpected container port mapping"),
+        oxigraph_docker_port_failure_provisioner(owner),
+    ):
+        pytest.fail("an unparseable port mapping must not yield an Oxigraph endpoint")
+
+    docker = shutil.which("docker")
+    assert docker is not None
+    inspected = subprocess.run(  # noqa: S603
+        [docker, "inspect", owner.oxigraph_container_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert inspected.returncode != 0
+    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
+    assert list(data_dirs) == []
+
+
+@pytest.mark.integration
+def test_oxigraph_readiness_failure_removes_owned_container_and_directory(
+    oxigraph_readiness_failure_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+) -> None:
+    owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with (
+        pytest.raises(RuntimeError, match="injected Oxigraph readiness failure"),
+        oxigraph_readiness_failure_provisioner(owner),
+    ):
+        pytest.fail("a readiness failure must not yield an Oxigraph endpoint")
+
+    docker = shutil.which("docker")
+    assert docker is not None
+    inspected = subprocess.run(  # noqa: S603
+        [docker, "inspect", owner.oxigraph_container_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert inspected.returncode != 0
+    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
+    assert list(data_dirs) == []
+
+
+@pytest.mark.integration
+def test_oxigraph_docker_id_failure_removes_the_real_started_container(
+    oxigraph_docker_id_failure_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+) -> None:
+    """A real container starts even though the fake `docker run` output lies about
+    its ID; cleanup must remove it by its real, exact name regardless."""
+    owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with (
+        pytest.raises(RuntimeError, match="unexpected container ID"),
+        oxigraph_docker_id_failure_provisioner(owner),
+    ):
+        pytest.fail("a malformed container ID must not yield an Oxigraph endpoint")
+
+    docker = shutil.which("docker")
+    assert docker is not None
+    inspected = subprocess.run(  # noqa: S603
+        [docker, "inspect", owner.oxigraph_container_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert inspected.returncode != 0
+    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
+    assert list(data_dirs) == []
+
+
+@pytest.mark.integration
+def test_postgres_docker_run_failure_removes_partial_container(
+    postgres_docker_run_failure_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+) -> None:
+    owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with (
+        pytest.raises(pytest.fail.Exception),
+        postgres_docker_run_failure_provisioner(owner),
+    ):
+        pass
+
+    docker = shutil.which("docker")
+    assert docker is not None
+    inspected = subprocess.run(  # noqa: S603
+        [docker, "inspect", owner.postgres_container_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert inspected.returncode != 0
+
+
+@pytest.mark.integration
+def test_postgres_docker_port_failure_removes_container(
+    postgres_docker_port_failure_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+) -> None:
+    owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with (
+        pytest.raises(RuntimeError, match="unexpected container port mapping"),
+        postgres_docker_port_failure_provisioner(owner),
+    ):
+        pytest.fail("an unparseable port mapping must not yield a database")
+
+    docker = shutil.which("docker")
+    assert docker is not None
+    inspected = subprocess.run(  # noqa: S603
+        [docker, "inspect", owner.postgres_container_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert inspected.returncode != 0
+
+
+@pytest.mark.integration
+def test_postgres_docker_id_failure_removes_the_real_started_container(
+    postgres_docker_id_failure_provisioner: Callable[
+        [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+    ],
+) -> None:
+    """A real container starts even though the fake `docker run` output lies about
+    its ID; cleanup must remove it by its real, exact name regardless."""
+    owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+    with (
+        pytest.raises(RuntimeError, match="unexpected container ID"),
+        postgres_docker_id_failure_provisioner(owner),
+    ):
+        pytest.fail("a malformed container ID must not yield a database")
+
+    docker = shutil.which("docker")
+    assert docker is not None
+    inspected = subprocess.run(  # noqa: S603
+        [docker, "inspect", owner.postgres_container_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert inspected.returncode != 0

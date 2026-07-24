@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -36,6 +37,7 @@ for _src in ("ontolib/src", "backend/src"):
         sys.path.insert(0, _abs)
 
 from test_support.integration_resources import (  # noqa: E402
+    DockerRun,
     IntegrationConnectionPolicy,
     IntegrationResourceOwner,
     IntegrationTestDeclaration,
@@ -174,7 +176,7 @@ async def _create_test_database(
             async with admin.transaction():
                 await admin.execute(
                     f'CREATE ROLE "{owner.database_role}" '
-                    f"LOGIN PASSWORD '{owner.nonce}'"
+                    f"LOGIN PASSWORD '{owner.secret}'"
                 )
                 await admin.execute(
                     f'COMMENT ON ROLE "{owner.database_role}" IS '
@@ -340,8 +342,10 @@ def _wait_for_postgres(url: str) -> None:
 def _inspect_owned_container(
     owner: IntegrationResourceOwner,
     container_id: str,
+    *,
+    docker_run: DockerRun = run_docker,
 ) -> dict[str, object]:
-    inspected = run_docker("inspect", container_id)
+    inspected = docker_run("inspect", container_id)
     details: dict[str, object] = json.loads(inspected.stdout)[0]
     if details["Id"] != container_id:
         raise ResourceOwnershipError("container ID changed before teardown")
@@ -360,38 +364,43 @@ def _start_owned_container(
     command_line: list[str],
     container_name: str,
     service_port: str,
+    docker_run: DockerRun = run_docker,
 ) -> tuple[str, str]:
     try:
-        started = run_docker(*command_line[1:], check=False)
+        started = docker_run(*command_line[1:], check=False)
     except BaseException:
-        remove_owned_container_by_name(owner, container_name)
+        remove_owned_container_by_name(owner, container_name, docker_run=docker_run)
         raise
     if started.returncode != 0:
-        remove_owned_container_by_name(owner, container_name)
+        remove_owned_container_by_name(owner, container_name, docker_run=docker_run)
         pytest.fail(
             f"disposable container failed to start: "
             f"{started.stderr.strip() or started.stdout.strip()}"
         )
     container_id = started.stdout.strip()
     if re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
-        remove_owned_container_by_name(owner, container_name)
+        remove_owned_container_by_name(owner, container_name, docker_run=docker_run)
         raise RuntimeError(f"unexpected container ID: {container_id!r}")
     try:
-        published = run_docker("port", container_id, service_port).stdout.strip()
+        published = docker_run("port", container_id, service_port).stdout.strip()
         match = _DOCKER_PORT.fullmatch(published)
         if match is None:
             raise RuntimeError(f"unexpected container port mapping: {published!r}")
     except BaseException:
-        _inspect_owned_container(owner, container_id)
-        run_docker("rm", "--force", container_id)
+        _inspect_owned_container(owner, container_id, docker_run=docker_run)
+        docker_run("rm", "--force", container_id)
         raise
     return container_id, match.group(1)
 
 
 def _verify_oxigraph_owner(
-    owner: IntegrationResourceOwner, container_id: str, data_dir: Path
+    owner: IntegrationResourceOwner,
+    container_id: str,
+    data_dir: Path,
+    *,
+    docker_run: DockerRun = run_docker,
 ) -> None:
-    details = _inspect_owned_container(owner, container_id)
+    details = _inspect_owned_container(owner, container_id, docker_run=docker_run)
     mounts = details["Mounts"]
     if not isinstance(mounts, list):
         raise ResourceOwnershipError("Oxigraph container mounts are malformed")
@@ -432,6 +441,7 @@ def _provision_postgres(
     *,
     migrate_database: Callable[[str], None] = _migrate_database,
     wait_for_postgres: Callable[[str], None] = _wait_for_postgres,
+    docker_run: DockerRun = run_docker,
 ) -> Iterator[tuple[str, str]]:
     """Provision a pinned Postgres container and nonce-owned restricted database."""
     container_id, port = _start_owned_container(
@@ -439,35 +449,35 @@ def _provision_postgres(
         command_line=owner.postgres_run_command(),
         container_name=owner.postgres_container_name,
         service_port="5432/tcp",
+        docker_run=docker_run,
     )
     admin_url = (
-        f"postgresql+asyncpg://ontoprism_admin:{owner.nonce}@127.0.0.1:{port}/postgres"
+        f"postgresql+asyncpg://ontoprism_admin:{owner.secret}@127.0.0.1:{port}/postgres"
     )
     database_created = False
     postgres_ready = False
-    _CONNECTION_POLICY.register_url(admin_url)
-    try:
-        wait_for_postgres(admin_url)
-        postgres_ready = True
-        asyncio.run(_create_test_database(owner, admin_url))
-        database_created = True
-        database_url = owner.database_url(admin_url)
-        migrate_database(database_url)
-        yield database_url, container_id
-    finally:
+    with _CONNECTION_POLICY.registered(admin_url):
         try:
-            if postgres_ready:
-                asyncio.run(
-                    _drop_test_database(
-                        owner,
-                        admin_url,
-                        require_schema_marker=database_created,
-                    )
-                )
-            _inspect_owned_container(owner, container_id)
-            run_docker("rm", "--force", container_id)
+            wait_for_postgres(admin_url)
+            postgres_ready = True
+            asyncio.run(_create_test_database(owner, admin_url))
+            database_created = True
+            database_url = owner.database_url(admin_url)
+            migrate_database(database_url)
+            yield database_url, container_id
         finally:
-            _CONNECTION_POLICY.unregister_url(admin_url)
+            try:
+                if postgres_ready:
+                    asyncio.run(
+                        _drop_test_database(
+                            owner,
+                            admin_url,
+                            require_schema_marker=database_created,
+                        )
+                    )
+            finally:
+                _inspect_owned_container(owner, container_id, docker_run=docker_run)
+                docker_run("rm", "--force", container_id)
 
 
 @contextmanager
@@ -476,6 +486,8 @@ def _provision_oxigraph(
     *,
     seed_store: Callable[[str], None] = _seed_oxigraph,
     before_start: Callable[[], None] | None = None,
+    wait_for_oxigraph: Callable[[str], None] = _wait_for_oxigraph,
+    docker_run: DockerRun = run_docker,
 ) -> Iterator[tuple[str, str]]:
     """Provision and exactly tear down one pinned disposable Oxigraph container."""
     prefix = f"ontoprism-oxigraph-{owner.nonce}-"
@@ -492,23 +504,23 @@ def _provision_oxigraph(
             command_line=run_command,
             container_name=owner.oxigraph_container_name,
             service_port="7878/tcp",
+            docker_run=docker_run,
         )
         url = f"http://127.0.0.1:{port}"
-        _CONNECTION_POLICY.register_url(url)
-        _wait_for_oxigraph(url)
-        seed_store(url)
-        yield url, container_id
+        with _CONNECTION_POLICY.registered(url):
+            wait_for_oxigraph(url)
+            seed_store(url)
+            yield url, container_id
     finally:
         try:
             if container_id is not None:
-                _verify_oxigraph_owner(owner, container_id, data_dir)
-                run_docker("rm", "--force", container_id)
-            else:
-                _verify_oxigraph_data_dir(owner, data_dir)
-            shutil.rmtree(data_dir)
+                _verify_oxigraph_owner(
+                    owner, container_id, data_dir, docker_run=docker_run
+                )
+                docker_run("rm", "--force", container_id)
         finally:
-            if url is not None:
-                _CONNECTION_POLICY.unregister_url(url)
+            _verify_oxigraph_data_dir(owner, data_dir)
+            shutil.rmtree(data_dir)
 
 
 @pytest.fixture(scope="session")
@@ -523,7 +535,12 @@ def isolated_postgres_url(
 ) -> Iterator[str]:
     """Yield one process-shared, migrated database in a disposable container.
 
-    Mutating tests clean their exact rows and any schema round-trip restores ``head``.
+    The whole database is destroyed at session end, but that is not a cleanup
+    substitute within the session: most consuming tests still `DELETE` their own
+    rows because a *later* test in the same session depends on their absence.
+    Two schema round-trip tests restore ``head`` afterward for the same reason.
+    Only a couple of tests skip cleanup entirely, where no later test depends on
+    the absence of what they wrote.
     """
     with _provision_postgres(integration_resource_owner) as (
         database_url,
@@ -583,6 +600,65 @@ def postgres_readiness_failure_provisioner() -> Callable[
 
 
 @pytest.fixture
+def postgres_docker_run_failure_provisioner() -> Callable[
+    [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+]:
+    """Return a context factory that injects failure at the `docker run` step."""
+
+    def fail_at_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "run":
+            return subprocess.CompletedProcess(
+                args=list(args),
+                returncode=1,
+                stdout="",
+                stderr="injected docker run failure",
+            )
+        return run_docker(*args, check=check)
+
+    return lambda owner: _provision_postgres(owner, docker_run=fail_at_run)
+
+
+@pytest.fixture
+def postgres_docker_port_failure_provisioner() -> Callable[
+    [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+]:
+    """Return a context factory that injects failure at the `docker port` step."""
+
+    def fail_at_port(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "port":
+            return subprocess.CompletedProcess(
+                args=list(args), returncode=0, stdout="not-a-port-mapping", stderr=""
+            )
+        return run_docker(*args, check=check)
+
+    return lambda owner: _provision_postgres(owner, docker_run=fail_at_port)
+
+
+@pytest.fixture
+def postgres_docker_id_failure_provisioner() -> Callable[
+    [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+]:
+    """Return a context factory that lies about a real `docker run`'s container ID."""
+
+    def fail_at_run_id(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        result = run_docker(*args, check=check)
+        if args and args[0] == "run" and result.returncode == 0:
+            return subprocess.CompletedProcess(
+                args=result.args,
+                returncode=0,
+                stdout="not-a-container-id",
+                stderr=result.stderr,
+            )
+        return result
+
+    return lambda owner: _provision_postgres(owner, docker_run=fail_at_run_id)
+
+
+@pytest.fixture
 def postgres_database_dropper() -> Callable[[IntegrationResourceOwner, str], None]:
     """Attempt exact database cleanup for reject-branch lifecycle contracts."""
 
@@ -590,6 +666,56 @@ def postgres_database_dropper() -> Callable[[IntegrationResourceOwner, str], Non
         asyncio.run(_drop_test_database(owner, admin_url))
 
     return drop
+
+
+@pytest.fixture
+def postgres_database_creator() -> Callable[[IntegrationResourceOwner, str], None]:
+    """Attempt exact database/role creation for reject-branch lifecycle contracts."""
+
+    def create(owner: IntegrationResourceOwner, admin_url: str) -> None:
+        asyncio.run(_create_test_database(owner, admin_url))
+
+    return create
+
+
+@pytest.fixture
+def owned_container_inspector() -> Callable[
+    [IntegrationResourceOwner, str, DockerRun],
+    dict[str, object],
+]:
+    """Attempt exact container inspection for reject-branch lifecycle contracts."""
+
+    def inspect(
+        owner: IntegrationResourceOwner,
+        container_id: str,
+        docker_run: DockerRun,
+    ) -> dict[str, object]:
+        return _inspect_owned_container(owner, container_id, docker_run=docker_run)
+
+    return inspect
+
+
+@pytest.fixture
+def oxigraph_owner_verifier() -> Callable[
+    [
+        IntegrationResourceOwner,
+        str,
+        Path,
+        DockerRun,
+    ],
+    None,
+]:
+    """Attempt exact Oxigraph ownership verification for reject-branch contracts."""
+
+    def verify(
+        owner: IntegrationResourceOwner,
+        container_id: str,
+        data_dir: Path,
+        docker_run: DockerRun,
+    ) -> None:
+        _verify_oxigraph_owner(owner, container_id, data_dir, docker_run=docker_run)
+
+    return verify
 
 
 @pytest.fixture
@@ -622,6 +748,58 @@ def oxigraph_start_failure_provisioner() -> Callable[
         raise RuntimeError("injected Oxigraph start failure")
 
     return lambda owner: _provision_oxigraph(owner, before_start=fail_start)
+
+
+@pytest.fixture
+def oxigraph_readiness_failure_provisioner() -> Callable[
+    [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+]:
+    """Return a context factory that injects failure before the store is ready."""
+
+    def fail_readiness(_url: str) -> None:
+        raise RuntimeError("injected Oxigraph readiness failure")
+
+    return lambda owner: _provision_oxigraph(owner, wait_for_oxigraph=fail_readiness)
+
+
+@pytest.fixture
+def oxigraph_docker_id_failure_provisioner() -> Callable[
+    [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+]:
+    """Return a context factory that lies about a real `docker run`'s container ID."""
+
+    def fail_at_run_id(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        result = run_docker(*args, check=check)
+        if args and args[0] == "run" and result.returncode == 0:
+            return subprocess.CompletedProcess(
+                args=result.args,
+                returncode=0,
+                stdout="not-a-container-id",
+                stderr=result.stderr,
+            )
+        return result
+
+    return lambda owner: _provision_oxigraph(owner, docker_run=fail_at_run_id)
+
+
+@pytest.fixture
+def oxigraph_docker_port_failure_provisioner() -> Callable[
+    [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
+]:
+    """Return a context factory that injects failure at the `docker port` step."""
+
+    def fail_at_port(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == "port":
+            return subprocess.CompletedProcess(
+                args=list(args), returncode=0, stdout="not-a-port-mapping", stderr=""
+            )
+        return run_docker(*args, check=check)
+
+    return lambda owner: _provision_oxigraph(owner, docker_run=fail_at_port)
 
 
 @pytest.fixture
