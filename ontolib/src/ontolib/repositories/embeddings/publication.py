@@ -135,6 +135,39 @@ class CorpusManifest:
     created_at: datetime
     completed_at: datetime | None
 
+    def __post_init__(self) -> None:
+        validators = {
+            "building": _validate_building_manifest,
+            "failed": _validate_failed_manifest,
+            "complete": _validate_complete_manifest,
+        }
+        validators[self.state](self)
+
+
+def _validate_building_manifest(manifest: CorpusManifest) -> None:
+    terminal = (
+        manifest.is_active,
+        manifest.actual_row_count,
+        manifest.completed_at,
+        manifest.error_message,
+    )
+    if any(value is not None and value is not False for value in terminal):
+        raise ValueError("building manifest contains terminal evidence")
+
+
+def _validate_failed_manifest(manifest: CorpusManifest) -> None:
+    if manifest.is_active or manifest.actual_row_count is not None:
+        raise ValueError("failed manifest has invalid lifecycle evidence")
+    if manifest.completed_at is not None or not (manifest.error_message or "").strip():
+        raise ValueError("failed manifest has invalid lifecycle evidence")
+
+
+def _validate_complete_manifest(manifest: CorpusManifest) -> None:
+    if manifest.actual_row_count != manifest.expected_row_count:
+        raise ValueError("complete manifest has invalid lifecycle evidence")
+    if manifest.completed_at is None or manifest.error_message is not None:
+        raise ValueError("complete manifest has invalid lifecycle evidence")
+
 
 def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(repr(float(value)) for value in vector) + "]"
@@ -180,6 +213,10 @@ class EmbeddingCorpusPublisher:
                 await self._insert_manifest(session)
             elif existing.state == "complete":
                 self._require_same_contract(existing)
+                if not existing.is_active:
+                    raise CorpusBuildStateError(
+                        f"completed build {self.build.build_id} is no longer active"
+                    )
                 return existing
             else:
                 await self._restart_manifest(session, existing, restart=restart)
@@ -368,6 +405,15 @@ class EmbeddingCorpusPublisher:
         if not error_message.strip():
             raise ValueError("error_message must be non-empty")
         async with self._sf() as session, session.begin():
+            existing = await self._select_manifest(session, for_update=True)
+            if existing is None:
+                raise CorpusBuildStateError(
+                    f"build {self.build.build_id} does not exist"
+                )
+            if existing.state == "complete":
+                raise CorpusBuildStateError(
+                    f"cannot fail completed build {self.build.build_id}"
+                )
             await session.execute(
                 text("DELETE FROM embedding_corpus_staging WHERE build_id = :build_id"),
                 {"build_id": self.build.build_id},

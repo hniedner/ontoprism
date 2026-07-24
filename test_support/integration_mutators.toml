@@ -102,6 +102,11 @@ fixtures = ["postgres_docker_id_failure_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
+tests = ["test_legacy_embedding_tables_stamp_predecessor_then_upgrade"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "backend/tests/test_migrations_integration.py"
 tests = ["test_migration_upgrade_downgrade_roundtrip"]
 fixtures = ["isolated_postgres_settings"]
 

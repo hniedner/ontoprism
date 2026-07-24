@@ -392,6 +392,22 @@ async def test_completed_build_id_refuses_changed_provenance(
         await changed.start()
 
 
+async def test_inactive_completed_build_cannot_be_reused_or_failed(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+    replacement = EmbeddingCorpusPublisher(session_factory, _build(_NEW_BUILD))
+    await replacement.start()
+    await replacement.stage([_row("C3262", 1.0), _row("NEW", 0.9)])
+    await replacement.publish()
+    old = EmbeddingCorpusPublisher(session_factory, _build(_OLD_BUILD))
+
+    with pytest.raises(CorpusBuildStateError, match="no longer active"):
+        await old.start()
+    with pytest.raises(CorpusBuildStateError, match="cannot fail completed"):
+        await old.fail("must not rewrite history")
+
+
 async def test_stage_rejects_invalid_batches_before_database_write(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -492,9 +508,55 @@ async def test_concurrent_publishers_serialize_to_one_consistent_active_corpus(
     assert await _active_rows(session_factory) == expected_rows
 
 
+async def test_reader_blocks_during_activation_then_sees_complete_new_corpus(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+    publisher = EmbeddingCorpusPublisher(session_factory, _build(_NEW_BUILD))
+    await publisher.start()
+    await publisher.stage([_row("C3262", 1.0), _row("C9305", 0.9)])
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            text(
+                "CREATE FUNCTION pause_embedding_activation() RETURNS trigger "
+                "LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.5); RETURN NEW; END $$"
+            )
+        )
+        await session.execute(
+            text(
+                "CREATE TRIGGER pause_embedding_activation BEFORE UPDATE "
+                "ON embedding_corpus_manifest FOR EACH ROW "
+                "WHEN (NEW.build_id = '00000000-0000-0000-0000-000000000002'::uuid "
+                "AND NEW.state = 'complete') EXECUTE FUNCTION "
+                "pause_embedding_activation()"
+            )
+        )
+
+    publish_task = asyncio.create_task(publisher.publish())
+    await asyncio.sleep(0.1)
+    read_task = asyncio.create_task(
+        EmbeddingStore(session_factory).similar_ncit("C3262")
+    )
+    await asyncio.sleep(0.1)
+
+    assert not publish_task.done()
+    assert not read_task.done()
+    hits = await read_task
+    await publish_task
+    assert hits
+    assert hits[0][0] == "C9305"
+
+
 async def test_published_corpus_has_usable_rebuilt_hnsw_index(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
+    async with session_factory() as session:
+        before_node = await session.scalar(
+            text(
+                "SELECT relfilenode FROM pg_class "
+                "WHERE relname = 'idx_ncit_concepts_hnsw'"
+            )
+        )
     publisher = EmbeddingCorpusPublisher(session_factory, _build(_NEW_BUILD))
     await publisher.start()
     await publisher.stage([_row("C3262", 1.0), _row("C9305", 0.9)])
@@ -513,7 +575,14 @@ async def test_published_corpus_has_usable_rebuilt_hnsw_index(
                 )
             ).scalars()
         )
+        after_node = await session.scalar(
+            text(
+                "SELECT relfilenode FROM pg_class "
+                "WHERE relname = 'idx_ncit_concepts_hnsw'"
+            )
+        )
 
+    assert before_node != after_node
     assert "idx_ncit_concepts_hnsw" in plan
 
 

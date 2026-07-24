@@ -58,7 +58,7 @@ def upgrade() -> None:
                     AND actual_row_count IS NULL AND completed_at IS NULL
                     AND error_message IS NULL)
                 OR (state = 'failed' AND NOT is_active
-                    AND completed_at IS NULL
+                    AND actual_row_count IS NULL AND completed_at IS NULL
                     AND nullif(btrim(error_message), '') IS NOT NULL)
                 OR (state = 'complete'
                     AND actual_row_count = expected_row_count

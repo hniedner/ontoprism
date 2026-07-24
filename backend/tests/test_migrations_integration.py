@@ -180,6 +180,57 @@ def test_migration_upgrade_downgrade_roundtrip() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "0001_embedding_tables")
+
+    async def seed_legacy() -> None:
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "INSERT INTO ncit_concepts (doc_id, embedding, metadata) "
+                "VALUES ('LEGACY', $1::vector, '{}'::jsonb)",
+                "[" + ",".join(["0.5"] * 768) + "]",
+            )
+            await conn.execute("DROP TABLE alembic_version")
+        finally:
+            await conn.close()
+
+    async def legacy_facts() -> tuple[str | None, int, int]:
+        conn = await asyncpg.connect(dsn)
+        try:
+            return (
+                await conn.fetchval("SELECT version_num FROM alembic_version"),
+                await conn.fetchval(
+                    "SELECT count(*) FROM ncit_concepts WHERE doc_id = 'LEGACY'"
+                ),
+                await conn.fetchval(
+                    "SELECT count(*) FROM information_schema.tables WHERE table_name "
+                    "IN ('embedding_corpus_manifest','embedding_corpus_staging')"
+                ),
+            )
+        finally:
+            await conn.close()
+
+    try:
+        asyncio.run(seed_legacy())
+        command.stamp(cfg, "0001_embedding_tables")
+        command.upgrade(cfg, "head")
+        revision, legacy_rows, publication_tables = asyncio.run(legacy_facts())
+    finally:
+        command.upgrade(cfg, "head")
+
+    assert revision == "0007_embedding_publication"
+    assert legacy_rows == 1
+    assert publication_tables == 2
+
+
+@pytest.mark.integration
 @pytest.mark.full_store
 def test_migration_matches_cloned_db_schema() -> None:
     # Parity: the live/cloned DB (created by pg_dump) must match what the migration

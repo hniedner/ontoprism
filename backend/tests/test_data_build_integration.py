@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
+from scripts.data_build import _publish_cadsr_embeddings, _publish_ncit_embeddings
 from sqlalchemy import text
 
 from backend.config import get_settings
@@ -226,6 +227,82 @@ async def test_embedding_operator_inspects_then_refuses_implicit_write(
         )
     assert list(rows.scalars()) == ["OLD"]
     assert manifests == 0
+
+
+@pytest.mark.integration
+async def test_production_ncit_publisher_records_source_and_refreshes_fts(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = get_settings().ncit_sparql_url
+    async with OxigraphHttpClient(url) as client:
+        count = await NcitGraphStore(client).embedding_record_count()
+    monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
+    get_settings.cache_clear()
+    build_id = uuid4()
+
+    published = await _publish_ncit_embeddings(
+        build_id,
+        restart=False,
+        embedder=_StubEmbedder(),  # type: ignore[arg-type]
+        code_commit="d" * 40,
+    )
+
+    assert published == count
+    async with session_factory() as session:
+        manifest = (
+            await session.execute(
+                text(
+                    "SELECT source_version, source_hash, actual_row_count, "
+                    "model_revision, is_active FROM embedding_corpus_manifest "
+                    "WHERE build_id = :build_id"
+                ),
+                {"build_id": build_id},
+            )
+        ).one()
+        search_count = await session.scalar(text("SELECT count(*) FROM ncit_search"))
+    assert manifest.source_version == "26.02d"
+    assert len(manifest.source_hash) == 64
+    assert manifest.actual_row_count == count
+    assert manifest.model_revision
+    assert manifest.is_active
+    assert search_count == count
+
+
+@pytest.mark.integration
+async def test_production_cadsr_publisher_records_file_provenance(
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = tmp_path / "cde.db"
+    build_database([_write(tmp_path, _CADSR_XML)], db)
+    monkeypatch.setenv("CADSR_DB_PATH", str(db))
+    monkeypatch.setenv("CADSR_EMBEDDING_EXPECTED_ROWS", "1")
+    get_settings.cache_clear()
+    build_id = uuid4()
+
+    published = await _publish_cadsr_embeddings(
+        build_id,
+        restart=False,
+        embedder=_StubEmbedder(),  # type: ignore[arg-type]
+        code_commit="e" * 40,
+    )
+
+    assert published == 1
+    async with session_factory() as session:
+        manifest = (
+            await session.execute(
+                text(
+                    "SELECT source_version, source_hash, actual_row_count, is_active "
+                    "FROM embedding_corpus_manifest WHERE build_id = :build_id"
+                ),
+                {"build_id": build_id},
+            )
+        ).one()
+    assert manifest.source_version == f"sha256:{manifest.source_hash}"
+    assert len(manifest.source_hash) == 64
+    assert manifest.actual_row_count == 1
+    assert manifest.is_active
 
 
 def _write(tmp_path: Path, xml: str) -> Path:

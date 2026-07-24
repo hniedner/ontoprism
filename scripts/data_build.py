@@ -36,6 +36,7 @@ from ontolib.repositories.embeddings.generate import (
     DEFAULT_MODEL,
     DEFAULT_MODEL_REVISION,
     EMBED_DIM,
+    Embedder,
     SentenceTransformerEmbedder,
     ncit_source_fingerprint,
     stage_cde_embeddings,
@@ -211,7 +212,13 @@ async def _record_build_failure(
         original.add_note(f"Failed to record embedding build failure: {record_error}")
 
 
-async def _publish_ncit_embeddings(build_id: UUID, *, restart: bool) -> int:
+async def _publish_ncit_embeddings(
+    build_id: UUID,
+    *,
+    restart: bool,
+    embedder: Embedder | None = None,
+    code_commit: str | None = None,
+) -> int:
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
@@ -236,14 +243,14 @@ async def _publish_ncit_embeddings(build_id: UUID, *, restart: bool) -> int:
                     model_revision=DEFAULT_MODEL_REVISION,
                     vector_dimension=EMBED_DIM,
                     expected_row_count=settings.ncit_embedding_expected_rows,
-                    code_commit=_code_commit(),
+                    code_commit=code_commit or _code_commit(),
                     required_doc_ids=("C3262",),
                 ),
             )
             await publisher.start(restart=restart)
             try:
                 staged_count, staged_hash = await stage_ncit_embeddings(
-                    store, SentenceTransformerEmbedder(), publisher
+                    store, embedder or SentenceTransformerEmbedder(), publisher
                 )
                 final_version = await client.version()
                 final_count, final_hash = await ncit_source_fingerprint(store)
@@ -269,7 +276,13 @@ async def _publish_ncit_embeddings(build_id: UUID, *, restart: bool) -> int:
     return manifest.actual_row_count or 0
 
 
-async def _publish_cadsr_embeddings(build_id: UUID, *, restart: bool) -> int:
+async def _publish_cadsr_embeddings(
+    build_id: UUID,
+    *,
+    restart: bool,
+    embedder: Embedder | None = None,
+    code_commit: str | None = None,
+) -> int:
     settings = get_settings()
     db_path = Path(settings.cadsr_db_path)
     if not db_path.is_file():
@@ -296,14 +309,14 @@ async def _publish_cadsr_embeddings(build_id: UUID, *, restart: bool) -> int:
                 model_revision=DEFAULT_MODEL_REVISION,
                 vector_dimension=EMBED_DIM,
                 expected_row_count=settings.cadsr_embedding_expected_rows,
-                code_commit=_code_commit(),
+                code_commit=code_commit or _code_commit(),
                 required_doc_ids=("2517527:1.0",),
             ),
         )
         await publisher.start(restart=restart)
         try:
             await stage_cde_embeddings(
-                str(db_path), SentenceTransformerEmbedder(), publisher
+                str(db_path), embedder or SentenceTransformerEmbedder(), publisher
             )
             final_hash = _sha256(db_path)
             with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as connection:
