@@ -17,11 +17,18 @@ from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
-from backend.dependencies import CadsrRepo, NcitClient, NcitSearch, NcitStore
+from backend.dependencies import (
+    CadsrRepo,
+    Embeddings,
+    NcitClient,
+    NcitSearch,
+    NcitStore,
+)
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
+from ontolib.repositories.embeddings.publication import Corpus
 from ontolib.terminologies.ncit.owl_download import (
     OwlDownloadResult,
     download_ncit_owl,
@@ -117,7 +124,9 @@ def _cadsr_status(cadsr: CadsrRepo) -> RepoStatus:
 @router.post(
     "/ncit/reload", response_model=ReloadResponse, dependencies=[RequireApiKey]
 )
-async def reload_ncit(client: NcitClient, body: ReloadRequest) -> ReloadResponse:
+async def reload_ncit(
+    client: NcitClient, embeddings: Embeddings, body: ReloadRequest
+) -> ReloadResponse:
     """Bulk-load a server-side RDF file into the NCIt Oxigraph store.
 
     The source file must resolve inside the configured reload allowlist directory —
@@ -136,6 +145,7 @@ async def reload_ncit(client: NcitClient, body: ReloadRequest) -> ReloadResponse
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")
     try:
         before = await client.count()
+        await embeddings.deactivate(Corpus.NCIT)
         await client.load(
             path.read_bytes(), content_type=content_type, replace=body.replace
         )
@@ -169,7 +179,7 @@ class OwlDownloadReport(BaseModel):
     "/ncit/download", response_model=OwlDownloadReport, dependencies=[RequireApiKey]
 )
 async def download_ncit(
-    client: NcitClient, body: OwlDownloadRequest
+    client: NcitClient, embeddings: Embeddings, body: OwlDownloadRequest
 ) -> OwlDownloadReport:
     """Download the NCIt OWL from NCI EVS; with ``load=True``, reload it into the store.
 
@@ -192,6 +202,7 @@ async def download_ncit(
         return OwlDownloadReport(download=result)
     try:
         before = await client.count()
+        await embeddings.deactivate(Corpus.NCIT)
         await client.load(
             Path(result.file_path).read_bytes(),
             content_type=_OWL_CONTENT_TYPE,

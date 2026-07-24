@@ -28,6 +28,9 @@ class _StubEmbedder:
     def __init__(self) -> None:
         self.seen: list[str] = []
 
+    model_id = "test-stub"
+    model_revision = "1"
+
     def encode(self, texts: list[str]) -> list[list[float]]:
         self.seen.extend(texts)
         return [[float(len(t))] * 3 for t in texts]
@@ -277,6 +280,9 @@ async def test_generate_cde_publishes_after_staging(tmp_path: Path) -> None:
 @pytest.mark.unit
 async def test_generate_ncit_marks_failed_manifest_on_encoder_error() -> None:
     class _BrokenEmbedder:
+        model_id = "test-broken"
+        model_revision = "1"
+
         def encode(self, texts: list[str]) -> list[list[float]]:
             del texts
             raise RuntimeError("encoder exploded")
@@ -310,6 +316,9 @@ async def test_generate_cde_marks_failed_manifest_on_encoder_error(
     tmp_path: Path,
 ) -> None:
     class _BrokenEmbedder:
+        model_id = "test-broken"
+        model_revision = "1"
+
         def encode(self, texts: list[str]) -> list[list[float]]:
             del texts
             raise RuntimeError("cde encoder exploded")
@@ -408,6 +417,9 @@ async def test_generation_preserves_original_error_when_failure_recording_fails(
             raise RuntimeError("manifest unavailable")
 
     class _BrokenEmbedder:
+        model_id = "test-broken"
+        model_revision = "1"
+
         def encode(self, texts: list[str]) -> list[list[float]]:
             del texts
             raise ValueError("original failure")

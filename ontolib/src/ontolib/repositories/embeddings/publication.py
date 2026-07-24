@@ -524,3 +524,17 @@ async def corpus_manifests(
             )
         ).mappings()
         return tuple(_manifest(row) for row in rows)
+
+
+async def deactivate_corpus(
+    session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
+) -> None:
+    """Invalidate active embeddings before the official source is replaced."""
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            text(
+                "UPDATE embedding_corpus_manifest SET is_active = false "
+                "WHERE corpus = :corpus AND is_active"
+            ),
+            {"corpus": corpus.value},
+        )

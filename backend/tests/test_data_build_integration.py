@@ -47,6 +47,9 @@ pytestmark = [
 class _StubEmbedder:
     """Deterministic 768-dim vectors — no model, enough to exercise the pipeline."""
 
+    model_id = "test-deterministic-embedder"
+    model_revision = "1"
+
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [[float((len(t) % 7) + 1) / 8.0] * EMBED_DIM for t in texts]
 
@@ -56,6 +59,9 @@ class _FailAfterOneBatchEmbedder:
 
     def __init__(self) -> None:
         self._calls = 0
+
+    model_id = "test-failing-embedder"
+    model_revision = "1"
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         self._calls += 1
@@ -237,6 +243,7 @@ async def test_production_ncit_publisher_records_source_and_refreshes_fts(
     async with OxigraphHttpClient(url) as client:
         count = await NcitGraphStore(client).embedding_record_count()
     monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
+    monkeypatch.setattr("scripts.data_build._code_commit", lambda: "d" * 40)
     get_settings.cache_clear()
     build_id = uuid4()
 
@@ -244,7 +251,6 @@ async def test_production_ncit_publisher_records_source_and_refreshes_fts(
         build_id,
         restart=False,
         embedder=_StubEmbedder(),  # type: ignore[arg-type]
-        code_commit="d" * 40,
     )
 
     assert published == count
@@ -278,6 +284,7 @@ async def test_production_cadsr_publisher_records_file_provenance(
     build_database([_write(tmp_path, _CADSR_XML)], db)
     monkeypatch.setenv("CADSR_DB_PATH", str(db))
     monkeypatch.setenv("CADSR_EMBEDDING_EXPECTED_ROWS", "1")
+    monkeypatch.setattr("scripts.data_build._code_commit", lambda: "e" * 40)
     get_settings.cache_clear()
     build_id = uuid4()
 
@@ -285,7 +292,6 @@ async def test_production_cadsr_publisher_records_file_provenance(
         build_id,
         restart=False,
         embedder=_StubEmbedder(),  # type: ignore[arg-type]
-        code_commit="e" * 40,
     )
 
     assert published == 1

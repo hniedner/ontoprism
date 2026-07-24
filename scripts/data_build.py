@@ -33,8 +33,6 @@ from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
 from ontolib.repositories.embeddings.generate import (
-    DEFAULT_MODEL,
-    DEFAULT_MODEL_REVISION,
     EMBED_DIM,
     Embedder,
     SentenceTransformerEmbedder,
@@ -47,6 +45,7 @@ from ontolib.repositories.embeddings.publication import (
     CorpusBuild,
     EmbeddingCorpusPublisher,
     corpus_manifests,
+    deactivate_corpus,
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
@@ -116,14 +115,26 @@ def _require_stable_cadsr_source(
 
 async def _build_owl() -> None:
     settings = get_settings()
-    async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
-        loaded = await build_ncit_store(client, Path(settings.ncit_owl_dir))
+    engine = make_engine(settings.database_url)
+    try:
+        await deactivate_corpus(make_sessionmaker(engine), Corpus.NCIT)
+        async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+            loaded = await build_ncit_store(client, Path(settings.ncit_owl_dir))
+    finally:
+        await dispose_engine(engine)
     typer.echo(f"Loaded NCIt OWL variants: {', '.join(sorted(loaded))}")
 
 
 def _build_cadsr() -> None:
     settings = get_settings()
     data_dir = Path(settings.cadsr_data_dir)
+
+    async def _deactivate() -> None:
+        engine = make_engine(settings.database_url)
+        try:
+            await deactivate_corpus(make_sessionmaker(engine), Corpus.CADSR)
+        finally:
+            await dispose_engine(engine)
 
     async def _download() -> Path:
         outcome = await download_cadsr_cdes(
@@ -140,6 +151,7 @@ def _build_cadsr() -> None:
     if not xml_paths:
         typer.echo("No CDE XML found in the downloaded archive.", err=True)
         raise typer.Exit(code=1)
+    asyncio.run(_deactivate())
     count = build_database(xml_paths, Path(settings.cadsr_db_path))
     if count == 0:
         typer.echo("caDSR build produced 0 CDEs — aborting.", err=True)
@@ -155,12 +167,14 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _code_commit() -> str:
+def _code_commit(repo: Path | None = None) -> str:
+    root = repo or Path.cwd()
     executable = shutil.which("git")
     if executable is None:
         raise RuntimeError("git is required to identify the embedding build commit")
     status = subprocess.run(  # noqa: S603
         [executable, "status", "--porcelain"],
+        cwd=root,
         check=True,
         capture_output=True,
         text=True,
@@ -172,6 +186,7 @@ def _code_commit() -> str:
         )
     result = subprocess.run(  # noqa: S603
         [executable, "rev-parse", "HEAD"],
+        cwd=root,
         check=True,
         capture_output=True,
         text=True,
@@ -208,7 +223,7 @@ async def _record_build_failure(
 ) -> None:
     try:
         await publisher.fail(f"{type(original).__name__}: {original}")
-    except BaseException as record_error:
+    except Exception as record_error:
         original.add_note(f"Failed to record embedding build failure: {record_error}")
 
 
@@ -217,7 +232,6 @@ async def _publish_ncit_embeddings(
     *,
     restart: bool,
     embedder: Embedder | None = None,
-    code_commit: str | None = None,
 ) -> int:
     settings = get_settings()
     engine = make_engine(settings.database_url)
@@ -232,6 +246,7 @@ async def _publish_ncit_embeddings(
                 expected_version=settings.ncit_expected_version,
                 expected_count=settings.ncit_embedding_expected_rows,
             )
+            encoder = embedder or SentenceTransformerEmbedder()
             publisher = EmbeddingCorpusPublisher(
                 sf,
                 CorpusBuild(
@@ -239,18 +254,18 @@ async def _publish_ncit_embeddings(
                     corpus=Corpus.NCIT,
                     source_version=source_version,
                     source_hash=source_hash,
-                    model_id=DEFAULT_MODEL,
-                    model_revision=DEFAULT_MODEL_REVISION,
+                    model_id=encoder.model_id,
+                    model_revision=encoder.model_revision,
                     vector_dimension=EMBED_DIM,
                     expected_row_count=settings.ncit_embedding_expected_rows,
-                    code_commit=code_commit or _code_commit(),
+                    code_commit=_code_commit(),
                     required_doc_ids=("C3262",),
                 ),
             )
             await publisher.start(restart=restart)
             try:
                 staged_count, staged_hash = await stage_ncit_embeddings(
-                    store, embedder or SentenceTransformerEmbedder(), publisher
+                    store, encoder, publisher
                 )
                 final_version = await client.version()
                 final_count, final_hash = await ncit_source_fingerprint(store)
@@ -268,7 +283,7 @@ async def _publish_ncit_embeddings(
                 # failed to the operator.
                 await populate_from_store(store, NcitSearchIndex(sf))
                 manifest = await publisher.publish()
-            except BaseException as exc:
+            except Exception as exc:
                 await _record_build_failure(publisher, exc)
                 raise
     finally:
@@ -281,7 +296,6 @@ async def _publish_cadsr_embeddings(
     *,
     restart: bool,
     embedder: Embedder | None = None,
-    code_commit: str | None = None,
 ) -> int:
     settings = get_settings()
     db_path = Path(settings.cadsr_db_path)
@@ -298,6 +312,7 @@ async def _publish_cadsr_embeddings(
     engine = make_engine(settings.database_url)
     try:
         sf = make_sessionmaker(engine)
+        encoder = embedder or SentenceTransformerEmbedder()
         publisher = EmbeddingCorpusPublisher(
             sf,
             CorpusBuild(
@@ -305,19 +320,17 @@ async def _publish_cadsr_embeddings(
                 corpus=Corpus.CADSR,
                 source_version=f"sha256:{source_hash}",
                 source_hash=source_hash,
-                model_id=DEFAULT_MODEL,
-                model_revision=DEFAULT_MODEL_REVISION,
+                model_id=encoder.model_id,
+                model_revision=encoder.model_revision,
                 vector_dimension=EMBED_DIM,
                 expected_row_count=settings.cadsr_embedding_expected_rows,
-                code_commit=code_commit or _code_commit(),
+                code_commit=_code_commit(),
                 required_doc_ids=("2517527:1.0",),
             ),
         )
         await publisher.start(restart=restart)
         try:
-            await stage_cde_embeddings(
-                str(db_path), embedder or SentenceTransformerEmbedder(), publisher
-            )
+            await stage_cde_embeddings(str(db_path), encoder, publisher)
             final_hash = _sha256(db_path)
             with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as connection:
                 final_count = int(
@@ -327,7 +340,7 @@ async def _publish_cadsr_embeddings(
                 (source_hash, expected), (final_hash, final_count)
             )
             manifest = await publisher.publish()
-        except BaseException as exc:
+        except Exception as exc:
             await _record_build_failure(publisher, exc)
             raise
     finally:

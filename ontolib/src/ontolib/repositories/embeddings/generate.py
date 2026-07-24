@@ -39,6 +39,12 @@ _MAX_DEFINITION = 500
 class Embedder(Protocol):
     """Encodes a batch of texts into fixed-width float vectors."""
 
+    @property
+    def model_id(self) -> str: ...
+
+    @property
+    def model_revision(self) -> str: ...
+
     def encode(self, texts: list[str]) -> list[list[float]]: ...
 
 
@@ -85,6 +91,8 @@ class SentenceTransformerEmbedder:
         import importlib  # noqa: PLC0415
 
         st = importlib.import_module("sentence_transformers")
+        self.model_id = model_name
+        self.model_revision = model_revision
         self._model = st.SentenceTransformer(model_name, revision=model_revision)
 
     def encode(self, texts: list[str]) -> list[list[float]]:
@@ -272,7 +280,7 @@ async def _record_failure(
 ) -> None:
     try:
         await publisher.fail(f"{type(original).__name__}: {original}")
-    except BaseException as record_error:
+    except Exception as record_error:
         original.add_note(f"Failed to record embedding build failure: {record_error}")
 
 
@@ -291,7 +299,7 @@ async def generate_cde_embeddings(
     try:
         await stage_cde_embeddings(db_path, embedder, publisher, batch_size=batch_size)
         return await publisher.publish()
-    except BaseException as exc:
+    except Exception as exc:
         await _record_failure(publisher, exc)
         raise
 
@@ -311,6 +319,6 @@ async def generate_ncit_embeddings(
     try:
         await stage_ncit_embeddings(store, embedder, publisher, batch_size=batch_size)
         return await publisher.publish()
-    except BaseException as exc:
+    except Exception as exc:
         await _record_failure(publisher, exc)
         raise

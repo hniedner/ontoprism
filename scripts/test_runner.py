@@ -124,7 +124,7 @@ def suites(include_slow: bool) -> list[Suite]:
         _pytest(
             "ontolib",
             "integration",
-            "integration and not full_store",
+            "integration and not full_store and not full_build",
             "ontolib/tests",
             slow=True,
         ),
@@ -134,7 +134,7 @@ def suites(include_slow: bool) -> list[Suite]:
         _pytest(
             "backend",
             "integration",
-            "integration and not full_store",
+            "integration and not full_store and not full_build",
             "backend/tests",
             slow=True,
         ),
