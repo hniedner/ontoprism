@@ -1,11 +1,8 @@
-"""Integration tests for the decomposition query layer against a live Oxigraph.
+"""Integration tests for the decomposition query layer against real Oxigraph.
 
-Two tiers, both auto-skipping when unavailable:
-- The stated-graph SPARQL builders must *parse* against a real engine (property paths,
-  GRAPH, VALUES). Runs whenever the store is reachable, even with an empty stated graph.
-- The full roles-first extraction of ``C6135`` runs only once the **stated** NCIt OWL is
-  loaded into ``STATED_GRAPH_IRI`` (skipped until then — the inferred build alone is not
-  enough; see design §2).
+Two explicit tiers:
+- SPARQL builders parse against the bounded disposable engine.
+- ``full_store`` contracts run only against configured stated NCIt.
 """
 
 from __future__ import annotations
@@ -75,11 +72,10 @@ def _stated_loaded(url: str) -> bool:
 
 
 @pytest.mark.integration
-async def test_stated_query_builders_parse_against_live_store() -> None:
-    url = _url()
-    if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
-    async with OxigraphHttpClient(url) as client:
+async def test_stated_query_builders_parse_against_disposable_store(
+    isolated_oxigraph_url: str,
+) -> None:
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
         assert isinstance(
             await client.select(build_role_restrictions_query("C6135")), list
         )
@@ -99,6 +95,7 @@ async def test_stated_query_builders_parse_against_live_store() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.full_store
 async def test_in_scope_concepts_query_pages_over_the_live_stated_graph() -> None:
     url = _url()
     if not _reachable(url):
@@ -116,6 +113,7 @@ async def test_in_scope_concepts_query_pages_over_the_live_stated_graph() -> Non
 
 
 @pytest.mark.integration
+@pytest.mark.full_store
 async def test_c6135_genus_walk_finds_roles() -> None:
     """The genus-chain walker must find role restrictions for C6135 from the
     stated graph. Previously the flat ``rdfs:subClassOf`` query returned nothing
@@ -147,6 +145,7 @@ async def test_c6135_genus_walk_finds_roles() -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.full_store
 async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
     """After the genus-chain walker, feeding roles through ``select_constituents``
     with ``semantic_type_of`` should apply D19/D20 axis routing.
@@ -213,6 +212,7 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.full_store
 async def test_resolve_morphology_filler_for_c6135() -> None:
     """The morphology filler for C6135 should be C3879 (Thyroid Gland Medullary
     Carcinoma), not the staging genus C141041.
@@ -235,6 +235,7 @@ async def test_resolve_morphology_filler_for_c6135() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.full_store
 async def test_c6135_decomposition_includes_morphology_constituent() -> None:
     """When morphology is resolved, the decomposition should include an
     op:Morphology constituent with axis_source='parent'."""

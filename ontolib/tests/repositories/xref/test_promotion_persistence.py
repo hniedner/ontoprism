@@ -38,6 +38,11 @@ if TYPE_CHECKING:
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
 
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_postgres_settings"),
+]
+
 
 def _candidate(subject: str, obj: str) -> SSSOMRecord:
     return SSSOMRecord(

@@ -13,6 +13,11 @@ from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_postgres_settings"),
+]
+
 
 @pytest.mark.integration
 async def test_store_roundtrip() -> None:

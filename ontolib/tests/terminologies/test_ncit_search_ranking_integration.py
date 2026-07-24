@@ -18,9 +18,9 @@ first and short-circuited ``ts_rank``: both tests then passed with migration 000
 reverted, certifying a gate that could never fail.  Hence the weighting test below uses
 a winner whose label merely *contains* the term.
 
-The labels are nonsense as well as the term: these rows are committed to the real,
-shared ``ncit_search`` cache, and a row leaked by a killed process would otherwise be
-served to real users searching for "metastatic tumor".
+The labels are nonsense as well as the term. The module is forced onto a disposable
+current-run-owned database; no row can be served to a developer or survive database
+teardown.
 """
 
 from __future__ import annotations
@@ -37,10 +37,13 @@ from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_postgres_settings"),
+]
 
-# A nonsense term, so the assertions cannot be perturbed by whatever real corpus happens
-# to be loaded in the developer's Postgres.
+# A nonsense term, so assertions depend only on rows this module inserts.
 _TERM = "zorbulax"
 _TYPE = "Neoplastic Process"
 
@@ -50,22 +53,26 @@ _INSERT = text(
     "ON CONFLICT (code) DO UPDATE SET label = EXCLUDED.label, "
     "semantic_type = EXCLUDED.semantic_type, synonyms = EXCLUDED.synonyms"
 )
-# Sweeps rows a *previous* crashed run may have left behind, not only this one's.
-_SWEEP = text("DELETE FROM ncit_search WHERE code LIKE 'TEST-%'")
+_DELETE_OWNED_ROWS = text(
+    "DELETE FROM ncit_search WHERE code IN "
+    "('TEST-NAMED', 'TEST-DECOY', 'TEST-EXACT', 'TEST-LONGER', 'TEST-LOUDER')"
+)
 
 
 @pytest.fixture(autouse=True)
-async def _no_test_rows_left_behind() -> AsyncIterator[None]:
-    """Sweep seeded rows before AND after -- a ``finally`` cannot survive a SIGKILL."""
+async def _no_test_rows_left_behind(
+    isolated_postgres_settings: None,
+) -> AsyncIterator[None]:
+    """Delete only this module's exact rows inside the disposable database."""
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     try:
         async with sf() as session:
-            await session.execute(_SWEEP)
+            await session.execute(_DELETE_OWNED_ROWS)
             await session.commit()
         yield
         async with sf() as session:
-            await session.execute(_SWEEP)
+            await session.execute(_DELETE_OWNED_ROWS)
             await session.commit()
     finally:
         await dispose_engine(engine)

@@ -53,7 +53,8 @@ defaults point at the services above.
 ```bash
 pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
 pdm run test-unit            # unit-marked only, backend+ontolib
-pdm run test-integration     # needs live Oxigraph :7888/Postgres :5433 (pdm run up)
+pdm run test-integration     # safe default: nonce-owned disposable PG/Oxigraph
+pdm run test-integration-full-store  # explicit read-only contracts against configured corpora
 pdm run test-ci              # per-package coverage gate: ontolib/src & backend/src each >=90% (matches CI)
 pdm run test-smoke           # frontend vitest via npm
 ```
@@ -64,10 +65,20 @@ pdm run test-smoke           # frontend vitest via npm
   outer `ontolib/`/`backend/` dirs shadow the editable install (see `docs/DECISIONS.md`
   D6). `pdm run pytest` / the `pdm run test*` scripts use the correct console-script
   resolution; the root `conftest.py` also fixes `sys.path` for xdist workers.
+  For a mutating/seeded integration node, retain the fail-closed lane:
+  `pdm run python scripts/run_safe_integration.py <path>::<test> -v`.
+  Run a read-only `full_store` node with `pdm run test-integration-full-store -k <name>`.
 - Frontend single test: `cd frontend && npx vitest run <path>` (or `-t <name>`).
 - Markers (registered in root `pyproject.toml`): `unit`, `api`, `security`,
-  `integration` (real services), `full_build` (pinned 12.8M-triple NCIt build / real
-  embeddings — excluded from CI, run manually), `e2e`, `slow`.
+  `integration` (real services), `mutating_integration` (nonce-owned disposable
+  resources), `full_store` (read-only configured corpora), `full_build` (pinned
+  12.8M-triple NCIt build / real embeddings — excluded from CI, run manually), `e2e`,
+  `slow`.
+- Never let a mutating integration test use `live_api_client`, `ncit_url`, or a
+  configured persistent resource. Add it to `test_support/integration_mutators.toml`
+  and request the exact isolated fixture. Required disposable-service failures fail;
+  they never skip. Run applicable real-corpus contracts explicitly with
+  `pdm run test-integration-full-store`; those contracts are read-only.
 - **Strict TDD + coverage >90%** (line+branch) on `ontolib/src`, `backend/src`, and
   `frontend/src/lib` is a hard project rule, enforced by CI and a pre-commit
   test-quality hook that blocks mock-only / coverage-padding tests. Full rules and the

@@ -2,30 +2,11 @@
 
 from typing import Any
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.config import get_settings
 from backend.dependencies import get_ncit_store
 from ontolib.terminologies.ncit.models import GraphEdge, GraphNode, Neighborhood
-
-
-def _ncit_reachable() -> bool:
-    url = get_settings().ncit_sparql_url.rstrip("/")
-    try:
-        resp = httpx.post(
-            f"{url}/query",
-            content=b"ASK {}",
-            headers={
-                "Content-Type": "application/sparql-query",
-                "Accept": "application/sparql-results+json",
-            },
-            timeout=2.0,
-        )
-    except httpx.HTTPError:
-        return False
-    return resp.status_code == 200
 
 
 class _FakeStore:
@@ -77,12 +58,11 @@ def test_cde_neighborhood_unknown_cde_is_404(cadsr_client: TestClient) -> None:
 
 
 @pytest.mark.integration
-def test_cde_neighborhood_against_live_ncit(cadsr_client: TestClient) -> None:
-    # No store override → the real NCIt store answers; the temp CDE 100 maps to the
-    # real concept C3262 (Neoplasm), which has a genuine NCIt neighborhood.
-    if not _ncit_reachable():
-        pytest.skip("NCIt Oxigraph not reachable")
-    resp = cadsr_client.get("/api/v1/cadsr/cdes/100/neighborhood")
+def test_cde_neighborhood_against_real_oxigraph(
+    isolated_cadsr_client: TestClient,
+) -> None:
+    # No store override: bounded real Oxigraph answers for the temporary CDE mapping.
+    resp = isolated_cadsr_client.get("/api/v1/cadsr/cdes/100/neighborhood")
     assert resp.status_code == 200
     body = resp.json()
     assert body["center"] == "cde:100:2.0"

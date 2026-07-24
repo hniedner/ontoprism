@@ -48,6 +48,16 @@ def live_api_client() -> Iterator[TestClient]:
         yield client
 
 
+@pytest.fixture
+def isolated_api_client(
+    isolated_postgres_settings: None,
+    isolated_oxigraph_settings: None,
+) -> Iterator[TestClient]:
+    """API client whose persistent services are current-run-owned disposables."""
+    with TestClient(create_app()) as client:
+        yield client
+
+
 def _build_cadsr_db(path: Path) -> None:
     """Create a small real caDSR SQLite DB (mirrors the fairdata-built schema)."""
     conn = sqlite3.connect(path)
@@ -104,6 +114,20 @@ def _build_cadsr_db(path: Path) -> None:
 @pytest.fixture
 def cadsr_client(tmp_path: Path) -> Iterator[TestClient]:
     """TestClient with the caDSR repo pointed at a fresh temp DB (via override)."""
+    db = tmp_path / "cde_repository.db"
+    _build_cadsr_db(db)
+    app = create_app()
+    app.dependency_overrides[get_cadsr_repo] = lambda: CdeRepository(db)
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def isolated_cadsr_client(
+    tmp_path: Path,
+    isolated_oxigraph_settings: None,
+) -> Iterator[TestClient]:
+    """Temporary caDSR repository joined to the disposable NCIt service."""
     db = tmp_path / "cde_repository.db"
     _build_cadsr_db(db)
     app = create_app()

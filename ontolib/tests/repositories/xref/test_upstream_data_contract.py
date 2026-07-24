@@ -20,15 +20,15 @@ These tests pin those facts. When Uberon changes, they fail *here* and name the
 assumption,
 instead of silently changing what the promotion pass promotes.
 
-**These MUST run against the real store, and they SKIP IN CI** (CI has no Uberon
-endpoint). That is deliberate, not an oversight: seeding a hand-made Uberon fixture
-into CI would make them assert facts about *that fixture* — reintroducing the exact
-fiction they exist to prevent. A data-shape contract is worth something only if it
-interrogates the real thing.
+**These MUST run against the real store, and the safe CI lane deselects them** (CI has
+no Uberon endpoint). That is deliberate, not an oversight: seeding a hand-made Uberon
+fixture into CI would make them assert facts about *that fixture* — reintroducing the
+exact fiction they exist to prevent. A data-shape contract is worth something only if
+it interrogates the real thing.
 
-So they are a **pre-merge local gate**: run `pdm run test-integration` against the live
-Uberon store (:7889) before merging anything that touches the upstream read path. A skip
-here is not a pass — see AGENTS.md.
+So they are a **pre-merge local gate**: run `pdm run test-integration-full-store`
+against the live Uberon store (:7889) before merging anything that touches the upstream
+read path. A skip here is not a pass — see AGENTS.md.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
 from ontolib.repositories.xref.vocab import COMPOSITE_MATCHING
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.full_store]
 
 _OBO = "http://purl.obolibrary.org/obo/"
 _LUNG = f"{_OBO}UBERON_0002048"

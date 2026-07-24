@@ -24,6 +24,8 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 
+pytestmark = pytest.mark.full_store
+
 
 def _embedding_rows(table: str) -> int:
     """Vectors actually loaded in *table*; -1 if the DB cannot be reached at all."""

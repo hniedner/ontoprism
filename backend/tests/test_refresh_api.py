@@ -242,6 +242,7 @@ def test_rebuild_search_index_store_error_returns_502() -> None:
 
 @pytest.mark.integration
 @pytest.mark.full_build
+@pytest.mark.full_store
 def test_refresh_reports_ncit_version_and_counts(live_api_client: TestClient) -> None:
     resp = live_api_client.post("/api/v1/refresh")
     assert resp.status_code == 200

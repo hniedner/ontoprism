@@ -505,29 +505,3 @@ def test_coverage_report_empty_fillers() -> None:
     assert report["via_lexical_only"] == 0
     assert report["no_candidate"] == 0
     assert report["candidate_recall"] == 0.0
-
-
-@pytest.mark.integration
-async def test_coverage_report_shape_and_split() -> None:
-    """Integration: live stores produce a valid coverage report."""
-    pytest.skip("requires running Oxigraph :7888/:7889 containers")
-
-
-def test_candidate_recall_not_regressed() -> None:
-    """Placeholder -- baseline not yet recorded in #72."""
-    pytest.skip("baseline not yet recorded in #72")
-
-
-@pytest.mark.integration
-async def test_ingest_candidates_pipeline() -> None:
-    """Integration: full pipeline with live DB + Oxigraph."""
-    pytest.skip("requires running Postgres :5433 and Oxigraph :7888/:7889 containers")
-
-
-# -- Tests: store.update_run_metrics ------------------------------------
-
-
-@pytest.mark.integration
-async def test_update_run_metrics_roundtrip() -> None:
-    """Integration: metrics can be stored and read back."""
-    pytest.skip("requires running Postgres :5433 container")

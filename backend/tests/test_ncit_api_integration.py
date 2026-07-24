@@ -1,12 +1,18 @@
-"""Integration tests for the NCIt read API against the live store (no mocks)."""
+"""NCIt read-API contracts against a bounded disposable store (no mocks).
+
+Two `full_store`-marked contracts (list-without-query, guarded SPARQL) still run
+against the configured real store; see AGENTS.md's `full_store` marker.
+"""
 
 import pytest
 from fastapi.testclient import TestClient
 
 
 @pytest.mark.integration
-def test_concept_detail_renders_metadata_and_roles(live_api_client: TestClient) -> None:
-    resp = live_api_client.get("/api/v1/ncit/concepts/C3262")
+def test_concept_detail_renders_metadata_and_roles(
+    isolated_api_client: TestClient,
+) -> None:
+    resp = isolated_api_client.get("/api/v1/ncit/concepts/C3262")
     assert resp.status_code == 200
     body = resp.json()
     assert body["code"] == "C3262"
@@ -20,13 +26,13 @@ def test_concept_detail_renders_metadata_and_roles(live_api_client: TestClient) 
 
 
 @pytest.mark.integration
-def test_unknown_concept_is_404(live_api_client: TestClient) -> None:
-    assert live_api_client.get("/api/v1/ncit/concepts/C0").status_code == 404
+def test_unknown_concept_is_404(isolated_api_client: TestClient) -> None:
+    assert isolated_api_client.get("/api/v1/ncit/concepts/C0").status_code == 404
 
 
 @pytest.mark.integration
-def test_search_returns_hits(live_api_client: TestClient) -> None:
-    resp = live_api_client.get(
+def test_search_returns_hits(isolated_api_client: TestClient) -> None:
+    resp = isolated_api_client.get(
         "/api/v1/ncit/search", params={"q": "neoplasm", "limit": 10}
     )
     assert resp.status_code == 200
@@ -40,8 +46,10 @@ def test_search_returns_hits(live_api_client: TestClient) -> None:
 
 
 @pytest.mark.integration
-def test_neighborhood_has_center_and_role_edge(live_api_client: TestClient) -> None:
-    resp = live_api_client.get("/api/v1/ncit/concepts/C3262/neighborhood")
+def test_neighborhood_has_center_and_role_edge(
+    isolated_api_client: TestClient,
+) -> None:
+    resp = isolated_api_client.get("/api/v1/ncit/concepts/C3262/neighborhood")
     assert resp.status_code == 200
     body = resp.json()
     node_codes = {n["code"] for n in body["nodes"]}
@@ -51,6 +59,7 @@ def test_neighborhood_has_center_and_role_edge(live_api_client: TestClient) -> N
 
 @pytest.mark.integration
 @pytest.mark.full_build
+@pytest.mark.full_store
 def test_list_browses_concepts_without_a_query(live_api_client: TestClient) -> None:
     # No search term: the browse endpoint pages through all concepts in code order.
     resp = live_api_client.get("/api/v1/ncit/list", params={"limit": 5})
@@ -63,11 +72,11 @@ def test_list_browses_concepts_without_a_query(live_api_client: TestClient) -> N
 
 
 @pytest.mark.integration
-def test_list_paginates_disjointly(live_api_client: TestClient) -> None:
-    first = live_api_client.get(
+def test_list_paginates_disjointly(isolated_api_client: TestClient) -> None:
+    first = isolated_api_client.get(
         "/api/v1/ncit/list", params={"limit": 5, "offset": 0}
     ).json()
-    second = live_api_client.get(
+    second = isolated_api_client.get(
         "/api/v1/ncit/list", params={"limit": 5, "offset": 5}
     ).json()
     first_codes = {h["code"] for h in first["hits"]}
@@ -77,6 +86,7 @@ def test_list_paginates_disjointly(live_api_client: TestClient) -> None:
 
 @pytest.mark.integration
 @pytest.mark.full_build
+@pytest.mark.full_store
 def test_guarded_sparql_select_runs(live_api_client: TestClient) -> None:
     resp = live_api_client.post(
         "/api/v1/sparql",

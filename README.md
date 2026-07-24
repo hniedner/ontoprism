@@ -305,14 +305,15 @@ Background logs go to `.dev-logs/`. Ports are offset from the sibling `fairdata`
 ```bash
 pdm run test               # Hermetic: ontolib unit + backend unit/api/security + frontend vitest
 pdm run test-unit          # Unit-marked only
-pdm run test-integration   # Against live Oxigraph and Postgres
+pdm run test-integration   # Safe default: nonce-owned disposable Postgres/Oxigraph
+pdm run test-integration-full-store  # Explicit read-only contracts against configured corpora
 pdm run test-ci            # CI gate with ≥90% coverage
 pdm run pre-commit run --all-files  # Local quality gate
 ```
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1–D31)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1–D41)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->

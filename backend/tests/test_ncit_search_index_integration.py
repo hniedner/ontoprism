@@ -5,20 +5,23 @@ from http import HTTPStatus
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = [
+    pytest.mark.mutating_integration,
+    pytest.mark.usefixtures("isolated_postgres_settings", "isolated_oxigraph_settings"),
+]
+
 
 @pytest.mark.integration
 def test_populate_search_index_then_search_from_cache(
-    live_api_client: TestClient,
+    isolated_api_client: TestClient,
 ) -> None:
-    # Rebuild the cache from the live store (the seeded fixture in CI).
-    built = live_api_client.post("/api/v1/refresh/ncit/search-index")
-    if built.status_code == HTTPStatus.BAD_GATEWAY:
-        pytest.skip("NCIt store or Postgres unavailable")
-    assert built.status_code == HTTPStatus.OK
-    assert built.json()["concepts_indexed"] >= 1
+    # Rebuild the cache from the bounded disposable Oxigraph fixture.
+    built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
+    assert built.status_code == HTTPStatus.OK, built.text
+    assert 1 <= built.json()["concepts_indexed"] <= 11
 
     # Search is now served from the cache and returns the neoplasm concepts.
-    resp = live_api_client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
+    resp = isolated_api_client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
     assert resp.status_code == HTTPStatus.OK
     body = resp.json()
     assert body["total"] >= 1

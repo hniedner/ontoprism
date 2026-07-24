@@ -2,7 +2,9 @@
 
 Verifies the migration (a) produces the exact pgvector schema the similarity endpoints
 need, (b) round-trips (upgrade→downgrade), and (c) matches the live/cloned DB — the
-parity that makes ``migrate-stamp`` on the clone safe. Skipped when Postgres is down.
+parity that makes ``migrate-stamp`` on the clone safe. The mutating round-trip requires
+disposable Postgres; the separately marked full-store parity contract skips when its
+configured database or migrated embedding tables are unavailable.
 """
 
 import asyncio
@@ -16,17 +18,12 @@ from alembic.config import Config
 
 from backend.config import get_settings
 
-_TEMP_DB = "ontoprism_migtest"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _asyncpg_dsn(sqlalchemy_url: str) -> str:
     """Turn a ``postgresql+asyncpg://…`` URL into a plain asyncpg DSN."""
     return sqlalchemy_url.replace("+asyncpg", "")
-
-
-def _swap_db(url: str, db_name: str) -> str:
-    return f"{url.rsplit('/', 1)[0]}/{db_name}"
 
 
 async def _pg_reachable(admin_dsn: str) -> bool:
@@ -36,23 +33,6 @@ async def _pg_reachable(admin_dsn: str) -> bool:
         return False
     await conn.close()
     return True
-
-
-async def _recreate_db(admin_dsn: str) -> None:
-    conn = await asyncpg.connect(admin_dsn)
-    try:
-        await conn.execute(f"DROP DATABASE IF EXISTS {_TEMP_DB}")
-        await conn.execute(f"CREATE DATABASE {_TEMP_DB}")
-    finally:
-        await conn.close()
-
-
-async def _drop_db(admin_dsn: str) -> None:
-    conn = await asyncpg.connect(admin_dsn)
-    try:
-        await conn.execute(f"DROP DATABASE IF EXISTS {_TEMP_DB}")
-    finally:
-        await conn.close()
 
 
 _EMBEDDING_TABLES = ("ncit_concepts", "cde_repository")
@@ -127,36 +107,27 @@ def _assert_embedding_schema(facts: dict[str, Any]) -> None:
 
 
 @pytest.mark.integration
-def test_migration_upgrade_downgrade_roundtrip(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_migration_upgrade_downgrade_roundtrip() -> None:
     base_url = get_settings().database_url
-    admin_dsn = _asyncpg_dsn(base_url)
-    if not asyncio.run(_pg_reachable(admin_dsn)):
-        pytest.skip("Postgres not reachable")
-
-    temp_sa_url = _swap_db(base_url, _TEMP_DB)
-    temp_dsn = _swap_db(admin_dsn, _TEMP_DB)
-    asyncio.run(_recreate_db(admin_dsn))
+    dsn = _asyncpg_dsn(base_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
     try:
-        monkeypatch.setenv("DATABASE_URL", temp_sa_url)
-        get_settings.cache_clear()  # env.py reads the temp URL via settings
-        cfg = Config(str(_REPO_ROOT / "alembic.ini"))
-        cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
-
-        command.upgrade(cfg, "head")
-        facts = asyncio.run(_schema_facts(temp_dsn))
         command.downgrade(cfg, "base")
-        after_down = asyncio.run(_table_count(temp_dsn))
+        after_down = asyncio.run(_table_count(dsn))
+        command.upgrade(cfg, "head")
+        facts = asyncio.run(_schema_facts(dsn))
     finally:
-        get_settings.cache_clear()
-        asyncio.run(_drop_db(admin_dsn))
+        command.upgrade(cfg, "head")
 
-    _assert_embedding_schema(facts)
     assert after_down == 0  # downgrade drops both embedding tables
+    _assert_embedding_schema(facts)
 
 
 @pytest.mark.integration
+@pytest.mark.full_store
 def test_migration_matches_cloned_db_schema() -> None:
     # Parity: the live/cloned DB (created by pg_dump) must match what the migration
     # produces — otherwise `migrate-stamp` would mark a mismatched clone as migrated.
