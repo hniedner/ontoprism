@@ -19,6 +19,20 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.16.1 (2026-07-24)
+
+### Bug Fixes
+
+- **test**: Isolate all mutating integration tests from developer services and data
+  ([#175](https://github.com/hniedner/ontoprism/pull/175),
+  [`6f450f3`](https://github.com/hniedner/ontoprism/commit/6f450f36f5c71f42a07a572cf54c589e99ae8891))
+
+### Documentation
+
+- Update README code line-count table
+  ([`2901aaf`](https://github.com/hniedner/ontoprism/commit/2901aaf0179905812e03451d78e3ace73d2efb9a))
+
+
 ## v0.16.0 (2026-07-23)
 
 ### Continuous Integration
