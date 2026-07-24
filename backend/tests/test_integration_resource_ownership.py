@@ -976,7 +976,9 @@ def test_default_integration_command_excludes_explicit_full_store_contracts() ->
     markers = project["tool"]["pytest"]["ini_options"]["markers"]
 
     assert "not full_store" in scripts["test-integration"]
+    assert "not full_build" in scripts["test-integration"]
     assert "integration and full_store" in scripts["test-integration-full-store"]
+    assert "integration and full_build" in scripts["test-integration-full-build"]
     assert any(marker.startswith("full_store:") for marker in markers)
 
 

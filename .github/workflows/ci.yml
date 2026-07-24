@@ -30,6 +30,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       docker: ${{ steps.filter.outputs.docker }}
+      embeddings: ${{ steps.filter.outputs.embeddings }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -53,6 +54,11 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+            embeddings:
+              - 'ontolib/src/ontolib/repositories/embeddings/**'
+              - 'backend/tests/test_embedding_model_contract.py'
+              - 'pyproject.toml'
+              - 'pdm.lock'
               - '.github/workflows/ci.yml'
             docker:
               # Image build inputs — catches bad FROM bumps / dependency-install breakage
@@ -251,6 +257,28 @@ jobs:
       - name: Integration tests (disposable resources)
         run: pdm run test-integration-ci
 
+  embedding-model-contract:
+    name: pinned embedding model contract
+    needs: [changes]
+    if: ${{ needs.changes.outputs.embeddings == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up PDM (cached)
+        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
+        with:
+          python-version: "3.13"
+          cache: true
+
+      - name: Install model contract dependencies
+        run: pdm install --dev -G data-build
+
+      - name: Verify pinned sentence-transformers contract
+        run: pdm run pytest backend/tests/test_embedding_model_contract.py -v
+
   # Lightweight image-build smoke: only runs when Dockerfiles / their build inputs change.
   # CI otherwise never builds the images, so a bad FROM bump or dependency-install break
   # (e.g. a python major outside requires-python) would only surface at deploy time.
@@ -289,7 +317,7 @@ jobs:
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.
   ci-summary:
     name: CI summary
-    needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, docker-build]
+    needs: [changes, quality, backend-tests, coverage-verify, web-tests, integration-tests, embedding-model-contract, docker-build]
     if: always()
     runs-on: ubuntu-latest
     steps:

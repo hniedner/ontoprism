@@ -18,6 +18,7 @@ from backend.dependencies import (
     get_ncit_store,
 )
 from backend.main import create_app
+from ontolib.repositories.embeddings.publication import CorpusUnavailableError
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     GraphEdge,
@@ -211,6 +212,23 @@ def test_similar_concepts_backend_down_is_503() -> None:
     gen = _client(embeddings=_FakeEmbeddings(fail=True))
     client = next(gen)
     resp = client.get("/api/v1/ncit/concepts/C3262/similar")
+    assert resp.status_code == 503
+
+
+@pytest.mark.api
+def test_similar_concepts_without_active_corpus_is_503() -> None:
+    class _UnavailableEmbeddings(_FakeEmbeddings):
+        async def similar_ncit(
+            self, code: str, *, limit: int = 10
+        ) -> list[tuple[str, float]]:
+            del code, limit
+            raise CorpusUnavailableError("no completed active ncit embedding corpus")
+
+    gen = _client(embeddings=_UnavailableEmbeddings())
+    client = next(gen)
+
+    resp = client.get("/api/v1/ncit/concepts/C3262/similar")
+
     assert resp.status_code == 503
 
 

@@ -2,6 +2,34 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-24 — embedding corpora publish from validated staging
+
+### D42. Embedding batch commits are invisible staging; one transaction activates a complete corpus
+
+The previous NCIt and caDSR generators committed every 200-row batch directly into
+their serving tables. An interrupted run therefore published a plausible partial
+corpus, and non-empty `vector(768)` rows could not prove completeness or provenance.
+**Decision:** each independent corpus build has immutable provenance fields binding a
+source hash/version, pinned model ID/revision,
+dimension, exact source count, code commit, canonical sentinels, and build ID, plus
+mutable lifecycle state/timestamps. NCIt uses and rechecks the exact ordered-record
+fingerprint plus live ontology version/count; caDSR uses/rechecks its SQLite file
+hash/count. A changed source fails before
+activation (the HTTP source is not falsely described as a database snapshot). Batches
+commit only to build-scoped staging. Publication validates exact unique-row count and sentinels, then
+holds a per-corpus PostgreSQL advisory transaction lock while replacing the stable
+serving rows and switching the single completed-active manifest in one transaction.
+Readers require a completed active manifest and report absent certification as 503.
+Activation briefly blocks similarity readers under an exclusive table lock while
+replacement and clean HNSW rebuild complete; it guarantees atomic switchover/rollback,
+not uninterrupted old-corpus availability. Legacy
+rows are never auto-certified; the operator first inspects manifests and must pass
+`--publish` (optionally `--corpus ncit|cadsr`) from a clean worktree. Failed candidates
+remain evidence and never change the last accepted corpus. **Why:** the transaction
+preserves the previous stable table on rollback, avoids dynamic table names and
+filtered-ANN under-return, safely rebuilds corpus-specific HNSW, and gives NCIt
+and caDSR separate failure domains.
+
 ## 2026-07-23 — integration tests own every persistent mutation
 
 ### D41. Mutating integration tests use nonce-owned disposable services; full-store contracts are explicitly read-only

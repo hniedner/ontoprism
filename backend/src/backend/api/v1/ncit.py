@@ -18,6 +18,7 @@ from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.decomposition.read_queries import build_decomposition_query
+from ontolib.repositories.embeddings.publication import CorpusUnavailableError
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
@@ -95,7 +96,7 @@ async def search(
     try:
         if await index.is_populated():
             return await index.search(q, limit=limit, offset=offset)
-    except SQLAlchemyError as exc:
+    except (SQLAlchemyError, CorpusUnavailableError) as exc:
         logger.warning("NCIt FTS cache unavailable, falling back to SPARQL: %s", exc)
     return await store.search(q, limit=limit, offset=offset)
 
@@ -132,7 +133,7 @@ async def similar_concepts(
     """Semantically similar concepts via 768-dim embeddings (pgvector cosine)."""
     try:
         hits = await embeddings.similar_ncit(code, limit=limit)
-    except SQLAlchemyError as exc:
+    except (SQLAlchemyError, CorpusUnavailableError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     labels = await store.labels_for([c for c, _ in hits])
     return [

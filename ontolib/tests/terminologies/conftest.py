@@ -104,8 +104,16 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
                 "label": "Neoplasm",
                 "def": "A benign or malignant tissue growth.",
                 "semtype": "Neoplastic Process",
-                "synonyms": "Neoplasia | Neoplasm",
-            }
+                "syn": "Neoplasia",
+            },
+            {
+                "concept": f"{NS}C3262",
+                "pref": "Neoplasm",
+                "label": "Neoplasm",
+                "def": "A benign or malignant tissue growth.",
+                "semtype": "Neoplastic Process",
+                "syn": "Neoplasm",
+            },
         ],
     ),
     ("COUNT(DISTINCT ?concept)", [{"count": "2"}]),

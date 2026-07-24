@@ -76,8 +76,9 @@ lint = [
 test = "python scripts/test_runner.py"
 test-unit = "pytest ontolib/tests backend/tests -m unit -n auto"
 test-backend-unit = "pytest backend/tests -m unit -n auto"
-test-integration = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store'"
+test-integration = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build'"
 test-integration-full-store = "pytest --require-full-store ontolib/tests backend/tests -m 'integration and full_store'"
+test-integration-full-build = "pytest --require-full-store ontolib/tests backend/tests -m 'integration and full_build'"
 # CI integration run against a small seeded fixture (excludes full_build tests, which
 # assert the pinned 12.8M-triple production build / real generated embeddings).
 test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow'"
@@ -95,7 +96,7 @@ fmt = "ruff format ."
 # --- DB schema migrations (Alembic; URL from settings via migrations/env.py) ---
 migrate = "alembic upgrade head"
 migrate-down = "alembic downgrade -1"
-migrate-stamp = "alembic stamp head"  # mark the pre-existing cloned DB as migrated
+migrate-stamp = { shell = "alembic stamp 0001_embedding_tables && alembic upgrade head" }  # imported embedding tables only
 migrate-rev = "alembic revision -m"
 
 # --- Standalone data build (issue #7): needs `pdm install -G data-build` for the ---

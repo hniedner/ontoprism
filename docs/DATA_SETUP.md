@@ -10,7 +10,8 @@ interferes with the sibling fairdata app:
 | PostgreSQL (pgvector) | `:5433` | `:5432` |
 | backend | `:8011` | `:8001` |
 
-The content was provisioned once from the fairdata build (no re-download / re-embed):
+The Oxigraph and caDSR source artifacts were initially provisioned from fairdata
+(without re-downloading); embeddings must be rebuilt and validated as described below:
 
 ## 1. Oxigraph stores (triple store)
 
@@ -29,19 +30,16 @@ Verify: `curl -s localhost:7888/query -H 'Content-Type: application/sparql-query
 
 ## 2. Embeddings (pgvector)
 
-The 768-dim NCIt + caDSR embeddings (already computed by fairdata, sentence-transformers)
-are copied into ontoprism's Postgres, then HNSW-indexed:
+Embeddings are published only by ontoprism's validated build. Do **not** pipe a sibling
+database dump into the serving tables: row presence, vector dimension, and HNSW indexes
+cannot prove source/model provenance or completeness. In July 2026 such a clone held
+4,752 valid NCIt vectors but omitted canonical C3262; the old non-empty preflight
+accepted it as usable.
 
-```bash
-docker exec ontoprism-postgres psql -U ontoprism -d ontoprism -c "CREATE EXTENSION IF NOT EXISTS vector"
-docker exec fairdata-postgres pg_dump -U fairdata -d fairdata \
-  -t ncit_concepts -t cde_repository --no-owner --no-privileges \
-  | docker exec -i ontoprism-postgres psql -U ontoprism -d ontoprism
-```
-
-Tables: `ncit_concepts` (202,825 rows, doc_id = concept code) and `cde_repository`
-(79,827 rows, doc_id = `{public_id}:{version}`), each `embedding vector(768)` with an
-HNSW cosine index. Used by the `/similar` endpoints (no runtime embedding model needed).
+The migration creates stable corpus-specific serving tables (`ncit_concepts` and
+`cde_repository`), an `embedding_corpus_manifest`, and build-scoped staging. Similarity
+readers return rows only when a completed active manifest exists. Existing pre-migration
+rows are deliberately not auto-certified.
 
 ## Database schema (Alembic)
 
@@ -53,8 +51,11 @@ pdm run migrate         # fresh DB: create the embedding tables + HNSW indexes
 pdm run migrate-stamp   # pre-existing cloned DB: mark migrated WITHOUT recreating
 ```
 
-Run `migrate-stamp` **once** on the clone (its tables already exist); use `migrate` on a
-from-scratch database. `migrations/env.py` reads the URL from `DATABASE_URL` / settings.
+Use `migrate` on a fresh database. For an imported legacy database whose embedding
+tables already exist but Alembic has never tracked them, `migrate-stamp` stamps the
+actual predecessor (`0001_embedding_tables`) and then upgrades through every later
+migration; it never stamps the current head without creating publication schema.
+Legacy embedding rows remain inactive until an explicit validated rebuild.
 
 ## Rebuild-from-scratch (standalone, no fairdata)
 
@@ -74,15 +75,60 @@ pdm run data-build owl
 #    (cdes + cde_concepts + the cdes_fts FTS5 index).
 pdm run data-build cadsr
 
-# 3. Embeddings → pgvector. 768-dim sentence-transformers (all-mpnet-base-v2) for every
-#    NCIt concept + caDSR CDE, plus a refresh of the NCIt FTS cache. Needs the optional
-#    ML stack — install it first:
+# 3. Inspect active embedding manifests. This is read-only and exits non-zero rather
+#    than writing implicitly:
 pdm install -G data-build
 pdm run data-build embeddings
 
-# …or run 1→3 in one shot:
+# 4. Explicitly build and validate NCIt, then caDSR. Each corpus has its own atomic
+#    activation; this is intentionally not one cross-corpus transaction, so a caDSR
+#    failure cannot corrupt or roll back accepted NCIt vectors.
+pdm run data-build embeddings --publish
+
+# Or repair one corpus independently:
+pdm run data-build embeddings --publish --corpus ncit
+pdm run data-build embeddings --publish --corpus cadsr
+
+# …or run 1→4 in one explicitly mutating shot:
 pdm run data-build all
 ```
+
+Every manifest records source version/hash, immutable model revision, vector dimension,
+expected unique-row count, code commit, build ID, sentinels, state, and timestamps;
+completed manifests additionally record the validated actual count. The pinned model is
+`sentence-transformers/all-mpnet-base-v2@e8c3b32edf5434bc2275fc9bab85f82640a19130`.
+NCIt fingerprints every ordered source record and recomputes version/count/fingerprint
+before activation; caDSR records and rechecks its SQLite file hash/count. Source drift
+fails the candidate rather than claiming a long HTTP paging run was a transactional
+source snapshot.
+
+To verify the real external encoder contract after installing the data-build group:
+
+```bash
+pdm run test-integration-full-build -k pinned_sentence_transformer
+```
+
+This explicitly downloads/loads the pinned model revision and requires one 768-vector
+per input. It is `full_build` and intentionally excluded from the lightweight seeded CI
+job; absence is a failed applicable manual contract, not a skip.
+
+### Validation and recovery
+
+Run `pdm run data-build embeddings` first. It prints all build attempts and their full
+state/provenance/completeness evidence, then refuses
+to mutate without `--publish`. A valid NCIt publication requires exact source-count
+agreement with both the enumerated source and the configured release expectation
+(`NCIT_EMBEDDING_EXPECTED_ROWS=204373` for 26.02d /
+`CADSR_EMBEDDING_EXPECTED_ROWS=79827`) plus C3262;
+caDSR likewise requires exact source/release count agreement and `2517527:1.0`.
+
+Build batches commit only to build-scoped staging. If encoding, validation, or
+activation fails after the candidate manifest starts, the previous serving rows and
+active manifest remain unchanged and the candidate records `failed`. Preflight
+version/count/configuration failures occur before candidate creation. Repair the source/model/environment, inspect
+again, then run a new explicit `--publish`; no wildcard cleanup or implicit promotion
+is performed. Activation holds a per-corpus PostgreSQL advisory transaction lock and
+replaces stable rows plus the active manifest in one transaction.
 
 ## Validation tools (ROBOT + ELK)
 
@@ -201,9 +247,11 @@ Notes:
   Verify: `… GRAPH <…Thesaurus-stated.owl> { ?s ?p ?o }` → 10,841,591 triples, and the
   default graph is unchanged at 12,836,426.
 - The embedding step is heavy (multi-GB model + compute over ~200k concepts + ~80k
-  CDEs) and is a batch/offline operation — it does not run in CI. The behavioral pieces
-  (XML parsing, embedding-text building, the pgvector upsert, OWL-load routing) are unit-
-  and integration-tested; the full run is verified manually.
+  CDEs) and is a batch/offline operation. CI runs deterministic encoders against
+  disposable pgvector to prove staged-batch invisibility, failure rollback, validation,
+  retry, independent corpora, and atomic activation. Explicit `full_build` contracts
+  verify the real encoder shape and inspect configured full-build artifacts; the
+  expensive end-to-end build remains an operator run.
 - The Oxigraph store, caDSR SQLite, and pgvector rows produced are the same shapes the
   running app reads, so a standalone build is a drop-in replacement for the fairdata
   clone described above. See [DECISIONS.md](DECISIONS.md).

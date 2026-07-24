@@ -1,13 +1,16 @@
-"""Integration tests for embedding generation → pgvector (fake embedder, real DB).
+"""Integration tests for embedding staging/publication (fake embedder, real DB).
 
-Uses a deterministic stub embedder so the whole generate→upsert path is exercised
+Uses a deterministic stub embedder so the whole staging/publication path is exercised
 against disposable real Postgres/pgvector and a bounded disposable NCIt store without
 the heavy ML dependency. Not `full_build` — runs in the CI services job.
 """
 
 from __future__ import annotations
 
+import asyncio
+import sys
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -19,6 +22,11 @@ from ontolib.repositories.embeddings.generate import (
     EMBED_DIM,
     generate_cde_embeddings,
     generate_ncit_embeddings,
+)
+from ontolib.repositories.embeddings.publication import (
+    Corpus,
+    CorpusBuild,
+    EmbeddingCorpusPublisher,
 )
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
@@ -39,7 +47,20 @@ class _StubEmbedder:
     """Deterministic 768-dim vectors — no model, enough to exercise the pipeline."""
 
     def encode(self, texts: list[str]) -> list[list[float]]:
-        return [[float(len(t) % 7) / 7.0] * EMBED_DIM for t in texts]
+        return [[float((len(t) % 7) + 1) / 8.0] * EMBED_DIM for t in texts]
+
+
+class _FailAfterOneBatchEmbedder:
+    """Real generation seam that fails after one successful encoded batch."""
+
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        self._calls += 1
+        if self._calls > 1:
+            raise RuntimeError("injected embedding failure after first batch")
+        return [[0.25] * EMBED_DIM for _ in texts]
 
 
 _CADSR_XML = """<DataElementsList><DataElement>
@@ -48,6 +69,30 @@ _CADSR_XML = """<DataElementsList><DataElement>
   <PREFERREDDEFINITION>A demo CDE.</PREFERREDDEFINITION>
   <VALUEDOMAIN><Datatype>CHARACTER</Datatype></VALUEDOMAIN>
 </DataElement></DataElementsList>"""
+
+
+def _publisher(
+    session_factory: async_sessionmaker[AsyncSession],
+    corpus: Corpus,
+    expected: int,
+) -> EmbeddingCorpusPublisher:
+    return EmbeddingCorpusPublisher(
+        session_factory,
+        CorpusBuild(
+            build_id=uuid4(),
+            corpus=corpus,
+            source_version="test-source",
+            source_hash="a" * 64,
+            model_id="test-model",
+            model_revision="b" * 40,
+            vector_dimension=EMBED_DIM,
+            expected_row_count=expected,
+            code_commit="c" * 40,
+            required_doc_ids=(
+                ("C3262",) if corpus is Corpus.NCIT else ("2517527:1.0",)
+            ),
+        ),
+    )
 
 
 @pytest.fixture
@@ -68,8 +113,10 @@ async def test_generate_cde_embeddings_writes_vectors(
 ) -> None:
     db = tmp_path / "cde.db"
     build_database([_write(tmp_path, _CADSR_XML)], db)
-    count = await generate_cde_embeddings(str(db), _StubEmbedder(), session_factory)
-    assert count == 1
+    manifest = await generate_cde_embeddings(
+        str(db), _StubEmbedder(), _publisher(session_factory, Corpus.CADSR, 1)
+    )
+    assert manifest.actual_row_count == 1
     async with session_factory() as session:
         row = await session.execute(
             text(
@@ -87,13 +134,98 @@ async def test_generate_ncit_embeddings_from_store(
     url = get_settings().ncit_sparql_url
     async with OxigraphHttpClient(url) as client:
         store = NcitGraphStore(client)
-        count = await generate_ncit_embeddings(store, _StubEmbedder(), session_factory)
+        count = await store.embedding_record_count()
+        manifest = await generate_ncit_embeddings(
+            store,
+            _StubEmbedder(),
+            _publisher(session_factory, Corpus.NCIT, count),
+        )
+    assert manifest.actual_row_count == count
     assert 1 <= count <= 11
     async with session_factory() as session:
         present = await session.execute(
             text("SELECT 1 FROM ncit_concepts WHERE doc_id = 'C3262'")
         )
         assert present.scalar_one_or_none() == 1
+
+
+@pytest.mark.integration
+async def test_interrupted_ncit_build_does_not_change_serving_corpus(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A successfully committed staging batch must remain invisible on failure."""
+    async with session_factory() as session, session.begin():
+        await session.execute(text("DELETE FROM ncit_concepts"))
+        await session.execute(
+            text(
+                "INSERT INTO ncit_concepts (doc_id, embedding, metadata) "
+                "VALUES ('OLD', :embedding, '{}'::jsonb)"
+            ),
+            {"embedding": "[" + ",".join(["0.5"] * EMBED_DIM) + "]"},
+        )
+
+    url = get_settings().ncit_sparql_url
+    async with OxigraphHttpClient(url) as client:
+        with pytest.raises(
+            RuntimeError, match="injected embedding failure after first batch"
+        ):
+            await generate_ncit_embeddings(
+                NcitGraphStore(client),
+                _FailAfterOneBatchEmbedder(),
+                _publisher(
+                    session_factory,
+                    Corpus.NCIT,
+                    await NcitGraphStore(client).embedding_record_count(),
+                ),
+                batch_size=1,
+            )
+
+    async with session_factory() as session:
+        rows = await session.execute(
+            text("SELECT doc_id FROM ncit_concepts ORDER BY 1")
+        )
+        assert list(rows.scalars()) == ["OLD"]
+
+
+@pytest.mark.integration
+async def test_embedding_operator_inspects_then_refuses_implicit_write(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session, session.begin():
+        await session.execute(text("DELETE FROM embedding_corpus_staging"))
+        await session.execute(text("DELETE FROM embedding_corpus_manifest"))
+        await session.execute(text("DELETE FROM ncit_concepts"))
+        await session.execute(
+            text(
+                "INSERT INTO ncit_concepts (doc_id, embedding, metadata) "
+                "VALUES ('OLD', :embedding, '{}'::jsonb)"
+            ),
+            {"embedding": "[" + ",".join(["0.5"] * EMBED_DIM) + "]"},
+        )
+
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "scripts/data_build.py",
+        "embeddings",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout_bytes, stderr_bytes = await process.communicate()
+    stdout = stdout_bytes.decode()
+    stderr = stderr_bytes.decode()
+
+    assert process.returncode == 1
+    assert "No embedding corpus manifests" in stdout
+    assert "Refusing to write without explicit --publish" in stderr
+    async with session_factory() as session:
+        rows = await session.execute(
+            text("SELECT doc_id FROM ncit_concepts ORDER BY 1")
+        )
+        manifests = await session.scalar(
+            text("SELECT count(*) FROM embedding_corpus_manifest")
+        )
+    assert list(rows.scalars()) == ["OLD"]
+    assert manifests == 0
 
 
 def _write(tmp_path: Path, xml: str) -> Path:

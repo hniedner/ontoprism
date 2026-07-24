@@ -4,8 +4,9 @@ Reproduces the two 768-dim embedding tables the semantic-similarity endpoints re
 (``ncit_concepts``, ``cde_repository``). These previously existed only because they were
 pg_dump'd from the sibling fairdata DB; this migration makes the schema reproducible.
 
-For the pre-existing dev DB (the clone), run ``alembic stamp head`` once to mark this
-applied without re-creating the tables; a fresh DB uses ``alembic upgrade head``.
+For a legacy imported DB, run ``pdm run migrate-stamp``: it stamps this exact
+predecessor then upgrades through every later migration. Never stamp the current head
+directly.
 
 Revision ID: 0001_embedding_tables
 Revises:

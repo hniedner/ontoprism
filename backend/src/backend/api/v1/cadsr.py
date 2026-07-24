@@ -13,10 +13,29 @@ from ontolib.repositories.cadsr.models import (
     CdeSummary,
     SimilarCde,
 )
+from ontolib.repositories.embeddings.publication import CorpusUnavailableError
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.models import GraphEdge, GraphNode, Neighborhood
 
 router = APIRouter(prefix="/api/v1/cadsr", tags=["cadsr"])
+
+
+def _resolve_similar_cdes(
+    repo: CadsrRepo, hits: list[tuple[str, float]]
+) -> list[SimilarCde]:
+    summaries = repo.summaries_for([doc_id for doc_id, _ in hits])
+    unresolved = [doc_id for doc_id, _ in hits if doc_id not in summaries]
+    if unresolved:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "active caDSR embeddings do not match the current source: "
+            + ", ".join(unresolved),
+        )
+    return [
+        SimilarCde(**summaries[doc_id].model_dump(), score=score)
+        for doc_id, score in hits
+    ]
+
 
 # Cap the mapped concepts expanded per CDE so a heavily-annotated CDE can't pull an
 # unbounded closure (each concept also carries its own capped NCIt neighborhood).
@@ -80,15 +99,9 @@ async def similar_cdes(
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
     try:
         hits = await embeddings.similar_cde(cde.public_id, cde.version, limit=limit)
-    except SQLAlchemyError as exc:
+    except (SQLAlchemyError, CorpusUnavailableError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    summaries = repo.summaries_for([doc_id for doc_id, _ in hits])
-    results: list[SimilarCde] = []
-    for doc_id, score in hits:
-        summary = summaries.get(doc_id)
-        if summary is not None:
-            results.append(SimilarCde(**summary.model_dump(), score=score))
-    return results
+    return _resolve_similar_cdes(repo, hits)
 
 
 @router.get("/concepts/{concept_code}/cdes", response_model=list[CdeSummary])

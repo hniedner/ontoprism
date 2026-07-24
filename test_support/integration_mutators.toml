@@ -3,6 +3,10 @@ path = "backend/tests/test_data_build_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
 
 [[mutator]]
+path = "backend/tests/test_embedding_publication_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "backend/tests/test_ncit_search_index_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
 

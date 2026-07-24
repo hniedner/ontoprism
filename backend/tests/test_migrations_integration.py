@@ -1,8 +1,8 @@
 """Integration tests for the Alembic embedding-schema migration.
 
 Verifies the migration (a) produces the exact pgvector schema the similarity endpoints
-need, (b) round-trips (upgrade→downgrade), and (c) matches the live/cloned DB — the
-parity that makes ``migrate-stamp`` on the clone safe. The mutating round-trip requires
+need, (b) round-trips (upgrade→downgrade), and (c) matches the configured DB. The
+mutating round-trip requires
 disposable Postgres; the separately marked full-store parity contract skips when its
 configured database or migrated embedding tables are unavailable.
 """
@@ -72,11 +72,36 @@ async def _schema_facts(dsn: str) -> dict[str, Any]:
             ),
             "tables": await conn.fetchval(
                 "SELECT count(*) FROM information_schema.tables "
-                "WHERE table_name IN ('ncit_concepts', 'cde_repository')"
+                "WHERE table_name IN ('ncit_concepts', 'cde_repository', "
+                "'embedding_corpus_manifest', 'embedding_corpus_staging')"
             ),
             "per_table": {
                 table: await _table_facts(conn, table) for table in _EMBEDDING_TABLES
             },
+            "manifest_columns": {
+                row["column_name"]: row["data_type"]
+                for row in await conn.fetch(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_name = 'embedding_corpus_manifest'"
+                )
+            },
+            "staging_primary_key": await conn.fetchval(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = 'embedding_corpus_staging'::regclass "
+                "AND contype = 'p'"
+            ),
+            "active_index": await conn.fetchval(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE indexname = 'uq_embedding_corpus_active'"
+            ),
+            "manifest_checks": [
+                row["definition"]
+                for row in await conn.fetch(
+                    "SELECT pg_get_constraintdef(oid) AS definition "
+                    "FROM pg_constraint WHERE conrelid = "
+                    "'embedding_corpus_manifest'::regclass AND contype = 'c'"
+                )
+            ],
         }
     finally:
         await conn.close()
@@ -87,7 +112,8 @@ async def _table_count(dsn: str) -> int:
     try:
         return await conn.fetchval(
             "SELECT count(*) FROM information_schema.tables "
-            "WHERE table_name IN ('ncit_concepts', 'cde_repository')"
+            "WHERE table_name IN ('ncit_concepts', 'cde_repository', "
+            "'embedding_corpus_manifest', 'embedding_corpus_staging')"
         )
     finally:
         await conn.close()
@@ -95,7 +121,7 @@ async def _table_count(dsn: str) -> int:
 
 def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["has_vector_ext"] == 1
-    assert facts["tables"] == 2
+    assert facts["tables"] == 4
     for table in _EMBEDDING_TABLES:
         t = facts["per_table"][table]
         assert t["embedding_type"] == "vector(768)", table  # dim matters for similarity
@@ -104,6 +130,33 @@ def _assert_embedding_schema(facts: dict[str, Any]) -> None:
         indexdef = t["hnsw_indexdef"] or ""
         assert "hnsw" in indexdef, table
         assert "vector_cosine_ops" in indexdef, table
+    assert facts["manifest_columns"] == {
+        "build_id": "uuid",
+        "corpus": "text",
+        "state": "text",
+        "is_active": "boolean",
+        "source_version": "text",
+        "source_hash": "text",
+        "model_id": "text",
+        "model_revision": "text",
+        "vector_dimension": "integer",
+        "expected_row_count": "integer",
+        "actual_row_count": "integer",
+        "code_commit": "text",
+        "required_doc_ids": "ARRAY",
+        "error_message": "text",
+        "created_at": "timestamp with time zone",
+        "completed_at": "timestamp with time zone",
+    }
+    assert facts["staging_primary_key"] == "PRIMARY KEY (build_id, doc_id)"
+    active_index = facts["active_index"] or ""
+    assert "UNIQUE" in active_index
+    assert "WHERE is_active" in active_index
+    checks = " ".join(facts["manifest_checks"])
+    assert "cardinality(required_doc_ids) > 0" in checks
+    assert "state = 'building'" in checks
+    assert "state = 'failed'" in checks
+    assert "state = 'complete'" in checks
 
 
 @pytest.mark.integration
