@@ -19,6 +19,19 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.16.2 (2026-07-25)
+
+### Bug Fixes
+
+- **data**: Atomic embedding-corpus publication with completeness manifests
+  ([`906888e`](https://github.com/hniedner/ontoprism/commit/906888e86cae45abd97266c1efe3d91900437365))
+
+### Documentation
+
+- Update README code line-count table
+  ([`aa9b2e8`](https://github.com/hniedner/ontoprism/commit/aa9b2e84db353f3da4890075c99ae084c6e998b7))
+
+
 ## v0.16.1 (2026-07-24)
 
 ### Bug Fixes
