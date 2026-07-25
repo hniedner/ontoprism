@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from backend.config import get_settings
 from backend.dependencies import get_embedding_store, get_ncit_client
@@ -187,6 +188,42 @@ def test_download_endpoint_reports_load_failure(
         )
     assert resp.status_code == 502
     assert embeddings.events == ["enter:ncit", "exit:ncit"]
+
+
+@pytest.mark.api
+def test_download_load_coordination_failure_is_503_without_loading(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, evs_server: str
+) -> None:
+    monkeypatch.setenv("NCIT_OWL_BASE_URL", evs_server)
+    monkeypatch.setenv("NCIT_OWL_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    loaded = False
+
+    class _Client:
+        async def count(self) -> int:
+            return 0
+
+        async def load(self, *_args: Any, **_kwargs: Any) -> None:
+            nonlocal loaded
+            loaded = True
+
+    class _UnavailableEmbeddings:
+        @asynccontextmanager
+        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
+            raise OperationalError("postgres down", None, Exception())
+            yield
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _Client
+    app.dependency_overrides[get_embedding_store] = _UnavailableEmbeddings
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/refresh/ncit/download",
+            json={"variant": "inferred", "load": True},
+        )
+
+    assert response.status_code == 503
+    assert not loaded
 
 
 @pytest.mark.api

@@ -211,6 +211,40 @@ def test_reload_coordination_failure_is_503_without_loading(
     assert not loaded
 
 
+@pytest.mark.api
+def test_reload_cleanup_failure_reports_source_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
+    ttl = tmp_path / "graph.ttl"
+    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
+    loaded = False
+
+    class _Client(_OkClient):
+        async def load(self, *args: Any, **kwargs: Any) -> None:
+            nonlocal loaded
+            del args, kwargs
+            loaded = True
+
+    class _CleanupFailure:
+        @asynccontextmanager
+        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
+            yield
+            raise OperationalError("unlock failed", None, Exception())
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _Client
+    app.dependency_overrides[get_embedding_store] = _CleanupFailure
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
+        )
+
+    assert response.status_code == 500
+    assert "source changed" in response.json()["detail"]
+    assert loaded
+
+
 class _FakeNcitStore:
     def __init__(self) -> None:
         self._call_count = 0

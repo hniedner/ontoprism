@@ -2,9 +2,14 @@
 
 import shutil
 import subprocess
+import zipfile
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 from scripts.data_build import (
+    _build_cadsr,
+    _build_owl,
     _code_commit,
     _require_ncit_source,
     _require_stable_cadsr_source,
@@ -81,3 +86,86 @@ def test_code_commit_requires_clean_repo_and_returns_exact_head(tmp_path) -> Non
     (tmp_path / "tracked.txt").write_text("dirty")
     with pytest.raises(RuntimeError, match="clean worktree"):
         _code_commit(tmp_path)
+
+
+@pytest.mark.unit
+async def test_owl_preparation_failure_never_enters_replacement_lock(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    inferred = tmp_path / "Thesaurus.owl"
+    inferred.write_text("inferred")
+    calls = 0
+    lock_entries: list[str] = []
+
+    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return SimpleNamespace(success=True, file_path=str(inferred), error=None)
+        return SimpleNamespace(success=False, file_path=None, error="stated failed")
+
+    @asynccontextmanager
+    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        lock_entries.append("entered")
+        yield
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            ncit_owl_dir=str(tmp_path),
+            ncit_owl_base_url="http://example.invalid",
+            database_url="postgresql+asyncpg://unused",
+            ncit_sparql_url="http://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
+    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
+
+    with pytest.raises(RuntimeError, match="stated failed"):
+        await _build_owl()
+
+    assert lock_entries == []
+
+
+@pytest.mark.unit
+def test_cadsr_candidate_failure_preserves_existing_source_and_skips_lock(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    archive = tmp_path / "cdes.zip"
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cde.xml", "<DataElementsList/>")
+    destination = tmp_path / "cde.db"
+    destination.write_text("accepted")
+    lock_entries: list[str] = []
+
+    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(path=str(archive))
+
+    @asynccontextmanager
+    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        lock_entries.append("entered")
+        yield
+
+    def fail_build(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("candidate failed")
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            cadsr_data_dir=str(tmp_path / "data"),
+            cadsr_download_url="http://example.invalid",
+            cadsr_db_path=str(destination),
+            database_url="postgresql+asyncpg://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_cadsr_cdes", download)
+    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
+    monkeypatch.setattr("scripts.data_build.build_database", fail_build)
+
+    with pytest.raises(RuntimeError, match="candidate failed"):
+        _build_cadsr()
+
+    assert destination.read_text() == "accepted"
+    assert lock_entries == []

@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from backend.config import get_settings
@@ -761,8 +761,8 @@ async def test_manifest_constraints_reject_invalid_lifecycle_evidence(
                     "is_active,source_version,source_hash,model_id,model_revision,"
                     "vector_dimension,expected_row_count,actual_row_count,code_commit,"
                     "required_doc_ids,error_message,completed_at) VALUES ("
-                    ":build_id,'ncit',:state,:is_active,'v','h','m','r',768,:expected,"
-                    ":actual,'c',:sentinels,:error,"
+                    ":build_id,'ncit',:state,:is_active,'v',:hash,'m',:revision,768,"
+                    ":expected,:actual,:commit,:sentinels,:error,"
                     "CASE WHEN CAST(:completed AS text) IS NULL "
                     "THEN NULL ELSE now() END)"
                 ),
@@ -770,10 +770,29 @@ async def test_manifest_constraints_reject_invalid_lifecycle_evidence(
                     "build_id": UUID("00000000-0000-0000-0000-000000000099"),
                     "state": state,
                     "is_active": is_active,
+                    "hash": "a" * 64,
+                    "revision": "b" * 40,
                     "expected": expected,
                     "actual": actual,
+                    "commit": "c" * 40,
                     "sentinels": sentinels,
                     "error": error,
                     "completed": completed,
                 },
+            )
+
+
+async def test_manifest_provenance_cannot_be_rewritten(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+
+    with pytest.raises(DBAPIError, match="provenance is immutable"):
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                text(
+                    "UPDATE embedding_corpus_manifest SET source_hash = :changed "
+                    "WHERE build_id = :build_id"
+                ),
+                {"changed": "f" * 64, "build_id": _OLD_BUILD},
             )

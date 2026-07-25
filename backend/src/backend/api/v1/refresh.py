@@ -28,7 +28,7 @@ from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
-from ontolib.repositories.embeddings.publication import Corpus
+from ontolib.repositories.embeddings.publication import Corpus, CorpusCoordinationError
 from ontolib.terminologies.ncit.owl_download import (
     OwlDownloadResult,
     download_ncit_owl,
@@ -85,6 +85,7 @@ def _read_source(path: Path, description: str) -> bytes:
     try:
         return path.read_bytes()
     except OSError as exc:
+        logger.exception("Failed to read %s from %s", description, path)
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR, f"{description} unreadable."
         ) from exc
@@ -106,7 +107,7 @@ async def _replace_ncit_source(
             await client.load(payload, content_type=content_type, replace=replace)
             source_mutated = True
         return before, await client.count()
-    except SQLAlchemyError as exc:
+    except (SQLAlchemyError, CorpusCoordinationError) as exc:
         phase = "after" if source_mutated else "before"
         logger.exception("Embedding coordination failed %s NCIt %s", phase, operation)
         raise HTTPException(
@@ -222,8 +223,9 @@ async def download_ncit(
     """Download the NCIt OWL from NCI EVS; with ``load=True``, reload it into the store.
 
     Loads into the default graph (a full store refresh). The download lands in the
-    configured managed dir; a failed download/load returns 502, while unavailable
-    embedding-publication coordination returns 503 before source mutation.
+    configured managed dir. Upstream/store failures return 502, unreadable local files
+    return 500, and unavailable embedding coordination returns 503 before mutation;
+    failed cleanup after mutation returns an explicit 500.
     """
     settings = get_settings()
     result = await download_ncit_owl(

@@ -27,6 +27,7 @@ from ontolib.core.logging_config import get_logger
 from ontolib.repositories.embeddings.publication import (
     EMBEDDING_VECTOR_DIMENSION,
     Corpus,
+    JsonValue,
 )
 
 logger = get_logger(__name__)
@@ -177,7 +178,7 @@ async def stage_cde_embeddings(
     """
     total = 0
     texts: list[str] = []
-    meta: list[tuple[str, dict[str, Any]]] = []
+    meta: list[tuple[str, dict[str, JsonValue]]] = []
 
     async def flush() -> None:
         nonlocal total
@@ -231,7 +232,7 @@ def _record_text(record: NcitEmbeddingRecord, code: str) -> str:
     )
 
 
-def _record_meta(record: NcitEmbeddingRecord, code: str) -> dict[str, Any]:
+def _record_meta(record: NcitEmbeddingRecord, code: str) -> dict[str, JsonValue]:
     return {
         "code": code,
         "preferred_name": record["preferred_name"] or "",
@@ -241,7 +242,7 @@ def _record_meta(record: NcitEmbeddingRecord, code: str) -> dict[str, Any]:
 
 def _ncit_batch(
     records: list[NcitEmbeddingRecord], embedder: Embedder
-) -> list[tuple[str, list[float], dict[str, Any]]]:
+) -> list[tuple[str, list[float], dict[str, JsonValue]]]:
     """Build (doc_id, vector, metadata) rows for a page of NCIt embedding records."""
     codes = [r["code"] or "" for r in records]
     texts = [_record_text(r, code) for r, code in zip(records, codes, strict=True)]

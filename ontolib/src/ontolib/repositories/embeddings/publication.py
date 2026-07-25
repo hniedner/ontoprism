@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -57,6 +58,10 @@ class CorpusUnavailableError(RuntimeError):
     """The corpus is uncertified or unusable for the requested similarity read."""
 
 
+class CorpusCoordinationError(RuntimeError):
+    """A corpus advisory lock could not be acquired or safely released."""
+
+
 @dataclass(frozen=True, slots=True)
 class CorpusBuild:
     """Immutable provenance and completeness contract for one candidate build."""
@@ -98,6 +103,12 @@ def _validate_provenance(build: CorpusBuild) -> None:
     )
     if not all(value.strip() for value in values):
         raise ValueError("embedding build provenance fields must be non-empty")
+    if re.fullmatch(r"[0-9a-f]{64}", build.source_hash) is None:
+        raise ValueError("source_hash must be a lowercase SHA-256 digest")
+    if re.fullmatch(r"[0-9a-f]{40}", build.model_revision) is None:
+        raise ValueError("model_revision must be an immutable 40-hex revision")
+    if re.fullmatch(r"[0-9a-f]{40}", build.code_commit) is None:
+        raise ValueError("code_commit must be a 40-hex Git commit")
 
 
 def _validate_batch(build: CorpusBuild, rows: Sequence[EmbeddingRow]) -> None:
@@ -621,7 +632,7 @@ async def _release_source_lock(connection: Any, key: str) -> None:
         )
         await connection.commit()
         if not unlocked:
-            raise RuntimeError("failed to release embedding source lock")
+            raise CorpusCoordinationError("failed to release embedding source lock")
 
     task = asyncio.create_task(release())
     try:

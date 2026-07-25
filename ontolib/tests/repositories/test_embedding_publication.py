@@ -68,7 +68,7 @@ def _manifest(state: str, **overrides: object) -> CorpusManifest:
         "source_version": "26.02d",
         "source_hash": "a" * 64,
         "model_id": "model",
-        "model_revision": "revision",
+        "model_revision": "d" * 40,
         "vector_dimension": 768,
         "expected_row_count": 2,
         "actual_row_count": None,

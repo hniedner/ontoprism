@@ -28,6 +28,23 @@ def upgrade() -> None:
     )
     op.execute(
         """
+        CREATE FUNCTION reject_embedding_provenance_update() RETURNS trigger
+        LANGUAGE plpgsql AS $$ BEGIN
+            IF (NEW.corpus, NEW.source_version, NEW.source_hash, NEW.model_id,
+                NEW.model_revision, NEW.vector_dimension, NEW.expected_row_count,
+                NEW.code_commit, NEW.required_doc_ids)
+               IS DISTINCT FROM
+               (OLD.corpus, OLD.source_version, OLD.source_hash, OLD.model_id,
+                OLD.model_revision, OLD.vector_dimension, OLD.expected_row_count,
+                OLD.code_commit, OLD.required_doc_ids) THEN
+                RAISE EXCEPTION 'embedding build provenance is immutable';
+            END IF;
+            RETURN NEW;
+        END $$
+        """
+    )
+    op.execute(
+        """
         CREATE TABLE embedding_corpus_manifest (
             build_id uuid PRIMARY KEY,
             corpus text NOT NULL CHECK (corpus IN ('ncit', 'cadsr')),
@@ -47,9 +64,12 @@ def upgrade() -> None:
             completed_at timestamptz,
             CHECK (nullif(btrim(source_version), '') IS NOT NULL),
             CHECK (nullif(btrim(source_hash), '') IS NOT NULL),
+            CHECK (source_hash ~ '^[0-9a-f]{64}$'),
             CHECK (nullif(btrim(model_id), '') IS NOT NULL),
             CHECK (nullif(btrim(model_revision), '') IS NOT NULL),
+            CHECK (model_revision ~ '^[0-9a-f]{40}$'),
             CHECK (nullif(btrim(code_commit), '') IS NOT NULL),
+            CHECK (code_commit ~ '^[0-9a-f]{40}$'),
             CHECK (cardinality(required_doc_ids) > 0),
             CHECK (array_position(required_doc_ids, '') IS NULL),
             CHECK (embedding_text_array_unique(required_doc_ids)),
@@ -72,6 +92,11 @@ def upgrade() -> None:
         "ON embedding_corpus_manifest (corpus) WHERE is_active"
     )
     op.execute(
+        "CREATE TRIGGER embedding_provenance_immutable BEFORE UPDATE ON "
+        "embedding_corpus_manifest FOR EACH ROW EXECUTE FUNCTION "
+        "reject_embedding_provenance_update()"
+    )
+    op.execute(
         """
         CREATE TABLE embedding_corpus_staging (
             build_id uuid NOT NULL REFERENCES embedding_corpus_manifest(build_id)
@@ -88,4 +113,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS embedding_corpus_staging")
     op.execute("DROP TABLE IF EXISTS embedding_corpus_manifest")
+    op.execute("DROP FUNCTION IF EXISTS reject_embedding_provenance_update()")
     op.execute("DROP FUNCTION IF EXISTS embedding_text_array_unique(text[])")

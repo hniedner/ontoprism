@@ -36,7 +36,7 @@ class _StubEmbedder:
         self.seen: list[str] = []
 
     model_id = "test-stub"
-    model_revision = "1"
+    model_revision = "1" * 40
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         self.seen.extend(texts)
@@ -329,7 +329,7 @@ async def test_generate_cde_publishes_after_staging(tmp_path: Path) -> None:
 async def test_generate_ncit_marks_failed_manifest_on_encoder_error() -> None:
     class _BrokenEmbedder:
         model_id = "test-broken"
-        model_revision = "1"
+        model_revision = "1" * 40
 
         def encode(self, texts: list[str]) -> list[list[float]]:
             del texts
@@ -369,7 +369,7 @@ async def test_generate_cde_marks_failed_manifest_on_encoder_error(
 ) -> None:
     class _BrokenEmbedder:
         model_id = "test-broken"
-        model_revision = "1"
+        model_revision = "1" * 40
 
         def encode(self, texts: list[str]) -> list[list[float]]:
             del texts
@@ -473,7 +473,7 @@ async def test_generation_preserves_original_error_when_failure_recording_fails(
 
     class _BrokenEmbedder:
         model_id = "test-broken"
-        model_revision = "1"
+        model_revision = "1" * 40
 
         def encode(self, texts: list[str]) -> list[list[float]]:
             del texts
@@ -512,7 +512,7 @@ async def test_generation_preserves_original_error_when_failure_recording_fails(
     [
         (Corpus.NCIT, _StubEmbedder.model_id, _StubEmbedder.model_revision, "corpus"),
         (Corpus.CADSR, "wrong", _StubEmbedder.model_revision, "model provenance"),
-        (Corpus.CADSR, _StubEmbedder.model_id, "wrong", "model provenance"),
+        (Corpus.CADSR, _StubEmbedder.model_id, "2" * 40, "model provenance"),
     ],
 )
 async def test_generation_rejects_publisher_identity_mismatch(
@@ -538,14 +538,14 @@ async def test_generation_rejects_publisher_identity_mismatch(
 async def test_generation_records_and_reraises_cancellation() -> None:
     class _CancelledEmbedder:
         model_id = "cancelled"
-        model_revision = "1"
+        model_revision = "1" * 40
 
         def encode(self, texts: list[str]) -> list[list[float]]:
             del texts
             raise asyncio.CancelledError
 
     publisher = _LifecyclePublisher(
-        Corpus.NCIT, model_id="cancelled", model_revision="1"
+        Corpus.NCIT, model_id="cancelled", model_revision="1" * 40
     )
     store = _FakeNcitStore(
         [

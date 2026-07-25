@@ -49,7 +49,7 @@ class _StubEmbedder:
     """Deterministic 768-dim vectors — no model, enough to exercise the pipeline."""
 
     model_id = "test-deterministic-embedder"
-    model_revision = "1"
+    model_revision = "1" * 40
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [[float((len(t) % 7) + 1) / 8.0] * EMBED_DIM for t in texts]
@@ -62,7 +62,7 @@ class _FailAfterOneBatchEmbedder:
         self._calls = 0
 
     model_id = "test-failing-embedder"
-    model_revision = "1"
+    model_revision = "1" * 40
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         self._calls += 1
