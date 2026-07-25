@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -76,6 +76,10 @@ class NcitEmbeddingSource(Protocol):
     async def embedding_records(
         self, *, limit: int, after: str | None = None
     ) -> list[NcitEmbeddingRecord]: ...
+
+
+class Digest(Protocol):
+    def update(self, data: bytes, /) -> None: ...
 
 
 class NcitEmbeddingRecord(TypedDict):
@@ -297,7 +301,7 @@ async def ncit_source_fingerprint(
     return total, digest.hexdigest()
 
 
-def _update_record_digest(digest: Any, records: list[NcitEmbeddingRecord]) -> None:
+def _update_record_digest(digest: Digest, records: list[NcitEmbeddingRecord]) -> None:
     for record in records:
         digest.update(
             json.dumps(record, sort_keys=True, separators=(",", ":")).encode()

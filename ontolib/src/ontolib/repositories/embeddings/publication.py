@@ -9,16 +9,17 @@ import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
     from datetime import datetime
     from uuid import UUID
 
+    from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 type JsonValue = (
@@ -204,7 +205,7 @@ def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(repr(float(value)) for value in vector) + "]"
 
 
-def _manifest(row: Any) -> CorpusManifest:
+def _manifest(row: RowMapping) -> CorpusManifest:
     return CorpusManifest(
         build_id=row["build_id"],
         corpus=Corpus(row["corpus"]),
@@ -606,7 +607,7 @@ async def replacing_corpus_source(
                 raise
 
 
-async def _acquire_source_lock(connection: Any, key: str) -> None:
+async def _acquire_source_lock(connection: AsyncConnection, key: str) -> None:
     task = asyncio.create_task(
         connection.execute(
             text("SELECT pg_advisory_lock(hashtextextended(:corpus, 0))"),
@@ -624,7 +625,7 @@ async def _acquire_source_lock(connection: Any, key: str) -> None:
         raise
 
 
-async def _release_source_lock(connection: Any, key: str) -> None:
+async def _release_source_lock(connection: AsyncConnection, key: str) -> None:
     async def release() -> None:
         unlocked = await connection.scalar(
             text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),

@@ -30,7 +30,7 @@ def test_expected_embedding_counts_are_release_specific() -> None:
 
 
 def _require_published_corpus(corpus: str, table: str, required_doc_id: str) -> None:
-    """Require one complete active manifest whose evidence matches physical rows."""
+    """Require an active manifest with matching counts and a canonical sentinel."""
 
     async def _facts() -> tuple[int, int, int, int]:
         engine = make_engine(get_settings().database_url)

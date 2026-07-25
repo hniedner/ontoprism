@@ -305,11 +305,11 @@ async def _publish_ncit_embeddings(
                         (source_version, expected, source_hash),
                         (final_version, final_count, final_hash),
                     )
+                    # Refresh from the validated source while the same advisory lock
+                    # excludes source replacement. FTS commits independently before
+                    # embedding activation and always matches the current source.
+                    await populate_from_store(store, NcitSearchIndex(sf))
 
-                # This independent cache refresh completes before embedding activation;
-                # an FTS failure therefore cannot make an active embedding build look
-                # failed to the operator.
-                await populate_from_store(store, NcitSearchIndex(sf))
                 manifest = await publisher.publish(validate_source)
             except BaseException as exc:
                 await _record_build_failure(publisher, exc)

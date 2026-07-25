@@ -20,12 +20,14 @@ commit only to build-scoped staging. Publication validates exact unique-row coun
 holds a per-corpus PostgreSQL advisory transaction lock while replacing the stable
 serving rows and switching the single completed-active manifest in one transaction.
 Readers require a completed active manifest and report absent certification as 503.
-Activation briefly blocks similarity readers under an exclusive table lock while
+Activation blocks similarity readers for the full stable-table replacement and HNSW
+rebuild under an exclusive lock; it
 replacement and clean HNSW rebuild complete; it guarantees atomic switchover/rollback,
 not uninterrupted old-corpus availability. Legacy
 rows are never auto-certified; the operator first inspects manifests and must pass
-`--publish` (optionally `--corpus ncit|cadsr`) from a clean worktree. Failed candidates
-remain evidence and never change the last accepted corpus. **Why:** the transaction
+`--publish` (optionally `--corpus ncit|cadsr`) from a clean worktree. Failed candidate
+evidence is retained unless an explicit same-build restart clears that attempt; failures
+never change the last accepted corpus. **Why:** the transaction
 preserves the previous stable table on rollback, avoids dynamic table names and
 filtered-ANN under-return, safely rebuilds corpus-specific HNSW, and gives NCIt
 and caDSR separate failure domains.

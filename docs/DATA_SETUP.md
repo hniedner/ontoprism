@@ -114,8 +114,8 @@ job; absence is a failed applicable manual contract, not a skip.
 
 ### Validation and recovery
 
-Run `pdm run data-build embeddings` first. It prints all build attempts and their full
-state/provenance/completeness evidence, then refuses
+Run `pdm run data-build embeddings` first. It prints persisted build provenance and
+lifecycle evidence (completed builds include actual counts), then refuses
 to mutate without `--publish`. A valid NCIt publication requires exact source-count
 agreement with both the enumerated source and the configured release expectation
 (`NCIT_EMBEDDING_EXPECTED_ROWS=204373` for 26.02d /
