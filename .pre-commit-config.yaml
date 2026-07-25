@@ -160,6 +160,15 @@ repos:
         types: [python]
         pass_filenames: false
 
+      # Hermetic only: validates declared surfaces/exemptions and fixture semantics.
+      # It never consumes a local .coverage file or claims service coverage exists.
+      - id: coverage-surface-manifest
+        name: validate coverage manifest and reporter contracts
+        entry: pdm run coverage-check
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: validate-pyproject
         name: validate pyproject.toml
         entry: python3 -c "import tomllib, sys; tomllib.load(open('pyproject.toml','rb')); print('pyproject.toml OK')"

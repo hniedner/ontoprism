@@ -49,11 +49,14 @@ jobs:
               - 'conftest.py'
               - 'alembic.ini'
               - 'pyproject.toml'
+              - 'coverage-surfaces.toml'
               - 'pdm.lock'
               - '.pre-commit-config.yaml'
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - 'coverage-surfaces.toml'
+              - 'scripts/validation/coverage_hierarchy.py'
             embeddings:
               - 'ontolib/src/ontolib/repositories/embeddings/**'
               - 'backend/tests/test_embedding_model_contract.py'
@@ -133,6 +136,17 @@ jobs:
         # when run with -n 0, so we keep xdist. Coverage gate lives in coverage-verify.
         run: pdm run test-ci-no-gate
 
+      - name: Bind unit coverage to this source tree
+        env:
+          COVERAGE_CONFIG_SET: python-combined
+        run: |
+          COVERAGE_VERSION="$(pdm run python -c 'import coverage; print(coverage.__version__)')"
+          pdm run coverage-identity \
+            --layer python-unit \
+            --tool coverage.py \
+            --tool-version "$COVERAGE_VERSION" \
+            --output coverage-unit.identity.json
+
       - name: Upload coverage data
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -143,6 +157,7 @@ jobs:
           path: |
             .coverage
             coverage.xml
+            coverage-unit.identity.json
 
   coverage-verify:
     name: coverage verify (ontolib + backend)
@@ -158,8 +173,9 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Only the coverage tool + the checked-out source are needed to gate — no full
-      # project install. relative_files=true (pyproject) makes the artifact portable.
+      # Only Coverage.py + the checked-out source are needed to gate and to render the
+      # report-only hierarchy — no editable ontolib/backend install. relative_files=true
+      # (pyproject) keeps the uploaded .coverage portable across jobs.
       - name: Install coverage
         run: pip install 'coverage>=7,<8'
 
@@ -174,13 +190,34 @@ jobs:
           path: coverage-integration
 
       - name: Combine same-commit coverage layers
-        run: coverage combine coverage-unit/.coverage coverage-integration/.coverage.integration
+        run: |
+          python scripts/validation/coverage_hierarchy.py verify-identities \
+            coverage-unit/coverage-unit.identity.json \
+            coverage-integration/coverage-integration.identity.json
+          python -m coverage combine \
+            coverage-unit/.coverage coverage-integration/.coverage.integration
 
       - name: Verify ontolib coverage >= 90%
-        run: coverage report --include='*ontolib/src/*' --fail-under=90
+        run: python -m coverage report --include='*ontolib/src/*' --fail-under=90
 
       - name: Verify backend coverage >= 90%
-        run: coverage report --include='*backend/src/*' --fail-under=90
+        run: python -m coverage report --include='*backend/src/*' --fail-under=90
+
+      - name: Report native Python coverage hierarchy (non-blocking deficits)
+        run: >-
+          python scripts/validation/coverage_hierarchy.py python-report
+          --coverage-data .coverage
+          --identity coverage-unit/coverage-unit.identity.json
+          --raw-output coverage-hierarchy/python-native.json
+          --output coverage-hierarchy/python-hierarchy.json
+          --text-output coverage-hierarchy/python-hierarchy.txt
+
+      - name: Upload Python hierarchy report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage-hierarchy-python
+          path: coverage-hierarchy/
 
   web-tests:
     name: web tests + coverage
@@ -202,11 +239,36 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.13"
+
       - name: Install
         run: npm ci
 
       - name: Unit tests with coverage
         run: npm run test:coverage
+
+      - name: Report native frontend coverage hierarchy (non-blocking deficits)
+        run: >-
+          python scripts/validation/coverage_hierarchy.py frontend-report
+          --coverage-json frontend/coverage/coverage-final.json
+          --tool-version "$(node -p 'require("./frontend/node_modules/vitest/package.json").version')"
+          --output frontend/coverage/hierarchy.json
+          --text-output frontend/coverage/hierarchy.txt
+        working-directory: ${{ github.workspace }}
+
+      - name: Upload frontend hierarchy report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage-hierarchy-frontend
+          path: |
+            frontend/coverage/coverage-final.json
+            frontend/coverage/hierarchy.json
+            frontend/coverage/hierarchy.txt
+          if-no-files-found: error
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
@@ -266,13 +328,26 @@ jobs:
       - name: Integration tests (disposable resources)
         run: pdm run test-integration-ci-coverage
 
+      - name: Bind integration coverage to this source tree
+        env:
+          COVERAGE_CONFIG_SET: python-combined
+        run: |
+          COVERAGE_VERSION="$(pdm run python -c 'import coverage; print(coverage.__version__)')"
+          pdm run coverage-identity \
+            --layer python-integration \
+            --tool coverage.py \
+            --tool-version "$COVERAGE_VERSION" \
+            --output coverage-integration.identity.json
+
       - name: Upload integration coverage data
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage-integration-data
           include-hidden-files: true
-          path: .coverage.integration
+          path: |
+            .coverage.integration
+            coverage-integration.identity.json
 
   embedding-model-contract:
     name: pinned embedding model contract

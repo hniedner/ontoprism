@@ -1,0 +1,394 @@
+schema_version = 1
+report_only = true
+limitations = [
+  "Coverage.py 7.15 native function/class regions are authoritative for Python ownership; zero-branch scopes are rendered as N/A instead of Coverage.py's synthetic 100%.",
+  "Vitest's native Istanbul map is authoritative for frontend module denominators. Production-bundle Playwright maps attribute to original Svelte sources but cannot be merged with Vitest without duplicate regions, so browser coverage is behavioral evidence only.",
+  "Executable production surfaces absent from their trusted measurement layer report 0% unmeasured. YAML, shell, browser-only routes, and excluded rendering shells are never silently omitted.",
+  "The hierarchy is report-only in #170. Existing aggregate Python and frontend threshold gates remain the only blocking coverage gates until #169.",
+]
+required_production_paths = [
+  "ontolib/src/ontolib/decomposition/stated_queries.py",
+  "ontolib/src/ontolib/repositories/xref/cadsr_anchors.py",
+  "ontolib/src/ontolib/repositories/xref/candidate_ingest.py",
+  "ontolib/src/ontolib/repositories/xref/coverage.py",
+  "ontolib/src/ontolib/repositories/xref/promotion.py",
+  "ontolib/src/ontolib/repositories/xref/store.py",
+  "backend/src/backend/main.py",
+  "frontend/src/app.html",
+  "frontend/src/routes/+layout.svelte",
+  "frontend/src/routes/+page.svelte",
+  "frontend/src/routes/query/+page.svelte",
+  "frontend/src/routes/refresh/+page.svelte",
+  "frontend/src/routes/refresh/+page.ts",
+  "frontend/src/routes/repositories/cadsr/+layout.ts",
+  "frontend/src/routes/repositories/cadsr/+page.svelte",
+  "frontend/src/routes/repositories/cadsr/[id]/+page.svelte",
+  "frontend/src/routes/repositories/clinicaltrials/+layout.ts",
+  "frontend/src/routes/repositories/clinicaltrials/+page.svelte",
+  "frontend/src/routes/repositories/clinicaltrials/[nct]/+page.svelte",
+  "frontend/src/routes/repositories/ncit/+layout.ts",
+  "frontend/src/routes/repositories/ncit/+page.svelte",
+  "frontend/src/routes/repositories/ncit/[code]/+page.svelte",
+  "frontend/src/routes/repositories/pubmed/+layout.ts",
+  "frontend/src/routes/repositories/pubmed/+page.svelte",
+  "frontend/src/routes/repositories/pubmed/[pmid]/+page.svelte",
+  "frontend/src/lib/components/ExternalMappingsPanel.svelte",
+  "frontend/src/lib/components/GraphExplorer.svelte",
+  "frontend/src/lib/components/GraphMinimap.svelte",
+  "frontend/src/lib/components/GraphSidePanel.svelte",
+  "frontend/src/lib/components/NeighborhoodGraph.svelte",
+  "frontend/src/lib/components/RepoBrowsePage.svelte",
+  "frontend/src/lib/components/RepoPageHeader.svelte",
+  "frontend/src/lib/components/pubmed/PubMedArticleHeader.svelte",
+  "frontend/src/lib/components/trial/TrialOutcomes.svelte",
+  "scripts/data_build.py",
+  "scripts/decompose.py",
+  "scripts/dev/reconstruct_versions.py",
+  "scripts/dev/stamp_lock_version.py",
+  "scripts/dev/update_readme_code_stats.py",
+  "migrations/env.py",
+  ".github/workflows/release.yml",
+  ".github/workflows/update-readme-code-stats.yml",
+]
+
+[[group]]
+name = "ontolib"
+classification = "production"
+language = "python"
+measurement = "coverage.py"
+tree = "python"
+kind = "installable-package"
+executable = true
+
+[[group]]
+name = "backend"
+classification = "production"
+language = "python"
+measurement = "coverage.py"
+tree = "python"
+kind = "application"
+executable = true
+
+[[group]]
+name = "data-workflows"
+classification = "production"
+language = "python"
+measurement = "coverage.py"
+tree = "python"
+kind = "production-workflow"
+executable = true
+
+[[group]]
+name = "release-workflows"
+classification = "production"
+language = "python"
+measurement = "coverage.py"
+tree = "python"
+kind = "production-workflow"
+executable = true
+
+[[group]]
+name = "schema-workflows"
+classification = "production"
+language = "python"
+measurement = "coverage.py"
+tree = "python"
+kind = "production-workflow"
+executable = true
+
+[[group]]
+name = "frontend-app"
+classification = "production"
+language = "frontend"
+measurement = "vitest"
+tree = "frontend"
+kind = "application"
+executable = true
+
+[[group]]
+name = "release-yaml"
+classification = "production"
+language = "workflow"
+measurement = "none"
+tree = "workflows"
+kind = "production-workflow"
+executable = true
+
+[[group]]
+name = "research"
+classification = "research"
+language = "python"
+measurement = "none"
+tree = "research"
+kind = "research"
+executable = true
+
+[[group]]
+name = "python-test-tooling"
+classification = "test"
+language = "python"
+measurement = "none"
+tree = "test-tooling"
+kind = "tooling"
+executable = true
+
+[[group]]
+name = "frontend-test-tooling"
+classification = "test"
+language = "frontend"
+measurement = "none"
+tree = "test-tooling"
+kind = "tooling"
+executable = true
+
+[[group]]
+name = "dev-tooling"
+classification = "dev"
+language = "python"
+measurement = "none"
+tree = "dev-tooling"
+kind = "tooling"
+executable = true
+
+[[group]]
+name = "ci-workflows"
+classification = "dev"
+language = "workflow"
+measurement = "none"
+tree = "ci"
+kind = "tooling"
+executable = true
+
+[[group]]
+name = "non-executable"
+classification = "non-executable"
+language = "frontend"
+measurement = "none"
+tree = "frontend"
+kind = "non-executable"
+executable = false
+
+[[inventory]]
+root = "ontolib/src"
+extensions = [".py"]
+default_group = "ontolib"
+
+[[inventory]]
+root = "backend/src"
+extensions = [".py"]
+default_group = "backend"
+
+[[inventory]]
+root = "scripts"
+extensions = [".py", ".sh"]
+default_group = "dev-tooling"
+
+[[inventory]]
+root = "migrations"
+extensions = [".py"]
+default_group = "schema-workflows"
+
+[[inventory]]
+root = "frontend/src"
+extensions = [".ts", ".svelte", ".html", ".css", ".svg"]
+default_group = "frontend-app"
+
+[[inventory]]
+root = "frontend/e2e"
+extensions = [".ts"]
+default_group = "frontend-test-tooling"
+
+[[inventory]]
+root = ".github/workflows"
+extensions = [".yml", ".yaml"]
+default_group = "ci-workflows"
+
+[[assignment]]
+pattern = "ontolib/src/ontolib/decomposition/walker.py"
+group = "research"
+
+[[assignment]]
+pattern = "ontolib/src/ontolib/decomposition/score.py"
+group = "research"
+
+[[assignment]]
+pattern = "scripts/data_build.py"
+group = "data-workflows"
+
+[[assignment]]
+pattern = "scripts/decompose.py"
+group = "data-workflows"
+
+[[assignment]]
+pattern = "scripts/dev/reconstruct_versions.py"
+group = "release-workflows"
+
+[[assignment]]
+pattern = "scripts/dev/stamp_lock_version.py"
+group = "release-workflows"
+
+[[assignment]]
+pattern = "scripts/dev/update_readme_code_stats.py"
+group = "release-workflows"
+
+[[assignment]]
+pattern = "scripts/research/**"
+group = "research"
+
+[[assignment]]
+pattern = "scripts/decomposition_spike.py"
+group = "research"
+
+[[assignment]]
+pattern = "scripts/run_safe_integration.py"
+group = "python-test-tooling"
+
+[[assignment]]
+pattern = "scripts/test_runner.py"
+group = "python-test-tooling"
+
+[[assignment]]
+pattern = "scripts/validation/**"
+group = "python-test-tooling"
+
+[[assignment]]
+pattern = "frontend/src/**/*.test.ts"
+group = "frontend-test-tooling"
+
+[[assignment]]
+pattern = "frontend/src/lib/components/trial/trial-fixture.ts"
+group = "frontend-test-tooling"
+
+[[assignment]]
+pattern = "frontend/src/lib/vitest-examples/**"
+group = "frontend-test-tooling"
+
+[[assignment]]
+pattern = "frontend/src/app.css"
+group = "non-executable"
+
+[[assignment]]
+pattern = "frontend/src/app.d.ts"
+group = "non-executable"
+
+[[assignment]]
+pattern = "frontend/src/vitest.d.ts"
+group = "non-executable"
+
+[[assignment]]
+pattern = "frontend/src/lib/types.ts"
+group = "non-executable"
+
+[[assignment]]
+pattern = "frontend/src/lib/index.ts"
+group = "non-executable"
+
+[[assignment]]
+pattern = "frontend/src/lib/styles/**"
+group = "non-executable"
+
+[[assignment]]
+pattern = "frontend/src/lib/assets/**"
+group = "non-executable"
+
+[[assignment]]
+pattern = ".github/workflows/release.yml"
+group = "release-yaml"
+
+[[assignment]]
+pattern = ".github/workflows/update-readme-code-stats.yml"
+group = "release-yaml"
+
+[[exemption]]
+path = "ontolib/src/ontolib/common/error_handling.py"
+line = 47
+kind = "pragma-no-cover"
+owner = "ontolib maintainers"
+rationale = "max_attempts is validated as positive and every loop path returns or raises, so this defensive assertion is structurally unreachable."
+behavioral_test = "ontolib/tests/terminologies/test_retry_backoff.py"
+review_issue = 169
+review_after = "2027-01-25"
+
+[[exemption]]
+path = "if TYPE_CHECKING:"
+line = 1
+kind = "coverage-exclude-regex"
+owner = "Python maintainers"
+rationale = "TYPE_CHECKING blocks are static typing imports and do not execute in production."
+behavioral_test = "backend/tests/test_coverage_hierarchy.py"
+review_issue = 169
+review_after = "2027-01-25"
+configured_in = "pyproject.toml"
+
+[[exemption]]
+path = "raise NotImplementedError"
+line = 1
+kind = "coverage-exclude-regex"
+owner = "Python maintainers"
+rationale = "Abstract-interface sentinel branches are not executable implementation behavior; the manifest validator detects drift in this exclusion."
+behavioral_test = "backend/tests/test_coverage_hierarchy.py"
+review_issue = 169
+review_after = "2027-01-25"
+configured_in = "pyproject.toml"
+
+[[exemption]]
+path = "ontolib/src/ontolib/common/error_handling.py"
+line = 64
+kind = "pragma-no-cover"
+owner = "ontolib maintainers"
+rationale = "The async loop has the same validated positive-attempt invariant as the synchronous loop."
+behavioral_test = "ontolib/tests/terminologies/test_retry_backoff.py"
+review_issue = 169
+review_after = "2027-01-25"
+
+[[exemption]]
+path = "ontolib/src/ontolib/decomposition/walker.py"
+line = 173
+kind = "pragma-no-cover"
+owner = "decomposition research maintainers"
+rationale = "This research-only module guard delegates directly to a behaviorally tested async main function."
+behavioral_test = "ontolib/tests/decomposition/test_walker.py"
+review_issue = 170
+review_after = "2027-01-25"
+
+[[exemption]]
+path = "scripts/dev/update_readme_code_stats.py"
+line = 154
+kind = "pragma-no-cover"
+owner = "release automation maintainers"
+rationale = "The repository workflow calls the module entry point; main behavior and subprocess help invocation are tested."
+behavioral_test = "ontolib/tests/dev/test_update_readme_code_stats.py"
+review_issue = 172
+review_after = "2027-01-25"
+
+[[exemption]]
+path = "scripts/research/differentia_extractor.py"
+line = 102
+kind = "pragma-no-cover"
+owner = "decomposition research maintainers"
+rationale = "This research-only module guard delegates directly to the tested async main function."
+behavioral_test = "ontolib/tests/decomposition/test_differentia_extractor.py"
+review_issue = 170
+review_after = "2027-01-25"
+
+[[exemption]]
+path = "frontend/src/lib/components/GraphExplorer.svelte"
+line = 1
+kind = "measurement-exclusion"
+owner = "frontend maintainers"
+rationale = "The imperative Sigma/WebGL shell cannot mount faithfully in jsdom; pure graph logic is unit tested and its toolbar controls are asserted to render in Chromium."
+behavioral_test = "frontend/e2e/repositories.spec.ts"
+review_issue = 173
+review_after = "2027-01-25"
+configured_in = "frontend/vite.config.ts"
+
+[[exemption]]
+path = "frontend/src/lib/components/GraphMinimap.svelte"
+line = 1
+kind = "measurement-exclusion"
+owner = "frontend maintainers"
+rationale = "The imperative canvas shell cannot mount faithfully in jsdom; projection logic is unit tested and its toggle control is asserted to render in Chromium."
+behavioral_test = "frontend/e2e/repositories.spec.ts"
+review_issue = 173
+review_after = "2027-01-25"
+configured_in = "frontend/vite.config.ts"
