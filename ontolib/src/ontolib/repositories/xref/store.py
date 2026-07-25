@@ -105,10 +105,10 @@ class XrefStore:
             if result.rowcount is not None:  # type: ignore[attr-defined]
                 if (
                     result.rowcount >= 0  # type: ignore[attr-defined]
-                ):  # pragma: no cover
-                    return cast("int", result.rowcount)  # type: ignore[attr-defined]  # pragma: no cover
+                ):
+                    return cast("int", result.rowcount)  # type: ignore[attr-defined]
                 return len(rows)
-            return 0  # pragma: no cover
+            return 0
 
     async def update_run_metrics(
         self, run_id: str, metrics: dict[str, Any], *, status: str = "completed"

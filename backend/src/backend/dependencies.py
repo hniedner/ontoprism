@@ -32,7 +32,7 @@ def get_cadsr_repo(request: Request) -> CdeRepository:
 
 def get_embedding_store(
     request: Request,
-) -> EmbeddingStore:  # pragma: no cover — trivial getter
+) -> EmbeddingStore:
     """Return the process-wide pgvector embedding store."""
     return request.app.state.embedding_store
 
@@ -49,21 +49,21 @@ def get_pubmed_client(request: Request) -> PubMedClient:
 
 def get_provenance_store(
     request: Request,
-) -> ProvenanceStore:  # pragma: no cover — trivial getter
+) -> ProvenanceStore:
     """Return the process-wide decomposition provenance store."""
     return request.app.state.provenance_store
 
 
 def get_ncit_search_index(
     request: Request,
-) -> NcitSearchIndex:  # pragma: no cover — trivial getter
+) -> NcitSearchIndex:
     """Return the process-wide NCIt FTS search index."""
     return request.app.state.ncit_search_index
 
 
 def get_xref_store(
     request: Request,
-) -> XrefStore:  # pragma: no cover — trivial getter
+) -> XrefStore:
     """Return the process-wide xref mapping store."""
     return request.app.state.xref_store
 
