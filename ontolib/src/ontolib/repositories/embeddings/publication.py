@@ -1,4 +1,9 @@
-"""Validated, atomic publication of embedding corpora through PostgreSQL MVCC."""
+"""Validated, atomic publication of embedding corpora via build-scoped staging.
+
+Batches are staged invisibly (PostgreSQL MVCC keeps them unreadable until commit);
+the switchover itself takes an ``ACCESS EXCLUSIVE`` lock on the serving table and so
+briefly blocks similarity readers while the rows and HNSW index are replaced.
+"""
 
 from __future__ import annotations
 
@@ -310,6 +315,7 @@ class EmbeddingCorpusPublisher:
                     f"build {self.build.build_id} does not exist"
                 )
             if manifest.state == "complete" and manifest.is_active:
+                self._require_same_contract(manifest)
                 return manifest
             if manifest.state != "building":
                 raise CorpusBuildStateError(
@@ -570,7 +576,8 @@ async def corpus_manifests(
 async def replacing_corpus_source(
     session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
 ) -> AsyncIterator[None]:
-    """Commit deactivation, then hold a session lock across source replacement."""
+    """Acquire a per-corpus session lock, commit deactivation, then hold that lock
+    across source replacement."""
     engine = session_factory.kw.get("bind")
     if not isinstance(engine, AsyncEngine):
         raise TypeError("embedding session factory must be bound to an AsyncEngine")
@@ -616,11 +623,15 @@ async def _acquire_source_lock(connection: AsyncConnection, key: str) -> None:
     )
     try:
         await asyncio.shield(task)
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as cancelled:
         await task
         try:
             await _release_source_lock(connection, key)
-        except BaseException:
+        except BaseException as unlock_error:
+            cancelled.add_note(
+                f"Failed to release embedding source lock after cancellation: "
+                f"{unlock_error}"
+            )
             await connection.invalidate()
         raise
 

@@ -60,7 +60,7 @@ def upgrade() -> None:
             expected_row_count integer NOT NULL CHECK (expected_row_count > 0),
             actual_row_count integer CHECK (actual_row_count > 0),
             code_commit text NOT NULL,
-            required_doc_ids text[] NOT NULL DEFAULT '{}',
+            required_doc_ids text[] NOT NULL,
             error_message text,
             created_at timestamptz NOT NULL DEFAULT now(),
             completed_at timestamptz,

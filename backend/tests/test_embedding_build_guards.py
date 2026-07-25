@@ -89,14 +89,13 @@ def test_code_commit_requires_clean_repo_and_returns_exact_head(tmp_path) -> Non
 
 
 @pytest.mark.unit
-async def test_owl_preparation_failure_never_enters_replacement_lock(
+async def test_owl_preparation_propagates_a_failed_stated_download(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
     inferred = tmp_path / "Thesaurus.owl"
     inferred.write_text("inferred")
     calls = 0
-    lock_entries: list[str] = []
 
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
         nonlocal calls
@@ -105,11 +104,6 @@ async def test_owl_preparation_failure_never_enters_replacement_lock(
             return SimpleNamespace(success=True, file_path=str(inferred), error=None)
         return SimpleNamespace(success=False, file_path=None, error="stated failed")
 
-    @asynccontextmanager
-    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        lock_entries.append("entered")
-        yield
-
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
         lambda: SimpleNamespace(
@@ -120,16 +114,16 @@ async def test_owl_preparation_failure_never_enters_replacement_lock(
         ),
     )
     monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
-    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
 
     with pytest.raises(RuntimeError, match="stated failed"):
         await _build_owl()
 
-    assert lock_entries == []
+    # A failed stated download halts before the stated candidate is written.
+    assert not (tmp_path / "Thesaurus-stated.owl").exists()
 
 
 @pytest.mark.unit
-async def test_owl_candidates_are_prepared_without_replacement_lock(
+async def test_owl_candidates_are_prepared_to_distinct_paths(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -138,16 +132,10 @@ async def test_owl_candidates_are_prepared_without_replacement_lock(
     inferred.write_text("inferred")
     stated.write_text("stated")
     downloads = iter((inferred, stated))
-    lock_entries: list[str] = []
 
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
         path = next(downloads)
         return SimpleNamespace(success=True, file_path=str(path), error=None)
-
-    @asynccontextmanager
-    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        lock_entries.append("enter")
-        yield
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
@@ -159,10 +147,8 @@ async def test_owl_candidates_are_prepared_without_replacement_lock(
         ),
     )
     monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
-    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
     await _build_owl()
 
-    assert lock_entries == []
     assert (tmp_path / "Thesaurus-inferred.owl").read_text() == "inferred"
     assert (tmp_path / "Thesaurus-stated.owl").read_text() == "stated"
 

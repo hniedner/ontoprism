@@ -3,7 +3,7 @@
 
 One command to stand ontoprism up on a machine with no fairdata dependency:
 
-  pdm run data-build all          # OWL load -> caDSR build -> embeddings
+  pdm run data-build all          # OWL prepare -> caDSR build -> embeddings
   pdm run data-build owl          # prepare distinct inferred + stated artifacts (#148)
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite
   pdm run data-build embeddings --publish  # validate + publish embeddings -> pgvector
@@ -589,7 +589,8 @@ async def _build_xref_promote(
 
 @app.command()
 def owl() -> None:
-    """Download + load the inferred (default) and stated (named graph) NCIt OWL."""
+    """Download + prepare distinct inferred and stated NCIt OWL artifacts (#148);
+    online store loading is disabled."""
     asyncio.run(_build_owl())
 
 
@@ -656,7 +657,7 @@ def xref_promote(
 
 @app.command(name="all")
 def build_all() -> None:
-    """Run the full build: OWL load -> caDSR build -> embeddings."""
+    """Run the full build: OWL prepare -> caDSR build -> embeddings."""
     asyncio.run(_build_owl())
     _build_cadsr()
     asyncio.run(_build_embeddings(publish=True, corpus=None, restart=False))

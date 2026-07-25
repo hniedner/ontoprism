@@ -96,7 +96,7 @@ async def search(
     try:
         if await index.is_populated():
             return await index.search(q, limit=limit, offset=offset)
-    except (SQLAlchemyError, CorpusUnavailableError) as exc:
+    except SQLAlchemyError as exc:
         logger.warning("NCIt FTS cache unavailable, falling back to SPARQL: %s", exc)
     return await store.search(q, limit=limit, offset=offset)
 

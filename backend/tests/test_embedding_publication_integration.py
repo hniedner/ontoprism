@@ -150,6 +150,41 @@ async def test_complete_candidate_activates_rows_and_manifest_together(
     assert staged == 0
 
 
+async def test_similar_results_are_ordered_by_descending_similarity(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    def vec(primary: float, secondary: float) -> list[float]:
+        values = [0.0] * _VECTOR_DIMENSION
+        values[0], values[1] = primary, secondary
+        return values
+
+    publisher = EmbeddingCorpusPublisher(
+        session_factory, _build(_NEW_BUILD, expected=5)
+    )
+    await publisher.start()
+    # Staged out of similarity order with one more neighbor (ANTI, cosine -1) than the
+    # limit, so LIMIT must drop the least-similar row: this exercises the top-N nearest
+    # selection (inner ORDER BY), not just the final sort. Cosine to query direction
+    # (1,0): NEAR ~0.89 > MID ~0.45 > FAR 0 > ANTI -1.
+    await publisher.stage(
+        [
+            ("C3262", vec(1.0, 0.0), {"label": "query"}),
+            ("FAR", vec(0.0, 1.0), {"label": "far"}),
+            ("ANTI", vec(-1.0, 0.0), {"label": "anti"}),
+            ("NEAR", vec(1.0, 0.5), {"label": "near"}),
+            ("MID", vec(1.0, 2.0), {"label": "mid"}),
+        ]
+    )
+    await publisher.publish()
+
+    hits = await EmbeddingStore(session_factory).similar_ncit("C3262", limit=3)
+
+    assert [doc_id for doc_id, _ in hits] == ["NEAR", "MID", "FAR"]
+    assert "ANTI" not in {doc_id for doc_id, _ in hits}
+    scores = [score for _, score in hits]
+    assert scores == sorted(scores, reverse=True)
+
+
 async def test_plausible_partial_candidate_is_rejected_and_old_corpus_survives(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -393,6 +428,18 @@ async def test_completed_build_id_refuses_changed_provenance(
 
     with pytest.raises(CorpusBuildStateError, match="different provenance"):
         await changed.start()
+
+
+async def test_publish_of_active_build_refuses_changed_provenance(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+    changed = EmbeddingCorpusPublisher(
+        session_factory, replace(_build(_OLD_BUILD), model_revision="d" * 40)
+    )
+
+    with pytest.raises(CorpusBuildStateError, match="different provenance"):
+        await changed.publish()
 
 
 async def test_inactive_completed_build_cannot_be_reused_or_failed(

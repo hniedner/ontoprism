@@ -20,8 +20,7 @@ commit only to build-scoped staging. Publication validates exact unique-row coun
 holds a per-corpus PostgreSQL advisory transaction lock while replacing the stable
 serving rows and switching the single completed-active manifest in one transaction.
 Readers require a completed active manifest and report absent certification as 503.
-Activation blocks similarity readers for the full stable-table replacement and HNSW
-rebuild under an exclusive lock; it
+Activation blocks similarity readers under an exclusive lock until the stable-table
 replacement and clean HNSW rebuild complete; it guarantees atomic switchover/rollback,
 not uninterrupted old-corpus availability. Legacy
 rows are never auto-certified; the operator first inspects manifests and must pass

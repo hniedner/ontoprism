@@ -309,6 +309,49 @@ def test_reload_transport_failure_reports_unknown_mutation_outcome(
     assert "outcome is unknown" in response.json()["detail"]
 
 
+@pytest.mark.api
+def test_reload_pre_mutation_store_read_failure_is_502_without_loading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The store is down at the pre-load probe (`count()` before `replacing`): nothing
+    # was mutated, so this is the safe-to-retry 502 "store reload failed" — distinct
+    # from the "outcome is unknown" a failed load raises. Neither the load nor the
+    # embedding replacement lock must be reached.
+    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
+    ttl = tmp_path / "graph.ttl"
+    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
+    loaded = False
+    entered = False
+
+    class _Client:
+        async def count(self) -> int:
+            raise StorageError("store down before load")
+
+        async def load(self, *_args: Any, **_kwargs: Any) -> None:
+            nonlocal loaded
+            loaded = True
+
+    class _Embeddings:
+        @asynccontextmanager
+        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
+            nonlocal entered
+            entered = True
+            yield
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _Client
+    app.dependency_overrides[get_embedding_store] = _Embeddings
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
+        )
+
+    assert response.status_code == 502
+    assert "reload failed" in response.json()["detail"].lower()
+    assert not loaded
+    assert not entered
+
+
 class _FakeNcitStore:
     def __init__(self) -> None:
         self._call_count = 0
