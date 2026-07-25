@@ -10,7 +10,7 @@ inferred variant) and optionally loads it — the built-in NCIt data-refresh mec
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Never
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -101,36 +101,59 @@ async def _replace_ncit_source(
     operation: str,
 ) -> tuple[int, int]:
     source_mutated = False
+    mutation_attempted = False
     try:
         before = await client.count()
         async with embeddings.replacing(Corpus.NCIT):
+            mutation_attempted = True
             await client.load(payload, content_type=content_type, replace=replace)
             source_mutated = True
         return before, await client.count()
     except (SQLAlchemyError, CorpusCoordinationError) as exc:
-        phase = "after" if source_mutated else "before"
-        logger.exception("Embedding coordination failed %s NCIt %s", phase, operation)
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR
-            if source_mutated
-            else status.HTTP_503_SERVICE_UNAVAILABLE,
-            "NCIt source changed but embedding lock cleanup failed."
-            if source_mutated
-            else "Embedding publication database unavailable.",
-        ) from exc
+        _raise_coordination_error(
+            exc, source_mutated=source_mutated, operation=operation
+        )
     except StorageError as exc:
-        if source_mutated:
-            logger.exception(
-                "NCIt source changed but %s verification failed", operation
-            )
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                "NCIt source changed but post-load verification failed.",
-            ) from exc
+        _raise_store_error(
+            exc,
+            source_mutated=source_mutated,
+            mutation_attempted=mutation_attempted,
+            operation=operation,
+        )
+
+
+def _raise_coordination_error(
+    exc: Exception, *, source_mutated: bool, operation: str
+) -> Never:
+    phase = "after" if source_mutated else "before"
+    logger.exception("Embedding coordination failed %s NCIt %s", phase, operation)
+    raise HTTPException(
+        status.HTTP_500_INTERNAL_SERVER_ERROR
+        if source_mutated
+        else status.HTTP_503_SERVICE_UNAVAILABLE,
+        "NCIt source changed but embedding lock cleanup failed."
+        if source_mutated
+        else "Embedding publication database unavailable.",
+    ) from exc
+
+
+def _raise_store_error(
+    exc: StorageError,
+    *,
+    source_mutated: bool,
+    mutation_attempted: bool,
+    operation: str,
+) -> Never:
+    if source_mutated:
+        logger.exception("NCIt source changed but %s verification failed", operation)
+        detail = "NCIt source changed but post-load verification failed."
+    elif mutation_attempted:
+        logger.exception("NCIt %s mutation outcome is unknown", operation)
+        detail = "NCIt source mutation outcome is unknown; embeddings are unavailable."
+    else:
         logger.exception("NCIt %s failed before source mutation", operation)
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, f"NCIt store {operation} failed."
-        ) from exc
+        detail = f"NCIt store {operation} failed."
+    raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail) from exc
 
 
 def _resolve_allowed(source_path: str) -> Path:

@@ -14,6 +14,7 @@ import pytest
 from ontolib.repositories.embeddings.generate import (
     NcitEmbeddingRecord,
     SentenceTransformerEmbedder,
+    cadsr_source_fingerprint,
     cde_text,
     generate_cde_embeddings,
     generate_ncit_embeddings,
@@ -323,6 +324,26 @@ async def test_generate_cde_publishes_after_staging(tmp_path: Path) -> None:
     assert publisher.started == [True]
     assert publisher.published
     assert manifest.actual_row_count == 1
+
+
+@pytest.mark.unit
+def test_cadsr_fingerprint_covers_content_and_is_insert_order_invariant(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.db"
+    second = tmp_path / "second.db"
+    rows = [_cde_row("100", "2.0"), _cde_row("200", "1.0")]
+    _make_cde_db(first, rows)
+    _make_cde_db(second, list(reversed(rows)))
+
+    original = cadsr_source_fingerprint(str(first))
+    reordered = cadsr_source_fingerprint(str(second))
+    changed = tmp_path / "changed.db"
+    _make_cde_db(changed, [rows[0], _cde_row("200", "1.0", definition="changed")])
+
+    assert original == reordered
+    assert original[0] == 2
+    assert cadsr_source_fingerprint(str(changed))[1] != original[1]
 
 
 @pytest.mark.unit

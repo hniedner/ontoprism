@@ -22,6 +22,7 @@ _TABLE = {Corpus.NCIT: "ncit_concepts", Corpus.CADSR: "cde_repository"}
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
+    from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -92,6 +93,29 @@ class EmbeddingStore:
     ) -> list[tuple[str, float]]:
         """Return (``public_id:version``, similarity) most similar to a CDE."""
         return await self._similar(Corpus.CADSR, f"{public_id}:{version}", limit)
+
+    async def active_build_id(self, corpus: Corpus) -> UUID:
+        """Return the active build token used to guard cross-store response joins."""
+        async with self._sf() as session:
+            build_id = await session.scalar(
+                text(
+                    "SELECT build_id FROM embedding_corpus_manifest "
+                    "WHERE corpus = :corpus AND state = 'complete' AND is_active"
+                ),
+                {"corpus": corpus.value},
+            )
+        if build_id is None:
+            raise CorpusUnavailableError(
+                f"no completed active {corpus.value} embedding corpus"
+            )
+        return build_id
+
+    async def require_same_active_build(self, corpus: Corpus, build_id: UUID) -> None:
+        """Fail if source/publication changed while an API response was assembled."""
+        if await self.active_build_id(corpus) != build_id:
+            raise CorpusUnavailableError(
+                f"active {corpus.value} embedding corpus changed during request"
+            )
 
     def replacing(self, corpus: Corpus) -> AbstractAsyncContextManager[None]:
         """Commit invalidation and serialize publication during source replacement."""

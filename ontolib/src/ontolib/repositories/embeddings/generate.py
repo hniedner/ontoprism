@@ -163,7 +163,8 @@ def _iter_cde_rows(db_path: str) -> Iterator[sqlite3.Row]:
     try:
         yield from conn.execute(
             "SELECT public_id, version, search_text, short_name, long_name, "
-            "definition, context, workflow_status, registration_status FROM cdes"
+            "definition, context, workflow_status, registration_status FROM cdes "
+            "ORDER BY public_id, version"
         )
     finally:
         conn.close()
@@ -224,6 +225,20 @@ async def stage_cde_embeddings(
     await flush()
     logger.info("Staged %d caDSR CDE embeddings", total)
     return total
+
+
+def cadsr_source_fingerprint(db_path: str) -> tuple[int, str]:
+    """Hash exact caDSR embedding-source rows in deterministic identifier order."""
+    digest = hashlib.sha256()
+    count = 0
+    for row in _iter_cde_rows(db_path):
+        record = {key: row[key] for key in row.keys()}  # noqa: SIM118 — sqlite3.Row
+        digest.update(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        )
+        digest.update(b"\n")
+        count += 1
+    return count, digest.hexdigest()
 
 
 def _record_text(record: NcitEmbeddingRecord, code: str) -> str:

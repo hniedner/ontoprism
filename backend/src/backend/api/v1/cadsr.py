@@ -13,7 +13,7 @@ from ontolib.repositories.cadsr.models import (
     CdeSummary,
     SimilarCde,
 )
-from ontolib.repositories.embeddings.publication import CorpusUnavailableError
+from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.models import GraphEdge, GraphNode, Neighborhood
 
@@ -98,10 +98,16 @@ async def similar_cdes(
     if cde is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
     try:
+        build_id = await embeddings.active_build_id(Corpus.CADSR)
         hits = await embeddings.similar_cde(cde.public_id, cde.version, limit=limit)
     except (SQLAlchemyError, CorpusUnavailableError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    return _resolve_similar_cdes(repo, hits)
+    results = _resolve_similar_cdes(repo, hits)
+    try:
+        await embeddings.require_same_active_build(Corpus.CADSR, build_id)
+    except CorpusUnavailableError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    return results
 
 
 @router.get("/concepts/{concept_code}/cdes", response_model=list[CdeSummary])

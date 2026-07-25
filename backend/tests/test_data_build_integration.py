@@ -72,7 +72,7 @@ class _FailAfterOneBatchEmbedder:
 
 
 _CADSR_XML = """<DataElementsList><DataElement>
-  <PUBLICID>2517527</PUBLICID><VERSION>1.0</VERSION>
+  <PUBLICID>2517527</PUBLICID><VERSION>4</VERSION>
   <PREFERREDNAME>DEMO_CDE</PREFERREDNAME><LONGNAME>Demo CDE</LONGNAME>
   <PREFERREDDEFINITION>A demo CDE.</PREFERREDDEFINITION>
   <VALUEDOMAIN><Datatype>CHARACTER</Datatype></VALUEDOMAIN>
@@ -97,9 +97,7 @@ def _publisher(
             vector_dimension=EMBED_DIM,
             expected_row_count=expected,
             code_commit="c" * 40,
-            required_doc_ids=(
-                ("C3262",) if corpus is Corpus.NCIT else ("2517527:1.0",)
-            ),
+            required_doc_ids=(("C3262",) if corpus is Corpus.NCIT else ("2517527:4",)),
         ),
     )
 
@@ -131,7 +129,7 @@ async def test_generate_cde_embeddings_writes_vectors(
         row = await session.execute(
             text(
                 "SELECT vector_dims(embedding) AS d FROM cde_repository "
-                "WHERE doc_id = '2517527:1.0'"
+                "WHERE doc_id = '2517527:4'"
             )
         )
         assert row.scalar_one() == EMBED_DIM
@@ -329,6 +327,14 @@ async def test_production_ncit_source_drift_fails_candidate_and_preserves_active
         embedder = _StubEmbedder()
         old = _publisher(session_factory, Corpus.NCIT, count, embedder)
         await generate_ncit_embeddings(store, embedder, old)
+    async with session_factory() as session, session.begin():
+        await session.execute(text("DELETE FROM ncit_search"))
+        await session.execute(
+            text(
+                "INSERT INTO ncit_search (code,label,semantic_type,synonyms) "
+                "VALUES ('OLD_FTS','accepted',NULL,'')"
+            )
+        )
     monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
     monkeypatch.setattr("scripts.data_build._code_commit", lambda: "f" * 40)
     calls = 0
@@ -370,6 +376,118 @@ async def test_production_ncit_source_drift_fails_candidate_and_preserves_active
 
 
 @pytest.mark.integration
+async def test_production_ncit_staged_fingerprint_mismatch_skips_fts_and_activation(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = get_settings().ncit_sparql_url
+    async with OxigraphHttpClient(url) as client:
+        store = NcitGraphStore(client)
+        count, fingerprint = await data_build.ncit_source_fingerprint(store)
+        embedder = _StubEmbedder()
+        old = _publisher(session_factory, Corpus.NCIT, count, embedder)
+        await generate_ncit_embeddings(store, embedder, old)
+    async with session_factory() as session, session.begin():
+        await session.execute(text("DELETE FROM ncit_search"))
+        await session.execute(
+            text(
+                "INSERT INTO ncit_search (code,label,semantic_type,synonyms) "
+                "VALUES ('OLD_FTS','accepted',NULL,'')"
+            )
+        )
+    monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
+    monkeypatch.setattr("scripts.data_build._code_commit", lambda: "7" * 40)
+    monkeypatch.setattr(
+        data_build,
+        "stage_ncit_embeddings",
+        lambda *_args, **_kwargs: asyncio.sleep(0, result=(count, "0" * 64)),
+    )
+    fts_called = False
+
+    async def fts(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal fts_called
+        fts_called = True
+
+    monkeypatch.setattr(data_build, "populate_from_store", fts)
+    get_settings.cache_clear()
+    candidate_id = uuid4()
+
+    with pytest.raises(RuntimeError, match="staged records differ"):
+        await _publish_ncit_embeddings(
+            candidate_id, restart=False, embedder=_StubEmbedder()
+        )
+
+    assert not fts_called
+    async with session_factory() as session:
+        active = await session.scalar(
+            text(
+                "SELECT build_id FROM embedding_corpus_manifest "
+                "WHERE corpus = 'ncit' AND is_active"
+            )
+        )
+    assert active == old.build.build_id
+    assert fingerprint
+
+
+@pytest.mark.integration
+async def test_production_ncit_fts_failure_preserves_active_corpus(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = get_settings().ncit_sparql_url
+    async with OxigraphHttpClient(url) as client:
+        store = NcitGraphStore(client)
+        count = await store.embedding_record_count()
+        embedder = _StubEmbedder()
+        old = _publisher(session_factory, Corpus.NCIT, count, embedder)
+        await generate_ncit_embeddings(store, embedder, old)
+    async with session_factory() as session, session.begin():
+        await session.execute(text("DELETE FROM ncit_search"))
+        await session.execute(
+            text(
+                "INSERT INTO ncit_search (code,label,semantic_type,synonyms) "
+                "VALUES ('OLD_FTS','accepted',NULL,'')"
+            )
+        )
+    monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
+    monkeypatch.setattr("scripts.data_build._code_commit", lambda: "8" * 40)
+
+    async def fail_fts(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("fts rebuild failed")
+
+    monkeypatch.setattr(data_build, "populate_from_store", fail_fts)
+    get_settings.cache_clear()
+    candidate_id = uuid4()
+
+    with pytest.raises(RuntimeError, match="fts rebuild failed"):
+        await _publish_ncit_embeddings(
+            candidate_id, restart=False, embedder=_StubEmbedder()
+        )
+
+    async with session_factory() as session:
+        active = await session.scalar(
+            text(
+                "SELECT build_id FROM embedding_corpus_manifest "
+                "WHERE corpus = 'ncit' AND is_active"
+            )
+        )
+        state = await session.scalar(
+            text(
+                "SELECT state FROM embedding_corpus_manifest WHERE build_id = :build_id"
+            ),
+            {"build_id": candidate_id},
+        )
+        fts_codes = list(
+            (
+                await session.execute(
+                    text("SELECT code FROM ncit_search ORDER BY code")
+                )
+            ).scalars()
+        )
+    assert active == old.build.build_id
+    assert state == "failed"
+    assert fts_codes == ["OLD_FTS"]
+
+
+@pytest.mark.integration
 async def test_production_cadsr_source_drift_fails_candidate_and_preserves_active(
     session_factory: async_sessionmaker[AsyncSession],
     tmp_path: Path,
@@ -383,9 +501,11 @@ async def test_production_cadsr_source_drift_fails_candidate_and_preserves_activ
     monkeypatch.setenv("CADSR_DB_PATH", str(db))
     monkeypatch.setenv("CADSR_EMBEDDING_EXPECTED_ROWS", "1")
     monkeypatch.setattr("scripts.data_build._code_commit", lambda: "9" * 40)
-    real_hash = data_build._sha256(db)
-    hashes = iter((real_hash, "0" * 64))
-    monkeypatch.setattr(data_build, "_sha256", lambda _path: next(hashes))
+    real_fingerprint = data_build.cadsr_source_fingerprint(str(db))
+    fingerprints = iter((real_fingerprint, (1, "0" * 64)))
+    monkeypatch.setattr(
+        data_build, "cadsr_source_fingerprint", lambda _path: next(fingerprints)
+    )
     get_settings.cache_clear()
     candidate_id = uuid4()
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
@@ -693,6 +693,31 @@ async def test_unlock_failure_invalidates_physical_connection(
     assert len(invalidated) == 1
 
 
+async def test_body_error_remains_primary_when_unlock_also_fails(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalidated: list[AsyncConnection] = []
+    original_invalidate = AsyncConnection.invalidate
+
+    async def record_invalidate(connection: AsyncConnection) -> None:
+        invalidated.append(connection)
+        await original_invalidate(connection)
+
+    async def fail_unlock(_connection: object, _key: str) -> None:
+        raise RuntimeError("unlock also failed")
+
+    monkeypatch.setattr(AsyncConnection, "invalidate", record_invalidate)
+    monkeypatch.setattr(publication, "_release_source_lock", fail_unlock)
+
+    with pytest.raises(ValueError, match="source replacement failed") as captured:
+        async with replacing_corpus_source(session_factory, Corpus.NCIT):
+            raise ValueError("source replacement failed")
+
+    assert any("unlock also failed" in note for note in captured.value.__notes__)
+    assert len(invalidated) == 1
+
+
 async def test_cancelled_lock_wait_releases_after_eventual_acquisition(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -795,6 +820,40 @@ async def test_manifest_provenance_cannot_be_rewritten(
                     "WHERE build_id = :build_id"
                 ),
                 {"changed": "f" * 64, "build_id": _OLD_BUILD},
+            )
+
+
+@pytest.mark.parametrize(
+    ("source_hash", "model_revision", "code_commit"),
+    [
+        ("A" * 64, "b" * 40, "c" * 40),
+        ("a" * 63, "b" * 40, "c" * 40),
+        ("a" * 64, "z" * 40, "c" * 40),
+        ("a" * 64, "b" * 40, "c" * 39),
+    ],
+)
+async def test_database_rejects_malformed_provenance(
+    session_factory: async_sessionmaker[AsyncSession],
+    source_hash: str,
+    model_revision: str,
+    code_commit: str,
+) -> None:
+    with pytest.raises(IntegrityError):
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                text(
+                    "INSERT INTO embedding_corpus_manifest (build_id,corpus,state,"
+                    "source_version,source_hash,model_id,model_revision,"
+                    "vector_dimension,expected_row_count,code_commit,required_doc_ids) "
+                    "VALUES (:build_id,'ncit','building','v',:source_hash,'m',"
+                    ":model_revision,768,1,:code_commit,ARRAY['C3262'])"
+                ),
+                {
+                    "build_id": uuid4(),
+                    "source_hash": source_hash,
+                    "model_revision": model_revision,
+                    "code_commit": code_commit,
+                },
             )
 
 

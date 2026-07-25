@@ -129,7 +129,7 @@ async def test_owl_preparation_failure_never_enters_replacement_lock(
 
 
 @pytest.mark.unit
-async def test_owl_candidates_load_together_inside_replacement_lock(
+async def test_owl_candidates_are_prepared_without_replacement_lock(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -138,7 +138,7 @@ async def test_owl_candidates_load_together_inside_replacement_lock(
     inferred.write_text("inferred")
     stated.write_text("stated")
     downloads = iter((inferred, stated))
-    events: list[str] = []
+    lock_entries: list[str] = []
 
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
         path = next(downloads)
@@ -146,19 +146,8 @@ async def test_owl_candidates_load_together_inside_replacement_lock(
 
     @asynccontextmanager
     async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        events.append("enter")
+        lock_entries.append("enter")
         yield
-        events.append("exit")
-
-    class _Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_exc):
-            return False
-
-    async def load(_client, path, *, graph_iri=None):  # type: ignore[no-untyped-def]
-        events.append(f"load:{path.name}:{graph_iri or 'default'}")
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
@@ -171,25 +160,11 @@ async def test_owl_candidates_load_together_inside_replacement_lock(
     )
     monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
     monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
-    monkeypatch.setattr("scripts.data_build.OxigraphHttpClient", lambda _url: _Client())
-    monkeypatch.setattr("scripts.data_build.load_owl_file", load)
-    monkeypatch.setattr("scripts.data_build.make_engine", lambda _url: object())
-    monkeypatch.setattr(
-        "scripts.data_build.make_sessionmaker", lambda _engine: object()
-    )
-
-    async def dispose(_engine):  # type: ignore[no-untyped-def]
-        return None
-
-    monkeypatch.setattr("scripts.data_build.dispose_engine", dispose)
     await _build_owl()
 
-    assert events == [
-        "enter",
-        "load:Thesaurus-inferred.owl:default",
-        "load:Thesaurus-stated.owl:http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
-        "exit",
-    ]
+    assert lock_entries == []
+    assert (tmp_path / "Thesaurus-inferred.owl").read_text() == "inferred"
+    assert (tmp_path / "Thesaurus-stated.owl").read_text() == "stated"
 
 
 @pytest.mark.unit

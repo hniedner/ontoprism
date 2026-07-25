@@ -18,7 +18,7 @@ from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.decomposition.read_queries import build_decomposition_query
-from ontolib.repositories.embeddings.publication import CorpusUnavailableError
+from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
@@ -132,10 +132,15 @@ async def similar_concepts(
 ) -> list[SimilarConcept]:
     """Semantically similar concepts via 768-dim embeddings (pgvector cosine)."""
     try:
+        build_id = await embeddings.active_build_id(Corpus.NCIT)
         hits = await embeddings.similar_ncit(code, limit=limit)
     except (SQLAlchemyError, CorpusUnavailableError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     labels = await store.labels_for([c for c, _ in hits])
+    try:
+        await embeddings.require_same_active_build(Corpus.NCIT, build_id)
+    except CorpusUnavailableError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return [
         SimilarConcept(code=c, label=labels.get(c), score=score) for c, score in hits
     ]

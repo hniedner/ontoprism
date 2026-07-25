@@ -109,7 +109,7 @@ def test_similar_concepts_have_labels(live_api_client: TestClient) -> None:
 @pytest.mark.integration
 @pytest.mark.full_build
 def test_similar_cdes_return_scored_summaries(live_api_client: TestClient) -> None:
-    _require_published_corpus("cadsr", "cde_repository", "2517527:1.0")
+    _require_published_corpus("cadsr", "cde_repository", "2517527:4")
     hits = _similar(live_api_client, "/api/v1/cadsr/cdes/2517527/similar?limit=3")
     assert hits
     assert all(h["long_name"] and 0.0 <= h["score"] <= 1.0 for h in hits)

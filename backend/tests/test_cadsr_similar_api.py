@@ -8,6 +8,7 @@ and the similar-CDE endpoint's embedding join / 404 / 503 behaviour.
 import sqlite3
 from collections.abc import Iterator
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +17,7 @@ from sqlalchemy.exc import OperationalError
 from backend.dependencies import get_cadsr_repo, get_embedding_store
 from backend.main import create_app
 from ontolib.repositories.cadsr.models import CdeSearchPage, CdeSummary
-from ontolib.repositories.embeddings.publication import CorpusUnavailableError
+from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 
 
 class _BrokenRepo:
@@ -67,6 +68,14 @@ class _FakeEmbeddings:
     def __init__(self, hits: list[tuple[str, float]], *, fail: bool = False) -> None:
         self._hits = hits
         self._fail = fail
+        self.build_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    async def active_build_id(self, _corpus: Corpus) -> UUID:
+        return self.build_id
+
+    async def require_same_active_build(self, _corpus: Corpus, build_id: UUID) -> None:
+        if build_id != self.build_id:
+            raise CorpusUnavailableError("corpus changed")
 
     async def similar_cde(
         self, public_id: str, version: str, *, limit: int = 10
@@ -125,5 +134,22 @@ def test_similar_cdes_without_active_corpus_is_503(cadsr_client: TestClient) -> 
             raise CorpusUnavailableError("no completed active cadsr embedding corpus")
 
     _with_embeddings(cadsr_client, _UnavailableEmbeddings([]))
+
+    assert cadsr_client.get("/api/v1/cadsr/cdes/100/similar").status_code == 503
+
+
+@pytest.mark.api
+def test_similar_cdes_rejects_build_change_during_source_join(
+    cadsr_client: TestClient,
+) -> None:
+    class _ChangingEmbeddings(_FakeEmbeddings):
+        async def similar_cde(
+            self, public_id: str, version: str, *, limit: int = 10
+        ) -> list[tuple[str, float]]:
+            hits = await super().similar_cde(public_id, version, limit=limit)
+            self.build_id = UUID("00000000-0000-0000-0000-000000000002")
+            return hits
+
+    _with_embeddings(cadsr_client, _ChangingEmbeddings([("100:2.0", 0.95)]))
 
     assert cadsr_client.get("/api/v1/cadsr/cdes/100/similar").status_code == 503

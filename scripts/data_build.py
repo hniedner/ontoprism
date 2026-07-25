@@ -4,7 +4,7 @@
 One command to stand ontoprism up on a machine with no fairdata dependency:
 
   pdm run data-build all          # OWL load -> caDSR build -> embeddings
-  pdm run data-build owl          # download + load inferred + stated (named graph)
+  pdm run data-build owl          # prepare distinct inferred + stated artifacts (#148)
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite
   pdm run data-build embeddings --publish  # validate + publish embeddings -> pgvector
 
@@ -19,7 +19,6 @@ import hashlib
 import json
 import logging
 import shutil
-import sqlite3
 import subprocess
 import zipfile
 from pathlib import Path
@@ -36,6 +35,7 @@ from ontolib.repositories.embeddings.generate import (
     EMBED_DIM,
     Embedder,
     SentenceTransformerEmbedder,
+    cadsr_source_fingerprint,
     ncit_source_fingerprint,
     stage_cde_embeddings,
     stage_ncit_embeddings,
@@ -61,7 +61,6 @@ from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.owl_download import download_ncit_owl
-from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI, load_owl_file
 from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
@@ -114,7 +113,8 @@ def _require_stable_cadsr_source(
         )
 
 
-async def _build_owl() -> None:
+async def _prepare_owl_artifacts() -> dict[str, Path]:
+    """Download inferred/stated artifacts to distinct paths for #148 offline build."""
     settings = get_settings()
     output_dir = Path(settings.ncit_owl_dir)
     inferred = await download_ncit_owl(
@@ -131,17 +131,15 @@ async def _build_owl() -> None:
         raise RuntimeError(f"NCIt stated OWL download failed: {stated.error}")
     stated_path = output_dir / "Thesaurus-stated.owl"
     shutil.copy2(stated.file_path, stated_path)
-    engine = make_engine(settings.database_url)
-    try:
-        async with (
-            replacing_corpus_source(make_sessionmaker(engine), Corpus.NCIT),
-            OxigraphHttpClient(settings.ncit_sparql_url) as client,
-        ):
-            await load_owl_file(client, inferred_path)
-            await load_owl_file(client, stated_path, graph_iri=STATED_GRAPH_IRI)
-    finally:
-        await dispose_engine(engine)
-    typer.echo("Loaded NCIt OWL variants: inferred, stated")
+    return {"inferred": inferred_path, "stated": stated_path}
+
+
+async def _build_owl() -> None:
+    prepared = await _prepare_owl_artifacts()
+    typer.echo(
+        "Prepared NCIt OWL artifacts for #148 offline publication: "
+        + ", ".join(f"{name}={path}" for name, path in prepared.items())
+    )
 
 
 def _build_cadsr() -> None:
@@ -329,9 +327,7 @@ async def _publish_cadsr_embeddings(
     db_path = Path(settings.cadsr_db_path)
     if not db_path.is_file():
         raise RuntimeError(f"caDSR source database is missing: {db_path}")
-    source_hash = _sha256(db_path)
-    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as connection:
-        expected = int(connection.execute("SELECT count(*) FROM cdes").fetchone()[0])
+    expected, source_hash = cadsr_source_fingerprint(str(db_path))
     if expected != settings.cadsr_embedding_expected_rows:
         raise RuntimeError(
             "caDSR embedding source count does not match release expectation: "
@@ -353,7 +349,7 @@ async def _publish_cadsr_embeddings(
                 vector_dimension=EMBED_DIM,
                 expected_row_count=settings.cadsr_embedding_expected_rows,
                 code_commit=_code_commit(),
-                required_doc_ids=("2517527:1.0",),
+                required_doc_ids=("2517527:4",),
             ),
         )
         await publisher.start(restart=restart)
@@ -361,11 +357,7 @@ async def _publish_cadsr_embeddings(
             await stage_cde_embeddings(str(db_path), encoder, publisher)
 
             async def validate_source() -> None:
-                final_hash = _sha256(db_path)
-                with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as connection:
-                    final_count = int(
-                        connection.execute("SELECT count(*) FROM cdes").fetchone()[0]
-                    )
+                final_count, final_hash = cadsr_source_fingerprint(str(db_path))
                 _require_stable_cadsr_source(
                     (source_hash, expected), (final_hash, final_count)
                 )

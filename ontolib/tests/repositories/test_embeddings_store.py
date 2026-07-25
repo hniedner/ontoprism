@@ -5,11 +5,14 @@ bound (never interpolated), and rows are returned as ``(id, float score)`` pairs
 """
 
 from typing import Any
+from uuid import UUID
 
 import pytest
 
-from ontolib.repositories.embeddings.publication import CorpusUnavailableError
+from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.repositories.embeddings.store import EmbeddingStore
+
+_ACTIVE_BUILD = UUID("00000000-0000-0000-0000-000000000001")
 
 
 class _FakeResult:
@@ -30,12 +33,14 @@ class _FakeSession:
         *,
         available: bool,
         source_exists: bool,
+        active_id: UUID | None,
     ) -> None:
         self._calls = calls
         self._rows = rows
         self._available = available
         self._source_exists = source_exists
         self._scalar_calls = 0
+        self._active_id = active_id
 
     async def __aenter__(self) -> "_FakeSession":
         return self
@@ -55,8 +60,10 @@ class _FakeSession:
             return _FakeResult(rows)
         return _FakeResult(self._rows)
 
-    async def scalar(self, sql: Any, params: dict[str, Any]) -> bool:
+    async def scalar(self, sql: Any, params: dict[str, Any]) -> Any:
         self._calls.append((str(sql), params))
+        if "SELECT build_id" in str(sql):
+            return self._active_id
         self._scalar_calls += 1
         return self._available if self._scalar_calls == 1 else self._source_exists
 
@@ -68,11 +75,13 @@ class _FakeSessionFactory:
         *,
         available: bool = True,
         source_exists: bool = True,
+        active_id: UUID | None = _ACTIVE_BUILD,
     ) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self._rows = rows
         self.available = available
         self.source_exists = source_exists
+        self.active_id = active_id
 
     def __call__(self) -> _FakeSession:
         return _FakeSession(
@@ -80,6 +89,7 @@ class _FakeSessionFactory:
             self._rows,
             available=self.available,
             source_exists=self.source_exists,
+            active_id=self.active_id,
         )
 
 
@@ -138,3 +148,18 @@ async def test_similar_rejects_missing_source_vector_in_active_corpus() -> None:
 
     with pytest.raises(CorpusUnavailableError, match="lacks C3262"):
         await store.similar_ncit("C3262")
+
+
+@pytest.mark.unit
+async def test_active_build_guard_rejects_missing_or_changed_build() -> None:
+    missing = EmbeddingStore(_FakeSessionFactory(rows=[], active_id=None))  # type: ignore[arg-type]
+    with pytest.raises(CorpusUnavailableError, match="no completed active ncit"):
+        await missing.active_build_id(Corpus.NCIT)
+
+    store = EmbeddingStore(_FakeSessionFactory(rows=[]))  # type: ignore[arg-type]
+    current = await store.active_build_id(Corpus.NCIT)
+    await store.require_same_active_build(Corpus.NCIT, current)
+    with pytest.raises(CorpusUnavailableError, match="changed during request"):
+        await store.require_same_active_build(
+            Corpus.NCIT, UUID("00000000-0000-0000-0000-000000000002")
+        )

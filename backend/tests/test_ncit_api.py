@@ -7,6 +7,7 @@ variants live in ``test_ncit_api_integration.py``.
 """
 
 from collections.abc import Iterator
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,7 @@ from backend.dependencies import (
     get_ncit_store,
 )
 from backend.main import create_app
-from ontolib.repositories.embeddings.publication import CorpusUnavailableError
+from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     GraphEdge,
@@ -104,6 +105,14 @@ class _FakeIndex:
 class _FakeEmbeddings:
     def __init__(self, *, fail: bool = False) -> None:
         self._fail = fail
+        self.build_id = UUID("00000000-0000-0000-0000-000000000001")
+
+    async def active_build_id(self, _corpus: Corpus) -> UUID:
+        return self.build_id
+
+    async def require_same_active_build(self, _corpus: Corpus, build_id: UUID) -> None:
+        if build_id != self.build_id:
+            raise CorpusUnavailableError("corpus changed")
 
     async def similar_ncit(
         self, code: str, *, limit: int = 10
@@ -230,6 +239,24 @@ def test_similar_concepts_without_active_corpus_is_503() -> None:
     resp = client.get("/api/v1/ncit/concepts/C3262/similar")
 
     assert resp.status_code == 503
+
+
+@pytest.mark.api
+def test_similar_concepts_rejects_build_change_during_label_join() -> None:
+    class _ChangingEmbeddings(_FakeEmbeddings):
+        async def similar_ncit(
+            self, code: str, *, limit: int = 10
+        ) -> list[tuple[str, float]]:
+            hits = await super().similar_ncit(code, limit=limit)
+            self.build_id = UUID("00000000-0000-0000-0000-000000000002")
+            return hits
+
+    gen = _client(embeddings=_ChangingEmbeddings())
+    client = next(gen)
+
+    response = client.get("/api/v1/ncit/concepts/C3262/similar")
+
+    assert response.status_code == 503
 
 
 @pytest.mark.api

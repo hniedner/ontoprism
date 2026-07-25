@@ -13,8 +13,8 @@ corpus, and non-empty `vector(768)` rows could not prove completeness or provena
 source hash/version, pinned model ID/revision,
 dimension, exact source count, code commit, canonical sentinels, and build ID, plus
 mutable lifecycle state/timestamps. NCIt uses and rechecks the exact ordered-record
-fingerprint plus live ontology version/count; caDSR uses/rechecks its SQLite file
-hash/count. A changed source fails before
+fingerprint plus live ontology version/count; caDSR uses/rechecks a canonical ordered
+CDE-row fingerprint. A changed source fails before
 activation (the HTTP source is not falsely described as a database snapshot). Batches
 commit only to build-scoped staging. Publication validates exact unique-row count and sentinels, then
 holds a per-corpus PostgreSQL advisory transaction lock while replacing the stable

@@ -67,9 +67,9 @@ dependency (issue #7). It has four steps, runnable individually or together:
 pdm run up                      # oxigraph-ncit :7888, postgres :5433
 pdm run migrate                 # pgvector embedding tables + ncit_search FTS cache
 
-# 1. NCIt OWL → Oxigraph. Downloads from NCI EVS and loads the *inferred* build into
-#    the default graph and the *stated* build into a distinct named graph (for the
-#    decomposition engine, #4 / DECISIONS D4).
+# 1. Prepare distinct inferred/stated NCIt OWL artifacts. Online full-store loading is
+#    disabled: #148 will build a disposable sibling store offline and publish it through
+#    a recoverable maintenance journal (D12).
 pdm run data-build owl
 # 2. caDSR CDEs → SQLite. Downloads the released CDE XML and builds cde_repository.db
 #    (cdes + cde_concepts + the cdes_fts FTS5 index).
@@ -98,7 +98,7 @@ expected unique-row count, code commit, build ID, sentinels, state, and timestam
 completed manifests additionally record the validated actual count. The pinned model is
 `sentence-transformers/all-mpnet-base-v2@e8c3b32edf5434bc2275fc9bab85f82640a19130`.
 NCIt fingerprints every ordered source record and recomputes version/count/fingerprint
-before activation; caDSR records and rechecks its SQLite file hash/count. Source drift
+before activation; caDSR fingerprints/rechecks canonical ordered CDE rows. Source drift
 fails the candidate rather than claiming a long HTTP paging run was a transactional
 source snapshot.
 
@@ -120,7 +120,7 @@ to mutate without `--publish`. A valid NCIt publication requires exact source-co
 agreement with both the enumerated source and the configured release expectation
 (`NCIT_EMBEDDING_EXPECTED_ROWS=204373` for 26.02d /
 `CADSR_EMBEDDING_EXPECTED_ROWS=79827`) plus C3262;
-caDSR likewise requires exact source/release count agreement and `2517527:1.0`.
+caDSR likewise requires exact source/release count agreement and `2517527:4`.
 
 Build batches commit only to build-scoped staging. If encoding, validation, or
 activation fails after the candidate manifest starts, the previous serving rows and
