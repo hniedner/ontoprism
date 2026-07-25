@@ -3,6 +3,10 @@ path = "backend/tests/test_data_build_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
 
 [[mutator]]
+path = "backend/tests/test_embedding_publication_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "backend/tests/test_ncit_search_index_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
 
@@ -95,6 +99,11 @@ fixtures = ["postgres_docker_port_failure_provisioner"]
 path = "backend/tests/test_integration_resources_integration.py"
 tests = ["test_postgres_docker_id_failure_removes_the_real_started_container"]
 fixtures = ["postgres_docker_id_failure_provisioner"]
+
+[[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_legacy_embedding_tables_stamp_predecessor_then_upgrade"]
+fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"

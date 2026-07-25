@@ -1,27 +1,32 @@
-"""Unit tests for the embedding text-builders and the generation pipeline.
+"""Unit tests for embedding text, deterministic source staging, and lifecycle glue."""
 
-The text-builders are pure; the pipeline tests drive ``generate_cde_embeddings`` /
-``generate_ncit_embeddings`` with a stub embedder and a fake async session factory
-(no real ML model, no real pgvector), asserting the upserted doc_ids, vector
-literals, metadata, batching and paging behaviour.
-"""
-
+import asyncio
 import importlib
-import json
 import sqlite3
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
+from uuid import UUID
 
 import pytest
 
 from ontolib.repositories.embeddings.generate import (
+    NcitEmbeddingRecord,
     SentenceTransformerEmbedder,
-    _upsert_batch,
+    cadsr_source_fingerprint,
     cde_text,
     generate_cde_embeddings,
     generate_ncit_embeddings,
+    ncit_source_fingerprint,
     ncit_text,
+    stage_cde_embeddings,
+    stage_ncit_embeddings,
+)
+from ontolib.repositories.embeddings.publication import (
+    Corpus,
+    CorpusBuild,
+    CorpusManifest,
 )
 
 
@@ -31,56 +36,94 @@ class _StubEmbedder:
     def __init__(self) -> None:
         self.seen: list[str] = []
 
+    model_id = "test-stub"
+    model_revision = "1" * 40
+
     def encode(self, texts: list[str]) -> list[list[float]]:
         self.seen.extend(texts)
         return [[float(len(t))] * 3 for t in texts]
 
 
-class _FakeBegin:
-    async def __aenter__(self) -> "_FakeBegin":
-        return self
-
-    async def __aexit__(self, *_exc: object) -> bool:
-        return False
-
-
-class _FakeSession:
-    def __init__(self, batches: list[list[dict[str, Any]]]) -> None:
-        self._batches = batches
-
-    async def __aenter__(self) -> "_FakeSession":
-        return self
-
-    async def __aexit__(self, *_exc: object) -> bool:
-        return False
-
-    def begin(self) -> _FakeBegin:
-        return _FakeBegin()
-
-    async def execute(self, _sql: Any, params: list[dict[str, Any]]) -> None:
-        self._batches.append(params)
-
-
-class _FakeSessionFactory:
-    """Captures each upserted batch of parameter dicts."""
+class _FakeSink:
+    """Captures source-derived rows only; it does not fake publication semantics."""
 
     def __init__(self) -> None:
-        self.batches: list[list[dict[str, Any]]] = []
+        self.batches: list[list[tuple[str, list[float], dict[str, Any]]]] = []
 
-    def __call__(self) -> _FakeSession:
-        return _FakeSession(self.batches)
+    async def stage(self, rows: list[tuple[str, list[float], dict[str, Any]]]) -> None:
+        self.batches.append(rows)
+
+
+class _LifecyclePublisher(_FakeSink):
+    def __init__(
+        self,
+        corpus: Corpus = Corpus.CADSR,
+        *,
+        model_id: str = _StubEmbedder.model_id,
+        model_revision: str = _StubEmbedder.model_revision,
+    ) -> None:
+        super().__init__()
+        self.started: list[bool] = []
+        self.failures: list[str] = []
+        self.published = False
+        self.start_manifest: object | None = None
+        self.build = CorpusBuild(
+            build_id=UUID("00000000-0000-0000-0000-000000000001"),
+            corpus=corpus,
+            source_version="test",
+            source_hash="a" * 64,
+            model_id=model_id,
+            model_revision=model_revision,
+            vector_dimension=768,
+            expected_row_count=1,
+            code_commit="b" * 40,
+            required_doc_ids=("C3262",),
+        )
+
+    async def start(self, *, restart: bool = False) -> CorpusManifest:
+        self.started.append(restart)
+        if self.start_manifest is not None:
+            return self.start_manifest  # type: ignore[return-value]
+        return SimpleNamespace(state="building")  # type: ignore[return-value]
+
+    async def publish(self, source_validator=None) -> CorpusManifest:  # type: ignore[no-untyped-def]
+        if source_validator is not None:
+            await source_validator()
+        self.published = True
+        return SimpleNamespace(actual_row_count=1)  # type: ignore[return-value]
+
+    async def fail(self, error_message: str) -> CorpusManifest:
+        self.failures.append(error_message)
+        return SimpleNamespace(state="failed")  # type: ignore[return-value]
 
 
 class _FakeNcitStore:
-    def __init__(self, records: list[dict[str, str | None]]) -> None:
-        self._records = records
-        self.pages: list[tuple[int, int]] = []
+    def __init__(self, records: Sequence[Mapping[str, str | None]]) -> None:
+        self._records = [
+            cast(
+                "NcitEmbeddingRecord",
+                {
+                    **record,
+                    "iri": f"http://ncicb.nci.nih.gov/xml/owl/EVS/{record['code']}",
+                    "synonyms": record.get("synonyms") or "",
+                },
+            )
+            for record in records
+        ]
+        self.pages: list[tuple[int, str | None]] = []
 
     async def embedding_records(
-        self, *, limit: int, offset: int
-    ) -> list[dict[str, str | None]]:
-        self.pages.append((limit, offset))
-        return self._records[offset : offset + limit]
+        self, *, limit: int, after: str | None = None
+    ) -> list[NcitEmbeddingRecord]:
+        self.pages.append((limit, after))
+        start = 0
+        if after is not None:
+            start = next(
+                index + 1
+                for index, record in enumerate(self._records)
+                if record["iri"] == after
+            )
+        return self._records[start : start + limit]
 
 
 def _make_cde_db(path: Path, rows: list[dict[str, str | None]]) -> None:
@@ -165,18 +208,16 @@ async def test_generate_cde_embeddings_upserts_rows(tmp_path: Path) -> None:
     db = tmp_path / "cde.db"
     _make_cde_db(db, [_cde_row("100", "2.0", search_text="precomputed 100")])
     embedder = _StubEmbedder()
-    sf = _FakeSessionFactory()
+    sink = _FakeSink()
 
-    count = await generate_cde_embeddings(str(db), embedder, sf)  # type: ignore[arg-type]
+    count = await stage_cde_embeddings(str(db), embedder, sink)
 
     assert count == 1
     # The embedder saw the CDE's search_text (its precomputed embedding text).
     assert embedder.seen == ["precomputed 100"]
-    params = sf.batches[0][0]
-    assert params["doc_id"] == "100:2.0"
-    # 3-dim vector literal built from len("precomputed 100") == 15.
-    assert params["embedding"] == "[15.0,15.0,15.0]"
-    meta = json.loads(params["metadata"])
+    doc_id, vector, meta = sink.batches[0][0]
+    assert doc_id == "100:2.0"
+    assert vector == [15.0, 15.0, 15.0]
     assert meta["public_id"] == "100"
     assert meta["version"] == "2.0"
     assert meta["registration_status"] == "Standard"
@@ -186,14 +227,14 @@ async def test_generate_cde_embeddings_upserts_rows(tmp_path: Path) -> None:
 async def test_generate_cde_embeddings_batches_by_size(tmp_path: Path) -> None:
     db = tmp_path / "cde.db"
     _make_cde_db(db, [_cde_row("100", "2.0"), _cde_row("200", "1.0")])
-    sf = _FakeSessionFactory()
+    sink = _FakeSink()
 
-    count = await generate_cde_embeddings(str(db), _StubEmbedder(), sf, batch_size=1)  # type: ignore[arg-type]
+    count = await stage_cde_embeddings(str(db), _StubEmbedder(), sink, batch_size=1)
 
     assert count == 2
     # batch_size=1 flushes each CDE in its own upsert.
-    assert [len(b) for b in sf.batches] == [1, 1]
-    doc_ids = {b[0]["doc_id"] for b in sf.batches}
+    assert [len(b) for b in sink.batches] == [1, 1]
+    doc_ids = {b[0][0] for b in sink.batches}
     assert doc_ids == {"100:2.0", "200:1.0"}
 
 
@@ -201,12 +242,12 @@ async def test_generate_cde_embeddings_batches_by_size(tmp_path: Path) -> None:
 async def test_generate_cde_embeddings_empty_db_is_noop(tmp_path: Path) -> None:
     db = tmp_path / "cde.db"
     _make_cde_db(db, [])
-    sf = _FakeSessionFactory()
+    sink = _FakeSink()
 
-    count = await generate_cde_embeddings(str(db), _StubEmbedder(), sf)  # type: ignore[arg-type]
+    count = await stage_cde_embeddings(str(db), _StubEmbedder(), sink)
 
     assert count == 0
-    assert sf.batches == []
+    assert sink.batches == []
 
 
 @pytest.mark.unit
@@ -223,17 +264,24 @@ async def test_generate_ncit_embeddings_pages_until_exhausted() -> None:
     ]
     store = _FakeNcitStore(records)
     embedder = _StubEmbedder()
-    sf = _FakeSessionFactory()
+    sink = _FakeSink()
 
-    count = await generate_ncit_embeddings(store, embedder, sf, batch_size=2)  # type: ignore[arg-type]
+    count, fingerprint = await stage_ncit_embeddings(
+        store, embedder, sink, batch_size=2
+    )
 
     assert count == 3
+    assert len(fingerprint) == 64
     # Paged 0,2 then 4 (empty) -> break.
-    assert store.pages == [(2, 0), (2, 2), (2, 4)]
-    # Two non-empty batches were upserted (sizes 2 and 1).
-    assert [len(b) for b in sf.batches] == [2, 1]
-    upserted_codes = {row["doc_id"] for batch in sf.batches for row in batch}
-    assert upserted_codes == {"C0", "C1", "C2"}
+    assert store.pages == [
+        (2, None),
+        (2, "http://ncicb.nci.nih.gov/xml/owl/EVS/C1"),
+        (2, "http://ncicb.nci.nih.gov/xml/owl/EVS/C2"),
+    ]
+    # Two non-empty batches were staged (sizes 2 and 1).
+    assert [len(b) for b in sink.batches] == [2, 1]
+    staged_codes = {row[0] for batch in sink.batches for row in batch}
+    assert staged_codes == {"C0", "C1", "C2"}
 
 
 @pytest.mark.unit
@@ -243,28 +291,299 @@ async def test_generate_ncit_uses_code_as_name_fallback() -> None:
             {
                 "code": "C999",
                 "preferred_name": None,
-                "synonyms": None,
+                "synonyms": "",
                 "definition": None,
                 "semantic_type": None,
             }
         ]
     )
     embedder = _StubEmbedder()
-    sf = _FakeSessionFactory()
+    sink = _FakeSink()
 
-    count = await generate_ncit_embeddings(store, embedder, sf, batch_size=10)  # type: ignore[arg-type]
+    count, _ = await stage_ncit_embeddings(store, embedder, sink, batch_size=10)
 
     assert count == 1
     # With no preferred_name/synonyms/definition, the embedding text is just the code.
     assert embedder.seen == ["C999"]
-    assert json.loads(sf.batches[0][0]["metadata"])["preferred_name"] == ""
+    assert sink.batches[0][0][2]["preferred_name"] == ""
 
 
 @pytest.mark.unit
-async def test_upsert_batch_empty_is_noop() -> None:
-    sf = _FakeSessionFactory()
-    await _upsert_batch(sf, "ncit_concepts", [])  # type: ignore[arg-type]
-    assert sf.batches == []
+async def test_generate_cde_publishes_after_staging(tmp_path: Path) -> None:
+    db = tmp_path / "cde.db"
+    _make_cde_db(db, [_cde_row("100", "2.0")])
+    publisher = _LifecyclePublisher()
+
+    manifest = await generate_cde_embeddings(
+        str(db),
+        _StubEmbedder(),
+        publisher,
+        restart=True,  # type: ignore[arg-type]
+    )
+
+    assert publisher.started == [True]
+    assert publisher.published
+    assert manifest.actual_row_count == 1
+
+
+@pytest.mark.unit
+def test_cadsr_fingerprint_covers_content_and_is_insert_order_invariant(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.db"
+    second = tmp_path / "second.db"
+    rows = [_cde_row("100", "2.0"), _cde_row("200", "1.0")]
+    _make_cde_db(first, rows)
+    _make_cde_db(second, list(reversed(rows)))
+
+    original = cadsr_source_fingerprint(str(first))
+    reordered = cadsr_source_fingerprint(str(second))
+    changed = tmp_path / "changed.db"
+    _make_cde_db(changed, [rows[0], _cde_row("200", "1.0", definition="changed")])
+
+    assert original == reordered
+    assert original[0] == 2
+    assert cadsr_source_fingerprint(str(changed))[1] != original[1]
+
+
+@pytest.mark.unit
+async def test_generate_ncit_marks_failed_manifest_on_encoder_error() -> None:
+    class _BrokenEmbedder:
+        model_id = "test-broken"
+        model_revision = "1" * 40
+
+        def encode(self, texts: list[str]) -> list[list[float]]:
+            del texts
+            raise RuntimeError("encoder exploded")
+
+    store = _FakeNcitStore(
+        [
+            {
+                "code": "C3262",
+                "preferred_name": "Neoplasm",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            }
+        ]
+    )
+    publisher = _LifecyclePublisher(
+        Corpus.NCIT,
+        model_id=_BrokenEmbedder.model_id,
+        model_revision=_BrokenEmbedder.model_revision,
+    )
+
+    with pytest.raises(RuntimeError, match="encoder exploded"):
+        await generate_ncit_embeddings(
+            store,  # type: ignore[arg-type]
+            _BrokenEmbedder(),
+            publisher,  # type: ignore[arg-type]
+        )
+
+    assert publisher.failures == ["RuntimeError: encoder exploded"]
+    assert not publisher.published
+
+
+@pytest.mark.unit
+async def test_generate_cde_marks_failed_manifest_on_encoder_error(
+    tmp_path: Path,
+) -> None:
+    class _BrokenEmbedder:
+        model_id = "test-broken"
+        model_revision = "1" * 40
+
+        def encode(self, texts: list[str]) -> list[list[float]]:
+            del texts
+            raise RuntimeError("cde encoder exploded")
+
+    db = tmp_path / "cde.db"
+    _make_cde_db(db, [_cde_row("100", "2.0")])
+    publisher = _LifecyclePublisher(
+        model_id=_BrokenEmbedder.model_id,
+        model_revision=_BrokenEmbedder.model_revision,
+    )
+
+    with pytest.raises(RuntimeError, match="cde encoder exploded"):
+        await generate_cde_embeddings(
+            str(db),
+            _BrokenEmbedder(),
+            publisher,  # type: ignore[arg-type]
+        )
+
+    assert publisher.failures == ["RuntimeError: cde encoder exploded"]
+    assert not publisher.published
+
+
+@pytest.mark.unit
+async def test_generate_returns_existing_completed_manifest_without_staging(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "cde.db"
+    _make_cde_db(db, [_cde_row("100", "2.0")])
+    publisher = _LifecyclePublisher()
+    completed = SimpleNamespace(state="complete", actual_row_count=123)
+    publisher.start_manifest = completed
+
+    result = await generate_cde_embeddings(
+        str(db),
+        _StubEmbedder(),
+        publisher,  # type: ignore[arg-type]
+    )
+
+    assert result is completed
+    assert publisher.batches == []
+    assert not publisher.published
+
+
+@pytest.mark.unit
+async def test_ncit_source_fingerprint_changes_with_record_content_and_order() -> None:
+    first = _FakeNcitStore(
+        [
+            {
+                "code": "C1",
+                "preferred_name": "One",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            },
+            {
+                "code": "C2",
+                "preferred_name": "Two",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            },
+        ]
+    )
+    changed = _FakeNcitStore(
+        [
+            {
+                "code": "C1",
+                "preferred_name": "Changed",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            },
+            {
+                "code": "C2",
+                "preferred_name": "Two",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            },
+        ]
+    )
+    reversed_store = _FakeNcitStore(cast("Any", list(reversed(first._records))))
+
+    original = await ncit_source_fingerprint(first, batch_size=1)
+    content = await ncit_source_fingerprint(changed, batch_size=1)
+    order = await ncit_source_fingerprint(reversed_store, batch_size=1)
+
+    assert original[0] == content[0] == order[0] == 2
+    assert len({original[1], content[1], order[1]}) == 3
+
+
+@pytest.mark.unit
+async def test_generation_preserves_original_error_when_failure_recording_fails() -> (
+    None
+):
+    class _FailingPublisher(_LifecyclePublisher):
+        async def fail(self, error_message: str) -> CorpusManifest:
+            del error_message
+            raise RuntimeError("manifest unavailable")
+
+    class _BrokenEmbedder:
+        model_id = "test-broken"
+        model_revision = "1" * 40
+
+        def encode(self, texts: list[str]) -> list[list[float]]:
+            del texts
+            raise ValueError("original failure")
+
+    publisher = _FailingPublisher(
+        Corpus.NCIT,
+        model_id=_BrokenEmbedder.model_id,
+        model_revision=_BrokenEmbedder.model_revision,
+    )
+    store = _FakeNcitStore(
+        [
+            {
+                "code": "C3262",
+                "preferred_name": "N",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="original failure") as captured:
+        await generate_ncit_embeddings(
+            store,
+            _BrokenEmbedder(),
+            publisher,  # type: ignore[arg-type]
+        )
+
+    assert any("manifest unavailable" in note for note in captured.value.__notes__)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("corpus", "model_id", "model_revision", "message"),
+    [
+        (Corpus.NCIT, _StubEmbedder.model_id, _StubEmbedder.model_revision, "corpus"),
+        (Corpus.CADSR, "wrong", _StubEmbedder.model_revision, "model provenance"),
+        (Corpus.CADSR, _StubEmbedder.model_id, "2" * 40, "model provenance"),
+    ],
+)
+async def test_generation_rejects_publisher_identity_mismatch(
+    tmp_path: Path,
+    corpus: Corpus,
+    model_id: str,
+    model_revision: str,
+    message: str,
+) -> None:
+    db = tmp_path / "cde.db"
+    _make_cde_db(db, [_cde_row("100", "2.0")])
+    publisher = _LifecyclePublisher(
+        corpus, model_id=model_id, model_revision=model_revision
+    )
+
+    with pytest.raises(ValueError, match=message):
+        await generate_cde_embeddings(str(db), _StubEmbedder(), publisher)
+
+    assert publisher.batches == []
+
+
+@pytest.mark.unit
+async def test_generation_records_and_reraises_cancellation() -> None:
+    class _CancelledEmbedder:
+        model_id = "cancelled"
+        model_revision = "1" * 40
+
+        def encode(self, texts: list[str]) -> list[list[float]]:
+            del texts
+            raise asyncio.CancelledError
+
+    publisher = _LifecyclePublisher(
+        Corpus.NCIT, model_id="cancelled", model_revision="1" * 40
+    )
+    store = _FakeNcitStore(
+        [
+            {
+                "code": "C3262",
+                "preferred_name": "Neoplasm",
+                "synonyms": "",
+                "definition": None,
+                "semantic_type": None,
+            }
+        ]
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await generate_ncit_embeddings(store, _CancelledEmbedder(), publisher)
+
+    assert publisher.failures == ["CancelledError: "]
 
 
 class _FakeVector:
@@ -276,8 +595,9 @@ class _FakeVector:
 
 
 class _FakeModel:
-    def __init__(self, model_name: str) -> None:
+    def __init__(self, model_name: str, *, revision: str) -> None:
         self.model_name = model_name
+        self.revision = revision
 
     def encode(self, texts: list[str]) -> list[_FakeVector]:
         return [_FakeVector([float(len(t))]) for t in texts]
@@ -298,7 +618,7 @@ def test_sentence_transformer_embedder_lazy_imports_and_adapts(
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
 
-    embedder = SentenceTransformerEmbedder("my-model")
+    embedder = SentenceTransformerEmbedder("my-model", "my-revision")
     vectors = embedder.encode(["abcd", "xy"])
 
     # Each numpy-like vector was converted to a plain list via .tolist().

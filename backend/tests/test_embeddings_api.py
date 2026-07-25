@@ -1,16 +1,10 @@
 """Semantic-similarity (pgvector embeddings) endpoints, against the live DB.
 
-**Two different absences, which must not be conflated.** The endpoint returns 503 when
-pgvector is unreachable -- but when the DB is up and simply has *no embeddings loaded*
-it returns ``200 []``, because a concept with no vector has no neighbours. Asserting
-into that empty list produced a hard failure (``assert "C9305" in set()``) that read as
-a broken endpoint and was really an unbuilt corpus: these are ``full_build`` tests, and
-the embeddings step needs ``pdm install -G data-build`` plus a real embed run.
-
-So :func:`_require_embeddings` separates them. **No rows at all** is an environment gap
-and skips with an actionable message; rows present but *this* concept returning nothing
-is a genuine failure and is left to fail. A blanket "skip when empty" would hide exactly
-the regression these tests exist to catch.
+Configured-store tests require a completed active publication manifest. A non-empty
+legacy table is not evidence of completeness: the 4,752-row partial NCIt publication
+that motivated #174 had valid 768-dimensional vectors but omitted canonical C3262.
+Unreachable Postgres remains an environment gap; absent/mismatched publication evidence
+is a genuine failed contract and must not skip.
 """
 
 import asyncio
@@ -27,44 +21,52 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 pytestmark = pytest.mark.full_store
 
 
-def _embedding_rows(table: str) -> int:
-    """Vectors actually loaded in *table*; -1 if the DB cannot be reached at all."""
+@pytest.mark.integration
+def test_expected_embedding_counts_are_release_specific() -> None:
+    settings = get_settings()
+    assert settings.ncit_expected_version == "26.02d"
+    assert settings.ncit_embedding_expected_rows == 204_373
+    assert settings.cadsr_embedding_expected_rows == 79_827
 
-    async def _count() -> int:
+
+def _require_published_corpus(corpus: str, table: str, required_doc_id: str) -> None:
+    """Require an active manifest with matching counts and a canonical sentinel."""
+
+    async def _facts() -> tuple[int, int, int, int]:
         engine = make_engine(get_settings().database_url)
         try:
             sf = make_sessionmaker(engine)
             async with sf() as session:
-                # `table` is a fixed internal identifier, never user input.
                 result = await session.execute(
-                    text(f"SELECT count(*) FROM {table}")  # noqa: S608
+                    text(
+                        f"SELECT manifest.expected_row_count, "  # noqa: S608
+                        "manifest.actual_row_count, "
+                        f"(SELECT count(*) FROM {table}), "
+                        f"(SELECT count(*) FROM {table} "
+                        " WHERE doc_id = :required_doc_id) "
+                        "FROM embedding_corpus_manifest manifest "
+                        "WHERE manifest.corpus = :corpus "
+                        "AND manifest.state = 'complete' AND manifest.is_active"
+                    ),
+                    {"corpus": corpus, "required_doc_id": required_doc_id},
                 )
-                return int(result.scalar_one())
+                row = result.one_or_none()
+                assert row is not None, (
+                    f"{corpus} has no completed active embedding manifest; existing "
+                    "rows are uncertified and must be rebuilt with "
+                    "`pdm run data-build embeddings --publish`"
+                )
+                return tuple(int(value) for value in row)  # type: ignore[return-value]
         finally:
             await dispose_engine(engine)
 
     try:
-        return asyncio.run(_count())
+        expected, actual, physical, sentinel = asyncio.run(_facts())
     except (OSError, OperationalError, InterfaceError):
-        # Server down, refused, or bad credentials -- a genuine environment gap.
-        # Everything else (a dropped/renamed table, a missing `vector` extension, a
-        # broken driver) is a SCHEMA regression and must fail loudly: a bare `except`
-        # here would report "Postgres is off" about a Postgres that is running fine,
-        # which is the same conflation this module's docstring exists to forbid.
-        return -1
-
-
-def _require_embeddings(table: str) -> None:
-    rows = _embedding_rows(table)
-    if rows < 0:
         pytest.skip("Embedding DB (pgvector) not reachable")
-    if rows == 0:
-        pytest.skip(
-            f"`{table}` holds no vectors, so this full_build test cannot verify "
-            "anything. Either the corpus was never built (`pdm install -G data-build`, "
-            "then `pdm run data-build embeddings`) or the embed step wrote nothing -- "
-            "a skip here is NOT a pass, and does not mean the corpus is sound."
-        )
+        return
+    assert expected == actual == physical
+    assert sentinel == 1, f"{corpus} active corpus lacks required {required_doc_id}"
 
 
 def _similar(client: TestClient, path: str) -> list[dict]:
@@ -87,7 +89,7 @@ def _similar(client: TestClient, path: str) -> list[dict]:
 @pytest.mark.integration
 @pytest.mark.full_build
 def test_similar_concepts_are_semantically_related(live_api_client: TestClient) -> None:
-    _require_embeddings("ncit_concepts")
+    _require_published_corpus("ncit", "ncit_concepts", "C3262")
     hits = _similar(live_api_client, "/api/v1/ncit/concepts/C3262/similar?limit=5")
     codes = {h["code"] for h in hits}
     # C9305 = Malignant Neoplasm — the nearest neighbor of C3262 (Neoplasm).
@@ -99,7 +101,7 @@ def test_similar_concepts_are_semantically_related(live_api_client: TestClient) 
 @pytest.mark.integration
 @pytest.mark.full_build
 def test_similar_concepts_have_labels(live_api_client: TestClient) -> None:
-    _require_embeddings("ncit_concepts")
+    _require_published_corpus("ncit", "ncit_concepts", "C3262")
     hits = _similar(live_api_client, "/api/v1/ncit/concepts/C3262/similar?limit=3")
     assert any(h["label"] for h in hits)
 
@@ -107,7 +109,7 @@ def test_similar_concepts_have_labels(live_api_client: TestClient) -> None:
 @pytest.mark.integration
 @pytest.mark.full_build
 def test_similar_cdes_return_scored_summaries(live_api_client: TestClient) -> None:
-    _require_embeddings("cde_repository")
+    _require_published_corpus("cadsr", "cde_repository", "2517527:4")
     hits = _similar(live_api_client, "/api/v1/cadsr/cdes/2517527/similar?limit=3")
     assert hits
     assert all(h["long_name"] and 0.0 <= h["score"] <= 1.0 for h in hits)

@@ -976,7 +976,9 @@ def test_default_integration_command_excludes_explicit_full_store_contracts() ->
     markers = project["tool"]["pytest"]["ini_options"]["markers"]
 
     assert "not full_store" in scripts["test-integration"]
+    assert "not full_build" in scripts["test-integration"]
     assert "integration and full_store" in scripts["test-integration-full-store"]
+    assert "integration and full_build" in scripts["test-integration-full-build"]
     assert any(marker.startswith("full_store:") for marker in markers)
 
 
@@ -1134,7 +1136,8 @@ def test_all_runner_keeps_full_store_contracts_explicit() -> None:
 
     assert integration_suites
     assert all(
-        "integration and not full_store" in suite.cmd for suite in integration_suites
+        "integration and not full_store and not full_build" in suite.cmd
+        for suite in integration_suites
     )
     assert all(
         "scripts/run_safe_integration.py" in suite.cmd for suite in integration_suites
@@ -1148,7 +1151,9 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     job = workflow["jobs"]["integration-tests"]
     steps = job["steps"]
     test_step = next(
-        step for step in steps if step.get("run") == "pdm run test-integration-ci"
+        step
+        for step in steps
+        if step.get("run") == "pdm run test-integration-ci-coverage"
     )
 
     assert job["env"] == {

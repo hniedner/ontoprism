@@ -3,10 +3,10 @@
 
 One command to stand ontoprism up on a machine with no fairdata dependency:
 
-  pdm run data-build all          # OWL load -> caDSR build -> embeddings
-  pdm run data-build owl          # download + load inferred + stated (named graph)
+  pdm run data-build all          # OWL prepare -> caDSR build -> embeddings
+  pdm run data-build owl          # prepare distinct inferred + stated artifacts (#148)
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite
-  pdm run data-build embeddings   # generate 768-dim NCIt + caDSR embeddings -> pgvector
+  pdm run data-build embeddings --publish  # validate + publish embeddings -> pgvector
 
 The embedding step needs the optional ML stack: `pdm install -G data-build`.
 Config (store URL, DB paths) comes from the backend settings / env.
@@ -15,10 +15,14 @@ Config (store URL, DB paths) comes from the backend settings / env.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import shutil
+import subprocess
 import zipfile
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import typer
 
@@ -28,8 +32,20 @@ from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
 from ontolib.repositories.embeddings.generate import (
-    generate_cde_embeddings,
-    generate_ncit_embeddings,
+    EMBED_DIM,
+    Embedder,
+    SentenceTransformerEmbedder,
+    cadsr_source_fingerprint,
+    ncit_source_fingerprint,
+    stage_cde_embeddings,
+    stage_ncit_embeddings,
+)
+from ontolib.repositories.embeddings.publication import (
+    Corpus,
+    CorpusBuild,
+    EmbeddingCorpusPublisher,
+    corpus_manifests,
+    replacing_corpus_source,
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
@@ -44,7 +60,7 @@ from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
-from ontolib.terminologies.ncit.owl_load import build_ncit_store
+from ontolib.terminologies.ncit.owl_download import download_ncit_owl
 from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
@@ -55,16 +71,89 @@ logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
 
 
-async def _build_owl() -> None:
+def _require_ncit_source(
+    version: str | None,
+    count: int,
+    *,
+    expected_version: str,
+    expected_count: int,
+) -> str:
+    if not version:
+        raise RuntimeError("NCIt store has no owl:versionInfo")
+    if version != expected_version:
+        raise RuntimeError(
+            "NCIt embedding source version does not match release expectation: "
+            f"{version} != {expected_version}"
+        )
+    if count != expected_count:
+        raise RuntimeError(
+            "NCIt embedding source count does not match release expectation: "
+            f"{count} != {expected_count}"
+        )
+    return version
+
+
+def _require_stable_ncit_source(
+    initial: tuple[str, int, str], final: tuple[str | None, int, str]
+) -> None:
+    if final != initial:
+        raise RuntimeError(
+            "NCIt source changed during embedding generation: "
+            f"{'/'.join(map(str, initial))} -> {'/'.join(map(str, final))}"
+        )
+
+
+def _require_stable_cadsr_source(
+    initial: tuple[str, int], final: tuple[str, int]
+) -> None:
+    if final != initial:
+        raise RuntimeError(
+            "caDSR source changed during embedding generation: "
+            f"{'/'.join(map(str, initial))} -> {'/'.join(map(str, final))}"
+        )
+
+
+async def _prepare_owl_artifacts() -> dict[str, Path]:
+    """Download inferred/stated artifacts to distinct paths for #148 offline build."""
     settings = get_settings()
-    async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
-        loaded = await build_ncit_store(client, Path(settings.ncit_owl_dir))
-    typer.echo(f"Loaded NCIt OWL variants: {', '.join(sorted(loaded))}")
+    output_dir = Path(settings.ncit_owl_dir)
+    inferred = await download_ncit_owl(
+        output_dir, variant="inferred", base_url=settings.ncit_owl_base_url
+    )
+    if not inferred.success or inferred.file_path is None:
+        raise RuntimeError(f"NCIt inferred OWL download failed: {inferred.error}")
+    inferred_path = output_dir / "Thesaurus-inferred.owl"
+    shutil.copy2(inferred.file_path, inferred_path)
+    stated = await download_ncit_owl(
+        output_dir, variant="stated", base_url=settings.ncit_owl_base_url
+    )
+    if not stated.success or stated.file_path is None:
+        raise RuntimeError(f"NCIt stated OWL download failed: {stated.error}")
+    stated_path = output_dir / "Thesaurus-stated.owl"
+    shutil.copy2(stated.file_path, stated_path)
+    return {"inferred": inferred_path, "stated": stated_path}
+
+
+async def _build_owl() -> None:
+    prepared = await _prepare_owl_artifacts()
+    typer.echo(
+        "Prepared NCIt OWL artifacts for #148 offline publication: "
+        + ", ".join(f"{name}={path}" for name, path in prepared.items())
+    )
 
 
 def _build_cadsr() -> None:
     settings = get_settings()
     data_dir = Path(settings.cadsr_data_dir)
+    destination = Path(settings.cadsr_db_path)
+
+    async def _replace_source(candidate: Path) -> None:
+        engine = make_engine(settings.database_url)
+        try:
+            async with replacing_corpus_source(make_sessionmaker(engine), Corpus.CADSR):
+                candidate.replace(destination)
+        finally:
+            await dispose_engine(engine)
 
     async def _download() -> Path:
         outcome = await download_cadsr_cdes(
@@ -81,32 +170,222 @@ def _build_cadsr() -> None:
     if not xml_paths:
         typer.echo("No CDE XML found in the downloaded archive.", err=True)
         raise typer.Exit(code=1)
-    count = build_database(xml_paths, Path(settings.cadsr_db_path))
-    if count == 0:
-        typer.echo("caDSR build produced 0 CDEs — aborting.", err=True)
-        raise typer.Exit(code=1)
+    candidate = destination.with_name(f".{destination.name}.{uuid4().hex}.candidate")
+    try:
+        count = build_database(xml_paths, candidate)
+        if count == 0:
+            typer.echo("caDSR build produced 0 CDEs — aborting.", err=True)
+            raise typer.Exit(code=1)
+        asyncio.run(_replace_source(candidate))
+    finally:
+        candidate.unlink(missing_ok=True)
     typer.echo(f"Built caDSR DB with {count} CDEs at {settings.cadsr_db_path}")
 
 
-async def _build_embeddings() -> None:
-    from ontolib.repositories.embeddings.generate import (  # noqa: PLC0415
-        SentenceTransformerEmbedder,
-    )
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
+
+def _code_commit(repo: Path | None = None) -> str:
+    root = repo or Path.cwd()
+    executable = shutil.which("git")
+    if executable is None:
+        raise RuntimeError("git is required to identify the embedding build commit")
+    status = subprocess.run(  # noqa: S603
+        [executable, "status", "--porcelain"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if status.stdout:
+        raise RuntimeError(
+            "embedding publication requires a clean worktree so code_commit names "
+            "the exact implementation"
+        )
+    result = subprocess.run(  # noqa: S603
+        [executable, "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+async def _show_embedding_manifests() -> None:
     settings = get_settings()
-    embedder = SentenceTransformerEmbedder()
+    engine = make_engine(settings.database_url)
+    try:
+        manifests = await corpus_manifests(make_sessionmaker(engine))
+    finally:
+        await dispose_engine(engine)
+    if not manifests:
+        typer.echo("No embedding corpus manifests.")
+        return
+    for manifest in manifests:
+        typer.echo(
+            f"{manifest.corpus.value}: build={manifest.build_id} "
+            f"state={manifest.state} active={manifest.is_active} "
+            f"source={manifest.source_version} source_hash={manifest.source_hash} "
+            f"rows={manifest.actual_row_count}/{manifest.expected_row_count} "
+            f"model={manifest.model_id}@{manifest.model_revision} "
+            f"dimension={manifest.vector_dimension} "
+            f"sentinels={','.join(manifest.required_doc_ids)} "
+            f"commit={manifest.code_commit} created={manifest.created_at} "
+            f"completed={manifest.completed_at} error={manifest.error_message}"
+        )
+
+
+async def _record_build_failure(
+    publisher: EmbeddingCorpusPublisher, original: BaseException
+) -> None:
+    try:
+        await publisher.fail(f"{type(original).__name__}: {original}")
+    except Exception as record_error:
+        original.add_note(f"Failed to record embedding build failure: {record_error}")
+
+
+async def _publish_ncit_embeddings(
+    build_id: UUID,
+    *,
+    restart: bool,
+    embedder: Embedder | None = None,
+) -> int:
+    settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     try:
         async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
             store = NcitGraphStore(client)
-            ncit = await generate_ncit_embeddings(store, embedder, sf)
-            # Also refresh the FTS cache while we're materializing from the store.
-            await populate_from_store(store, NcitSearchIndex(sf))
-        cde = await generate_cde_embeddings(settings.cadsr_db_path, embedder, sf)
+            expected, source_hash = await ncit_source_fingerprint(store)
+            source_version = _require_ncit_source(
+                await client.version(),
+                expected,
+                expected_version=settings.ncit_expected_version,
+                expected_count=settings.ncit_embedding_expected_rows,
+            )
+            encoder = embedder or SentenceTransformerEmbedder()
+            publisher = EmbeddingCorpusPublisher(
+                sf,
+                CorpusBuild(
+                    build_id=build_id,
+                    corpus=Corpus.NCIT,
+                    source_version=source_version,
+                    source_hash=source_hash,
+                    model_id=encoder.model_id,
+                    model_revision=encoder.model_revision,
+                    vector_dimension=EMBED_DIM,
+                    expected_row_count=settings.ncit_embedding_expected_rows,
+                    code_commit=_code_commit(),
+                    required_doc_ids=("C3262",),
+                ),
+            )
+            await publisher.start(restart=restart)
+            try:
+                staged_count, staged_hash = await stage_ncit_embeddings(
+                    store, encoder, publisher
+                )
+                if (staged_count, staged_hash) != (expected, source_hash):
+                    raise RuntimeError(
+                        "NCIt staged records differ from validated source: "
+                        f"{staged_count}/{staged_hash} != {expected}/{source_hash}"
+                    )
+
+                async def validate_source() -> None:
+                    final_version = await client.version()
+                    final_count, final_hash = await ncit_source_fingerprint(store)
+                    _require_stable_ncit_source(
+                        (source_version, expected, source_hash),
+                        (final_version, final_count, final_hash),
+                    )
+                    # Refresh from the validated source while the same advisory lock
+                    # excludes source replacement. FTS commits independently before
+                    # embedding activation and always matches the current source.
+                    await populate_from_store(store, NcitSearchIndex(sf))
+
+                manifest = await publisher.publish(validate_source)
+            except BaseException as exc:
+                await _record_build_failure(publisher, exc)
+                raise
     finally:
         await dispose_engine(engine)
-    typer.echo(f"Embedded {ncit} NCIt concepts + {cde} CDEs into pgvector")
+    return manifest.actual_row_count or 0
+
+
+async def _publish_cadsr_embeddings(
+    build_id: UUID,
+    *,
+    restart: bool,
+    embedder: Embedder | None = None,
+) -> int:
+    settings = get_settings()
+    db_path = Path(settings.cadsr_db_path)
+    if not db_path.is_file():
+        raise RuntimeError(f"caDSR source database is missing: {db_path}")
+    expected, source_hash = cadsr_source_fingerprint(str(db_path))
+    if expected != settings.cadsr_embedding_expected_rows:
+        raise RuntimeError(
+            "caDSR embedding source count does not match release expectation: "
+            f"{expected} != {settings.cadsr_embedding_expected_rows}"
+        )
+    engine = make_engine(settings.database_url)
+    try:
+        sf = make_sessionmaker(engine)
+        encoder = embedder or SentenceTransformerEmbedder()
+        publisher = EmbeddingCorpusPublisher(
+            sf,
+            CorpusBuild(
+                build_id=build_id,
+                corpus=Corpus.CADSR,
+                source_version=f"sha256:{source_hash}",
+                source_hash=source_hash,
+                model_id=encoder.model_id,
+                model_revision=encoder.model_revision,
+                vector_dimension=EMBED_DIM,
+                expected_row_count=settings.cadsr_embedding_expected_rows,
+                code_commit=_code_commit(),
+                required_doc_ids=("2517527:4",),
+            ),
+        )
+        await publisher.start(restart=restart)
+        try:
+            await stage_cde_embeddings(str(db_path), encoder, publisher)
+
+            async def validate_source() -> None:
+                final_count, final_hash = cadsr_source_fingerprint(str(db_path))
+                _require_stable_cadsr_source(
+                    (source_hash, expected), (final_hash, final_count)
+                )
+
+            manifest = await publisher.publish(validate_source)
+        except BaseException as exc:
+            await _record_build_failure(publisher, exc)
+            raise
+    finally:
+        await dispose_engine(engine)
+    return manifest.actual_row_count or 0
+
+
+async def _build_embeddings(
+    *, publish: bool, corpus: Corpus | None, restart: bool
+) -> None:
+    await _show_embedding_manifests()
+    if not publish:
+        typer.echo("Refusing to write without explicit --publish.", err=True)
+        raise typer.Exit(code=1)
+    if corpus in (None, Corpus.NCIT):
+        ncit_build = uuid4()
+        ncit = await _publish_ncit_embeddings(ncit_build, restart=restart)
+        typer.echo(f"Published {ncit} NCIt embeddings as build {ncit_build}")
+    if corpus in (None, Corpus.CADSR):
+        cadsr_build = uuid4()
+        cde = await _publish_cadsr_embeddings(cadsr_build, restart=restart)
+        typer.echo(f"Published {cde} caDSR embeddings as build {cadsr_build}")
 
 
 async def _build_xref() -> None:
@@ -310,7 +589,8 @@ async def _build_xref_promote(
 
 @app.command()
 def owl() -> None:
-    """Download + load the inferred (default) and stated (named graph) NCIt OWL."""
+    """Download + prepare distinct inferred and stated NCIt OWL artifacts (#148);
+    online store loading is disabled."""
     asyncio.run(_build_owl())
 
 
@@ -321,9 +601,20 @@ def cadsr() -> None:
 
 
 @app.command()
-def embeddings() -> None:
-    """Generate NCIt + caDSR embeddings into pgvector (needs the data-build extra)."""
-    asyncio.run(_build_embeddings())
+def embeddings(
+    publish: bool = typer.Option(
+        False,
+        "--publish",
+        help="Build, validate, and atomically replace each selected active corpus.",
+    ),
+    corpus: Corpus | None = typer.Option(  # noqa: B008 — typer option factory
+        None,
+        "--corpus",
+        help="Publish only `ncit` or `cadsr`; default publishes each independently.",
+    ),
+) -> None:
+    """Inspect all embedding build manifests; write only with explicit `--publish`."""
+    asyncio.run(_build_embeddings(publish=publish, corpus=corpus, restart=False))
 
 
 @app.command()
@@ -366,10 +657,10 @@ def xref_promote(
 
 @app.command(name="all")
 def build_all() -> None:
-    """Run the full build: OWL load -> caDSR build -> embeddings."""
+    """Run the full build: OWL prepare -> caDSR build -> embeddings."""
     asyncio.run(_build_owl())
     _build_cadsr()
-    asyncio.run(_build_embeddings())
+    asyncio.run(_build_embeddings(publish=True, corpus=None, restart=False))
 
 
 if __name__ == "__main__":

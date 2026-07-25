@@ -96,16 +96,35 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
         ],
     ),
     (
-        "ORDER BY ?concept LIMIT 200 OFFSET 0",
+        "ORDER BY ?concept LIMIT 200",
+        [{"concept": f"{NS}C3262"}],
+    ),
+    (
+        "VALUES ?concept",
         [
             {
                 "concept": f"{NS}C3262",
-                "pref": "Neoplasm",
-                "label": "Neoplasm",
-                "def": "A benign or malignant tissue growth.",
-                "semtype": "Neoplastic Process",
-                "synonyms": "Neoplasia | Neoplasm",
-            }
+                "field": "pref",
+                "value": "Neoplasm",
+            },
+            {
+                "concept": f"{NS}C3262",
+                "field": "label",
+                "value": "Neoplasm",
+            },
+            {
+                "concept": f"{NS}C3262",
+                "field": "def",
+                "value": "A benign or malignant tissue growth.",
+            },
+            {
+                "concept": f"{NS}C3262",
+                "field": "semtype",
+                "value": "Neoplastic Process",
+            },
+            {"concept": f"{NS}C3262", "field": "syn", "value": "Neoplasm"},
+            {"concept": f"{NS}C3262", "field": "syn", "value": "Neoplasia"},
+            {"concept": f"{NS}C3262", "field": "syn", "value": "Neoplasm"},
         ],
     ),
     ("COUNT(DISTINCT ?concept)", [{"count": "2"}]),

@@ -10,18 +10,25 @@ inferred variant) and optionally loads it — the built-in NCIt data-refresh mec
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Never
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
-from backend.dependencies import CadsrRepo, NcitClient, NcitSearch, NcitStore
+from backend.dependencies import (
+    CadsrRepo,
+    Embeddings,
+    NcitClient,
+    NcitSearch,
+    NcitStore,
+)
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
+from ontolib.repositories.embeddings.publication import Corpus, CorpusCoordinationError
 from ontolib.terminologies.ncit.owl_download import (
     OwlDownloadResult,
     download_ncit_owl,
@@ -74,8 +81,91 @@ class ReloadResponse(BaseModel):
     triples_after: int
 
 
-def _resolve_allowed(source_path: str) -> Path:
-    """Resolve *source_path* and require it to live inside the reload allowlist dir."""
+def _read_source(path: Path, description: str) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        logger.exception("Failed to read %s from %s", description, path)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"{description} unreadable."
+        ) from exc
+
+
+async def _replace_ncit_source(
+    client: NcitClient,
+    embeddings: Embeddings,
+    payload: bytes,
+    *,
+    content_type: str,
+    replace: bool,
+    operation: str,
+) -> tuple[int, int]:
+    source_mutated = False
+    mutation_attempted = False
+    try:
+        before = await client.count()
+        async with embeddings.replacing(Corpus.NCIT):
+            mutation_attempted = True
+            await client.load(payload, content_type=content_type, replace=replace)
+            source_mutated = True
+        return before, await client.count()
+    except (SQLAlchemyError, CorpusCoordinationError) as exc:
+        _raise_coordination_error(
+            exc, source_mutated=source_mutated, operation=operation
+        )
+    except StorageError as exc:
+        _raise_store_error(
+            exc,
+            source_mutated=source_mutated,
+            mutation_attempted=mutation_attempted,
+            operation=operation,
+        )
+
+
+def _raise_coordination_error(
+    exc: Exception, *, source_mutated: bool, operation: str
+) -> Never:
+    phase = "after" if source_mutated else "before"
+    logger.exception("Embedding coordination failed %s NCIt %s", phase, operation)
+    raise HTTPException(
+        status.HTTP_500_INTERNAL_SERVER_ERROR
+        if source_mutated
+        else status.HTTP_503_SERVICE_UNAVAILABLE,
+        "NCIt source changed but embedding lock cleanup failed."
+        if source_mutated
+        else "Embedding publication database unavailable.",
+    ) from exc
+
+
+def _raise_store_error(
+    exc: StorageError,
+    *,
+    source_mutated: bool,
+    mutation_attempted: bool,
+    operation: str,
+) -> Never:
+    if source_mutated:
+        logger.exception("NCIt source changed but %s verification failed", operation)
+        detail = "NCIt source changed but post-load verification failed."
+    elif mutation_attempted:
+        logger.exception("NCIt %s mutation outcome is unknown", operation)
+        detail = "NCIt source mutation outcome is unknown; embeddings are unavailable."
+    else:
+        logger.exception("NCIt %s failed before source mutation", operation)
+        detail = f"NCIt store {operation} failed."
+    raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail) from exc
+
+
+def _read_allowlisted_rdf(source_path: str) -> tuple[bytes, str]:
+    """Read a server-side RDF file identified by a caller-provided path.
+
+    Resolving, containment-checking, and reading happen in one scope so the traversal
+    guard stays adjacent to the file access: the path must resolve inside the reload
+    allowlist directory (an arbitrary host path like ``../../etc/passwd`` is rejected),
+    carry a supported RDF extension, and exist. Returns the file bytes and its RDF
+    content type. Raises 403 outside the allowlist, 400 for an unsupported extension,
+    404 if the file is missing, and 500 if it cannot be read.
+    """
     allowed_root = Path(get_settings().reload_allowed_dir).resolve()
     resolved = Path(source_path).resolve()
     if not resolved.is_relative_to(allowed_root):
@@ -84,7 +174,22 @@ def _resolve_allowed(source_path: str) -> Path:
             f"source_path must resolve within the reload allowlist directory "
             f"({allowed_root}).",
         )
-    return resolved
+    content_type = _RDF_CONTENT_TYPES.get(resolved.suffix.lower())
+    if content_type is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unsupported RDF extension {resolved.suffix}; "
+            f"expected one of {sorted(_RDF_CONTENT_TYPES)}",
+        )
+    if not resolved.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {resolved}")
+    try:
+        return resolved.read_bytes(), content_type
+    except OSError as exc:
+        logger.exception("Failed to read NCIt source file from %s", resolved)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "NCIt source file unreadable."
+        ) from exc
 
 
 @router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
@@ -117,36 +222,24 @@ def _cadsr_status(cadsr: CadsrRepo) -> RepoStatus:
 @router.post(
     "/ncit/reload", response_model=ReloadResponse, dependencies=[RequireApiKey]
 )
-async def reload_ncit(client: NcitClient, body: ReloadRequest) -> ReloadResponse:
+async def reload_ncit(
+    client: NcitClient, embeddings: Embeddings, body: ReloadRequest
+) -> ReloadResponse:
     """Bulk-load a server-side RDF file into the NCIt Oxigraph store.
 
     The source file must resolve inside the configured reload allowlist directory —
     an arbitrary host path (``../../etc/passwd``) is rejected, so this endpoint cannot
     be used to ingest or exfiltrate files outside the managed data area.
     """
-    path = _resolve_allowed(body.source_path)
-    content_type = _RDF_CONTENT_TYPES.get(path.suffix.lower())
-    if content_type is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Unsupported RDF extension {path.suffix}; "
-            f"expected one of {sorted(_RDF_CONTENT_TYPES)}",
-        )
-    if not path.is_file():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")
-    try:
-        before = await client.count()
-        await client.load(
-            path.read_bytes(), content_type=content_type, replace=body.replace
-        )
-        after = await client.count()
-    except StorageError as exc:
-        # A 5xx from a real store fault would otherwise leave no server-side trace
-        # (HTTPException responses are not logged by the error handler).
-        logger.exception("NCIt reload failed for %s", path)
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, "NCIt store reload failed."
-        ) from exc
+    payload, content_type = _read_allowlisted_rdf(body.source_path)
+    before, after = await _replace_ncit_source(
+        client,
+        embeddings,
+        payload,
+        content_type=content_type,
+        replace=body.replace,
+        operation="reload",
+    )
     return ReloadResponse(triples_before=before, triples_after=after)
 
 
@@ -169,12 +262,14 @@ class OwlDownloadReport(BaseModel):
     "/ncit/download", response_model=OwlDownloadReport, dependencies=[RequireApiKey]
 )
 async def download_ncit(
-    client: NcitClient, body: OwlDownloadRequest
+    client: NcitClient, embeddings: Embeddings, body: OwlDownloadRequest
 ) -> OwlDownloadReport:
     """Download the NCIt OWL from NCI EVS; with ``load=True``, reload it into the store.
 
     Loads into the default graph (a full store refresh). The download lands in the
-    configured managed dir; a failed download or load returns 502.
+    configured managed dir. Upstream/store failures return 502, unreadable local files
+    return 500, and unavailable embedding coordination returns 503 before mutation;
+    failed cleanup after mutation returns an explicit 500.
     """
     settings = get_settings()
     result = await download_ncit_owl(
@@ -190,19 +285,15 @@ async def download_ncit(
         )
     if not body.load or result.file_path is None:
         return OwlDownloadReport(download=result)
-    try:
-        before = await client.count()
-        await client.load(
-            Path(result.file_path).read_bytes(),
-            content_type=_OWL_CONTENT_TYPE,
-            replace=True,
-        )
-        after = await client.count()
-    except (StorageError, OSError) as exc:
-        logger.exception("NCIt OWL load failed for %s", result.file_path)
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, "NCIt store load failed."
-        ) from exc
+    payload = _read_source(Path(result.file_path), "NCIt OWL file")
+    before, after = await _replace_ncit_source(
+        client,
+        embeddings,
+        payload,
+        content_type=_OWL_CONTENT_TYPE,
+        replace=True,
+        operation="load",
+    )
     return OwlDownloadReport(
         download=result, triples_before=before, triples_after=after
     )

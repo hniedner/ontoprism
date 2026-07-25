@@ -9,54 +9,125 @@ dependency (sentence-transformers/torch) is optional — install the ``data-buil
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
-from typing import TYPE_CHECKING, Any, Protocol
-
-from sqlalchemy import text
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator
 
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+    from ontolib.repositories.embeddings.publication import (
+        CorpusBuild,
+        CorpusManifest,
+        EmbeddingRow,
+    )
 
 from ontolib.core.logging_config import get_logger
+from ontolib.repositories.embeddings.publication import (
+    EMBEDDING_VECTOR_DIMENSION,
+    Corpus,
+    JsonValue,
+)
 
 logger = get_logger(__name__)
 
 DEFAULT_MODEL = "sentence-transformers/all-mpnet-base-v2"
-EMBED_DIM = 768
+DEFAULT_MODEL_REVISION = "e8c3b32edf5434bc2275fc9bab85f82640a19130"
+EMBED_DIM = EMBEDDING_VECTOR_DIMENSION
 BATCH_SIZE = 200
 _SEP = " | "
 _MAX_SYNONYMS = 5
 _MAX_DEFINITION = 500
 
-_UPSERT = """
-    INSERT INTO {table} (doc_id, embedding, metadata)
-    VALUES (:doc_id, (:embedding)::vector, (:metadata)::jsonb)
-    ON CONFLICT (doc_id) DO UPDATE
-        SET embedding = EXCLUDED.embedding, metadata = EXCLUDED.metadata
-"""
-
 
 class Embedder(Protocol):
     """Encodes a batch of texts into fixed-width float vectors."""
 
+    @property
+    def model_id(self) -> str: ...
+
+    @property
+    def model_revision(self) -> str: ...
+
     def encode(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class EmbeddingBatchSink(Protocol):
+    """Build-scoped destination that never exposes a batch to runtime readers."""
+
+    async def stage(self, rows: list[EmbeddingRow]) -> None: ...
+
+
+class EmbeddingPublisher(EmbeddingBatchSink, Protocol):
+    @property
+    def build(self) -> CorpusBuild: ...
+
+    async def start(self, *, restart: bool = False) -> CorpusManifest: ...
+
+    async def publish(self) -> CorpusManifest: ...
+
+    async def fail(self, error_message: str) -> CorpusManifest: ...
+
+
+class NcitEmbeddingSource(Protocol):
+    """The stable ordered-record surface required by NCIt embedding generation."""
+
+    async def embedding_records(
+        self, *, limit: int, after: str | None = None
+    ) -> list[NcitEmbeddingRecord]: ...
+
+
+class Digest(Protocol):
+    def update(self, data: bytes, /) -> None: ...
+
+
+class NcitEmbeddingRecord(TypedDict):
+    iri: str
+    code: str
+    preferred_name: str | None
+    definition: str | None
+    semantic_type: str | None
+    synonyms: str
+
+
+def _require_publisher_identity(
+    publisher: EmbeddingPublisher, embedder: Embedder, corpus: Corpus
+) -> None:
+    build = publisher.build
+    if build.corpus is not corpus:
+        raise ValueError(f"publisher corpus is {build.corpus}, expected {corpus}")
+    if (build.model_id, build.model_revision) != (
+        embedder.model_id,
+        embedder.model_revision,
+    ):
+        raise ValueError("publisher model provenance does not match the encoder")
 
 
 class SentenceTransformerEmbedder:
     """The real 768-dim encoder — lazily imports the optional ML dependency."""
 
-    def __init__(self, model_name: str = DEFAULT_MODEL) -> None:
+    def __init__(
+        self,
+        model_name: str = DEFAULT_MODEL,
+        model_revision: str = DEFAULT_MODEL_REVISION,
+    ) -> None:
         # Dynamic import: sentence-transformers is only installed with the optional
         # data-build group, so don't hard-import it (keeps runtime + type-check lean).
         import importlib  # noqa: PLC0415
 
         st = importlib.import_module("sentence_transformers")
-        self._model = st.SentenceTransformer(model_name)
+        self._model_id = model_name
+        self._model_revision = model_revision
+        self._model = st.SentenceTransformer(model_name, revision=model_revision)
+
+    @property
+    def model_id(self) -> str:
+        return self._model_id
+
+    @property
+    def model_revision(self) -> str:
+        return self._model_revision
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [vec.tolist() for vec in self._model.encode(texts)]
@@ -86,53 +157,33 @@ def cde_text(
     return _SEP.join(p for p in (short_name, long_name, definition) if p)
 
 
-def _vec_literal(vector: list[float]) -> str:
-    return "[" + ",".join(repr(float(x)) for x in vector) + "]"
-
-
-async def _upsert_batch(
-    session_factory: async_sessionmaker[AsyncSession],
-    table: str,
-    rows: Sequence[tuple[str, list[float], dict[str, Any]]],
-) -> None:
-    if not rows:
-        return
-    # `table` is a fixed internal identifier; doc_id/embedding/metadata are bound.
-    sql = text(_UPSERT.format(table=table))
-    params = [
-        {"doc_id": doc_id, "embedding": _vec_literal(vec), "metadata": json.dumps(meta)}
-        for doc_id, vec, meta in rows
-    ]
-    async with session_factory() as session, session.begin():
-        await session.execute(sql, params)
-
-
 def _iter_cde_rows(db_path: str) -> Iterator[sqlite3.Row]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
         yield from conn.execute(
             "SELECT public_id, version, search_text, short_name, long_name, "
-            "definition, context, workflow_status, registration_status FROM cdes"
+            "definition, context, workflow_status, registration_status FROM cdes "
+            "ORDER BY public_id, version"
         )
     finally:
         conn.close()
 
 
-async def generate_cde_embeddings(
+async def stage_cde_embeddings(
     db_path: str,
     embedder: Embedder,
-    session_factory: async_sessionmaker[AsyncSession],
+    sink: EmbeddingBatchSink,
     *,
     batch_size: int = BATCH_SIZE,
 ) -> int:
-    """Embed every CDE in the caDSR SQLite into the ``cde_repository`` pgvector table.
+    """Stage every CDE embedding through a build-scoped invisible sink.
 
     doc_id = ``{public_id}:{version}``. Returns the number of CDEs embedded.
     """
     total = 0
     texts: list[str] = []
-    meta: list[tuple[str, dict[str, Any]]] = []
+    meta: list[tuple[str, dict[str, JsonValue]]] = []
 
     async def flush() -> None:
         nonlocal total
@@ -140,7 +191,7 @@ async def generate_cde_embeddings(
             return
         vectors = embedder.encode(texts)
         batch = [(m[0], v, m[1]) for (m, v) in zip(meta, vectors, strict=True)]
-        await _upsert_batch(session_factory, "cde_repository", batch)
+        await sink.stage(batch)
         total += len(batch)
         texts.clear()
         meta.clear()
@@ -172,11 +223,25 @@ async def generate_cde_embeddings(
         if len(texts) >= batch_size:
             await flush()
     await flush()
-    logger.info("Embedded %d CDEs into cde_repository", total)
+    logger.info("Staged %d caDSR CDE embeddings", total)
     return total
 
 
-def _record_text(record: dict[str, str | None], code: str) -> str:
+def cadsr_source_fingerprint(db_path: str) -> tuple[int, str]:
+    """Hash exact caDSR embedding-source rows in deterministic identifier order."""
+    digest = hashlib.sha256()
+    count = 0
+    for row in _iter_cde_rows(db_path):
+        record = {key: row[key] for key in row.keys()}  # noqa: SIM118 — sqlite3.Row
+        digest.update(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        )
+        digest.update(b"\n")
+        count += 1
+    return count, digest.hexdigest()
+
+
+def _record_text(record: NcitEmbeddingRecord, code: str) -> str:
     synonyms = (record["synonyms"] or "").split(_SEP) if record["synonyms"] else []
     return ncit_text(
         record["preferred_name"] or code,
@@ -186,7 +251,7 @@ def _record_text(record: dict[str, str | None], code: str) -> str:
     )
 
 
-def _record_meta(record: dict[str, str | None], code: str) -> dict[str, Any]:
+def _record_meta(record: NcitEmbeddingRecord, code: str) -> dict[str, JsonValue]:
     return {
         "code": code,
         "preferred_name": record["preferred_name"] or "",
@@ -195,8 +260,8 @@ def _record_meta(record: dict[str, str | None], code: str) -> dict[str, Any]:
 
 
 def _ncit_batch(
-    records: list[dict[str, str | None]], embedder: Embedder
-) -> list[tuple[str, list[float], dict[str, Any]]]:
+    records: list[NcitEmbeddingRecord], embedder: Embedder
+) -> list[tuple[str, list[float], dict[str, JsonValue]]]:
     """Build (doc_id, vector, metadata) rows for a page of NCIt embedding records."""
     codes = [r["code"] or "" for r in records]
     texts = [_record_text(r, code) for r, code in zip(records, codes, strict=True)]
@@ -207,26 +272,104 @@ def _ncit_batch(
     ]
 
 
-async def generate_ncit_embeddings(
-    store: NcitGraphStore,
+async def stage_ncit_embeddings(
+    store: NcitEmbeddingSource,
     embedder: Embedder,
-    session_factory: async_sessionmaker[AsyncSession],
+    sink: EmbeddingBatchSink,
     *,
     batch_size: int = BATCH_SIZE,
-) -> int:
-    """Embed every NCIt concept into the ``ncit_concepts`` pgvector table.
+) -> tuple[int, str]:
+    """Stage every NCIt concept embedding through a build-scoped invisible sink.
 
-    doc_id = concept code. Pages the store's embedding records. Returns the count.
+    doc_id = concept code. Returns the count and exact ordered-record fingerprint.
     """
     total = 0
-    offset = 0
+    after: str | None = None
+    digest = hashlib.sha256()
     while True:
-        records = await store.embedding_records(limit=batch_size, offset=offset)
+        records = await store.embedding_records(limit=batch_size, after=after)
         if not records:
             break
+        _update_record_digest(digest, records)
         batch = _ncit_batch(records, embedder)
-        await _upsert_batch(session_factory, "ncit_concepts", batch)
+        await sink.stage(batch)
         total += len(batch)
-        offset += batch_size
-    logger.info("Embedded %d NCIt concepts into ncit_concepts", total)
-    return total
+        after = records[-1]["iri"]
+    logger.info("Staged %d NCIt concept embeddings", total)
+    return total, digest.hexdigest()
+
+
+async def ncit_source_fingerprint(
+    store: NcitEmbeddingSource, *, batch_size: int = BATCH_SIZE
+) -> tuple[int, str]:
+    """Hash the exact ordered records used as NCIt embedding input."""
+    digest = hashlib.sha256()
+    total = 0
+    after: str | None = None
+    while True:
+        records = await store.embedding_records(limit=batch_size, after=after)
+        if not records:
+            break
+        _update_record_digest(digest, records)
+        total += len(records)
+        after = records[-1]["iri"]
+    return total, digest.hexdigest()
+
+
+def _update_record_digest(digest: Digest, records: list[NcitEmbeddingRecord]) -> None:
+    for record in records:
+        digest.update(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        )
+        digest.update(b"\n")
+
+
+async def _record_failure(
+    publisher: EmbeddingPublisher, original: BaseException
+) -> None:
+    try:
+        await publisher.fail(f"{type(original).__name__}: {original}")
+    except Exception as record_error:
+        original.add_note(f"Failed to record embedding build failure: {record_error}")
+
+
+async def generate_cde_embeddings(
+    db_path: str,
+    embedder: Embedder,
+    publisher: EmbeddingPublisher,
+    *,
+    batch_size: int = BATCH_SIZE,
+    restart: bool = False,
+) -> CorpusManifest:
+    """Stage, validate, and atomically publish the complete caDSR corpus."""
+    _require_publisher_identity(publisher, embedder, Corpus.CADSR)
+    started = await publisher.start(restart=restart)
+    if started.state == "complete":
+        return started
+    try:
+        await stage_cde_embeddings(db_path, embedder, publisher, batch_size=batch_size)
+        return await publisher.publish()
+    except BaseException as exc:
+        await _record_failure(publisher, exc)
+        raise
+
+
+async def generate_ncit_embeddings(
+    store: NcitEmbeddingSource,
+    embedder: Embedder,
+    publisher: EmbeddingPublisher,
+    *,
+    batch_size: int = BATCH_SIZE,
+    restart: bool = False,
+) -> CorpusManifest:
+    """Stage, validate, and atomically publish the complete NCIt corpus."""
+    _require_publisher_identity(publisher, embedder, Corpus.NCIT)
+    started = await publisher.start(restart=restart)
+    if started.state == "complete":
+        return started
+    try:
+        await stage_ncit_embeddings(store, embedder, publisher, batch_size=batch_size)
+        return await publisher.publish()
+    except BaseException as exc:
+        await _record_failure(publisher, exc)
+        raise

@@ -9,6 +9,12 @@ direct triples.
 
 from __future__ import annotations
 
+import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
+
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
 from ontolib.terminologies.ncit import property_codes as pc
 from ontolib.terminologies.ncit.models import (
@@ -41,6 +47,53 @@ def _code_of(uri: str) -> str:
 def _escape_literal(text: str) -> str:
     """Escape a user string for safe embedding in a SPARQL double-quoted literal."""
     return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _canonical_embedding_records(
+    rows: list[dict[str, str | None]],
+) -> list[NcitEmbeddingRecord]:
+    grouped: dict[str, dict[str, set[str]]] = {}
+    for row in rows:
+        concept = row.get("concept")
+        if concept is None:
+            continue
+        values = grouped.setdefault(
+            concept,
+            {
+                "pref": set(),
+                "label": set(),
+                "def": set(),
+                "semtype": set(),
+                "syn": set(),
+            },
+        )
+        field = row.get("field")
+        value = row.get("value")
+        if field in values and value:
+            values[field].add(value)
+    return [
+        {
+            "iri": concept,
+            "code": _code_of(concept),
+            "preferred_name": min(values["pref"] or values["label"], default=None),
+            "definition": min(values["def"], default=None),
+            "semantic_type": min(values["semtype"], default=None),
+            "synonyms": " | ".join(sorted(values["syn"])),
+        }
+        for concept, values in grouped.items()
+    ]
+
+
+def _embedding_cursor_filter(after: str | None, namespace: str) -> str:
+    if after is None:
+        return ""
+    if not after.startswith(namespace):
+        raise ValueError("embedding keyset cursor is outside the NCIt namespace")
+    return f"FILTER(STR(?concept) > {json.dumps(after)})"
+
+
+def _concept_iris(rows: list[dict[str, str | None]]) -> list[str]:
+    return [concept for row in rows if (concept := row.get("concept")) is not None]
 
 
 def _ref(uri: str | None, label: str | None) -> ConceptRef | None:
@@ -331,40 +384,60 @@ class NcitGraphStore:
     # ------------------------------------------------------------- neighborhood
 
     async def embedding_records(
-        self, *, limit: int, offset: int
-    ) -> list[dict[str, str | None]]:
-        """A page of ``{code,preferred_name,definition,semantic_type,synonyms}`` for
-        the embedding build. Synonyms are joined with `` | ``.
+        self, *, limit: int, after: str | None = None
+    ) -> list[NcitEmbeddingRecord]:
+        """A page of ``{iri,code,preferred_name,definition,semantic_type,synonyms}`` for
+        the embedding build, canonically aggregated from ordered raw values.
+
+        The first query keyset-pages distinct concept IDs. A second ``VALUES`` query
+        returns every value in deterministic order; Python selects the
+        lexicographically first scalar and sorts/deduplicates synonyms. This avoids
+        ``SAMPLE`` and ``GROUP_CONCAT`` behavior changing embeddings/fingerprints.
         """
-        rows = await self._client.select(
+        after_filter = _embedding_cursor_filter(after, self._ns)
+        concept_rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT ?concept
-                   (SAMPLE(?pref) AS ?pref) (SAMPLE(?label) AS ?label)
-                   (SAMPLE(?def) AS ?def) (SAMPLE(?semtype) AS ?semtype)
-                   (GROUP_CONCAT(DISTINCT ?syn; separator=" | ") AS ?synonyms)
-            WHERE {{
+            SELECT DISTINCT ?concept WHERE {{
                 ?concept a owl:Class ; rdfs:label ?label .
-                OPTIONAL {{ ?concept ncit:{pc.PREFERRED_NAME} ?pref }}
-                OPTIONAL {{ ?concept ncit:{pc.DEFINITION} ?def }}
-                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
-                OPTIONAL {{ ?concept ncit:{pc.FULL_SYNONYM} ?syn }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
-            }}
-            GROUP BY ?concept
-            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
+                {after_filter}
+            }} ORDER BY ?concept LIMIT {limit}
             """
         )
-        return [
-            {
-                "code": _code_of(concept),
-                "preferred_name": r.get("pref") or r.get("label"),
-                "definition": r.get("def"),
-                "semantic_type": r.get("semtype"),
-                "synonyms": r.get("synonyms") or "",
-            }
-            for r in rows
-            if (concept := r.get("concept")) is not None
-        ]
+        concepts = _concept_iris(concept_rows)
+        if not concepts:
+            return []
+        values_clause = " ".join(f"<{concept}>" for concept in concepts)
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT ?concept ?field ?value
+            WHERE {{
+                VALUES ?concept {{ {values_clause} }}
+                {{ ?concept ncit:{pc.PREFERRED_NAME} ?value . BIND("pref" AS ?field) }}
+                UNION {{ ?concept rdfs:label ?value . BIND("label" AS ?field) }}
+                UNION {{ ?concept ncit:{pc.DEFINITION} ?value . BIND("def" AS ?field) }}
+                UNION {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?value .
+                    BIND("semtype" AS ?field) }}
+                UNION {{ ?concept ncit:{pc.FULL_SYNONYM} ?value .
+                    BIND("syn" AS ?field) }}
+            }}
+            ORDER BY ?concept ?field ?value
+            """
+        )
+        return _canonical_embedding_records(rows)
+
+    async def embedding_record_count(self) -> int:
+        """Count named/labelled NCIt concepts enumerated by the embedding build."""
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
+                ?concept a owl:Class ; rdfs:label ?label .
+                FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+            }}
+            """
+        )
+        value = rows[0].get("count") if rows else None
+        return int(value) if value is not None else 0
 
     async def get_neighborhood(self, code: str, *, depth: int = 1) -> Neighborhood:
         """Return a concept-centered subgraph (subClassOf + roles + associations).

@@ -1,7 +1,9 @@
 """Application settings, loaded from environment / .env."""
 
 from functools import lru_cache
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +25,10 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+asyncpg://ontoprism:ontoprism@localhost:5433/ontoprism"
     )
+    # Independent release evidence for embedding completeness. The data-build workflow
+    # requires exact agreement with the enumerated source; update on source bump.
+    ncit_embedding_expected_rows: Annotated[int, Field(gt=0)] = 204_373
+    cadsr_embedding_expected_rows: Annotated[int, Field(gt=0)] = 79_827
 
     # Guarded raw-SPARQL endpoint limits.
     sparql_timeout_sec: float = 30.0

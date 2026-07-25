@@ -6,6 +6,7 @@ any live store is touched, so these need no running services.
 
 import logging
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +15,11 @@ from fastapi.testclient import TestClient
 from starlette.responses import Response
 
 from backend.config import get_settings
-from backend.dependencies import get_ncit_client
+from backend.dependencies import get_embedding_store, get_ncit_client
 from backend.main import create_app
 from backend.middleware import _apply_hardening_headers
 from ontolib.core.exceptions import StorageError
+from ontolib.repositories.embeddings.publication import Corpus
 
 
 @pytest.fixture(autouse=True)
@@ -169,8 +171,8 @@ def test_reload_storage_error_is_logged_and_returns_502(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # A real store fault during reload must return 502 AND leave a server-side error
-    # log (HTTPException responses are otherwise not logged by the error handler).
+    # A failed PUT can have committed remotely before the response was lost. Report the
+    # outcome as unknown and log it rather than inviting a blind retry.
     ttl = tmp_path / "graph.ttl"
     ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
     monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
@@ -183,12 +185,25 @@ def test_reload_storage_error_is_logged_and_returns_502(
         async def load(self, *_args: Any, **_kwargs: Any) -> None:
             raise StorageError("oxigraph unreachable")
 
+    coordination_events: list[str] = []
+
+    class _RecordingEmbeddings:
+        @asynccontextmanager
+        async def replacing(self, corpus: Corpus):  # type: ignore[no-untyped-def]
+            coordination_events.append(f"enter:{corpus.value}")
+            try:
+                yield
+            finally:
+                coordination_events.append(f"exit:{corpus.value}")
+
     app = create_app()
     app.dependency_overrides[get_ncit_client] = _FailingClient
+    app.dependency_overrides[get_embedding_store] = _RecordingEmbeddings
     with caplog.at_level(logging.ERROR), TestClient(app) as client:
         resp = client.post(
             "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
         )
     assert resp.status_code == 502
-    assert "reload failed" in resp.json()["detail"].lower()
-    assert any("reload failed" in r.getMessage().lower() for r in caplog.records)
+    assert "outcome is unknown" in resp.json()["detail"].lower()
+    assert any("outcome is unknown" in r.getMessage().lower() for r in caplog.records)
+    assert coordination_events == ["enter:ncit", "exit:ncit"]
