@@ -60,7 +60,8 @@ from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
-from ontolib.terminologies.ncit.owl_load import build_ncit_store
+from ontolib.terminologies.ncit.owl_download import download_ncit_owl
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI, load_owl_file
 from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
@@ -69,16 +70,6 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
-
-
-async def _run_thread_to_completion(function, /, *args):  # type: ignore[no-untyped-def]
-    """Keep a source-replacement worker alive under cancellation until it stops."""
-    task = asyncio.create_task(asyncio.to_thread(function, *args))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
 
 
 def _require_ncit_source(
@@ -125,29 +116,44 @@ def _require_stable_cadsr_source(
 
 async def _build_owl() -> None:
     settings = get_settings()
+    output_dir = Path(settings.ncit_owl_dir)
+    inferred = await download_ncit_owl(
+        output_dir, variant="inferred", base_url=settings.ncit_owl_base_url
+    )
+    if not inferred.success or inferred.file_path is None:
+        raise RuntimeError(f"NCIt inferred OWL download failed: {inferred.error}")
+    inferred_path = output_dir / "Thesaurus-inferred.owl"
+    shutil.copy2(inferred.file_path, inferred_path)
+    stated = await download_ncit_owl(
+        output_dir, variant="stated", base_url=settings.ncit_owl_base_url
+    )
+    if not stated.success or stated.file_path is None:
+        raise RuntimeError(f"NCIt stated OWL download failed: {stated.error}")
+    stated_path = output_dir / "Thesaurus-stated.owl"
+    shutil.copy2(stated.file_path, stated_path)
     engine = make_engine(settings.database_url)
     try:
         async with (
             replacing_corpus_source(make_sessionmaker(engine), Corpus.NCIT),
             OxigraphHttpClient(settings.ncit_sparql_url) as client,
         ):
-            loaded = await build_ncit_store(client, Path(settings.ncit_owl_dir))
+            await load_owl_file(client, inferred_path)
+            await load_owl_file(client, stated_path, graph_iri=STATED_GRAPH_IRI)
     finally:
         await dispose_engine(engine)
-    typer.echo(f"Loaded NCIt OWL variants: {', '.join(sorted(loaded))}")
+    typer.echo("Loaded NCIt OWL variants: inferred, stated")
 
 
 def _build_cadsr() -> None:
     settings = get_settings()
     data_dir = Path(settings.cadsr_data_dir)
+    destination = Path(settings.cadsr_db_path)
 
-    async def _replace_source() -> int:
+    async def _replace_source(candidate: Path) -> None:
         engine = make_engine(settings.database_url)
         try:
             async with replacing_corpus_source(make_sessionmaker(engine), Corpus.CADSR):
-                return await _run_thread_to_completion(
-                    build_database, xml_paths, Path(settings.cadsr_db_path)
-                )
+                candidate.replace(destination)
         finally:
             await dispose_engine(engine)
 
@@ -166,10 +172,15 @@ def _build_cadsr() -> None:
     if not xml_paths:
         typer.echo("No CDE XML found in the downloaded archive.", err=True)
         raise typer.Exit(code=1)
-    count = asyncio.run(_replace_source())
-    if count == 0:
-        typer.echo("caDSR build produced 0 CDEs — aborting.", err=True)
-        raise typer.Exit(code=1)
+    candidate = destination.with_name(f".{destination.name}.{uuid4().hex}.candidate")
+    try:
+        count = build_database(xml_paths, candidate)
+        if count == 0:
+            typer.echo("caDSR build produced 0 CDEs — aborting.", err=True)
+            raise typer.Exit(code=1)
+        asyncio.run(_replace_source(candidate))
+    finally:
+        candidate.unlink(missing_ok=True)
     typer.echo(f"Built caDSR DB with {count} CDEs at {settings.cadsr_db_path}")
 
 

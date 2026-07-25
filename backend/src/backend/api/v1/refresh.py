@@ -81,6 +81,49 @@ class ReloadResponse(BaseModel):
     triples_after: int
 
 
+def _read_source(path: Path, description: str) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"{description} unreadable."
+        ) from exc
+
+
+async def _replace_ncit_source(
+    client: NcitClient,
+    embeddings: Embeddings,
+    payload: bytes,
+    *,
+    content_type: str,
+    replace: bool,
+    operation: str,
+) -> tuple[int, int]:
+    source_mutated = False
+    try:
+        before = await client.count()
+        async with embeddings.replacing(Corpus.NCIT):
+            await client.load(payload, content_type=content_type, replace=replace)
+            source_mutated = True
+        return before, await client.count()
+    except SQLAlchemyError as exc:
+        phase = "after" if source_mutated else "before"
+        logger.exception("Embedding coordination failed %s NCIt %s", phase, operation)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR
+            if source_mutated
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            "NCIt source changed but embedding lock cleanup failed."
+            if source_mutated
+            else "Embedding publication database unavailable.",
+        ) from exc
+    except StorageError as exc:
+        logger.exception("NCIt %s failed", operation)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"NCIt store {operation} failed."
+        ) from exc
+
+
 def _resolve_allowed(source_path: str) -> Path:
     """Resolve *source_path* and require it to live inside the reload allowlist dir."""
     allowed_root = Path(get_settings().reload_allowed_dir).resolve()
@@ -143,26 +186,15 @@ async def reload_ncit(
         )
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")
-    try:
-        before = await client.count()
-        async with embeddings.replacing(Corpus.NCIT):
-            await client.load(
-                path.read_bytes(), content_type=content_type, replace=body.replace
-            )
-        after = await client.count()
-    except SQLAlchemyError as exc:
-        logger.exception("Embedding coordination failed before NCIt reload")
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Embedding publication database unavailable.",
-        ) from exc
-    except StorageError as exc:
-        # A 5xx from a real store fault would otherwise leave no server-side trace
-        # (HTTPException responses are not logged by the error handler).
-        logger.exception("NCIt reload failed for %s", path)
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, "NCIt store reload failed."
-        ) from exc
+    payload = _read_source(path, "NCIt source file")
+    before, after = await _replace_ncit_source(
+        client,
+        embeddings,
+        payload,
+        content_type=content_type,
+        replace=body.replace,
+        operation="reload",
+    )
     return ReloadResponse(triples_before=before, triples_after=after)
 
 
@@ -207,26 +239,15 @@ async def download_ncit(
         )
     if not body.load or result.file_path is None:
         return OwlDownloadReport(download=result)
-    try:
-        before = await client.count()
-        async with embeddings.replacing(Corpus.NCIT):
-            await client.load(
-                Path(result.file_path).read_bytes(),
-                content_type=_OWL_CONTENT_TYPE,
-                replace=True,
-            )
-        after = await client.count()
-    except SQLAlchemyError as exc:
-        logger.exception("Embedding coordination failed before NCIt OWL load")
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Embedding publication database unavailable.",
-        ) from exc
-    except (StorageError, OSError) as exc:
-        logger.exception("NCIt OWL load failed for %s", result.file_path)
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, "NCIt store load failed."
-        ) from exc
+    payload = _read_source(Path(result.file_path), "NCIt OWL file")
+    before, after = await _replace_ncit_source(
+        client,
+        embeddings,
+        payload,
+        content_type=_OWL_CONTENT_TYPE,
+        replace=True,
+        operation="load",
+    )
     return OwlDownloadReport(
         download=result, triples_before=before, triples_after=after
     )

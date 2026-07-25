@@ -389,9 +389,9 @@ class NcitGraphStore:
         """A page of ``{iri,code,preferred_name,definition,semantic_type,synonyms}`` for
         the embedding build, canonically aggregated from ordered raw values.
 
-        The inner subquery pages distinct concept IDs. The outer query returns every
-        value in deterministic order; Python then selects the lexicographically first
-        scalar value and sorts/deduplicates synonyms. This avoids nondeterministic
+        The first query keyset-pages distinct concept IDs. A second ``VALUES`` query
+        returns every value in deterministic order; Python selects the
+        lexicographically first scalar and sorts/deduplicates synonyms. This avoids
         ``SAMPLE`` and ``GROUP_CONCAT`` behavior changing embeddings/fingerprints.
         """
         after_filter = _embedding_cursor_filter(after, self._ns)
