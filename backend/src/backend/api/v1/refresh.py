@@ -156,8 +156,16 @@ def _raise_store_error(
     raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail) from exc
 
 
-def _resolve_allowed(source_path: str) -> Path:
-    """Resolve *source_path* and require it to live inside the reload allowlist dir."""
+def _read_allowlisted_rdf(source_path: str) -> tuple[bytes, str]:
+    """Read a server-side RDF file identified by a caller-provided path.
+
+    Resolving, containment-checking, and reading happen in one scope so the traversal
+    guard stays adjacent to the file access: the path must resolve inside the reload
+    allowlist directory (an arbitrary host path like ``../../etc/passwd`` is rejected),
+    carry a supported RDF extension, and exist. Returns the file bytes and its RDF
+    content type. Raises 403 outside the allowlist, 400 for an unsupported extension,
+    404 if the file is missing, and 500 if it cannot be read.
+    """
     allowed_root = Path(get_settings().reload_allowed_dir).resolve()
     resolved = Path(source_path).resolve()
     if not resolved.is_relative_to(allowed_root):
@@ -166,7 +174,22 @@ def _resolve_allowed(source_path: str) -> Path:
             f"source_path must resolve within the reload allowlist directory "
             f"({allowed_root}).",
         )
-    return resolved
+    content_type = _RDF_CONTENT_TYPES.get(resolved.suffix.lower())
+    if content_type is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unsupported RDF extension {resolved.suffix}; "
+            f"expected one of {sorted(_RDF_CONTENT_TYPES)}",
+        )
+    if not resolved.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {resolved}")
+    try:
+        return resolved.read_bytes(), content_type
+    except OSError as exc:
+        logger.exception("Failed to read NCIt source file from %s", resolved)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "NCIt source file unreadable."
+        ) from exc
 
 
 @router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
@@ -208,17 +231,7 @@ async def reload_ncit(
     an arbitrary host path (``../../etc/passwd``) is rejected, so this endpoint cannot
     be used to ingest or exfiltrate files outside the managed data area.
     """
-    path = _resolve_allowed(body.source_path)
-    content_type = _RDF_CONTENT_TYPES.get(path.suffix.lower())
-    if content_type is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Unsupported RDF extension {path.suffix}; "
-            f"expected one of {sorted(_RDF_CONTENT_TYPES)}",
-        )
-    if not path.is_file():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"File not found: {path}")
-    payload = _read_source(path, "NCIt source file")
+    payload, content_type = _read_allowlisted_rdf(body.source_path)
     before, after = await _replace_ncit_source(
         client,
         embeddings,
