@@ -796,3 +796,48 @@ async def test_manifest_provenance_cannot_be_rewritten(
                 ),
                 {"changed": "f" * 64, "build_id": _OLD_BUILD},
             )
+
+
+async def test_manifest_build_id_cannot_be_rewritten(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+    with pytest.raises(DBAPIError, match="provenance is immutable"):
+        async with session_factory() as session, session.begin():
+            await session.execute(
+                text(
+                    "UPDATE embedding_corpus_manifest SET build_id = :changed "
+                    "WHERE build_id = :build_id"
+                ),
+                {"changed": _NEW_BUILD, "build_id": _OLD_BUILD},
+            )
+
+
+async def test_cancellation_during_unlock_waits_for_release(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original_scalar = AsyncConnection.scalar
+
+    async def delayed_scalar(connection, statement, parameters=None, **kwargs):  # type: ignore[no-untyped-def]
+        if "pg_advisory_unlock" in str(statement):
+            entered.set()
+            await release.wait()
+        return await original_scalar(connection, statement, parameters, **kwargs)
+
+    monkeypatch.setattr(AsyncConnection, "scalar", delayed_scalar)
+
+    async def replace() -> None:
+        async with replacing_corpus_source(session_factory, Corpus.NCIT):
+            pass
+
+    task = asyncio.create_task(replace())
+    await entered.wait()
+    task.cancel()
+    await asyncio.sleep(0.1)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task

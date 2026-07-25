@@ -119,7 +119,15 @@ async def _replace_ncit_source(
             else "Embedding publication database unavailable.",
         ) from exc
     except StorageError as exc:
-        logger.exception("NCIt %s failed", operation)
+        if source_mutated:
+            logger.exception(
+                "NCIt source changed but %s verification failed", operation
+            )
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                "NCIt source changed but post-load verification failed.",
+            ) from exc
+        logger.exception("NCIt %s failed before source mutation", operation)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, f"NCIt store {operation} failed."
         ) from exc

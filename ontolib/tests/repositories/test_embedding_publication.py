@@ -34,9 +34,13 @@ def _build() -> CorpusBuild:
     [
         ("source_version", "", "provenance"),
         ("source_hash", " ", "provenance"),
+        ("source_hash", "A" * 64, "SHA-256"),
+        ("source_hash", "a" * 63, "SHA-256"),
         ("model_id", "", "provenance"),
         ("model_revision", "", "provenance"),
+        ("model_revision", "z" * 40, "40-hex"),
         ("code_commit", "", "provenance"),
+        ("code_commit", "c" * 39, "40-hex"),
         ("vector_dimension", 3, r"vector\(768\)"),
         ("expected_row_count", 0, "positive"),
         ("required_doc_ids", (), "non-empty sentinels"),

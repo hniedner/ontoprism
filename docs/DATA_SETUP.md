@@ -124,7 +124,9 @@ caDSR likewise requires exact source/release count agreement and `2517527:1.0`.
 
 Build batches commit only to build-scoped staging. If encoding, validation, or
 activation fails after the candidate manifest starts, the previous serving rows and
-active manifest remain unchanged and the candidate records `failed`. Preflight
+active manifest remain unchanged and the workflow attempts to record `failed`; if
+PostgreSQL itself is unavailable, failure persistence is best-effort and the original
+error remains primary. Preflight
 version/count/configuration failures occur before candidate creation. Repair the source/model/environment, inspect
 again, then run a new explicit `--publish`; no wildcard cleanup or implicit promotion
 is performed. Activation holds a per-corpus PostgreSQL advisory transaction lock and

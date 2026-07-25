@@ -129,6 +129,70 @@ async def test_owl_preparation_failure_never_enters_replacement_lock(
 
 
 @pytest.mark.unit
+async def test_owl_candidates_load_together_inside_replacement_lock(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    inferred = tmp_path / "downloaded-inferred.owl"
+    stated = tmp_path / "downloaded-stated.owl"
+    inferred.write_text("inferred")
+    stated.write_text("stated")
+    downloads = iter((inferred, stated))
+    events: list[str] = []
+
+    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        path = next(downloads)
+        return SimpleNamespace(success=True, file_path=str(path), error=None)
+
+    @asynccontextmanager
+    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        events.append("enter")
+        yield
+        events.append("exit")
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    async def load(_client, path, *, graph_iri=None):  # type: ignore[no-untyped-def]
+        events.append(f"load:{path.name}:{graph_iri or 'default'}")
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            ncit_owl_dir=str(tmp_path),
+            ncit_owl_base_url="http://example.invalid",
+            database_url="postgresql+asyncpg://unused",
+            ncit_sparql_url="http://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
+    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
+    monkeypatch.setattr("scripts.data_build.OxigraphHttpClient", lambda _url: _Client())
+    monkeypatch.setattr("scripts.data_build.load_owl_file", load)
+    monkeypatch.setattr("scripts.data_build.make_engine", lambda _url: object())
+    monkeypatch.setattr(
+        "scripts.data_build.make_sessionmaker", lambda _engine: object()
+    )
+
+    async def dispose(_engine):  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr("scripts.data_build.dispose_engine", dispose)
+    await _build_owl()
+
+    assert events == [
+        "enter",
+        "load:Thesaurus-inferred.owl:default",
+        "load:Thesaurus-stated.owl:http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl",
+        "exit",
+    ]
+
+
+@pytest.mark.unit
 def test_cadsr_candidate_failure_preserves_existing_source_and_skips_lock(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
@@ -169,3 +233,55 @@ def test_cadsr_candidate_failure_preserves_existing_source_and_skips_lock(
 
     assert destination.read_text() == "accepted"
     assert lock_entries == []
+
+
+@pytest.mark.unit
+def test_cadsr_complete_candidate_replaces_source_inside_lock(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    archive = tmp_path / "cdes.zip"
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cde.xml", "<DataElementsList/>")
+    destination = tmp_path / "cde.db"
+    destination.write_text("accepted")
+    events: list[str] = []
+
+    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(path=str(archive))
+
+    @asynccontextmanager
+    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        events.append("enter")
+        yield
+        events.append("exit")
+
+    def build(_xml, candidate):  # type: ignore[no-untyped-def]
+        candidate.write_text("candidate")
+        return 1
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            cadsr_data_dir=str(tmp_path / "data"),
+            cadsr_download_url="http://example.invalid",
+            cadsr_db_path=str(destination),
+            database_url="postgresql+asyncpg://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_cadsr_cdes", download)
+    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
+    monkeypatch.setattr("scripts.data_build.build_database", build)
+    monkeypatch.setattr("scripts.data_build.make_engine", lambda _url: object())
+    monkeypatch.setattr(
+        "scripts.data_build.make_sessionmaker", lambda _engine: object()
+    )
+
+    async def dispose(_engine):  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr("scripts.data_build.dispose_engine", dispose)
+    _build_cadsr()
+
+    assert destination.read_text() == "candidate"
+    assert events == ["enter", "exit"]

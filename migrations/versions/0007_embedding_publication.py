@@ -30,11 +30,13 @@ def upgrade() -> None:
         """
         CREATE FUNCTION reject_embedding_provenance_update() RETURNS trigger
         LANGUAGE plpgsql AS $$ BEGIN
-            IF (NEW.corpus, NEW.source_version, NEW.source_hash, NEW.model_id,
+            IF (NEW.build_id, NEW.corpus, NEW.source_version, NEW.source_hash,
+                NEW.model_id,
                 NEW.model_revision, NEW.vector_dimension, NEW.expected_row_count,
                 NEW.code_commit, NEW.required_doc_ids)
                IS DISTINCT FROM
-               (OLD.corpus, OLD.source_version, OLD.source_hash, OLD.model_id,
+               (OLD.build_id, OLD.corpus, OLD.source_version, OLD.source_hash,
+                OLD.model_id,
                 OLD.model_revision, OLD.vector_dimension, OLD.expected_row_count,
                 OLD.code_commit, OLD.required_doc_ids) THEN
                 RAISE EXCEPTION 'embedding build provenance is immutable';

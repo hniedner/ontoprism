@@ -245,6 +245,40 @@ def test_reload_cleanup_failure_reports_source_changed(
     assert loaded
 
 
+@pytest.mark.api
+def test_reload_post_load_verification_failure_reports_source_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
+    ttl = tmp_path / "graph.ttl"
+    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
+
+    class _Client(_OkClient):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def count(self) -> int:
+            self.calls += 1
+            if self.calls > 1:
+                raise StorageError("verification failed")
+            return 42
+
+    class _Embeddings:
+        @asynccontextmanager
+        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
+            yield
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _Client
+    app.dependency_overrides[get_embedding_store] = _Embeddings
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
+        )
+    assert response.status_code == 502
+    assert "source changed" in response.json()["detail"]
+
+
 class _FakeNcitStore:
     def __init__(self) -> None:
         self._call_count = 0
