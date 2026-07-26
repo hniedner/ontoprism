@@ -105,6 +105,60 @@ def test_standard_prologues_are_supported(
     assert fake.queries == [query]
 
 
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT * WHERE { SERVICE <http://example.org/sparql> { ?s ?p ?o } }",
+        "SELECT * WHERE { SERVICE SILENT <http://example.org/sparql> { ?s ?p ?o } }",
+        (
+            "SELECT * WHERE { VALUES ?endpoint { <http://example.org/sparql> } "
+            "SERVICE ?endpoint { ?s ?p ?o } }"
+        ),
+        (
+            "SELECT * WHERE { OPTIONAL { SERVICE <http://example.org/sparql> "
+            "{ ?s ?p ?o } } }"
+        ),
+        (
+            "SELECT * WHERE { { SELECT * WHERE { "
+            "SERVICE <http://example.org/sparql> { ?s ?p ?o } } } }"
+        ),
+    ],
+)
+def test_federated_service_patterns_are_rejected_before_query(query: str) -> None:
+    fake = _FakeClient()
+    client = next(_client(fake))
+
+    resp = client.post("/api/v1/sparql", json={"query": query})
+
+    assert resp.status_code == 400
+    assert "service" in resp.json()["detail"].lower()
+    assert fake.queries == []
+
+
+@pytest.mark.security
+def test_service_text_outside_graph_pattern_is_allowed() -> None:
+    query = (
+        'SELECT ("SERVICE <http://example.org/sparql>" AS ?label) WHERE {} '
+        "# SERVICE <http://example.org/sparql>"
+    )
+    result = {
+        "head": {"vars": ["label"]},
+        "results": {
+            "bindings": [
+                {"label": {"type": "literal", "value": "SERVICE"}},
+            ]
+        },
+    }
+    fake = _FakeClient(result=result)
+    client = next(_client(fake))
+
+    resp = client.post("/api/v1/sparql", json={"query": query})
+
+    assert resp.status_code == 200
+    assert fake.queries == [query]
+
+
 @pytest.mark.api
 def test_result_is_capped_and_flagged_truncated(
     monkeypatch: pytest.MonkeyPatch,
