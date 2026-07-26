@@ -249,8 +249,8 @@ curation rate before committing to the full pass.
 
 Proceed, scoped to the disease/neoplasm(/regimen) branch, in three phases: **(P1)** stated-OWL
 ingest + filler-selection spike on ~200 concepts; **(P2)** backward-compatible linker producing the
-legacy-flag + `:hasConstituent` graph for the full branch; **(P3)** NLP-fallback tail, optional
-equivalentClass post-coordination, and governance. The feasibility question is settled favourably by
+legacy-flag + `:hasConstituent` graph for the full branch; **(P3)** NLP-fallback tail and governance.
+Exact-equivalence work is separately quarantined behind #153's proof-bearing representation. The feasibility question is settled favourably by
 the data: the constituents are already in NCIt (100% for roles), and the representation can be made
 backward-compatible without deleting or altering a single existing concept.
 

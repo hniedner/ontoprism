@@ -785,11 +785,10 @@ which defined-class-to-defined-class subsumption can be read off `rdfs:subClassO
 
 **Decision:**
 1. **Accept the fail-safe direction.** Where a genuine subsumption is not materialized, a
-   nested pair is misread as co-equal and therefore **preserved** as separate
-   relationship-group members (D19), never collapsed. Nothing is dropped from the lossless
-   record of truth; the cost falls entirely on the *curated projection*, which over-reports.
-   This is the right way for the error to fall, and it is why residual ties persist after
-   D20 rather than being a bug to engineer away.
+   nested pair is misread as co-equal rather than collapsed. The current curated projection
+   may therefore over-report. D19 requires #153's future complete record to preserve these
+   uncertain pairs as separate relationship-group members so nothing is dropped. This is
+   why residual ties persist after D20 rather than being a bug to engineer away.
 2. **Precision against a single-valued oracle is capped by this**, not by the boundary
    heuristic. #44's ≥0.9 gate must be measured with `needs_review` excluded (now supported
    by `score.py`) and against a golden set encoding D19/D20's multi-valued axes — otherwise
@@ -898,10 +897,10 @@ Gland` are typed "…Organ…"), which is precisely why refinement (1) must run 
 carve off the lineage sense before (2) is applied. The two refinements are complementary,
 not competing: (1) is genus-anchored and removes lineage artifacts; (2) is filler-anchored
 and orders what remains. Both are additive (new `op:` axes / metadata, never rewriting
-`R101` triples), consistent with D17's additive principle and D19's groups model. Under
-D19, neither is a "pick one" any longer — each tie becomes distinct grouped facts, so the
-curated projection can still surface a single primary site while the record-of-truth layer
-keeps every asserted site relationship. Validate via the same golden-set precision/recall
+`R101` triples), consistent with D17's additive principle and D19's groups model. The
+curated projection can surface a single primary site and serialize supplied groups, but it
+is not the complete record. Issue #153 must preserve every asserted site relationship in
+the future record-of-truth layer. Validate via the same golden-set precision/recall
 methodology as D14/D15/D17. Full evidence: `docs/design/ncit-decomposition-engine.md`
 §6.4/§6.6.
 

@@ -8,8 +8,8 @@
 Wires the pure orchestrator (`ontolib.decomposition.run.run_pipeline`) to the real
 Oxigraph client, the Postgres provenance store, and `NcitGraphStore` for the concept
 labels the NLP fallback needs. See ``run.py``'s module docstring for the documented
-scope boundaries (flat-restriction extraction only, no morphology-from-parent yet,
-best-effort resume).
+scope boundaries (genus-DAG role extraction, morphology-from-parent, best-effort
+resume).
 """
 
 from __future__ import annotations

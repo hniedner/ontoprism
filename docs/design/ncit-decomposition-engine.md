@@ -23,7 +23,7 @@ Mapped to the issue's checklist:
 | Additive & non-destructive: retain original, flag `legacy-precoordinated`, write to separate named graph, never mutate source | §4 data model, §8 legacy writer, §9 additivity guarantee |
 | Preserve caDSR CDE→concept reachability | §4.3 — legacy code stays resolvable, constituents are existing IRIs |
 | Surface decomposition in explorer (legacy + parts + reconstruction) | Read API/UI is **#9**; engine emits the graph #9 renders (§4) |
-| Quality/coverage metrics (% decomposed, residual, round-trip fidelity) | §10 metrics + run manifest |
+| Quality/coverage metrics (% decomposed, residual pre-coordination, minted count; unavailable fidelity) | §10 metrics + run manifest |
 
 **Done when:** the engine produces `ncit_decomposed.ttl` + a `decomp_run` manifest for the neoplasm branch; unit + golden tests green; constituent-existence ≈100% on the roles path; the minted-concept list is bounded and explicit; an OWL-diff test proves the source graph is byte-for-byte unchanged.
 
@@ -509,10 +509,10 @@ is. The resolution:
 
 Order matters because semantic type *fails* on the lineage case (both `Lung` and `Endocrine
 Gland` type as "…Organ…") — which is exactly why (1) must carve off the lineage sense before
-(2) is applied. Under the D19 relationship-groups model neither refinement forces a single
-value: each tie becomes distinct grouped facts, so both the literal site and the associated
-region/lineage are preserved (round-trippable), while the curated projection still reports
-one primary site. Both are additive (new `op:` axes, never rewriting `R101` triples).
+(2) is applied. The current curated projection can report one primary site and serialize
+supplied groups, but it is not round-trippable. The future D19/#153 representation must
+preserve every literal site and associated region/lineage as distinct grouped facts. Both
+refinements are additive (new `op:` axes, never rewriting `R101` triples).
 Validate via the D14/D15/D17 golden-set methodology.
 
 Full narrative and the confirmed-shared-ancestor evidence: this §6 and DECISIONS D17.
@@ -558,17 +558,17 @@ before configuration loads or clients are constructed.
 
 ---
 
-## 10. Quality / coverage metrics (`CoverageReport`, stored in `decomp_run.metrics`)
+## 10. Quality / coverage metrics
 
-| Metric | Definition |
-|---|---|
-| `pct_decomposed` | in-scope candidates decomposed / total in-scope |
-| `constituent_existence_rate` | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
-| `residual_precoordination` | candidates left with an unresolved multi-aspect label after roles+NLP |
-| `minted_count` | size of the mint tail (governance signal — should stay low hundreds) |
-| `roundtrip_fidelity` | unavailable (`null`) for new curated-projection runs. Historical numeric values remain readable. #153 may measure this only from a complete proof-bearing representation, never from the curated projection. |
-| `projection_lossiness` | future #153 metric: count of concepts where the curated single-valued/allowlist projection (§6) drops a non-nested co-equal value retained by the complete representation (D19) |
-| `needs_review_count` | ambiguous anatomy / multi-filler axes flagged for curation |
+| Metric | Status | Definition |
+|---|---|---|
+| `pct_decomposed` | stored in `decomp_run.metrics` | concepts decomposed / total in-scope concepts |
+| `residual_precoordination` | stored in `decomp_run.metrics` | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37) |
+| `minted_count` | stored in `decomp_run.metrics` | size of the mint tail (governance signal — should stay low hundreds) |
+| `roundtrip_fidelity` | unavailable (`null`) for new runs | #153 may measure this only from a complete proof-bearing representation, never from the curated projection; historical numeric values remain readable |
+| `constituent_existence_rate` | future | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
+| `projection_lossiness` | future #153 | concepts where the curated projection drops a non-nested co-equal value retained by the complete representation (D19) |
+| `needs_review_count` | future | ambiguous anatomy / multi-filler axes flagged for curation |
 
 The inferred default graph may validate constituent existence even though extraction never reads from it. No current round-trip closure or projection-loss metric is claimed or measured. Future fidelity and `projection_lossiness` are properties of the **complete** representation (D19/#153); the curated single-valued projection is not expected to round-trip.
 
