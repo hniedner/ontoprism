@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from ontolib.decomposition.models import RoleRestriction
@@ -24,7 +24,7 @@ from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
 from ontolib.terminologies.oxigraph_http_client import safe_iri
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable
+    from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
 
 _PREFIXES = f"""
         PREFIX rdfs: <{RDFS_NS}>
@@ -37,9 +37,23 @@ _PREFIXES = f"""
 # queries that the engine may plan poorly on a large stated graph.
 _MAX_INTERSECTION_HOPS = 6
 
+# The 16 x 16 request was measured against a disposable clone of the full store:
+# 43 KB, 3.3 ms, with both endpoints bound before traversal in Oxigraph's plan.
+_PART_OF_QUERY_CODE_LIMIT = 16
+_NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
+
 # A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
 # apply): reject anything that could close the literal or inject a graph pattern.
 _SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
+
+
+class SelectRows(Protocol):
+    def __call__(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
 
 
 def _safe_literal(value: str) -> str:
@@ -138,37 +152,75 @@ def build_semantic_type_of_query(codes: list[str]) -> str:
     """
 
 
-def build_part_of_pairs_query(codes: list[str]) -> str:
-    """Transitive R82 ``Part_Of`` restriction pairs *within* a code set.
+def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
+    unique_codes = set(codes)
+    iris_by_code = {code: safe_iri(code, NCIT_NS) for code in unique_codes}
+    invalid_codes = sorted(
+        code for code in unique_codes if _NCIT_CONCEPT_CODE.fullmatch(code) is None
+    )
+    if invalid_codes:
+        raise ValueError(
+            f"R82 endpoint is not an NCIt concept code: {invalid_codes[0]!r}"
+        )
+    iris = tuple(sorted(iris_by_code.values()))
+    if len(iris) > _PART_OF_QUERY_CODE_LIMIT:
+        raise ValueError(
+            "R82 query accepts at most 16 codes per endpoint (256 combinations)"
+        )
+    return iris
 
-    For each *code* in *codes*, follows ``rdfs:subClassOf+`` to the nearest
-    ancestor that carries an ``R82`` part-of restriction, then returns the
-    ``(whole, part)`` pair. Both endpoints are restricted to *codes* so the
-    result is only intra-set relationships.
+
+def build_part_of_pairs_query(
+    *, part_codes: Iterable[str], whole_codes: Iterable[str]
+) -> str:
+    """Build one bounded R82 restriction query for two endpoint tiles.
+
+    Every requested part-whole combination is emitted as an IRI tuple so Oxigraph
+    binds both endpoints before traversing the part's stated superclass path. A
+    request is limited to 16 codes per endpoint (256 combinations); callers handling
+    larger sets must tile both dimensions with :func:`build_part_of_pairs_queries`.
+    This finds one R82 edge inherited through ``rdfs:subClassOf*``; it does not compute
+    an R82-to-R82 transitive closure.
 
     Raises:
-        ValueError: if any code is not injection-safe.
+        ValueError: if any code is unsafe or either endpoint exceeds the measured cap.
     """
-    if not codes:
-        return f"{_PREFIXES}SELECT ?whole ?part WHERE {{ BIND(false AS ?ok) }}"
-    iris = " ".join(f"<{safe_iri(code, NCIT_NS)}>" for code in codes)
+    part_iris = _part_of_endpoint_iris(part_codes)
+    whole_iris = _part_of_endpoint_iris(whole_codes)
+    if not part_iris or not whole_iris:
+        return f"{_PREFIXES}SELECT ?part ?whole WHERE {{ FILTER(false) }}"
+    pairs = " ".join(
+        f"(<{part}> <{whole}>)" for part in part_iris for whole in whole_iris
+    )
     return f"""{_PREFIXES}
-        SELECT DISTINCT ?whole ?part WHERE {{
+        SELECT DISTINCT ?part ?whole WHERE {{
+            VALUES (?part ?whole) {{ {pairs} }}
             GRAPH <{STATED_GRAPH_IRI}> {{
-                VALUES ?descendant {{ {iris} }}
-                ?descendant rdfs:subClassOf* ?ancestor .
+                ?part rdfs:subClassOf* ?ancestor .
                 ?ancestor rdfs:subClassOf ?restriction .
                 ?restriction a owl:Restriction ;
                     owl:onProperty <{NCIT_NS}R82> ;
-                    owl:someValuesFrom ?part .
-                FILTER(STRSTARTS(STR(?part), "{NCIT_NS}"))
-                BIND(REPLACE(STR(?part), ".*#", "") AS ?part_code)
+                    owl:someValuesFrom ?whole .
             }}
-            VALUES ?part_code {{ {iris} }}
-            VALUES ?descendant {{ {iris} }}
-            BIND(REPLACE(STR(?descendant), ".*#", "") AS ?whole)
         }}
     """
+
+
+def build_part_of_pairs_queries(codes: Iterable[str]) -> list[str]:
+    """Tile every part-whole combination in *codes* into bounded R82 queries."""
+    code_list = sorted(set(codes))
+    chunks = [
+        code_list[start : start + _PART_OF_QUERY_CODE_LIMIT]
+        for start in range(0, len(code_list), _PART_OF_QUERY_CODE_LIMIT)
+    ]
+    return [
+        build_part_of_pairs_query(
+            part_codes=part_chunk,
+            whole_codes=whole_chunk,
+        )
+        for part_chunk in chunks
+        for whole_chunk in chunks
+    ]
 
 
 def build_morphology_query(concept_code: str) -> str:
@@ -325,9 +377,9 @@ _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
 
 
 def _flatten_hop_results(
-    results: Iterable[list[dict[str, str | None]]],
-) -> list[dict[str, str | None]]:
-    flat: list[dict[str, str | None]] = []
+    results: Iterable[Sequence[Mapping[str, str | None]]],
+) -> list[Mapping[str, str | None]]:
+    flat: list[Mapping[str, str | None]] = []
     for rows in results:
         if not rows:
             break
@@ -353,7 +405,7 @@ def _collect_new_roles(
 
 
 async def _process_walk_node(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: SelectRows,
     current: str,
     depth: int,
     seen_pairs: set[tuple[str, str]],
@@ -363,7 +415,8 @@ async def _process_walk_node(
 ) -> None:
     queries = build_genus_walk_members_query(current)
     results = await asyncio.gather(
-        *(select_fn(q) for q in queries), return_exceptions=False
+        *(select_fn(q, required_variables={"member"}) for q in queries),
+        return_exceptions=False,
     )
     member_rows = _flatten_hop_results(results)
     if not member_rows:
@@ -379,7 +432,7 @@ async def _process_walk_node(
 
 
 async def resolve_starting_genus(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
 ) -> str | None:
     """Resolve the immediate genus (first ``owl:intersectionOf`` member) of
@@ -388,15 +441,14 @@ async def resolve_starting_genus(
     queries = build_genus_walk_members_query(code)
     if not queries:
         return None
-    rows = await select_fn(queries[0])  # hop-0 only
+    rows = await select_fn(queries[0], required_variables={"member"})  # hop-0 only
+    genuses: list[str] = []
     for row in rows:
-        if row.get("type") != OWL_NS + "Restriction":
-            genus_iri = row.get("member")
-            if genus_iri and genus_iri.startswith(NCIT_NS):
-                return genus_iri.removeprefix(NCIT_NS)
-            if genus_iri:
-                return genus_iri
-    return None
+        genus_iri = _required_row_binding(row, "member")
+        if row.get("type") == OWL_NS + "Restriction":
+            continue
+        genuses.append(_genus_code_from_iri(genus_iri))
+    return genuses[0] if genuses else None
 
 
 _STAGING_LABEL_MARKERS = frozenset(
@@ -422,8 +474,24 @@ def _is_staging_concept_label(label: str) -> bool:
     return any(m.lower() in label_lower for m in _STAGING_LABEL_MARKERS)
 
 
+def _required_row_binding(row: Mapping[str, str | None], binding: str) -> str:
+    value = row.get(binding)
+    if not value:
+        raise ValueError(f"query result row is missing required {binding} binding")
+    return value
+
+
+def _genus_code_from_iri(genus_iri: str) -> str:
+    if not genus_iri.startswith(NCIT_NS):
+        raise ValueError("genus member is not an NCIt IRI")
+    code = genus_iri.removeprefix(NCIT_NS)
+    if _NCIT_CONCEPT_CODE.fullmatch(code) is None:
+        raise ValueError(f"genus member is not an NCIt concept code: {code!r}")
+    return code
+
+
 async def _fetch_genus_label(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: SelectRows,
     genus_iri: str,
 ) -> str | None:
     """Fetch the label for a genus concept from the stated graph."""
@@ -434,14 +502,15 @@ async def _fetch_genus_label(
             }}
         }}
     """
-    rows = await select_fn(label_query)
+    rows = await select_fn(label_query, required_variables={"label"})
     if not rows:
         return None
-    return rows[0].get("label")
+    labels = [_required_row_binding(row, "label") for row in rows]
+    return labels[0]
 
 
 async def _get_genus_from_intersection(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
 ) -> str | None:
     """Get the genus code from the first owl:intersectionOf member."""
@@ -449,20 +518,23 @@ async def _get_genus_from_intersection(
     if not queries:
         return None
 
-    rows = await select_fn(queries[0])  # hop-0: first intersection member
+    rows = await select_fn(
+        queries[0], required_variables={"member"}
+    )  # hop-0: first intersection member
     if not rows:
         return None
 
+    genuses: list[str] = []
     for row in rows:
-        if row.get("type") != OWL_NS + "Restriction":
-            genus_iri = row.get("member")
-            if genus_iri and genus_iri.startswith(NCIT_NS):
-                return genus_iri.removeprefix(NCIT_NS)
-    return None
+        genus_iri = _required_row_binding(row, "member")
+        if row.get("type") == OWL_NS + "Restriction":
+            continue
+        genuses.append(_genus_code_from_iri(genus_iri))
+    return genuses[0] if genuses else None
 
 
 async def resolve_morphology_filler(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
     *,
     max_depth: int = 5,
@@ -499,7 +571,7 @@ async def resolve_morphology_filler(
 
 
 async def walk_genus_chain(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
     *,
     max_depth: int = 5,

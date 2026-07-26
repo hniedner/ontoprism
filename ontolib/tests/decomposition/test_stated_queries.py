@@ -1,5 +1,7 @@
 """Unit tests for the stated-graph SPARQL builders (string shape + injection guard)."""
 
+from collections.abc import Collection
+
 import pytest
 
 from ontolib.decomposition.stated_queries import (
@@ -9,6 +11,7 @@ from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
     build_morphology_query,
+    build_part_of_pairs_queries,
     build_part_of_pairs_query,
     build_role_restrictions_query,
     build_semantic_type_of_query,
@@ -178,32 +181,62 @@ def test_semantic_type_of_query_empty_list_returns_valid_query() -> None:
 
 
 @pytest.mark.unit
-def test_part_of_pairs_query_shape() -> None:
-    q = build_part_of_pairs_query(["C6135", "C27970"])
-    assert "R82" in q
-    assert "rdfs:subClassOf*" in q
-    assert "?whole" in q
-    assert "?part" in q
-    assert "Thesaurus.owl#C6135" in q
-    assert "Thesaurus.owl#C27970" in q
+def test_part_of_pairs_queries_tile_both_dimensions() -> None:
+    assert len(build_part_of_pairs_queries(f"C{i}" for i in range(17))) == 4
 
 
 @pytest.mark.unit
-def test_part_of_pairs_query_empty_list_returns_valid_query() -> None:
-    q = build_part_of_pairs_query([])
-    assert "BIND" in q
-
-
-@pytest.mark.unit
-def test_part_of_pairs_query_rejects_unsafe_code() -> None:
+@pytest.mark.parametrize("unsafe_endpoint", ["part", "whole"])
+def test_part_of_pairs_query_rejects_unsafe_code(unsafe_endpoint: str) -> None:
+    part_codes = ["C1\n"] if unsafe_endpoint == "part" else ["C1"]
+    whole_codes = ["C1\n"] if unsafe_endpoint == "whole" else ["C1"]
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
-        build_part_of_pairs_query(["bad code"])
+        build_part_of_pairs_query(
+            part_codes=part_codes,
+            whole_codes=whole_codes,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("invalid_code", ["R82", "Cfoo", "C123x"])
+@pytest.mark.parametrize("invalid_endpoint", ["part", "whole"])
+def test_part_of_pairs_query_rejects_non_ncit_concept_code(
+    invalid_code: str,
+    invalid_endpoint: str,
+) -> None:
+    part_codes = [invalid_code] if invalid_endpoint == "part" else ["C1"]
+    whole_codes = [invalid_code] if invalid_endpoint == "whole" else ["C1"]
+    with pytest.raises(ValueError, match="NCIt concept code"):
+        build_part_of_pairs_query(part_codes=part_codes, whole_codes=whole_codes)
+
+
+@pytest.mark.unit
+def test_part_of_pairs_query_requires_directional_keywords() -> None:
+    with pytest.raises(TypeError):
+        build_part_of_pairs_query(["C1"], ["C2"])  # type: ignore[misc]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("oversized_endpoint", ["part", "whole"])
+def test_part_of_pairs_query_rejects_more_than_measured_tile_limit(
+    oversized_endpoint: str,
+) -> None:
+    codes = [f"C{i}" for i in range(17)]
+    part_codes = codes if oversized_endpoint == "part" else ["C100"]
+    whole_codes = codes if oversized_endpoint == "whole" else ["C100"]
+    with pytest.raises(ValueError, match="at most 16 codes per endpoint"):
+        build_part_of_pairs_query(part_codes=part_codes, whole_codes=whole_codes)
 
 
 @pytest.mark.unit
 async def test_resolve_starting_genus_returns_genus_from_hop_0() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
         assert "C6135" in query
+        assert set(required_variables) == {"member"}
         return [
             {"member": _iri("C141041"), "type": None},
             {
@@ -220,7 +253,12 @@ async def test_resolve_starting_genus_returns_genus_from_hop_0() -> None:
 
 @pytest.mark.unit
 async def test_resolve_starting_genus_returns_none_when_no_rows() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
         return []
 
     genus = await resolve_starting_genus(fake_select, "C6135")
@@ -228,8 +266,27 @@ async def test_resolve_starting_genus_returns_none_when_no_rows() -> None:
 
 
 @pytest.mark.unit
+async def test_resolve_starting_genus_rejects_missing_member_binding() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [{"member": _iri("C3879"), "type": None}, {}]
+
+    with pytest.raises(ValueError, match="member"):
+        await resolve_starting_genus(fake_select, "C6135")
+
+
+@pytest.mark.unit
 async def test_resolve_starting_genus_returns_none_when_all_are_restrictions() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
         return [
             {
                 "member": _iri("C141041"),
@@ -244,15 +301,31 @@ async def test_resolve_starting_genus_returns_none_when_all_are_restrictions() -
 
 
 @pytest.mark.unit
-async def test_resolve_starting_genus_handles_non_ncit_iri() -> None:
-    """Fallback path: genus IRI that does not start with NCIT_NS is returned
-    as-is (defensive — all NCIt genuses are in NCIT_NS)."""
-
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+async def test_resolve_starting_genus_rejects_non_ncit_iri() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
         return [{"member": "http://example.org/foo#C1", "type": None}]
 
-    genus = await resolve_starting_genus(fake_select, "C6135")
-    assert genus == "http://example.org/foo#C1"
+    with pytest.raises(ValueError, match="not an NCIt IRI"):
+        await resolve_starting_genus(fake_select, "C6135")
+
+
+@pytest.mark.unit
+async def test_resolve_starting_genus_rejects_invalid_ncit_concept_code() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [{"member": _iri("R82"), "type": None}]
+
+    with pytest.raises(ValueError, match="not an NCIt concept code"):
+        await resolve_starting_genus(fake_select, "C6135")
 
 
 @pytest.mark.unit
@@ -279,9 +352,15 @@ def test_build_morphology_query_rejects_unsafe_code() -> None:
 async def test_resolve_morphology_filler_returns_first_non_staging_genus() -> None:
     call_count = 0
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
         nonlocal call_count
         call_count += 1
+        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
+        assert set(required_variables) == expected_variables
         if call_count == 1:
             return [{"member": _iri("C141041"), "type": None}]
         if call_count == 2:
@@ -298,7 +377,13 @@ async def test_resolve_morphology_filler_returns_first_non_staging_genus() -> No
 
 @pytest.mark.unit
 async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query
+        assert set(required_variables) == {"member"}
         return []
 
     morphology = await resolve_morphology_filler(fake_select, "C6135")
@@ -306,12 +391,57 @@ async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("missing_binding", ["member", "label"])
+async def test_resolve_morphology_filler_rejects_missing_required_binding(
+    missing_binding: str,
+) -> None:
+    call_count = 0
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        nonlocal call_count
+        del query, required_variables
+        call_count += 1
+        if missing_binding == "member":
+            return [{"member": _iri("C3879"), "type": None}, {}]
+        if call_count == 2:
+            return [{}]
+        return [{"member": _iri("C3879"), "type": None}]
+
+    with pytest.raises(ValueError, match=missing_binding):
+        await resolve_morphology_filler(fake_select, "C6135")
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_rejects_non_ncit_genus() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [{"member": "http://example.org/genus", "type": None}]
+
+    with pytest.raises(ValueError, match="not an NCIt IRI"):
+        await resolve_morphology_filler(fake_select, "C6135")
+
+
+@pytest.mark.unit
 async def test_resolve_morphology_filler_returns_first_genus_if_not_staging() -> None:
     call_count = 0
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
         nonlocal call_count
         call_count += 1
+        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
+        assert set(required_variables) == expected_variables
         # Call 1: build_genus_walk_members_query(C6135) then select_fn(queries[0])
         # Call 2: select_fn(label_query) for C3879
         if call_count == 1:
@@ -368,7 +498,12 @@ async def test_walk_genus_chain_populates_anchoring_genus() -> None:
         "roleLabel": "Disease_Has_Primary_Anatomic_Site",
     }
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
         # C6135 (start, depth 0) has the lineage-generic genus C3809 as a member.
         if "#C6135>" in query:
             return [{"member": _iri("C3809"), "type": None}]
@@ -398,7 +533,12 @@ async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> N
         "roleLabel": "Disease_Is_Stage",
     }
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
         if "#C6135>" in query:
             return [restriction_row]
         return []

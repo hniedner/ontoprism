@@ -13,6 +13,8 @@ import json
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
@@ -50,7 +52,7 @@ def _escape_literal(text: str) -> str:
 
 
 def _canonical_embedding_records(
-    rows: list[dict[str, str | None]],
+    rows: Iterable[Mapping[str, str | None]],
 ) -> list[NcitEmbeddingRecord]:
     grouped: dict[str, dict[str, set[str]]] = {}
     for row in rows:
@@ -92,7 +94,7 @@ def _embedding_cursor_filter(after: str | None, namespace: str) -> str:
     return f"FILTER(STR(?concept) > {json.dumps(after)})"
 
 
-def _concept_iris(rows: list[dict[str, str | None]]) -> list[str]:
+def _concept_iris(rows: Iterable[Mapping[str, str | None]]) -> list[str]:
     return [concept for row in rows if (concept := row.get("concept")) is not None]
 
 
@@ -229,7 +231,7 @@ class NcitGraphStore:
         return [rel for rel in rels if rel is not None]
 
     def _as_relationships(
-        self, rows: list[dict[str, str | None]]
+        self, rows: Iterable[Mapping[str, str | None]]
     ) -> list[Relationship]:
         rels = (
             _rel(r.get("rel"), r.get("rellabel"), r.get("target"), r.get("tlabel"))

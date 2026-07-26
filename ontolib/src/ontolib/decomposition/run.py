@@ -57,7 +57,7 @@ from ontolib.decomposition.models import Decomposition
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Collection, Mapping, Sequence
     from pathlib import Path
 
     from ontolib.decomposition.constituent_index import LabelLookup
@@ -79,7 +79,12 @@ class SparqlClient(Protocol):
     ``OxigraphHttpClient`` satisfies this; tests supply a lightweight fake.
     """
 
-    async def select(self, query: str) -> list[dict[str, str | None]]: ...
+    async def select(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Sequence[Mapping[str, str | None]]: ...
 
     async def version(self) -> str | None: ...
 
@@ -268,7 +273,8 @@ async def enumerate_in_scope_codes(
         rows = await client.select(
             stated_queries.build_in_scope_concepts_query(
                 scope, limit=page_size, offset=offset
-            )
+            ),
+            required_variables={"concept"},
         )
         page = extract.concepts_from_rows(rows)
         codes.extend(page)
@@ -293,7 +299,10 @@ async def _detect_concept(
     constituent is judged by the *same* detector as the concept it came from.
     """
     semantic_types = extract.semantic_types_from_rows(
-        await client.select(stated_queries.build_semantic_type_query(code))
+        await client.select(
+            stated_queries.build_semantic_type_query(code),
+            required_variables={"semanticType"},
+        )
     )
     roles = await stated_queries.walk_genus_chain(
         client.select, code, max_depth=walker_max_depth
@@ -342,25 +351,31 @@ async def _decompose_one(
     semantic_type_of: dict[str, list[str]] = {}
     if filler_codes:
         rows = await client.select(
-            stated_queries.build_semantic_type_of_query(list(filler_codes))
+            stated_queries.build_semantic_type_of_query(list(filler_codes)),
+            required_variables={"code", "st"},
         )
         semantic_type_of = extract.semantic_type_of_from_rows(rows)
 
     if not result.is_precoordinated:
         return _CandidateResult(decomposition=None, stated_roles=[])
 
-    ancestor_pairs: set[tuple[str, str]] = set()
-    if filler_codes:  # skip the round trip when there is nothing to look up
-        ancestor_pairs = extract.ancestor_pairs_from_rows(
-            await client.select(stated_queries.build_ancestor_pairs_query(filler_codes))
+    ancestor_pairs = extract.ancestor_pairs_from_rows(
+        await client.select(
+            stated_queries.build_ancestor_pairs_query(filler_codes),
+            required_variables={"ancestor", "descendant"},
         )
-        # Merge part-of relationships: if filler A is part-of filler B, B is
-        # the "ancestor" of A for most-specific selection (D16).
-        part_of_rows = await client.select(
-            stated_queries.build_part_of_pairs_query(list(filler_codes))
+    )
+    # If filler A is part of filler B, B is the ancestor for selection (D16).
+    part_of_rows: list[Mapping[str, str | None]] = []
+    for query in stated_queries.build_part_of_pairs_queries(filler_codes):
+        part_of_rows.extend(
+            await client.select(query, required_variables={"part", "whole"})
         )
-        part_of_pairs = extract.part_of_pairs_from_rows(part_of_rows)
-        ancestor_pairs.update((part, whole) for (whole, part) in part_of_pairs)
+    part_of_pairs = extract.part_of_pairs_from_rows(part_of_rows)
+    ancestor_pairs.update(
+        extract.AncestorPair(ancestor=pair.whole, descendant=pair.part)
+        for pair in part_of_pairs
+    )
 
     # Wrap semantic_type_of dict into a callable (prefer the first type if
     # multiple; NCIt rarely assigns more than one).

@@ -24,6 +24,7 @@ from ontolib.decomposition.run import (
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
     from pathlib import Path
 
 
@@ -94,6 +95,8 @@ class _FakeClient:
         self._semantic_type_of_rows = semantic_type_of_rows or []
         self._part_of_rows = part_of_rows or []
         self.queries: list[str] = []
+        self.required_variables: list[frozenset[str]] = []
+        self.query_requirements: list[tuple[str, frozenset[str]]] = []
 
     async def version(self) -> str | None:
         return self._version
@@ -107,8 +110,14 @@ class _FakeClient:
         return None
 
     async def select(  # noqa: PLR0911 — test helper, many query-type branches
-        self, query: str
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
+        required = frozenset(required_variables)
+        self.required_variables.append(required)
+        self.query_requirements.append((query, required))
         self.queries.append(query)
         if "ORDER BY ?concept" in query:
             offset = int(query.split("OFFSET")[1].split(maxsplit=1)[0])
@@ -166,6 +175,16 @@ async def test_enumerate_in_scope_codes_follows_full_pages() -> None:
     )
     assert len(codes) == 501
     assert codes[-1] == "C500"
+
+
+@pytest.mark.unit
+async def test_enumerate_in_scope_codes_aborts_on_missing_concept_binding() -> None:
+    client = MagicMock()
+    client.select = AsyncMock(return_value=[{}])
+
+    with pytest.raises(ValueError, match="concept"):
+        await enumerate_in_scope_codes(client, ["Neoplastic Process"], page_size=500)
+    assert client.select.await_args.kwargs["required_variables"] == {"concept"}
 
 
 @pytest.mark.unit
@@ -316,10 +335,15 @@ async def test_run_pipeline_raises_if_finish_run_finds_no_manifest_row() -> None
 @pytest.mark.unit
 async def test_run_pipeline_propagates_per_concept_failures() -> None:
     class _FailingClient(_FakeClient):
-        async def select(self, query: str) -> list[dict[str, str | None]]:
+        async def select(
+            self,
+            query: str,
+            *,
+            required_variables: Collection[str] = (),
+        ) -> list[dict[str, str | None]]:
             if "P106" in query and "ORDER BY" not in query:
                 raise RuntimeError("simulated SPARQL failure")
-            return await super().select(query)
+            return await super().select(query, required_variables=required_variables)
 
     client = _FailingClient(pages=[["C1"]])
     provenance = _mock_provenance()
@@ -356,8 +380,7 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
 
 @pytest.mark.unit
 async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
-    """R101 filler C13063 is part-of C12400 (container), so C12400 should be
-    collapsed as the broader concept, leaving only C13063 (the part)."""
+    """Thyroid gland C12400 is part of neck C13063, so the broader neck is removed."""
     client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
@@ -369,7 +392,7 @@ async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
             ]
         },
         part_of_rows=[
-            {"whole": _iri("C13063"), "part": _iri("C12400")},
+            {"part": _iri("C12400"), "whole": _iri("C13063")},
         ],
     )
     provenance = _mock_provenance()
@@ -377,7 +400,67 @@ async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
     assert metrics.decomposed == 1
     constituents = provenance.upsert_constituents.call_args.args[2]
     site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
-    assert site_fillers == {"C13063"}  # C12400 collapsed as broader container
+    assert site_fillers == {"C12400"}
+
+
+@pytest.mark.unit
+async def test_run_pipeline_aggregates_part_of_pairs_across_all_tiles() -> None:
+    class _TiledPartOfClient(_FakeClient):
+        async def select(
+            self,
+            query: str,
+            *,
+            required_variables: Collection[str] = (),
+        ) -> list[dict[str, str | None]]:
+            if "R82>" in query:
+                self.queries.append(query)
+                required = frozenset(required_variables)
+                self.required_variables.append(required)
+                self.query_requirements.append((query, required))
+                pair = f"(<{_iri('C10000')}> <{_iri('C99999')}>)"
+                return (
+                    [{"part": _iri("C10000"), "whole": _iri("C99999")}]
+                    if pair in query
+                    else []
+                )
+            return await super().select(query, required_variables=required_variables)
+
+    site_codes = ["C10000", *(f"C200{i:02d}" for i in range(15)), "C99999"]
+    client = _TiledPartOfClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                *(_role("R101", "Has_Primary_Site", code) for code in site_codes),
+                _role("R88", "Has_Stage", "C27970"),
+            ]
+        },
+    )
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    assert metrics.decomposed == 1
+
+    def requirements_for(query_fragment: str) -> set[frozenset[str]]:
+        return {
+            required
+            for query, required in client.query_requirements
+            if query_fragment in query
+        }
+
+    assert requirements_for("ORDER BY ?concept") == {frozenset({"concept"})}
+    assert requirements_for("SELECT ?semanticType") == {frozenset({"semanticType"})}
+    assert requirements_for("BIND(REPLACE(STR(?concept)") == {frozenset({"code", "st"})}
+    assert requirements_for("rdfs:subClassOf+") == {
+        frozenset({"ancestor", "descendant"})
+    }
+    assert requirements_for("R82>") == {frozenset({"part", "whole"})}
+    constituents = provenance.upsert_constituents.call_args.args[2]
+    fillers = {c.filler_code for c in constituents}
+    assert "C10000" in fillers
+    assert "C99999" not in fillers
+    assert sum("R82>" in query for query in client.queries) == 4
 
 
 @pytest.mark.unit
@@ -713,7 +796,13 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
     """
 
     class _BoomClient:
-        async def select(self, query: str) -> list[dict[str, str | None]]:
+        async def select(
+            self,
+            query: str,
+            *,
+            required_variables: Collection[str] = (),
+        ) -> list[dict[str, str | None]]:
+            del query, required_variables
             raise RuntimeError("store down")
 
         async def version(self) -> str | None:

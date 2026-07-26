@@ -8,14 +8,18 @@ Two explicit tiers:
 from __future__ import annotations
 
 import os
+from collections import Counter
 
 import httpx
 import pytest
 
 from ontolib.decomposition.extract import (
+    AncestorPair,
+    PartOfPair,
     ancestor_pairs_from_rows,
     concepts_from_rows,
     make_is_ancestor,
+    part_of_pairs_from_rows,
     semantic_type_of_from_rows,
 )
 from ontolib.decomposition.filler_selection import select_constituents
@@ -23,14 +27,21 @@ from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
+    build_part_of_pairs_queries,
+    build_part_of_pairs_query,
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
     resolve_morphology_filler,
     walk_genus_chain,
 )
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.oxigraph_http_client import (
+    OxigraphHttpClient,
+    flatten_bindings,
+    parse_ask_result,
+)
 
 _DEFAULT_NCIT_URL = "http://localhost:7888"
 
@@ -52,7 +63,8 @@ def _reachable(url: str) -> bool:
         )
     except httpx.HTTPError:
         return False
-    return resp.status_code == 200
+    resp.raise_for_status()
+    return True
 
 
 def _stated_loaded(url: str) -> bool:
@@ -68,7 +80,8 @@ def _stated_loaded(url: str) -> bool:
         )
     except httpx.HTTPError:
         return False
-    return resp.status_code == 200 and resp.json().get("boolean", False)
+    resp.raise_for_status()
+    return parse_ask_result(resp.json())
 
 
 @pytest.mark.integration
@@ -92,6 +105,117 @@ async def test_stated_query_builders_parse_against_disposable_store(
         for q in build_genus_walk_members_query("C6135"):
             rows = await client.select(q)
             assert isinstance(rows, list)
+
+
+@pytest.mark.integration
+async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
+    isolated_oxigraph_url: str,
+) -> None:
+    # Sorting puts C12510 and C20000-C20014 in the first tile and C32291 in the
+    # second, exercising all four tile combinations.
+    codes = [
+        "C12510",
+        *(f"C200{i:02d}" for i in range(15)),
+        "C32291",
+        "C99101",
+        "C99102",
+        "C99103",
+        "C99104",
+        "C99105",
+        "C99106",
+    ]
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        rows = []
+        for query in build_part_of_pairs_queries(codes):
+            rows.extend(await client.select(query))
+        empty_rows = await client.select(
+            build_part_of_pairs_query(part_codes=[], whole_codes=[])
+        )
+        direct_raw = await client.select_raw(
+            build_part_of_pairs_query(
+                part_codes=["C32291"],
+                whole_codes=["C12510"],
+            )
+        )
+        direct_rows = flatten_bindings(direct_raw)
+        reverse_rows = await client.select(
+            build_part_of_pairs_query(
+                part_codes=["C12510"],
+                whole_codes=["C32291"],
+            )
+        )
+        health = await client.select(
+            f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
+        )
+
+    assert Counter(part_of_pairs_from_rows(rows)) == Counter(
+        {
+            PartOfPair(part="C32291", whole="C12510"): 1,
+            PartOfPair(part="C20000", whole="C99106"): 1,
+            PartOfPair(part="C20001", whole="C20002"): 1,
+            PartOfPair(part="C99101", whole="C99102"): 1,
+            PartOfPair(part="C99103", whole="C99104"): 1,
+        }
+    )
+    assert empty_rows == []
+    assert direct_rows == [{"part": f"{NCIT_NS}C32291", "whole": f"{NCIT_NS}C12510"}]
+    assert direct_raw == {
+        "head": {"vars": ["part", "whole"]},
+        "results": {
+            "bindings": [
+                {
+                    "part": {"type": "uri", "value": f"{NCIT_NS}C32291"},
+                    "whole": {"type": "uri", "value": f"{NCIT_NS}C12510"},
+                }
+            ]
+        },
+    }
+    assert reverse_rows == []
+    assert health
+    assert health[0].get("s")
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async with OxigraphHttpClient(url) as client:
+        version_rows = await client.select(
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?ontology a <{OWL_NS}Ontology> ; "
+            f"<{OWL_NS}versionInfo> ?version . }} }}"
+        )
+        rows = await client.select(
+            build_part_of_pairs_query(
+                part_codes=["C32291"],
+                whole_codes=["C12510"],
+            )
+        )
+        no_match_rows = await client.select(
+            build_part_of_pairs_query(
+                part_codes=["C32291"],
+                whole_codes=["C999999999"],
+            )
+        )
+        health = await client.select(
+            f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
+        )
+
+    assert version_rows == [{"version": "26.06e"}]
+    assert rows == [
+        {
+            "part": f"{NCIT_NS}C32291",
+            "whole": f"{NCIT_NS}C12510",
+        }
+    ]
+    assert no_match_rows == []
+    assert health
+    assert health[0].get("s")
 
 
 @pytest.mark.integration
@@ -170,7 +294,7 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
             types = semantic_type_of.get(code)
             return types[0] if types else None
 
-        ancestor_pairs: set[tuple[str, str]] = set()
+        ancestor_pairs: set[AncestorPair] = set()
         if filler_codes:
             ancestor_rows = await client.select(
                 build_ancestor_pairs_query(list(filler_codes))
@@ -259,7 +383,7 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
             types = semantic_type_of.get(code)
             return types[0] if types else None
 
-        ancestor_pairs: set[tuple[str, str]] = set()
+        ancestor_pairs: set[AncestorPair] = set()
         if filler_codes:
             ancestor_rows = await client.select(
                 build_ancestor_pairs_query(list(filler_codes))

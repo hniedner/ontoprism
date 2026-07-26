@@ -434,6 +434,18 @@ def _seed_oxigraph(url: str) -> None:
     )
     response.raise_for_status()
 
+    stated_fixture = (
+        _ROOT / "scripts/ci/fixtures/ncit-stated-fixture.ttl"
+    ).read_bytes()
+    response = httpx.put(
+        f"{url}/store",
+        params={"graph": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl"},
+        content=stated_fixture,
+        headers={"Content-Type": "text/turtle"},
+        timeout=30,
+    )
+    response.raise_for_status()
+
 
 @contextmanager
 def _provision_postgres(

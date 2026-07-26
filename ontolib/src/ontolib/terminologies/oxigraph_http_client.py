@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Self
 import httpx
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Collection
     from types import TracebackType
     from typing import BinaryIO
 
@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 
 _SPARQL_JSON = "application/sparql-results+json"
 _SPARQL_QUERY = "application/sparql-query"
+_SPARQL_BINDING_TYPES = frozenset({"uri", "bnode", "literal", "typed-literal"})
 # Chunk size for streaming a file object to the store (keeps a multi-hundred-MB OWL
 # from fully materializing in memory).
 _LOAD_CHUNK_BYTES = 1 << 20
@@ -52,7 +53,7 @@ async def _aiter_file(handle: BinaryIO) -> AsyncIterator[bytes]:
 # A code safe to embed inside a ``<{ns}{code}>`` IRI. Anything that could close the
 # IRI or inject SPARQL (``>`` ``{`` ``}`` whitespace) is rejected. Defence in depth
 # at the string-building boundary even though upstream routes validate code shape.
-_SAFE_CODE = re.compile(r"^[A-Za-z0-9:_.\-]+$")
+_SAFE_CODE = re.compile(r"[A-Za-z0-9:_.\-]+")
 
 _COUNT_ALL = "SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }"
 
@@ -67,20 +68,116 @@ def safe_iri(code: str, namespace: str) -> str:
     Raises:
         ValueError: if *code* is not drawn from ``[A-Za-z0-9:_.-]``.
     """
-    if not _SAFE_CODE.match(code):
+    if not _SAFE_CODE.fullmatch(code):
         raise ValueError(f"Unsafe concept code rejected: {code!r}")
     return f"{namespace}{code}"
 
 
-def flatten_bindings(data: dict[str, Any]) -> list[dict[str, str | None]]:
+def _binding_value(cell: object, row_index: int, variable: str) -> str:
+    if not isinstance(cell, dict):
+        raise StorageError(
+            f"malformed SPARQL SELECT response: row {row_index} has invalid cell"
+        )
+    binding_type = cell.get("type")
+    if not isinstance(binding_type, str) or binding_type not in _SPARQL_BINDING_TYPES:
+        raise StorageError(
+            "malformed SPARQL SELECT response: "
+            f"row {row_index} variable {variable!r} has invalid binding type"
+        )
+    value = cell.get("value")
+    if not isinstance(value, str):
+        raise StorageError(
+            "malformed SPARQL SELECT response: "
+            f"row {row_index} variable {variable!r} has no string value"
+        )
+    return value
+
+
+def _flatten_binding_row(
+    row: object,
+    row_index: int,
+    variables: frozenset[str],
+) -> dict[str, str]:
+    if not isinstance(row, dict):
+        raise StorageError(
+            f"malformed SPARQL SELECT response: row {row_index} is not an object"
+        )
+    flattened: dict[str, str] = {}
+    for variable, cell in row.items():
+        if not isinstance(variable, str) or variable not in variables:
+            raise StorageError(
+                "malformed SPARQL SELECT response: "
+                f"row {row_index} has undeclared variable {variable!r}"
+            )
+        flattened[variable] = _binding_value(cell, row_index, variable)
+    return flattened
+
+
+def _select_document(
+    data: object,
+) -> tuple[dict[object, object], frozenset[str]]:
+    if not isinstance(data, dict):
+        raise StorageError("malformed SPARQL SELECT response: root is not an object")
+    if "boolean" in data:
+        raise StorageError(
+            "malformed SPARQL response: contains both SELECT and ASK result forms"
+        )
+    head = data.get("head")
+    if not isinstance(head, dict):
+        raise StorageError("malformed SPARQL SELECT response: missing head object")
+    raw_variables = head.get("vars")
+    if not isinstance(raw_variables, list) or not all(
+        isinstance(variable, str) for variable in raw_variables
+    ):
+        raise StorageError("malformed SPARQL SELECT response: missing variable list")
+    return data, frozenset(raw_variables)
+
+
+def flatten_bindings(
+    data: object,
+    *,
+    required_variables: Collection[str] = (),
+) -> list[dict[str, str]]:
     """Flatten a SPARQL-JSON result into ``{var: value}`` rows.
 
     Only the ``value`` of each binding is kept (datatype/lang dropped). A variable
     absent from a given row is omitted from that row's dict, so callers can tell an
     unbound optional from an empty string.
     """
-    bindings = data.get("results", {}).get("bindings", [])
-    return [{var: cell.get("value") for var, cell in row.items()} for row in bindings]
+    document, variables = _select_document(data)
+    missing_variables = set(required_variables) - variables
+    if missing_variables:
+        missing = ", ".join(sorted(missing_variables))
+        raise StorageError(
+            "malformed SPARQL SELECT response: "
+            f"missing required projected variable(s): {missing}"
+        )
+    results = document.get("results")
+    if not isinstance(results, dict):
+        raise StorageError("malformed SPARQL SELECT response: missing results object")
+    bindings = results.get("bindings")
+    if not isinstance(bindings, list):
+        raise StorageError("malformed SPARQL SELECT response: missing bindings array")
+    return [
+        _flatten_binding_row(row, index, variables)
+        for index, row in enumerate(bindings)
+    ]
+
+
+def parse_ask_result(data: object) -> bool:
+    """Return a SPARQL-JSON ASK result, rejecting malformed response envelopes."""
+    if not isinstance(data, dict):
+        raise StorageError("malformed SPARQL ASK response: missing boolean result")
+    if "results" in data:
+        raise StorageError(
+            "malformed SPARQL response: contains both ASK and SELECT result forms"
+        )
+    if not isinstance(data.get("head"), dict):
+        raise StorageError("malformed SPARQL ASK response: missing head object")
+    result = data.get("boolean")
+    if not isinstance(result, bool):
+        raise StorageError("malformed SPARQL ASK response: missing boolean result")
+    return result
 
 
 class OxigraphHttpClient:
@@ -200,18 +297,27 @@ class OxigraphHttpClient:
                 f"{response.text[:200]}"
             )
         try:
-            return response.json()
+            data = response.json()
         except ValueError as e:
             raise StorageError(f"SPARQL response was not valid JSON: {e}") from e
+        if not isinstance(data, dict):
+            raise StorageError("SPARQL response root was not an object")
+        return data
 
-    async def select(self, query: str) -> list[dict[str, str | None]]:
+    async def select(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str]]:
         """Run a SELECT query and return flattened ``{var: value}`` rows."""
-        return flatten_bindings(await self.select_raw(query))
+        return flatten_bindings(
+            await self.select_raw(query), required_variables=required_variables
+        )
 
     async def ask(self, query: str) -> bool:
         """Run an ASK query and return its boolean result."""
-        data = await self.select_raw(query)
-        return bool(data.get("boolean", False))
+        return parse_ask_result(await self.select_raw(query))
 
     async def count(self, query: str = _COUNT_ALL) -> int:
         """Run a ``SELECT (COUNT(...) AS ?count)`` query and return the integer.
@@ -225,8 +331,8 @@ class OxigraphHttpClient:
             raise StorageError("COUNT query returned no 'count' binding")
         value = rows[0]["count"]
         try:
-            return int(value) if value is not None else 0
-        except (TypeError, ValueError) as e:
+            return int(value)
+        except ValueError as e:
             raise StorageError(f"COUNT value did not parse as int: {value!r}") from e
 
     async def version(self) -> str | None:
@@ -238,5 +344,10 @@ class OxigraphHttpClient:
             "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
             "SELECT ?v WHERE { ?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 1"
         )
-        rows = await self.select(query)
-        return rows[0].get("v") if rows else None
+        rows = await self.select(query, required_variables={"v"})
+        if not rows:
+            return None
+        version = rows[0].get("v")
+        if not version:
+            raise StorageError("VERSION query returned no 'v' binding")
+        return version

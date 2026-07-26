@@ -1,0 +1,61 @@
+@prefix ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Inherited R82 restriction, using the production full-store contract codes.
+ncit:C32291 a owl:Class ;
+    rdfs:subClassOf ncit:C99100 .
+
+ncit:C99100 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C12510
+    ] .
+
+ncit:C12510 a owl:Class .
+
+# Cross-tile relation in the opposite direction from C32291 -> C12510.
+ncit:C20000 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99106
+    ] .
+
+# First-part/first-whole tile relation.
+ncit:C20001 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C20002
+    ] .
+
+ncit:C20002 a owl:Class .
+
+# Direct R82 restriction.
+ncit:C99101 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99102
+    ] .
+
+ncit:C99102 a owl:Class .
+
+# Two equivalent restriction nodes must still produce one DISTINCT pair.
+ncit:C99103 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99104
+    ] ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99104
+    ] .
+
+ncit:C99104 a owl:Class .
+ncit:C99105 a owl:Class .
+ncit:C99106 a owl:Class .

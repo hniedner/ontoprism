@@ -15,7 +15,11 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from ontolib.decomposition.extract import ancestor_pairs_from_rows, make_is_ancestor
+from ontolib.decomposition.extract import (
+    AncestorPair,
+    ancestor_pairs_from_rows,
+    make_is_ancestor,
+)
 from ontolib.decomposition.filler_selection import most_specific
 from ontolib.decomposition.stated_queries import build_ancestor_pairs_query
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -43,10 +47,10 @@ async def _part_of_targets(client: OxigraphHttpClient, code: str) -> list[str]:
 
 async def part_of_ancestor_pairs(
     client: OxigraphHttpClient, codes: set[str]
-) -> set[tuple[str, str]]:
+) -> set[AncestorPair]:
     """(ancestor, descendant) pairs among *codes* reachable via transitive R82, walked
     hop-by-hop from each code (R82 is not materialized transitively in this build)."""
-    pairs: set[tuple[str, str]] = set()
+    pairs: set[AncestorPair] = set()
     for start in codes:
         frontier = {start}
         seen = {start}
@@ -55,7 +59,7 @@ async def part_of_ancestor_pairs(
             for node in frontier:
                 for target in await _part_of_targets(client, node):
                     if target in codes and target != start:
-                        pairs.add((target, start))  # target is ancestor of start
+                        pairs.add(AncestorPair(ancestor=target, descendant=start))
                     if target not in seen:
                         seen.add(target)
                         next_frontier.add(target)
@@ -80,8 +84,14 @@ async def main() -> None:
     async with OxigraphHttpClient("http://localhost:7888") as client:
         leaves, debug = await resolve(client, codes)
         print(f"candidates: {sorted(codes)}")
-        print(f"is-a pairs: {sorted(debug['isa_pairs'])}")
-        print(f"part-of pairs (walked): {sorted(debug['part_of_pairs'])}")
+        print(
+            "is-a pairs: "
+            f"{sorted((p.ancestor, p.descendant) for p in debug['isa_pairs'])}"
+        )
+        print(
+            "part-of pairs (walked): "
+            f"{sorted((p.ancestor, p.descendant) for p in debug['part_of_pairs'])}"
+        )
         print(f"leaves (is-a UNION part-of): {sorted(leaves)}")
 
 

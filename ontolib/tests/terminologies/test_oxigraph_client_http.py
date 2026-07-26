@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 _COUNT_NONE = "count_none"  # SPARQL-JSON without a "count" binding
 _COUNT_BAD = "count_bad"  # SPARQL-JSON with a non-integer count value
 _NON_JSON = "non_json"  # response body that is not valid JSON
+_NON_OBJECT_JSON = "non_object_json"  # valid JSON with the wrong top-level shape
+_MISSING_PROJECTION = "missing_projection"
 
 
 def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
@@ -42,23 +44,29 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
         "results": {
             "bindings": [
                 {
-                    "rel": {"value": f"{NCIT_NS}R105"},
-                    "target": {"value": f"{NCIT_NS}C12922"},
+                    "rel": {"type": "uri", "value": f"{NCIT_NS}R105"},
+                    "target": {"type": "uri", "value": f"{NCIT_NS}C12922"},
                 }
             ]
         },
     }
 
-    if _COUNT_NONE in query:
+    if _MISSING_PROJECTION in query:
+        body = {"head": {"vars": ["rel"]}, "results": {"bindings": []}}
+    elif _COUNT_NONE in query:
         body = {"head": {"vars": ["count"]}, "results": {"bindings": [{}]}}
     elif _COUNT_BAD in query:
         body = {
             "head": {"vars": ["count"]},
-            "results": {"bindings": [{"count": {"value": "not_a_number"}}]},
+            "results": {
+                "bindings": [{"count": {"type": "literal", "value": "not_a_number"}}]
+            },
         }
     elif _NON_JSON in query:
         content_type = "text/plain"
         body = "not json at all"
+    elif _NON_OBJECT_JSON in query:
+        body = "[]"
     elif "boom" in query:
         status = 400
         body = {"error": "syntax"}
@@ -67,12 +75,12 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
     elif "COUNT" in query:
         body = {
             "head": {"vars": ["count"]},
-            "results": {"bindings": [{"count": {"value": "7"}}]},
+            "results": {"bindings": [{"count": {"type": "literal", "value": "7"}}]},
         }
     elif "versionInfo" in query:
         body = {
             "head": {"vars": ["v"]},
-            "results": {"bindings": [{"v": {"value": "26.02d"}}]},
+            "results": {"bindings": [{"v": {"type": "literal", "value": "26.02d"}}]},
         }
 
     return status, content_type, body
@@ -82,7 +90,14 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         query = self.rfile.read(length).decode("utf-8")
-        status, content_type, payload = _respond_for(query)
+        if self.path.startswith("/missing-version/"):
+            status, content_type, payload = (
+                200,
+                "application/sparql-results+json",
+                {"head": {"vars": []}, "results": {"bindings": []}},
+            )
+        else:
+            status, content_type, payload = _respond_for(query)
         if isinstance(payload, dict):
             body = json.dumps(payload).encode("utf-8")
         else:
@@ -132,6 +147,15 @@ async def test_version_parses_value(stub_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_version_rejects_missing_projected_variable(stub_url: str) -> None:
+    async with OxigraphHttpClient(f"{stub_url}/missing-version") as client:
+        with pytest.raises(
+            StorageError, match=r"missing required projected variable.*v"
+        ):
+            await client.version()
+
+
+@pytest.mark.unit
 async def test_ask_returns_boolean(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         assert await client.ask("ASK { ?s ?p ?o }") is True
@@ -142,6 +166,16 @@ async def test_select_flattens_rows(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         rows = await client.select("SELECT ?rel ?target WHERE { ?s ?p ?o }")
     assert rows == [{"rel": f"{NCIT_NS}R105", "target": f"{NCIT_NS}C12922"}]
+
+
+@pytest.mark.unit
+async def test_select_forwards_required_projected_variables(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="target"):
+            await client.select(
+                f"SELECT ?rel ?target WHERE {{ ?s ?p ?o }} # {_MISSING_PROJECTION}",
+                required_variables={"rel", "target"},
+            )
 
 
 @pytest.mark.unit
@@ -174,6 +208,13 @@ async def test_select_raw_non_json_raises_storage_error(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="not valid JSON"):
             await client.select_raw("SELECT ?x WHERE { ?s ?p ?o }  # non_json")
+
+
+@pytest.mark.unit
+async def test_select_raw_non_object_json_raises_storage_error(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="root was not an object"):
+            await client.select_raw("SELECT ?x WHERE { ?s ?p ?o }  # non_object_json")
 
 
 @pytest.mark.unit
