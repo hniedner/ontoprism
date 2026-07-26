@@ -28,6 +28,10 @@ docker compose up -d      # serves the clones via the same oxigraph 0.5.3 image
 Verify: `curl -s localhost:7888/query -H 'Content-Type: application/sparql-query' \
 --data 'SELECT (COUNT(*) AS ?n){?s ?p ?o}'` → 12,836,426 triples.
 
+This loopback request is an operator check against the Oxigraph service itself. The
+FastAPI application exposes no public raw-SPARQL endpoint; its supported query surface
+is the typed API (D44).
+
 ## 2. Embeddings (pgvector)
 
 Embeddings are published only by ontoprism's validated build. Do **not** pipe a sibling

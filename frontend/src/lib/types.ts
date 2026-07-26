@@ -64,22 +64,6 @@ export interface Neighborhood {
 	truncated?: boolean;
 }
 
-// Raw SPARQL-JSON (subset) returned by the guarded query endpoint.
-export interface SparqlBindingCell {
-	value: string;
-}
-
-export interface SparqlResultDoc {
-	head?: { vars?: string[] };
-	results?: { bindings?: Array<Record<string, SparqlBindingCell>> };
-	boolean?: boolean;
-}
-
-export interface SparqlResponse {
-	result: SparqlResultDoc;
-	truncated: boolean;
-}
-
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
 
 export interface ConceptLink {

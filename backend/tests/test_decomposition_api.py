@@ -1,14 +1,21 @@
 """Hermetic tests for the decomposition read endpoint (fake client + store)."""
 
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.dependencies import get_ncit_client, get_ncit_store, get_xref_store
+from backend.decomposition_reader import DecompositionReader
+from backend.dependencies import (
+    get_decomposition_reader,
+    get_ncit_store,
+    get_xref_store,
+)
 from backend.main import create_app
+from ontolib.core.exceptions import StorageError
 from ontolib.decomposition import vocab
 from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 
 def _row(**kw: str) -> dict[str, str | None]:
@@ -24,8 +31,20 @@ class _FakeClient:
     def __init__(self, rows: list[dict[str, str | None]]) -> None:
         self._rows = rows
 
-    async def select(self, _query: str) -> list[dict[str, str | None]]:
-        return self._rows
+    async def select(
+        self, query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str]]:
+        _ = query, required_variables
+        return [
+            {key: value for key, value in row.items() if value is not None}
+            for row in self._rows
+        ]
+
+
+class _MissingProjectionClient(OxigraphHttpClient):
+    async def select_raw(self, query: str) -> dict[str, object]:
+        _ = query
+        return {"head": {"vars": []}, "results": {"bindings": []}}
 
 
 class _FakeStore:
@@ -43,7 +62,9 @@ class _FakeXrefStore:
 
 def _client(rows: list[dict[str, str | None]]) -> Iterator[TestClient]:
     app = create_app()
-    app.dependency_overrides[get_ncit_client] = lambda: _FakeClient(rows)
+    app.dependency_overrides[get_decomposition_reader] = lambda: DecompositionReader(
+        _FakeClient(rows)
+    )
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = _FakeXrefStore
     with TestClient(app) as client:
@@ -68,6 +89,14 @@ _DECOMPOSED_ROWS = [
         mostSpecific="true",
     ),
 ]
+
+
+@pytest.mark.unit
+async def test_reader_rejects_a_response_missing_its_projected_variables() -> None:
+    reader = DecompositionReader(_MissingProjectionClient("http://unused.test"))
+
+    with pytest.raises(StorageError, match="missing required projected variable"):
+        await reader.rows_for("C6135")
 
 
 @pytest.mark.api

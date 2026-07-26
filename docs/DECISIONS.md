@@ -2,6 +2,32 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-26 — raw SPARQL has no proven bounded HTTP executor
+
+### D44. Caller-supplied raw SPARQL is unavailable until store-side bounds are proven
+
+The public raw-query route parsed SELECT/ASK forms and truncated returned bindings, but
+the row cap applied only after Oxigraph executed and the backend materialized the full
+response. Its HTTP client timeout did not prove server execution stopped and transport
+failures could make up to three attempts for the same unbounded query. Oxigraph 0.5.3 exposes
+no verified HTTP cancellation token, server deadline, or per-query resource budget that
+the application can enforce.
+
+**Decision:** remove the raw `/api/v1/sparql` route, OpenAPI contract, frontend query
+page, navigation, helper types, and settings that implied an execution bound. The typed
+backend endpoints remain the application query surface, while direct loopback Oxigraph
+queries remain an operator-only datastore check. API security tests reject direct use of
+generic query methods and low-level transport dependencies from router modules.
+
+Any future re-enable issue must first prove store-side cancellation and resource and
+concurrency limits, then specify a structural allow/deny matrix, real parser/executor
+differential tests, no retries, and request-ID and log-redaction contracts. An HTTP client
+timeout alone is not cancellation.
+
+**Why:** syntactic read-only checks prevent writes but do not make arbitrary graph work
+safe. Removing the route is the only fail-closed behavior supported by the deployed
+server.
+
 ## 2026-07-26 — lossy decomposition output cannot assert exact equivalence
 
 ### D43. Equivalence emission is quarantined until the representation proves completeness

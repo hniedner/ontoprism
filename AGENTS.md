@@ -167,10 +167,11 @@ cooldown) + secret scanning + push protection are enabled repo-side.
 
 - **Never commit directly to `main`.** All developer-authored code changes, issue
   implementations, and fixes must be on a dedicated branch
-  (`feat/<slug>-<issue#>`, `fix/...`, `docs/...`) and land via PR. The only exceptions are
-  the workflow-generated semantic-release and `Update README Code Stats` bot commits
-  pushed by CI (with `GITHUB_TOKEN`).
-- Branches: `feat/<slug>-<issue#>`, `fix/...`, `docs/...`; PRs merge into `main`.
+  (`feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`) and land via PR. The only
+  exceptions are the workflow-generated semantic-release and `Update README Code Stats`
+  bot commits pushed by CI (with `GITHUB_TOKEN`).
+- Branches: `feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`; PRs merge into
+  `main`.
 - **PR bodies must only reference issues they fully resolve.** Use `Closes #X` /
   `Fixes #X` only when the PR completely resolves the issue (see D35). Issues labeled
   `epic` must never be referenced in a `Closes` keyword.

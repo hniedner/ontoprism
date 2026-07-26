@@ -6,7 +6,6 @@ import {
 	getConcept,
 	getNeighborhood,
 	getDecomposition,
-	runSparql,
 	getCdeNeighborhood,
 	searchCadsr,
 	listCadsr,
@@ -113,14 +112,14 @@ describe('error handling', () => {
 				headers: { 'Content-Type': 'application/json' }
 			})
 		);
-		await expect(postJsonBody('/api/v1/sparql', { query: '' }, fetchImpl)).rejects.toThrow(
+		await expect(postJsonBody('/api/v1/pubmed/search', { query: '' }, fetchImpl)).rejects.toThrow(
 			'Request failed (422)'
 		);
 	});
 
 	it('falls through to status code when the error body is not JSON on postJsonBody', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(new Response('plain text', { status: 400 }));
-		await expect(postJsonBody('/api/v1/sparql', { query: '' }, fetchImpl)).rejects.toThrow(
+		await expect(postJsonBody('/api/v1/pubmed/search', { query: '' }, fetchImpl)).rejects.toThrow(
 			'Request failed (400)'
 		);
 	});
@@ -235,18 +234,7 @@ describe('caDSR endpoints', () => {
 	});
 });
 
-describe('sparql + refresh', () => {
-	it('runSparql POSTs the query as a JSON body', async () => {
-		const fetchImpl = vi
-			.fn()
-			.mockResolvedValue(jsonResponse({ result: { head: {}, results: {} }, truncated: false }));
-		await runSparql('SELECT * WHERE { ?s ?p ?o }', fetchImpl);
-		const [url, init] = fetchImpl.mock.calls[0];
-		expect(url).toBe('/api/v1/sparql');
-		expect(init.method).toBe('POST');
-		expect(JSON.parse(init.body)).toEqual({ query: 'SELECT * WHERE { ?s ?p ?o }' });
-	});
-
+describe('refresh', () => {
 	it('refreshRepositories POSTs to the refresh endpoint', async () => {
 		const fetchImpl = vi
 			.fn()

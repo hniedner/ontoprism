@@ -21,11 +21,11 @@ from backend.api.v1 import (
     ncit,
     pubmed,
     refresh,
-    sparql,
 )
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from backend.dependencies import NcitClient
+from backend.decomposition_reader import DecompositionReader
+from backend.dependencies import NcitStatus
 from backend.middleware import (
     RateLimitMiddleware,
     RequestContextMiddleware,
@@ -83,12 +83,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "API_KEY is not set — refresh/reload endpoints run unauthenticated "
             "(open mode). Set api_key to require X-API-Key."
         )
-    client = OxigraphHttpClient(
-        settings.ncit_sparql_url, query_timeout=settings.sparql_timeout_sec
-    )
+    client = OxigraphHttpClient(settings.ncit_sparql_url)
     engine = make_engine(settings.database_url)
     app.state.ncit_client = client
     app.state.ncit_store = NcitGraphStore(client)
+    app.state.decomposition_reader = DecompositionReader(client)
     app.state.cadsr_repo = CdeRepository(settings.cadsr_db_path)
     app.state.embedding_store = EmbeddingStore(make_sessionmaker(engine))
     app.state.ncit_search_index = NcitSearchIndex(make_sessionmaker(engine))
@@ -142,7 +141,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     @app.get("/ready", tags=["meta"])
-    async def ready(client: NcitClient) -> dict[str, object]:
+    async def ready(client: NcitStatus) -> dict[str, object]:
         """Readiness — the NCIt store is reachable; 503 if not."""
         try:
             version = await client.version()
@@ -159,7 +158,6 @@ def create_app() -> FastAPI:
     app.include_router(mappings.router)
     app.include_router(cadsr.router)
     app.include_router(refresh.router)
-    app.include_router(sparql.router)
     app.include_router(clinicaltrials.router)
     app.include_router(pubmed.router)
     app.include_router(decomposition.router)

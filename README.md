@@ -258,7 +258,7 @@ for first-run provisioning.
 ```
 ontolib/      Shared library — storage, NCIt/Uberon terminologies,
 │             caDSR repository, decomposition engine
-backend/      FastAPI app — repo/graph/search/sparql/refresh + decomposition API
+backend/      FastAPI app — repo/graph/search/refresh + decomposition API
 frontend/     SvelteKit 5 app — Sigma + graphology graph explorer, dark/light UI
 docs/         Architecture, design docs, decisions, data setup
 scripts/      Dev tooling, data build, decomposition CLI, research helpers
@@ -313,7 +313,7 @@ pdm run pre-commit run --all-files  # Local quality gate
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D43)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D44)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->

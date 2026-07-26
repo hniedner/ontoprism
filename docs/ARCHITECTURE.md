@@ -29,7 +29,7 @@ ontoprism/
 │   ├── pyproject.toml
 │   ├── src/backend/
 │   │   ├── main.py           #   app factory + /health (M0)
-│   │   └── api/…/routers/    #   repo/graph/search/sparql/refresh + decomp (M6)
+│   │   └── api/…/routers/    #   repo/graph/search/refresh + decomp (M6)
 │   └── tests/
 ├── frontend/                 # LIFTED SvelteKit 5 app (M4)
 └── docs/  ARCHITECTURE.md  DECISIONS.md  DATA_SETUP.md  design/  postcoordination-literature-review.md
@@ -45,7 +45,9 @@ ontoprism/
   (`decomp_run`, `decomp_constituent`, `minted_concept`), and the caDSR read tables.
 
 The frontend talks only to the FastAPI backend; the backend owns all Oxigraph/Postgres
-access.
+access. The application exposes no caller-supplied raw SPARQL route: typed endpoints
+construct the supported store queries. Re-enabling raw execution requires a separately
+reviewed executor with proven store-side cancellation and resource bounds (D44).
 
 ## Key inherited mechanism: NCIt roles are OWL restrictions
 

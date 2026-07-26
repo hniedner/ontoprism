@@ -12,8 +12,7 @@ import type {
 	RefreshReport,
 	SearchPage,
 	SimilarCde,
-	SimilarConcept,
-	SparqlResponse
+	SimilarConcept
 } from './types';
 
 const BASE = '';
@@ -125,11 +124,6 @@ export function getMappings(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/mappings`),
 		fetchImpl
 	);
-}
-
-/** Run a guarded read-only SPARQL query against the NCIt store. */
-export function runSparql(query: string, fetchImpl?: typeof fetch): Promise<SparqlResponse> {
-	return postJsonBody<SparqlResponse>(apiUrl('/api/v1/sparql'), { query }, fetchImpl);
 }
 
 /** CDE-centred subgraph joining the CDE into the NCIt concept graph. */
