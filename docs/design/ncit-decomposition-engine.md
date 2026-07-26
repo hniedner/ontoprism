@@ -176,13 +176,13 @@ Output: `DetectionResult(code, is_precoordinated: bool, defining_role_count: int
 ## 6. Filler selection — routed-axis specificity (`filler_selection.py`)
 
 The core engineering. For each defining axis of a candidate, choose the intended
-filler or preserve unresolved co-equal fillers for review.
+filler or preserve unresolved co-equal fillers without silently discarding them.
 
 - **Working from the stated graph eliminates most ancestor bleed** — the stated form asserts only the intended filler, not the closure. This is why §2 mandates the stated input.
 - **Defense-in-depth most-specific selection:** on hierarchy-comparable, non-lineage
   axes, use NCIt's stated `rdfs:subClassOf` hierarchy plus bounded transitive `R82`
   containment. A filler is dropped only when it is strictly broader than another
-  returned filler; unrelated or mutually broader fillers remain for review.
+  returned filler; unrelated or mutually broader fillers remain.
 - **Non-defining filter:** `Excludes_*` negative axioms and optional R114/R115 roles are
   removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
