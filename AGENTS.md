@@ -185,7 +185,8 @@ cooldown) + secret scanning + push protection are enabled repo-side.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
 - **PR review fix cycle (mandatory, no exceptions): after creating a PR, review the diff
-  with the FULL `pr-review-toolkit` agent set — ALL FIVE, every round, no cherry-picking:**
+  with the FULL `pr-review-toolkit` agent set in the initial round — ALL FIVE, no
+  cherry-picking:**
   1. `pr-review-toolkit:code-reviewer` — correctness, guideline compliance
   2. `pr-review-toolkit:silent-failure-hunter` — swallowed errors, failures that look like
      clean results
@@ -196,19 +197,22 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   5. `pr-review-toolkit:type-design-analyzer` — are the invariants enforced by the types
      or only by the caller's good manners?
 
-  **Run them in parallel; they find different classes of defect and they do not
-  substitute for one another.** On #73 the five caught, respectively: a vacuous
+  **Run the initial round in parallel; they find different classes of defect and they do
+  not substitute for one another.** On #73 the five caught, respectively: a vacuous
   satisfiability gate, an environment failure laundered into a verdict, a test double
   that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
   guarantee the merge could not provide, and an invariant enforced only by convention.
   Running two of the five would have shipped the other three.
 
   Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
-  (anything you can confirm and act on) — then push and **re-run all five**. Repeat until
-  a round detects NO verifiable issues. Only then is the PR ready. Do not skip the
-  re-verification step, do not defer fixable issues, do not merge with known-fixable
-  findings outstanding. NO BUTS. The only findings you may leave are ones genuinely not
-  verifiable/actionable in this repo — call those out explicitly, with the reason.**
+  (anything you can confirm and act on) — then push and re-run **only the agents that
+  produced new verified findings in the immediately preceding round**. An agent that
+  reports no verified findings has converged and must not run again during that PR review
+  cycle. Repeat the reduced, non-converged set until each remaining agent reports no
+  verified findings. Do not skip re-verification for an agent that found an issue, do not
+  defer fixable issues, and do not merge with known-fixable findings outstanding. NO
+  BUTS. The only findings you may leave are ones genuinely not verifiable/actionable in
+  this repo — call those out explicitly, with the reason.**
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go
   under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
