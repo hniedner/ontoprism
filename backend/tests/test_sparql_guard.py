@@ -1,4 +1,4 @@
-"""Guarded SPARQL endpoint rejects write/management queries (no store needed)."""
+"""Guarded SPARQL endpoint rejects unsupported query forms (no store needed)."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,10 +17,31 @@ from fastapi.testclient import TestClient
         "DESCRIBE ?s WHERE { ?s ?p ?o }",
     ],
 )
-def test_write_queries_are_rejected(app_client: TestClient, query: str) -> None:
+def test_unsupported_query_forms_are_rejected(
+    app_client: TestClient,
+    query: str,
+) -> None:
     resp = app_client.post("/api/v1/sparql", json={"query": query})
     assert resp.status_code == 400
     assert "read-only" in resp.json()["detail"].lower()
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("silent", ["", "SILENT"])
+def test_federated_service_queries_are_rejected(
+    app_client: TestClient,
+    silent: str,
+) -> None:
+    query = (
+        "SELECT * WHERE { "
+        f"SERVICE {silent} <http://169.254.169.254/latest/meta-data/> "
+        "{ ?s ?p ?o } }"
+    )
+
+    resp = app_client.post("/api/v1/sparql", json={"query": query})
+
+    assert resp.status_code == 400
+    assert "service" in resp.json()["detail"].lower()
 
 
 @pytest.mark.security

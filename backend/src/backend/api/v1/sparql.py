@@ -8,8 +8,9 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
-from pyparsing import ParseBaseException
+from pyparsing import ParseBaseException, ParseResults
 from rdflib.plugins.sparql.parser import parseQuery
+from rdflib.plugins.sparql.parserutils import CompValue
 
 from backend.config import get_settings
 from backend.dependencies import NcitClient
@@ -35,15 +36,31 @@ class SparqlResponse(BaseModel):
     truncated: bool
 
 
+def _has_service_pattern(node: object) -> bool:
+    if isinstance(node, CompValue):
+        return node.name == "ServiceGraphPattern" or any(
+            _has_service_pattern(value) for value in node.values()
+        )
+    if isinstance(node, (ParseResults, list, tuple)):
+        return any(_has_service_pattern(value) for value in node)
+    return False
+
+
 def _query_form(query: str) -> Literal["select", "ask"]:
     try:
-        parsed_query = parseQuery(query)[1]
+        parsed = parseQuery(query)
+        parsed_query = parsed[1]
         query_name = str(getattr(parsed_query, "name", ""))
     except ParseBaseException as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Only read-only SPARQL SELECT/ASK queries are permitted.",
         ) from exc
+    if _has_service_pattern(parsed):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Federated SPARQL SERVICE clauses are not permitted.",
+        )
     if query_name == "SelectQuery":
         return "select"
     if query_name == "AskQuery":

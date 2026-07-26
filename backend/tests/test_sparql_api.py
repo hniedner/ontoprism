@@ -78,6 +78,34 @@ def test_ask_runs_and_returns_boolean() -> None:
 
 
 @pytest.mark.api
+@pytest.mark.parametrize(
+    ("query", "result"),
+    [
+        (
+            "PREFIX ex: <http://example.org/> SELECT ?s WHERE { ?s ex:p ?o }",
+            _results(1),
+        ),
+        (
+            "# standard prologue\nBASE <http://example.org/>\nASK { <x> <p> <o> }",
+            {"head": {}, "boolean": False},
+        ),
+    ],
+)
+def test_standard_prologues_are_supported(
+    query: str,
+    result: dict[str, Any],
+) -> None:
+    fake = _FakeClient(result=result)
+    client = next(_client(fake))
+
+    resp = client.post("/api/v1/sparql", json={"query": query})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"result": result, "truncated": False}
+    assert fake.queries == [query]
+
+
+@pytest.mark.api
 def test_result_is_capped_and_flagged_truncated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
