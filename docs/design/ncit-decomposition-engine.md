@@ -360,9 +360,12 @@ Uberon would close the gap generally.
 1. **Implement the is-a ∪ part-of (`R82`, transitive) extension to `filler_selection.py`'s
    most-specific selection regardless** — it is a real, validated, zero-downside
    improvement (never wrong in 4/4 tests) and reduces `needs_review` noise materially.
-   The bounded query implemented by #145 covers one R82 edge inherited through the
-   part's `rdfs:subClassOf*` cone; R82-to-R82 transitive closure remains separate work
-   and must not be inferred from that query.
+   #145's endpoint-bound query preserves one-edge lookup. #213 closes R82-to-R82
+   chains with constant-subject one-step expansion instead of an unbound property path:
+   at most 8 R82 hops and 8 inherited named-superclass hops, 256 frontier codes, 16
+   codes/request, 64 requests, 256 rows/request, and 4,096 total response rows. Every
+   bound fails closed. The authenticated `26.06e` contract is
+   `C12400 -> C13063 -> C12418`.
 2. **Do not expect it to eliminate `needs_review` for R101.** The existing
    `needs_review` flag on a tied leaf set (already part of `filler_selection.py`'s
    design) is the right mechanism for the residual ties — accept some primary-site axes

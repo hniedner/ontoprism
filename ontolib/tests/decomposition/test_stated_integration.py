@@ -8,11 +8,14 @@ Two explicit tiers:
 from __future__ import annotations
 
 import os
+import re
 from collections import Counter
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 
+from ontolib.decomposition import stated_queries
 from ontolib.decomposition.extract import (
     AncestorPair,
     PartOfPair,
@@ -43,7 +46,11 @@ from ontolib.terminologies.oxigraph_http_client import (
     parse_ask_result,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Collection
+
 _DEFAULT_NCIT_URL = "http://localhost:7888"
+_EXPANSION_NODE = re.compile(rf"BIND\(<{re.escape(NCIT_NS)}(C[0-9]+)> AS \?node\)")
 
 
 def _url() -> str:
@@ -82,6 +89,25 @@ def _stated_loaded(url: str) -> bool:
         return False
     resp.raise_for_status()
     return parse_ask_result(resp.json())
+
+
+def _fixture_expansions() -> dict[str, list[tuple[str, str]]]:
+    return {
+        "C20003": [("whole", "C99206")],
+        "C99203": [("parent", "C99204")],
+        "C99204": [("whole", "C99205")],
+        "C99206": [("whole", "C99207")],
+        "C99210": [("whole", "C99211")],
+        "C99211": [("whole", "C99210")],
+        "C99220": [
+            ("whole", "C99221"),
+            ("whole", "C99222"),
+            ("whole", "C99223"),
+        ],
+        "C99221": [("whole", "C99223")],
+        "C99222": [("whole", "C99223")],
+        "C99230": [("whole", "C99231"), ("whole", "C99231")],
+    }
 
 
 @pytest.mark.integration
@@ -176,6 +202,82 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
 
 
 @pytest.mark.integration
+async def test_part_of_closure_matches_double_on_production_shaped_store(
+    isolated_oxigraph_url: str,
+) -> None:
+    codes = [
+        "C20003",
+        *(f"C300{i:02d}" for i in range(15)),
+        "C99203",
+        "C99205",
+        "C99206",
+        "C99207",
+        "C99210",
+        "C99211",
+        "C99220",
+        "C99223",
+        "C99230",
+        "C99231",
+        "C99240",
+    ]
+    expansions = _fixture_expansions()
+    double_requests: list[tuple[str, ...]] = []
+    oversized_store_calls = 0
+
+    async def double_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"node", "kind", "target"}
+        requested = tuple(dict.fromkeys(_EXPANSION_NODE.findall(query)))
+        assert 1 <= len(requested) <= 16
+        double_requests.append(requested)
+        return [
+            {"node": f"{NCIT_NS}{code}", "kind": kind, "target": f"{NCIT_NS}{target}"}
+            for code in requested
+            for kind, target in expansions.get(code, ())
+        ]
+
+    double_pairs = await stated_queries.resolve_part_of_pairs(double_select, codes)
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        actual_pairs = await stated_queries.resolve_part_of_pairs(client.select, codes)
+
+        async def counted_select(
+            query: str,
+            *,
+            required_variables: Collection[str] = (),
+        ) -> list[dict[str, str]]:
+            nonlocal oversized_store_calls
+            oversized_store_calls += 1
+            return await client.select(query, required_variables=required_variables)
+
+        with pytest.raises(ValueError, match=r"frontier.*256"):
+            await stated_queries.resolve_part_of_pairs(
+                counted_select, (f"C{i}" for i in range(257))
+            )
+        health = await client.select(
+            f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
+        )
+
+    expected = [
+        PartOfPair(part="C20003", whole="C99206"),
+        PartOfPair(part="C20003", whole="C99207"),
+        PartOfPair(part="C99203", whole="C99205"),
+        PartOfPair(part="C99206", whole="C99207"),
+        PartOfPair(part="C99210", whole="C99211"),
+        PartOfPair(part="C99211", whole="C99210"),
+        PartOfPair(part="C99220", whole="C99223"),
+        PartOfPair(part="C99230", whole="C99231"),
+    ]
+    assert actual_pairs == double_pairs == expected
+    assert len(double_requests) > 1
+    assert oversized_store_calls == 0
+    assert health
+    assert health[0].get("s")
+
+
+@pytest.mark.integration
 @pytest.mark.full_store
 async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> None:
     url = _url()
@@ -214,6 +316,45 @@ async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> Non
         }
     ]
     assert no_match_rows == []
+    assert health
+    assert health[0].get("s")
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_part_of_closure_matches_authenticated_full_store() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    codes = ["C12400", "C13063", "C12418"]
+    async with OxigraphHttpClient(url) as client:
+        version_rows = await client.select(
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?ontology a <{OWL_NS}Ontology> ; "
+            f"<{OWL_NS}versionInfo> ?version . }} }}"
+        )
+        assert version_rows == [{"version": "26.06e"}]
+        one_edge_rows = await client.select(
+            build_part_of_pairs_query(part_codes=codes, whole_codes=codes),
+            required_variables={"part", "whole"},
+        )
+        closure = await stated_queries.resolve_part_of_pairs(client.select, codes)
+        health = await client.select(
+            f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
+        )
+
+    assert set(part_of_pairs_from_rows(one_edge_rows)) == {
+        PartOfPair(part="C12400", whole="C13063"),
+        PartOfPair(part="C13063", whole="C12418"),
+    }
+    assert closure == [
+        PartOfPair(part="C12400", whole="C12418"),
+        PartOfPair(part="C12400", whole="C13063"),
+        PartOfPair(part="C13063", whole="C12418"),
+    ]
     assert health
     assert health[0].get("s")
 

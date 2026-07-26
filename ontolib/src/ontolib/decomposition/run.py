@@ -365,13 +365,10 @@ async def _decompose_one(
             required_variables={"ancestor", "descendant"},
         )
     )
-    # If filler A is part of filler B, B is the ancestor for selection (D16).
-    part_of_rows: list[Mapping[str, str | None]] = []
-    for query in stated_queries.build_part_of_pairs_queries(filler_codes):
-        part_of_rows.extend(
-            await client.select(query, required_variables={"part", "whole"})
-        )
-    part_of_pairs = extract.part_of_pairs_from_rows(part_of_rows)
+    # If filler A is transitively part of filler B, B is the ancestor (D16).
+    part_of_pairs = await stated_queries.resolve_part_of_pairs(
+        client.select, filler_codes
+    )
     ancestor_pairs.update(
         extract.AncestorPair(ancestor=pair.whole, descendant=pair.part)
         for pair in part_of_pairs
