@@ -187,12 +187,13 @@ filler or preserve unresolved co-equal fillers for review.
   removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
 - **Anatomy validation:** specificity uses NCIt's own is-a + bounded transitive `R82`
-  part-of hierarchy. Ambiguous cases receive `needs_review` rather than being silently
-  resolved. The selector does not consult Uberon; §6.4 found that external cross-check
-  unsuitable as a general tie-break.
+  part-of hierarchy. Unresolved ordinary axes receive `needs_review`; ambiguous routed
+  region, lineage, and stage-system values are retained as grouped, review-exempt facts.
+  The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
+  as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `R101`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
 
-Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review)]`.
+Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review, group)]`.
 
 ### 6.1 Stated encoding is *layered defined classes* (verified 2026-07-06)
 

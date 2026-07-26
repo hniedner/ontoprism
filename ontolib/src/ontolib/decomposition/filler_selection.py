@@ -289,12 +289,12 @@ def select_constituents(
 ) -> list[Constituent]:
     """Turn a concept's stated role restrictions into its selected constituents.
 
-    Excludes ``Excludes_*`` axioms, groups the rest by routed axis (D20 refinement 1),
-    collapses hierarchy-comparable axes to their most-specific filler(s), and preserves
-    all associated-lineage fillers. It then applies D20 refinement 2 (semantic-type
-    ranking on residual R101 leaves) and assigns D19 relationship-group ids to ambiguous
-    routed-axis values. Output is sorted (axis, filler) for deterministic, diffable
-    results.
+    Filters non-defining restrictions (``Excludes_*`` and optional R114/R115), groups
+    defining roles by routed axis (D20 refinement 1), collapses hierarchy-comparable
+    axes to their most-specific filler(s), and preserves all associated-lineage fillers.
+    It then applies D20 refinement 2 (semantic-type ranking on residual R101 leaves) and
+    assigns D19 relationship-group ids to ambiguous routed-axis values. Output is sorted
+    (axis, filler) for deterministic, diffable results.
     """
     by_axis = _group_by_routed_axis(restrictions)
     constituents = _iter_axis_constituents(
