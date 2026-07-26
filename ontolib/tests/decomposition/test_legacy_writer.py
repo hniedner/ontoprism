@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 import rdflib
+from rdflib.namespace import OWL
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.axes import MORPHOLOGY_AXIS
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
-from ontolib.terminologies.namespaces import OWL_NS
 
 
 @pytest.mark.unit
@@ -204,7 +204,6 @@ async def test_equivalence_request_preserves_existing_destination(
         Decomposition(
             code="C6135",
             semantic_type="Neoplastic Process",
-            genus_code="C141041",
             constituents=[
                 Constituent(axis="R88", filler_code="C27970", axis_source="role"),
             ],
@@ -221,12 +220,42 @@ async def test_equivalence_request_preserves_existing_destination(
 
 
 @pytest.mark.unit
+async def test_equivalence_request_does_not_write_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(ValueError, match="not available"):
+        await write_ttl(
+            [Decomposition(code="C6135", semantic_type="Neoplastic Process")],
+            emit_equivalence=True,
+        )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+@pytest.mark.unit
+async def test_equivalence_request_does_not_create_destination_parent(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "missing" / "out.ttl"
+
+    with pytest.raises(ValueError, match="not available"):
+        await write_ttl(
+            [Decomposition(code="C6135", semantic_type="Neoplastic Process")],
+            dest=out,
+            emit_equivalence=True,
+        )
+
+    assert not out.parent.exists()
+
+
+@pytest.mark.unit
 async def test_normal_output_never_contains_equivalence(tmp_path: Path) -> None:
     decs = [
         Decomposition(
             code="C6135",
             semantic_type="Neoplastic Process",
-            genus_code="C141041",
             constituents=[
                 Constituent(axis="R88", filler_code="C27970", axis_source="role"),
             ],
@@ -234,9 +263,10 @@ async def test_normal_output_never_contains_equivalence(tmp_path: Path) -> None:
     ]
     out = tmp_path / "out.ttl"
     await write_ttl(decs, dest=out, run_id="run-1")
-    content = out.read_text()
-    assert OWL_NS + "equivalentClass" not in content
-    assert OWL_NS + "intersectionOf" not in content
+    graph = rdflib.Graph()
+    graph.parse(out, format="turtle")
+    assert not any(graph.triples((None, OWL.equivalentClass, None)))
+    assert not any(graph.triples((None, OWL.intersectionOf, None)))
 
 
 @pytest.mark.unit

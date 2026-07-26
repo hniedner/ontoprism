@@ -201,14 +201,13 @@ Proposed model (additive — no deletions):
    semantically self-describing and lets the existing role restrictions remain untouched.)
 3. **Create only the genuinely missing constituents** (laterality/absence qualifiers, a handful of
    value-set nodes), then link them the same way. Coverage analysis shows this set is small.
-4. **Optional post-coordination equivalence.** For entities with a clean, complete axis set,
-   additionally assert an `owl:equivalentClass` intersection of the fillers — this is what turns the
-   legacy concept into a *derivable* post-coordinated expression and enables future de-duplication
-   (AJCC v7/v8 forks become equivalent up to the stage-system qualifier).
+4. **Future post-coordination equivalence.** D43 supersedes the original optional-emission
+   proposal: no current axis set can authorize `owl:equivalentClass`. Issue #153 must first
+   provide a complete proof-bearing representation.
 5. **Deprecation policy:** legacy concepts are *retained indefinitely* (flagged), never retired,
    guaranteeing backward compatibility. New authoring is steered to the post-coordinated form.
 
-This is additive and reversible: it introduces annotations and association triples only, so a
+The current constituent view is additive and non-destructive: it introduces annotations and association triples only, so a
 consumer that ignores them sees today's NCIt unchanged.
 
 ---
@@ -222,7 +221,7 @@ Scope = disease/neoplasm/regimen families (~26K role-bearing concepts), producti
 | Ingest **stated** NCIt OWL; build asserted-roles table | 0.5 pm | avoids inferred-closure bleed |
 | Filler-selection engine (most-specific per axis, Excludes_* filtering, morphology-from-parent) | 1.0 pm | core engineering; deterministic + testable |
 | NLP-fallback extractor (laterality, "with/without", version) + new-qualifier minting | 1.0 pm | long tail, curation-heavy |
-| Backward-compatible model + linker (annotations, `:hasConstituent`, optional equivalentClass) | 0.75 pm | additive OWL/graph writes |
+| Backward-compatible model + linker (annotations, `:hasConstituent`) | 0.75 pm | additive OWL/graph writes |
 | Curation & QA (sampling, clinician review, disjointness/consistency checks in Oxigraph) | 2.0–4.0 pm | dominant cost; scales with quality bar |
 | Governance, docs, release integration into fairdata pipeline | 0.5 pm | dual-representation policy, versioning |
 | **Total** | **~5.75–8.25 pm** | ~70% curation/QA, ~30% engineering |

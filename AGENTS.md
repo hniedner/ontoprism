@@ -152,9 +152,10 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   (`?c rdfs:subClassOf [owl:onProperty ?R; owl:someValuesFrom ?filler]`). The
   restriction-traversal query in `ontolib/src/ontolib/terminologies/ncit/` is what
   makes roles queryable at all — associations, by contrast, *are* direct triples.
-- **Decomposition is additive/reversible, never mutating**: legacy pre-coordinated
+- **Decomposition is additive/non-destructive, never mutating**: legacy pre-coordinated
   concepts are flagged (`representationStatus="legacy-precoordinated"`), never deleted;
-  decomposed triples go in a separate `ncit_decomposed` named graph. Extraction reads
+  decomposed triples go in a separate `ncit_decomposed` named graph. Exact reversibility
+  is quarantined until #153 provides a proof-bearing representation (D43). Extraction reads
   from the **stated** OWL (loaded via Oxigraph's offline bulk loader, not HTTP — the
   713MB stated build OOM-kills the container over HTTP GSP), not the inferred store.
 - The frontend only ever talks to the FastAPI backend; the backend owns all

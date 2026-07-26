@@ -32,13 +32,11 @@ MOST_SPECIFIC = f"{ONTOPRISM_NS}mostSpecific"
 HAS_COMPONENT = f"{ONTOPRISM_NS}hasComponent"
 DECOMPOSITION_KIND = f"{ONTOPRISM_NS}decompositionKind"
 
-# --- Reserved: not yet emitted by any writer (DECISIONS D19/D20) -------------------
-# Declared here so the design doc's vocabulary table and the golden set have a single
-# source of truth for these IRIs. The extractor that produces them is issue #44's
-# graduation step; `Constituent.group` field added in PR-A.
+# --- Projection vocabulary (DECISIONS D19/D20) -------------------------------------
+# The writer serializes these values when a constituent supplies them. Complete group
+# persistence and readback remain future #153 work.
 
-# D19: relationship-group id. Co-equal, non-nested fillers of one concept are grouped
-# rather than collapsed, keeping the complete representation lossless/round-trippable.
+# D19: relationship-group id for co-equal, non-nested fillers of one concept.
 GROUP = f"{ONTOPRISM_NS}group"
 
 # D20, refinement 1: a primary-site restriction anchored on a lineage/histology-generic

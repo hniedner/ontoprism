@@ -206,6 +206,10 @@ reporting success.
 ## 2026-07-14 — #126: what `residual_precoordination` actually counts
 
 ### D37. Residual pre-coordination = a decomposition whose own constituents are not atomic
+**Current-status note (D43):** `roundtrip_fidelity` below describes the intended future
+completeness metric. The complete representation does not yet exist; new runs record
+`null`, and #153 owns its implementation.
+
 Design §10 asks for a `residual_precoordination` metric and defines it only as "candidates left with an
 unresolved multi-aspect label after roles+NLP" — a description, not an operational rule, which is why
 `run.py` has carried a "not implemented yet" note rather than a wrong implementation. Two readings were
@@ -217,12 +221,12 @@ detector.** It is reported as a fraction of decomposed concepts.
 
 **Why this and not the label-coverage reading** ("the constituents do not account for every aspect the
 label expresses"):
-- The label-coverage question **is already answered, and better**, by `roundtrip_fidelity` (D21.3): the
+- The label-coverage question is intended to be answered by `roundtrip_fidelity` (D21.3): the
   fraction of *stated OWL restrictions* covered by the emitted equivalence axiom. That is the same
   question asked of the source's own axioms rather than of NLP-extracted "aspects".
 - A metric built on NLP aspect extraction moves when the NLP model changes. It would measure our NLP,
   not our ontology — and a quality metric that drifts with an unrelated component is worse than none.
-- The two metrics then bracket the goal cleanly and independently: `roundtrip_fidelity` asks **"did we
+- Once #153 implements it, the two metrics bracket the goal independently: `roundtrip_fidelity` asks **"did we
   capture everything?"** (completeness); `residual_precoordination` asks **"is what we produced
   actually atomic?"** (irreducibility). Nothing else measures the second, and per D38 it is the
   measure of the project's core claim.
@@ -807,6 +811,11 @@ wrong fidelity metric. Evidence: `docs/design/ncit-decomposition-engine.md` §6.
 ## 2026-07-08 — round-trip-fidelity architecture + R101 open items resolved
 
 ### D19. Reversibility is guaranteed by a complete, lossless representation of record; the single-most-specific view is a *lossy curated projection* on top of it — scope-correction to D15
+
+**Current-status note (D43):** this entry commits the target architecture, not deployed
+behavior. The complete representation and fidelity measurement are deferred to #153;
+the current projection is not derived from that still-unbuilt record, and the reserved
+emission flag always fails closed.
 D15 established "prefer the single most-specific filler per axis." §6.5 of the engine
 design then found the sharper truth: a defined concept's full `owl:equivalentClass`
 unfolding is *always* an exact, lossless definition over existing primitives, and **the
@@ -832,7 +841,7 @@ non-nested co-equal values must be **preserved**, not collapsed.
    full multi-parent-DAG unfolding of the `owl:equivalentClass` intersection chain — every
    defining restriction, across every branch, with genuinely multi-valued axes kept
    multi-valued. This is lossless *by construction* (it *is* the concept's stated
-   definition) and is what `roundtrip_fidelity` (§10) is measured against.
+   definition) and is what future `roundtrip_fidelity` (§10) will be measured against.
 2. **Adopt SNOMED CT relationship groups as the target axis model.** Where an axis
    legitimately carries several non-nested values, represent them as grouped
    attribute-value sets rather than forcing one (loses information) or flattening
@@ -840,21 +849,21 @@ non-nested co-equal values must be **preserved**, not collapsed.
    principled answer §6.5 identified, and it is what lets the co-equal site/lineage and
    region/organ facts coexist without either being dropped.
 3. **The single-most-specific, allowlist-filtered output stays the near-term deliverable —
-   explicitly flagged as a lossy curated projection**, derived *from* the complete
-   representation, not the source of truth. It is the human-readable view a curator reads;
-   it is not expected to round-trip and must not be relied on for reversibility.
-4. **`owl:equivalentClass` emission is the seam that materializes the record-of-truth
-   layer.** The off-by-default `--emit-equivalence` flag (design §4.4, §14.4, owned by #6)
-   is retained and re-cast: it is not merely a post-coordination nicety, it is how the
-   lossless artifact is asserted and how `roundtrip_fidelity` is validated against the
-   inferred closure oracle.
+   explicitly flagged as a lossy curated projection**, not the source of truth. Once #153
+   builds the complete representation, the projection must be derived and traceable from
+   it. The current view is not expected to round-trip and must not be relied on for
+   reversibility.
+4. **`owl:equivalentClass` emission is the future seam that materializes the
+   record-of-truth layer.** D43 assigns successful emission to #153 after it builds the
+   proof-bearing representation. Issue #6 owns only the user-facing grammar. Fidelity
+   must be validated against a D21-compliant oracle, never inferred `rdfs:subClassOf+`.
 
 **Why not build the full lossless+groups layer now:** the near-term deliverable (neoplasm
 5a/5b) needs a curator-readable projection to make progress against the golden set, and the
 relationship-groups model is only validated on a handful of concepts (§6.6). Committing the
 architecture now — and forbidding the lossy collapse of non-nested values — prevents the
-single-valued path from hardening into an irreversible design, while letting the complete
-layer be built incrementally behind `--emit-equivalence`. Full rationale:
+single-valued path from hardening into an irreversible design, while deferring the
+complete layer to #153. Full rationale:
 `docs/design/ncit-decomposition-engine.md` §6.5/§6.6, §4.4, §10.
 
 ### D20. R101 needs two independent, composable refinements — resolves D17's open "region-vs-organ" question

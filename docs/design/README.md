@@ -12,8 +12,8 @@ it. Read in this order:
    surfacing + re-linking, not invention.
 
 2. **[NCIt decomposition engine](./ncit-decomposition-engine.md)** — the *how*.
-   The implementable, test-driven design (Issue #4 / M5): module layout, the additive &
-   reversible `ncit_decomposed` named-graph model, the detector, most-specific filler
+   The implementable, test-driven design (Issue #4 / M5): module layout, the additive,
+   non-destructive `ncit_decomposed` named-graph model, the detector, most-specific filler
    selection, NLP fallback + minting-as-proposal, provenance, metrics, and the phased PR
    plan.
 

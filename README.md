@@ -131,7 +131,7 @@ assert and measure reversibility (#153; D19/D21/D43).
 > pre-coordinated NCIt codes, so deleting them would break the very anchoring the caDSR
 > coverage guarantee exists to protect. GALEN attempted full elimination and was not
 > adopted; SNOMED CT retains pre-coordination and *sanctions* post-coordination. We
-> follow SNOMED. Success is: **no pre-coordinated concept without a sanctioned,
+> follow SNOMED. Future success, after #153, is: **no pre-coordinated concept without a sanctioned,
 > reversible, genuinely atomic definition** — measured by `roundtrip_fidelity` (did we
 > capture everything the source asserts?) and `residual_precoordination` (is what we
 > produced actually atomic?). The second is **detector-relative**: it measures reducibility
@@ -313,7 +313,7 @@ pdm run pre-commit run --all-files  # Local quality gate
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1–D41)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D43)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->

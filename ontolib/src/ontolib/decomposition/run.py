@@ -178,7 +178,7 @@ class RunMetrics:
     residual_precoordinated_count: int = 0
     minted_count: int = 0
     pct_decomposed: float = 0.0
-    roundtrip_fidelity: float | None = None
+    roundtrip_fidelity: None = None
 
     @property
     def coverage(self) -> float:
@@ -300,12 +300,7 @@ async def _decompose_one(
         code, client, label=label, walker_max_depth=walker_max_depth
     )
 
-    # Phase 1a: resolve immediate genus for the equivalence axiom (the first
-    # ``owl:intersectionOf`` member of the starting concept).  ``None`` for
-    # primitive concepts — no equivalentClass to read it from.
-    genus_code = await stated_queries.resolve_starting_genus(client.select, code)
-
-    # Phase 1b: batch-resolve semantic_type_of for all filler codes (needed
+    # Phase 1a: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
     filler_codes = {r.filler_code for r in roles}
     if morphology_filler:
@@ -357,7 +352,6 @@ async def _decompose_one(
     decomposition = Decomposition(
         code=code,
         semantic_type=result.semantic_type,
-        genus_code=genus_code,
         constituents=[*role_constituents, *nlp_constituents],
     )
     return _CandidateResult(decomposition=decomposition, minted=minted)

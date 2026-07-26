@@ -1,5 +1,8 @@
 """Behavioral guards for the decomposition command wiring."""
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -47,3 +50,27 @@ def test_cli_rejects_equivalence_before_starting_event_loop(
         )
 
     run.assert_not_called()
+
+
+@pytest.mark.unit
+def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "DATABASE_URL": "invalid://must-not-be-used",
+        "NCIT_SPARQL_URL": "invalid://must-not-be-used",
+    }
+
+    result = subprocess.run(
+        [sys.executable, "scripts/decompose.py", "--emit-equivalence"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "--emit-equivalence is not available" in result.stderr

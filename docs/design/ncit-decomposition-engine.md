@@ -13,14 +13,14 @@ that assessment into an implementable, test-driven build.
 
 ## 1. Goal & definition of done
 
-Produce a **non-pre-coordinated ("decomposed") view of NCIt**: for every pre-coordinated concept in scope, emit its constituent atomic concepts grouped by semantic axis, written **additively and reversibly** to a dedicated `ncit_decomposed` named graph, with a provenance record in Postgres and coverage metrics.
+Produce a **non-pre-coordinated ("decomposed") view of NCIt**: for every pre-coordinated concept in scope, emit its constituent atomic concepts grouped by semantic axis, written **additively and non-destructively** to a dedicated `ncit_decomposed` named graph, with a provenance record in Postgres and coverage metrics.
 
 Mapped to the issue's checklist:
 
 | Issue requirement | Delivered by |
 |---|---|
 | Decompose pre-coordinated concept → atomic constituents (roles-first, NLP fallback) | §5 detector → §6 filler selection → §7 NLP fallback |
-| Additive & reversible: retain original, flag `legacy-precoordinated`, write to separate named graph, never mutate source | §4 data model, §8 legacy writer, §9 additivity guarantee |
+| Additive & non-destructive: retain original, flag `legacy-precoordinated`, write to separate named graph, never mutate source | §4 data model, §8 legacy writer, §9 additivity guarantee |
 | Preserve caDSR CDE→concept reachability | §4.3 — legacy code stays resolvable, constituents are existing IRIs |
 | Surface decomposition in explorer (legacy + parts + reconstruction) | Read API/UI is **#9**; engine emits the graph #9 renders (§4) |
 | Quality/coverage metrics (% decomposed, residual, round-trip fidelity) | §10 metrics + run manifest |
@@ -86,7 +86,7 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#
 | `op:decomposedBy` | literal run id (joins to `decomp_run.id`) |
 | `op:hasConstituent` | source concept → a constituent node (blank node) |
 | `op:axis` | constituent node → the axis IRI (reuse the NCIt role IRI where one exists, else an `op:` axis like `op:Morphology`, `op:Laterality`, `op:AssociatedLineageClassification`, `op:AssociatedRegion` — the last two carry `R101` senses split off per D20/§6.6) |
-| `op:group` | constituent node → a relationship-group id (D19): co-equal non-nested fillers of one concept are grouped rather than collapsed, so the complete representation stays lossless/round-trippable |
+| `op:group` | constituent node → a relationship-group id (D19). The writer can serialize supplied groups; #153 must persist and read back complete groups before round-trip claims are possible. |
 | `op:filler` | constituent node → the filler concept IRI (existing NCIt concept or minted `op:` concept) |
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
 | `op:mostSpecific` | boolean — filler is the hierarchy leaf chosen over ancestors (audit aid) |
@@ -310,10 +310,10 @@ graph**, and neither carries a direct `rdfs:subClassOf` edge — so there is no 
 this deployment against which defined-class-to-defined-class subsumption can be read off
 `rdfs:subClassOf+` (only role-restriction flattening is materialized).
 `filler_selection.py`'s most-specific selection, which relies on `rdfs:subClassOf+`, is
-therefore blind to some genuine subsumptions between defined classes. Under D19 the error
-falls the safe way — an undetected nested pair is *preserved* as co-equal group members
-rather than collapsed, so the lossless record never loses a fact and only the curated
-projection over-reports — but it caps precision against a single-valued oracle, and it
+therefore blind to some genuine subsumptions between defined classes. The current curated
+projection can therefore over-report co-equal values. D19's future complete record must
+preserve uncertain pairs rather than collapse them, but it does not yet exist. This also
+caps precision against a single-valued oracle, and it
 means §10's `roundtrip_fidelity` **must not** use the inferred graph as its closure oracle
 (D21.3); this did not affect the C6135 result above (both `R101` and
 `R105` candidates it needed to compare happen to be primitive classes with real
@@ -440,9 +440,9 @@ D19)** as this project's target axis model, over either "pick one" (loses inform
 D15's most-specific rule with README goal 4: most-specific collapse is correct **only**
 within a nested (is-a/part-of) candidate set, where the coarser fact stays derivable by
 subsumption; genuinely co-equal, non-nested values (site vs. lineage, organ vs. region) are
-kept as distinct grouped facts and never collapsed, so the complete representation remains
-lossless and round-trippable. See §6.6 and D19 for how the near-term single-valued
-projection is derived *from* that complete representation rather than replacing it.
+kept as distinct grouped facts and never collapsed, so #153's complete representation can
+be lossless and round-trippable. The current single-valued projection predates that record;
+#153 must make it derived and traceable rather than a replacement (§6.6, D19).
 
 ### 6.6 Strategy: classify role-bearing *genus concepts* by sense, additively, before axis assignment — validated direction, refined from a stronger initial proposal
 
@@ -480,7 +480,7 @@ additional metadata on a node *already visited*, not a new traversal.
 2. Persist the classification **additively** (a new `op:` annotation on the genus concept,
    or a lookup table alongside the golden set) — never rewrite or relabel the existing
    `R101`/`R105` triples themselves. This matches the project's existing additive/
-   reversible principle (README goal 2) rather than introducing a second kind of mutation
+   non-destructive principle (README goal 2) rather than introducing a second kind of mutation
    risk alongside it.
 3. During per-level role extraction, consult that classification to route a restriction to
    its raw role code (site-specific / default) or to a new `op:` axis such as
@@ -567,10 +567,10 @@ before configuration loads or clients are constructed.
 | `residual_precoordination` | candidates left with an unresolved multi-aspect label after roles+NLP |
 | `minted_count` | size of the mint tail (governance signal — should stay low hundreds) |
 | `roundtrip_fidelity` | unavailable (`null`) for new curated-projection runs. Historical numeric values remain readable. #153 may measure this only from a complete proof-bearing representation, never from the curated projection. |
-| `projection_lossiness` | count of concepts where the curated single-valued/allowlist projection (§6) drops a non-nested co-equal value the complete representation retains (D19) — a governance signal for how much the readable view sacrifices, expected to concentrate on `R101`/`R105` |
+| `projection_lossiness` | future #153 metric: count of concepts where the curated single-valued/allowlist projection (§6) drops a non-nested co-equal value retained by the complete representation (D19) |
 | `needs_review_count` | ambiguous anatomy / multi-filler axes flagged for curation |
 
-The inferred default graph may validate constituent existence even though extraction never reads from it. No current round-trip closure is claimed or measured. Future fidelity is a property of the **complete** representation (D19/#153); the curated single-valued projection is not expected to round-trip, and `projection_lossiness` quantifies the gap rather than treating it as a defect to drive to zero.
+The inferred default graph may validate constituent existence even though extraction never reads from it. No current round-trip closure or projection-loss metric is claimed or measured. Future fidelity and `projection_lossiness` are properties of the **complete** representation (D19/#153); the curated single-valued projection is not expected to round-trip.
 
 ---
 

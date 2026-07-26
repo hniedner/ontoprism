@@ -319,6 +319,8 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     persisted_metrics = provenance.finish_run.call_args.kwargs["metrics"]
     assert persisted_metrics["pct_decomposed"] == 1.0
     assert persisted_metrics["decomposed"] == 1
+    assert persisted_metrics["roundtrip_fidelity"] is None
+    assert metrics.roundtrip_fidelity is None
 
 
 @pytest.mark.unit
