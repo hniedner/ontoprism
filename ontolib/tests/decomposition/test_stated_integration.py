@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from ontolib.decomposition.extract import (
+    AncestorPair,
     PartOfPair,
     ancestor_pairs_from_rows,
     concepts_from_rows,
@@ -110,8 +111,8 @@ async def test_stated_query_builders_parse_against_disposable_store(
 async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
     isolated_oxigraph_url: str,
 ) -> None:
-    # Sorting puts C12510 plus the 15 decoys in the first tile and C32291 in the
-    # second, so the inherited known pair exercises a cross-tile combination.
+    # Sorting puts C12510 and C20000-C20014 in the first tile and C32291 in the
+    # second, exercising all four tile combinations.
     codes = [
         "C12510",
         *(f"C200{i:02d}" for i in range(15)),
@@ -151,6 +152,7 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         {
             PartOfPair(part="C32291", whole="C12510"): 1,
             PartOfPair(part="C20000", whole="C99106"): 1,
+            PartOfPair(part="C20001", whole="C20002"): 1,
             PartOfPair(part="C99101", whole="C99102"): 1,
             PartOfPair(part="C99103", whole="C99104"): 1,
         }
@@ -292,7 +294,7 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
             types = semantic_type_of.get(code)
             return types[0] if types else None
 
-        ancestor_pairs: set[tuple[str, str]] = set()
+        ancestor_pairs: set[AncestorPair] = set()
         if filler_codes:
             ancestor_rows = await client.select(
                 build_ancestor_pairs_query(list(filler_codes))
@@ -381,7 +383,7 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
             types = semantic_type_of.get(code)
             return types[0] if types else None
 
-        ancestor_pairs: set[tuple[str, str]] = set()
+        ancestor_pairs: set[AncestorPair] = set()
         if filler_codes:
             ancestor_rows = await client.select(
                 build_ancestor_pairs_query(list(filler_codes))

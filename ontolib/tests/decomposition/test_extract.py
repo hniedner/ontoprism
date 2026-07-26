@@ -3,6 +3,7 @@
 import pytest
 
 from ontolib.decomposition.extract import (
+    AncestorPair,
     PartOfPair,
     ancestor_pairs_from_rows,
     concepts_from_rows,
@@ -37,14 +38,9 @@ def test_roles_from_rows_parses_codes_and_label() -> None:
 
 
 @pytest.mark.unit
-def test_roles_from_rows_tolerates_missing_label_and_skips_incomplete_rows() -> None:
+def test_roles_from_rows_tolerates_missing_label() -> None:
     rows = [
         {"rel": _iri("R101"), "target": _iri("C12400")},  # no label
-        {"rel": _iri("R99")},  # no target -> skipped
-        {
-            "rel": _iri("R1"),
-            "target": f"{NCIT_NS}",
-        },  # empty code (IRI ends in #) -> skipped
     ]
     roles = roles_from_rows(rows)
     assert [(r.role_code, r.filler_code, r.role_label) for r in roles] == [
@@ -53,13 +49,27 @@ def test_roles_from_rows_tolerates_missing_label_and_skips_incomplete_rows() -> 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"rel": _iri("R99")},
+        {"target": _iri("C12400")},
+        {"rel": _iri("R1"), "target": f"{NCIT_NS}"},
+    ],
+)
+def test_roles_from_rows_rejects_missing_required_binding(
+    row: dict[str, str | None],
+) -> None:
+    with pytest.raises(ValueError, match="missing required"):
+        roles_from_rows([row])
+
+
+@pytest.mark.unit
 def test_semantic_types_from_rows_returns_all_distinct_sorted() -> None:
     rows = [
         {"semanticType": "Neoplastic Process"},
         {"semanticType": "Gene or Genome"},
         {"semanticType": "Neoplastic Process"},  # duplicate collapsed
-        {"semanticType": None},  # empty dropped
-        {"semanticType": ""},
     ]
     assert semantic_types_from_rows(rows) == ["Gene or Genome", "Neoplastic Process"]
 
@@ -70,13 +80,24 @@ def test_semantic_types_from_rows_empty() -> None:
 
 
 @pytest.mark.unit
-def test_ancestor_pairs_from_rows_skips_incomplete_rows() -> None:
-    rows = [
-        {"ancestor": _iri("C12401"), "descendant": _iri("C12400")},
-        {"ancestor": _iri("C12403")},  # missing descendant -> skipped
-        {"descendant": _iri("C12400")},  # missing ancestor -> skipped
-    ]
-    assert ancestor_pairs_from_rows(rows) == {("C12401", "C12400")}
+@pytest.mark.parametrize("row", [{}, {"semanticType": None}, {"semanticType": ""}])
+def test_semantic_types_from_rows_rejects_missing_required_binding(
+    row: dict[str, str | None],
+) -> None:
+    with pytest.raises(ValueError, match="semanticType"):
+        semantic_types_from_rows([row])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "row",
+    [{"ancestor": _iri("C12403")}, {"descendant": _iri("C12400")}],
+)
+def test_ancestor_pairs_from_rows_rejects_missing_required_binding(
+    row: dict[str, str | None],
+) -> None:
+    with pytest.raises(ValueError, match="missing required"):
+        ancestor_pairs_from_rows([row])
 
 
 @pytest.mark.unit
@@ -86,7 +107,10 @@ def test_ancestor_pairs_and_predicate() -> None:
         {"ancestor": _iri("C12403"), "descendant": _iri("C12400")},
     ]
     pairs = ancestor_pairs_from_rows(rows)
-    assert pairs == {("C12401", "C12400"), ("C12403", "C12400")}
+    assert pairs == {
+        AncestorPair(ancestor="C12401", descendant="C12400"),
+        AncestorPair(ancestor="C12403", descendant="C12400"),
+    }
     is_ancestor = make_is_ancestor(pairs)
     assert is_ancestor("C12401", "C12400")
     assert not is_ancestor("C12400", "C12401")
@@ -99,14 +123,12 @@ def test_concepts_from_rows_extracts_codes_in_order() -> None:
 
 
 @pytest.mark.unit
-def test_concepts_from_rows_skips_missing_and_empty() -> None:
-    rows = [
-        {"concept": _iri("C1")},
-        {"concept": None},
-        {},
-        {"concept": _iri("")},  # empty code (IRI ends in #)
-    ]
-    assert concepts_from_rows(rows) == ["C1"]
+@pytest.mark.parametrize("row", [{}, {"concept": None}, {"concept": _iri("")}])
+def test_concepts_from_rows_rejects_missing_required_binding(
+    row: dict[str, str | None],
+) -> None:
+    with pytest.raises(ValueError, match="concept"):
+        concepts_from_rows([row])
 
 
 @pytest.mark.unit
@@ -174,14 +196,19 @@ def test_genus_walk_rows_deduplicates_genuses() -> None:
 
 
 @pytest.mark.unit
-def test_genus_walk_skips_incomplete_rows() -> None:
-    rows: list[dict[str, str | None]] = [
-        {"member": "_:b", "type": _OWL_RESTRICTION},  # no role + target
-        _restriction_row("R88", "C27970"),
-    ]
-    roles, genuses = genus_walk_rows_to_roles_and_genuses(rows)
-    assert genuses == []
-    assert len(roles) == 1
+@pytest.mark.parametrize(
+    "row",
+    [
+        {},
+        {"member": "_:b", "type": _OWL_RESTRICTION},
+        {"member": "_:b", "type": _OWL_RESTRICTION, "role": _iri("R88")},
+    ],
+)
+def test_genus_walk_rejects_missing_required_binding(
+    row: dict[str, str | None],
+) -> None:
+    with pytest.raises(ValueError, match="missing required"):
+        genus_walk_rows_to_roles_and_genuses([row])
 
 
 @pytest.mark.unit
@@ -202,13 +229,19 @@ def test_semantic_type_of_from_rows_empty() -> None:
 
 
 @pytest.mark.unit
-def test_semantic_type_of_from_rows_skips_empty_rows() -> None:
-    rows: list[dict[str, str | None]] = [
+@pytest.mark.parametrize(
+    "row",
+    [
         {"code": "C6135", "st": None},
         {"code": None, "st": "Neoplastic Process"},
         {},
-    ]
-    assert semantic_type_of_from_rows(rows) == {}
+    ],
+)
+def test_semantic_type_of_from_rows_rejects_missing_required_binding(
+    row: dict[str, str | None],
+) -> None:
+    with pytest.raises(ValueError, match="missing required"):
+        semantic_type_of_from_rows([row])
 
 
 @pytest.mark.unit

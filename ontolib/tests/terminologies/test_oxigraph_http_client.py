@@ -59,6 +59,15 @@ def test_flatten_bindings_empty_result() -> None:
 
 
 @pytest.mark.unit
+def test_flatten_bindings_rejects_missing_required_projected_variable() -> None:
+    data = {"head": {"vars": ["part"]}, "results": {"bindings": []}}
+    with pytest.raises(
+        StorageError, match=r"missing required projected variable.*whole"
+    ):
+        flatten_bindings(data, required_variables={"part", "whole"})
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("data", "message"),
     [

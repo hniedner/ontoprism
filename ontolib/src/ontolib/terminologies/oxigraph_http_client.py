@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Self
 import httpx
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Collection
     from types import TracebackType
     from typing import BinaryIO
 
@@ -133,7 +133,11 @@ def _select_document(
     return data, frozenset(raw_variables)
 
 
-def flatten_bindings(data: object) -> list[dict[str, str]]:
+def flatten_bindings(
+    data: object,
+    *,
+    required_variables: Collection[str] = (),
+) -> list[dict[str, str]]:
     """Flatten a SPARQL-JSON result into ``{var: value}`` rows.
 
     Only the ``value`` of each binding is kept (datatype/lang dropped). A variable
@@ -141,6 +145,13 @@ def flatten_bindings(data: object) -> list[dict[str, str]]:
     unbound optional from an empty string.
     """
     document, variables = _select_document(data)
+    missing_variables = set(required_variables) - variables
+    if missing_variables:
+        missing = ", ".join(sorted(missing_variables))
+        raise StorageError(
+            "malformed SPARQL SELECT response: "
+            f"missing required projected variable(s): {missing}"
+        )
     results = document.get("results")
     if not isinstance(results, dict):
         raise StorageError("malformed SPARQL SELECT response: missing results object")
@@ -293,9 +304,16 @@ class OxigraphHttpClient:
             raise StorageError("SPARQL response root was not an object")
         return data
 
-    async def select(self, query: str) -> list[dict[str, str]]:
+    async def select(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str]]:
         """Run a SELECT query and return flattened ``{var: value}`` rows."""
-        return flatten_bindings(await self.select_raw(query))
+        return flatten_bindings(
+            await self.select_raw(query), required_variables=required_variables
+        )
 
     async def ask(self, query: str) -> bool:
         """Run an ASK query and return its boolean result."""

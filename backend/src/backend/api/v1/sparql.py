@@ -1,7 +1,8 @@
 """Guarded read-only raw SPARQL endpoint for the query interface.
 
-Read-only by construction: each query is parsed and only SELECT/ASK forms are accepted;
-SELECT rows are capped. This is a power-user escape hatch, not a general write surface.
+Read-only by construction: each query is parsed and only SELECT/ASK forms are accepted.
+Returned SELECT bindings are truncated after store execution. This is a power-user
+escape hatch, not a general write surface.
 """
 
 from typing import Any, Literal
@@ -73,7 +74,7 @@ def _query_form(query: str) -> Literal["select", "ask"]:
 
 @router.post("", response_model=SparqlResponse)
 async def run_sparql(client: NcitClient, body: SparqlRequest) -> SparqlResponse:
-    """Execute a read-only SELECT or ASK against the NCIt store, row-capped."""
+    """Execute read-only SELECT/ASK and truncate oversized SELECT responses."""
     query_form = _query_form(body.query)
     try:
         result = await client.select_raw(body.query)

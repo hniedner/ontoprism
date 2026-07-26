@@ -35,6 +35,14 @@ class PartOfPair:
                 raise ValueError(f"{binding} is not an NCIt concept code: {code!r}")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AncestorPair:
+    """One directed hierarchy edge from an ancestor to its descendant."""
+
+    ancestor: str
+    descendant: str
+
+
 def _code(iri: str | None) -> str | None:
     """Local NCIt code from a Thesaurus IRI (``…Thesaurus.owl#C6135`` -> ``C6135``)."""
     if not iri:
@@ -42,20 +50,30 @@ def _code(iri: str | None) -> str | None:
     return iri.rsplit("#", 1)[-1]
 
 
+def _required_binding(row: Row, binding: str) -> str:
+    value = row.get(binding)
+    if not value:
+        raise ValueError(f"SPARQL result row is missing required {binding!r} binding")
+    return value
+
+
+def _required_code(row: Row, binding: str) -> str:
+    code = _code(_required_binding(row, binding))
+    if not code:
+        raise ValueError(f"SPARQL result row is missing required {binding!r} binding")
+    return code
+
+
 def roles_from_rows(rows: Iterable[Row]) -> list[RoleRestriction]:
     """Parse ``?rel``/``?relLabel``/``?target`` rows into role restrictions.
 
-    Rows missing a role or a filler are skipped (an incomplete binding is not a usable
-    restriction).
+    ``relLabel`` is optional; the query guarantees ``rel`` and ``target``, so missing
+    required bindings abort extraction rather than silently dropping a restriction.
     """
     restrictions: list[RoleRestriction] = []
     for row in rows:
-        role_code = _code(row.get("rel"))
-        filler_code = _code(row.get("target"))
-        # Skip incomplete rows and any empty code (an IRI ending in ``#``), consistent
-        # with ancestor_pairs_from_rows below.
-        if not role_code or not filler_code:
-            continue
+        role_code = _required_code(row, "rel")
+        filler_code = _required_code(row, "target")
         restrictions.append(
             RoleRestriction(
                 role_code=role_code,
@@ -72,36 +90,36 @@ def semantic_types_from_rows(rows: Iterable[Row]) -> list[str]:
     NCIt concepts can carry several semantic types; the caller must consider all of
     them, so this returns the full set rather than an arbitrary first row.
     """
-    return sorted({v for row in rows if (v := row.get("semanticType"))})
+    return sorted({_required_binding(row, "semanticType") for row in rows})
 
 
-def ancestor_pairs_from_rows(rows: Iterable[Row]) -> set[tuple[str, str]]:
-    """Parse ``?ancestor``/``?descendant`` rows into ``(ancestor, descendant)``."""
-    pairs: set[tuple[str, str]] = set()
+def ancestor_pairs_from_rows(rows: Iterable[Row]) -> set[AncestorPair]:
+    """Parse required ``?ancestor``/``?descendant`` rows into directed pairs."""
+    pairs: set[AncestorPair] = set()
     for row in rows:
-        ancestor = _code(row.get("ancestor"))
-        descendant = _code(row.get("descendant"))
-        if ancestor and descendant:
-            pairs.add((ancestor, descendant))
+        pairs.add(
+            AncestorPair(
+                ancestor=_required_code(row, "ancestor"),
+                descendant=_required_code(row, "descendant"),
+            )
+        )
     return pairs
 
 
-def make_is_ancestor(pairs: set[tuple[str, str]]) -> Callable[[str, str], bool]:
+def make_is_ancestor(pairs: set[AncestorPair]) -> Callable[[str, str], bool]:
     """Build an ``is_ancestor(a, b)`` predicate from a set of ancestor pairs."""
-    return lambda a, b: (a, b) in pairs
+    return lambda a, b: AncestorPair(ancestor=a, descendant=b) in pairs
 
 
 def concepts_from_rows(rows: Iterable[Row]) -> list[str]:
     """Parse ``?concept`` rows (e.g. ``build_in_scope_concepts_query``) into codes.
 
-    Preserves row order (the query's ``ORDER BY`` makes it the paging order); rows
-    missing a concept or with an empty code (an IRI ending in ``#``) are skipped.
+    Preserves row order (the query's ``ORDER BY`` makes it the paging order). The query
+    guarantees ``concept``; a missing binding aborts paging rather than ending it early.
     """
     codes: list[str] = []
     for row in rows:
-        code = _code(row.get("concept"))
-        if code:
-            codes.append(code)
+        codes.append(_required_code(row, "concept"))
     return codes
 
 
@@ -110,10 +128,8 @@ def _add_role_if_new(
     roles: list[RoleRestriction],
     seen: set[tuple[str, str]],
 ) -> None:
-    role_code = _code(row.get("role"))
-    filler_code = _code(row.get("target"))
-    if not role_code or not filler_code:
-        return
+    role_code = _required_code(row, "role")
+    filler_code = _required_code(row, "target")
     key = (role_code, filler_code)
     if key not in seen:
         seen.add(key)
@@ -131,8 +147,8 @@ def _add_genus_if_new(
     genuses: list[str],
     seen: set[str],
 ) -> None:
-    genus = _code(row.get("member"))
-    if genus and genus not in seen:
+    genus = _required_code(row, "member")
+    if genus not in seen:
         seen.add(genus)
         genuses.append(genus)
 
@@ -146,6 +162,7 @@ def genus_walk_rows_to_roles_and_genuses(
     seen_genuses: set[str] = set()
 
     for row in rows:
+        _required_binding(row, "member")
         if row.get("type") == "http://www.w3.org/2002/07/owl#Restriction":
             _add_role_if_new(row, roles, seen_roles)
         else:
@@ -163,10 +180,9 @@ def semantic_type_of_from_rows(
     """
     result: dict[str, list[str]] = {}
     for row in rows:
-        code = row.get("code")
-        st = row.get("st")
-        if code and st:
-            result.setdefault(code, []).append(st)
+        code = _required_binding(row, "code")
+        st = _required_binding(row, "st")
+        result.setdefault(code, []).append(st)
     return result
 
 

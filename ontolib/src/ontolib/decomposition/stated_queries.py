@@ -40,6 +40,7 @@ _MAX_INTERSECTION_HOPS = 6
 # The 16 x 16 request was measured against a disposable clone of the full store:
 # 43 KB, 3.3 ms, with both endpoints bound before traversal in Oxigraph's plan.
 _PART_OF_QUERY_CODE_LIMIT = 16
+_NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
 
 # A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
 # apply): reject anything that could close the literal or inject a graph pattern.
@@ -143,7 +144,16 @@ def build_semantic_type_of_query(codes: list[str]) -> str:
 
 
 def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
-    iris = tuple(sorted({safe_iri(code, NCIT_NS) for code in codes}))
+    unique_codes = set(codes)
+    iris_by_code = {code: safe_iri(code, NCIT_NS) for code in unique_codes}
+    invalid_codes = sorted(
+        code for code in unique_codes if _NCIT_CONCEPT_CODE.fullmatch(code) is None
+    )
+    if invalid_codes:
+        raise ValueError(
+            f"R82 endpoint is not an NCIt concept code: {invalid_codes[0]!r}"
+        )
+    iris = tuple(sorted(iris_by_code.values()))
     if len(iris) > _PART_OF_QUERY_CODE_LIMIT:
         raise ValueError(
             "R82 query accepts at most 16 codes per endpoint (256 combinations)"

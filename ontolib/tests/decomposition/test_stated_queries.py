@@ -196,6 +196,19 @@ def test_part_of_pairs_query_rejects_unsafe_code(unsafe_endpoint: str) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("invalid_code", ["R82", "Cfoo", "C123x"])
+@pytest.mark.parametrize("invalid_endpoint", ["part", "whole"])
+def test_part_of_pairs_query_rejects_non_ncit_concept_code(
+    invalid_code: str,
+    invalid_endpoint: str,
+) -> None:
+    part_codes = [invalid_code] if invalid_endpoint == "part" else ["C1"]
+    whole_codes = [invalid_code] if invalid_endpoint == "whole" else ["C1"]
+    with pytest.raises(ValueError, match="NCIt concept code"):
+        build_part_of_pairs_query(part_codes=part_codes, whole_codes=whole_codes)
+
+
+@pytest.mark.unit
 def test_part_of_pairs_query_requires_directional_keywords() -> None:
     with pytest.raises(TypeError):
         build_part_of_pairs_query(["C1"], ["C2"])  # type: ignore[misc]

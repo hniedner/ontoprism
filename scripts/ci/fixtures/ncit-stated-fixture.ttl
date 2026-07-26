@@ -23,6 +23,16 @@ ncit:C20000 a owl:Class ;
         owl:someValuesFrom ncit:C99106
     ] .
 
+# First-part/first-whole tile relation.
+ncit:C20001 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C20002
+    ] .
+
+ncit:C20002 a owl:Class .
+
 # Direct R82 restriction.
 ncit:C99101 a owl:Class ;
     rdfs:subClassOf [
