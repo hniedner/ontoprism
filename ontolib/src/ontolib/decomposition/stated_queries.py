@@ -447,9 +447,7 @@ async def resolve_starting_genus(
         genus_iri = _required_row_binding(row, "member")
         if row.get("type") == OWL_NS + "Restriction":
             continue
-        if not genus_iri.startswith(NCIT_NS):
-            raise ValueError("genus member is not an NCIt IRI")
-        genuses.append(genus_iri.removeprefix(NCIT_NS))
+        genuses.append(_genus_code_from_iri(genus_iri))
     return genuses[0] if genuses else None
 
 
@@ -481,6 +479,15 @@ def _required_row_binding(row: Mapping[str, str | None], binding: str) -> str:
     if not value:
         raise ValueError(f"query result row is missing required {binding} binding")
     return value
+
+
+def _genus_code_from_iri(genus_iri: str) -> str:
+    if not genus_iri.startswith(NCIT_NS):
+        raise ValueError("genus member is not an NCIt IRI")
+    code = genus_iri.removeprefix(NCIT_NS)
+    if _NCIT_CONCEPT_CODE.fullmatch(code) is None:
+        raise ValueError(f"genus member is not an NCIt concept code: {code!r}")
+    return code
 
 
 async def _fetch_genus_label(
@@ -522,9 +529,7 @@ async def _get_genus_from_intersection(
         genus_iri = _required_row_binding(row, "member")
         if row.get("type") == OWL_NS + "Restriction":
             continue
-        if not genus_iri.startswith(NCIT_NS):
-            raise ValueError("genus member is not an NCIt IRI")
-        genuses.append(genus_iri.removeprefix(NCIT_NS))
+        genuses.append(_genus_code_from_iri(genus_iri))
     return genuses[0] if genuses else None
 
 

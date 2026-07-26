@@ -315,6 +315,20 @@ async def test_resolve_starting_genus_rejects_non_ncit_iri() -> None:
 
 
 @pytest.mark.unit
+async def test_resolve_starting_genus_rejects_invalid_ncit_concept_code() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [{"member": _iri("R82"), "type": None}]
+
+    with pytest.raises(ValueError, match="not an NCIt concept code"):
+        await resolve_starting_genus(fake_select, "C6135")
+
+
+@pytest.mark.unit
 def test_build_morphology_query_is_scoped_to_stated_graph() -> None:
     q = build_morphology_query("C6135")
     assert f"GRAPH <{STATED_GRAPH_IRI}>" in q
@@ -398,6 +412,20 @@ async def test_resolve_morphology_filler_rejects_missing_required_binding(
         return [{"member": _iri("C3879"), "type": None}]
 
     with pytest.raises(ValueError, match=missing_binding):
+        await resolve_morphology_filler(fake_select, "C6135")
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_rejects_non_ncit_genus() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [{"member": "http://example.org/genus", "type": None}]
+
+    with pytest.raises(ValueError, match="not an NCIt IRI"):
         await resolve_morphology_filler(fake_select, "C6135")
 
 
