@@ -57,6 +57,7 @@ jobs:
               - 'frontend/**'
               - 'coverage-surfaces.toml'
               - 'scripts/validation/coverage_hierarchy.py'
+              - '.github/workflows/ci.yml'
             embeddings:
               - 'ontolib/src/ontolib/repositories/embeddings/**'
               - 'backend/tests/test_embedding_model_contract.py'

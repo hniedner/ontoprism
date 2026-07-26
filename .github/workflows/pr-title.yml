@@ -1,4 +1,5 @@
 name: PR title
+run-name: "Validate PR title: ${{ github.event.pull_request.title }}"
 
 # The release workflow derives the version bump from Conventional Commit subjects.
 # When a PR is squash-merged, GitHub uses the PR *title* as the squash commit

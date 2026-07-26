@@ -7,9 +7,20 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
 ## Hard rules (never violate)
 
 - **NEVER merge a PR unless CI is green on the target branch (`main`).** Before any
-  `gh pr merge`, run `gh pr view <number> --json statusCheckRollup` and verify every
-  conclusion is `"SUCCESS"`. If any check failed or is pending, *stop* — ask the user
-  before proceeding.
+  `gh pr merge`, fetch `origin/main` and verify the newest push-event `CI` run on `main`
+  completed successfully. Its head must equal `origin/main` or be its ancestor with only
+  documented workflow-generated release/README commits in between. Confirm `origin/main`
+  is an ancestor of the PR head; if not, update the branch and wait for its replacement
+  checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
+  workflow/job name on the current head; superseded older runs may be ignored. Use `gh run list --workflow pr-title.yml --branch <headRefName> --event pull_request --json displayTitle,headSha,status,conclusion,createdAt` to confirm the newest run on that head is
+  successful and its `displayTitle` exactly equals `Validate PR title: <title>`. The expected
+  checks are all nine `CI` jobs, `conventional commit subject`, `dependency review`, all
+  three configured `Analyze (...)` CodeQL jobs, and the aggregate `CodeQL` check. Verify
+  `CI summary` is `"SUCCESS"`. Every other check must be `"SUCCESS"` or `"SKIPPED"` solely
+  because of a documented path condition, including a dependent job skipped when its
+  path-gated prerequisite did not run. If any expected check is absent, or any check failed,
+  was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before
+  proceeding.
 - **After merging any PR to `main`, watch the CI run to completion.** If it fails, fix
   it before starting any new work. Do not begin Phase B tasks, create branches, or open
   PRs while `main` CI is red.
