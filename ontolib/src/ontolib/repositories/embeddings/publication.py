@@ -603,10 +603,58 @@ async def _invalidate_with_note(
 ) -> None:
     try:
         await connection.invalidate()
-    except BaseException as invalidate_error:
+    except asyncio.CancelledError:
+        raise
+    except Exception as invalidate_error:
         original.add_note(
             f"Failed to invalidate embedding source connection: {invalidate_error}"
         )
+
+
+async def _run_failure_recovery(
+    recovery: Awaitable[None], original: BaseException
+) -> None:
+    task = asyncio.ensure_future(recovery)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError as cancelled:
+        try:
+            await task
+        except Exception as recovery_error:
+            cancelled.add_note(f"Failure recovery also failed: {recovery_error}")
+        cancelled.add_note(f"Source operation had already failed: {original}")
+        raise
+
+
+async def _recover_uncertain_deactivation(
+    connection: AsyncConnection,
+    engine: AsyncEngine,
+    corpus: Corpus,
+    active_build_id: UUID | None,
+    original: BaseException,
+) -> None:
+    await _invalidate_with_note(connection, original)
+    await _restore_active_source_manifest_fresh(
+        engine, corpus, active_build_id, original
+    )
+
+
+async def _recover_failed_replacement(
+    connection: AsyncConnection,
+    corpus: Corpus,
+    active_build_id: UUID | None,
+    original: BaseException,
+) -> None:
+    try:
+        await _restore_active_source_manifest(connection, corpus, active_build_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as restore_error:
+        original.add_note(
+            "Failed to restore active embedding manifest after source replacement "
+            f"failure: {restore_error}"
+        )
+        await _invalidate_with_note(connection, original)
 
 
 async def _prepare_and_replace_source[T, R](
@@ -614,7 +662,7 @@ async def _prepare_and_replace_source[T, R](
     engine: AsyncEngine,
     corpus: Corpus,
     prepare: Callable[[], Awaitable[T]],
-    replace: Callable[[T], Awaitable[R]],
+    replace: Callable[[T], R],
 ) -> R:
     candidate = await prepare()
     active_build_id = await connection.scalar(
@@ -634,22 +682,20 @@ async def _prepare_and_replace_source[T, R](
     try:
         await connection.commit()
     except BaseException as original:
-        await _invalidate_with_note(connection, original)
-        await _restore_active_source_manifest_fresh(
-            engine, corpus, active_build_id, original
+        await _run_failure_recovery(
+            _recover_uncertain_deactivation(
+                connection, engine, corpus, active_build_id, original
+            ),
+            original,
         )
         raise
     try:
-        result = await replace(candidate)
+        result = replace(candidate)
     except BaseException as original:
-        try:
-            await _restore_active_source_manifest(connection, corpus, active_build_id)
-        except BaseException as restore_error:
-            original.add_note(
-                "Failed to restore active embedding manifest after source replacement "
-                f"failure: {restore_error}"
-            )
-            await _invalidate_with_note(connection, original)
+        await _run_failure_recovery(
+            _recover_failed_replacement(connection, corpus, active_build_id, original),
+            original,
+        )
         raise
     return result
 
@@ -663,7 +709,9 @@ async def _restore_active_source_manifest_fresh(
     key = f"embedding:{corpus.value}"
     try:
         recovery = await engine.connect()
-    except BaseException as recovery_error:
+    except asyncio.CancelledError:
+        raise
+    except Exception as recovery_error:
         original.add_note(
             "Failed to open a fresh connection to restore the active embedding "
             f"manifest: {recovery_error}"
@@ -671,7 +719,12 @@ async def _restore_active_source_manifest_fresh(
         return
     try:
         await _acquire_source_lock(recovery, key)
-    except BaseException as recovery_error:
+    except asyncio.CancelledError as cancelled:
+        await _run_failure_recovery(
+            _cleanup_uncertain_source_lock(recovery, cancelled), cancelled
+        )
+        raise
+    except Exception as recovery_error:
         original.add_note(
             "Failed to acquire embedding source lock for manifest recovery: "
             f"{recovery_error}"
@@ -683,7 +736,15 @@ async def _restore_active_source_manifest_fresh(
         return
     try:
         await _restore_active_source_manifest(recovery, corpus, build_id)
-    except BaseException as recovery_error:
+    except asyncio.CancelledError as cancelled:
+        await _run_failure_recovery(
+            _cleanup_failed_source_coordination(
+                recovery, key, lock_acquired=True, original=cancelled
+            ),
+            cancelled,
+        )
+        raise
+    except Exception as recovery_error:
         original.add_note(
             "Failed to restore active embedding manifest after uncertain "
             f"deactivation commit: {recovery_error}"
@@ -700,18 +761,63 @@ async def _cleanup_failed_source_coordination(
     lock_acquired: bool,
     original: BaseException,
 ) -> None:
+    cancellation: asyncio.CancelledError | None = None
     if lock_acquired and not connection.invalidated:
         try:
             await _release_source_lock(connection, key)
-        except BaseException as unlock_error:
+        except asyncio.CancelledError as exc:
+            cancellation = exc
+        except Exception as unlock_error:
             original.add_note(
                 f"Failed to release embedding source lock: {unlock_error}"
             )
             await _invalidate_with_note(connection, original)
+    cancellation = await _close_failed_source_connection(
+        connection, original, cancellation
+    )
+    if cancellation is not None:
+        raise cancellation
+
+
+async def _close_failed_source_connection(
+    connection: AsyncConnection,
+    original: BaseException,
+    cancellation: asyncio.CancelledError | None,
+) -> asyncio.CancelledError | None:
     try:
-        await connection.close()
-    except BaseException as close_error:
+        await _close_source_connection(connection)
+    except asyncio.CancelledError as exc:
+        if cancellation is None:
+            return exc
+        cancellation.add_note(
+            "Connection close was also cancelled during failure cleanup"
+        )
+    except Exception as close_error:
         original.add_note(f"Failed to close embedding source connection: {close_error}")
+    return cancellation
+
+
+async def _cleanup_uncertain_source_lock(
+    connection: AsyncConnection, original: BaseException
+) -> None:
+    cancellation: asyncio.CancelledError | None = None
+    try:
+        await _invalidate_with_note(connection, original)
+    except asyncio.CancelledError as exc:
+        cancellation = exc
+    try:
+        await _close_source_connection(connection)
+    except asyncio.CancelledError as exc:
+        if cancellation is None:
+            cancellation = exc
+        else:
+            cancellation.add_note(
+                "Connection close was also cancelled after uncertain lock acquisition"
+            )
+    except Exception as close_error:
+        original.add_note(f"Failed to close embedding source connection: {close_error}")
+    if cancellation is not None:
+        raise cancellation
 
 
 async def _cleanup_committed_source_coordination(
@@ -773,12 +879,12 @@ async def coordinate_corpus_source_replacement[T, R](
     corpus: Corpus,
     *,
     prepare: Callable[[], Awaitable[T]],
-    replace: Callable[[T], Awaitable[R]],
+    replace: Callable[[T], R],
 ) -> R:
     """Run preparation and a caller-supplied atomic replacement under one lock.
 
-    Successful callback completion is the commit point; the callback must perform its
-    irreversible replacement as its final non-awaiting operation.
+    Successful callback completion is the commit point. The synchronous callback must
+    perform its irreversible replacement as its final operation.
     """
     engine = session_factory.kw.get("bind")
     if not isinstance(engine, AsyncEngine):
@@ -788,24 +894,23 @@ async def coordinate_corpus_source_replacement[T, R](
     try:
         await _acquire_source_lock(connection, key)
     except BaseException as original:
-        await _invalidate_with_note(connection, original)
-        try:
-            await connection.close()
-        except BaseException as close_error:
-            original.add_note(
-                f"Failed to close embedding source connection: {close_error}"
-            )
+        await _run_failure_recovery(
+            _cleanup_uncertain_source_lock(connection, original), original
+        )
         raise
     try:
         result = await _prepare_and_replace_source(
             connection, engine, corpus, prepare, replace
         )
     except BaseException as original:
-        await _cleanup_failed_source_coordination(
-            connection,
-            key,
-            lock_acquired=True,
-            original=original,
+        await _run_failure_recovery(
+            _cleanup_failed_source_coordination(
+                connection,
+                key,
+                lock_acquired=True,
+                original=original,
+            ),
+            original,
         )
         raise
     await _cleanup_committed_source_coordination(connection, key, corpus)

@@ -217,7 +217,7 @@ def _build_cadsr() -> None:
         ) as extracted:
             return build_database(extracted, candidate_path)
 
-    async def _replace_source(candidate: ValidatedCadsrCandidate) -> int:
+    def _replace_source(candidate: ValidatedCadsrCandidate) -> int:
         count = candidate.cde_count
         candidate.path.replace(destination)
         return count

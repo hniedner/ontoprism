@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import zipfile
 from dataclasses import replace
 from types import SimpleNamespace
@@ -695,7 +696,7 @@ async def test_coordinated_source_replacement_locks_before_preparation(
         prepared.set()
         return "candidate"
 
-    async def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> str:
         replaced.append(candidate)
         return candidate
 
@@ -740,47 +741,62 @@ async def test_coordinated_source_replacement_locks_before_preparation(
 async def test_coordinated_source_replacement_holds_lock_through_replacement(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    engine = session_factory.kw["bind"]
-    key = "embedding:cadsr"
-    replacement_entered = asyncio.Event()
-    finish_replacement = asyncio.Event()
+    database_url = get_settings().database_url
+    lock_observations: list[bool] = []
 
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(candidate: str) -> str:
-        replacement_entered.set()
-        await finish_replacement.wait()
+    def replace_source(candidate: str) -> str:
+        errors: list[BaseException] = []
+
+        async def probe_lock() -> None:
+            engine = make_engine(database_url)
+            try:
+                async with engine.connect() as probe:
+                    acquired = bool(
+                        await probe.scalar(
+                            text(
+                                "SELECT pg_try_advisory_lock("
+                                "hashtextextended('embedding:cadsr', 0))"
+                            )
+                        )
+                    )
+                    lock_observations.append(acquired)
+                    if acquired:
+                        await probe.execute(
+                            text(
+                                "SELECT pg_advisory_unlock("
+                                "hashtextextended('embedding:cadsr', 0))"
+                            )
+                        )
+            finally:
+                await dispose_engine(engine)
+
+        def run_probe() -> None:
+            try:
+                asyncio.run(probe_lock())
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=run_probe)
+        thread.start()
+        thread.join(timeout=5)
+        if thread.is_alive():
+            raise TimeoutError("advisory-lock probe did not finish")
+        if errors:
+            raise errors[0]
         return candidate
 
-    task = asyncio.create_task(
-        coordinate_corpus_source_replacement(
-            session_factory,
-            Corpus.CADSR,
-            prepare=prepare,
-            replace=replace_source,
-        )
+    result = await coordinate_corpus_source_replacement(
+        session_factory,
+        Corpus.CADSR,
+        prepare=prepare,
+        replace=replace_source,
     )
-    await asyncio.wait_for(replacement_entered.wait(), timeout=1)
-    assert not task.done()
 
-    async with engine.connect() as probe:
-        acquired = bool(
-            await probe.scalar(
-                text("SELECT pg_try_advisory_lock(hashtextextended(:corpus, 0))"),
-                {"corpus": key},
-            )
-        )
-        if acquired:
-            await probe.execute(
-                text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
-                {"corpus": key},
-            )
-            await probe.commit()
-    assert not acquired
-
-    finish_replacement.set()
-    assert await task == "candidate"
+    assert result == "candidate"
+    assert lock_observations == [False]
 
 
 async def test_successful_cadsr_replacement_deactivates_only_cadsr_manifest(
@@ -789,14 +805,37 @@ async def test_successful_cadsr_replacement_deactivates_only_cadsr_manifest(
     await _publish_old(session_factory, Corpus.NCIT)
     await _publish_old(session_factory, Corpus.CADSR)
     active_during_replacement: set[UUID] = set()
+    database_url = get_settings().database_url
 
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(candidate: str) -> str:
-        active_during_replacement.update(
-            manifest.build_id for manifest in await active_manifests(session_factory)
-        )
+    def replace_source(candidate: str) -> str:
+        errors: list[BaseException] = []
+
+        async def observe_manifests() -> None:
+            engine = make_engine(database_url)
+            try:
+                manifests = await active_manifests(make_sessionmaker(engine))
+                active_during_replacement.update(
+                    manifest.build_id for manifest in manifests
+                )
+            finally:
+                await dispose_engine(engine)
+
+        def run_observer() -> None:
+            try:
+                asyncio.run(observe_manifests())
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=run_observer)
+        thread.start()
+        thread.join(timeout=5)
+        if thread.is_alive():
+            raise TimeoutError("active-manifest observer did not finish")
+        if errors:
+            raise errors[0]
         return candidate
 
     result = await coordinate_corpus_source_replacement(
@@ -877,7 +916,7 @@ async def test_coordinated_source_failure_restores_active_manifest(
     async def prepare() -> str:
         return "candidate"
 
-    async def fail_replace(_candidate: str) -> None:
+    def fail_replace(_candidate: str) -> None:
         raise OSError("rename failed")
 
     with pytest.raises(OSError, match="rename failed"):
@@ -901,7 +940,7 @@ async def test_coordinated_cadsr_failure_restores_only_cadsr_manifest(
     async def prepare() -> str:
         return "candidate"
 
-    async def fail_replace(_candidate: str) -> None:
+    def fail_replace(_candidate: str) -> None:
         raise OSError("rename failed")
 
     with pytest.raises(OSError, match="rename failed"):
@@ -925,7 +964,7 @@ async def test_coordinated_failure_without_prior_manifest_leaves_none_active(
     async def prepare() -> str:
         return "candidate"
 
-    async def fail_replace(_candidate: str) -> None:
+    def fail_replace(_candidate: str) -> None:
         raise OSError("rename failed")
 
     with pytest.raises(OSError, match="rename failed"):
@@ -939,34 +978,48 @@ async def test_coordinated_failure_without_prior_manifest_leaves_none_active(
     assert await active_manifests(session_factory) == ()
 
 
-async def test_cancellation_during_replacement_restores_manifest_and_releases_lock(
+async def test_cancellation_during_manifest_recovery_propagates_after_cleanup(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _publish_old(session_factory, Corpus.CADSR)
-    replacement_entered = asyncio.Event()
-    never_finish = asyncio.Event()
+    recovery_entered = asyncio.Event()
+    finish_recovery = asyncio.Event()
+    original_restore = publication._restore_active_source_manifest
 
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(_candidate: str) -> None:
-        replacement_entered.set()
-        await never_finish.wait()
+    def fail_replace(_candidate: str) -> None:
+        raise OSError("rename failed before cancellation")
+
+    async def delayed_restore(*args, **kwargs):  # type: ignore[no-untyped-def]
+        recovery_entered.set()
+        await finish_recovery.wait()
+        await original_restore(*args, **kwargs)
+
+    monkeypatch.setattr(publication, "_restore_active_source_manifest", delayed_restore)
 
     task = asyncio.create_task(
         coordinate_corpus_source_replacement(
             session_factory,
             Corpus.CADSR,
             prepare=prepare,
-            replace=replace_source,
+            replace=fail_replace,
         )
     )
-    await asyncio.wait_for(replacement_entered.wait(), timeout=1)
+    await asyncio.wait_for(recovery_entered.wait(), timeout=1)
     task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    finish_recovery.set()
 
-    with pytest.raises(asyncio.CancelledError):
+    with pytest.raises(asyncio.CancelledError) as captured:
         await task
 
+    assert any(
+        "rename failed before cancellation" in note for note in captured.value.__notes__
+    )
     active_after = [
         manifest.build_id for manifest in await active_manifests(session_factory)
     ]
@@ -1000,7 +1053,7 @@ async def test_deactivation_commit_error_restores_manifest_using_fresh_connectio
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> str:
         replaced.append(candidate)
         return candidate
 
@@ -1038,7 +1091,7 @@ async def test_uncertain_lock_acquisition_invalidates_connection(
     async def prepare() -> str:
         pytest.fail("preparation ran after uncertain lock acquisition")
 
-    async def replace_source(_candidate: str) -> None:
+    def replace_source(_candidate: str) -> None:
         pytest.fail("replacement ran after uncertain lock acquisition")
 
     monkeypatch.setattr(publication, "_acquire_source_lock", acquire_then_raise)
@@ -1063,7 +1116,7 @@ async def test_coordinated_preparation_failure_keeps_active_manifest(
     async def fail_prepare() -> str:
         raise RuntimeError("candidate validation failed")
 
-    async def replace_source(_candidate: str) -> None:
+    def replace_source(_candidate: str) -> None:
         pytest.fail("invalid candidate reached replacement")
 
     with pytest.raises(RuntimeError, match="candidate validation failed"):
@@ -1088,7 +1141,7 @@ async def test_coordinated_post_commit_unlock_failure_reports_success(
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> str:
         replaced.append(candidate)
         return candidate
 
@@ -1133,7 +1186,7 @@ async def test_post_commit_cancellation_is_propagated_after_lock_release(
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> str:
         replaced.append(candidate)
         return candidate
 

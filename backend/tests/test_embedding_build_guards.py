@@ -299,7 +299,7 @@ def test_cadsr_validation_failure_never_reaches_replacement(
         events.append("entered")
         candidate = await prepare()
         events.append("prepared")
-        await replace(candidate)
+        replace(candidate)
 
     def fail_validation(_connection: object) -> None:
         raise StorageError("injected candidate validation failure")
@@ -371,7 +371,7 @@ def test_cadsr_complete_candidate_replaces_source_through_coordinator_callback(
             assert old_reader.execute("SELECT value FROM marker").fetchone() == (
                 "accepted",
             )
-            result = await replace(candidate)
+            result = replace(candidate)
             old_reader_results.append(
                 str(old_reader.execute("SELECT value FROM marker").fetchone()[0])
             )
