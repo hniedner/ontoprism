@@ -89,6 +89,14 @@ class SparqlClient(Protocol):
     async def version(self) -> str | None: ...
 
 
+class DecompositionSparqlClient(
+    SparqlClient,
+    stated_queries.SingleAttemptSelectRows,
+    Protocol,
+):
+    """SPARQL client with a non-retrying SELECT path for bounded closure."""
+
+
 async def _never_resolves(_: str) -> str | None:
     """Default ``label_lookup`` — always mint (never guess a false match)."""
     return None
@@ -322,7 +330,7 @@ async def _detect_concept(
 
 async def _decompose_one(
     code: str,
-    client: SparqlClient,
+    client: DecompositionSparqlClient,
     *,
     label: str | None,
     label_lookup: LabelLookup,
@@ -365,13 +373,10 @@ async def _decompose_one(
             required_variables={"ancestor", "descendant"},
         )
     )
-    # If filler A is part of filler B, B is the ancestor for selection (D16).
-    part_of_rows: list[Mapping[str, str | None]] = []
-    for query in stated_queries.build_part_of_pairs_queries(filler_codes):
-        part_of_rows.extend(
-            await client.select(query, required_variables={"part", "whole"})
-        )
-    part_of_pairs = extract.part_of_pairs_from_rows(part_of_rows)
+    # Treat an R82 whole as broader than its part for specificity selection (D16).
+    part_of_pairs = await stated_queries.resolve_part_of_pairs(
+        client, fs.comparison_filler_codes(roles)
+    )
     ancestor_pairs.update(
         extract.AncestorPair(ancestor=pair.whole, descendant=pair.part)
         for pair in part_of_pairs
@@ -616,7 +621,7 @@ async def _prepare_run(
 
 async def run_pipeline(
     config: RunConfig,
-    client: SparqlClient,
+    client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     *,
     get_labels: GetLabels | None = None,

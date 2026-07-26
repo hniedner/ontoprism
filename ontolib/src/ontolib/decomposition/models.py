@@ -36,10 +36,10 @@ class Constituent:
     """A single decomposed constituent: an axis and the concept that fills it.
 
     ``axis`` is the NCIt role code (reused as the axis identifier) or an ``op:`` axis
-    such as ``op:Morphology``. ``most_specific`` records that the filler was chosen as
-    the hierarchy leaf over its ancestors; ``needs_review`` flags an ambiguous pick for
-    curation rather than silently resolving it. ``group`` is a D19 relationship-group
-    id shared by co-equal, non-nested fillers on the same axis.
+    such as ``op:Morphology``. ``most_specific`` records that the filler was chosen over
+    a strictly broader is-a/R82 candidate; ``needs_review`` flags an unresolved ordinary
+    axis for curation. ``group`` is a D19 relationship-group id shared by ambiguous
+    fillers on the same routed axis, including hierarchy-related lineage values.
     """
 
     axis: str

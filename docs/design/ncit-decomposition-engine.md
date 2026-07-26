@@ -173,18 +173,27 @@ Output: `DetectionResult(code, is_precoordinated: bool, defining_role_count: int
 
 ---
 
-## 6. Filler selection — most-specific per axis (`filler_selection.py`)
+## 6. Filler selection — routed-axis specificity (`filler_selection.py`)
 
-The core engineering. For each defining axis of a candidate, choose the single intended filler.
+The core engineering. For each defining axis of a candidate, choose the intended
+filler or preserve unresolved co-equal fillers without silently discarding them.
 
 - **Working from the stated graph eliminates most ancestor bleed** — the stated form asserts only the intended filler, not the closure. This is why §2 mandates the stated input.
-- **Defense-in-depth most-specific selection:** where an axis still yields multiple fillers, keep the hierarchy **leaf** — the filler with no other returned filler as its `rdfs:subClassOf`-ancestor. Ancestors within the same axis result set are dropped. (Guards against any residual closure and against genuinely multi-filler axes.)
-- **`Excludes_*` filter:** negative-axiom restrictions are removed before selection (§5).
+- **Defense-in-depth most-specific selection:** on hierarchy-comparable, non-lineage
+  axes, use NCIt's stated `rdfs:subClassOf` hierarchy plus bounded transitive `R82`
+  containment. A filler is dropped only when it is strictly broader than another
+  returned filler; unrelated or mutually broader fillers remain.
+- **Non-defining filter:** `Excludes_*` negative axioms and optional R114/R115 roles are
+  removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
-- **Anatomy validation:** multi-parent anatomy fillers are cross-checked against the Uberon store (`:7879`, `UBERON_NS`) and NCIt's own anatomy hierarchy; ambiguous cases are flagged (`review` marker in the constituent record) rather than silently resolved. **Validated across 4 concepts, see §6.4:** NCIt's own is-a + `R82` part-of hierarchy resolves this cleanly in some cases but not most — expect `needs_review` on primary-site axes to stay common, not to be engineered away.
+- **Anatomy validation:** specificity uses NCIt's own is-a + bounded transitive `R82`
+  part-of hierarchy. Unresolved ordinary axes receive `needs_review`; ambiguous routed
+  region, lineage, and stage-system values are retained as grouped, review-exempt facts.
+  The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
+  as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `R101`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
 
-Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review)]`.
+Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review, group)]`.
 
 ### 6.1 Stated encoding is *layered defined classes* (verified 2026-07-06)
 
@@ -360,9 +369,14 @@ Uberon would close the gap generally.
 1. **Implement the is-a ∪ part-of (`R82`, transitive) extension to `filler_selection.py`'s
    most-specific selection regardless** — it is a real, validated, zero-downside
    improvement (never wrong in 4/4 tests) and reduces `needs_review` noise materially.
-   The bounded query implemented by #145 covers one R82 edge inherited through the
-   part's `rdfs:subClassOf*` cone; R82-to-R82 transitive closure remains separate work
-   and must not be inferred from that query.
+   #145's endpoint-bound query preserves one-edge lookup. #213 closes R82-to-R82
+   chains with constant-subject one-step expansion instead of an unbound property path:
+   at most 8 R82 hops plus a sentinel expansion, 8 inherited named-superclass hops,
+   256 cumulatively expanded codes, 16 constant subjects per single-attempt request,
+   and 64 such requests. Each query uses `LIMIT 257` and rejects more than 256 rows;
+   cumulative accepted response rows above 4,096 or a query body above 65,536 bytes
+   also fail closed. The version-pinned `26.06e` contract is
+   `C12400 -> C13063 -> C12418`.
 2. **Do not expect it to eliminate `needs_review` for R101.** The existing
    `needs_review` flag on a tied leaf set (already part of `filler_selection.py`'s
    design) is the right mechanism for the residual ties — accept some primary-site axes

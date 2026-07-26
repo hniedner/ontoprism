@@ -123,6 +123,11 @@ path = "ontolib/tests/decomposition/test_additivity_integration.py"
 fixtures = ["isolated_oxigraph_settings"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_part_of_closure_rejects_row_sentinel_and_malformed_target"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
 path = "ontolib/tests/repositories/xref/test_additivity_integration.py"
 fixtures = ["isolated_oxigraph_settings"]
 

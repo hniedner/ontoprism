@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -72,7 +73,7 @@ class _FakeClient:
         roles: dict[str, list[dict[str, str | None]]] | None = None,
         ancestors: list[dict[str, str | None]] | None = None,
         semantic_type_of_rows: list[dict[str, str | None]] | None = None,
-        part_of_rows: list[dict[str, str | None]] | None = None,
+        part_of_expansions: dict[str, list[tuple[str, str]]] | None = None,
         label_rows: list[dict[str, str | None]] | None = None,
     ) -> None:
         self._version = version
@@ -93,10 +94,11 @@ class _FakeClient:
 
         self._ancestors = ancestors or []
         self._semantic_type_of_rows = semantic_type_of_rows or []
-        self._part_of_rows = part_of_rows or []
+        self._part_of_expansions = part_of_expansions or {}
         self.queries: list[str] = []
         self.required_variables: list[frozenset[str]] = []
         self.query_requirements: list[tuple[str, frozenset[str]]] = []
+        self.single_attempt_queries: list[str] = []
 
     async def version(self) -> str | None:
         return self._version
@@ -134,8 +136,20 @@ class _FakeClient:
             return self._genus_walk.get(code or "", [])
         if "BIND(REPLACE(STR(?concept)" in query:
             return self._semantic_type_of_rows
-        if "R82>" in query:
-            return self._part_of_rows
+        if "SELECT DISTINCT ?node ?kind ?target" in query:
+            codes = tuple(
+                dict.fromkeys(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))
+            )
+            return [
+                {
+                    "node": _iri(code),
+                    "kind": kind,
+                    "target": _iri(target),
+                    "targetType": "iri",
+                }
+                for code in codes
+                for kind, target in self._part_of_expansions.get(code, ())
+            ]
         if "rdfs:label" in query and "GRAPH" in query:
             return self._label_rows
         if "P106" in query and "VALUES" not in query:
@@ -144,6 +158,15 @@ class _FakeClient:
             types = self._semantic_types.get(code or "", [])
             return [{"semanticType": t} for t in types]
         raise AssertionError(f"unexpected query: {query}")
+
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        self.single_attempt_queries.append(query)
+        return await self.select(query, required_variables=required_variables)
 
 
 def _mock_provenance() -> Any:
@@ -379,8 +402,7 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
 
 
 @pytest.mark.unit
-async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
-    """Thyroid gland C12400 is part of neck C13063, so the broader neck is removed."""
+async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> None:
     client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
@@ -388,12 +410,16 @@ async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
             "C1": [
                 _role("R101", "Has_Primary_Site", "C12400"),
                 _role("R101", "Has_Primary_Site", "C13063"),
+                _role("R101", "Has_Primary_Site", "C12418"),
                 _role("R88", "Has_Stage", "C27970"),
+                _role("R135", "Disease_Excludes_Primary_Anatomic_Site", "C9000"),
             ]
         },
-        part_of_rows=[
-            {"part": _iri("C12400"), "whole": _iri("C13063")},
-        ],
+        part_of_expansions={
+            "C12400": [("whole", "C13063")],
+            "C13063": [("whole", "C12418")],
+            **{f"C{9000 + hop}": [("whole", f"C{9001 + hop}")] for hop in range(9)},
+        },
     )
     provenance = _mock_provenance()
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
@@ -401,32 +427,50 @@ async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
     constituents = provenance.upsert_constituents.call_args.args[2]
     site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
     assert site_fillers == {"C12400"}
+    assert all(c.filler_code != "C9000" for c in constituents)
+    assert all(
+        "C9000" not in query and "C27970" not in query
+        for query in client.single_attempt_queries
+    )
 
 
 @pytest.mark.unit
-async def test_run_pipeline_aggregates_part_of_pairs_across_all_tiles() -> None:
-    class _TiledPartOfClient(_FakeClient):
-        async def select(
-            self,
-            query: str,
-            *,
-            required_variables: Collection[str] = (),
-        ) -> list[dict[str, str | None]]:
-            if "R82>" in query:
-                self.queries.append(query)
-                required = frozenset(required_variables)
-                self.required_variables.append(required)
-                self.query_requirements.append((query, required))
-                pair = f"(<{_iri('C10000')}> <{_iri('C99999')}>)"
-                return (
-                    [{"part": _iri("C10000"), "whole": _iri("C99999")}]
-                    if pair in query
-                    else []
-                )
-            return await super().select(query, required_variables=required_variables)
+async def test_run_pipeline_preserves_cyclic_fillers_for_review() -> None:
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                _role("R101", "Has_Primary_Site", "C120"),
+                _role("R101", "Has_Primary_Site", "C121"),
+                _role("R101", "Has_Primary_Site", "C130"),
+                _role("R88", "Has_Stage", "C27970"),
+            ]
+        },
+        part_of_expansions={
+            "C120": [("whole", "C121")],
+            "C121": [("whole", "C120")],
+        },
+        semantic_type_of_rows=[
+            {"code": code, "st": "Body Part, Organ, or Organ Component"}
+            for code in ("C120", "C121", "C130")
+        ],
+    )
+    provenance = _mock_provenance()
 
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    assert metrics.decomposed == 1
+    constituents = provenance.upsert_constituents.call_args.args[2]
+    sites = [c for c in constituents if c.axis == "R101"]
+    assert {c.filler_code for c in sites} == {"C120", "C121", "C130"}
+    assert all(c.needs_review and not c.most_specific for c in sites)
+
+
+@pytest.mark.unit
+async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
     site_codes = ["C10000", *(f"C200{i:02d}" for i in range(15)), "C99999"]
-    client = _TiledPartOfClient(
+    client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
         roles={
@@ -434,6 +478,10 @@ async def test_run_pipeline_aggregates_part_of_pairs_across_all_tiles() -> None:
                 *(_role("R101", "Has_Primary_Site", code) for code in site_codes),
                 _role("R88", "Has_Stage", "C27970"),
             ]
+        },
+        part_of_expansions={
+            "C10000": [("whole", "C15000")],
+            "C15000": [("whole", "C99999")],
         },
     )
     provenance = _mock_provenance()
@@ -455,12 +503,24 @@ async def test_run_pipeline_aggregates_part_of_pairs_across_all_tiles() -> None:
     assert requirements_for("rdfs:subClassOf+") == {
         frozenset({"ancestor", "descendant"})
     }
-    assert requirements_for("R82>") == {frozenset({"part", "whole"})}
+    assert requirements_for("SELECT DISTINCT ?node ?kind ?target") == {
+        frozenset({"node", "kind", "target", "targetType"})
+    }
     constituents = provenance.upsert_constituents.call_args.args[2]
     fillers = {c.filler_code for c in constituents}
     assert "C10000" in fillers
     assert "C99999" not in fillers
-    assert sum("R82>" in query for query in client.queries) == 4
+    expansion_queries = [
+        query
+        for query in client.queries
+        if "SELECT DISTINCT ?node ?kind ?target" in query
+    ]
+    assert len(expansion_queries) > 1
+    assert expansion_queries == client.single_attempt_queries
+    assert all(
+        len(set(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))) <= 16
+        for query in expansion_queries
+    )
 
 
 @pytest.mark.unit
