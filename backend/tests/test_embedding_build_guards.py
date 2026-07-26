@@ -371,13 +371,13 @@ def test_cadsr_complete_candidate_replaces_source_through_coordinator_callback(
             assert old_reader.execute("SELECT value FROM marker").fetchone() == (
                 "accepted",
             )
-            result = replace(candidate)
+            replace(candidate)
             old_reader_results.append(
                 str(old_reader.execute("SELECT value FROM marker").fetchone()[0])
             )
         events.append("replaced")
         events.append("exit")
-        return result
+        return candidate
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",

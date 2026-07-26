@@ -217,15 +217,13 @@ def _build_cadsr() -> None:
         ) as extracted:
             return build_database(extracted, candidate_path)
 
-    def _replace_source(candidate: ValidatedCadsrCandidate) -> int:
-        count = candidate.cde_count
+    def _replace_source(candidate: ValidatedCadsrCandidate) -> None:
         candidate.path.replace(destination)
-        return count
 
     async def _run() -> int:
         engine = make_engine(settings.database_url)
         try:
-            count = await coordinate_corpus_source_replacement(
+            candidate = await coordinate_corpus_source_replacement(
                 make_sessionmaker(engine),
                 Corpus.CADSR,
                 prepare=_prepare,
@@ -235,7 +233,7 @@ def _build_cadsr() -> None:
             await _dispose_cadsr_engine(engine, original)
             raise
         await _dispose_cadsr_engine(engine)
-        return count
+        return candidate.cde_count
 
     try:
         count = asyncio.run(_run())

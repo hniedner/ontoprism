@@ -696,9 +696,8 @@ async def test_coordinated_source_replacement_locks_before_preparation(
         prepared.set()
         return "candidate"
 
-    def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> None:
         replaced.append(candidate)
-        return candidate
 
     async with engine.connect() as blocker:
         await blocker.execute(
@@ -747,7 +746,7 @@ async def test_coordinated_source_replacement_holds_lock_through_replacement(
     async def prepare() -> str:
         return "candidate"
 
-    def replace_source(candidate: str) -> str:
+    def replace_source(_candidate: str) -> None:
         errors: list[BaseException] = []
 
         async def probe_lock() -> None:
@@ -786,7 +785,6 @@ async def test_coordinated_source_replacement_holds_lock_through_replacement(
             raise TimeoutError("advisory-lock probe did not finish")
         if errors:
             raise errors[0]
-        return candidate
 
     result = await coordinate_corpus_source_replacement(
         session_factory,
@@ -810,7 +808,7 @@ async def test_successful_cadsr_replacement_deactivates_only_cadsr_manifest(
     async def prepare() -> str:
         return "candidate"
 
-    def replace_source(candidate: str) -> str:
+    def replace_source(_candidate: str) -> None:
         errors: list[BaseException] = []
 
         async def observe_manifests() -> None:
@@ -836,7 +834,6 @@ async def test_successful_cadsr_replacement_deactivates_only_cadsr_manifest(
             raise TimeoutError("active-manifest observer did not finish")
         if errors:
             raise errors[0]
-        return candidate
 
     result = await coordinate_corpus_source_replacement(
         session_factory,
@@ -1053,13 +1050,56 @@ async def test_deactivation_commit_error_restores_manifest_using_fresh_connectio
     async def prepare() -> str:
         return "candidate"
 
-    def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> None:
         replaced.append(candidate)
-        return candidate
 
     monkeypatch.setattr(AsyncConnection, "commit", commit_then_raise)
 
     with pytest.raises(RuntimeError, match="commit result lost"):
+        await coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=replace_source,
+        )
+
+    manifests = await active_manifests(session_factory)
+    assert [manifest.build_id for manifest in manifests] == [_CADSR_BUILD]
+    assert replaced == []
+
+
+async def test_deactivation_execute_error_restores_manifest_using_fresh_connection(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _publish_old(session_factory, Corpus.CADSR)
+    original_execute = AsyncConnection.execute
+    injected = False
+    replaced: list[str] = []
+
+    async def execute_then_raise(  # type: ignore[no-untyped-def]
+        connection: AsyncConnection, statement, *args, **kwargs
+    ):
+        nonlocal injected
+        result = await original_execute(connection, statement, *args, **kwargs)
+        if (
+            not injected
+            and "UPDATE embedding_corpus_manifest SET is_active = false"
+            in str(statement)
+        ):
+            injected = True
+            raise RuntimeError("execute result lost")
+        return result
+
+    async def prepare() -> str:
+        return "candidate"
+
+    def replace_source(candidate: str) -> None:
+        replaced.append(candidate)
+
+    monkeypatch.setattr(AsyncConnection, "execute", execute_then_raise)
+
+    with pytest.raises(RuntimeError, match="execute result lost"):
         await coordinate_corpus_source_replacement(
             session_factory,
             Corpus.CADSR,
@@ -1141,9 +1181,8 @@ async def test_coordinated_post_commit_unlock_failure_reports_success(
     async def prepare() -> str:
         return "candidate"
 
-    def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> None:
         replaced.append(candidate)
-        return candidate
 
     async def fail_unlock(_connection: object, _key: str) -> None:
         raise RuntimeError("unlock failed after rename")
@@ -1186,9 +1225,8 @@ async def test_post_commit_cancellation_is_propagated_after_lock_release(
     async def prepare() -> str:
         return "candidate"
 
-    def replace_source(candidate: str) -> str:
+    def replace_source(candidate: str) -> None:
         replaced.append(candidate)
-        return candidate
 
     monkeypatch.setattr(AsyncConnection, "scalar", delayed_scalar)
     task = asyncio.create_task(

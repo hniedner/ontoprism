@@ -657,13 +657,13 @@ async def _recover_failed_replacement(
         await _invalidate_with_note(connection, original)
 
 
-async def _prepare_and_replace_source[T, R](
+async def _prepare_and_replace_source[T](
     connection: AsyncConnection,
     engine: AsyncEngine,
     corpus: Corpus,
     prepare: Callable[[], Awaitable[T]],
-    replace: Callable[[T], R],
-) -> R:
+    replace: Callable[[T], None],
+) -> T:
     candidate = await prepare()
     active_build_id = await connection.scalar(
         text(
@@ -672,14 +672,14 @@ async def _prepare_and_replace_source[T, R](
         ),
         {"corpus": corpus.value},
     )
-    await connection.execute(
-        text(
-            "UPDATE embedding_corpus_manifest SET is_active = false "
-            "WHERE corpus = :corpus AND is_active"
-        ),
-        {"corpus": corpus.value},
-    )
     try:
+        await connection.execute(
+            text(
+                "UPDATE embedding_corpus_manifest SET is_active = false "
+                "WHERE corpus = :corpus AND is_active"
+            ),
+            {"corpus": corpus.value},
+        )
         await connection.commit()
     except BaseException as original:
         await _run_failure_recovery(
@@ -690,14 +690,14 @@ async def _prepare_and_replace_source[T, R](
         )
         raise
     try:
-        result = replace(candidate)
+        replace(candidate)
     except BaseException as original:
         await _run_failure_recovery(
             _recover_failed_replacement(connection, corpus, active_build_id, original),
             original,
         )
         raise
-    return result
+    return candidate
 
 
 async def _restore_active_source_manifest_fresh(
@@ -874,13 +874,13 @@ async def _close_source_connection(connection: AsyncConnection) -> None:
         raise
 
 
-async def coordinate_corpus_source_replacement[T, R](
+async def coordinate_corpus_source_replacement[T](
     session_factory: async_sessionmaker[AsyncSession],
     corpus: Corpus,
     *,
     prepare: Callable[[], Awaitable[T]],
-    replace: Callable[[T], R],
-) -> R:
+    replace: Callable[[T], None],
+) -> T:
     """Run preparation and a caller-supplied atomic replacement under one lock.
 
     Successful callback completion is the commit point. The synchronous callback must
