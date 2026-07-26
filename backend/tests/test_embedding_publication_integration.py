@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import zipfile
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import pytest
+from scripts import data_build
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.core.download_cache import CacheManifest, DownloadOutcome
+from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.embeddings import publication
 from ontolib.repositories.embeddings.publication import (
     Corpus,
@@ -679,6 +684,7 @@ async def test_failed_source_replacement_keeps_manifest_inactive(
 
 async def test_coordinated_source_replacement_locks_before_preparation(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     engine = session_factory.kw["bind"]
     key = "embedding:cadsr"
@@ -689,8 +695,9 @@ async def test_coordinated_source_replacement_locks_before_preparation(
         prepared.set()
         return "candidate"
 
-    async def replace_source(candidate: str) -> None:
+    async def replace_source(candidate: str) -> str:
         replaced.append(candidate)
+        return candidate
 
     async with engine.connect() as blocker:
         await blocker.execute(
@@ -698,6 +705,18 @@ async def test_coordinated_source_replacement_locks_before_preparation(
             {"corpus": key},
         )
         await blocker.commit()
+        acquisition_started = asyncio.Event()
+        original_acquire = publication._acquire_source_lock
+
+        async def record_acquisition_start(
+            connection: AsyncConnection, lock_key: str
+        ) -> None:
+            acquisition_started.set()
+            await original_acquire(connection, lock_key)
+
+        monkeypatch.setattr(
+            publication, "_acquire_source_lock", record_acquisition_start
+        )
         task = asyncio.create_task(
             coordinate_corpus_source_replacement(
                 session_factory,
@@ -706,7 +725,7 @@ async def test_coordinated_source_replacement_locks_before_preparation(
                 replace=replace_source,
             )
         )
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(acquisition_started.wait(), timeout=1)
         assert not prepared.is_set()
         await blocker.execute(
             text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
@@ -729,9 +748,10 @@ async def test_coordinated_source_replacement_holds_lock_through_replacement(
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(_candidate: str) -> None:
+    async def replace_source(candidate: str) -> str:
         replacement_entered.set()
         await finish_replacement.wait()
+        return candidate
 
     task = asyncio.create_task(
         coordinate_corpus_source_replacement(
@@ -741,8 +761,7 @@ async def test_coordinated_source_replacement_holds_lock_through_replacement(
             replace=replace_source,
         )
     )
-    await asyncio.sleep(0.1)
-    assert replacement_entered.is_set()
+    await asyncio.wait_for(replacement_entered.wait(), timeout=1)
     assert not task.done()
 
     async with engine.connect() as probe:
@@ -762,6 +781,92 @@ async def test_coordinated_source_replacement_holds_lock_through_replacement(
 
     finish_replacement.set()
     assert await task == "candidate"
+
+
+async def test_successful_cadsr_replacement_deactivates_only_cadsr_manifest(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory, Corpus.NCIT)
+    await _publish_old(session_factory, Corpus.CADSR)
+    active_during_replacement: set[UUID] = set()
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def replace_source(candidate: str) -> str:
+        active_during_replacement.update(
+            manifest.build_id for manifest in await active_manifests(session_factory)
+        )
+        return candidate
+
+    result = await coordinate_corpus_source_replacement(
+        session_factory,
+        Corpus.CADSR,
+        prepare=prepare,
+        replace=replace_source,
+    )
+
+    assert result == "candidate"
+    assert active_during_replacement == {_OLD_BUILD}
+    active_after = {
+        manifest.build_id for manifest in await active_manifests(session_factory)
+    }
+    assert active_after == {_OLD_BUILD}
+
+
+async def test_build_cadsr_uses_real_coordination_and_preserves_ncit_manifest(
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _publish_old(session_factory, Corpus.NCIT)
+    await _publish_old(session_factory, Corpus.CADSR)
+    archive = tmp_path / "releasedCDEsXML-OD.zip"
+    xml = (
+        "<DataElementsList><DataElement><PUBLICID>100</PUBLICID>"
+        "<VERSION>1</VERSION><LONGNAME>Published CDE</LONGNAME>"
+        "</DataElement></DataElementsList>"
+    )
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cde_xml_20260701120000_1.xml", xml)
+    destination = tmp_path / "cde_repository.db"
+    destination.write_bytes(b"accepted")
+    database_url = get_settings().database_url
+    source_url = "https://example.test/cadsr.zip"
+    outcome = DownloadOutcome(
+        path=str(archive),
+        status="downloaded",
+        manifest=CacheManifest(
+            url=source_url,
+            downloaded_at="2026-07-26T00:00:00+00:00",
+            size_bytes=archive.stat().st_size,
+        ),
+    )
+
+    async def download(*_args: object, **_kwargs: object) -> DownloadOutcome:
+        return outcome
+
+    monkeypatch.setattr(
+        data_build,
+        "get_settings",
+        lambda: SimpleNamespace(
+            cadsr_data_dir=str(tmp_path / "data"),
+            cadsr_download_url=source_url,
+            cadsr_db_path=str(destination),
+            database_url=database_url,
+        ),
+    )
+    monkeypatch.setattr(data_build, "download_cadsr_cdes", download)
+
+    await asyncio.to_thread(data_build._build_cadsr)
+
+    detail = CdeRepository(destination).get_cde("100", "1")
+    assert detail is not None
+    assert detail.long_name == "Published CDE"
+    active_after = {
+        manifest.build_id for manifest in await active_manifests(session_factory)
+    }
+    assert active_after == {_OLD_BUILD}
 
 
 async def test_coordinated_source_failure_restores_active_manifest(
@@ -814,6 +919,68 @@ async def test_coordinated_cadsr_failure_restores_only_cadsr_manifest(
     }
 
 
+async def test_coordinated_failure_without_prior_manifest_leaves_none_active(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def prepare() -> str:
+        return "candidate"
+
+    async def fail_replace(_candidate: str) -> None:
+        raise OSError("rename failed")
+
+    with pytest.raises(OSError, match="rename failed"):
+        await coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=fail_replace,
+        )
+
+    assert await active_manifests(session_factory) == ()
+
+
+async def test_cancellation_during_replacement_restores_manifest_and_releases_lock(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory, Corpus.CADSR)
+    replacement_entered = asyncio.Event()
+    never_finish = asyncio.Event()
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def replace_source(_candidate: str) -> None:
+        replacement_entered.set()
+        await never_finish.wait()
+
+    task = asyncio.create_task(
+        coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=replace_source,
+        )
+    )
+    await asyncio.wait_for(replacement_entered.wait(), timeout=1)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    active_after = [
+        manifest.build_id for manifest in await active_manifests(session_factory)
+    ]
+    assert active_after == [_CADSR_BUILD]
+    async with session_factory.kw["bind"].connect() as probe:
+        acquired = await probe.scalar(
+            text("SELECT pg_try_advisory_lock(hashtextextended('embedding:cadsr', 0))")
+        )
+        assert acquired
+        await probe.execute(
+            text("SELECT pg_advisory_unlock(hashtextextended('embedding:cadsr', 0))")
+        )
+
+
 async def test_deactivation_commit_error_restores_manifest_using_fresh_connection(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
@@ -833,8 +1000,9 @@ async def test_deactivation_commit_error_restores_manifest_using_fresh_connectio
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(candidate: str) -> None:
+    async def replace_source(candidate: str) -> str:
         replaced.append(candidate)
+        return candidate
 
     monkeypatch.setattr(AsyncConnection, "commit", commit_then_raise)
 
@@ -920,8 +1088,9 @@ async def test_coordinated_post_commit_unlock_failure_reports_success(
     async def prepare() -> str:
         return "candidate"
 
-    async def replace_source(candidate: str) -> None:
+    async def replace_source(candidate: str) -> str:
         replaced.append(candidate)
+        return candidate
 
     async def fail_unlock(_connection: object, _key: str) -> None:
         raise RuntimeError("unlock failed after rename")
@@ -936,6 +1105,64 @@ async def test_coordinated_post_commit_unlock_failure_reports_success(
 
     assert result == "candidate"
     assert replaced == ["candidate"]
+    async with session_factory.kw["bind"].connect() as probe:
+        acquired = await probe.scalar(
+            text("SELECT pg_try_advisory_lock(hashtextextended('embedding:ncit', 0))")
+        )
+        assert acquired
+        await probe.execute(
+            text("SELECT pg_advisory_unlock(hashtextextended('embedding:ncit', 0))")
+        )
+
+
+async def test_post_commit_cancellation_is_propagated_after_lock_release(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered_unlock = asyncio.Event()
+    finish_unlock = asyncio.Event()
+    original_scalar = AsyncConnection.scalar
+    replaced: list[str] = []
+
+    async def delayed_scalar(connection, statement, parameters=None, **kwargs):  # type: ignore[no-untyped-def]
+        if "pg_advisory_unlock" in str(statement):
+            entered_unlock.set()
+            await finish_unlock.wait()
+        return await original_scalar(connection, statement, parameters, **kwargs)
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def replace_source(candidate: str) -> str:
+        replaced.append(candidate)
+        return candidate
+
+    monkeypatch.setattr(AsyncConnection, "scalar", delayed_scalar)
+    task = asyncio.create_task(
+        coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=replace_source,
+        )
+    )
+    await asyncio.wait_for(entered_unlock.wait(), timeout=1)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    finish_unlock.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert replaced == ["candidate"]
+    async with session_factory.kw["bind"].connect() as probe:
+        acquired = await probe.scalar(
+            text("SELECT pg_try_advisory_lock(hashtextextended('embedding:cadsr', 0))")
+        )
+        assert acquired
+        await probe.execute(
+            text("SELECT pg_advisory_unlock(hashtextextended('embedding:cadsr', 0))")
+        )
 
 
 async def test_source_replacement_blocks_publication_until_lock_release(

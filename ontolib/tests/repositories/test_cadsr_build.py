@@ -7,6 +7,7 @@ import zipfile
 from contextlib import closing, contextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import Element, SubElement
 
 import pytest
 
@@ -226,6 +227,42 @@ def test_build_rejects_empty_member_after_a_valid_member(tmp_path: Path) -> None
         build_database(extracted, candidate)
 
     assert not candidate.exists()
+
+
+@pytest.mark.unit
+def test_build_orders_members_by_sequence_and_counts_final_unique_cdes(
+    tmp_path: Path,
+) -> None:
+    def member(long_name: str) -> str:
+        return (
+            "<DataElementsList><DataElement><PUBLICID>100</PUBLICID>"
+            f"<VERSION>1</VERSION><LONGNAME>{long_name}</LONGNAME>"
+            "</DataElement></DataElementsList>"
+        )
+
+    archive = tmp_path / "source.zip"
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cde_xml_20260701120000_2.xml", member("Second"))
+        stream.writestr("cde_xml_20260701120000_1.xml", member("First"))
+    outcome = DownloadOutcome(
+        path=str(archive),
+        status="downloaded",
+        manifest=CacheManifest(
+            url=_SOURCE.url,
+            downloaded_at=_SOURCE.downloaded_at,
+            size_bytes=archive.stat().st_size,
+        ),
+    )
+
+    with extract_cadsr_archive(
+        outcome, expected_url=_SOURCE.url, workspace_parent=tmp_path / "workspaces"
+    ) as extracted:
+        candidate = build_database(extracted, tmp_path / "candidate.db")
+
+    assert candidate.cde_count == 1
+    detail = CdeRepository(candidate.path).get_cde("100", "1")
+    assert detail is not None
+    assert detail.long_name == "Second"
 
 
 @pytest.mark.unit
@@ -499,7 +536,7 @@ def test_parse_cde_missing_id_returns_none() -> None:
 
 
 @pytest.mark.unit
-def test_iter_cdes_ignores_other_elements_and_clears_memory(tmp_path: Path) -> None:
+def test_iter_cdes_ignores_other_elements(tmp_path: Path) -> None:
     bad = tmp_path / "bad.xml"
     bad.write_text(
         "<DataElementsList>"
@@ -511,6 +548,43 @@ def test_iter_cdes_ignores_other_elements_and_clears_memory(tmp_path: Path) -> N
     assert len(results) == 1
     assert results[0].cde_json["public_id"] == "1"
     assert results[0].cde_json["version"] == "1"
+
+
+@pytest.mark.unit
+def test_iter_cdes_clears_processed_root_children(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = Element("DataElementsList")
+    first = SubElement(root, "DataElement")
+    SubElement(first, "PUBLICID").text = "1"
+    SubElement(first, "VERSION").text = "1"
+    second = SubElement(root, "DataElement")
+    SubElement(second, "PUBLICID").text = "2"
+    SubElement(second, "VERSION").text = "1"
+
+    def streaming_events(_path: str, *, events: tuple[str, ...]):
+        assert events == ("start", "end")
+        return iter(
+            (
+                ("start", root),
+                ("start", first),
+                ("end", first),
+                ("start", second),
+                ("end", second),
+                ("end", root),
+            )
+        )
+
+    monkeypatch.setattr("ontolib.repositories.cadsr.build.iterparse", streaming_events)
+
+    public_ids = [
+        cde.cde_json["public_id"] for cde in iter_cdes(tmp_path / "unused.xml")
+    ]
+    assert public_ids == [
+        "1",
+        "2",
+    ]
+    assert len(root) == 0
 
 
 @pytest.mark.unit
@@ -688,3 +762,38 @@ def test_build_error_remains_primary_when_sqlite_close_fails(
         build_database(extracted, tmp_path / "candidate.db")
 
     assert any("injected close failure" in note for note in captured.value.__notes__)
+
+
+@pytest.mark.unit
+def test_validation_error_remains_primary_when_sqlite_close_fails(
+    built_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _database_source(built_db)
+    with closing(sqlite3.connect(built_db)) as conn:
+        conn.execute(
+            "UPDATE cdes SET cde_json = 'invalid JSON' WHERE public_id = '100'"
+        )
+        conn.commit()
+    real_connect = sqlite3.connect
+
+    class CloseFailingConnection:
+        def __init__(self, path: Path) -> None:
+            self._connection = real_connect(path)
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._connection, name)
+
+        def close(self) -> None:
+            self._connection.close()
+            raise sqlite3.OperationalError("injected validation close failure")
+
+    monkeypatch.setattr(
+        "ontolib.repositories.cadsr.build.sqlite3.connect", CloseFailingConnection
+    )
+
+    with pytest.raises(StorageError, match="invalid CDE row content") as captured:
+        validate_database(built_db, expected_source=source, expected_cde_count=2)
+
+    assert any(
+        "injected validation close failure" in note for note in captured.value.__notes__
+    )

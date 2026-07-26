@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import shutil
 import sqlite3
@@ -17,6 +18,7 @@ from scripts.data_build import (
     _build_cadsr,
     _build_owl,
     _code_commit,
+    _dispose_cadsr_engine,
     _require_ncit_source,
     _require_stable_cadsr_source,
     _require_stable_ncit_source,
@@ -30,6 +32,35 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _CADSR_URL = "https://example.test/releasedCDEsXML-OD.zip"
+
+
+@pytest.mark.unit
+async def test_cadsr_engine_disposal_propagates_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = asyncio.Event()
+    finish = asyncio.Event()
+    disposed = asyncio.Event()
+
+    async def delayed_disposal(_engine: object) -> None:
+        entered.set()
+        await finish.wait()
+        disposed.set()
+
+    monkeypatch.setattr("scripts.data_build.dispose_engine", delayed_disposal)
+
+    task = asyncio.create_task(
+        _dispose_cadsr_engine(object())  # type: ignore[arg-type]
+    )
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    finish.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert disposed.is_set()
 
 
 def _cadsr_outcome(archive: Path) -> DownloadOutcome:
@@ -192,7 +223,7 @@ async def test_owl_candidates_are_prepared_to_distinct_paths(
 
 
 @pytest.mark.unit
-def test_cadsr_candidate_failure_preserves_existing_source_before_deactivation(
+def test_cadsr_candidate_failure_preserves_existing_source_before_replacement(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -307,7 +338,7 @@ def test_cadsr_validation_failure_never_reaches_replacement(
 
 
 @pytest.mark.unit
-def test_cadsr_complete_candidate_replaces_source_inside_lock(
+def test_cadsr_complete_candidate_replaces_source_through_coordinator_callback(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
@@ -319,8 +350,12 @@ def test_cadsr_complete_candidate_replaces_source_inside_lock(
     stale = persistent_extract / "stale.xml"
     stale.write_text(_cde_xml("999"))
     destination = tmp_path / "cde.db"
-    destination.write_text("accepted")
+    with closing(sqlite3.connect(destination)) as accepted:
+        accepted.execute("CREATE TABLE marker (value TEXT NOT NULL)")
+        accepted.execute("INSERT INTO marker VALUES ('accepted')")
+        accepted.commit()
     events: list[str] = []
+    old_reader_results: list[str] = []
 
     async def download(*_args: object, **_kwargs: object) -> DownloadOutcome:
         return _cadsr_outcome(archive)
@@ -332,10 +367,17 @@ def test_cadsr_complete_candidate_replaces_source_inside_lock(
         events.append("enter")
         candidate = await prepare()
         events.append("prepared")
-        await replace(candidate)
+        with closing(sqlite3.connect(destination)) as old_reader:
+            assert old_reader.execute("SELECT value FROM marker").fetchone() == (
+                "accepted",
+            )
+            result = await replace(candidate)
+            old_reader_results.append(
+                str(old_reader.execute("SELECT value FROM marker").fetchone()[0])
+            )
         events.append("replaced")
         events.append("exit")
-        return candidate
+        return result
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
@@ -367,20 +409,23 @@ def test_cadsr_complete_candidate_replaces_source_inside_lock(
             hashlib.sha256(archive.read_bytes()).hexdigest(),
         )
     assert stale.read_text() == _cde_xml("999")
+    assert old_reader_results == ["accepted"]
     assert events == ["enter", "prepared", "replaced", "exit"]
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("suffix", ["-journal", "-shm", "-wal"])
 def test_cadsr_destination_sidecar_aborts_replacement_and_preserves_source(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+    suffix: str,
 ) -> None:
     archive = tmp_path / "cdes.zip"
     with zipfile.ZipFile(archive, "w") as stream:
         stream.writestr("cde_xml_20260701120000_1.xml", _cde_xml("100"))
     destination = tmp_path / "cde.db"
     destination.write_text("accepted")
-    sidecar = tmp_path / "cde.db-wal"
+    sidecar = tmp_path / f"cde.db{suffix}"
     sidecar.write_text("uncheckpointed")
     events: list[str] = []
     downloads: list[str] = []

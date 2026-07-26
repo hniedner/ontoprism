@@ -48,6 +48,7 @@ def _archive(path: Path, members: list[tuple[str, bytes]]) -> DownloadOutcome:
         "C:\\escape.xml",
         "\\\\server\\share.xml",
         "nested/cde.xml",
+        "notes.txt",
     ],
 )
 def test_archive_rejects_unsafe_member_before_extraction(
@@ -163,6 +164,35 @@ def test_archive_rejects_incomplete_member_sequence(tmp_path: Path) -> None:
         ),
     ):
         pytest.fail("incomplete archive was exposed to the builder")
+
+
+@pytest.mark.unit
+def test_archive_rejects_empty_archive(tmp_path: Path) -> None:
+    outcome = _archive(tmp_path / "source.zip", [])
+
+    with (
+        pytest.raises(StorageError, match="contains no release XML members"),
+        extract_cadsr_archive(
+            outcome, expected_url=_URL, workspace_parent=tmp_path / "workspaces"
+        ),
+    ):
+        pytest.fail("empty archive was exposed to the builder")
+
+
+@pytest.mark.unit
+def test_archive_rejects_invalid_member_calendar_timestamp(tmp_path: Path) -> None:
+    outcome = _archive(
+        tmp_path / "source.zip",
+        [("cde_xml_20260230120000_1.xml", _XML)],
+    )
+
+    with (
+        pytest.raises(StorageError, match="invalid timestamp"),
+        extract_cadsr_archive(
+            outcome, expected_url=_URL, workspace_parent=tmp_path / "workspaces"
+        ),
+    ):
+        pytest.fail("invalid timestamp was exposed to the builder")
 
 
 @pytest.mark.unit

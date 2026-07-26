@@ -53,13 +53,11 @@ def test_configured_cadsr_archive_matches_pinned_release_shape(
     assert candidate.cde_count == _RELEASE_CDE_COUNT
 
 
-def test_historical_partial_export_is_rejected_without_touching_accepted_db(
+def test_historical_partial_export_is_rejected_and_candidate_removed(
     tmp_path: Path,
 ) -> None:
     settings = get_settings()
     archive = Path(settings.cadsr_data_dir) / f"{CADSR_ZIP_FILENAME}.2026-05-10"
-    accepted = tmp_path / "accepted.db"
-    accepted.write_bytes(b"accepted database")
     candidate = tmp_path / "candidate.db"
 
     with extract_cadsr_archive(
@@ -74,5 +72,4 @@ def test_historical_partial_export_is_rejected_without_touching_accepted_db(
         with pytest.raises(ParseError):
             build_database(extracted, candidate)
 
-    assert accepted.read_bytes() == b"accepted database"
     assert not candidate.exists()

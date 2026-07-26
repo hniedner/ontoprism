@@ -609,13 +609,13 @@ async def _invalidate_with_note(
         )
 
 
-async def _prepare_and_replace_source[T](
+async def _prepare_and_replace_source[T, R](
     connection: AsyncConnection,
     engine: AsyncEngine,
     corpus: Corpus,
     prepare: Callable[[], Awaitable[T]],
-    replace: Callable[[T], Awaitable[None]],
-) -> T:
+    replace: Callable[[T], Awaitable[R]],
+) -> R:
     candidate = await prepare()
     active_build_id = await connection.scalar(
         text(
@@ -640,7 +640,7 @@ async def _prepare_and_replace_source[T](
         )
         raise
     try:
-        await replace(candidate)
+        result = await replace(candidate)
     except BaseException as original:
         try:
             await _restore_active_source_manifest(connection, corpus, active_build_id)
@@ -651,7 +651,7 @@ async def _prepare_and_replace_source[T](
             )
             await _invalidate_with_note(connection, original)
         raise
-    return candidate
+    return result
 
 
 async def _restore_active_source_manifest_fresh(
@@ -717,36 +717,69 @@ async def _cleanup_failed_source_coordination(
 async def _cleanup_committed_source_coordination(
     connection: AsyncConnection, key: str, corpus: Corpus
 ) -> None:
+    cancellation: asyncio.CancelledError | None = None
     try:
         await _release_source_lock(connection, key)
-    except BaseException:
+    except asyncio.CancelledError as exc:
+        cancellation = exc
+    except Exception:
         logger.exception(
             "%s source replacement committed but lock cleanup failed", corpus.value
         )
-        try:
-            await connection.invalidate()
-        except BaseException:
-            logger.exception(
-                "%s source replacement committed but invalidation failed",
-                corpus.value,
-            )
+        cancellation = await _invalidate_committed_source_connection(connection, corpus)
     try:
-        await connection.close()
-    except BaseException:
+        await _close_source_connection(connection)
+    except asyncio.CancelledError as exc:
+        if cancellation is None:
+            cancellation = exc
+        else:
+            cancellation.add_note(
+                "Connection close was also cancelled after source replacement"
+            )
+    except Exception:
         logger.exception(
             "%s source replacement committed but connection cleanup failed",
             corpus.value,
         )
+    if cancellation is not None:
+        raise cancellation
 
 
-async def coordinate_corpus_source_replacement[T](
+async def _invalidate_committed_source_connection(
+    connection: AsyncConnection, corpus: Corpus
+) -> asyncio.CancelledError | None:
+    try:
+        await connection.invalidate()
+    except asyncio.CancelledError as exc:
+        return exc
+    except Exception:
+        logger.exception(
+            "%s source replacement committed but invalidation failed", corpus.value
+        )
+    return None
+
+
+async def _close_source_connection(connection: AsyncConnection) -> None:
+    task = asyncio.create_task(connection.close())
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
+
+async def coordinate_corpus_source_replacement[T, R](
     session_factory: async_sessionmaker[AsyncSession],
     corpus: Corpus,
     *,
     prepare: Callable[[], Awaitable[T]],
-    replace: Callable[[T], Awaitable[None]],
-) -> T:
-    """Serialize source preparation and atomically commit its filesystem replacement."""
+    replace: Callable[[T], Awaitable[R]],
+) -> R:
+    """Run preparation and a caller-supplied atomic replacement under one lock.
+
+    Successful callback completion is the commit point; the callback must perform its
+    irreversible replacement as its final non-awaiting operation.
+    """
     engine = session_factory.kw.get("bind")
     if not isinstance(engine, AsyncEngine):
         raise TypeError("embedding session factory must be bound to an AsyncEngine")
@@ -764,7 +797,7 @@ async def coordinate_corpus_source_replacement[T](
             )
         raise
     try:
-        candidate = await _prepare_and_replace_source(
+        result = await _prepare_and_replace_source(
             connection, engine, corpus, prepare, replace
         )
     except BaseException as original:
@@ -776,7 +809,7 @@ async def coordinate_corpus_source_replacement[T](
         )
         raise
     await _cleanup_committed_source_coordination(connection, key, corpus)
-    return candidate
+    return result
 
 
 @asynccontextmanager

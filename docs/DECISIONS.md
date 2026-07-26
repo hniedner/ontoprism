@@ -30,15 +30,17 @@ release completeness: caDSR publishes no authoritative expected count, and the c
 81,209-row release must not be rejected by the older 79,827-row embedding expectation.
 
 Existing destination journal/WAL sidecars fail before download or embedding deactivation.
-Any failure before the atomic rename preserves the last accepted database and removes
-private candidate artifacts. A rename failure restores the prior active embedding manifest;
-an ambiguous deactivation commit invalidates that connection and reconciles the prior state
-on a fresh connection before the original error is reported. Recovery failures remain
-explicit notes on that error rather than being mistaken for successful restoration. A
-successful rename is the commit point: subsequent advisory-lock, connection, engine, or
-candidate-cleanup errors are logged as committed cleanup incidents rather than reported as a
-failed publication. Successful source replacement deliberately leaves caDSR embeddings
-inactive until their separately validated D42 rebuild is published.
+Any failure before the atomic rename preserves the last accepted database and attempts to
+remove private candidate artifacts; cleanup failures remain explicit notes on the original
+error. A rename failure restores the prior active embedding manifest; an ambiguous
+deactivation commit invalidates that connection and reconciles the prior state on a fresh
+connection before the original error is reported. Recovery failures likewise remain notes
+rather than being mistaken for successful restoration. A successful rename is the commit
+point: subsequent ordinary advisory-lock, connection, engine, or candidate-cleanup errors
+are logged as committed cleanup incidents rather than reported as a failed publication;
+operator cancellation still propagates after cancellation-safe cleanup. Successful source
+replacement deliberately leaves caDSR embeddings inactive until their separately validated
+D42 rebuild is published.
 
 **Why:** a candidate and its locally verifiable identity become one self-contained
 artifact. Atomic replacement gives new repository connections either the old database or

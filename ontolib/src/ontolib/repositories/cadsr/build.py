@@ -378,9 +378,11 @@ def parse_cde(elem: Element) -> ParsedCde | None:
 
 def iter_cdes(xml_path: Path) -> Iterator[ParsedCde]:
     """Stream-parse ``<DataElement>`` records from *xml_path* (memory-bounded)."""
-    it = iterparse(str(xml_path), events=("end",))
-    for _event, elem in it:
-        if elem.tag != "DataElement":
+    root: Element | None = None
+    for event, elem in iterparse(str(xml_path), events=("start", "end")):
+        document_root = elem if root is None else root
+        root = document_root
+        if event != "end" or elem.tag != "DataElement":
             continue
         try:
             parsed = parse_cde(elem)
@@ -388,11 +390,8 @@ def iter_cdes(xml_path: Path) -> Iterator[ParsedCde]:
                 yield parsed
         finally:
             elem.clear()
-            # clear() empties the element but leaves it attached to the root, which
-            # would otherwise accumulate one node per record — drop processed siblings.
-            root = getattr(it, "root", None)
-            if root is not None:
-                root.clear()
+            # Processed children remain attached unless the root is also cleared.
+            document_root.clear()
 
 
 def _insert(conn: sqlite3.Connection, parsed: ParsedCde) -> None:
@@ -716,7 +715,15 @@ def validate_database(
             _check_identity(conn, expected_source, expected_cde_count)
             _check_row_content(conn)
             _check_fts_content(conn)
-        finally:
+        except BaseException as original:
+            try:
+                conn.close()
+            except BaseException as close_error:
+                original.add_note(
+                    f"Failed to close caDSR candidate after validation: {close_error}"
+                )
+            raise
+        else:
             conn.close()
     except sqlite3.DatabaseError as exc:
         raise StorageError(f"invalid caDSR candidate database: {exc}") from exc

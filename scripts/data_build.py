@@ -177,9 +177,13 @@ def _cleanup_cadsr_candidate(
 async def _dispose_cadsr_engine(
     engine: AsyncEngine, original: BaseException | None = None
 ) -> None:
+    task = asyncio.create_task(dispose_engine(engine))
     try:
-        await dispose_engine(engine)
-    except BaseException as dispose_error:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+    except Exception as dispose_error:
         if original is not None:
             original.add_note(f"Failed to dispose caDSR build engine: {dispose_error}")
         else:
@@ -213,13 +217,15 @@ def _build_cadsr() -> None:
         ) as extracted:
             return build_database(extracted, candidate_path)
 
-    async def _replace_source(candidate: ValidatedCadsrCandidate) -> None:
+    async def _replace_source(candidate: ValidatedCadsrCandidate) -> int:
+        count = candidate.cde_count
         candidate.path.replace(destination)
+        return count
 
-    async def _run() -> ValidatedCadsrCandidate:
+    async def _run() -> int:
         engine = make_engine(settings.database_url)
         try:
-            candidate = await coordinate_corpus_source_replacement(
+            count = await coordinate_corpus_source_replacement(
                 make_sessionmaker(engine),
                 Corpus.CADSR,
                 prepare=_prepare,
@@ -229,17 +235,15 @@ def _build_cadsr() -> None:
             await _dispose_cadsr_engine(engine, original)
             raise
         await _dispose_cadsr_engine(engine)
-        return candidate
+        return count
 
     try:
-        candidate = asyncio.run(_run())
+        count = asyncio.run(_run())
     except BaseException as original:
         _cleanup_cadsr_candidate(candidate_path, original)
         raise
     _cleanup_cadsr_candidate(candidate_path)
-    typer.echo(
-        f"Built caDSR DB with {candidate.cde_count} CDEs at {settings.cadsr_db_path}"
-    )
+    typer.echo(f"Built caDSR DB with {count} CDEs at {settings.cadsr_db_path}")
 
 
 def _sha256(path: Path) -> str:
