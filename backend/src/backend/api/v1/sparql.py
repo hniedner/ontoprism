@@ -47,7 +47,23 @@ def _has_service_pattern(node: object) -> bool:
     return False
 
 
-def _query_form(query: str) -> Literal["select", "ask"]:
+def _projected_variables(parsed_query: object) -> frozenset[str]:
+    if not isinstance(parsed_query, CompValue):
+        return frozenset()
+    projection = parsed_query.get("projection")
+    if not isinstance(projection, list):
+        return frozenset()
+    variables: set[str] = set()
+    for item in projection:
+        if not isinstance(item, CompValue):
+            continue
+        variable = item["var"] if "var" in item else item.get("evar")
+        if variable is not None:
+            variables.add(str(variable))
+    return frozenset(variables)
+
+
+def _query_form(query: str) -> tuple[Literal["select", "ask"], frozenset[str]]:
     try:
         parsed = parseQuery(query)
         parsed_query = parsed[1]
@@ -63,9 +79,9 @@ def _query_form(query: str) -> Literal["select", "ask"]:
             "Federated SPARQL SERVICE clauses are not permitted.",
         )
     if query_name == "SelectQuery":
-        return "select"
+        return "select", _projected_variables(parsed_query)
     if query_name == "AskQuery":
-        return "ask"
+        return "ask", frozenset()
     raise HTTPException(
         status.HTTP_400_BAD_REQUEST,
         "Only read-only SPARQL SELECT/ASK queries are permitted.",
@@ -75,11 +91,11 @@ def _query_form(query: str) -> Literal["select", "ask"]:
 @router.post("", response_model=SparqlResponse)
 async def run_sparql(client: NcitClient, body: SparqlRequest) -> SparqlResponse:
     """Execute read-only SELECT/ASK and truncate oversized SELECT responses."""
-    query_form = _query_form(body.query)
+    query_form, projected_variables = _query_form(body.query)
     try:
         result = await client.select_raw(body.query)
         if query_form == "select":
-            flatten_bindings(result)
+            flatten_bindings(result, required_variables=projected_variables)
         else:
             parse_ask_result(result)
     except StorageError as exc:

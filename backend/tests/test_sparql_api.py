@@ -209,6 +209,23 @@ def test_malformed_upstream_result_is_502(result: dict[str, Any]) -> None:
 
 
 @pytest.mark.api
+def test_named_select_rejects_missing_projected_variable() -> None:
+    result: dict[str, Any] = {
+        "head": {"vars": ["s"]},
+        "results": {"bindings": []},
+    }
+    client = next(_client(_FakeClient(result=result)))
+
+    resp = client.post(
+        "/api/v1/sparql",
+        json={"query": "SELECT ?s ?label WHERE { ?s ?p ?o }"},
+    )
+
+    assert resp.status_code == 502
+    assert "label" in resp.json()["detail"]
+
+
+@pytest.mark.api
 @pytest.mark.parametrize(
     ("query", "result"),
     [

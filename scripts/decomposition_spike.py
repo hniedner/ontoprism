@@ -82,7 +82,8 @@ async def _extract(
             continue
         seen.add(current)
         rows = await client.select(_level_query(current))
-        for r in roles_from_rows(rows):
+        role_rows = (row for row in rows if row.get("rel") and row.get("target"))
+        for r in roles_from_rows(role_rows):
             if _defining(r.role_label):
                 pairs.add((r.role_code, r.filler_code))
         for row in rows:

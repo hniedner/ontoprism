@@ -28,6 +28,7 @@ _COUNT_NONE = "count_none"  # SPARQL-JSON without a "count" binding
 _COUNT_BAD = "count_bad"  # SPARQL-JSON with a non-integer count value
 _NON_JSON = "non_json"  # response body that is not valid JSON
 _NON_OBJECT_JSON = "non_object_json"  # valid JSON with the wrong top-level shape
+_MISSING_PROJECTION = "missing_projection"
 
 
 def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
@@ -50,7 +51,9 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
         },
     }
 
-    if _COUNT_NONE in query:
+    if _MISSING_PROJECTION in query:
+        body = {"head": {"vars": ["rel"]}, "results": {"bindings": []}}
+    elif _COUNT_NONE in query:
         body = {"head": {"vars": ["count"]}, "results": {"bindings": [{}]}}
     elif _COUNT_BAD in query:
         body = {
@@ -147,6 +150,16 @@ async def test_select_flattens_rows(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         rows = await client.select("SELECT ?rel ?target WHERE { ?s ?p ?o }")
     assert rows == [{"rel": f"{NCIT_NS}R105", "target": f"{NCIT_NS}C12922"}]
+
+
+@pytest.mark.unit
+async def test_select_forwards_required_projected_variables(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="target"):
+            await client.select(
+                f"SELECT ?rel ?target WHERE {{ ?s ?p ?o }} # {_MISSING_PROJECTION}",
+                required_variables={"rel", "target"},
+            )
 
 
 @pytest.mark.unit

@@ -37,7 +37,7 @@ class PartOfPair:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AncestorPair:
-    """One directed hierarchy edge from an ancestor to its descendant."""
+    """One directed ancestor-descendant relationship."""
 
     ancestor: str
     descendant: str

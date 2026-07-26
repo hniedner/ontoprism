@@ -1,5 +1,7 @@
 """Unit tests for the stated-graph SPARQL builders (string shape + injection guard)."""
 
+from collections.abc import Collection
+
 import pytest
 
 from ontolib.decomposition.stated_queries import (
@@ -228,8 +230,13 @@ def test_part_of_pairs_query_rejects_more_than_measured_tile_limit(
 
 @pytest.mark.unit
 async def test_resolve_starting_genus_returns_genus_from_hop_0() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
         assert "C6135" in query
+        assert set(required_variables) == {"member"}
         return [
             {"member": _iri("C141041"), "type": None},
             {
@@ -246,7 +253,12 @@ async def test_resolve_starting_genus_returns_genus_from_hop_0() -> None:
 
 @pytest.mark.unit
 async def test_resolve_starting_genus_returns_none_when_no_rows() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
         return []
 
     genus = await resolve_starting_genus(fake_select, "C6135")
@@ -255,7 +267,12 @@ async def test_resolve_starting_genus_returns_none_when_no_rows() -> None:
 
 @pytest.mark.unit
 async def test_resolve_starting_genus_returns_none_when_all_are_restrictions() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
         return [
             {
                 "member": _iri("C141041"),
@@ -274,7 +291,12 @@ async def test_resolve_starting_genus_handles_non_ncit_iri() -> None:
     """Fallback path: genus IRI that does not start with NCIT_NS is returned
     as-is (defensive — all NCIt genuses are in NCIT_NS)."""
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
         return [{"member": "http://example.org/foo#C1", "type": None}]
 
     genus = await resolve_starting_genus(fake_select, "C6135")
@@ -305,9 +327,15 @@ def test_build_morphology_query_rejects_unsafe_code() -> None:
 async def test_resolve_morphology_filler_returns_first_non_staging_genus() -> None:
     call_count = 0
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
         nonlocal call_count
         call_count += 1
+        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
+        assert set(required_variables) == expected_variables
         if call_count == 1:
             return [{"member": _iri("C141041"), "type": None}]
         if call_count == 2:
@@ -324,7 +352,13 @@ async def test_resolve_morphology_filler_returns_first_non_staging_genus() -> No
 
 @pytest.mark.unit
 async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query
+        assert set(required_variables) == {"member"}
         return []
 
     morphology = await resolve_morphology_filler(fake_select, "C6135")
@@ -335,9 +369,15 @@ async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
 async def test_resolve_morphology_filler_returns_first_genus_if_not_staging() -> None:
     call_count = 0
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
         nonlocal call_count
         call_count += 1
+        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
+        assert set(required_variables) == expected_variables
         # Call 1: build_genus_walk_members_query(C6135) then select_fn(queries[0])
         # Call 2: select_fn(label_query) for C3879
         if call_count == 1:
@@ -394,7 +434,12 @@ async def test_walk_genus_chain_populates_anchoring_genus() -> None:
         "roleLabel": "Disease_Has_Primary_Anatomic_Site",
     }
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
         # C6135 (start, depth 0) has the lineage-generic genus C3809 as a member.
         if "#C6135>" in query:
             return [{"member": _iri("C3809"), "type": None}]
@@ -424,7 +469,12 @@ async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> N
         "roleLabel": "Disease_Is_Stage",
     }
 
-    async def fake_select(query: str) -> list[dict[str, str | None]]:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
         if "#C6135>" in query:
             return [restriction_row]
         return []

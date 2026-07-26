@@ -95,6 +95,7 @@ class _FakeClient:
         self._semantic_type_of_rows = semantic_type_of_rows or []
         self._part_of_rows = part_of_rows or []
         self.queries: list[str] = []
+        self.required_variables: list[frozenset[str]] = []
 
     async def version(self) -> str | None:
         return self._version
@@ -113,7 +114,7 @@ class _FakeClient:
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        del required_variables
+        self.required_variables.append(frozenset(required_variables))
         self.queries.append(query)
         if "ORDER BY ?concept" in query:
             offset = int(query.split("OFFSET")[1].split(maxsplit=1)[0])
@@ -410,6 +411,7 @@ async def test_run_pipeline_aggregates_part_of_pairs_across_all_tiles() -> None:
         ) -> list[dict[str, str | None]]:
             if "R82>" in query:
                 self.queries.append(query)
+                self.required_variables.append(frozenset(required_variables))
                 pair = f"(<{_iri('C10000')}> <{_iri('C99999')}>)"
                 return (
                     [{"part": _iri("C10000"), "whole": _iri("C99999")}]
@@ -434,6 +436,13 @@ async def test_run_pipeline_aggregates_part_of_pairs_across_all_tiles() -> None:
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
 
     assert metrics.decomposed == 1
+    assert {
+        frozenset({"concept"}),
+        frozenset({"semanticType"}),
+        frozenset({"code", "st"}),
+        frozenset({"ancestor", "descendant"}),
+        frozenset({"part", "whole"}),
+    }.issubset(set(client.required_variables))
     constituents = provenance.upsert_constituents.call_args.args[2]
     fillers = {c.filler_code for c in constituents}
     assert "C10000" in fillers

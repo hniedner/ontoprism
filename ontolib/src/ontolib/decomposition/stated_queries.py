@@ -12,7 +12,7 @@ import asyncio
 import re
 from collections.abc import Iterable
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from ontolib.decomposition.models import RoleRestriction
@@ -24,7 +24,7 @@ from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
 from ontolib.terminologies.oxigraph_http_client import safe_iri
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+    from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
 
 _PREFIXES = f"""
         PREFIX rdfs: <{RDFS_NS}>
@@ -45,6 +45,15 @@ _NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
 # A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
 # apply): reject anything that could close the literal or inject a graph pattern.
 _SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
+
+
+class SelectRows(Protocol):
+    def __call__(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
 
 
 def _safe_literal(value: str) -> str:
@@ -396,7 +405,7 @@ def _collect_new_roles(
 
 
 async def _process_walk_node(
-    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
+    select_fn: SelectRows,
     current: str,
     depth: int,
     seen_pairs: set[tuple[str, str]],
@@ -406,7 +415,8 @@ async def _process_walk_node(
 ) -> None:
     queries = build_genus_walk_members_query(current)
     results = await asyncio.gather(
-        *(select_fn(q) for q in queries), return_exceptions=False
+        *(select_fn(q, required_variables={"member"}) for q in queries),
+        return_exceptions=False,
     )
     member_rows = _flatten_hop_results(results)
     if not member_rows:
@@ -422,7 +432,7 @@ async def _process_walk_node(
 
 
 async def resolve_starting_genus(
-    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
 ) -> str | None:
     """Resolve the immediate genus (first ``owl:intersectionOf`` member) of
@@ -431,7 +441,7 @@ async def resolve_starting_genus(
     queries = build_genus_walk_members_query(code)
     if not queries:
         return None
-    rows = await select_fn(queries[0])  # hop-0 only
+    rows = await select_fn(queries[0], required_variables={"member"})  # hop-0 only
     for row in rows:
         if row.get("type") != OWL_NS + "Restriction":
             genus_iri = row.get("member")
@@ -466,7 +476,7 @@ def _is_staging_concept_label(label: str) -> bool:
 
 
 async def _fetch_genus_label(
-    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
+    select_fn: SelectRows,
     genus_iri: str,
 ) -> str | None:
     """Fetch the label for a genus concept from the stated graph."""
@@ -477,14 +487,14 @@ async def _fetch_genus_label(
             }}
         }}
     """
-    rows = await select_fn(label_query)
+    rows = await select_fn(label_query, required_variables={"label"})
     if not rows:
         return None
     return rows[0].get("label")
 
 
 async def _get_genus_from_intersection(
-    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
 ) -> str | None:
     """Get the genus code from the first owl:intersectionOf member."""
@@ -492,7 +502,9 @@ async def _get_genus_from_intersection(
     if not queries:
         return None
 
-    rows = await select_fn(queries[0])  # hop-0: first intersection member
+    rows = await select_fn(
+        queries[0], required_variables={"member"}
+    )  # hop-0: first intersection member
     if not rows:
         return None
 
@@ -505,7 +517,7 @@ async def _get_genus_from_intersection(
 
 
 async def resolve_morphology_filler(
-    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
     *,
     max_depth: int = 5,
@@ -542,7 +554,7 @@ async def resolve_morphology_filler(
 
 
 async def walk_genus_chain(
-    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
+    select_fn: SelectRows,
     code: str,
     *,
     max_depth: int = 5,

@@ -344,5 +344,10 @@ class OxigraphHttpClient:
             "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
             "SELECT ?v WHERE { ?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 1"
         )
-        rows = await self.select(query)
-        return rows[0].get("v") if rows else None
+        rows = await self.select(query, required_variables={"v"})
+        if not rows:
+            return None
+        version = rows[0].get("v")
+        if not version:
+            raise StorageError("VERSION query returned no 'v' binding")
+        return version
