@@ -50,7 +50,6 @@ from ontolib.decomposition import (
     stated_queries,
 )
 from ontolib.decomposition import filler_selection as fs
-from ontolib.decomposition.fidelity import roundtrip_fidelity
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Decomposition
 
@@ -102,14 +101,15 @@ async def _never_resolves(_: str) -> str | None:
     return None
 
 
-@dataclass
+@dataclass(frozen=True)
 class RunConfig:
     """Configuration for a decomposition run.
 
     ``load_to_store`` is accepted here for the CLI to carry alongside the rest of the
     config, but ``run_pipeline`` never reads it: loading into the store is a CLI-layer
     concern performed by the caller after ``run_pipeline`` returns (see the module
-    docstring).  ``emit_equivalence`` is wired through to ``write_ttl``.
+    docstring). Equivalence emission is quarantined until #153 provides a
+    proof-bearing representation.
     """
 
     branch: str
@@ -118,6 +118,13 @@ class RunConfig:
     emit_equivalence: bool = False
     resume_from: str | None = None
     walker_max_depth: int = 5
+
+    def __post_init__(self) -> None:
+        if self.emit_equivalence:
+            raise ValueError(
+                "equivalence emission is not available until a proof-bearing "
+                "representation can establish exact completeness (#153)"
+            )
 
 
 @dataclass
@@ -134,7 +141,8 @@ class RunMetrics:
       metric**: decomposed concepts at least one of whose *emitted constituents is
       itself* classified as pre-coordinated by the same detector. This is "is what we
       produced actually atomic?" (irreducibility), the counterpart of
-      ``roundtrip_fidelity``'s "did we capture everything?" (completeness).
+      the future ``roundtrip_fidelity`` metric's "did we capture everything?"
+      (completeness).
 
       It is **detector-relative** — defined purely in terms of what ``detector.detect``
       flags — so an under-detecting detector reads it artificially low, and a detector
@@ -159,9 +167,9 @@ class RunMetrics:
       why the number is proved reachable there (start at the morphology/genus path), on
       real data, not only in unit tests.
 
-    ``roundtrip_fidelity`` is computed only when ``emit_equivalence=True`` — the
-    fraction of stated defining restrictions covered by the emitted
-    owl:equivalentClass intersection axiom (D21.3).
+    ``roundtrip_fidelity`` is unavailable for the current curated projection. Numeric
+    values from historical runs remain readable, but new runs record ``None`` until
+    #153 provides a proof-bearing representation.
     """
 
     total_in_scope: int = 0
@@ -170,7 +178,7 @@ class RunMetrics:
     residual_precoordinated_count: int = 0
     minted_count: int = 0
     pct_decomposed: float = 0.0
-    roundtrip_fidelity: float = 0.0
+    roundtrip_fidelity: float | None = None
 
     @property
     def coverage(self) -> float:
@@ -195,7 +203,6 @@ class RunMetrics:
 class _CandidateResult:
     decomposition: Decomposition | None
     minted: list[MintedConcept] = field(default_factory=list)
-    stated_roles: list[RoleRestriction] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.decomposition is None and self.minted:
@@ -208,59 +215,6 @@ class _CandidateResult:
 
 def _new_run_id(branch: str) -> str:
     return f"{branch}-{datetime.now(UTC).isoformat(timespec='seconds')}"
-
-
-def _compute_fidelity(
-    decomposition: Decomposition,
-    stated_roles: list[RoleRestriction],
-) -> float | None:
-    """Compute roundtrip fidelity for one decomposition.
-
-    Returns None if there are no stated role restrictions (no basis for fidelity).
-    Otherwise returns the fraction of stated role restrictions covered by the
-    role-sourced constituents in the decomposition.
-    """
-    if not stated_roles:
-        return None
-
-    stated_set: set[tuple[str, str]] = set()
-    for r in stated_roles:
-        if not axes.is_excluded_role(r.role_label):
-            axis = fs.route_axis(r)
-            stated_set.add((axis, r.filler_code))
-
-    if not stated_set:
-        return None
-
-    emitted_set: set[tuple[str, str]] = set()
-    for c in decomposition.constituents:
-        if c.axis_source == "role":
-            emitted_set.add((c.axis, c.filler_code))
-
-    return roundtrip_fidelity(emitted_set, stated_set)
-
-
-def _maybe_collect_fidelity(
-    result: _CandidateResult,
-    emit_equivalence: bool,
-    fidelity_scores: list[float],
-) -> None:
-    """Collect fidelity score if emit_equivalence and valid decomposition."""
-    if not emit_equivalence or result.decomposition is None:
-        return
-    fidelity = _compute_fidelity(result.decomposition, result.stated_roles)
-    if fidelity is not None:
-        fidelity_scores.append(fidelity)
-
-
-def _finalize_fidelity(
-    metrics: RunMetrics,
-    fidelity_scores: list[float],
-    emit_equivalence: bool,
-) -> None:
-    """Set the aggregate roundtrip_fidelity metric."""
-    if emit_equivalence and fidelity_scores:
-        metrics.roundtrip_fidelity = sum(fidelity_scores) / len(fidelity_scores)
 
 
 async def enumerate_in_scope_codes(
@@ -365,7 +319,7 @@ async def _decompose_one(
         semantic_type_of = extract.semantic_type_of_from_rows(rows)
 
     if not result.is_precoordinated:
-        return _CandidateResult(decomposition=None, stated_roles=[])
+        return _CandidateResult(decomposition=None)
 
     ancestor_pairs = extract.ancestor_pairs_from_rows(
         await client.select(
@@ -406,9 +360,7 @@ async def _decompose_one(
         genus_code=genus_code,
         constituents=[*role_constituents, *nlp_constituents],
     )
-    return _CandidateResult(
-        decomposition=decomposition, minted=minted, stated_roles=roles
-    )
+    return _CandidateResult(decomposition=decomposition, minted=minted)
 
 
 def _residual_count(
@@ -652,8 +604,6 @@ async def run_pipeline(
 
     metrics = RunMetrics(total_in_scope=len(setup.codes))
     decompositions: list[Decomposition] = []
-    fidelity_scores: list[float] = []
-
     for code in setup.pending:
         try:
             result = await _decompose_one(
@@ -672,8 +622,6 @@ async def run_pipeline(
             raise
         if result.decomposition is None:
             continue
-
-        _maybe_collect_fidelity(result, config.emit_equivalence, fidelity_scores)
 
         await _persist_candidate(
             setup.run_id,
@@ -698,14 +646,11 @@ async def run_pipeline(
         decompositions, precoordinated_fillers=precoordinated
     )
 
-    _finalize_fidelity(metrics, fidelity_scores, config.emit_equivalence)
-
     if config.out is not None:
         await write_ttl(
             decompositions,
             dest=config.out,
             run_id=setup.run_id,
-            emit_equivalence=config.emit_equivalence,
         )
 
     finished = await provenance.finish_run(setup.run_id, metrics=asdict(metrics))

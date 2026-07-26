@@ -110,18 +110,20 @@ ncit:C6135 op:representationStatus "legacy-precoordinated" ;
 - **Additive:** the engine writes *only* to `DECOMPOSED_GRAPH_IRI`. The stated and inferred graphs are never targets of a write. A consumer that ignores the new graph sees today's NCIt unchanged.
 - **caDSR reachability:** CDE→concept mappings key on the NCIt concept IRI (`ncit:Cxxxxx`), which is untouched — the legacy code keeps its label, definition, and all axioms and stays fully resolvable. Every constituent filler is itself an existing active NCIt IRI (100% coverage on the roles path), so a decomposed concept remains reachable from its CDEs and every constituent is a valid navigation target.
 
-### 4.4 Optional post-coordination equivalence (deferred to #6)
+### 4.4 Proof-bearing equivalence (quarantined; future #153)
 
-For entities with a clean, complete axis set the engine *can* additionally assert an `owl:equivalentClass` intersection of the fillers, which is what makes a legacy concept a *derivable* post-coordinated expression and enables de-duplication of AJCC v7/v8 and with/without forks. This is emitted behind a `--emit-equivalence` flag, **off by default** — it is the seam #6 (post-coordination syntax) builds on and should not gate the M5 additive deliverable.
+The current single-valued, allowlist-filtered output (§6) cannot prove that it preserves
+the source's complete multi-parent and grouped definition. It is an explicitly lossy
+curated projection and never asserts `owl:equivalentClass`. The reserved
+`--emit-equivalence` option fails closed before settings, clients, provenance, stdout, or
+filesystem effects; the writer independently refuses the same request.
 
-**This flag is also the seam for the complete, lossless representation of record (DECISIONS
-D19).** The `owl:equivalentClass` intersection it emits — the full multi-parent-DAG
-unfolding, with genuinely multi-valued axes kept multi-valued (relationship groups, §6.5) —
-*is* the round-trippable artifact README goal 4 requires. The default single-valued,
-allowlist-filtered output (§6) is an explicitly-lossy curated projection derived from it, not
-a substitute for it. `roundtrip_fidelity` (§10) is therefore only meaningful when this flag
-is on, and is measured against the complete representation (lossless by construction), never
-against the curated projection.
+Issue #153 owns the future proof-bearing representation: the full multi-parent-DAG
+unfolding with genuinely multi-valued axes preserved in relationship groups (D19). Only
+that complete representation may reintroduce successful equivalence emission and a
+measured `roundtrip_fidelity`. The quarantine does not block the additive constituent
+view or future post-coordination grammar; it prevents the curated view from being
+misrepresented as an exact definition.
 
 ### 4.5 Postgres provenance (Alembic migration `0003_decomposition`)
 
@@ -537,17 +539,20 @@ When an NLP aspect has no existing NCIt concept (e.g. an explicit *absent/exclud
 
 ## 8. Legacy writer (`legacy_writer.py`)
 
-Pure function: `(source_code, list[Constituent], run) → RDF triples` in `DECOMPOSED_GRAPH_IRI`. Emits the §4.2 vocabulary. Buffers to a `data/ncit_decomposed.ttl` file and bulk-loads via `client.load(..., graph_iri=DECOMPOSED_GRAPH_IRI)`. No `DELETE`, no write to any other graph — enforced structurally (the writer only ever targets one graph IRI) and verified by the additivity test.
+Pure function: `(source_code, list[Constituent], run) → RDF triples` in `DECOMPOSED_GRAPH_IRI`. Emits only the additive §4.2 vocabulary. Buffers to a `data/ncit_decomposed.ttl` file and bulk-loads via `client.load(..., graph_iri=DECOMPOSED_GRAPH_IRI)`. No `DELETE`, no write to any other graph, and no `owl:equivalentClass`. A reserved equivalence request is rejected before stdout or filesystem effects.
 
 ---
 
 ## 9. Run orchestration & CLI (`run.py`)
 
 ```
-pdm run decompose --branch neoplasm --out data/ncit_decomposed.ttl [--load] [--emit-equivalence] [--resume RUN_ID]
+pdm run decompose --branch neoplasm --out data/ncit_decomposed.ttl [--load] [--resume RUN_ID]
 ```
 
 Pipeline per branch: enumerate in-scope concepts (semantic-type filter) → detect → for each candidate: stated-query roles → filler-select → NLP fallback → resolve/mint constituents → buffer triples + provenance rows. Writes the `decomp_run` manifest incrementally (status `running`→`complete`), so `--resume` restarts from the last persisted concept. `--load` pushes the TTL into Oxigraph; default is file-only (CI-friendly, deterministic).
+
+`--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
+before configuration loads or clients are constructed.
 
 **Version pinning:** the run records `owl:versionInfo` of the stated graph and refuses to reuse a manifest across a version bump (roles are version-pinned — assessment §4). A guard test fails loudly if the loaded build differs from the pinned build.
 
@@ -561,11 +566,11 @@ Pipeline per branch: enumerate in-scope concepts (semantic-type filter) → dete
 | `constituent_existence_rate` | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
 | `residual_precoordination` | candidates left with an unresolved multi-aspect label after roles+NLP |
 | `minted_count` | size of the mint tail (governance signal — should stay low hundreds) |
-| `roundtrip_fidelity` | when `--emit-equivalence`: fraction of concepts whose emitted **complete** `owl:equivalentClass` unfolding (all defining axes, multi-valued preserved — the D19 representation of record) re-derives the original concept, validated against a **complete** closure oracle — computed from the stated `owl:equivalentClass`/`owl:intersectionOf` structure, or a real OWL reasoner. **Not** the inferred graph's `rdfs:subClassOf+`, which omits defined-class subsumption and would report false negatives on exactly the chains D19 preserves (DECISIONS D21.3). Measured on the complete representation only, never the curated projection. |
+| `roundtrip_fidelity` | unavailable (`null`) for new curated-projection runs. Historical numeric values remain readable. #153 may measure this only from a complete proof-bearing representation, never from the curated projection. |
 | `projection_lossiness` | count of concepts where the curated single-valued/allowlist projection (§6) drops a non-nested co-equal value the complete representation retains (D19) — a governance signal for how much the readable view sacrifices, expected to concentrate on `R101`/`R105` |
 | `needs_review_count` | ambiguous anatomy / multi-filler axes flagged for curation |
 
-The inferred default graph is the validation oracle here: constituent existence and round-trip closure are checked against it even though extraction never reads from it. Round-trip fidelity is a property of the **complete** representation (D19), which is lossless by construction; the curated single-valued projection is not expected to round-trip, and `projection_lossiness` quantifies the gap rather than treating it as a defect to drive to zero.
+The inferred default graph may validate constituent existence even though extraction never reads from it. No current round-trip closure is claimed or measured. Future fidelity is a property of the **complete** representation (D19/#153); the curated single-valued projection is not expected to round-trip, and `projection_lossiness` quantifies the gap rather than treating it as a defect to drive to zero.
 
 ---
 
@@ -581,7 +586,7 @@ Strict TDD (repo standard): failing test → minimum code → green → ruff + b
 - `test_missing_constituent_minting` — NLP-only aspect with no concept → deterministic proposal (stable id + provenance), not a silent create; rerun yields the same id.
 - `test_legacy_representation` — decomposing `C6135` leaves the original intact and adds `representationStatus="legacy-precoordinated"` + `hasConstituent` triples in the decomposed graph only; the original code still resolves.
 - `test_additive_no_deletions` — OWL-diff of the stated + inferred graphs before/after a run is empty (structural additivity guarantee).
-- `test_equivalentclass_roundtrip` (optional, `--emit-equivalence`) — for a fully-covered entity the emitted intersection re-derives the constituent set; AJCC v7/v8 forks (`C6135`/`C141045`) become equivalent up to the stage-system qualifier.
+- `test_equivalence_request_fails_closed` — CLI, programmatic run configuration, and direct writer requests refuse before clients or artifact effects; accepted output remains byte-for-byte unchanged.
 - **Golden-file test** — a curated ~200-concept neoplasm sample → expected constituent JSON; CI diff-gates the golden output (this is the assessment §7 de-risking spike, promoted into a regression gate).
 
 Integration tests marked `@pytest.mark.integration` run against the live stated graph and are version-pinned.
@@ -628,14 +633,14 @@ records the call and the rationale.
 3. **Vocabulary namespace — `https://w3id.org/ontoprism/vocab#` (prefix `op:`).**
    Nothing in-repo pins `ontoprism.org`; the only canonical identifier is `github.com/hniedner/ontoprism`. A **w3id.org persistent identifier** is the right choice: it is community-standard for linked-data/OBO vocabularies, is made resolvable via a one-line redirect PR to the w3id registry, and does **not** depend on owning (or keeping) the `ontoprism.org` domain — matching the repo's existing use of a purl persistent identifier for `UBERON_NS` (`namespaces.py`). Set `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"`. *Only* switch to `https://ontoprism.org/vocab#` if that domain is actually owned and committed to long-term; a namespace IRI need not resolve to be valid, but a stable, controllable one avoids a future migration of every `op:` triple.
 
-4. **`owl:equivalentClass` emission — keep the off-by-default `--emit-equivalence` seam. Re-cast by decision 6 below: it is no longer only #6's concern.**
-   Issue **#6 ("Post-coordination expression syntax for observations & findings")** still owns the *user-facing post-coordination grammar* — the reasoner/consistency implications and the AJCC-fork de-duplication payoff belong there. But **D19 makes this flag the seam through which the lossless representation of record is asserted**, and `roundtrip_fidelity` (§10) is only computed when it is on. Reversibility (README goal 4) therefore depends on `--emit-equivalence` being built out, which puts it on **goal 2's** critical path, not merely downstream of #6. It is no longer accurate to describe #6 as purely dependent on #4's output; the two now share this seam. Per **D21.3**, the fidelity check behind this flag must not use the inferred graph as its closure oracle.
+4. **`owl:equivalentClass` emission — reserved and fail-closed until #153.**
+   Issue **#6 ("Post-coordination expression syntax for observations & findings")** still owns the *user-facing post-coordination grammar*. Issue #153 owns the proof-bearing complete representation that must precede any exact axiom or fidelity measurement. The CLI flag remains reserved but rejects every request before effects (D43); the current curated projection cannot authorize equivalence.
 
 5. **Most-specific filler selection applies *across alternate DAG branches*, not just within one branch's collected candidates. Resolved 2026-07-08 — see DECISIONS D14/D15 and §6.3.**
    §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption. **Scope-corrected by decision 6 below:** this "nothing is lost" reasoning holds only for *nested* (is-a/part-of) candidate sets; non-nested co-equal values must not be collapsed.
 
 6. **The reversible representation of record is the complete lossless unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 — see DECISIONS D19 and §6.5.**
-   §6.5 established that a defined concept's full `owl:equivalentClass` unfolding is exact and lossless, and that the *only* fidelity loss comes from this project's own simplifications (the defining-axis allowlist + single-valued collapse). Because README goal 4 requires round-tripping back to the original pre-coordinated concept, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG unfolding (all defining axes, multi-valued preserved via SNOMED-style **relationship groups**) is the representation of record and the basis for `roundtrip_fidelity`; the single-most-specific, allowlist-filtered output remains the near-term deliverable but is an explicitly-lossy projection derived from it, not the source of truth. Most-specific collapse (decision 5 / D15) is scoped to *nested* candidate sets only; genuinely co-equal non-nested values (site vs. lineage, organ vs. region) are kept as grouped facts. The complete layer is materialized behind `--emit-equivalence` (§4.4) and built incrementally; committing the architecture now forbids the single-valued path from hardening into an irreversible design.
+   §6.5 established that a defined concept's full `owl:equivalentClass` unfolding is exact and lossless, and that the *only* fidelity loss comes from this project's own simplifications (the defining-axis allowlist + single-valued collapse). Because README goal 4 requires round-tripping back to the original pre-coordinated concept, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG unfolding (all defining axes, multi-valued preserved via SNOMED-style **relationship groups**) is the future representation of record and basis for `roundtrip_fidelity`; the single-most-specific, allowlist-filtered output is the current explicitly-lossy projection, not the source of truth. Most-specific collapse (decision 5 / D15) is scoped to *nested* candidate sets only; genuinely co-equal non-nested values (site vs. lineage, organ vs. region) are kept as grouped facts. #153 must materialize the complete layer before the reserved emission seam can succeed.
 
 7. **`R101` primary-site disambiguation uses two independent, composable refinements. Resolved 2026-07-08 — see DECISIONS D20 and §6.6.**
    D17 left open whether the region-vs-organ ties (`Colon`/`Colorectal Region`, `Left Atrium`/`Endocardium`) need a second mechanism beyond genus-sense classification. They do. Decision: (1) genus-sense classification (D17) runs first and routes lineage-generic restrictions to `op:AssociatedLineageClassification`, then (2) filler-semantic-type ranking orders the residual non-lineage ties (organ-level "Body Part, Organ, or Organ Component" wins the `R101` site; region/tissue is routed to `op:AssociatedRegion`). Order matters — semantic type fails on the lineage case both fillers type as organs, so (1) must carve off lineage before (2). Both additive; under decision 6's groups model each tie becomes distinct grouped facts rather than a forced single value.

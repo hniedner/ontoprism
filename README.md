@@ -119,12 +119,11 @@ on a slide — and then says why it fails. They are spelled out because in every
 seductive form is the wrong one, and three of them would quietly *destroy information* if
 built as stated.
 
-**1 · Decompose.** Every pre-coordinated NCIt concept gets a defining expression over
-atomic constituents, with an `owl:equivalentClass` axiom that makes the decomposition
-*reversible* (D19/D21) — reversibility being **asserted by the emitted axiom and measured
-by `roundtrip_fidelity`**, not proven by a reasoner: this deployment does not materialize
-defined-class subsumption (D21), so the word is carrying a claim we verify empirically
-rather than one the logic hands us for free.
+**1 · Decompose.** Every pre-coordinated NCIt concept gets an additive constituent view.
+The current view is a deliberately lossy curated projection: it does not assert
+`owl:equivalentClass`, and `roundtrip_fidelity` is unavailable. A future proof-bearing
+representation must preserve the complete multi-parent, grouped definition before it can
+assert and measure reversibility (#153; D19/D21/D43).
 
 > **Guardrail.** *Sounds better:* **"zero pre-coordinated concepts."** *Why it fails:*
 > the target is zero **unanalyzed** pre-coordination, not zero pre-coordinated concepts. These are not the same thing, and only the first is
@@ -236,10 +235,11 @@ through caDSR; NAACCR keeps its exchange format, operational rules, and mandate.
    combines atomic concepts at query time, supporting arbitrary dimension combinations
    without requiring named concepts.
 
-The decomposition is **additive and reversible** — decomposed triples are written to
-a separate named graph (`ncit_decomposed`), never mutating the stated OWL. Legacy
-concepts remain fully navigable and resolvable; the decomposed view exists alongside
-them as an alternative, more granular lens.
+The current decomposition is **additive and non-destructive**: decomposed triples are
+written to a separate named graph (`ncit_decomposed`), never mutating the stated OWL.
+Legacy concepts remain fully navigable and resolvable; the curated decomposed view exists
+alongside them as an alternative, more granular lens. Exact reversibility is a future
+proof-bearing contract (#153), not a property claimed by this projection.
 
 ## Quickstart
 

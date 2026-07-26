@@ -2,6 +2,26 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-26 — lossy decomposition output cannot assert exact equivalence
+
+### D43. Equivalence emission is quarantined until the representation proves completeness
+
+The deployed decomposition is a curated projection: it filters axes, chooses
+most-specific fillers, and does not preserve the source's complete multi-parent and
+grouped definition. Building `owl:equivalentClass` from that view asserted exactness the
+current types could not establish, while a default fidelity value of `0.0` falsely meant
+"measured and wholly unfaithful" rather than "unavailable."
+
+**Decision:** every current `emit_equivalence=true` path fails before client, provenance,
+stdout, or filesystem effects; normal output never contains `owl:equivalentClass`; and
+new curated-projection runs record `roundtrip_fidelity=null` while historical numeric
+values remain readable. Issue #153 alone may reintroduce successful emission after it
+provides the complete proof-bearing representation required by D19/D21.
+
+**Why:** additive constituent navigation is useful without claiming logical identity.
+Failing closed preserves that useful view while preventing a lossy projection from
+becoming an inference-grade axiom.
+
 ## 2026-07-24 — embedding corpora publish from validated staging
 
 ### D42. Embedding batch commits are invisible staging; one transaction activates a complete corpus

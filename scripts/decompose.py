@@ -55,10 +55,6 @@ async def _run(
     total_limit: int | None,
     walker_max_depth: int = 5,
 ) -> RunMetrics:
-    settings = get_settings()
-    engine = make_engine(settings.database_url)
-    sf = make_sessionmaker(engine)
-    provenance = ProvenanceStore(sf)
     config = RunConfig(
         branch=branch,
         out=out,
@@ -67,6 +63,10 @@ async def _run(
         resume_from=resume,
         walker_max_depth=walker_max_depth,
     )
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    sf = make_sessionmaker(engine)
+    provenance = ProvenanceStore(sf)
     try:
         async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
             store = NcitGraphStore(client)
@@ -119,7 +119,7 @@ def main(
         bool,
         typer.Option(
             "--emit-equivalence",
-            help="Emit owl:equivalentClass intersection axioms (lossless round-trip).",
+            help="Reserved for #153; requests currently fail closed.",
         ),
     ] = False,
     resume: Annotated[
@@ -139,6 +139,11 @@ def main(
     ] = 5,
 ) -> None:
     """Run the decomposition pipeline for a branch and print its coverage metrics."""
+    if emit_equivalence:
+        raise typer.BadParameter(
+            "--emit-equivalence is not available until #153 provides a "
+            "proof-bearing representation"
+        )
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
     metrics = asyncio.run(

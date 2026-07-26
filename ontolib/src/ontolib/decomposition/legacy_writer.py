@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition import vocab
-from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
+from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -43,53 +43,15 @@ def _p(predicate_iri: str) -> str:
     return f"<{predicate_iri}>"
 
 
-def _emit_equivalence(subj: str, dec: Decomposition) -> str | None:
-    """Build Turtle for ``owl:equivalentClass`` intersection axiom, or ``None``
-    if there is no genus or no role-sourced constituents to reconstruct."""
-    if dec.genus_code is None:
-        return None
-
-    genus_iri = f"<{NCIT_NS}{dec.genus_code}>"
-    restrictions: list[str] = []
-    for c in dec.constituents:
-        if c.axis_source != "role":
-            continue
-        property_iri = _axis_uri(c.axis)
-        filler_iri = _filler_iri(c.filler_code)
-        restrictions.append(
-            f"        [ a <{OWL_NS}Restriction> ;\n"
-            f"          <{OWL_NS}onProperty> {property_iri} ;\n"
-            f"          <{OWL_NS}someValuesFrom> {filler_iri} ]"
-        )
-    if not restrictions:
-        return None
-
-    return (
-        f"{subj} <{OWL_NS}equivalentClass> [\n"
-        f"    a <{OWL_NS}Class> ;\n"
-        f"    <{OWL_NS}intersectionOf> (\n"
-        f"        {genus_iri}\n"
-        f"{chr(10).join(restrictions)}\n"
-        f"    )\n"
-        f"] ."
-    )
-
-
 def _render_one(
     dec: Decomposition,
     *,
     run_id: str = "",
     emitted_on: date,
-    emit_equivalence: bool = False,
 ) -> list[str]:
     """Render Turtle triples for a single *dec* into a list of statement strings."""
     subj = f"<{NCIT_NS}{dec.code}>"
     lines: list[str] = []
-
-    if emit_equivalence:
-        eq = _emit_equivalence(subj, dec)
-        if eq is not None:
-            lines.append(eq)
 
     lines.append(
         f'{subj} {_p(vocab.REPRESENTATION_STATUS)} "{vocab.LEGACY_PRECOORDINATED}" ;',
@@ -132,6 +94,11 @@ async def write_ttl(
     Writes additively — no deletes, no other graph targeted.  Returns the written path
     or ``None`` when writing to stdout.
     """
+    if emit_equivalence:
+        raise ValueError(
+            "equivalence emission is not available until a proof-bearing "
+            "representation can establish exact completeness (#153)"
+        )
     if emitted_on is None:
         emitted_on = date.today()
     buf: list[str] = []
@@ -142,7 +109,6 @@ async def write_ttl(
                 dec,
                 run_id=run_id,
                 emitted_on=emitted_on,
-                emit_equivalence=emit_equivalence,
             )
         )
 

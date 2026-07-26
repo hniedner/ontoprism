@@ -211,6 +211,12 @@ async def test_enumerate_in_scope_codes_aborts_on_missing_concept_binding() -> N
 
 
 @pytest.mark.unit
+def test_run_config_rejects_equivalence_emission() -> None:
+    with pytest.raises(ValueError, match="not available"):
+        RunConfig(branch="neoplasm", emit_equivalence=True)
+
+
+@pytest.mark.unit
 async def test_run_pipeline_skeleton_returns_metrics() -> None:
     client = _FakeClient(pages=[[]])
     provenance = _mock_provenance()
@@ -218,6 +224,10 @@ async def test_run_pipeline_skeleton_returns_metrics() -> None:
     metrics = await run_pipeline(config, client, provenance)
     assert isinstance(metrics, RunMetrics)
     assert metrics.coverage == 0.0
+    assert metrics.roundtrip_fidelity is None
+    assert (
+        provenance.finish_run.await_args.kwargs["metrics"]["roundtrip_fidelity"] is None
+    )
 
 
 @pytest.mark.unit

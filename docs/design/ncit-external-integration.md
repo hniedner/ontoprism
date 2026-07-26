@@ -132,7 +132,7 @@ Every row below is existing, decided, or built work that the new architecture co
 | Roles-first decomposition; 100% filler coverage | assessment §3.2; README | The ~20K role-target atoms are **one** of the two mapping-target sets (§13); the caDSR anchor set `C_cadsr` is the other and is *not* a subset. Bounded, enumerable, already extracted. |
 | `op:` univocal axes (`op:PrimarySite`, `op:CellType`, `op:MetastaticSite`, `op:StageSystem`, `op:MolecularAbnormality`, …) | D17, D20, D22, D23 | These **are** the Relation-Ontology `has_location`/`derives_from`-style univocal relations the feedback asks for. We already have them. We now give each a stated domain/range that references **upstream** classes. |
 | SNOMED-style relationship groups | D19 | Already the target representation for co-equal axes. The SNOMED morphology axis and multi-valued site axes slot straight in. |
-| Complete lossless `owl:equivalentClass` unfolding behind `--emit-equivalence` | D19, D21 | Becomes the **cross-product** artifact: the same unfolding, with fillers additionally carrying upstream equivalents. |
+| Future complete lossless `owl:equivalentClass` unfolding (#153) | D19, D21, D43 | Becomes the **cross-product** artifact only after the proof-bearing representation exists; the current reserved flag rejects every request. |
 | Single-most-specific view as an explicitly-lossy curated projection | D15, D19 | Unchanged. Projection now optionally renders upstream labels. |
 | SCG / ECL / MRCM grammar template for goal 4 (#6) | D22 | The post-coordination grammar now **sanctions over upstream ranges** (MRCM ranges reference Uberon/SNOMED). Interoperable by construction. |
 | FHIR `ConceptMap.$translate` as the pre-↔post equivalence surface | D22, lit §8.4 | Becomes the **dual-canonical join surface** between the NCIt plane and the upstream plane. |
@@ -587,8 +587,8 @@ target_source, skos_relation, ro_relation, umls_cui, confidence, review_status, 
 
 - `scripts/data_build.py` — add an `xref` stage (ingest NCIm/Mondo/Uberon/CL maps → validate →
   persist), gated by license flags for SNOMED/ICD-O-3.
-- `pdm run decompose --emit-equivalence` — now emits upstream-bound cross-products when the xref
-  graph is present.
+- Future #153 work may extend the reserved `--emit-equivalence` seam with upstream-bound
+  cross-products. It currently rejects every request, regardless of xref availability.
 - New `pdm run map` (or `data-build xref`) — the mapping ingest/validation entry point.
 
 ---
