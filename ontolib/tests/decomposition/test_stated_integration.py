@@ -8,11 +8,13 @@ Two explicit tiers:
 from __future__ import annotations
 
 import os
+from collections import Counter
 
 import httpx
 import pytest
 
 from ontolib.decomposition.extract import (
+    PartOfPair,
     ancestor_pairs_from_rows,
     concepts_from_rows,
     make_is_ancestor,
@@ -25,13 +27,14 @@ from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
     build_part_of_pairs_queries,
+    build_part_of_pairs_query,
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
     resolve_morphology_filler,
     walk_genus_chain,
 )
-from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -118,14 +121,22 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         rows = []
         for query in build_part_of_pairs_queries(codes):
             rows.extend(await client.select(query))
-        health = await client.select("SELECT * WHERE { VALUES ?ok { true } }")
+        empty_rows = await client.select(build_part_of_pairs_query([], []))
+        health = await client.select(
+            f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
+        )
 
-    assert set(part_of_pairs_from_rows(rows)) == {
-        ("C32291", "C12510"),
-        ("C99101", "C99102"),
-        ("C99103", "C99104"),
-    }
-    assert health == [{"ok": "true"}]
+    assert Counter(part_of_pairs_from_rows(rows)) == Counter(
+        {
+            PartOfPair(part="C32291", whole="C12510"): 1,
+            PartOfPair(part="C20000", whole="C99106"): 1,
+            PartOfPair(part="C99101", whole="C99102"): 1,
+            PartOfPair(part="C99103", whole="C99104"): 1,
+        }
+    )
+    assert empty_rows == []
+    assert health
+    assert health[0].get("s")
 
 
 @pytest.mark.integration
@@ -138,22 +149,31 @@ async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> Non
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
     async with OxigraphHttpClient(url) as client:
+        version_rows = await client.select(
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?ontology a <{OWL_NS}Ontology> ; "
+            f"<{OWL_NS}versionInfo> ?version . }} }}"
+        )
         rows = []
         for query in build_part_of_pairs_queries(["C32291", "C12510"]):
             rows.extend(await client.select(query))
         no_match_rows = []
         for query in build_part_of_pairs_queries(["C32291", "C999999999"]):
             no_match_rows.extend(await client.select(query))
-        health = await client.select("SELECT * WHERE { VALUES ?ok { true } }")
+        health = await client.select(
+            f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
+        )
 
+    assert version_rows == [{"version": "26.06e"}]
     assert rows == [
         {
-            "whole": f"{NCIT_NS}C32291",
-            "part": f"{NCIT_NS}C12510",
+            "part": f"{NCIT_NS}C32291",
+            "whole": f"{NCIT_NS}C12510",
         }
     ]
     assert no_match_rows == []
-    assert health == [{"ok": "true"}]
+    assert health
+    assert health[0].get("s")
 
 
 @pytest.mark.integration

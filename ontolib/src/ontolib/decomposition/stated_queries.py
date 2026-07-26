@@ -152,34 +152,36 @@ def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
 
 
 def build_part_of_pairs_query(
-    whole_codes: Iterable[str], part_codes: Iterable[str]
+    part_codes: Iterable[str], whole_codes: Iterable[str]
 ) -> str:
     """Build one bounded R82 restriction query for two endpoint tiles.
 
-    Every requested whole-part combination is emitted as an IRI tuple so Oxigraph
-    binds both endpoints before traversing the whole's stated superclass path. A
+    Every requested part-whole combination is emitted as an IRI tuple so Oxigraph
+    binds both endpoints before traversing the part's stated superclass path. A
     request is limited to 16 codes per endpoint (256 combinations); callers handling
     larger sets must tile both dimensions with :func:`build_part_of_pairs_queries`.
+    This finds one R82 edge inherited through ``rdfs:subClassOf*``; it does not compute
+    an R82-to-R82 transitive closure.
 
     Raises:
         ValueError: if any code is unsafe or either endpoint exceeds the measured cap.
     """
-    whole_iris = _part_of_endpoint_iris(whole_codes)
     part_iris = _part_of_endpoint_iris(part_codes)
-    if not whole_iris or not part_iris:
-        return f"{_PREFIXES}SELECT ?whole ?part WHERE {{ BIND(false AS ?ok) }}"
+    whole_iris = _part_of_endpoint_iris(whole_codes)
+    if not part_iris or not whole_iris:
+        return f"{_PREFIXES}SELECT ?part ?whole WHERE {{ FILTER(false) }}"
     pairs = " ".join(
-        f"(<{whole}> <{part}>)" for whole in whole_iris for part in part_iris
+        f"(<{part}> <{whole}>)" for part in part_iris for whole in whole_iris
     )
     return f"""{_PREFIXES}
-        SELECT DISTINCT ?whole ?part WHERE {{
-            VALUES (?whole ?part) {{ {pairs} }}
+        SELECT DISTINCT ?part ?whole WHERE {{
+            VALUES (?part ?whole) {{ {pairs} }}
             GRAPH <{STATED_GRAPH_IRI}> {{
-                ?whole rdfs:subClassOf* ?ancestor .
+                ?part rdfs:subClassOf* ?ancestor .
                 ?ancestor rdfs:subClassOf ?restriction .
                 ?restriction a owl:Restriction ;
                     owl:onProperty <{NCIT_NS}R82> ;
-                    owl:someValuesFrom ?part .
+                    owl:someValuesFrom ?whole .
             }}
         }}
     """
@@ -193,9 +195,9 @@ def build_part_of_pairs_queries(codes: Iterable[str]) -> list[str]:
         for start in range(0, len(code_list), _PART_OF_QUERY_CODE_LIMIT)
     ]
     return [
-        build_part_of_pairs_query(whole_chunk, part_chunk)
-        for whole_chunk in chunks
+        build_part_of_pairs_query(part_chunk, whole_chunk)
         for part_chunk in chunks
+        for whole_chunk in chunks
     ]
 
 

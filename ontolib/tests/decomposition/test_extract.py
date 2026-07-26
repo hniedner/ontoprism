@@ -3,6 +3,7 @@
 import pytest
 
 from ontolib.decomposition.extract import (
+    PartOfPair,
     ancestor_pairs_from_rows,
     concepts_from_rows,
     genus_walk_rows_to_roles_and_genuses,
@@ -213,21 +214,23 @@ def test_semantic_type_of_from_rows_skips_empty_rows() -> None:
 @pytest.mark.unit
 def test_part_of_pairs_from_rows_parses() -> None:
     rows = [
-        {"whole": _iri("C6135"), "part": _iri("C27970")},
-        {"whole": _iri("C6135"), "part": _iri("C12400")},
+        {"part": _iri("C6135"), "whole": _iri("C27970")},
+        {"part": _iri("C6135"), "whole": _iri("C12400")},
     ]
     pairs = part_of_pairs_from_rows(rows)
-    assert pairs == [("C6135", "C27970"), ("C6135", "C12400")]
+    assert pairs == [
+        PartOfPair(part="C6135", whole="C27970"),
+        PartOfPair(part="C6135", whole="C12400"),
+    ]
 
 
 @pytest.mark.unit
-def test_part_of_pairs_from_rows_skips_incomplete() -> None:
+def test_part_of_pairs_from_rows_rejects_incomplete() -> None:
     rows: list[dict[str, str | None]] = [
-        {"whole": _iri("C6135")},  # missing part
-        {"part": _iri("C27970")},  # missing whole
-        {"whole": None, "part": _iri("C12400")},
+        {"part": _iri("C6135")},
     ]
-    assert part_of_pairs_from_rows(rows) == []
+    with pytest.raises(ValueError, match="missing required part/whole binding"):
+        part_of_pairs_from_rows(rows)
 
 
 @pytest.mark.unit

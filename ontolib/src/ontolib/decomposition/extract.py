@@ -7,6 +7,7 @@ layer only wires ``client.select(build_*_query(...))`` into these helpers.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition.models import RoleRestriction
@@ -15,6 +16,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
 Row = dict[str, str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class PartOfPair:
+    """One NCIt R82 edge from an anatomic part to its containing whole."""
+
+    part: str
+    whole: str
 
 
 def _code(iri: str | None) -> str | None:
@@ -152,17 +161,13 @@ def semantic_type_of_from_rows(
     return result
 
 
-def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[tuple[str, str]]:
-    """Parse ``?whole``/``?part`` rows into ``(whole, part)`` pairs.
-
-    ``?whole`` is a code string from ``REPLACE(STR(?descendant), ...)`` while
-    ``?part`` is a full IRI from ``owl:someValuesFrom ?part`` — both are
-    normalised via ``_code()`` so the output is consistently ``(code, code)``.
-    """
-    pairs: list[tuple[str, str]] = []
+def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[PartOfPair]:
+    """Parse required ``?part``/``?whole`` IRI bindings into typed R82 edges."""
+    pairs: list[PartOfPair] = []
     for row in rows:
-        whole = _code(row.get("whole"))
         part = _code(row.get("part"))
-        if whole and part:
-            pairs.append((whole, part))
+        whole = _code(row.get("whole"))
+        if not part or not whole:
+            raise ValueError("R82 result row is missing required part/whole binding")
+        pairs.append(PartOfPair(part=part, whole=whole))
     return pairs

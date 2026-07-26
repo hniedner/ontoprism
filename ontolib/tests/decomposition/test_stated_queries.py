@@ -184,21 +184,21 @@ def test_part_of_pairs_queries_tile_both_dimensions() -> None:
 
 
 @pytest.mark.unit
-def test_part_of_pairs_query_empty_list_returns_valid_query() -> None:
-    q = build_part_of_pairs_query([], [])
-    assert "BIND" in q
-
-
-@pytest.mark.unit
 def test_part_of_pairs_query_rejects_unsafe_code() -> None:
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
         build_part_of_pairs_query(["bad code"], ["C1"])
 
 
 @pytest.mark.unit
-def test_part_of_pairs_query_rejects_more_than_measured_tile_limit() -> None:
+@pytest.mark.parametrize("oversized_endpoint", ["part", "whole"])
+def test_part_of_pairs_query_rejects_more_than_measured_tile_limit(
+    oversized_endpoint: str,
+) -> None:
+    codes = [f"C{i}" for i in range(17)]
+    part_codes = codes if oversized_endpoint == "part" else ["C100"]
+    whole_codes = codes if oversized_endpoint == "whole" else ["C100"]
     with pytest.raises(ValueError, match="at most 16 codes per endpoint"):
-        build_part_of_pairs_query([f"C{i}" for i in range(17)], ["C100"])
+        build_part_of_pairs_query(part_codes, whole_codes)
 
 
 @pytest.mark.unit

@@ -15,6 +15,14 @@ ncit:C99100 a owl:Class ;
 
 ncit:C12510 a owl:Class .
 
+# Cross-tile relation in the opposite direction from C32291 -> C12510.
+ncit:C20000 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99106
+    ] .
+
 # Direct R82 restriction.
 ncit:C99101 a owl:Class ;
     rdfs:subClassOf [

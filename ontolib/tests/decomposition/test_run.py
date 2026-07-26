@@ -369,7 +369,7 @@ async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
             ]
         },
         part_of_rows=[
-            {"whole": _iri("C13063"), "part": _iri("C12400")},
+            {"part": _iri("C13063"), "whole": _iri("C12400")},
         ],
     )
     provenance = _mock_provenance()
