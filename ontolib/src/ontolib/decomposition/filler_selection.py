@@ -1,9 +1,9 @@
 """Filler selection — choose the intended constituent(s) per axis (design §6).
 
 Working from the *stated* graph already eliminates most ancestor bleed; most-specific
-selection is defense-in-depth for any axis that still returns multiple fillers. The
-selection is a pure function of the fillers and an injected ``is_ancestor`` predicate,
-so it is fully unit-testable without a store.
+selection is defense-in-depth for hierarchy-comparable axes that still return multiple
+fillers. The selection is a pure function of the fillers and an injected
+``is_ancestor`` predicate, so it is fully unit-testable without a store.
 """
 
 from __future__ import annotations
@@ -30,15 +30,15 @@ def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -
 
 
 def filter_excluded(restrictions: Iterable[RoleRestriction]) -> list[RoleRestriction]:
-    """Drop ``Excludes_*`` negative axioms, keeping only defining role restrictions."""
+    """Drop ``Excludes_*`` and optional R114/R115 non-defining restrictions."""
     return [r for r in restrictions if axes.is_defining_role(r)]
 
 
 def most_specific(fillers: set[str], is_ancestor: IsAncestor) -> set[str]:
     """Keep only specificity leaves: drop any filler strictly broader than another.
 
-    Unrelated fillers and members of a broader-relation cycle are all retained, and a
-    single filler is returned unchanged.
+    Unrelated or mutually broader fillers are retained, and a single filler is returned
+    unchanged.
     """
     return {
         f

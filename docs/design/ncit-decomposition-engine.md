@@ -173,15 +173,23 @@ Output: `DetectionResult(code, is_precoordinated: bool, defining_role_count: int
 
 ---
 
-## 6. Filler selection — most-specific per axis (`filler_selection.py`)
+## 6. Filler selection — routed-axis specificity (`filler_selection.py`)
 
-The core engineering. For each defining axis of a candidate, choose the single intended filler.
+The core engineering. For each defining axis of a candidate, choose the intended
+filler or preserve unresolved co-equal fillers for review.
 
 - **Working from the stated graph eliminates most ancestor bleed** — the stated form asserts only the intended filler, not the closure. This is why §2 mandates the stated input.
-- **Defense-in-depth most-specific selection:** where an axis still yields multiple fillers, keep the hierarchy **leaf** — the filler with no other returned filler as its `rdfs:subClassOf`-ancestor. Ancestors within the same axis result set are dropped. (Guards against any residual closure and against genuinely multi-filler axes.)
-- **`Excludes_*` filter:** negative-axiom restrictions are removed before selection (§5).
+- **Defense-in-depth most-specific selection:** on hierarchy-comparable, non-lineage
+  axes, use NCIt's stated `rdfs:subClassOf` hierarchy plus bounded transitive `R82`
+  containment. A filler is dropped only when it is strictly broader than another
+  returned filler; unrelated or mutually broader fillers remain for review.
+- **Non-defining filter:** `Excludes_*` negative axioms and optional R114/R115 roles are
+  removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
-- **Anatomy validation:** multi-parent anatomy fillers are cross-checked against the Uberon store (`:7879`, `UBERON_NS`) and NCIt's own anatomy hierarchy; ambiguous cases are flagged (`review` marker in the constituent record) rather than silently resolved. **Validated across 4 concepts, see §6.4:** NCIt's own is-a + `R82` part-of hierarchy resolves this cleanly in some cases but not most — expect `needs_review` on primary-site axes to stay common, not to be engineered away.
+- **Anatomy validation:** specificity uses NCIt's own is-a + bounded transitive `R82`
+  part-of hierarchy. Ambiguous cases receive `needs_review` rather than being silently
+  resolved. The selector does not consult Uberon; §6.4 found that external cross-check
+  unsuitable as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `R101`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review)]`.
