@@ -562,8 +562,8 @@ before configuration loads or clients are constructed.
 
 | Metric | Status | Definition |
 |---|---|---|
-| `pct_decomposed` | stored in `decomp_run.metrics` | concepts decomposed / total in-scope concepts |
-| `residual_precoordination` | stored in `decomp_run.metrics` | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37) |
+| `pct_decomposed` | stored in `decomp_run.metrics` | concepts decomposed in this invocation / full in-scope branch count; this understates cumulative progress on resume |
+| `residual_precoordination` | computed property; `residual_precoordinated_count` is stored | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37) |
 | `minted_count` | stored in `decomp_run.metrics` | size of the mint tail (governance signal — should stay low hundreds) |
 | `roundtrip_fidelity` | unavailable (`null`) for new runs | #153 may measure this only from a complete proof-bearing representation, never from the curated projection; historical numeric values remain readable |
 | `constituent_existence_rate` | future | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |

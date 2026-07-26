@@ -181,32 +181,37 @@ writes `op:` axes into `ncit_decomposed`; the mapping layer attaches upstream eq
 axis filler; new authoring and external consumers work in the upstream plane and are translated down
 to NCIt (and thus to caDSR) on demand.
 
-### 3.1 The cross-product model (how NCIt becomes a "specialization")
+### 3.1 The future cross-product model (how NCIt may become a "specialization")
 
-A decomposed NCIt neoplasm is asserted as a defined class over a Mondo/DO genus and upstream
-differentia. Illustrative (C6135, *Stage III Thyroid Gland Medullary Carcinoma AJCC v7*):
+The current projection only exposes additive axes and mappings. Issue #153 must first build
+a complete proof-bearing record before any NCIt neoplasm can be asserted as a defined class
+over a Mondo/DO genus and upstream differentia. The following current-state sketch is
+non-equivalent planning pseudocode, not the serialized RDF shape (C6135, *Stage III Thyroid
+Gland Medullary Carcinoma AJCC v7*):
 
-```turtle
-# Reference plane (unchanged): C6135 owl:equivalentClass [ ... NCIt intersection ... ]
+```text
+reference(C6135) = unchanged stated NCIt definition
+projection(C6135) =
+  constituent(primary-site, NCIT:C12400)
+  + constituent(cell-type, NCIT:C36825)
+  + constituent(stage-system, NCIT:C90530)
+  + constituent(stage-value, NCIT:C27970)
+mapping(NCIT:C12400) = exact-match UBERON:0002046, SCTID:69748006
+mapping(NCIT:C36825) = close-match ICDO3:8345/3-morphology
+```
 
-# Decomposed plane (op: axes, D23 organ-level R101):
-C6135  :representationStatus "legacy-precoordinated" ;
-       op:PrimarySite     C12400 ;      # Thyroid Gland (NCIt)
-       op:CellType        C36825 ;      # (D15 most-specific)
-       op:StageSystem     C90530 ;      # AJCC v7
-       op:StageValue      C27970 .      # Stage III
+The following is **non-equivalent planning pseudocode**, not RDF and not emitted output.
+It names the visible dimensions but is not a substitute for #153's complete source
+definition, multi-parent structure, relationship groups, and proof:
 
-# Mapping plane (additive xref, new):
-C12400 skos:exactMatch    UBERON:0002046 ;         # Thyroid gland
-       skos:exactMatch    SCTID:69748006 .
-C36825 skos:closeMatch    <ICDO3:8345/3-morphology> .
-
-# Future cross-product (requires #153 before --emit-equivalence can succeed):
-C6135  owl:equivalentClass [
-         a owl:Class ;
-         rdfs:subClassOf  <MONDO:medullary_thyroid_carcinoma> ;  # disease genus
-         op:PrimarySite   some UBERON:0002046 ;                  # anatomy substrate
-         op:CellType      some <morphology-substrate> ] .
+```text
+candidate(C6135) =
+  genus MONDO:medullary_thyroid_carcinoma
+  + primary-site UBERON:0002046
+  + cell-type <morphology-substrate>
+  + stage-system NCIT:C90530
+  + stage-value NCIT:C27970
+  + every other defining parent, restriction, and group from the source record
 ```
 
 NCIt's *unique* contribution here is the oncology-specific packaging plus staging (`op:StageSystem`

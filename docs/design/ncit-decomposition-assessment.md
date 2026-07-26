@@ -161,7 +161,9 @@ decomposable. Three exemplars (full data in `data/pilot_neoplasm.json`):
 - Primary site (most specific) = `C12400` Thyroid Gland
 - Abnormal cell (most specific) = `C36761` Neoplastic Neuroendocrine Cell
 - Morphology = Medullary Carcinoma (taxonomic-parent axis)
-- **Near-duplicate:** `C141045` = the *same clinical entity* re-enumerated for AJCC v8.
+- **Edition-related concept:** `C141045` shares the disease/site/morphology core but
+  carries a distinct AJCC v8 assertion; the two concepts are not semantically equivalent
+  (D39).
 
 **C35756 — "Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7"** decomposes to
 Stage IIIB + AJCC v7 + Lung + Small Cell Carcinoma + Pleural Effusion, and sits in a **sibling
@@ -173,7 +175,8 @@ Neoplastic Spindle Cell (`C36954`), finding = Myxoid Stroma Formation (`C35998`)
 (Left)* is label-only → NLP fallback.
 
 These cases demonstrate both the decomposability (constituents are all present) and the payoff:
-AJCC-version and with/without forks collapse into one core entity plus orthogonal qualifiers.
+AJCC-edition and with/without concepts can expose a shared core plus orthogonal qualifiers
+without collapsing their distinct clinical assertions or legacy codes (D39).
 
 ---
 
