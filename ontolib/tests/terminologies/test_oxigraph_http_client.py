@@ -55,6 +55,15 @@ def test_flatten_bindings_empty_result() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("data", [{}, {"results": {}}, {"results": {"bindings": {}}}])
+def test_flatten_bindings_rejects_malformed_select_envelope(
+    data: dict[str, object],
+) -> None:
+    with pytest.raises(StorageError, match="malformed SPARQL SELECT response"):
+        flatten_bindings(data)
+
+
+@pytest.mark.unit
 async def test_select_against_closed_port_raises_storage_error() -> None:
     # Port 1 has no listener → connection refused → retried → StorageError.
     async with OxigraphHttpClient("http://localhost:1", connect_timeout=0.5) as client:

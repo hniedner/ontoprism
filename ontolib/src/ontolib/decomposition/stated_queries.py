@@ -152,7 +152,7 @@ def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
 
 
 def build_part_of_pairs_query(
-    part_codes: Iterable[str], whole_codes: Iterable[str]
+    *, part_codes: Iterable[str], whole_codes: Iterable[str]
 ) -> str:
     """Build one bounded R82 restriction query for two endpoint tiles.
 
@@ -188,14 +188,17 @@ def build_part_of_pairs_query(
 
 
 def build_part_of_pairs_queries(codes: Iterable[str]) -> list[str]:
-    """Tile every whole-part combination in *codes* into bounded R82 queries."""
+    """Tile every part-whole combination in *codes* into bounded R82 queries."""
     code_list = sorted(set(codes))
     chunks = [
         code_list[start : start + _PART_OF_QUERY_CODE_LIMIT]
         for start in range(0, len(code_list), _PART_OF_QUERY_CODE_LIMIT)
     ]
     return [
-        build_part_of_pairs_query(part_chunk, whole_chunk)
+        build_part_of_pairs_query(
+            part_codes=part_chunk,
+            whole_codes=whole_chunk,
+        )
         for part_chunk in chunks
         for whole_chunk in chunks
     ]

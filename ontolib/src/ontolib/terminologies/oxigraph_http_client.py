@@ -79,7 +79,12 @@ def flatten_bindings(data: dict[str, Any]) -> list[dict[str, str | None]]:
     absent from a given row is omitted from that row's dict, so callers can tell an
     unbound optional from an empty string.
     """
-    bindings = data.get("results", {}).get("bindings", [])
+    results = data.get("results")
+    if not isinstance(results, dict):
+        raise StorageError("malformed SPARQL SELECT response: missing results object")
+    bindings = results.get("bindings")
+    if not isinstance(bindings, list):
+        raise StorageError("malformed SPARQL SELECT response: missing bindings array")
     return [{var: cell.get("value") for var, cell in row.items()} for row in bindings]
 
 

@@ -58,7 +58,8 @@ def _reachable(url: str) -> bool:
         )
     except httpx.HTTPError:
         return False
-    return resp.status_code == 200
+    resp.raise_for_status()
+    return True
 
 
 def _stated_loaded(url: str) -> bool:
@@ -74,7 +75,8 @@ def _stated_loaded(url: str) -> bool:
         )
     except httpx.HTTPError:
         return False
-    return resp.status_code == 200 and resp.json().get("boolean", False)
+    resp.raise_for_status()
+    return resp.json().get("boolean", False)
 
 
 @pytest.mark.integration
@@ -121,7 +123,9 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         rows = []
         for query in build_part_of_pairs_queries(codes):
             rows.extend(await client.select(query))
-        empty_rows = await client.select(build_part_of_pairs_query([], []))
+        empty_rows = await client.select(
+            build_part_of_pairs_query(part_codes=[], whole_codes=[])
+        )
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )

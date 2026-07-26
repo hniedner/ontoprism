@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition.models import RoleRestriction
+from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 Row = dict[str, str | None]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class PartOfPair:
     """One NCIt R82 edge from an anatomic part to its containing whole."""
 
@@ -161,13 +162,26 @@ def semantic_type_of_from_rows(
     return result
 
 
+def _required_ncit_code(row: Row, binding: str) -> str:
+    iri = row.get(binding)
+    if not iri:
+        raise ValueError("R82 result row is missing required part/whole binding")
+    if not iri.startswith(NCIT_NS):
+        raise ValueError(f"R82 result {binding} is not an NCIt IRI")
+    code = iri.removeprefix(NCIT_NS)
+    if not code:
+        raise ValueError("R82 result row is missing required part/whole binding")
+    return code
+
+
 def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[PartOfPair]:
     """Parse required ``?part``/``?whole`` IRI bindings into typed R82 edges."""
     pairs: list[PartOfPair] = []
     for row in rows:
-        part = _code(row.get("part"))
-        whole = _code(row.get("whole"))
-        if not part or not whole:
-            raise ValueError("R82 result row is missing required part/whole binding")
-        pairs.append(PartOfPair(part=part, whole=whole))
+        pairs.append(
+            PartOfPair(
+                part=_required_ncit_code(row, "part"),
+                whole=_required_ncit_code(row, "whole"),
+            )
+        )
     return pairs

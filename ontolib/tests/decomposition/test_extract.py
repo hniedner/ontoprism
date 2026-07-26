@@ -225,12 +225,50 @@ def test_part_of_pairs_from_rows_parses() -> None:
 
 
 @pytest.mark.unit
-def test_part_of_pairs_from_rows_rejects_incomplete() -> None:
-    rows: list[dict[str, str | None]] = [
+def test_part_of_pair_requires_directional_keywords() -> None:
+    with pytest.raises(TypeError):
+        PartOfPair("C6135", "C27970")  # type: ignore[misc]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "row",
+    [
         {"part": _iri("C6135")},
-    ]
+        {"whole": _iri("C27970")},
+        {"part": None, "whole": _iri("C27970")},
+        {"part": _iri("C6135"), "whole": None},
+    ],
+)
+def test_part_of_pairs_from_rows_rejects_incomplete(
+    row: dict[str, str | None],
+) -> None:
     with pytest.raises(ValueError, match="missing required part/whole binding"):
-        part_of_pairs_from_rows(rows)
+        part_of_pairs_from_rows([row])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("binding", ["part", "whole"])
+def test_part_of_pairs_from_rows_rejects_non_ncit_iri(binding: str) -> None:
+    row: dict[str, str | None] = {
+        "part": _iri("C6135"),
+        "whole": _iri("C27970"),
+    }
+    row[binding] = "https://example.org/C1"
+    with pytest.raises(ValueError, match=f"{binding} is not an NCIt IRI"):
+        part_of_pairs_from_rows([row])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("binding", ["part", "whole"])
+def test_part_of_pairs_from_rows_rejects_empty_ncit_code(binding: str) -> None:
+    row: dict[str, str | None] = {
+        "part": _iri("C6135"),
+        "whole": _iri("C27970"),
+    }
+    row[binding] = NCIT_NS
+    with pytest.raises(ValueError, match="missing required part/whole binding"):
+        part_of_pairs_from_rows([row])
 
 
 @pytest.mark.unit
