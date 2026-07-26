@@ -8,10 +8,11 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
 
 - **NEVER merge a PR unless CI is green on the target branch (`main`).** Before any
   `gh pr merge`, run `gh pr view <number> --json statusCheckRollup` and verify the
-  `CI summary` conclusion is `"SUCCESS"`. Every other check must be `"SUCCESS"` or
-  `"SKIPPED"` solely because of its documented path condition. If any check failed,
-  was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before
-  proceeding.
+  `CI summary` conclusion is `"SUCCESS"` and all expected checks are present. Every
+  other check must be `"SUCCESS"` or `"SKIPPED"` solely because of a documented path
+  condition, including a dependent job skipped when its path-gated prerequisite did
+  not run. If any expected check is absent, failed, cancelled, pending, or unexpectedly
+  skipped, *stop* — ask the user before proceeding.
 - **After merging any PR to `main`, watch the CI run to completion.** If it fails, fix
   it before starting any new work. Do not begin Phase B tasks, create branches, or open
   PRs while `main` CI is red.
