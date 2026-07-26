@@ -19,6 +19,115 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.16.3 (2026-07-26)
+
+### Bug Fixes
+
+- **api**: Enforce SPARQL query result forms
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Bound the stated part-of query
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Close part-of contract gaps
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Enforce NCIt genus codes
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Enforce part-of result invariants
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Fail closed on malformed part-of results
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Reject incomplete genus rows
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Reject incomplete query bindings
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Validate complete genus results
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Validate extracted NCIt codes
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Validate semantic batch codes
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **decomposition**: Validate walker genus codes
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **storage**: Reject ambiguous SPARQL responses
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **storage**: Require fixed query projections
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+- **storage**: Validate complete SPARQL result shapes
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+### Continuous Integration
+
+- Bind title checks to PR metadata ([#214](https://github.com/hniedner/ontoprism/pull/214),
+  [`21ef38f`](https://github.com/hniedner/ontoprism/commit/21ef38fc2699579f57217fb4a548af6084e96c47))
+
+- Validate conditional skip policy ([#214](https://github.com/hniedner/ontoprism/pull/214),
+  [`21ef38f`](https://github.com/hniedner/ontoprism/commit/21ef38fc2699579f57217fb4a548af6084e96c47))
+
+### Documentation
+
+- Allow conditional CI skips ([#214](https://github.com/hniedner/ontoprism/pull/214),
+  [`21ef38f`](https://github.com/hniedner/ontoprism/commit/21ef38fc2699579f57217fb4a548af6084e96c47))
+
+- Bind target CI to main history ([#214](https://github.com/hniedner/ontoprism/pull/214),
+  [`21ef38f`](https://github.com/hniedner/ontoprism/commit/21ef38fc2699579f57217fb4a548af6084e96c47))
+
+- Define effective PR check state ([#214](https://github.com/hniedner/ontoprism/pull/214),
+  [`21ef38f`](https://github.com/hniedner/ontoprism/commit/21ef38fc2699579f57217fb4a548af6084e96c47))
+
+- Require green target branch CI ([#214](https://github.com/hniedner/ontoprism/pull/214),
+  [`21ef38f`](https://github.com/hniedner/ontoprism/commit/21ef38fc2699579f57217fb4a548af6084e96c47))
+
+- Update README code line-count table
+  ([`df4196b`](https://github.com/hniedner/ontoprism/commit/df4196b2a84ea74210772483f05673027867e981))
+
+- Update README code line-count table
+  ([`7a9b50d`](https://github.com/hniedner/ontoprism/commit/7a9b50df6eef1b484abe4c6a0ab77b3d05d80c15))
+
+- Update README code line-count table
+  ([`c6ad692`](https://github.com/hniedner/ontoprism/commit/c6ad692884e439ba2c413a2fbaebcdcfed72c1e0))
+
+- Verify PR checks against current base ([#214](https://github.com/hniedner/ontoprism/pull/214),
+  [`21ef38f`](https://github.com/hniedner/ontoprism/commit/21ef38fc2699579f57217fb4a548af6084e96c47))
+
+### Testing
+
+- **coverage**: Report native coverage hierarchy
+  ([#178](https://github.com/hniedner/ontoprism/pull/178),
+  [`c29fd99`](https://github.com/hniedner/ontoprism/commit/c29fd994d3447197e4c160ba0215fa2042e1f679))
+
+- **security**: Prove structural SPARQL guards
+  ([#212](https://github.com/hniedner/ontoprism/pull/212),
+  [`0c6806a`](https://github.com/hniedner/ontoprism/commit/0c6806a6f3d9c43832ea2c042da5b6b0e45cda97))
+
+
 ## v0.16.2 (2026-07-25)
 
 ### Bug Fixes
