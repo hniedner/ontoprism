@@ -19,6 +19,53 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.16.5 (2026-07-26)
+
+### Bug Fixes
+
+- **decomposition**: Quarantine unsafe equivalence emission
+  ([#221](https://github.com/hniedner/ontoprism/pull/221),
+  [`3a9aeeb`](https://github.com/hniedner/ontoprism/commit/3a9aeeb6cafbf031f2f3fc3ab83768b10b06dfa1))
+
+- **decomposition**: Remove orphaned equivalence state
+  ([#221](https://github.com/hniedner/ontoprism/pull/221),
+  [`3a9aeeb`](https://github.com/hniedner/ontoprism/commit/3a9aeeb6cafbf031f2f3fc3ab83768b10b06dfa1))
+
+### Documentation
+
+- Clarify non-converged review set ([#220](https://github.com/hniedner/ontoprism/pull/220),
+  [`4b39bdd`](https://github.com/hniedner/ontoprism/commit/4b39bddd97de58ad57dc60fb8953aa75667f5be0))
+
+- Converge iterative PR reviews ([#220](https://github.com/hniedner/ontoprism/pull/220),
+  [`4b39bdd`](https://github.com/hniedner/ontoprism/commit/4b39bddd97de58ad57dc60fb8953aa75667f5be0))
+
+- Define reviewer convergence states ([#220](https://github.com/hniedner/ontoprism/pull/220),
+  [`4b39bdd`](https://github.com/hniedner/ontoprism/commit/4b39bddd97de58ad57dc60fb8953aa75667f5be0))
+
+- Require pre-PR review convergence ([#221](https://github.com/hniedner/ontoprism/pull/221),
+  [`3a9aeeb`](https://github.com/hniedner/ontoprism/commit/3a9aeeb6cafbf031f2f3fc3ab83768b10b06dfa1))
+
+- Update README code line-count table
+  ([`67e1439`](https://github.com/hniedner/ontoprism/commit/67e1439e7899919e3bbd4a5b37b3517b7907e2b8))
+
+- Update README code line-count table
+  ([`4d8a511`](https://github.com/hniedner/ontoprism/commit/4d8a5111d330f01d38afbbdf6ccb4d1adc70d0c8))
+
+- **decomposition**: Align quarantine guarantees
+  ([#221](https://github.com/hniedner/ontoprism/pull/221),
+  [`3a9aeeb`](https://github.com/hniedner/ontoprism/commit/3a9aeeb6cafbf031f2f3fc3ab83768b10b06dfa1))
+
+- **decomposition**: Correct remaining projection claims
+  ([#221](https://github.com/hniedner/ontoprism/pull/221),
+  [`3a9aeeb`](https://github.com/hniedner/ontoprism/commit/3a9aeeb6cafbf031f2f3fc3ab83768b10b06dfa1))
+
+### Testing
+
+- **decomposition**: Make CLI refusal color-safe
+  ([#221](https://github.com/hniedner/ontoprism/pull/221),
+  [`3a9aeeb`](https://github.com/hniedner/ontoprism/commit/3a9aeeb6cafbf031f2f3fc3ab83768b10b06dfa1))
+
+
 ## v0.16.4 (2026-07-26)
 
 ### Bug Fixes
