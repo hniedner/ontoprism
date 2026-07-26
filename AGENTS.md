@@ -21,9 +21,10 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   path-gated prerequisite did not run. If any expected check is absent, or any check failed,
   was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before
   proceeding.
-- **After merging any PR to `main`, watch the CI run to completion.** If it fails, fix
-  it before starting any new work. Do not begin Phase B tasks, create branches, or open
-  PRs while `main` CI is red.
+- **After merging any PR to `main`, watch CI and all triggered post-merge workflows to
+  completion.** If any run fails, fix it before starting new work. Do not begin the next
+  issue, create its branch, or open its PR while required post-merge runs are pending or
+  failing.
 - **`pdm run test-ci` must pass locally (or match CI outcome) before pushing CI changes.**
   If you can't reproduce a CI-only failure, isolate it from xdist rather than guessing.
 - **`main` is protected by a ruleset: no force-pushes, no deletion.** Never attempt to
@@ -31,7 +32,7 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   enforcement is intentionally *not* enabled yet — it needs a release-bot credential as a
   ruleset bypass actor, else it would block the `GITHUB_TOKEN` release/README pushes.
 
-## Repo layout (keep-names, 3 installable packages)
+## Repo layout (keep-names, 3 project packages)
 
 - `ontolib/` — shared library, import name `ontolib` (storage, NCIt/Uberon
   terminologies, caDSR repository, decomposition engine). Editable install.
@@ -92,10 +93,8 @@ pdm run test-smoke           # frontend vitest via npm
   `pdm run test-integration-full-store`; those contracts are read-only.
 - **Strict TDD + coverage >90%** (line+branch) on `ontolib/src`, `backend/src`, and
   `frontend/src/lib` is a hard project rule, enforced by CI and a pre-commit
-  test-quality hook that blocks mock-only / coverage-padding tests. Full rules and the
-  two documented coverage exceptions (NCIt SPARQL parsing layer; sigma/canvas
-  components not mountable in jsdom) are in `CLAUDE.local.md` — read it before writing
-  tests.
+  test-quality hook that blocks mock-only / coverage-padding tests. Full test-quality
+  rules are in `CLAUDE.local.md` — read it before writing tests.
 - **TDD does NOT catch false assumptions about external systems. Three extra test types
   are mandatory whenever code depends on an external tool, library, or real data.**
   Learned the hard way on #73 (PR #117): ~12 bugs shipped past a green, strictly-TDD'd
@@ -166,9 +165,10 @@ cooldown) + secret scanning + push protection are enabled repo-side.
 
 ## Conventions
 
-- **Never commit directly to `main`.** All code changes, issue implementations, and fixes
-  must be on a dedicated branch (`feat/<slug>-<issue#>`, `fix/...`, `docs/...`) and land
-  via PR. The only exception is the auto-generated `Update README Code Stats` bot commit
+- **Never commit directly to `main`.** All developer-authored code changes, issue
+  implementations, and fixes must be on a dedicated branch
+  (`feat/<slug>-<issue#>`, `fix/...`, `docs/...`) and land via PR. The only exceptions are
+  the workflow-generated semantic-release and `Update README Code Stats` bot commits
   pushed by CI (with `GITHUB_TOKEN`).
 - Branches: `feat/<slug>-<issue#>`, `fix/...`, `docs/...`; PRs merge into `main`.
 - **PR bodies must only reference issues they fully resolve.** Use `Closes #X` /
@@ -185,9 +185,10 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   flag are reconstructed history. Write the changelog by writing good commit subjects.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
-- **PR review fix cycle (mandatory, no exceptions): after creating a PR, review the diff
-  with the FULL `pr-review-toolkit` agent set in the initial round — ALL FIVE, no
-  cherry-picking:**
+- **Pre-PR review fix cycle (mandatory, no exceptions): after implementation and local
+  gates are complete, but before the first push or PR creation, review the full local
+  branch diff against current `main` with the FULL `pr-review-toolkit` agent set in the
+  initial round — ALL FIVE, no cherry-picking:**
   1. `pr-review-toolkit:code-reviewer` — correctness, guideline compliance
   2. `pr-review-toolkit:silent-failure-hunter` — swallowed errors, failures that look like
      clean results
@@ -206,17 +207,20 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   Running two of the five would have shipped the other three.
 
   Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
-  (anything you can confirm and act on) — then push and re-run **only the non-converged
-  agents**. An agent converges only when a successfully completed full-diff review
+  (anything you can confirm and act on) — then re-run the applicable local gates and
+  **only the non-converged agents**. Do not push or create the PR until all five agents
+  have converged and the final local gates pass. An agent converges only when a
+  successfully completed full-diff review
   explicitly reports no unresolved actionable verified findings. An agent that reports
   any such finding remains non-converged whether the finding is new or repeated. Failed,
   timed-out, or inconclusive reviews also remain non-converged and must be retried. Once
   converged, an agent must not run again during that PR review cycle, even after another
-  agent's fixes change the head. Repeat the reduced, non-converged set until each remaining
-  agent converges. Do not skip re-verification for an agent that found an issue, do not
-  defer fixable issues, and do not merge with known-fixable findings outstanding. NO
-  BUTS. The only findings you may leave are ones genuinely not verifiable/actionable in
-  this repo — record each exception explicitly, with the reason.**
+  agent's fixes change the diff. Repeat the reduced, non-converged set until each
+  remaining agent converges. Do not skip re-verification for an agent that found an
+  issue, do not defer fixable issues, and do not merge with known-fixable findings
+  outstanding. NO BUTS. The only findings you may leave are ones genuinely not
+  verifiable/actionable in this repo — record each exception explicitly, with the
+  reason.**
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go
   under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
