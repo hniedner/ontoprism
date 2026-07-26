@@ -19,6 +19,57 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.16.4 (2026-07-26)
+
+### Bug Fixes
+
+- **decomposition**: Close bounded transitive R82 chains
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+- **decomposition**: Enforce closure safety boundaries
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+- **decomposition**: Preserve cyclic filler candidates
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+- **decomposition**: Preserve R82 target term types
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+- **decomposition**: Scope closure comparisons
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+- **decomposition**: Skip noncomparable closure groups
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+### Documentation
+
+- Update README code line-count table
+  ([`451f594`](https://github.com/hniedner/ontoprism/commit/451f5949a4a5ff6bdd0c886961c7f9457abbbb66))
+
+- **decomposition**: Align ambiguity metadata
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+- **decomposition**: Clarify filler selection contract
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+- **decomposition**: Distinguish routed review handling
+  ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+### Testing
+
+- **storage**: Pin SELECT retry behavior ([#219](https://github.com/hniedner/ontoprism/pull/219),
+  [`6a2b8ed`](https://github.com/hniedner/ontoprism/commit/6a2b8edbf9b2e13ac637bb6fddcdd78c24a0a749))
+
+
 ## v0.16.3 (2026-07-26)
 
 ### Bug Fixes
