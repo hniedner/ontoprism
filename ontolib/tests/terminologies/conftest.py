@@ -50,8 +50,18 @@ def ncit_url() -> str:
 
 
 def _rows(bindings: list[dict[str, str]]) -> dict[str, Any]:
-    cells = [{var: {"value": val} for var, val in b.items()} for b in bindings]
-    return {"head": {"vars": []}, "results": {"bindings": cells}}
+    variables = list(dict.fromkeys(var for binding in bindings for var in binding))
+    cells = [
+        {
+            var: {
+                "type": "uri" if val.startswith(("http://", "https://")) else "literal",
+                "value": val,
+            }
+            for var, val in binding.items()
+        }
+        for binding in bindings
+    ]
+    return {"head": {"vars": variables}, "results": {"bindings": cells}}
 
 
 # (marker in query text, canned bindings) — first match wins; order matters where one

@@ -232,9 +232,13 @@ def test_part_of_pair_requires_directional_keywords() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("binding", ["part", "whole"])
-def test_part_of_pair_rejects_non_concept_code(binding: str) -> None:
+@pytest.mark.parametrize("bad_code", ["R82", "Cfoo", "C123x", "C\uff11\uff12\uff13"])
+def test_part_of_pair_rejects_non_concept_code(
+    binding: str,
+    bad_code: str,
+) -> None:
     values = {"part": "C6135", "whole": "C27970"}
-    values[binding] = "R82"
+    values[binding] = bad_code
     with pytest.raises(ValueError, match=f"{binding} is not an NCIt concept code"):
         PartOfPair(part=values["part"], whole=values["whole"])
 
@@ -263,7 +267,7 @@ def test_part_of_pairs_from_rows_rejects_non_ncit_iri(binding: str) -> None:
         "part": _iri("C6135"),
         "whole": _iri("C27970"),
     }
-    row[binding] = "https://example.org/C1"
+    row[binding] = "https://example.org/vocab#C1"
     with pytest.raises(ValueError, match=f"{binding} is not an NCIt IRI"):
         part_of_pairs_from_rows([row])
 
@@ -282,12 +286,16 @@ def test_part_of_pairs_from_rows_rejects_empty_ncit_code(binding: str) -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("binding", ["part", "whole"])
-def test_part_of_pairs_from_rows_rejects_non_concept_code(binding: str) -> None:
+@pytest.mark.parametrize("bad_code", ["R82", "Cfoo", "C123x", "C\uff11\uff12\uff13"])
+def test_part_of_pairs_from_rows_rejects_non_concept_code(
+    binding: str,
+    bad_code: str,
+) -> None:
     row: dict[str, str | None] = {
         "part": _iri("C6135"),
         "whole": _iri("C27970"),
     }
-    row[binding] = _iri("R82")
+    row[binding] = _iri(bad_code)
     with pytest.raises(ValueError, match=f"{binding} is not an NCIt concept code"):
         part_of_pairs_from_rows([row])
 

@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 
 _SPARQL_JSON = "application/sparql-results+json"
 _SPARQL_QUERY = "application/sparql-query"
+_SPARQL_BINDING_TYPES = frozenset({"uri", "bnode", "literal", "typed-literal"})
 # Chunk size for streaming a file object to the store (keeps a multi-hundred-MB OWL
 # from fully materializing in memory).
 _LOAD_CHUNK_BYTES = 1 << 20
@@ -72,25 +73,60 @@ def safe_iri(code: str, namespace: str) -> str:
     return f"{namespace}{code}"
 
 
-def _flatten_binding_row(row: object, row_index: int) -> dict[str, str | None]:
+def _binding_value(cell: object, row_index: int, variable: str) -> str:
+    if not isinstance(cell, dict):
+        raise StorageError(
+            f"malformed SPARQL SELECT response: row {row_index} has invalid cell"
+        )
+    binding_type = cell.get("type")
+    if not isinstance(binding_type, str) or binding_type not in _SPARQL_BINDING_TYPES:
+        raise StorageError(
+            "malformed SPARQL SELECT response: "
+            f"row {row_index} variable {variable!r} has invalid binding type"
+        )
+    value = cell.get("value")
+    if not isinstance(value, str):
+        raise StorageError(
+            "malformed SPARQL SELECT response: "
+            f"row {row_index} variable {variable!r} has no string value"
+        )
+    return value
+
+
+def _flatten_binding_row(
+    row: object,
+    row_index: int,
+    variables: frozenset[str],
+) -> dict[str, str | None]:
     if not isinstance(row, dict):
         raise StorageError(
             f"malformed SPARQL SELECT response: row {row_index} is not an object"
         )
     flattened: dict[str, str | None] = {}
     for variable, cell in row.items():
-        if not isinstance(variable, str) or not isinstance(cell, dict):
-            raise StorageError(
-                f"malformed SPARQL SELECT response: row {row_index} has invalid cell"
-            )
-        value = cell.get("value")
-        if not isinstance(value, str):
+        if not isinstance(variable, str) or variable not in variables:
             raise StorageError(
                 "malformed SPARQL SELECT response: "
-                f"row {row_index} variable {variable!r} has no string value"
+                f"row {row_index} has undeclared variable {variable!r}"
             )
-        flattened[variable] = value
+        flattened[variable] = _binding_value(cell, row_index, variable)
     return flattened
+
+
+def _select_document(
+    data: object,
+) -> tuple[dict[object, object], frozenset[str]]:
+    if not isinstance(data, dict):
+        raise StorageError("malformed SPARQL SELECT response: root is not an object")
+    head = data.get("head")
+    if not isinstance(head, dict):
+        raise StorageError("malformed SPARQL SELECT response: missing head object")
+    raw_variables = head.get("vars")
+    if not isinstance(raw_variables, list) or not all(
+        isinstance(variable, str) for variable in raw_variables
+    ):
+        raise StorageError("malformed SPARQL SELECT response: missing variable list")
+    return data, frozenset(raw_variables)
 
 
 def flatten_bindings(data: object) -> list[dict[str, str | None]]:
@@ -100,21 +136,25 @@ def flatten_bindings(data: object) -> list[dict[str, str | None]]:
     absent from a given row is omitted from that row's dict, so callers can tell an
     unbound optional from an empty string.
     """
-    if not isinstance(data, dict):
-        raise StorageError("malformed SPARQL SELECT response: root is not an object")
-    results = data.get("results")
+    document, variables = _select_document(data)
+    results = document.get("results")
     if not isinstance(results, dict):
         raise StorageError("malformed SPARQL SELECT response: missing results object")
     bindings = results.get("bindings")
     if not isinstance(bindings, list):
         raise StorageError("malformed SPARQL SELECT response: missing bindings array")
-    return [_flatten_binding_row(row, index) for index, row in enumerate(bindings)]
+    return [
+        _flatten_binding_row(row, index, variables)
+        for index, row in enumerate(bindings)
+    ]
 
 
 def parse_ask_result(data: object) -> bool:
     """Return a SPARQL-JSON ASK result, rejecting malformed response envelopes."""
     if not isinstance(data, dict):
         raise StorageError("malformed SPARQL ASK response: missing boolean result")
+    if not isinstance(data.get("head"), dict):
+        raise StorageError("malformed SPARQL ASK response: missing head object")
     result = data.get("boolean")
     if not isinstance(result, bool):
         raise StorageError("malformed SPARQL ASK response: missing boolean result")

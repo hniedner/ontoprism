@@ -20,7 +20,9 @@ from ontolib.core.exceptions import StorageError
 def _results(n: int) -> dict[str, Any]:
     return {
         "head": {"vars": ["s"]},
-        "results": {"bindings": [{"s": {"value": f"urn:{i}"}} for i in range(n)]},
+        "results": {
+            "bindings": [{"s": {"type": "uri", "value": f"urn:{i}"}} for i in range(n)]
+        },
     }
 
 

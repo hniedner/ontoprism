@@ -42,8 +42,8 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
         "results": {
             "bindings": [
                 {
-                    "rel": {"value": f"{NCIT_NS}R105"},
-                    "target": {"value": f"{NCIT_NS}C12922"},
+                    "rel": {"type": "uri", "value": f"{NCIT_NS}R105"},
+                    "target": {"type": "uri", "value": f"{NCIT_NS}C12922"},
                 }
             ]
         },
@@ -54,7 +54,9 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
     elif _COUNT_BAD in query:
         body = {
             "head": {"vars": ["count"]},
-            "results": {"bindings": [{"count": {"value": "not_a_number"}}]},
+            "results": {
+                "bindings": [{"count": {"type": "literal", "value": "not_a_number"}}]
+            },
         }
     elif _NON_JSON in query:
         content_type = "text/plain"
@@ -67,12 +69,12 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
     elif "COUNT" in query:
         body = {
             "head": {"vars": ["count"]},
-            "results": {"bindings": [{"count": {"value": "7"}}]},
+            "results": {"bindings": [{"count": {"type": "literal", "value": "7"}}]},
         }
     elif "versionInfo" in query:
         body = {
             "head": {"vars": ["v"]},
-            "results": {"bindings": [{"v": {"value": "26.02d"}}]},
+            "results": {"bindings": [{"v": {"type": "literal", "value": "26.02d"}}]},
         }
 
     return status, content_type, body

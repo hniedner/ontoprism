@@ -58,7 +58,13 @@ def test_flatten_bindings_empty_result() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "data",
-    [{}, {"results": {}}, {"results": {"bindings": {}}}, []],
+    [
+        {},
+        {"head": []},
+        {"head": {}, "results": {}},
+        {"head": {"vars": []}, "results": {"bindings": {}}},
+        [],
+    ],
 )
 def test_flatten_bindings_rejects_malformed_select_envelope(
     data: object,
@@ -82,17 +88,52 @@ def test_flatten_bindings_rejects_malformed_rows_and_cells(
     bindings: list[object],
 ) -> None:
     with pytest.raises(StorageError, match="malformed SPARQL SELECT response"):
-        flatten_bindings({"results": {"bindings": bindings}})
+        flatten_bindings(
+            {"head": {"vars": ["part"]}, "results": {"bindings": bindings}}
+        )
+
+
+@pytest.mark.unit
+def test_flatten_bindings_rejects_undeclared_variable() -> None:
+    data = {
+        "head": {"vars": ["part"]},
+        "results": {"bindings": [{"whole": {"type": "uri", "value": f"{NCIT_NS}C1"}}]},
+    }
+    with pytest.raises(StorageError, match="undeclared variable"):
+        flatten_bindings(data)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cell_type", [None, "", "unknown"])
+def test_flatten_bindings_rejects_invalid_cell_type(cell_type: object) -> None:
+    data = {
+        "head": {"vars": ["part"]},
+        "results": {
+            "bindings": [{"part": {"type": cell_type, "value": f"{NCIT_NS}C1"}}]
+        },
+    }
+    with pytest.raises(StorageError, match="invalid binding type"):
+        flatten_bindings(data)
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("value", [True, False])
 def test_parse_ask_result_returns_boolean(value: bool) -> None:
-    assert parse_ask_result({"boolean": value}) is value
+    assert parse_ask_result({"head": {}, "boolean": value}) is value
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("data", [{}, {"boolean": "false"}, {"boolean": 0}, []])
+@pytest.mark.parametrize(
+    "data",
+    [
+        {},
+        {"boolean": False},
+        {"head": [], "boolean": False},
+        {"head": {}, "boolean": "false"},
+        {"head": {}, "boolean": 0},
+        [],
+    ],
+)
 def test_parse_ask_result_rejects_malformed_envelope(data: object) -> None:
     with pytest.raises(StorageError, match="malformed SPARQL ASK response"):
         parse_ask_result(data)

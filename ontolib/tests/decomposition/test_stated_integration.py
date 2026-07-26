@@ -38,6 +38,7 @@ from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.oxigraph_http_client import (
     OxigraphHttpClient,
+    flatten_bindings,
     parse_ask_result,
 )
 
@@ -129,12 +130,13 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         empty_rows = await client.select(
             build_part_of_pairs_query(part_codes=[], whole_codes=[])
         )
-        direct_rows = await client.select(
+        direct_raw = await client.select_raw(
             build_part_of_pairs_query(
                 part_codes=["C32291"],
                 whole_codes=["C12510"],
             )
         )
+        direct_rows = flatten_bindings(direct_raw)
         reverse_rows = await client.select(
             build_part_of_pairs_query(
                 part_codes=["C12510"],
@@ -155,6 +157,17 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
     )
     assert empty_rows == []
     assert direct_rows == [{"part": f"{NCIT_NS}C32291", "whole": f"{NCIT_NS}C12510"}]
+    assert direct_raw == {
+        "head": {"vars": ["part", "whole"]},
+        "results": {
+            "bindings": [
+                {
+                    "part": {"type": "uri", "value": f"{NCIT_NS}C32291"},
+                    "whole": {"type": "uri", "value": f"{NCIT_NS}C12510"},
+                }
+            ]
+        },
+    }
     assert reverse_rows == []
     assert health
     assert health[0].get("s")

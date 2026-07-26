@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
 Row = dict[str, str | None]
-_NCIT_CONCEPT_CODE = re.compile(r"C\d+")
+_NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
