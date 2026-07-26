@@ -205,18 +205,17 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   Running two of the five would have shipped the other three.
 
   Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
-  (anything you can confirm and act on) — then push and re-run **only the agents whose
-  immediately preceding review reported one or more unresolved actionable verified
-  findings, whether new or repeated**. An agent converges only when a successfully
-  completed full-diff review explicitly reports no unresolved actionable verified
-  findings. Failed, timed-out, or inconclusive reviews remain non-converged and must be
-  retried. Once converged, an agent must not run again during that PR review cycle, even
-  after another agent's fixes change the head. Repeat the reduced, non-converged set until
-  each remaining agent converges. Do not skip re-verification for an agent that found an
-  issue, do not defer fixable issues, and do not merge with known-fixable findings
-  outstanding. NO BUTS. The only findings you may leave are ones genuinely not
-  verifiable/actionable in this repo — record each exception explicitly, with the
-  reason.**
+  (anything you can confirm and act on) — then push and re-run **only the non-converged
+  agents**. An agent converges only when a successfully completed full-diff review
+  explicitly reports no unresolved actionable verified findings. An agent that reports
+  any such finding remains non-converged whether the finding is new or repeated. Failed,
+  timed-out, or inconclusive reviews also remain non-converged and must be retried. Once
+  converged, an agent must not run again during that PR review cycle, even after another
+  agent's fixes change the head. Repeat the reduced, non-converged set until each remaining
+  agent converges. Do not skip re-verification for an agent that found an issue, do not
+  defer fixable issues, and do not merge with known-fixable findings outstanding. NO
+  BUTS. The only findings you may leave are ones genuinely not verifiable/actionable in
+  this repo — record each exception explicitly, with the reason.**
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
   Plan-mode plan files and any implementation handover written for a follow-up session go
   under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
