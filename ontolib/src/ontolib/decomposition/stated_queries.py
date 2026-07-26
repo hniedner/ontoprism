@@ -47,7 +47,7 @@ _PART_OF_QUERY_CODE_LIMIT = 16
 _PART_OF_EXPANSION_ROW_LIMIT = 256
 _PART_OF_MAX_R82_HOPS = 8
 _PART_OF_MAX_SUPERCLASS_HOPS = 8
-_PART_OF_MAX_FRONTIER_CODES = 256
+_PART_OF_MAX_EXPANDED_CODES = 256
 _PART_OF_MAX_REQUESTS = 64
 _PART_OF_MAX_TOTAL_ROWS = 4096
 _PART_OF_MAX_QUERY_BYTES = 65_536
@@ -373,9 +373,11 @@ class _PartOfClosure:
         missing = sorted(set(frontier) - self.cache.keys())
         if not missing:
             return
-        prospective_frontier = self.expanded_codes | set(missing)
-        if len(prospective_frontier) > _PART_OF_MAX_FRONTIER_CODES:
-            raise ValueError("R82 closure frontier exceeds 256 codes")
+        prospective_expanded_codes = self.expanded_codes | set(missing)
+        if len(prospective_expanded_codes) > _PART_OF_MAX_EXPANDED_CODES:
+            raise ValueError(
+                "R82 closure cumulative expanded-code bound exceeds 256 codes"
+            )
         self.expanded_codes.update(missing)
 
         for start in range(0, len(missing), _PART_OF_QUERY_CODE_LIMIT):
@@ -484,8 +486,8 @@ async def resolve_part_of_pairs(
     requested = _part_of_codes(codes)
     if not requested:
         return []
-    if len(requested) > _PART_OF_MAX_FRONTIER_CODES:
-        raise ValueError("R82 closure frontier exceeds 256 codes")
+    if len(requested) > _PART_OF_MAX_EXPANDED_CODES:
+        raise ValueError("R82 closure cumulative expanded-code bound exceeds 256 codes")
     return await _PartOfClosure(
         select_once=client.select_once,
         requested=requested,

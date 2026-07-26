@@ -277,7 +277,7 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
                 query, required_variables=required_variables
             )
 
-        with pytest.raises(ValueError, match=r"frontier.*256"):
+        with pytest.raises(ValueError, match=r"expanded-code.*256"):
             await stated_queries.resolve_part_of_pairs(
                 _SingleAttemptClient(counted_select),
                 (f"C{i}" for i in range(257)),

@@ -247,9 +247,9 @@ async def test_part_of_closure_requires_projection_and_propagates_store_error() 
 
 
 @pytest.mark.unit
-async def test_part_of_closure_rejects_frontier_bound_before_store() -> None:
+async def test_part_of_closure_rejects_expanded_code_bound_before_store() -> None:
     store = _ExpansionStore()
-    with pytest.raises(ValueError, match=r"frontier.*256"):
+    with pytest.raises(ValueError, match=r"expanded-code.*256"):
         await stated_queries.resolve_part_of_pairs(store, (f"C{i}" for i in range(257)))
     assert store.calls == []
 
@@ -278,7 +278,7 @@ async def test_part_of_closure_rejects_dynamic_257th_expansion_code() -> None:
     expansions = {"C1": [("whole", f"C{1000 + index}") for index in range(256)]}
     store = _ExpansionStore(expansions)
 
-    with pytest.raises(ValueError, match=r"frontier.*256"):
+    with pytest.raises(ValueError, match=r"expanded-code.*256"):
         await stated_queries.resolve_part_of_pairs(store, ["C1"])
     assert len(store.calls) == 1
 
