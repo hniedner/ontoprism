@@ -164,12 +164,12 @@ def _group_by_routed_axis(
 
 
 def comparison_filler_codes(restrictions: Iterable[RoleRestriction]) -> list[str]:
-    """Return fillers from routed-axis groups that need specificity comparison."""
+    """Return fillers from routed-axis groups that use specificity comparison."""
     return sorted(
         {
             filler
-            for fillers in _group_by_routed_axis(restrictions).values()
-            if len(fillers) > 1
+            for axis_name, fillers in _group_by_routed_axis(restrictions).items()
+            if axis_name != axes.ASSOCIATED_LINEAGE_AXIS and len(fillers) > 1
             for filler in fillers
         }
     )

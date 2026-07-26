@@ -373,7 +373,7 @@ async def _decompose_one(
             required_variables={"ancestor", "descendant"},
         )
     )
-    # If filler A is transitively part of filler B, B is the ancestor (D16).
+    # Treat an R82 whole as broader than its part for specificity selection (D16).
     part_of_pairs = await stated_queries.resolve_part_of_pairs(
         client, fs.comparison_filler_codes(roles)
     )

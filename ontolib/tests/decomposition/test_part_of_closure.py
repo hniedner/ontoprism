@@ -137,6 +137,24 @@ async def test_part_of_closure_handles_graph_shapes_deterministically() -> None:
 
 
 @pytest.mark.unit
+async def test_part_of_closure_terminates_on_off_request_cycle() -> None:
+    store = _ExpansionStore(
+        {
+            "C1": [("whole", "C2")],
+            "C2": [("whole", "C3")],
+            "C3": [("whole", "C2")],
+        }
+    )
+
+    assert await stated_queries.resolve_part_of_pairs(store, ["C1", "C9"]) == []
+    assert [codes for codes, _required in store.calls] == [
+        ("C1", "C9"),
+        ("C2",),
+        ("C3",),
+    ]
+
+
+@pytest.mark.unit
 async def test_part_of_closure_empty_input_does_not_query_store() -> None:
     store = _ExpansionStore()
     assert await stated_queries.resolve_part_of_pairs(store, []) == []

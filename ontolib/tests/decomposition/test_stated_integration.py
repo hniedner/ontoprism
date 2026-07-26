@@ -469,11 +469,11 @@ async def test_c6135_genus_walk_finds_roles() -> None:
     # The walker should find at minimum these core roles from the genus chain:
     filler_codes = {r.filler_code for r in roles}
     assert "C27970" in filler_codes  # R88 — Stage III (from C6135 level)
-    assert "C90530" in filler_codes  # R88 — Medullary Carcinoma (from C141041)
-    assert "C12400" in filler_codes  # R101 — Malignant Neoplasm (from C4815)
+    assert "C90530" in filler_codes  # R88 — AJCC v7 Stage (from C141041)
+    assert "C12400" in filler_codes  # R101 — Thyroid Gland (from C4815)
     # Deep R101 fillers found via recursive genus walk:
-    assert "C13063" in filler_codes  # R101 — Primitive Hemocytoblast (from C6077)
-    assert "C12418" in filler_codes  # R101 — White Blood Cell (from C35850)
+    assert "C13063" in filler_codes  # R101 — Neck (from C6077)
+    assert "C12418" in filler_codes  # R101 — Head and Neck (from C35850)
 
     # Core-role filter must have excluded generic neoplasm roles like R103/R108
     # that originate at the C3879 (Neoplasm by Site) level:
