@@ -11,6 +11,7 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.oxigraph_http_client import (
     OxigraphHttpClient,
     flatten_bindings,
+    parse_ask_result,
     safe_iri,
 )
 
@@ -55,12 +56,46 @@ def test_flatten_bindings_empty_result() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("data", [{}, {"results": {}}, {"results": {"bindings": {}}}])
+@pytest.mark.parametrize(
+    "data",
+    [{}, {"results": {}}, {"results": {"bindings": {}}}, []],
+)
 def test_flatten_bindings_rejects_malformed_select_envelope(
-    data: dict[str, object],
+    data: object,
 ) -> None:
     with pytest.raises(StorageError, match="malformed SPARQL SELECT response"):
         flatten_bindings(data)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "bindings",
+    [
+        [None],
+        [{"part": None}],
+        [{1: {"value": "invalid variable"}}],
+        [{"part": {}}],
+        [{"part": {"value": None}}],
+    ],
+)
+def test_flatten_bindings_rejects_malformed_rows_and_cells(
+    bindings: list[object],
+) -> None:
+    with pytest.raises(StorageError, match="malformed SPARQL SELECT response"):
+        flatten_bindings({"results": {"bindings": bindings}})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", [True, False])
+def test_parse_ask_result_returns_boolean(value: bool) -> None:
+    assert parse_ask_result({"boolean": value}) is value
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("data", [{}, {"boolean": "false"}, {"boolean": 0}, []])
+def test_parse_ask_result_rejects_malformed_envelope(data: object) -> None:
+    with pytest.raises(StorageError, match="malformed SPARQL ASK response"):
+        parse_ask_result(data)
 
 
 @pytest.mark.unit

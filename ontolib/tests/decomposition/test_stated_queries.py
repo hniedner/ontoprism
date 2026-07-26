@@ -184,9 +184,15 @@ def test_part_of_pairs_queries_tile_both_dimensions() -> None:
 
 
 @pytest.mark.unit
-def test_part_of_pairs_query_rejects_unsafe_code() -> None:
+@pytest.mark.parametrize("unsafe_endpoint", ["part", "whole"])
+def test_part_of_pairs_query_rejects_unsafe_code(unsafe_endpoint: str) -> None:
+    part_codes = ["bad code"] if unsafe_endpoint == "part" else ["C1"]
+    whole_codes = ["bad code"] if unsafe_endpoint == "whole" else ["C1"]
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
-        build_part_of_pairs_query(part_codes=["bad code"], whole_codes=["C1"])
+        build_part_of_pairs_query(
+            part_codes=part_codes,
+            whole_codes=whole_codes,
+        )
 
 
 @pytest.mark.unit

@@ -72,20 +72,53 @@ def safe_iri(code: str, namespace: str) -> str:
     return f"{namespace}{code}"
 
 
-def flatten_bindings(data: dict[str, Any]) -> list[dict[str, str | None]]:
+def _flatten_binding_row(row: object, row_index: int) -> dict[str, str | None]:
+    if not isinstance(row, dict):
+        raise StorageError(
+            f"malformed SPARQL SELECT response: row {row_index} is not an object"
+        )
+    flattened: dict[str, str | None] = {}
+    for variable, cell in row.items():
+        if not isinstance(variable, str) or not isinstance(cell, dict):
+            raise StorageError(
+                f"malformed SPARQL SELECT response: row {row_index} has invalid cell"
+            )
+        value = cell.get("value")
+        if not isinstance(value, str):
+            raise StorageError(
+                "malformed SPARQL SELECT response: "
+                f"row {row_index} variable {variable!r} has no string value"
+            )
+        flattened[variable] = value
+    return flattened
+
+
+def flatten_bindings(data: object) -> list[dict[str, str | None]]:
     """Flatten a SPARQL-JSON result into ``{var: value}`` rows.
 
     Only the ``value`` of each binding is kept (datatype/lang dropped). A variable
     absent from a given row is omitted from that row's dict, so callers can tell an
     unbound optional from an empty string.
     """
+    if not isinstance(data, dict):
+        raise StorageError("malformed SPARQL SELECT response: root is not an object")
     results = data.get("results")
     if not isinstance(results, dict):
         raise StorageError("malformed SPARQL SELECT response: missing results object")
     bindings = results.get("bindings")
     if not isinstance(bindings, list):
         raise StorageError("malformed SPARQL SELECT response: missing bindings array")
-    return [{var: cell.get("value") for var, cell in row.items()} for row in bindings]
+    return [_flatten_binding_row(row, index) for index, row in enumerate(bindings)]
+
+
+def parse_ask_result(data: object) -> bool:
+    """Return a SPARQL-JSON ASK result, rejecting malformed response envelopes."""
+    if not isinstance(data, dict):
+        raise StorageError("malformed SPARQL ASK response: missing boolean result")
+    result = data.get("boolean")
+    if not isinstance(result, bool):
+        raise StorageError("malformed SPARQL ASK response: missing boolean result")
+    return result
 
 
 class OxigraphHttpClient:
@@ -215,8 +248,7 @@ class OxigraphHttpClient:
 
     async def ask(self, query: str) -> bool:
         """Run an ASK query and return its boolean result."""
-        data = await self.select_raw(query)
-        return bool(data.get("boolean", False))
+        return parse_ask_result(await self.select_raw(query))
 
     async def count(self, query: str = _COUNT_ALL) -> int:
         """Run a ``SELECT (COUNT(...) AS ?count)`` query and return the integer.

@@ -36,7 +36,10 @@ from ontolib.decomposition.stated_queries import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.oxigraph_http_client import (
+    OxigraphHttpClient,
+    parse_ask_result,
+)
 
 _DEFAULT_NCIT_URL = "http://localhost:7888"
 
@@ -76,7 +79,7 @@ def _stated_loaded(url: str) -> bool:
     except httpx.HTTPError:
         return False
     resp.raise_for_status()
-    return resp.json().get("boolean", False)
+    return parse_ask_result(resp.json())
 
 
 @pytest.mark.integration
@@ -126,6 +129,18 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         empty_rows = await client.select(
             build_part_of_pairs_query(part_codes=[], whole_codes=[])
         )
+        direct_rows = await client.select(
+            build_part_of_pairs_query(
+                part_codes=["C32291"],
+                whole_codes=["C12510"],
+            )
+        )
+        reverse_rows = await client.select(
+            build_part_of_pairs_query(
+                part_codes=["C12510"],
+                whole_codes=["C32291"],
+            )
+        )
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )
@@ -139,6 +154,8 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         }
     )
     assert empty_rows == []
+    assert direct_rows == [{"part": f"{NCIT_NS}C32291", "whole": f"{NCIT_NS}C12510"}]
+    assert reverse_rows == []
     assert health
     assert health[0].get("s")
 
@@ -158,12 +175,18 @@ async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> Non
             f"?ontology a <{OWL_NS}Ontology> ; "
             f"<{OWL_NS}versionInfo> ?version . }} }}"
         )
-        rows = []
-        for query in build_part_of_pairs_queries(["C32291", "C12510"]):
-            rows.extend(await client.select(query))
-        no_match_rows = []
-        for query in build_part_of_pairs_queries(["C32291", "C999999999"]):
-            no_match_rows.extend(await client.select(query))
+        rows = await client.select(
+            build_part_of_pairs_query(
+                part_codes=["C32291"],
+                whole_codes=["C12510"],
+            )
+        )
+        no_match_rows = await client.select(
+            build_part_of_pairs_query(
+                part_codes=["C32291"],
+                whole_codes=["C999999999"],
+            )
+        )
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )

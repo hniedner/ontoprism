@@ -7,6 +7,7 @@ layer only wires ``client.select(build_*_query(...))`` into these helpers.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
 Row = dict[str, str | None]
+_NCIT_CONCEPT_CODE = re.compile(r"C\d+")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -25,6 +27,11 @@ class PartOfPair:
 
     part: str
     whole: str
+
+    def __post_init__(self) -> None:
+        for binding, code in (("part", self.part), ("whole", self.whole)):
+            if _NCIT_CONCEPT_CODE.fullmatch(code) is None:
+                raise ValueError(f"{binding} is not an NCIt concept code: {code!r}")
 
 
 def _code(iri: str | None) -> str | None:

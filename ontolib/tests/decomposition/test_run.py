@@ -356,8 +356,7 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
 
 @pytest.mark.unit
 async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
-    """R101 filler C13063 is part-of C12400 (container), so C12400 should be
-    collapsed as the broader concept, leaving only C13063 (the part)."""
+    """Thyroid gland C12400 is part of neck C13063, so the broader neck is removed."""
     client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
@@ -369,7 +368,7 @@ async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
             ]
         },
         part_of_rows=[
-            {"part": _iri("C13063"), "whole": _iri("C12400")},
+            {"part": _iri("C12400"), "whole": _iri("C13063")},
         ],
     )
     provenance = _mock_provenance()
@@ -377,7 +376,44 @@ async def test_run_pipeline_part_of_pairs_collapse_broader_filler() -> None:
     assert metrics.decomposed == 1
     constituents = provenance.upsert_constituents.call_args.args[2]
     site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
-    assert site_fillers == {"C13063"}  # C12400 collapsed as broader container
+    assert site_fillers == {"C12400"}
+
+
+@pytest.mark.unit
+async def test_run_pipeline_aggregates_part_of_pairs_across_all_tiles() -> None:
+    class _TiledPartOfClient(_FakeClient):
+        async def select(self, query: str) -> list[dict[str, str | None]]:
+            if "R82>" in query:
+                self.queries.append(query)
+                pair = f"(<{_iri('C10000')}> <{_iri('C99999')}>)"
+                return (
+                    [{"part": _iri("C10000"), "whole": _iri("C99999")}]
+                    if pair in query
+                    else []
+                )
+            return await super().select(query)
+
+    site_codes = ["C10000", *(f"C200{i:02d}" for i in range(15)), "C99999"]
+    client = _TiledPartOfClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                *(_role("R101", "Has_Primary_Site", code) for code in site_codes),
+                _role("R88", "Has_Stage", "C27970"),
+            ]
+        },
+    )
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    assert metrics.decomposed == 1
+    constituents = provenance.upsert_constituents.call_args.args[2]
+    fillers = {c.filler_code for c in constituents}
+    assert "C10000" in fillers
+    assert "C99999" not in fillers
+    assert sum("R82>" in query for query in client.queries) == 4
 
 
 @pytest.mark.unit
