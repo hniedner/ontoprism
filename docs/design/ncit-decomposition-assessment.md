@@ -161,7 +161,9 @@ decomposable. Three exemplars (full data in `data/pilot_neoplasm.json`):
 - Primary site (most specific) = `C12400` Thyroid Gland
 - Abnormal cell (most specific) = `C36761` Neoplastic Neuroendocrine Cell
 - Morphology = Medullary Carcinoma (taxonomic-parent axis)
-- **Near-duplicate:** `C141045` = the *same clinical entity* re-enumerated for AJCC v8.
+- **Edition-related concept:** `C141045` shares the disease/site/morphology core but
+  carries a distinct AJCC v8 assertion; the two concepts are not semantically equivalent
+  (D39).
 
 **C35756 — "Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7"** decomposes to
 Stage IIIB + AJCC v7 + Lung + Small Cell Carcinoma + Pleural Effusion, and sits in a **sibling
@@ -173,7 +175,8 @@ Neoplastic Spindle Cell (`C36954`), finding = Myxoid Stroma Formation (`C35998`)
 (Left)* is label-only → NLP fallback.
 
 These cases demonstrate both the decomposability (constituents are all present) and the payoff:
-AJCC-version and with/without forks collapse into one core entity plus orthogonal qualifiers.
+AJCC-edition and with/without concepts can expose a shared core plus orthogonal qualifiers
+without collapsing their distinct clinical assertions or legacy codes (D39).
 
 ---
 
@@ -201,14 +204,13 @@ Proposed model (additive — no deletions):
    semantically self-describing and lets the existing role restrictions remain untouched.)
 3. **Create only the genuinely missing constituents** (laterality/absence qualifiers, a handful of
    value-set nodes), then link them the same way. Coverage analysis shows this set is small.
-4. **Optional post-coordination equivalence.** For entities with a clean, complete axis set,
-   additionally assert an `owl:equivalentClass` intersection of the fillers — this is what turns the
-   legacy concept into a *derivable* post-coordinated expression and enables future de-duplication
-   (AJCC v7/v8 forks become equivalent up to the stage-system qualifier).
+4. **Future post-coordination equivalence.** D43 supersedes the original optional-emission
+   proposal: no current axis set can authorize `owl:equivalentClass`. Issue #153 must first
+   provide a complete proof-bearing representation.
 5. **Deprecation policy:** legacy concepts are *retained indefinitely* (flagged), never retired,
    guaranteeing backward compatibility. New authoring is steered to the post-coordinated form.
 
-This is additive and reversible: it introduces annotations and association triples only, so a
+The current constituent view is additive and non-destructive: it introduces annotations and association triples only, so a
 consumer that ignores them sees today's NCIt unchanged.
 
 ---
@@ -222,7 +224,7 @@ Scope = disease/neoplasm/regimen families (~26K role-bearing concepts), producti
 | Ingest **stated** NCIt OWL; build asserted-roles table | 0.5 pm | avoids inferred-closure bleed |
 | Filler-selection engine (most-specific per axis, Excludes_* filtering, morphology-from-parent) | 1.0 pm | core engineering; deterministic + testable |
 | NLP-fallback extractor (laterality, "with/without", version) + new-qualifier minting | 1.0 pm | long tail, curation-heavy |
-| Backward-compatible model + linker (annotations, `:hasConstituent`, optional equivalentClass) | 0.75 pm | additive OWL/graph writes |
+| Backward-compatible model + linker (annotations, `:hasConstituent`) | 0.75 pm | additive OWL/graph writes |
 | Curation & QA (sampling, clinician review, disjointness/consistency checks in Oxigraph) | 2.0–4.0 pm | dominant cost; scales with quality bar |
 | Governance, docs, release integration into fairdata pipeline | 0.5 pm | dual-representation policy, versioning |
 | **Total** | **~5.75–8.25 pm** | ~70% curation/QA, ~30% engineering |
@@ -250,8 +252,8 @@ curation rate before committing to the full pass.
 
 Proceed, scoped to the disease/neoplasm(/regimen) branch, in three phases: **(P1)** stated-OWL
 ingest + filler-selection spike on ~200 concepts; **(P2)** backward-compatible linker producing the
-legacy-flag + `:hasConstituent` graph for the full branch; **(P3)** NLP-fallback tail, optional
-equivalentClass post-coordination, and governance. The feasibility question is settled favourably by
+legacy-flag + `:hasConstituent` graph for the full branch; **(P3)** NLP-fallback tail and governance.
+Exact-equivalence work is separately quarantined behind #153's proof-bearing representation. The feasibility question is settled favourably by
 the data: the constituents are already in NCIt (100% for roles), and the representation can be made
 backward-compatible without deleting or altering a single existing concept.
 

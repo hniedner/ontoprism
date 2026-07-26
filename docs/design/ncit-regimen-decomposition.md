@@ -107,7 +107,7 @@ The sentinel `axis` value is sufficient for the writer to reconstruct which trip
 | `component_existence_rate` | components resolving to an existing active concept / all | **100%** |
 | `pct_with_disease_indication` | regimens carrying ≥1 `R172` indication | (report from run) |
 
-`roundtrip_fidelity` / `owl:equivalentClass` is **not** in scope here: an equivalence assertion for a regimen would be an intersection over `op:hasComponent` — i.e. a *derivable post-coordinated regimen expression* — which is exactly the post-coordination-syntax concern owned by **#6**, deferred behind the same off-by-default seam as the neoplasm equivalence (parent §4.4).
+`roundtrip_fidelity` / `owl:equivalentClass` is **not** in scope here: an equivalence assertion for a regimen would be an intersection over `op:hasComponent`. Issue #6 owns the user-facing post-coordination grammar; #153 alone owns the proof-bearing representation that must exist before the parent emission seam can succeed (parent §4.4; D43).
 
 ---
 

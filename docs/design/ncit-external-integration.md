@@ -132,7 +132,7 @@ Every row below is existing, decided, or built work that the new architecture co
 | Roles-first decomposition; 100% filler coverage | assessment §3.2; README | The ~20K role-target atoms are **one** of the two mapping-target sets (§13); the caDSR anchor set `C_cadsr` is the other and is *not* a subset. Bounded, enumerable, already extracted. |
 | `op:` univocal axes (`op:PrimarySite`, `op:CellType`, `op:MetastaticSite`, `op:StageSystem`, `op:MolecularAbnormality`, …) | D17, D20, D22, D23 | These **are** the Relation-Ontology `has_location`/`derives_from`-style univocal relations the feedback asks for. We already have them. We now give each a stated domain/range that references **upstream** classes. |
 | SNOMED-style relationship groups | D19 | Already the target representation for co-equal axes. The SNOMED morphology axis and multi-valued site axes slot straight in. |
-| Complete lossless `owl:equivalentClass` unfolding behind `--emit-equivalence` | D19, D21 | Becomes the **cross-product** artifact: the same unfolding, with fillers additionally carrying upstream equivalents. |
+| Future complete lossless `owl:equivalentClass` unfolding (#153) | D19, D21, D43 | Becomes the **cross-product** artifact only after the proof-bearing representation exists; the current reserved flag rejects every request. |
 | Single-most-specific view as an explicitly-lossy curated projection | D15, D19 | Unchanged. Projection now optionally renders upstream labels. |
 | SCG / ECL / MRCM grammar template for goal 4 (#6) | D22 | The post-coordination grammar now **sanctions over upstream ranges** (MRCM ranges reference Uberon/SNOMED). Interoperable by construction. |
 | FHIR `ConceptMap.$translate` as the pre-↔post equivalence surface | D22, lit §8.4 | Becomes the **dual-canonical join surface** between the NCIt plane and the upstream plane. |
@@ -181,32 +181,37 @@ writes `op:` axes into `ncit_decomposed`; the mapping layer attaches upstream eq
 axis filler; new authoring and external consumers work in the upstream plane and are translated down
 to NCIt (and thus to caDSR) on demand.
 
-### 3.1 The cross-product model (how NCIt becomes a "specialization")
+### 3.1 The future cross-product model (how NCIt may become a "specialization")
 
-A decomposed NCIt neoplasm is asserted as a defined class over a Mondo/DO genus and upstream
-differentia. Illustrative (C6135, *Stage III Thyroid Gland Medullary Carcinoma AJCC v7*):
+The current projection only exposes additive axes and mappings. Issue #153 must first build
+a complete proof-bearing record before any NCIt neoplasm can be asserted as a defined class
+over a Mondo/DO genus and upstream differentia. The following current-state sketch is
+non-equivalent planning pseudocode, not the serialized RDF shape (C6135, *Stage III Thyroid
+Gland Medullary Carcinoma AJCC v7*):
 
-```turtle
-# Reference plane (unchanged): C6135 owl:equivalentClass [ ... NCIt intersection ... ]
+```text
+reference(C6135) = unchanged stated NCIt definition
+projection(C6135) =
+  constituent(primary-site, NCIT:C12400)
+  + constituent(cell-type, NCIT:C36825)
+  + constituent(stage-system, NCIT:C90530)
+  + constituent(stage-value, NCIT:C27970)
+mapping(NCIT:C12400) = exact-match UBERON:0002046, SCTID:69748006
+mapping(NCIT:C36825) = close-match ICDO3:8345/3-morphology
+```
 
-# Decomposed plane (op: axes, D23 organ-level R101):
-C6135  :representationStatus "legacy-precoordinated" ;
-       op:PrimarySite     C12400 ;      # Thyroid Gland (NCIt)
-       op:CellType        C36825 ;      # (D15 most-specific)
-       op:StageSystem     C90530 ;      # AJCC v7
-       op:StageValue      C27970 .      # Stage III
+The following is **non-equivalent planning pseudocode**, not RDF and not emitted output.
+It names the visible dimensions but is not a substitute for #153's complete source
+definition, multi-parent structure, relationship groups, and proof:
 
-# Mapping plane (additive xref, new):
-C12400 skos:exactMatch    UBERON:0002046 ;         # Thyroid gland
-       skos:exactMatch    SCTID:69748006 .
-C36825 skos:closeMatch    <ICDO3:8345/3-morphology> .
-
-# Cross-product (behind --emit-equivalence, upstream-bound):
-C6135  owl:equivalentClass [
-         a owl:Class ;
-         rdfs:subClassOf  <MONDO:medullary_thyroid_carcinoma> ;  # disease genus
-         op:PrimarySite   some UBERON:0002046 ;                  # anatomy substrate
-         op:CellType      some <morphology-substrate> ] .
+```text
+candidate(C6135) =
+  genus MONDO:medullary_thyroid_carcinoma
+  + primary-site UBERON:0002046
+  + cell-type <morphology-substrate>
+  + stage-system NCIT:C90530
+  + stage-value NCIT:C27970
+  + every other defining parent, restriction, and group from the source record
 ```
 
 NCIt's *unique* contribution here is the oncology-specific packaging plus staging (`op:StageSystem`
@@ -222,7 +227,7 @@ reference substrate.
 | Any concept/CDE that exists today | **NCIt** | Backward compatibility; caDSR anchoring; concept permanence [Cimino desiderata]. |
 | New post-coordinated authoring | **Upstream** | Interoperability, orthogonality, no combinatorial minting. |
 | Cross-terminology query / data exchange | **Upstream** | FHIR/OBO ecosystem speaks Uberon/SNOMED/Mondo. |
-| Round-trip / reversibility proof | **NCIt** (via `owl:equivalentClass` unfolding) | The lossless record of truth is the NCIt definition (D19). |
+| Future round-trip / reversibility proof | **NCIt** (via #153's complete `owl:equivalentClass` unfolding) | The current curated projection is not proof-bearing (D43). |
 
 The two planes are **always joined** — never a fork. Every upstream atom used in authoring has a
 mapping back to an NCIt atom (or an explicit "no NCIt equivalent — minted" record, cf. D23 minted
@@ -318,8 +323,8 @@ correctness item. The gate has four hard requirements (D28):
    ~51% of even DL-native clinical classes carry no differentia): the reasoner is a QC/error-detector,
    **not** ground truth for equivalence.
 
-This gate stands between every `skos:closeMatch`/candidate and any `owl:equivalentClass` bridge, and
-between the bridge and `--emit-equivalence` cross-product emission.
+This gate stands between every `skos:closeMatch`/candidate and any `owl:equivalentClass` bridge. After
+#153 builds the proof-bearing representation, it will also gate cross-product emission.
 
 #### 4.4.1 As built (#73) — what promotes a candidate, and what the oracle is
 
@@ -549,8 +554,8 @@ Concrete, mapped onto the existing `keep-names` layout (ARCHITECTURE.md). All ad
   by source, to avoid five near-duplicate packages. Decision left to implementation; generic is
   favored (mirrors the "one mapping-ingest framework" option).
 - `ontolib/src/ontolib/decomposition/` — extend the `Constituent`/axis model so each filler can carry
-  an optional `upstream_xref` set; extend `--emit-equivalence` to bind fillers to upstream ranges in
-  the cross-product (D19 seam, now upstream-aware).
+  an optional `upstream_xref` set. After #153 supplies the complete representation, its exact-emission
+  seam may bind fillers to upstream ranges in the cross-product.
 - Reserved vocab in `vocab.py`: add `op:` axis domain/range declarations referencing upstream, plus
   the `skos:*Match` / RO bridge predicates.
 
@@ -587,8 +592,8 @@ target_source, skos_relation, ro_relation, umls_cui, confidence, review_status, 
 
 - `scripts/data_build.py` — add an `xref` stage (ingest NCIm/Mondo/Uberon/CL maps → validate →
   persist), gated by license flags for SNOMED/ICD-O-3.
-- `pdm run decompose --emit-equivalence` — now emits upstream-bound cross-products when the xref
-  graph is present.
+- Future #153 work may extend the reserved `--emit-equivalence` seam with upstream-bound
+  cross-products. It currently rejects every request, regardless of xref availability.
 - New `pdm run map` (or `data-build xref`) — the mapping ingest/validation entry point.
 
 ---
@@ -621,7 +626,7 @@ Phase D (serve + interop)
 
 Phase E (grammar, folds into #6)
   E1  MRCM ranges reference upstream classes; SCG/ECL over dual-canonical  [#6 design starts here]
-  E2  cross-product --emit-equivalence upstream-bound, reasoner-validated  [#6 / D19 seam]
+  E2  cross-product --emit-equivalence upstream-bound, reasoner-validated  [requires #153; #6 grammar]
 ```
 
 **Gating rules:** A3 gates every `exactMatch` promotion (no unvalidated equivalence ships). B precedes
@@ -654,7 +659,7 @@ mapping enriches the `op:` axes, it does not substitute for de-overloading them.
 
 - **Reused unchanged:** D4/D12 (stated-OWL, additive, named graphs), D15/D19 (most-specific projection
   vs lossless record), D17/D20/D22/D23 (`op:` univocal axes — the RO relations the feedback wants),
-  D19 (SNOMED relationship groups; `--emit-equivalence` seam), D22 (SCG/ECL/MRCM; FHIR `$translate`),
+  D19 (SNOMED relationship-group target; future #153 emission seam), D22 (SCG/ECL/MRCM; FHIR `$translate`),
   D21 (DL oracle, never `rdfs` closure), D23 (governance/minting workflow, organ-level R101).
 - **Extended:** D21's DL-oracle rule now spans cross-ontology maps (D28, non-circular + EL-profiled);
   D22's grammar ranges now reference upstream; D23's minting/review workflow now also governs mappings
@@ -696,7 +701,7 @@ mapping enriches the `op:` axes, it does not substitute for de-overloading them.
 4. `$translate` returns the **honest FHIR predicate** (equivalent/broader/narrower/unmatched; declare
    R4 vs R5) for a held-out translation test set; `unmatched` where no identity-grade link exists —
    never a fabricated equivalence.
-5. `--emit-equivalence` cross-products validate by the §4.4 **non-circular** gate (curated
+5. After #153 enables exact emission, `--emit-equivalence` cross-products validate by the §4.4 **non-circular** gate (curated
    `owl:equivalentClass` bridge, EL-profiled reasoner *or* materialized-definition structural check) —
    **not** by feeding SKOS annotations to a reasoner, and **not** via `rdfs:subClassOf+` (D21/D28).
 
@@ -860,7 +865,8 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 > External-integration strategy adopted (design: `docs/design/ncit-external-integration.md`, DECISIONS
 > D24–D26). Impact on #4: the `op:` axes are now also the binding points for upstream equivalents. No
 > change to the extractor's critical path; add an optional `upstream_xref` field to the constituent
-> model (non-blocking, Phase B1). `--emit-equivalence` gains an upstream-bound cross-product mode.
+> model (non-blocking, Phase B1). After #153 provides the complete representation,
+> `--emit-equivalence` may gain an upstream-bound cross-product mode.
 
 **Issue #44 (Extractor curation) — add comment**
 > Sequencing unchanged (D22: relations before coverage). New adjacency: the ~20K role-target atoms are
@@ -971,7 +977,7 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 ### New issues — Phase E (grammar, folds into #6)
 
-**#84: MRCM ranges over upstream + upstream-bound `--emit-equivalence` cross-products**
-> Grammar sanctioning references upstream ranges; `--emit-equivalence` emits reasoner-validated
-> cross-products. **AC:** a sanctioned post-coordinated expression validates against upstream ranges;
-> emitted cross-product round-trips to the source NCIt concept (D19/D21). Depends: #79, #82, #44 threshold.
+**#84: MRCM ranges over upstream + future upstream-bound cross-products**
+> Grammar sanctioning references upstream ranges; after #153, `--emit-equivalence` may emit
+> reasoner-validated cross-products. **AC:** a sanctioned post-coordinated expression validates against upstream ranges;
+> emitted cross-product round-trips to the source NCIt concept (D19/D21). Depends: #79, #82, #44 threshold, #153.

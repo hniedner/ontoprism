@@ -706,26 +706,6 @@ async def _process_walk_node(
             next_frontier.append(g)
 
 
-async def resolve_starting_genus(
-    select_fn: SelectRows,
-    code: str,
-) -> str | None:
-    """Resolve the immediate genus (first ``owl:intersectionOf`` member) of
-    *code*, or ``None`` if *code* is a primitive class with no
-    ``owl:equivalentClass`` axiom."""
-    queries = build_genus_walk_members_query(code)
-    if not queries:
-        return None
-    rows = await select_fn(queries[0], required_variables={"member"})  # hop-0 only
-    genuses: list[str] = []
-    for row in rows:
-        genus_iri = _required_row_binding(row, "member")
-        if row.get("type") == OWL_NS + "Restriction":
-            continue
-        genuses.append(_genus_code_from_iri(genus_iri))
-    return genuses[0] if genuses else None
-
-
 _STAGING_LABEL_MARKERS = frozenset(
     {
         "Stage I",

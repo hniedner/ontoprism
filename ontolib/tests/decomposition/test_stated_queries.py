@@ -17,7 +17,6 @@ from ontolib.decomposition.stated_queries import (
     build_semantic_type_of_query,
     build_semantic_type_query,
     resolve_morphology_filler,
-    resolve_starting_genus,
     walk_genus_chain,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
@@ -226,106 +225,6 @@ def test_part_of_pairs_query_rejects_more_than_measured_tile_limit(
     whole_codes = codes if oversized_endpoint == "whole" else ["C100"]
     with pytest.raises(ValueError, match="at most 16 codes per endpoint"):
         build_part_of_pairs_query(part_codes=part_codes, whole_codes=whole_codes)
-
-
-@pytest.mark.unit
-async def test_resolve_starting_genus_returns_genus_from_hop_0() -> None:
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        assert "C6135" in query
-        assert set(required_variables) == {"member"}
-        return [
-            {"member": _iri("C141041"), "type": None},
-            {
-                "member": _iri("C141041"),
-                "type": OWL_NS + "Restriction",
-                "role": _iri("R88"),
-                "target": _iri("C27970"),
-            },
-        ]
-
-    genus = await resolve_starting_genus(fake_select, "C6135")
-    assert genus == "C141041"
-
-
-@pytest.mark.unit
-async def test_resolve_starting_genus_returns_none_when_no_rows() -> None:
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        del query, required_variables
-        return []
-
-    genus = await resolve_starting_genus(fake_select, "C6135")
-    assert genus is None
-
-
-@pytest.mark.unit
-async def test_resolve_starting_genus_rejects_missing_member_binding() -> None:
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        del query, required_variables
-        return [{"member": _iri("C3879"), "type": None}, {}]
-
-    with pytest.raises(ValueError, match="member"):
-        await resolve_starting_genus(fake_select, "C6135")
-
-
-@pytest.mark.unit
-async def test_resolve_starting_genus_returns_none_when_all_are_restrictions() -> None:
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        del query, required_variables
-        return [
-            {
-                "member": _iri("C141041"),
-                "type": OWL_NS + "Restriction",
-                "role": _iri("R88"),
-                "target": _iri("C27970"),
-            },
-        ]
-
-    genus = await resolve_starting_genus(fake_select, "C6135")
-    assert genus is None
-
-
-@pytest.mark.unit
-async def test_resolve_starting_genus_rejects_non_ncit_iri() -> None:
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        del query, required_variables
-        return [{"member": "http://example.org/foo#C1", "type": None}]
-
-    with pytest.raises(ValueError, match="not an NCIt IRI"):
-        await resolve_starting_genus(fake_select, "C6135")
-
-
-@pytest.mark.unit
-async def test_resolve_starting_genus_rejects_invalid_ncit_concept_code() -> None:
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        del query, required_variables
-        return [{"member": _iri("R82"), "type": None}]
-
-    with pytest.raises(ValueError, match="not an NCIt concept code"):
-        await resolve_starting_genus(fake_select, "C6135")
 
 
 @pytest.mark.unit

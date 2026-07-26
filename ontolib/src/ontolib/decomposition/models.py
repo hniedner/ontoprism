@@ -63,17 +63,10 @@ class DetectionResult:
 
 @dataclass(frozen=True, slots=True)
 class Decomposition:
-    """A decomposed concept: its source code and its constituents (roles-first).
-
-    ``genus_code`` is the immediate ``rdfs:subClassOf`` parent of the source
-    concept (the first member of its ``owl:equivalentClass / owl:intersectionOf``
-    list). It is ``None`` when the concept has no ``owl:equivalentClass`` axiom
-    (a primitive class), or when genus resolution has not been performed.
-    """
+    """A decomposed concept: its source code and its constituents (roles-first)."""
 
     code: str
     semantic_type: str | None
-    genus_code: str | None = None
     constituents: list[Constituent] = field(default_factory=list)
 
     @property
