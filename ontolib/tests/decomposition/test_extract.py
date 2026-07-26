@@ -197,6 +197,23 @@ def test_genus_walk_rows_deduplicates_genuses() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
+    ("member", "message"),
+    [
+        ("https://example.org/vocab#C1", "member is not an NCIt IRI"),
+        (_iri("R82"), "member is not an NCIt concept code"),
+        (_iri("Cfoo"), "member is not an NCIt concept code"),
+    ],
+)
+def test_genus_walk_rows_rejects_non_ncit_concept(
+    member: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        genus_walk_rows_to_roles_and_genuses([{"member": member, "type": None}])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
     "row",
     [
         {},

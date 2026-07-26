@@ -147,7 +147,12 @@ def _add_genus_if_new(
     genuses: list[str],
     seen: set[str],
 ) -> None:
-    genus = _required_code(row, "member")
+    genus_iri = _required_binding(row, "member")
+    if not genus_iri.startswith(NCIT_NS):
+        raise ValueError("member is not an NCIt IRI")
+    genus = genus_iri.removeprefix(NCIT_NS)
+    if _NCIT_CONCEPT_CODE.fullmatch(genus) is None:
+        raise ValueError(f"member is not an NCIt concept code: {genus!r}")
     if genus not in seen:
         seen.add(genus)
         genuses.append(genus)
