@@ -25,7 +25,7 @@ _NCIT_ROLE_CODE = re.compile(r"R[0-9]+")
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PartOfPair:
-    """One NCIt R82 reachability relation from an anatomic part to a whole."""
+    """One typed NCIt R82 pair, used for direct edges and closure results."""
 
     part: str
     whole: str

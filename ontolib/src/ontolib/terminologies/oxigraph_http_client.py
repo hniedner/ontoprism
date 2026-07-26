@@ -7,10 +7,11 @@ which fused transport, hierarchy queries, and Docker/ECS reload.
 
 Design:
 - one pooled ``httpx.AsyncClient``, created lazily and reused (connection reuse);
-- transport/timeout errors are retried with backoff; a non-2xx response is a hard
-  error (no wasteful retries on a 400 SPARQL syntax error);
-- ``select`` returns flattened ``{var: value}`` rows; ``select_raw`` returns the
-  full SPARQL-JSON for callers that need datatypes/languages.
+- ``select`` retries transport/timeout errors with backoff, while ``select_once``
+  provides one transport attempt for callers with an external request budget; a
+  non-2xx response is always a hard error (no retries on a 400 SPARQL syntax error);
+- ``select``/``select_once`` return flattened ``{var: value}`` rows; ``select_raw``
+  returns the full SPARQL-JSON for callers that need datatypes/languages.
 """
 
 from __future__ import annotations
@@ -224,13 +225,16 @@ class OxigraphHttpClient:
             await self._client.aclose()
             self._client = None
 
-    @retry_with_backoff(retryable_exceptions=_RETRYABLE)
-    async def _post(self, query: str) -> httpx.Response:
+    async def _post_once(self, query: str) -> httpx.Response:
         return await self._get_client().post(
             self._query_url,
             content=query.encode("utf-8"),
             headers={"Content-Type": _SPARQL_QUERY, "Accept": _SPARQL_JSON},
         )
+
+    @retry_with_backoff(retryable_exceptions=_RETRYABLE)
+    async def _post(self, query: str) -> httpx.Response:
+        return await self._post_once(query)
 
     async def load(
         self,
@@ -282,10 +286,10 @@ class OxigraphHttpClient:
                 f"{response.text[:200]}"
             )
 
-    async def select_raw(self, query: str) -> dict[str, Any]:
-        """Run a SELECT/ASK query and return the raw SPARQL-JSON document."""
+    async def _select_raw(self, query: str, *, retry: bool) -> dict[str, Any]:
+        post = self._post if retry else self._post_once
         try:
-            response = await self._post(query)
+            response = await post(query)
         except _RETRYABLE as e:
             raise StorageError(
                 f"SPARQL transport error against {self._query_url}: "
@@ -304,6 +308,10 @@ class OxigraphHttpClient:
             raise StorageError("SPARQL response root was not an object")
         return data
 
+    async def select_raw(self, query: str) -> dict[str, Any]:
+        """Run a SELECT/ASK query and return the raw SPARQL-JSON document."""
+        return await self._select_raw(query, retry=True)
+
     async def select(
         self,
         query: str,
@@ -313,6 +321,18 @@ class OxigraphHttpClient:
         """Run a SELECT query and return flattened ``{var: value}`` rows."""
         return flatten_bindings(
             await self.select_raw(query), required_variables=required_variables
+        )
+
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str]]:
+        """Run one SELECT transport attempt without retrying a failed request."""
+        return flatten_bindings(
+            await self._select_raw(query, retry=False),
+            required_variables=required_variables,
         )
 
     async def ask(self, query: str) -> bool:

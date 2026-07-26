@@ -86,6 +86,13 @@ class SparqlClient(Protocol):
         required_variables: Collection[str] = (),
     ) -> Sequence[Mapping[str, str | None]]: ...
 
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Sequence[Mapping[str, str | None]]: ...
+
     async def version(self) -> str | None: ...
 
 
@@ -367,7 +374,7 @@ async def _decompose_one(
     )
     # If filler A is transitively part of filler B, B is the ancestor (D16).
     part_of_pairs = await stated_queries.resolve_part_of_pairs(
-        client.select, filler_codes
+        client.select_once, filler_codes
     )
     ancestor_pairs.update(
         extract.AncestorPair(ancestor=pair.whole, descendant=pair.part)

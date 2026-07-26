@@ -64,6 +64,10 @@ async def test_part_of_closure_handles_graph_shapes_deterministically() -> None:
         "C131": [("whole", "C133")],
         "C132": [("whole", "C133")],
         "C140": [("whole", "C141"), ("whole", "C141")],
+        "C160": [("parent", "C161")],
+        "C161": [("whole", "C162")],
+        "C162": [("parent", "C163")],
+        "C163": [("whole", "C164")],
     }
     store = _ExpansionStore(expansions)
     requested = [
@@ -79,6 +83,8 @@ async def test_part_of_closure_handles_graph_shapes_deterministically() -> None:
         "C140",
         "C141",
         "C150",
+        "C160",
+        "C164",
         *(f"C20{i:02d}" for i in range(17)),
     ]
 
@@ -99,6 +105,7 @@ async def test_part_of_closure_handles_graph_shapes_deterministically() -> None:
             PartOfPair(part="C121", whole="C120"),
             PartOfPair(part="C130", whole="C133"),
             PartOfPair(part="C140", whole="C141"),
+            PartOfPair(part="C160", whole="C164"),
         ]
     )
     assert len(store.calls) > 1
@@ -190,6 +197,25 @@ async def test_part_of_closure_rejects_frontier_bound_before_store() -> None:
 
 
 @pytest.mark.unit
+async def test_part_of_closure_accepts_256_cumulative_expansion_codes() -> None:
+    expansions = {"C1": [("whole", f"C{1000 + index}") for index in range(255)]}
+    store = _ExpansionStore(expansions)
+
+    assert await stated_queries.resolve_part_of_pairs(store, ["C1"]) == []
+    assert len(store.calls) == 17
+
+
+@pytest.mark.unit
+async def test_part_of_closure_rejects_dynamic_257th_expansion_code() -> None:
+    expansions = {"C1": [("whole", f"C{1000 + index}") for index in range(256)]}
+    store = _ExpansionStore(expansions)
+
+    with pytest.raises(ValueError, match=r"frontier.*256"):
+        await stated_queries.resolve_part_of_pairs(store, ["C1"])
+    assert len(store.calls) == 1
+
+
+@pytest.mark.unit
 async def test_part_of_closure_rejects_query_body_bound_before_store() -> None:
     store = _ExpansionStore()
     with pytest.raises(ValueError, match=r"query body.*65536"):
@@ -209,6 +235,14 @@ async def test_part_of_closure_rejects_row_bound() -> None:
         await stated_queries.resolve_part_of_pairs(
             _ExpansionStore(row_factory=oversized), ["C1"]
         )
+
+
+@pytest.mark.unit
+async def test_part_of_closure_accepts_eighth_r82_hop() -> None:
+    expansions = {f"C{1000 + i}": [("whole", f"C{1001 + i}")] for i in range(8)}
+    assert await stated_queries.resolve_part_of_pairs(
+        _ExpansionStore(expansions), ["C1000", "C1008"]
+    ) == [PartOfPair(part="C1000", whole="C1008")]
 
 
 @pytest.mark.unit
@@ -275,6 +309,19 @@ def test_part_of_expansion_query_enforces_batch_boundary() -> None:
     assert "FILTER(false)" in stated_queries.build_part_of_expansion_query([])
     with pytest.raises(ValueError, match=r"at most 16"):
         stated_queries.build_part_of_expansion_query(f"C{i}" for i in range(17))
+
+
+@pytest.mark.unit
+def test_part_of_expansion_query_is_constant_anchored_and_row_limited() -> None:
+    query = stated_queries.build_part_of_expansion_query(["C2", "C1"])
+
+    assert "VALUES ?node" not in query
+    assert "?node rdfs:subClassOf" not in query
+    assert "rdfs:subClassOf*" not in query
+    assert "rdfs:subClassOf+" not in query
+    assert query.count(f"BIND(<{NCIT_NS}C1> AS ?node)") == 2
+    assert query.count(f"BIND(<{NCIT_NS}C2> AS ?node)") == 2
+    assert "LIMIT 257" in query
 
 
 @pytest.mark.unit

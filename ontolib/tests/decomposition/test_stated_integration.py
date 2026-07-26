@@ -38,7 +38,7 @@ from ontolib.decomposition.stated_queries import (
     resolve_morphology_filler,
     walk_genus_chain,
 )
-from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.oxigraph_http_client import (
     OxigraphHttpClient,
@@ -241,7 +241,9 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
 
     double_pairs = await stated_queries.resolve_part_of_pairs(double_select, codes)
     async with OxigraphHttpClient(isolated_oxigraph_url) as client:
-        actual_pairs = await stated_queries.resolve_part_of_pairs(client.select, codes)
+        actual_pairs = await stated_queries.resolve_part_of_pairs(
+            client.select_once, codes
+        )
 
         async def counted_select(
             query: str,
@@ -250,7 +252,9 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
         ) -> list[dict[str, str]]:
             nonlocal oversized_store_calls
             oversized_store_calls += 1
-            return await client.select(query, required_variables=required_variables)
+            return await client.select_once(
+                query, required_variables=required_variables
+            )
 
         with pytest.raises(ValueError, match=r"frontier.*256"):
             await stated_queries.resolve_part_of_pairs(
@@ -273,6 +277,42 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
     assert actual_pairs == double_pairs == expected
     assert len(double_requests) > 1
     assert oversized_store_calls == 0
+    assert health
+    assert health[0].get("s")
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
+    isolated_oxigraph_url: str,
+) -> None:
+    fanout = "\n".join(
+        f"<{NCIT_NS}C99300> <{RDFS_NS}subClassOf> [ "
+        f"a <{OWL_NS}Restriction> ; <{OWL_NS}onProperty> <{NCIT_NS}R82> ; "
+        f"<{OWL_NS}someValuesFrom> <{NCIT_NS}C{99400 + index}> ] ."
+        for index in range(257)
+    )
+    malformed = (
+        f"<{NCIT_NS}C99301> <{RDFS_NS}subClassOf> [ "
+        f"a <{OWL_NS}Restriction> ; <{OWL_NS}onProperty> <{NCIT_NS}R82> ; "
+        f'<{OWL_NS}someValuesFrom> "not an IRI" ] .'
+    )
+
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        await client.load(
+            f"{fanout}\n{malformed}".encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        with pytest.raises(ValueError, match=r"row.*256"):
+            await stated_queries.resolve_part_of_pairs(client.select_once, ["C99300"])
+        with pytest.raises(ValueError, match="target is not an NCIt IRI"):
+            await stated_queries.resolve_part_of_pairs(client.select_once, ["C99301"])
+        health = await client.select(
+            f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
+        )
+
     assert health
     assert health[0].get("s")
 
@@ -322,7 +362,7 @@ async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> Non
 
 @pytest.mark.integration
 @pytest.mark.full_store
-async def test_part_of_closure_matches_authenticated_full_store() -> None:
+async def test_part_of_closure_matches_version_pinned_full_store() -> None:
     url = _url()
     if not _reachable(url):
         pytest.skip(f"NCIt Oxigraph not reachable at {url}")
@@ -341,7 +381,7 @@ async def test_part_of_closure_matches_authenticated_full_store() -> None:
             build_part_of_pairs_query(part_codes=codes, whole_codes=codes),
             required_variables={"part", "whole"},
         )
-        closure = await stated_queries.resolve_part_of_pairs(client.select, codes)
+        closure = await stated_queries.resolve_part_of_pairs(client.select_once, codes)
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )

@@ -308,7 +308,6 @@ def _part_of_expansion_branches(code: str) -> tuple[str, str]:
         ?restriction a owl:Restriction ;
             owl:onProperty <{NCIT_NS}R82> ;
             owl:someValuesFrom ?target .
-        FILTER(isIRI(?target))
         BIND("whole" AS ?kind)
     }}"""
     return parent, whole
@@ -317,9 +316,9 @@ def _part_of_expansion_branches(code: str) -> tuple[str, str]:
 def build_part_of_expansion_query(codes: Iterable[str]) -> str:
     """Build one constant-anchored superclass/R82 expansion request.
 
-    Each code is embedded as the subject of its own branches. The accepted 16-code
-    shape was measured against Oxigraph 0.5.3; using ``VALUES ?node`` instead caused
-    a graph-scale plan on the production-shaped preflight store.
+    Each code is embedded as the subject of its own branches. This follows the safe
+    constant-subject form established against Oxigraph 0.5.3; a direct one-step query
+    using ``VALUES ?node`` exceeded the owned preflight store's 10-second watchdog.
     """
     code_list = _part_of_codes(codes)
     if len(code_list) > _PART_OF_QUERY_CODE_LIMIT:
@@ -349,7 +348,7 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
 
 @dataclass(slots=True)
 class _PartOfClosure:
-    select: SelectRows
+    select_once: SelectRows
     requested: tuple[str, ...]
     cache: dict[str, _PartOfNodeExpansion] = field(default_factory=dict, init=False)
     expanded_codes: set[str] = field(default_factory=set, init=False)
@@ -373,7 +372,7 @@ class _PartOfClosure:
         if self.request_count >= _PART_OF_MAX_REQUESTS:
             raise ValueError("R82 closure request bound exhausted at 64 requests")
         self.request_count += 1
-        rows = await self.select(
+        rows = await self.select_once(
             query,
             required_variables={"node", "kind", "target"},
         )
@@ -454,24 +453,26 @@ class _PartOfClosure:
 
 
 async def resolve_part_of_pairs(
-    select: SelectRows,
+    select_once: SelectRows,
     codes: Iterable[str],
 ) -> list[PartOfPair]:
-    """Return bounded transitive R82 reachability within *codes*.
+    """Return bounded, non-reflexive transitive R82 reachability within *codes*.
 
     Intermediate R82 wholes and named superclasses may lie outside the requested set,
     but only requested endpoint pairs are returned. Every store request expands fixed
     one-step edges from constant subjects; cycles and duplicate paths are deduplicated.
+    The *select_once* executor must make at most one transport attempt per invocation so
+    the 64-call store-request bound cannot be bypassed by hidden retries.
 
     Raises:
-        ValueError: for malformed NCIt data or an exhausted safety bound.
+        ValueError: for invalid returned expansion bindings or an exhausted bound.
     """
     requested = _part_of_codes(codes)
     if not requested:
         return []
     if len(requested) > _PART_OF_MAX_FRONTIER_CODES:
         raise ValueError("R82 closure frontier exceeds 256 codes")
-    return await _PartOfClosure(select=select, requested=requested).resolve()
+    return await _PartOfClosure(select_once=select_once, requested=requested).resolve()
 
 
 def build_morphology_query(concept_code: str) -> str:

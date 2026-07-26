@@ -8,6 +8,7 @@ end-to-end and run in CI without the live NCIt store.
 from __future__ import annotations
 
 import json
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
@@ -29,6 +30,7 @@ _COUNT_BAD = "count_bad"  # SPARQL-JSON with a non-integer count value
 _NON_JSON = "non_json"  # response body that is not valid JSON
 _NON_OBJECT_JSON = "non_object_json"  # valid JSON with the wrong top-level shape
 _MISSING_PROJECTION = "missing_projection"
+_CLOSE_CONNECTION = "close_connection"
 
 
 def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
@@ -87,9 +89,16 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
 
 
 class _Handler(BaseHTTPRequestHandler):
+    closed_connection_requests = 0
+
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         query = self.rfile.read(length).decode("utf-8")
+        if _CLOSE_CONNECTION in query:
+            type(self).closed_connection_requests += 1
+            self.connection.shutdown(socket.SHUT_RDWR)
+            self.connection.close()
+            return
         if self.path.startswith("/missing-version/"):
             status, content_type, payload = (
                 200,
@@ -122,6 +131,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def stub_url() -> Iterator[str]:
+    _Handler.closed_connection_requests = 0
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -176,6 +186,15 @@ async def test_select_forwards_required_projected_variables(stub_url: str) -> No
                 f"SELECT ?rel ?target WHERE {{ ?s ?p ?o }} # {_MISSING_PROJECTION}",
                 required_variables={"rel", "target"},
             )
+
+
+@pytest.mark.unit
+async def test_select_once_does_not_retry_transport_failure(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="transport error"):
+            await client.select_once(f"SELECT ?x WHERE {{}} # {_CLOSE_CONNECTION}")
+
+    assert _Handler.closed_connection_requests == 1
 
 
 @pytest.mark.unit

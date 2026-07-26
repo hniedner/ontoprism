@@ -362,9 +362,11 @@ Uberon would close the gap generally.
    improvement (never wrong in 4/4 tests) and reduces `needs_review` noise materially.
    #145's endpoint-bound query preserves one-edge lookup. #213 closes R82-to-R82
    chains with constant-subject one-step expansion instead of an unbound property path:
-   at most 8 R82 hops and 8 inherited named-superclass hops, 256 frontier codes, 16
-   codes/request, 64 requests, 256 rows/request, and 4,096 total response rows. Every
-   bound fails closed. The authenticated `26.06e` contract is
+   at most 8 R82 hops plus a sentinel expansion, 8 inherited named-superclass hops,
+   256 cumulatively expanded codes, 16 constant subjects per single-attempt request,
+   and 64 such requests. Each query uses `LIMIT 257` and rejects more than 256 rows;
+   cumulative accepted response rows above 4,096 or a query body above 65,536 bytes
+   also fail closed. The version-pinned `26.06e` contract is
    `C12400 -> C13063 -> C12418`.
 2. **Do not expect it to eliminate `needs_review` for R101.** The existing
    `needs_review` flag on a tied leaf set (already part of `filler_selection.py`'s

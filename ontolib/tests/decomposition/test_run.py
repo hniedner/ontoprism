@@ -98,6 +98,7 @@ class _FakeClient:
         self.queries: list[str] = []
         self.required_variables: list[frozenset[str]] = []
         self.query_requirements: list[tuple[str, frozenset[str]]] = []
+        self.single_attempt_queries: list[str] = []
 
     async def version(self) -> str | None:
         return self._version
@@ -152,6 +153,15 @@ class _FakeClient:
             types = self._semantic_types.get(code or "", [])
             return [{"semanticType": t} for t in types]
         raise AssertionError(f"unexpected query: {query}")
+
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        self.single_attempt_queries.append(query)
+        return await self.select(query, required_variables=required_variables)
 
 
 def _mock_provenance() -> Any:
@@ -461,6 +471,7 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
         if "SELECT DISTINCT ?node ?kind ?target" in query
     ]
     assert len(expansion_queries) > 1
+    assert expansion_queries == client.single_attempt_queries
     assert all(
         len(set(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))) <= 16
         for query in expansion_queries
