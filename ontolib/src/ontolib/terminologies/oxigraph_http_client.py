@@ -169,16 +169,6 @@ def parse_ask_result(data: object) -> bool:
     return result
 
 
-def validate_sparql_result(data: object) -> None:
-    """Validate one complete SPARQL-JSON SELECT or ASK result document."""
-    if not isinstance(data, dict):
-        raise StorageError("malformed SPARQL response: root is not an object")
-    if "results" in data:
-        flatten_bindings(data)
-    else:
-        parse_ask_result(data)
-
-
 class OxigraphHttpClient:
     """Minimal async SPARQL client over an Oxigraph HTTP endpoint."""
 

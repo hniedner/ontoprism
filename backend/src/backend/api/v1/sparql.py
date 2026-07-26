@@ -1,28 +1,25 @@
 """Guarded read-only raw SPARQL endpoint for the query interface.
 
-Read-only by construction: any query containing a SPARQL update/management keyword
-is rejected, and the returned rows are capped. This is a power-user escape hatch, not
-a general write surface.
+Read-only by construction: each query is parsed and only SELECT/ASK forms are accepted;
+SELECT rows are capped. This is a power-user escape hatch, not a general write surface.
 """
 
-import re
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
+from pyparsing import ParseBaseException
+from rdflib.plugins.sparql.parser import parseQuery
 
 from backend.config import get_settings
 from backend.dependencies import NcitClient
 from ontolib.core.exceptions import StorageError
-from ontolib.terminologies.oxigraph_http_client import validate_sparql_result
+from ontolib.terminologies.oxigraph_http_client import (
+    flatten_bindings,
+    parse_ask_result,
+)
 
 router = APIRouter(prefix="/api/v1/sparql", tags=["sparql"])
-
-# Update / management forms that must never run through this read endpoint.
-_FORBIDDEN = re.compile(
-    r"\b(INSERT|DELETE|LOAD|CLEAR|DROP|CREATE|ADD|MOVE|COPY|WITH)\b",
-    re.IGNORECASE,
-)
 
 
 class SparqlRequest(BaseModel):
@@ -38,17 +35,35 @@ class SparqlResponse(BaseModel):
     truncated: bool
 
 
-@router.post("", response_model=SparqlResponse)
-async def run_sparql(client: NcitClient, body: SparqlRequest) -> SparqlResponse:
-    """Execute a read-only SPARQL query against the NCIt store, row-capped."""
-    if _FORBIDDEN.search(body.query):
+def _query_form(query: str) -> Literal["select", "ask"]:
+    try:
+        parsed_query = parseQuery(query)[1]
+        query_name = str(getattr(parsed_query, "name", ""))
+    except ParseBaseException as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Only read-only SPARQL (SELECT/ASK/CONSTRUCT/DESCRIBE) is permitted.",
-        )
+            "Only read-only SPARQL SELECT/ASK queries are permitted.",
+        ) from exc
+    if query_name == "SelectQuery":
+        return "select"
+    if query_name == "AskQuery":
+        return "ask"
+    raise HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        "Only read-only SPARQL SELECT/ASK queries are permitted.",
+    )
+
+
+@router.post("", response_model=SparqlResponse)
+async def run_sparql(client: NcitClient, body: SparqlRequest) -> SparqlResponse:
+    """Execute a read-only SELECT or ASK against the NCIt store, row-capped."""
+    query_form = _query_form(body.query)
     try:
         result = await client.select_raw(body.query)
-        validate_sparql_result(result)
+        if query_form == "select":
+            flatten_bindings(result)
+        else:
+            parse_ask_result(result)
     except StorageError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 

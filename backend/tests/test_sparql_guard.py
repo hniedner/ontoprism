@@ -13,6 +13,8 @@ from fastapi.testclient import TestClient
         "DROP GRAPH <urn:g>",
         "CLEAR ALL",
         "LOAD <http://example.org/data>",
+        "CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }",
+        "DESCRIBE ?s WHERE { ?s ?p ?o }",
     ],
 )
 def test_write_queries_are_rejected(app_client: TestClient, query: str) -> None:

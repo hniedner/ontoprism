@@ -24,7 +24,7 @@ from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
 from ontolib.terminologies.oxigraph_http_client import safe_iri
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable
+    from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 
 _PREFIXES = f"""
         PREFIX rdfs: <{RDFS_NS}>
@@ -358,9 +358,9 @@ _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
 
 
 def _flatten_hop_results(
-    results: Iterable[list[dict[str, str | None]]],
-) -> list[dict[str, str | None]]:
-    flat: list[dict[str, str | None]] = []
+    results: Iterable[Sequence[Mapping[str, str | None]]],
+) -> list[Mapping[str, str | None]]:
+    flat: list[Mapping[str, str | None]] = []
     for rows in results:
         if not rows:
             break
@@ -386,7 +386,7 @@ def _collect_new_roles(
 
 
 async def _process_walk_node(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
     current: str,
     depth: int,
     seen_pairs: set[tuple[str, str]],
@@ -412,7 +412,7 @@ async def _process_walk_node(
 
 
 async def resolve_starting_genus(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
     code: str,
 ) -> str | None:
     """Resolve the immediate genus (first ``owl:intersectionOf`` member) of
@@ -456,7 +456,7 @@ def _is_staging_concept_label(label: str) -> bool:
 
 
 async def _fetch_genus_label(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
     genus_iri: str,
 ) -> str | None:
     """Fetch the label for a genus concept from the stated graph."""
@@ -474,7 +474,7 @@ async def _fetch_genus_label(
 
 
 async def _get_genus_from_intersection(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
     code: str,
 ) -> str | None:
     """Get the genus code from the first owl:intersectionOf member."""
@@ -495,7 +495,7 @@ async def _get_genus_from_intersection(
 
 
 async def resolve_morphology_filler(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
     code: str,
     *,
     max_depth: int = 5,
@@ -532,7 +532,7 @@ async def resolve_morphology_filler(
 
 
 async def walk_genus_chain(
-    select_fn: Callable[[str], Awaitable[list[dict[str, str | None]]]],
+    select_fn: Callable[[str], Awaitable[Sequence[Mapping[str, str | None]]]],
     code: str,
     *,
     max_depth: int = 5,

@@ -57,7 +57,7 @@ from ontolib.decomposition.models import Decomposition
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     from ontolib.decomposition.constituent_index import LabelLookup
@@ -79,7 +79,7 @@ class SparqlClient(Protocol):
     ``OxigraphHttpClient`` satisfies this; tests supply a lightweight fake.
     """
 
-    async def select(self, query: str) -> list[dict[str, str | None]]: ...
+    async def select(self, query: str) -> Sequence[Mapping[str, str | None]]: ...
 
     async def version(self) -> str | None: ...
 
@@ -353,7 +353,7 @@ async def _decompose_one(
         await client.select(stated_queries.build_ancestor_pairs_query(filler_codes))
     )
     # If filler A is part of filler B, B is the ancestor for selection (D16).
-    part_of_rows: list[dict[str, str | None]] = []
+    part_of_rows: list[Mapping[str, str | None]] = []
     for query in stated_queries.build_part_of_pairs_queries(filler_codes):
         part_of_rows.extend(await client.select(query))
     part_of_pairs = extract.part_of_pairs_from_rows(part_of_rows)

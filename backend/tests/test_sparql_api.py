@@ -124,3 +124,25 @@ def test_malformed_upstream_result_is_502(result: dict[str, Any]) -> None:
     resp = client.post("/api/v1/sparql", json={"query": "SELECT * WHERE { ?s ?p ?o }"})
 
     assert resp.status_code == 502
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("query", "result"),
+    [
+        ("SELECT * WHERE { ?s ?p ?o }", {"head": {}, "boolean": False}),
+        (
+            "ASK { ?s ?p ?o }",
+            {"head": {"vars": []}, "results": {"bindings": []}},
+        ),
+    ],
+)
+def test_mismatched_upstream_result_form_is_502(
+    query: str,
+    result: dict[str, Any],
+) -> None:
+    client = next(_client(_FakeClient(result=result)))
+
+    resp = client.post("/api/v1/sparql", json={"query": query})
+
+    assert resp.status_code == 502
