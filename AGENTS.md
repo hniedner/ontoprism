@@ -7,8 +7,9 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
 ## Hard rules (never violate)
 
 - **NEVER merge a PR unless CI is green on the target branch (`main`).** Before any
-  `gh pr merge`, fetch `origin/main` and confirm it is an ancestor of the PR head; if not,
-  update the branch and wait for its replacement checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
+  `gh pr merge`, verify the newest `CI` run on `main` completed successfully. Then fetch
+  `origin/main` and confirm it is an ancestor of the PR head; if not, update the branch and
+  wait for its replacement checks. Run `gh pr view <number> --json title,headRefName,headRefOid,statusCheckRollup` and evaluate the newest run for each
   workflow/job name on the current head; superseded older runs may be ignored. Use `gh run list --workflow pr-title.yml --branch <headRefName> --event pull_request --json displayTitle,headSha,status,conclusion,createdAt` to confirm the newest run on that head is
   successful and its `displayTitle` exactly equals `Validate PR title: <title>`. The expected
   checks are all nine `CI` jobs, `conventional commit subject`, `dependency review`, all
