@@ -65,6 +65,27 @@ def test_roles_from_rows_rejects_missing_required_binding(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("binding", "value", "message"),
+    [
+        ("rel", "https://example.org/vocab#R1", "rel is not an NCIt IRI"),
+        ("rel", _iri("C123"), "rel is not an NCIt role code"),
+        ("target", "https://example.org/vocab#C1", "target is not an NCIt IRI"),
+        ("target", _iri("R82"), "target is not an NCIt concept code"),
+    ],
+)
+def test_roles_from_rows_rejects_non_ncit_codes(
+    binding: str,
+    value: str,
+    message: str,
+) -> None:
+    row = {"rel": _iri("R101"), "target": _iri("C12400")}
+    row[binding] = value
+    with pytest.raises(ValueError, match=message):
+        roles_from_rows([row])
+
+
+@pytest.mark.unit
 def test_semantic_types_from_rows_returns_all_distinct_sorted() -> None:
     rows = [
         {"semanticType": "Neoplastic Process"},
@@ -117,6 +138,14 @@ def test_ancestor_pairs_and_predicate() -> None:
 
 
 @pytest.mark.unit
+def test_ancestor_pairs_rejects_non_concept_code() -> None:
+    with pytest.raises(ValueError, match="ancestor is not an NCIt concept code"):
+        ancestor_pairs_from_rows(
+            [{"ancestor": _iri("R82"), "descendant": _iri("C12400")}]
+        )
+
+
+@pytest.mark.unit
 def test_concepts_from_rows_extracts_codes_in_order() -> None:
     rows = [{"concept": _iri("C6135")}, {"concept": _iri("C4791")}]
     assert concepts_from_rows(rows) == ["C6135", "C4791"]
@@ -129,6 +158,12 @@ def test_concepts_from_rows_rejects_missing_required_binding(
 ) -> None:
     with pytest.raises(ValueError, match="concept"):
         concepts_from_rows([row])
+
+
+@pytest.mark.unit
+def test_concepts_from_rows_rejects_external_iri() -> None:
+    with pytest.raises(ValueError, match="concept is not an NCIt IRI"):
+        concepts_from_rows([{"concept": "https://example.org/vocab#C1"}])
 
 
 @pytest.mark.unit

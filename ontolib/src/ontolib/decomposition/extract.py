@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 Row = Mapping[str, str | None]
 _NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
+_NCIT_ROLE_CODE = re.compile(r"R[0-9]+")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -43,13 +44,6 @@ class AncestorPair:
     descendant: str
 
 
-def _code(iri: str | None) -> str | None:
-    """Local NCIt code from a Thesaurus IRI (``…Thesaurus.owl#C6135`` -> ``C6135``)."""
-    if not iri:
-        return None
-    return iri.rsplit("#", 1)[-1]
-
-
 def _required_binding(row: Row, binding: str) -> str:
     value = row.get(binding)
     if not value:
@@ -57,11 +51,29 @@ def _required_binding(row: Row, binding: str) -> str:
     return value
 
 
-def _required_code(row: Row, binding: str) -> str:
-    code = _code(_required_binding(row, binding))
+def _required_ncit_iri_code(
+    row: Row,
+    binding: str,
+    pattern: re.Pattern[str],
+    kind: str,
+) -> str:
+    iri = _required_binding(row, binding)
+    if not iri.startswith(NCIT_NS):
+        raise ValueError(f"{binding} is not an NCIt IRI")
+    code = iri.removeprefix(NCIT_NS)
     if not code:
         raise ValueError(f"SPARQL result row is missing required {binding!r} binding")
+    if pattern.fullmatch(code) is None:
+        raise ValueError(f"{binding} is not an NCIt {kind} code: {code!r}")
     return code
+
+
+def _required_concept_code(row: Row, binding: str) -> str:
+    return _required_ncit_iri_code(row, binding, _NCIT_CONCEPT_CODE, "concept")
+
+
+def _required_role_code(row: Row, binding: str) -> str:
+    return _required_ncit_iri_code(row, binding, _NCIT_ROLE_CODE, "role")
 
 
 def roles_from_rows(rows: Iterable[Row]) -> list[RoleRestriction]:
@@ -72,8 +84,8 @@ def roles_from_rows(rows: Iterable[Row]) -> list[RoleRestriction]:
     """
     restrictions: list[RoleRestriction] = []
     for row in rows:
-        role_code = _required_code(row, "rel")
-        filler_code = _required_code(row, "target")
+        role_code = _required_role_code(row, "rel")
+        filler_code = _required_concept_code(row, "target")
         restrictions.append(
             RoleRestriction(
                 role_code=role_code,
@@ -99,8 +111,8 @@ def ancestor_pairs_from_rows(rows: Iterable[Row]) -> set[AncestorPair]:
     for row in rows:
         pairs.add(
             AncestorPair(
-                ancestor=_required_code(row, "ancestor"),
-                descendant=_required_code(row, "descendant"),
+                ancestor=_required_concept_code(row, "ancestor"),
+                descendant=_required_concept_code(row, "descendant"),
             )
         )
     return pairs
@@ -119,7 +131,7 @@ def concepts_from_rows(rows: Iterable[Row]) -> list[str]:
     """
     codes: list[str] = []
     for row in rows:
-        codes.append(_required_code(row, "concept"))
+        codes.append(_required_concept_code(row, "concept"))
     return codes
 
 
@@ -128,8 +140,8 @@ def _add_role_if_new(
     roles: list[RoleRestriction],
     seen: set[tuple[str, str]],
 ) -> None:
-    role_code = _required_code(row, "role")
-    filler_code = _required_code(row, "target")
+    role_code = _required_role_code(row, "role")
+    filler_code = _required_concept_code(row, "target")
     key = (role_code, filler_code)
     if key not in seen:
         seen.add(key)
@@ -147,12 +159,7 @@ def _add_genus_if_new(
     genuses: list[str],
     seen: set[str],
 ) -> None:
-    genus_iri = _required_binding(row, "member")
-    if not genus_iri.startswith(NCIT_NS):
-        raise ValueError("member is not an NCIt IRI")
-    genus = genus_iri.removeprefix(NCIT_NS)
-    if _NCIT_CONCEPT_CODE.fullmatch(genus) is None:
-        raise ValueError(f"member is not an NCIt concept code: {genus!r}")
+    genus = _required_concept_code(row, "member")
     if genus not in seen:
         seen.add(genus)
         genuses.append(genus)
