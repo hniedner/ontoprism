@@ -249,6 +249,27 @@ def test_genus_walk_rows_rejects_non_ncit_concept(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
+    ("binding", "value", "message"),
+    [
+        ("role", "https://example.org/vocab#R1", "role is not an NCIt IRI"),
+        ("role", _iri("Rfoo"), "role is not an NCIt role code"),
+        ("target", "https://example.org/vocab#C1", "target is not an NCIt IRI"),
+        ("target", _iri("Cfoo"), "target is not an NCIt concept code"),
+    ],
+)
+def test_genus_walk_rows_rejects_invalid_restriction_codes(
+    binding: str,
+    value: str,
+    message: str,
+) -> None:
+    row = _restriction_row("R88", "C27970")
+    row[binding] = value
+    with pytest.raises(ValueError, match=message):
+        genus_walk_rows_to_roles_and_genuses([row])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
     "row",
     [
         {},
@@ -273,6 +294,12 @@ def test_semantic_type_of_from_rows_parses() -> None:
     result = semantic_type_of_from_rows(rows)
     assert result["C6135"] == ["Neoplastic Process", "Disease or Syndrome"]
     assert result["C12400"] == ["Body Part, Organ, or Organ Component"]
+
+
+@pytest.mark.unit
+def test_semantic_type_of_from_rows_rejects_non_concept_code() -> None:
+    with pytest.raises(ValueError, match="code is not an NCIt concept code"):
+        semantic_type_of_from_rows([{"code": "R82", "st": "Finding"}])
 
 
 @pytest.mark.unit

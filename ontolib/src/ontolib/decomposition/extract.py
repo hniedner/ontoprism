@@ -76,6 +76,13 @@ def _required_role_code(row: Row, binding: str) -> str:
     return _required_ncit_iri_code(row, binding, _NCIT_ROLE_CODE, "role")
 
 
+def _required_plain_concept_code(row: Row, binding: str) -> str:
+    code = _required_binding(row, binding)
+    if _NCIT_CONCEPT_CODE.fullmatch(code) is None:
+        raise ValueError(f"{binding} is not an NCIt concept code: {code!r}")
+    return code
+
+
 def roles_from_rows(rows: Iterable[Row]) -> list[RoleRestriction]:
     """Parse ``?rel``/``?relLabel``/``?target`` rows into role restrictions.
 
@@ -192,7 +199,7 @@ def semantic_type_of_from_rows(
     """
     result: dict[str, list[str]] = {}
     for row in rows:
-        code = _required_binding(row, "code")
+        code = _required_plain_concept_code(row, "code")
         st = _required_binding(row, "st")
         result.setdefault(code, []).append(st)
     return result
