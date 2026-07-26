@@ -412,11 +412,13 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
                 _role("R101", "Has_Primary_Site", "C13063"),
                 _role("R101", "Has_Primary_Site", "C12418"),
                 _role("R88", "Has_Stage", "C27970"),
+                _role("R135", "Disease_Excludes_Primary_Anatomic_Site", "C9000"),
             ]
         },
         part_of_expansions={
             "C12400": [("whole", "C13063")],
             "C13063": [("whole", "C12418")],
+            **{f"C{9000 + hop}": [("whole", f"C{9001 + hop}")] for hop in range(9)},
         },
     )
     provenance = _mock_provenance()
@@ -425,6 +427,11 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
     constituents = provenance.upsert_constituents.call_args.args[2]
     site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
     assert site_fillers == {"C12400"}
+    assert all(c.filler_code != "C9000" for c in constituents)
+    assert all(
+        "C9000" not in query and "C27970" not in query
+        for query in client.single_attempt_queries
+    )
 
 
 @pytest.mark.unit

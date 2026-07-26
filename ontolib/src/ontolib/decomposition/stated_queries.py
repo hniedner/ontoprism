@@ -311,9 +311,9 @@ def _part_of_expansion_branches(code: str) -> tuple[str, str]:
     parent = f"""{{
         BIND(<{iri}> AS ?node)
         <{iri}> rdfs:subClassOf ?target .
-        FILTER(isIRI(?target))
+        FILTER(!isBlank(?target))
         BIND("parent" AS ?kind)
-        BIND("iri" AS ?targetType)
+        BIND(IF(isIRI(?target), "iri", "non-iri") AS ?targetType)
     }}"""
     whole = f"""{{
         BIND(<{iri}> AS ?node)
@@ -355,8 +355,12 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
             ORDER BY ?node ?kind ?target ?targetType
             LIMIT {_PART_OF_EXPANSION_ROW_LIMIT + 1}
         """
-    if len(query.encode()) > _PART_OF_MAX_QUERY_BYTES:
-        raise ValueError("R82 expansion query body exceeds 65536-byte safety bound")
+    query_bytes = len(query.encode())
+    if query_bytes > _PART_OF_MAX_QUERY_BYTES:
+        raise ValueError(
+            f"R82 expansion query body is {query_bytes} bytes; "
+            "exceeds 65536-byte safety bound"
+        )
     return query
 
 

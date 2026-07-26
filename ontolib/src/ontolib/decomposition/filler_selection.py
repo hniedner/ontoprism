@@ -163,6 +163,18 @@ def _group_by_routed_axis(
     return by_axis
 
 
+def comparison_filler_codes(restrictions: Iterable[RoleRestriction]) -> list[str]:
+    """Return fillers from routed-axis groups that need specificity comparison."""
+    return sorted(
+        {
+            filler
+            for fillers in _group_by_routed_axis(restrictions).values()
+            if len(fillers) > 1
+            for filler in fillers
+        }
+    )
+
+
 def _resolve_r101_with_organ_lookup(
     leaves: set[str],
     fillers: set[str],

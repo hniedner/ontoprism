@@ -165,6 +165,8 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         "C99104",
         "C99105",
         "C99106",
+        "C99250",
+        "C99251",
     ]
     async with OxigraphHttpClient(isolated_oxigraph_url) as client:
         rows = []
@@ -235,6 +237,8 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
         "C99230",
         "C99231",
         "C99240",
+        "C99250",
+        "C99251",
     ]
     expansions = _fixture_expansions()
     double_requests: list[tuple[str, ...]] = []
@@ -320,7 +324,8 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
         f'<{OWL_NS}someValuesFrom> "not an IRI" ] .\n'
         f"<{NCIT_NS}C99302> <{RDFS_NS}subClassOf> [ "
         f"a <{OWL_NS}Restriction> ; <{OWL_NS}onProperty> <{NCIT_NS}R82> ; "
-        f'<{OWL_NS}someValuesFrom> "{NCIT_NS}C99303" ] .'
+        f'<{OWL_NS}someValuesFrom> "{NCIT_NS}C99303" ] .\n'
+        f'<{NCIT_NS}C99304> <{RDFS_NS}subClassOf> "{NCIT_NS}C99305" .'
     )
 
     async with OxigraphHttpClient(isolated_oxigraph_url) as client:
@@ -336,6 +341,8 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
             await stated_queries.resolve_part_of_pairs(client, ["C99301"])
         with pytest.raises(ValueError, match="target is not an IRI"):
             await stated_queries.resolve_part_of_pairs(client, ["C99302"])
+        with pytest.raises(ValueError, match="target is not an IRI"):
+            await stated_queries.resolve_part_of_pairs(client, ["C99304"])
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )

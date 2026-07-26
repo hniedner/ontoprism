@@ -374,7 +374,9 @@ async def _decompose_one(
         )
     )
     # If filler A is transitively part of filler B, B is the ancestor (D16).
-    part_of_pairs = await stated_queries.resolve_part_of_pairs(client, filler_codes)
+    part_of_pairs = await stated_queries.resolve_part_of_pairs(
+        client, fs.comparison_filler_codes(roles)
+    )
     ancestor_pairs.update(
         extract.AncestorPair(ancestor=pair.whole, descendant=pair.part)
         for pair in part_of_pairs

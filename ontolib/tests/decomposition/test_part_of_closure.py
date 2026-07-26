@@ -285,9 +285,15 @@ async def test_part_of_closure_rejects_dynamic_257th_expansion_code() -> None:
 
 @pytest.mark.unit
 async def test_part_of_closure_rejects_query_body_bound_before_store() -> None:
+    accepted_code = f"C{'1' * 16_077}"
+    assert (
+        len(stated_queries.build_part_of_expansion_query([accepted_code]).encode())
+        == 65_535
+    )
+
     store = _ExpansionStore()
-    with pytest.raises(ValueError, match=r"query body.*65536"):
-        await stated_queries.resolve_part_of_pairs(store, [f"C{'1' * 70_000}"])
+    with pytest.raises(ValueError, match=r"query body is 65539 bytes.*65536"):
+        await stated_queries.resolve_part_of_pairs(store, [f"C{'1' * 16_078}"])
     assert store.calls == []
 
 
