@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field, computed_field
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import (
+    DecompositionReads,
     Embeddings,
-    NcitClient,
     NcitSearch,
     NcitStore,
     XrefReads,
@@ -17,7 +17,6 @@ from backend.dependencies import (
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
-from ontolib.decomposition.read_queries import build_decomposition_query
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -192,7 +191,7 @@ async def concept_mappings(
 
 @router.get("/concepts/{code}/decomposition", response_model=ConceptDecomposition)
 async def concept_decomposition(
-    client: NcitClient,
+    reader: DecompositionReads,
     store: NcitStore,
     xref_store: XrefReads,
     code: str,
@@ -205,10 +204,9 @@ async def concept_decomposition(
     upstream xref mappings (Uberon/CL equivalents) are attached per constituent.
     """
     try:
-        query = build_decomposition_query(code)
+        rows = await reader.rows_for(code)
     except ValueError as exc:  # code failed the IRI-safety guard
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    rows = await client.select(query)
     decomposition = decomposition_from_rows(code, rows)
     filler_codes = [c.filler for c in decomposition.constituents]
     labels = await store.labels_for(filler_codes) if filler_codes else {}

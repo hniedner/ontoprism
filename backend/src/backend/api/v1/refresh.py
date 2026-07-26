@@ -20,8 +20,9 @@ from backend.config import get_settings
 from backend.dependencies import (
     CadsrRepo,
     Embeddings,
-    NcitClient,
+    NcitAdmin,
     NcitSearch,
+    NcitStatus,
     NcitStore,
 )
 from backend.security import RequireApiKey
@@ -92,7 +93,7 @@ def _read_source(path: Path, description: str) -> bytes:
 
 
 async def _replace_ncit_source(
-    client: NcitClient,
+    client: NcitAdmin,
     embeddings: Embeddings,
     payload: bytes,
     *,
@@ -194,7 +195,7 @@ def _read_allowlisted_rdf(source_path: str) -> tuple[bytes, str]:
 
 @router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
 async def refresh(
-    store: NcitStore, client: NcitClient, cadsr: CadsrRepo
+    store: NcitStore, client: NcitStatus, cadsr: CadsrRepo
 ) -> RefreshReport:
     """Re-probe NCIt and caDSR and return their current version/counts."""
     repos = [await _ncit_status(client), _cadsr_status(cadsr)]
@@ -202,7 +203,7 @@ async def refresh(
     return RefreshReport(refreshed_at=datetime.now(UTC).isoformat(), repositories=repos)
 
 
-async def _ncit_status(client: NcitClient) -> RepoStatus:
+async def _ncit_status(client: NcitStatus) -> RepoStatus:
     try:
         count = await client.count()
         version = await client.version()
@@ -223,7 +224,7 @@ def _cadsr_status(cadsr: CadsrRepo) -> RepoStatus:
     "/ncit/reload", response_model=ReloadResponse, dependencies=[RequireApiKey]
 )
 async def reload_ncit(
-    client: NcitClient, embeddings: Embeddings, body: ReloadRequest
+    client: NcitAdmin, embeddings: Embeddings, body: ReloadRequest
 ) -> ReloadResponse:
     """Bulk-load a server-side RDF file into the NCIt Oxigraph store.
 
@@ -262,7 +263,7 @@ class OwlDownloadReport(BaseModel):
     "/ncit/download", response_model=OwlDownloadReport, dependencies=[RequireApiKey]
 )
 async def download_ncit(
-    client: NcitClient, embeddings: Embeddings, body: OwlDownloadRequest
+    client: NcitAdmin, embeddings: Embeddings, body: OwlDownloadRequest
 ) -> OwlDownloadReport:
     """Download the NCIt OWL from NCI EVS; with ``load=True``, reload it into the store.
 

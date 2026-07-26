@@ -1,9 +1,10 @@
 """FastAPI dependencies: access to the shared NCIt store held on app state."""
 
-from typing import Annotated
+from typing import Annotated, Protocol
 
 from fastapi import Depends, Request
 
+from backend.decomposition_reader import DecompositionReader
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
@@ -23,6 +24,11 @@ def get_ncit_store(request: Request) -> NcitGraphStore:
 def get_ncit_client(request: Request) -> OxigraphHttpClient:
     """Return the process-wide NCIt SPARQL client."""
     return request.app.state.ncit_client
+
+
+def get_decomposition_reader(request: Request) -> DecompositionReader:
+    """Return the code-based decomposition reader created during app startup."""
+    return request.app.state.decomposition_reader
 
 
 def get_cadsr_repo(request: Request) -> CdeRepository:
@@ -68,8 +74,26 @@ def get_xref_store(
     return request.app.state.xref_store
 
 
+class NcitStatusClient(Protocol):
+    async def count(self) -> int: ...
+
+    async def version(self) -> str | None: ...
+
+
+class NcitAdminClient(NcitStatusClient, Protocol):
+    async def load(
+        self,
+        data: bytes,
+        *,
+        content_type: str,
+        replace: bool = True,
+    ) -> None: ...
+
+
 NcitStore = Annotated[NcitGraphStore, Depends(get_ncit_store)]
-NcitClient = Annotated[OxigraphHttpClient, Depends(get_ncit_client)]
+NcitStatus = Annotated[NcitStatusClient, Depends(get_ncit_client)]
+NcitAdmin = Annotated[NcitAdminClient, Depends(get_ncit_client)]
+DecompositionReads = Annotated[DecompositionReader, Depends(get_decomposition_reader)]
 CadsrRepo = Annotated[CdeRepository, Depends(get_cadsr_repo)]
 Embeddings = Annotated[EmbeddingStore, Depends(get_embedding_store)]
 ClinicalTrials = Annotated[ClinicalTrialsClient, Depends(get_clinicaltrials_client)]

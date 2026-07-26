@@ -27,8 +27,9 @@ fixes. See [`CHANGELOG.md`](CHANGELOG.md) for released versions.
 - The frontend talks only to the backend; the backend owns all Oxigraph/Postgres
   access. Report auth, injection, SSRF, or data-exposure issues against the backend
   API surface (`backend/src/backend/api/`).
-- The SPARQL passthrough endpoint is read-only by construction (it POSTs to Oxigraph's
-  `/query`); report any way to reach a mutating operation through it.
+- Caller-supplied raw SPARQL is not exposed by the application. Typed backend endpoints
+  are the supported query surface; report any route that forwards caller-controlled
+  query text to Oxigraph.
 - Secrets must never be committed. Report any exposed credential immediately; it will
   be rotated.
 

@@ -1,8 +1,4 @@
-"""NCIt read-API contracts against a bounded disposable store (no mocks).
-
-Two `full_store`-marked contracts (list-without-query, guarded SPARQL) still run
-against the configured real store; see AGENTS.md's `full_store` marker.
-"""
+"""NCIt read-API contracts against bounded disposable and configured stores."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -82,16 +78,3 @@ def test_list_paginates_disjointly(isolated_api_client: TestClient) -> None:
     first_codes = {h["code"] for h in first["hits"]}
     second_codes = {h["code"] for h in second["hits"]}
     assert first_codes.isdisjoint(second_codes)
-
-
-@pytest.mark.integration
-@pytest.mark.full_build
-@pytest.mark.full_store
-def test_guarded_sparql_select_runs(live_api_client: TestClient) -> None:
-    resp = live_api_client.post(
-        "/api/v1/sparql",
-        json={"query": "SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }"},
-    )
-    assert resp.status_code == 200
-    bindings = resp.json()["result"]["results"]["bindings"]
-    assert bindings[0]["n"]["value"] == "12836426"

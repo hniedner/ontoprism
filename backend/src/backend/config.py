@@ -30,10 +30,6 @@ class Settings(BaseSettings):
     ncit_embedding_expected_rows: Annotated[int, Field(gt=0)] = 204_373
     cadsr_embedding_expected_rows: Annotated[int, Field(gt=0)] = 79_827
 
-    # Guarded raw-SPARQL endpoint limits.
-    sparql_timeout_sec: float = 30.0
-    sparql_row_cap: int = 1000
-
     # CORS: browser origins allowed to call the API (the SvelteKit dev/prod hosts).
     cors_allow_origins: list[str] = [
         "http://localhost:5173",

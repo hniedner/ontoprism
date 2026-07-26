@@ -17,7 +17,6 @@ required_production_paths = [
   "frontend/src/app.html",
   "frontend/src/routes/+layout.svelte",
   "frontend/src/routes/+page.svelte",
-  "frontend/src/routes/query/+page.svelte",
   "frontend/src/routes/refresh/+page.svelte",
   "frontend/src/routes/refresh/+page.ts",
   "frontend/src/routes/repositories/cadsr/+layout.ts",
