@@ -442,14 +442,15 @@ async def resolve_starting_genus(
     if not queries:
         return None
     rows = await select_fn(queries[0], required_variables={"member"})  # hop-0 only
+    genuses: list[str] = []
     for row in rows:
         genus_iri = _required_row_binding(row, "member")
         if row.get("type") == OWL_NS + "Restriction":
             continue
-        if genus_iri.startswith(NCIT_NS):
-            return genus_iri.removeprefix(NCIT_NS)
-        return genus_iri
-    return None
+        if not genus_iri.startswith(NCIT_NS):
+            raise ValueError("genus member is not an NCIt IRI")
+        genuses.append(genus_iri.removeprefix(NCIT_NS))
+    return genuses[0] if genuses else None
 
 
 _STAGING_LABEL_MARKERS = frozenset(
@@ -516,13 +517,15 @@ async def _get_genus_from_intersection(
     if not rows:
         return None
 
+    genuses: list[str] = []
     for row in rows:
         genus_iri = _required_row_binding(row, "member")
         if row.get("type") == OWL_NS + "Restriction":
             continue
-        if genus_iri.startswith(NCIT_NS):
-            return genus_iri.removeprefix(NCIT_NS)
-    return None
+        if not genus_iri.startswith(NCIT_NS):
+            raise ValueError("genus member is not an NCIt IRI")
+        genuses.append(genus_iri.removeprefix(NCIT_NS))
+    return genuses[0] if genuses else None
 
 
 async def resolve_morphology_filler(

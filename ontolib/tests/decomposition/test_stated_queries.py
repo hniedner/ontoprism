@@ -273,7 +273,7 @@ async def test_resolve_starting_genus_rejects_missing_member_binding() -> None:
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
         del query, required_variables
-        return [{}]
+        return [{"member": _iri("C3879"), "type": None}, {}]
 
     with pytest.raises(ValueError, match="member"):
         await resolve_starting_genus(fake_select, "C6135")
@@ -301,10 +301,7 @@ async def test_resolve_starting_genus_returns_none_when_all_are_restrictions() -
 
 
 @pytest.mark.unit
-async def test_resolve_starting_genus_handles_non_ncit_iri() -> None:
-    """Fallback path: genus IRI that does not start with NCIT_NS is returned
-    as-is (defensive — all NCIt genuses are in NCIT_NS)."""
-
+async def test_resolve_starting_genus_rejects_non_ncit_iri() -> None:
     async def fake_select(
         query: str,
         *,
@@ -313,8 +310,8 @@ async def test_resolve_starting_genus_handles_non_ncit_iri() -> None:
         del query, required_variables
         return [{"member": "http://example.org/foo#C1", "type": None}]
 
-    genus = await resolve_starting_genus(fake_select, "C6135")
-    assert genus == "http://example.org/foo#C1"
+    with pytest.raises(ValueError, match="not an NCIt IRI"):
+        await resolve_starting_genus(fake_select, "C6135")
 
 
 @pytest.mark.unit
@@ -394,7 +391,9 @@ async def test_resolve_morphology_filler_rejects_missing_required_binding(
         nonlocal call_count
         del query, required_variables
         call_count += 1
-        if missing_binding == "member" or call_count == 2:
+        if missing_binding == "member":
+            return [{"member": _iri("C3879"), "type": None}, {}]
+        if call_count == 2:
             return [{}]
         return [{"member": _iri("C3879"), "type": None}]
 
