@@ -27,16 +27,23 @@ def _results(n: int) -> dict[str, Any]:
 
 
 class _FakeClient:
-    def __init__(self, *, rows: int = 3, fail: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        rows: int = 3,
+        fail: bool = False,
+        result: dict[str, Any] | None = None,
+    ) -> None:
         self._rows = rows
         self._fail = fail
+        self._result = result
         self.queries: list[str] = []
 
     async def select_raw(self, query: str) -> dict[str, Any]:
         self.queries.append(query)
         if self._fail:
             raise StorageError("upstream boom")
-        return _results(self._rows)
+        return self._result if self._result is not None else _results(self._rows)
 
 
 def _client(fake: _FakeClient) -> Iterator[TestClient]:
@@ -56,6 +63,18 @@ def test_select_runs_and_returns_rows() -> None:
     assert body["truncated"] is False
     assert len(body["result"]["results"]["bindings"]) == 2
     assert fake.queries == ["SELECT * WHERE { ?s ?p ?o }"]
+
+
+@pytest.mark.api
+def test_ask_runs_and_returns_boolean() -> None:
+    result = {"head": {}, "boolean": True}
+    fake = _FakeClient(result=result)
+    client = next(_client(fake))
+
+    resp = client.post("/api/v1/sparql", json={"query": "ASK { ?s ?p ?o }"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"result": result, "truncated": False}
 
 
 @pytest.mark.api
@@ -83,4 +102,25 @@ def test_upstream_error_is_502() -> None:
     fake = _FakeClient(fail=True)
     client = next(_client(fake))
     resp = client.post("/api/v1/sparql", json={"query": "SELECT * WHERE { ?s ?p ?o }"})
+    assert resp.status_code == 502
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "result",
+    [
+        {},
+        {"head": {"vars": []}, "results": {"bindings": []}, "boolean": False},
+        {
+            "head": {"vars": ["s"]},
+            "results": {"bindings": [{"s": {"type": "uri"}}]},
+        },
+        {"head": {}, "boolean": "false"},
+    ],
+)
+def test_malformed_upstream_result_is_502(result: dict[str, Any]) -> None:
+    client = next(_client(_FakeClient(result=result)))
+
+    resp = client.post("/api/v1/sparql", json={"query": "SELECT * WHERE { ?s ?p ?o }"})
+
     assert resp.status_code == 502

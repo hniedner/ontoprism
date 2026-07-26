@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from backend.config import get_settings
 from backend.dependencies import NcitClient
 from ontolib.core.exceptions import StorageError
+from ontolib.terminologies.oxigraph_http_client import validate_sparql_result
 
 router = APIRouter(prefix="/api/v1/sparql", tags=["sparql"])
 
@@ -47,6 +48,7 @@ async def run_sparql(client: NcitClient, body: SparqlRequest) -> SparqlResponse:
         )
     try:
         result = await client.select_raw(body.query)
+        validate_sparql_result(result)
     except StorageError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 

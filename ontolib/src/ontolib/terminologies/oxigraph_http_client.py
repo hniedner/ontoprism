@@ -53,7 +53,7 @@ async def _aiter_file(handle: BinaryIO) -> AsyncIterator[bytes]:
 # A code safe to embed inside a ``<{ns}{code}>`` IRI. Anything that could close the
 # IRI or inject SPARQL (``>`` ``{`` ``}`` whitespace) is rejected. Defence in depth
 # at the string-building boundary even though upstream routes validate code shape.
-_SAFE_CODE = re.compile(r"^[A-Za-z0-9:_.\-]+$")
+_SAFE_CODE = re.compile(r"[A-Za-z0-9:_.\-]+")
 
 _COUNT_ALL = "SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }"
 
@@ -68,7 +68,7 @@ def safe_iri(code: str, namespace: str) -> str:
     Raises:
         ValueError: if *code* is not drawn from ``[A-Za-z0-9:_.-]``.
     """
-    if not _SAFE_CODE.match(code):
+    if not _SAFE_CODE.fullmatch(code):
         raise ValueError(f"Unsafe concept code rejected: {code!r}")
     return f"{namespace}{code}"
 
@@ -97,12 +97,12 @@ def _flatten_binding_row(
     row: object,
     row_index: int,
     variables: frozenset[str],
-) -> dict[str, str | None]:
+) -> dict[str, str]:
     if not isinstance(row, dict):
         raise StorageError(
             f"malformed SPARQL SELECT response: row {row_index} is not an object"
         )
-    flattened: dict[str, str | None] = {}
+    flattened: dict[str, str] = {}
     for variable, cell in row.items():
         if not isinstance(variable, str) or variable not in variables:
             raise StorageError(
@@ -118,6 +118,10 @@ def _select_document(
 ) -> tuple[dict[object, object], frozenset[str]]:
     if not isinstance(data, dict):
         raise StorageError("malformed SPARQL SELECT response: root is not an object")
+    if "boolean" in data:
+        raise StorageError(
+            "malformed SPARQL response: contains both SELECT and ASK result forms"
+        )
     head = data.get("head")
     if not isinstance(head, dict):
         raise StorageError("malformed SPARQL SELECT response: missing head object")
@@ -129,7 +133,7 @@ def _select_document(
     return data, frozenset(raw_variables)
 
 
-def flatten_bindings(data: object) -> list[dict[str, str | None]]:
+def flatten_bindings(data: object) -> list[dict[str, str]]:
     """Flatten a SPARQL-JSON result into ``{var: value}`` rows.
 
     Only the ``value`` of each binding is kept (datatype/lang dropped). A variable
@@ -153,12 +157,26 @@ def parse_ask_result(data: object) -> bool:
     """Return a SPARQL-JSON ASK result, rejecting malformed response envelopes."""
     if not isinstance(data, dict):
         raise StorageError("malformed SPARQL ASK response: missing boolean result")
+    if "results" in data:
+        raise StorageError(
+            "malformed SPARQL response: contains both ASK and SELECT result forms"
+        )
     if not isinstance(data.get("head"), dict):
         raise StorageError("malformed SPARQL ASK response: missing head object")
     result = data.get("boolean")
     if not isinstance(result, bool):
         raise StorageError("malformed SPARQL ASK response: missing boolean result")
     return result
+
+
+def validate_sparql_result(data: object) -> None:
+    """Validate one complete SPARQL-JSON SELECT or ASK result document."""
+    if not isinstance(data, dict):
+        raise StorageError("malformed SPARQL response: root is not an object")
+    if "results" in data:
+        flatten_bindings(data)
+    else:
+        parse_ask_result(data)
 
 
 class OxigraphHttpClient:
@@ -278,11 +296,14 @@ class OxigraphHttpClient:
                 f"{response.text[:200]}"
             )
         try:
-            return response.json()
+            data = response.json()
         except ValueError as e:
             raise StorageError(f"SPARQL response was not valid JSON: {e}") from e
+        if not isinstance(data, dict):
+            raise StorageError("SPARQL response root was not an object")
+        return data
 
-    async def select(self, query: str) -> list[dict[str, str | None]]:
+    async def select(self, query: str) -> list[dict[str, str]]:
         """Run a SELECT query and return flattened ``{var: value}`` rows."""
         return flatten_bindings(await self.select_raw(query))
 
@@ -302,8 +323,8 @@ class OxigraphHttpClient:
             raise StorageError("COUNT query returned no 'count' binding")
         value = rows[0]["count"]
         try:
-            return int(value) if value is not None else 0
-        except (TypeError, ValueError) as e:
+            return int(value)
+        except ValueError as e:
             raise StorageError(f"COUNT value did not parse as int: {value!r}") from e
 
     async def version(self) -> str | None:

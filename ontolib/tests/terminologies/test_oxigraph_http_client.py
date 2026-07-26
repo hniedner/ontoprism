@@ -24,7 +24,10 @@ def test_safe_iri_builds_namespaced_uri() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("bad", ["C1> ?x", "C1}", "a b", "C1<", 'C1"'])
+@pytest.mark.parametrize(
+    "bad",
+    ["C1> ?x", "C1}", "a b", "C1<", 'C1"', "C1\n"],
+)
 def test_safe_iri_rejects_injection(bad: str) -> None:
     with pytest.raises(ValueError, match="Unsafe concept code"):
         safe_iri(bad, NCIT_NS)
@@ -57,19 +60,45 @@ def test_flatten_bindings_empty_result() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "data",
+    ("data", "message"),
     [
-        {},
-        {"head": []},
-        {"head": {}, "results": {}},
-        {"head": {"vars": []}, "results": {"bindings": {}}},
-        [],
+        ({"results": {"bindings": []}}, "missing head object"),
+        ({"head": [], "results": {"bindings": []}}, "missing head object"),
+        ({"head": {}, "results": {"bindings": []}}, "missing variable list"),
+        (
+            {"head": {"vars": {}}, "results": {"bindings": []}},
+            "missing variable list",
+        ),
+        (
+            {"head": {"vars": [None]}, "results": {"bindings": []}},
+            "missing variable list",
+        ),
+        ({"head": {"vars": []}}, "missing results object"),
+        ({"head": {"vars": []}, "results": []}, "missing results object"),
+        ({"head": {"vars": []}, "results": {}}, "missing bindings array"),
+        (
+            {"head": {"vars": []}, "results": {"bindings": {}}},
+            "missing bindings array",
+        ),
+        ([], "root is not an object"),
     ],
 )
 def test_flatten_bindings_rejects_malformed_select_envelope(
     data: object,
+    message: str,
 ) -> None:
-    with pytest.raises(StorageError, match="malformed SPARQL SELECT response"):
+    with pytest.raises(StorageError, match=message):
+        flatten_bindings(data)
+
+
+@pytest.mark.unit
+def test_flatten_bindings_rejects_mixed_result_forms() -> None:
+    data = {
+        "head": {"vars": []},
+        "results": {"bindings": []},
+        "boolean": False,
+    }
+    with pytest.raises(StorageError, match="both SELECT and ASK"):
         flatten_bindings(data)
 
 
@@ -124,18 +153,32 @@ def test_parse_ask_result_returns_boolean(value: bool) -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "data",
+    ("data", "message"),
     [
-        {},
-        {"boolean": False},
-        {"head": [], "boolean": False},
-        {"head": {}, "boolean": "false"},
-        {"head": {}, "boolean": 0},
-        [],
+        ({"boolean": False}, "missing head object"),
+        ({"head": [], "boolean": False}, "missing head object"),
+        ({"head": {}}, "missing boolean result"),
+        ({"head": {}, "boolean": "false"}, "missing boolean result"),
+        ({"head": {}, "boolean": 0}, "missing boolean result"),
+        ([], "missing boolean result"),
     ],
 )
-def test_parse_ask_result_rejects_malformed_envelope(data: object) -> None:
-    with pytest.raises(StorageError, match="malformed SPARQL ASK response"):
+def test_parse_ask_result_rejects_malformed_envelope(
+    data: object,
+    message: str,
+) -> None:
+    with pytest.raises(StorageError, match=message):
+        parse_ask_result(data)
+
+
+@pytest.mark.unit
+def test_parse_ask_result_rejects_mixed_result_forms() -> None:
+    data = {
+        "head": {},
+        "boolean": False,
+        "results": {"bindings": []},
+    }
+    with pytest.raises(StorageError, match="both ASK and SELECT"):
         parse_ask_result(data)
 
 

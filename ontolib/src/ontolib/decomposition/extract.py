@@ -8,6 +8,7 @@ layer only wires ``client.select(build_*_query(...))`` into these helpers.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -17,7 +18,7 @@ from ontolib.terminologies.namespaces import NCIT_NS
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-Row = dict[str, str | None]
+Row = Mapping[str, str | None]
 _NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
 
 

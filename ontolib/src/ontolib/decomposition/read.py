@@ -5,6 +5,7 @@ Kept separate from query execution so every parsing rule is unit-tested without 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition import vocab
@@ -17,7 +18,7 @@ from ontolib.decomposition.read_models import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-Row = dict[str, str | None]
+Row = Mapping[str, str | None]
 
 
 def _local(iri: str) -> str:

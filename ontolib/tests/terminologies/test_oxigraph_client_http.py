@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 _COUNT_NONE = "count_none"  # SPARQL-JSON without a "count" binding
 _COUNT_BAD = "count_bad"  # SPARQL-JSON with a non-integer count value
 _NON_JSON = "non_json"  # response body that is not valid JSON
+_NON_OBJECT_JSON = "non_object_json"  # valid JSON with the wrong top-level shape
 
 
 def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
@@ -61,6 +62,8 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
     elif _NON_JSON in query:
         content_type = "text/plain"
         body = "not json at all"
+    elif _NON_OBJECT_JSON in query:
+        body = "[]"
     elif "boom" in query:
         status = 400
         body = {"error": "syntax"}
@@ -176,6 +179,13 @@ async def test_select_raw_non_json_raises_storage_error(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="not valid JSON"):
             await client.select_raw("SELECT ?x WHERE { ?s ?p ?o }  # non_json")
+
+
+@pytest.mark.unit
+async def test_select_raw_non_object_json_raises_storage_error(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="root was not an object"):
+            await client.select_raw("SELECT ?x WHERE { ?s ?p ?o }  # non_object_json")
 
 
 @pytest.mark.unit
