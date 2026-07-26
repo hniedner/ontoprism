@@ -10,6 +10,7 @@ from ontolib.decomposition.axes import (
     MORPHOLOGY_AXIS,
 )
 from ontolib.decomposition.filler_selection import (
+    comparison_filler_codes,
     filter_excluded,
     most_specific,
     route_axis,
@@ -46,6 +47,20 @@ def test_filter_excluded_drops_negative_axioms() -> None:
     )
     kept = filter_excluded(restrictions)
     assert [r.role_code for r in kept] == ["R101"]
+
+
+@pytest.mark.unit
+def test_comparison_fillers_respect_routing_and_lineage_exemption() -> None:
+    restrictions = [
+        RoleRestriction("R88", "C27970"),
+        RoleRestriction("R88", "C90530"),
+        RoleRestriction("R101", "C12400"),
+        RoleRestriction("R101", "C12401"),
+        RoleRestriction("R101", "C12704", anchoring_genus="C3010"),
+        RoleRestriction("R101", "C12705", anchoring_genus="C3010"),
+    ]
+
+    assert comparison_filler_codes(restrictions) == ["C12400", "C12401"]
 
 
 @pytest.mark.unit

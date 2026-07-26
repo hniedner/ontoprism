@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ontolib.decomposition.models import RoleRestriction
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -25,7 +25,7 @@ _NCIT_ROLE_CODE = re.compile(r"R[0-9]+")
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PartOfPair:
-    """One NCIt R82 edge from an anatomic part to its containing whole."""
+    """One typed NCIt R82 pair, used for direct edges and closure results."""
 
     part: str
     whole: str
@@ -34,6 +34,22 @@ class PartOfPair:
         for binding, code in (("part", self.part), ("whole", self.whole)):
             if _NCIT_CONCEPT_CODE.fullmatch(code) is None:
                 raise ValueError(f"{binding} is not an NCIt concept code: {code!r}")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PartOfExpansion:
+    """One bounded traversal step from an NCIt node."""
+
+    node: str
+    kind: Literal["parent", "whole"]
+    target: str
+
+    def __post_init__(self) -> None:
+        for binding, code in (("node", self.node), ("target", self.target)):
+            if _NCIT_CONCEPT_CODE.fullmatch(code) is None:
+                raise ValueError(f"{binding} is not an NCIt concept code: {code!r}")
+        if self.kind not in {"parent", "whole"}:
+            raise ValueError(f"R82 expansion kind is invalid: {self.kind!r}")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -218,7 +234,7 @@ def _required_ncit_code(row: Row, binding: str) -> str:
 
 
 def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[PartOfPair]:
-    """Parse required ``?part``/``?whole`` IRI bindings into typed R82 edges."""
+    """Parse required ``?part``/``?whole`` bindings into typed R82 relations."""
     pairs: list[PartOfPair] = []
     for row in rows:
         pairs.append(
@@ -228,3 +244,26 @@ def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[PartOfPair]:
             )
         )
     return pairs
+
+
+def part_of_expansions_from_rows(rows: Iterable[Row]) -> set[PartOfExpansion]:
+    """Parse strict node/kind/target/target-type bounded-expansion rows."""
+    expansions: set[PartOfExpansion] = set()
+    for row in rows:
+        if _required_binding(row, "targetType") != "iri":
+            raise ValueError("R82 expansion target is not an IRI")
+        kind = _required_binding(row, "kind")
+        if kind == "parent":
+            expansion_kind: Literal["parent", "whole"] = "parent"
+        elif kind == "whole":
+            expansion_kind = "whole"
+        else:
+            raise ValueError(f"R82 expansion kind is invalid: {kind!r}")
+        expansions.add(
+            PartOfExpansion(
+                node=_required_concept_code(row, "node"),
+                kind=expansion_kind,
+                target=_required_concept_code(row, "target"),
+            )
+        )
+    return expansions

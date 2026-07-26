@@ -59,3 +59,109 @@ ncit:C99103 a owl:Class ;
 ncit:C99104 a owl:Class .
 ncit:C99105 a owl:Class .
 ncit:C99106 a owl:Class .
+
+# Bounded closure contract: direct two-hop chain whose requested endpoints sort
+# into separate 16-code expansion requests.
+ncit:C20003 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99206
+    ] .
+
+ncit:C99206 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99207
+    ] .
+
+ncit:C99207 a owl:Class .
+
+# Inherited R82 edge.
+ncit:C99203 a owl:Class ;
+    rdfs:subClassOf ncit:C99204 .
+
+ncit:C99204 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99205
+    ] .
+
+ncit:C99205 a owl:Class .
+
+# Cycle must terminate without reflexive output.
+ncit:C99210 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99211
+    ] .
+
+ncit:C99211 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99210
+    ] .
+
+# Direct and diamond paths to one endpoint must emit one pair.
+ncit:C99220 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99221
+    ] ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99222
+    ] ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99223
+    ] .
+
+ncit:C99221 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99223
+    ] .
+
+ncit:C99222 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99223
+    ] .
+
+ncit:C99223 a owl:Class .
+
+# Equivalent restriction nodes and a no-match code.
+ncit:C99230 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99231
+    ] ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R82 ;
+        owl:someValuesFrom ncit:C99231
+    ] .
+
+ncit:C99231 a owl:Class .
+ncit:C99240 a owl:Class .
+
+# A non-R82 restriction must never enter part-of closure.
+ncit:C99250 a owl:Class ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty ncit:R101 ;
+        owl:someValuesFrom ncit:C99251
+    ] .
+
+ncit:C99251 a owl:Class .

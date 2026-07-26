@@ -11,13 +11,17 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from ontolib.decomposition.models import RoleRestriction
 
-from ontolib.decomposition.extract import genus_walk_rows_to_roles_and_genuses
+from ontolib.decomposition.extract import (
+    PartOfPair,
+    genus_walk_rows_to_roles_and_genuses,
+    part_of_expansions_from_rows,
+)
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
@@ -40,6 +44,13 @@ _MAX_INTERSECTION_HOPS = 6
 # The 16 x 16 request was measured against a disposable clone of the full store:
 # 43 KB, 3.3 ms, with both endpoints bound before traversal in Oxigraph's plan.
 _PART_OF_QUERY_CODE_LIMIT = 16
+_PART_OF_EXPANSION_ROW_LIMIT = 256
+_PART_OF_MAX_R82_HOPS = 8
+_PART_OF_MAX_SUPERCLASS_HOPS = 8
+_PART_OF_MAX_EXPANDED_CODES = 256
+_PART_OF_MAX_REQUESTS = 64
+_PART_OF_MAX_TOTAL_ROWS = 4096
+_PART_OF_MAX_QUERY_BYTES = 65_536
 _NCIT_CONCEPT_CODE = re.compile(r"C[0-9]+")
 
 # A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
@@ -54,6 +65,72 @@ class SelectRows(Protocol):
         *,
         required_variables: Collection[str] = (),
     ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
+
+
+class SingleAttemptSelectRows(Protocol):
+    """Client surface whose SELECT operation performs one transport attempt."""
+
+    def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _PartOfNodeExpansion:
+    parents: frozenset[str]
+    wholes: frozenset[str]
+
+
+def _frontier_nodes(frontiers: Mapping[str, set[str]]) -> set[str]:
+    return {node for frontier in frontiers.values() for node in frontier}
+
+
+def _next_superclass_frontiers(
+    cache: Mapping[str, _PartOfNodeExpansion],
+    frontiers: Mapping[str, set[str]],
+    visited: Mapping[str, set[str]],
+    wholes: Mapping[str, set[str]],
+) -> dict[str, set[str]]:
+    next_frontiers: dict[str, set[str]] = {}
+    for root, frontier in frontiers.items():
+        parents: set[str] = set()
+        for node in frontier:
+            wholes[root].update(cache[node].wholes)
+            parents.update(cache[node].parents)
+        parents.difference_update(visited[root])
+        visited[root].update(parents)
+        next_frontiers[root] = parents
+    return next_frontiers
+
+
+def _next_part_of_frontiers(
+    frontiers: Mapping[str, set[str]],
+    outgoing: Mapping[str, set[str]],
+    reached: Mapping[str, set[str]],
+) -> dict[str, set[str]]:
+    next_frontiers: dict[str, set[str]] = {}
+    for origin, frontier in frontiers.items():
+        targets: set[str] = set()
+        for node in frontier:
+            targets.update(outgoing[node])
+        targets.difference_update(reached[origin])
+        next_frontiers[origin] = targets
+    return next_frontiers
+
+
+def _record_requested_pairs(
+    next_frontiers: Mapping[str, set[str]],
+    reached: Mapping[str, set[str]],
+    requested: frozenset[str],
+    pairs: set[PartOfPair],
+) -> None:
+    for origin, frontier in next_frontiers.items():
+        reached[origin].update(frontier)
+        for whole in frontier & requested:
+            pairs.add(PartOfPair(part=origin, whole=whole))
 
 
 def _safe_literal(value: str) -> str:
@@ -152,9 +229,10 @@ def build_semantic_type_of_query(codes: list[str]) -> str:
     """
 
 
-def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
+def _part_of_codes(codes: Iterable[str]) -> tuple[str, ...]:
     unique_codes = set(codes)
-    iris_by_code = {code: safe_iri(code, NCIT_NS) for code in unique_codes}
+    for code in unique_codes:
+        safe_iri(code, NCIT_NS)
     invalid_codes = sorted(
         code for code in unique_codes if _NCIT_CONCEPT_CODE.fullmatch(code) is None
     )
@@ -162,12 +240,16 @@ def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
         raise ValueError(
             f"R82 endpoint is not an NCIt concept code: {invalid_codes[0]!r}"
         )
-    iris = tuple(sorted(iris_by_code.values()))
-    if len(iris) > _PART_OF_QUERY_CODE_LIMIT:
+    return tuple(sorted(unique_codes))
+
+
+def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
+    code_list = _part_of_codes(codes)
+    if len(code_list) > _PART_OF_QUERY_CODE_LIMIT:
         raise ValueError(
             "R82 query accepts at most 16 codes per endpoint (256 combinations)"
         )
-    return iris
+    return tuple(safe_iri(code, NCIT_NS) for code in code_list)
 
 
 def build_part_of_pairs_query(
@@ -221,6 +303,199 @@ def build_part_of_pairs_queries(codes: Iterable[str]) -> list[str]:
         for part_chunk in chunks
         for whole_chunk in chunks
     ]
+
+
+def _part_of_expansion_branches(code: str) -> tuple[str, str]:
+    # Flattened SPARQL rows omit RDF term metadata, so carry target IRI-ness explicitly.
+    iri = safe_iri(code, NCIT_NS)
+    parent = f"""{{
+        BIND(<{iri}> AS ?node)
+        <{iri}> rdfs:subClassOf ?target .
+        FILTER(!isBlank(?target))
+        BIND("parent" AS ?kind)
+        BIND(IF(isIRI(?target), "iri", "non-iri") AS ?targetType)
+    }}"""
+    whole = f"""{{
+        BIND(<{iri}> AS ?node)
+        <{iri}> rdfs:subClassOf ?restriction .
+        ?restriction a owl:Restriction ;
+            owl:onProperty <{NCIT_NS}R82> ;
+            owl:someValuesFrom ?target .
+        BIND("whole" AS ?kind)
+        BIND(IF(isIRI(?target), "iri", "non-iri") AS ?targetType)
+    }}"""
+    return parent, whole
+
+
+def build_part_of_expansion_query(codes: Iterable[str]) -> str:
+    """Build one constant-anchored superclass/R82 expansion request.
+
+    Each code is embedded as the subject of its own branches. This follows the safe
+    constant-subject form established against Oxigraph 0.5.3; a direct one-step query
+    using ``VALUES ?node`` exceeded the owned preflight store's 10-second watchdog.
+    """
+    code_list = _part_of_codes(codes)
+    if len(code_list) > _PART_OF_QUERY_CODE_LIMIT:
+        raise ValueError("R82 expansion query accepts at most 16 codes")
+    if not code_list:
+        query = (
+            f"{_PREFIXES}SELECT DISTINCT ?node ?kind ?target ?targetType "
+            f"WHERE {{ FILTER(false) }} LIMIT {_PART_OF_EXPANSION_ROW_LIMIT + 1}"
+        )
+    else:
+        branches = "\nUNION\n".join(
+            branch for code in code_list for branch in _part_of_expansion_branches(code)
+        )
+        query = f"""{_PREFIXES}
+            SELECT DISTINCT ?node ?kind ?target ?targetType WHERE {{
+                GRAPH <{STATED_GRAPH_IRI}> {{
+                    {branches}
+                }}
+            }}
+            ORDER BY ?node ?kind ?target ?targetType
+            LIMIT {_PART_OF_EXPANSION_ROW_LIMIT + 1}
+        """
+    query_bytes = len(query.encode())
+    if query_bytes > _PART_OF_MAX_QUERY_BYTES:
+        raise ValueError(
+            f"R82 expansion query body is {query_bytes} bytes; "
+            "exceeds 65536-byte safety bound"
+        )
+    return query
+
+
+@dataclass(slots=True)
+class _PartOfClosure:
+    select_once: SelectRows
+    requested: tuple[str, ...]
+    cache: dict[str, _PartOfNodeExpansion] = field(default_factory=dict, init=False)
+    expanded_codes: set[str] = field(default_factory=set, init=False)
+    request_count: int = field(default=0, init=False)
+    total_rows: int = field(default=0, init=False)
+
+    async def _expand(self, frontier: Iterable[str]) -> None:
+        missing = sorted(set(frontier) - self.cache.keys())
+        if not missing:
+            return
+        prospective_expanded_codes = self.expanded_codes | set(missing)
+        if len(prospective_expanded_codes) > _PART_OF_MAX_EXPANDED_CODES:
+            raise ValueError(
+                "R82 closure cumulative expanded-code bound exceeds 256 codes"
+            )
+        self.expanded_codes.update(missing)
+
+        for start in range(0, len(missing), _PART_OF_QUERY_CODE_LIMIT):
+            await self._request_tile(missing[start : start + _PART_OF_QUERY_CODE_LIMIT])
+
+    async def _request_tile(self, tile: list[str]) -> None:
+        query = build_part_of_expansion_query(tile)
+        if self.request_count >= _PART_OF_MAX_REQUESTS:
+            raise ValueError("R82 closure request bound exhausted at 64 requests")
+        self.request_count += 1
+        rows = await self.select_once(
+            query,
+            required_variables={"node", "kind", "target", "targetType"},
+        )
+        if len(rows) > _PART_OF_EXPANSION_ROW_LIMIT:
+            raise ValueError("R82 closure row bound exceeds 256 rows")
+        self.total_rows += len(rows)
+        if self.total_rows > _PART_OF_MAX_TOTAL_ROWS:
+            raise ValueError("R82 closure total row bound exceeds 4096 rows")
+        self._cache_tile(tile, rows)
+
+    def _cache_tile(
+        self,
+        tile: list[str],
+        rows: Sequence[Mapping[str, str | None]],
+    ) -> None:
+        tile_set = set(tile)
+        parents = {code: set() for code in tile}
+        wholes = {code: set() for code in tile}
+        for expansion in part_of_expansions_from_rows(rows):
+            if expansion.node not in tile_set:
+                raise ValueError(f"unexpected R82 expansion node: {expansion.node!r}")
+            destination = (
+                parents[expansion.node]
+                if expansion.kind == "parent"
+                else wholes[expansion.node]
+            )
+            destination.add(expansion.target)
+        self.cache.update(
+            {
+                code: _PartOfNodeExpansion(
+                    parents=frozenset(parents[code]),
+                    wholes=frozenset(wholes[code]),
+                )
+                for code in tile
+            }
+        )
+
+    async def _inherited_wholes(self, roots: Iterable[str]) -> dict[str, set[str]]:
+        root_list = tuple(sorted(set(roots)))
+        visited = {root: {root} for root in root_list}
+        frontiers = {root: {root} for root in root_list}
+        wholes = {root: set() for root in root_list}
+
+        for depth in range(_PART_OF_MAX_SUPERCLASS_HOPS + 1):
+            await self._expand(_frontier_nodes(frontiers))
+            next_frontiers = _next_superclass_frontiers(
+                self.cache,
+                frontiers,
+                visited,
+                wholes,
+            )
+            if not _frontier_nodes(next_frontiers):
+                return wholes
+            if depth == _PART_OF_MAX_SUPERCLASS_HOPS:
+                raise ValueError("R82 superclass hop bound exhausted at 8 hops")
+            frontiers = next_frontiers
+        raise AssertionError("unreachable R82 superclass traversal state")
+
+    async def resolve(self) -> list[PartOfPair]:
+        requested_set = frozenset(self.requested)
+        reached = {origin: {origin} for origin in self.requested}
+        frontiers = {origin: {origin} for origin in self.requested}
+        pairs: set[PartOfPair] = set()
+
+        for hop in range(1, _PART_OF_MAX_R82_HOPS + 2):
+            outgoing = await self._inherited_wholes(_frontier_nodes(frontiers))
+            next_frontiers = _next_part_of_frontiers(frontiers, outgoing, reached)
+            if hop > _PART_OF_MAX_R82_HOPS:
+                if _frontier_nodes(next_frontiers):
+                    raise ValueError("R82 hop bound exhausted at 8 hops")
+                break
+            _record_requested_pairs(next_frontiers, reached, requested_set, pairs)
+            if not _frontier_nodes(next_frontiers):
+                break
+            frontiers = next_frontiers
+
+        return sorted(pairs, key=lambda pair: (pair.part, pair.whole))
+
+
+async def resolve_part_of_pairs(
+    client: SingleAttemptSelectRows,
+    codes: Iterable[str],
+) -> list[PartOfPair]:
+    """Return bounded, non-reflexive transitive R82 reachability within *codes*.
+
+    Intermediate R82 wholes and named superclasses may lie outside the requested set,
+    but only requested endpoint pairs are returned. Every store request expands fixed
+    one-step edges from constant subjects; cycles and duplicate paths are deduplicated.
+    The client's ``select_once`` operation makes at most one transport attempt per
+    invocation, so hidden retries cannot bypass the 64-call store-request bound.
+
+    Raises:
+        ValueError: for invalid returned expansion bindings or an exhausted bound.
+    """
+    requested = _part_of_codes(codes)
+    if not requested:
+        return []
+    if len(requested) > _PART_OF_MAX_EXPANDED_CODES:
+        raise ValueError("R82 closure cumulative expanded-code bound exceeds 256 codes")
+    return await _PartOfClosure(
+        select_once=client.select_once,
+        requested=requested,
+    ).resolve()
 
 
 def build_morphology_query(concept_code: str) -> str:
