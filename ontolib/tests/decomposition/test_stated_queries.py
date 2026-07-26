@@ -9,6 +9,7 @@ from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
     build_morphology_query,
+    build_part_of_pairs_queries,
     build_part_of_pairs_query,
     build_role_restrictions_query,
     build_semantic_type_of_query,
@@ -178,26 +179,26 @@ def test_semantic_type_of_query_empty_list_returns_valid_query() -> None:
 
 
 @pytest.mark.unit
-def test_part_of_pairs_query_shape() -> None:
-    q = build_part_of_pairs_query(["C6135", "C27970"])
-    assert "R82" in q
-    assert "rdfs:subClassOf*" in q
-    assert "?whole" in q
-    assert "?part" in q
-    assert "Thesaurus.owl#C6135" in q
-    assert "Thesaurus.owl#C27970" in q
+def test_part_of_pairs_queries_tile_both_dimensions() -> None:
+    assert len(build_part_of_pairs_queries(f"C{i}" for i in range(17))) == 4
 
 
 @pytest.mark.unit
 def test_part_of_pairs_query_empty_list_returns_valid_query() -> None:
-    q = build_part_of_pairs_query([])
+    q = build_part_of_pairs_query([], [])
     assert "BIND" in q
 
 
 @pytest.mark.unit
 def test_part_of_pairs_query_rejects_unsafe_code() -> None:
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
-        build_part_of_pairs_query(["bad code"])
+        build_part_of_pairs_query(["bad code"], ["C1"])
+
+
+@pytest.mark.unit
+def test_part_of_pairs_query_rejects_more_than_measured_tile_limit() -> None:
+    with pytest.raises(ValueError, match="at most 16 codes per endpoint"):
+        build_part_of_pairs_query([f"C{i}" for i in range(17)], ["C100"])
 
 
 @pytest.mark.unit

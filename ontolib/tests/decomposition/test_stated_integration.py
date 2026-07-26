@@ -16,6 +16,7 @@ from ontolib.decomposition.extract import (
     ancestor_pairs_from_rows,
     concepts_from_rows,
     make_is_ancestor,
+    part_of_pairs_from_rows,
     semantic_type_of_from_rows,
 )
 from ontolib.decomposition.filler_selection import select_constituents
@@ -23,12 +24,14 @@ from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
+    build_part_of_pairs_queries,
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
     resolve_morphology_filler,
     walk_genus_chain,
 )
+from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -92,6 +95,65 @@ async def test_stated_query_builders_parse_against_disposable_store(
         for q in build_genus_walk_members_query("C6135"):
             rows = await client.select(q)
             assert isinstance(rows, list)
+
+
+@pytest.mark.integration
+async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
+    isolated_oxigraph_url: str,
+) -> None:
+    # Sorting puts C12510 plus the 15 decoys in the first tile and C32291 in the
+    # second, so the inherited known pair exercises a cross-tile combination.
+    codes = [
+        "C12510",
+        *(f"C200{i:02d}" for i in range(15)),
+        "C32291",
+        "C99101",
+        "C99102",
+        "C99103",
+        "C99104",
+        "C99105",
+        "C99106",
+    ]
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        rows = []
+        for query in build_part_of_pairs_queries(codes):
+            rows.extend(await client.select(query))
+        health = await client.select("SELECT * WHERE { VALUES ?ok { true } }")
+
+    assert set(part_of_pairs_from_rows(rows)) == {
+        ("C32291", "C12510"),
+        ("C99101", "C99102"),
+        ("C99103", "C99104"),
+    }
+    assert health == [{"ok": "true"}]
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async with OxigraphHttpClient(url) as client:
+        rows = []
+        for query in build_part_of_pairs_queries(["C32291", "C12510"]):
+            rows.extend(await client.select(query))
+        no_match_rows = []
+        for query in build_part_of_pairs_queries(["C32291", "C999999999"]):
+            no_match_rows.extend(await client.select(query))
+        health = await client.select("SELECT * WHERE { VALUES ?ok { true } }")
+
+    assert rows == [
+        {
+            "whole": f"{NCIT_NS}C32291",
+            "part": f"{NCIT_NS}C12510",
+        }
+    ]
+    assert no_match_rows == []
+    assert health == [{"ok": "true"}]
 
 
 @pytest.mark.integration

@@ -349,18 +349,16 @@ async def _decompose_one(
     if not result.is_precoordinated:
         return _CandidateResult(decomposition=None, stated_roles=[])
 
-    ancestor_pairs: set[tuple[str, str]] = set()
-    if filler_codes:  # skip the round trip when there is nothing to look up
-        ancestor_pairs = extract.ancestor_pairs_from_rows(
-            await client.select(stated_queries.build_ancestor_pairs_query(filler_codes))
-        )
-        # Merge part-of relationships: if filler A is part-of filler B, B is
-        # the "ancestor" of A for most-specific selection (D16).
-        part_of_rows = await client.select(
-            stated_queries.build_part_of_pairs_query(list(filler_codes))
-        )
-        part_of_pairs = extract.part_of_pairs_from_rows(part_of_rows)
-        ancestor_pairs.update((part, whole) for (whole, part) in part_of_pairs)
+    ancestor_pairs = extract.ancestor_pairs_from_rows(
+        await client.select(stated_queries.build_ancestor_pairs_query(filler_codes))
+    )
+    # Merge part-of relationships: if filler A is part-of filler B, B is
+    # the "ancestor" of A for most-specific selection (D16).
+    part_of_rows: list[dict[str, str | None]] = []
+    for query in stated_queries.build_part_of_pairs_queries(filler_codes):
+        part_of_rows.extend(await client.select(query))
+    part_of_pairs = extract.part_of_pairs_from_rows(part_of_rows)
+    ancestor_pairs.update((part, whole) for (whole, part) in part_of_pairs)
 
     # Wrap semantic_type_of dict into a callable (prefer the first type if
     # multiple; NCIt rarely assigns more than one).

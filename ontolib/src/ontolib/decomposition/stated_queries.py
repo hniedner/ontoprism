@@ -37,6 +37,10 @@ _PREFIXES = f"""
 # queries that the engine may plan poorly on a large stated graph.
 _MAX_INTERSECTION_HOPS = 6
 
+# The 16 x 16 request was measured against a disposable clone of the full store:
+# 43 KB, 3.3 ms, with both endpoints bound before traversal in Oxigraph's plan.
+_PART_OF_QUERY_CODE_LIMIT = 16
+
 # A semantic type is a plain-text SPARQL literal (not an IRI, so ``safe_iri`` does not
 # apply): reject anything that could close the literal or inject a graph pattern.
 _SAFE_LITERAL = re.compile(r'^[^"\\\n{}]+$')
@@ -138,37 +142,61 @@ def build_semantic_type_of_query(codes: list[str]) -> str:
     """
 
 
-def build_part_of_pairs_query(codes: list[str]) -> str:
-    """Transitive R82 ``Part_Of`` restriction pairs *within* a code set.
+def _part_of_endpoint_iris(codes: Iterable[str]) -> tuple[str, ...]:
+    iris = tuple(sorted({safe_iri(code, NCIT_NS) for code in codes}))
+    if len(iris) > _PART_OF_QUERY_CODE_LIMIT:
+        raise ValueError(
+            "R82 query accepts at most 16 codes per endpoint (256 combinations)"
+        )
+    return iris
 
-    For each *code* in *codes*, follows ``rdfs:subClassOf+`` to the nearest
-    ancestor that carries an ``R82`` part-of restriction, then returns the
-    ``(whole, part)`` pair. Both endpoints are restricted to *codes* so the
-    result is only intra-set relationships.
+
+def build_part_of_pairs_query(
+    whole_codes: Iterable[str], part_codes: Iterable[str]
+) -> str:
+    """Build one bounded R82 restriction query for two endpoint tiles.
+
+    Every requested whole-part combination is emitted as an IRI tuple so Oxigraph
+    binds both endpoints before traversing the whole's stated superclass path. A
+    request is limited to 16 codes per endpoint (256 combinations); callers handling
+    larger sets must tile both dimensions with :func:`build_part_of_pairs_queries`.
 
     Raises:
-        ValueError: if any code is not injection-safe.
+        ValueError: if any code is unsafe or either endpoint exceeds the measured cap.
     """
-    if not codes:
+    whole_iris = _part_of_endpoint_iris(whole_codes)
+    part_iris = _part_of_endpoint_iris(part_codes)
+    if not whole_iris or not part_iris:
         return f"{_PREFIXES}SELECT ?whole ?part WHERE {{ BIND(false AS ?ok) }}"
-    iris = " ".join(f"<{safe_iri(code, NCIT_NS)}>" for code in codes)
+    pairs = " ".join(
+        f"(<{whole}> <{part}>)" for whole in whole_iris for part in part_iris
+    )
     return f"""{_PREFIXES}
         SELECT DISTINCT ?whole ?part WHERE {{
+            VALUES (?whole ?part) {{ {pairs} }}
             GRAPH <{STATED_GRAPH_IRI}> {{
-                VALUES ?descendant {{ {iris} }}
-                ?descendant rdfs:subClassOf* ?ancestor .
+                ?whole rdfs:subClassOf* ?ancestor .
                 ?ancestor rdfs:subClassOf ?restriction .
                 ?restriction a owl:Restriction ;
                     owl:onProperty <{NCIT_NS}R82> ;
                     owl:someValuesFrom ?part .
-                FILTER(STRSTARTS(STR(?part), "{NCIT_NS}"))
-                BIND(REPLACE(STR(?part), ".*#", "") AS ?part_code)
             }}
-            VALUES ?part_code {{ {iris} }}
-            VALUES ?descendant {{ {iris} }}
-            BIND(REPLACE(STR(?descendant), ".*#", "") AS ?whole)
         }}
     """
+
+
+def build_part_of_pairs_queries(codes: Iterable[str]) -> list[str]:
+    """Tile every whole-part combination in *codes* into bounded R82 queries."""
+    code_list = sorted(set(codes))
+    chunks = [
+        code_list[start : start + _PART_OF_QUERY_CODE_LIMIT]
+        for start in range(0, len(code_list), _PART_OF_QUERY_CODE_LIMIT)
+    ]
+    return [
+        build_part_of_pairs_query(whole_chunk, part_chunk)
+        for whole_chunk in chunks
+        for part_chunk in chunks
+    ]
 
 
 def build_morphology_query(concept_code: str) -> str:
