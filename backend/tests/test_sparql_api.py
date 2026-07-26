@@ -226,6 +226,23 @@ def test_named_select_rejects_missing_projected_variable() -> None:
 
 
 @pytest.mark.api
+def test_aliased_select_rejects_missing_projected_variable() -> None:
+    result: dict[str, Any] = {
+        "head": {"vars": []},
+        "results": {"bindings": []},
+    }
+    client = next(_client(_FakeClient(result=result)))
+
+    resp = client.post(
+        "/api/v1/sparql",
+        json={"query": 'SELECT ("value" AS ?label) WHERE {}'},
+    )
+
+    assert resp.status_code == 502
+    assert "label" in resp.json()["detail"]
+
+
+@pytest.mark.api
 @pytest.mark.parametrize(
     ("query", "result"),
     [

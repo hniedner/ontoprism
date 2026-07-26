@@ -90,7 +90,14 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         query = self.rfile.read(length).decode("utf-8")
-        status, content_type, payload = _respond_for(query)
+        if self.path.startswith("/missing-version/"):
+            status, content_type, payload = (
+                200,
+                "application/sparql-results+json",
+                {"head": {"vars": []}, "results": {"bindings": []}},
+            )
+        else:
+            status, content_type, payload = _respond_for(query)
         if isinstance(payload, dict):
             body = json.dumps(payload).encode("utf-8")
         else:
@@ -137,6 +144,15 @@ async def test_count_parses_integer(stub_url: str) -> None:
 async def test_version_parses_value(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         assert await client.version() == "26.02d"
+
+
+@pytest.mark.unit
+async def test_version_rejects_missing_projected_variable(stub_url: str) -> None:
+    async with OxigraphHttpClient(f"{stub_url}/missing-version") as client:
+        with pytest.raises(
+            StorageError, match=r"missing required projected variable.*v"
+        ):
+            await client.version()
 
 
 @pytest.mark.unit

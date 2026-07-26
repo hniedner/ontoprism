@@ -266,6 +266,20 @@ async def test_resolve_starting_genus_returns_none_when_no_rows() -> None:
 
 
 @pytest.mark.unit
+async def test_resolve_starting_genus_rejects_missing_member_binding() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [{}]
+
+    with pytest.raises(ValueError, match="member"):
+        await resolve_starting_genus(fake_select, "C6135")
+
+
+@pytest.mark.unit
 async def test_resolve_starting_genus_returns_none_when_all_are_restrictions() -> None:
     async def fake_select(
         query: str,
@@ -363,6 +377,29 @@ async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
 
     morphology = await resolve_morphology_filler(fake_select, "C6135")
     assert morphology is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("missing_binding", ["member", "label"])
+async def test_resolve_morphology_filler_rejects_missing_required_binding(
+    missing_binding: str,
+) -> None:
+    call_count = 0
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        nonlocal call_count
+        del query, required_variables
+        call_count += 1
+        if missing_binding == "member" or call_count == 2:
+            return [{}]
+        return [{"member": _iri("C3879"), "type": None}]
+
+    with pytest.raises(ValueError, match=missing_binding):
+        await resolve_morphology_filler(fake_select, "C6135")
 
 
 @pytest.mark.unit

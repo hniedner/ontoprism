@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, Protocol
 
@@ -443,12 +443,12 @@ async def resolve_starting_genus(
         return None
     rows = await select_fn(queries[0], required_variables={"member"})  # hop-0 only
     for row in rows:
-        if row.get("type") != OWL_NS + "Restriction":
-            genus_iri = row.get("member")
-            if genus_iri and genus_iri.startswith(NCIT_NS):
-                return genus_iri.removeprefix(NCIT_NS)
-            if genus_iri:
-                return genus_iri
+        genus_iri = _required_row_binding(row, "member")
+        if row.get("type") == OWL_NS + "Restriction":
+            continue
+        if genus_iri.startswith(NCIT_NS):
+            return genus_iri.removeprefix(NCIT_NS)
+        return genus_iri
     return None
 
 
@@ -475,6 +475,13 @@ def _is_staging_concept_label(label: str) -> bool:
     return any(m.lower() in label_lower for m in _STAGING_LABEL_MARKERS)
 
 
+def _required_row_binding(row: Mapping[str, str | None], binding: str) -> str:
+    value = row.get(binding)
+    if not value:
+        raise ValueError(f"query result row is missing required {binding} binding")
+    return value
+
+
 async def _fetch_genus_label(
     select_fn: SelectRows,
     genus_iri: str,
@@ -490,7 +497,8 @@ async def _fetch_genus_label(
     rows = await select_fn(label_query, required_variables={"label"})
     if not rows:
         return None
-    return rows[0].get("label")
+    labels = [_required_row_binding(row, "label") for row in rows]
+    return labels[0]
 
 
 async def _get_genus_from_intersection(
@@ -509,10 +517,11 @@ async def _get_genus_from_intersection(
         return None
 
     for row in rows:
-        if row.get("type") != OWL_NS + "Restriction":
-            genus_iri = row.get("member")
-            if genus_iri and genus_iri.startswith(NCIT_NS):
-                return genus_iri.removeprefix(NCIT_NS)
+        genus_iri = _required_row_binding(row, "member")
+        if row.get("type") == OWL_NS + "Restriction":
+            continue
+        if genus_iri.startswith(NCIT_NS):
+            return genus_iri.removeprefix(NCIT_NS)
     return None
 
 
