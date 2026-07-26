@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import typer
+from click import unstyle
 from scripts import decompose
 
 
@@ -59,6 +60,8 @@ def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
         **os.environ,
         "DATABASE_URL": "invalid://must-not-be-used",
         "NCIT_SPARQL_URL": "invalid://must-not-be-used",
+        "FORCE_COLOR": "0",
+        "NO_COLOR": "1",
     }
 
     result = subprocess.run(
@@ -73,4 +76,5 @@ def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert "--emit-equivalence is not available" in result.stderr
+    error_text = " ".join(unstyle(result.stderr).split())
+    assert "--emit-equivalence is not available" in error_text
