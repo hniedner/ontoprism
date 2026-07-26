@@ -435,6 +435,39 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
 
 
 @pytest.mark.unit
+async def test_run_pipeline_preserves_cyclic_fillers_for_review() -> None:
+    client = _FakeClient(
+        pages=[["C1"]],
+        semantic_types={"C1": ["Neoplastic Process"]},
+        roles={
+            "C1": [
+                _role("R101", "Has_Primary_Site", "C120"),
+                _role("R101", "Has_Primary_Site", "C121"),
+                _role("R101", "Has_Primary_Site", "C130"),
+                _role("R88", "Has_Stage", "C27970"),
+            ]
+        },
+        part_of_expansions={
+            "C120": [("whole", "C121")],
+            "C121": [("whole", "C120")],
+        },
+        semantic_type_of_rows=[
+            {"code": code, "st": "Body Part, Organ, or Organ Component"}
+            for code in ("C120", "C121", "C130")
+        ],
+    )
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    assert metrics.decomposed == 1
+    constituents = provenance.upsert_constituents.call_args.args[2]
+    sites = [c for c in constituents if c.axis == "R101"]
+    assert {c.filler_code for c in sites} == {"C120", "C121", "C130"}
+    assert all(c.needs_review and not c.most_specific for c in sites)
+
+
+@pytest.mark.unit
 async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
     site_codes = ["C10000", *(f"C200{i:02d}" for i in range(15)), "C99999"]
     client = _FakeClient(

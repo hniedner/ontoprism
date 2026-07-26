@@ -16,8 +16,17 @@ from ontolib.decomposition import axes
 from ontolib.decomposition.models import Constituent, RoleRestriction
 from ontolib.decomposition.site_resolution import organ_for_morphology
 
-# ``is_ancestor(a, b)`` is True when concept *a* is a (proper) superclass of *b*.
+# ``is_ancestor(a, b)`` is the broader-for-selection relation: *a* is either a
+# proper superclass of *b* or an R82 whole that transitively contains *b*.
 IsAncestor = Callable[[str, str], bool]
+
+
+def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -> bool:
+    return (
+        broader != narrower
+        and is_ancestor(broader, narrower)
+        and not is_ancestor(narrower, broader)
+    )
 
 
 def filter_excluded(restrictions: Iterable[RoleRestriction]) -> list[RoleRestriction]:
@@ -26,14 +35,15 @@ def filter_excluded(restrictions: Iterable[RoleRestriction]) -> list[RoleRestric
 
 
 def most_specific(fillers: set[str], is_ancestor: IsAncestor) -> set[str]:
-    """Keep only the hierarchy leaves: drop any filler that is an ancestor of another
-    filler in the set. Fillers with no ancestor relationship are all kept (genuine
-    multi-filler axis), and a single filler is returned unchanged.
+    """Keep only specificity leaves: drop any filler strictly broader than another.
+
+    Unrelated fillers and members of a broader-relation cycle are all retained, and a
+    single filler is returned unchanged.
     """
     return {
         f
         for f in fillers
-        if not any(other != f and is_ancestor(f, other) for other in fillers)
+        if not any(_is_strictly_broader(f, other, is_ancestor) for other in fillers)
     }
 
 
@@ -79,8 +89,8 @@ _STAGE_SYSTEM_CODES: frozenset[str] = frozenset(
 
 
 def _is_most_specific(filler: str, fillers: set[str], is_ancestor: IsAncestor) -> bool:
-    """True when *filler* was chosen over an ancestor present in *fillers*."""
-    return any(o != filler and is_ancestor(o, filler) for o in fillers)
+    """True when *filler* was chosen over a strictly broader filler."""
+    return any(_is_strictly_broader(o, filler, is_ancestor) for o in fillers)
 
 
 def _is_r101_semantic_split(
@@ -280,10 +290,11 @@ def select_constituents(
     """Turn a concept's stated role restrictions into its selected constituents.
 
     Excludes ``Excludes_*`` axioms, groups the rest by routed axis (D20 refinement 1),
-    collapses each axis to its most-specific filler(s), applies D20 refinement 2
-    (semantic-type ranking on residual R101 leaves), and assigns D19 relationship-group
-    ids to co-equal non-nested leaves on routed axes. Output is sorted (axis, filler)
-    for deterministic, diffable results.
+    collapses hierarchy-comparable axes to their most-specific filler(s), and preserves
+    all associated-lineage fillers. It then applies D20 refinement 2 (semantic-type
+    ranking on residual R101 leaves) and assigns D19 relationship-group ids to ambiguous
+    routed-axis values. Output is sorted (axis, filler) for deterministic, diffable
+    results.
     """
     by_axis = _group_by_routed_axis(restrictions)
     constituents = _iter_axis_constituents(
