@@ -22,7 +22,9 @@ from ontolib.repositories.embeddings.publication import (
     CorpusUnavailableError,
     CorpusValidationError,
     EmbeddingCorpusPublisher,
+    EmbeddingRow,
     active_manifests,
+    coordinate_corpus_source_replacement,
     replacing_corpus_source,
 )
 from ontolib.repositories.embeddings.store import EmbeddingStore
@@ -40,6 +42,7 @@ pytestmark = [
 
 _OLD_BUILD = UUID("00000000-0000-0000-0000-000000000001")
 _NEW_BUILD = UUID("00000000-0000-0000-0000-000000000002")
+_CADSR_BUILD = UUID("00000000-0000-0000-0000-000000000003")
 _VECTOR_DIMENSION = 768
 
 
@@ -102,7 +105,7 @@ def _build(
     )
 
 
-def _row(doc_id: str, value: float) -> tuple[str, list[float], dict[str, str]]:
+def _row(doc_id: str, value: float) -> EmbeddingRow:
     return doc_id, [value] * _VECTOR_DIMENSION, {"label": doc_id}
 
 
@@ -116,10 +119,16 @@ async def _active_rows(
         return list(result.scalars())
 
 
-async def _publish_old(sf: async_sessionmaker[AsyncSession]) -> None:
-    publisher = EmbeddingCorpusPublisher(sf, _build(_OLD_BUILD))
+async def _publish_old(
+    sf: async_sessionmaker[AsyncSession], corpus: Corpus = Corpus.NCIT
+) -> None:
+    build_id = _OLD_BUILD if corpus is Corpus.NCIT else _CADSR_BUILD
+    sentinel = "C3262" if corpus is Corpus.NCIT else "2517527:4"
+    publisher = EmbeddingCorpusPublisher(
+        sf, _build(build_id, corpus=corpus, required=(sentinel,))
+    )
     await publisher.start()
-    await publisher.stage([_row("C3262", 0.5), _row("OLD", 0.25)])
+    await publisher.stage([_row(sentinel, 0.5), _row("OLD", 0.25)])
     manifest = await publisher.publish()
     assert manifest.is_active
 
@@ -666,6 +675,267 @@ async def test_failed_source_replacement_keeps_manifest_inactive(
     assert active_after == 0
     async with replacing_corpus_source(session_factory, Corpus.NCIT):
         pass  # reacquiring proves the exceptional path released its session lock
+
+
+async def test_coordinated_source_replacement_locks_before_preparation(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    engine = session_factory.kw["bind"]
+    key = "embedding:cadsr"
+    prepared = asyncio.Event()
+    replaced: list[str] = []
+
+    async def prepare() -> str:
+        prepared.set()
+        return "candidate"
+
+    async def replace_source(candidate: str) -> None:
+        replaced.append(candidate)
+
+    async with engine.connect() as blocker:
+        await blocker.execute(
+            text("SELECT pg_advisory_lock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+        await blocker.commit()
+        task = asyncio.create_task(
+            coordinate_corpus_source_replacement(
+                session_factory,
+                Corpus.CADSR,
+                prepare=prepare,
+                replace=replace_source,
+            )
+        )
+        await asyncio.sleep(0.1)
+        assert not prepared.is_set()
+        await blocker.execute(
+            text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
+            {"corpus": key},
+        )
+        await blocker.commit()
+
+    assert await task == "candidate"
+    assert replaced == ["candidate"]
+
+
+async def test_coordinated_source_replacement_holds_lock_through_replacement(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    engine = session_factory.kw["bind"]
+    key = "embedding:cadsr"
+    replacement_entered = asyncio.Event()
+    finish_replacement = asyncio.Event()
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def replace_source(_candidate: str) -> None:
+        replacement_entered.set()
+        await finish_replacement.wait()
+
+    task = asyncio.create_task(
+        coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=replace_source,
+        )
+    )
+    await asyncio.sleep(0.1)
+    assert replacement_entered.is_set()
+    assert not task.done()
+
+    async with engine.connect() as probe:
+        acquired = bool(
+            await probe.scalar(
+                text("SELECT pg_try_advisory_lock(hashtextextended(:corpus, 0))"),
+                {"corpus": key},
+            )
+        )
+        if acquired:
+            await probe.execute(
+                text("SELECT pg_advisory_unlock(hashtextextended(:corpus, 0))"),
+                {"corpus": key},
+            )
+            await probe.commit()
+    assert not acquired
+
+    finish_replacement.set()
+    assert await task == "candidate"
+
+
+async def test_coordinated_source_failure_restores_active_manifest(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def fail_replace(_candidate: str) -> None:
+        raise OSError("rename failed")
+
+    with pytest.raises(OSError, match="rename failed"):
+        await coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.NCIT,
+            prepare=prepare,
+            replace=fail_replace,
+        )
+
+    manifests = await active_manifests(session_factory)
+    assert [manifest.build_id for manifest in manifests] == [_OLD_BUILD]
+
+
+async def test_coordinated_cadsr_failure_restores_only_cadsr_manifest(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory, Corpus.NCIT)
+    await _publish_old(session_factory, Corpus.CADSR)
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def fail_replace(_candidate: str) -> None:
+        raise OSError("rename failed")
+
+    with pytest.raises(OSError, match="rename failed"):
+        await coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=fail_replace,
+        )
+
+    manifests = await active_manifests(session_factory)
+    assert {manifest.build_id for manifest in manifests} == {
+        _OLD_BUILD,
+        _CADSR_BUILD,
+    }
+
+
+async def test_deactivation_commit_error_restores_manifest_using_fresh_connection(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _publish_old(session_factory, Corpus.CADSR)
+    original_commit = AsyncConnection.commit
+    injected = False
+    replaced: list[str] = []
+
+    async def commit_then_raise(connection: AsyncConnection) -> None:
+        nonlocal injected
+        await original_commit(connection)
+        if not injected:
+            injected = True
+            raise RuntimeError("commit result lost")
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def replace_source(candidate: str) -> None:
+        replaced.append(candidate)
+
+    monkeypatch.setattr(AsyncConnection, "commit", commit_then_raise)
+
+    with pytest.raises(RuntimeError, match="commit result lost"):
+        await coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=replace_source,
+        )
+
+    manifests = await active_manifests(session_factory)
+    assert [manifest.build_id for manifest in manifests] == [_CADSR_BUILD]
+    assert replaced == []
+
+
+async def test_uncertain_lock_acquisition_invalidates_connection(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalidated: list[AsyncConnection] = []
+    original_acquire = publication._acquire_source_lock
+    original_invalidate = AsyncConnection.invalidate
+
+    async def acquire_then_raise(connection: AsyncConnection, key: str) -> None:
+        await original_acquire(connection, key)
+        raise RuntimeError("lock result lost")
+
+    async def record_invalidate(connection: AsyncConnection) -> None:
+        invalidated.append(connection)
+        await original_invalidate(connection)
+
+    async def prepare() -> str:
+        pytest.fail("preparation ran after uncertain lock acquisition")
+
+    async def replace_source(_candidate: str) -> None:
+        pytest.fail("replacement ran after uncertain lock acquisition")
+
+    monkeypatch.setattr(publication, "_acquire_source_lock", acquire_then_raise)
+    monkeypatch.setattr(AsyncConnection, "invalidate", record_invalidate)
+
+    with pytest.raises(RuntimeError, match="lock result lost"):
+        await coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.CADSR,
+            prepare=prepare,
+            replace=replace_source,
+        )
+
+    assert len(invalidated) == 1
+
+
+async def test_coordinated_preparation_failure_keeps_active_manifest(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await _publish_old(session_factory)
+
+    async def fail_prepare() -> str:
+        raise RuntimeError("candidate validation failed")
+
+    async def replace_source(_candidate: str) -> None:
+        pytest.fail("invalid candidate reached replacement")
+
+    with pytest.raises(RuntimeError, match="candidate validation failed"):
+        await coordinate_corpus_source_replacement(
+            session_factory,
+            Corpus.NCIT,
+            prepare=fail_prepare,
+            replace=replace_source,
+        )
+
+    manifests = await active_manifests(session_factory)
+    assert [manifest.build_id for manifest in manifests] == [_OLD_BUILD]
+
+
+async def test_coordinated_post_commit_unlock_failure_reports_success(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _publish_old(session_factory)
+    replaced: list[str] = []
+
+    async def prepare() -> str:
+        return "candidate"
+
+    async def replace_source(candidate: str) -> None:
+        replaced.append(candidate)
+
+    async def fail_unlock(_connection: object, _key: str) -> None:
+        raise RuntimeError("unlock failed after rename")
+
+    monkeypatch.setattr(publication, "_release_source_lock", fail_unlock)
+    result = await coordinate_corpus_source_replacement(
+        session_factory,
+        Corpus.NCIT,
+        prepare=prepare,
+        replace=replace_source,
+    )
+
+    assert result == "candidate"
+    assert replaced == ["candidate"]
 
 
 async def test_source_replacement_blocks_publication_until_lock_release(

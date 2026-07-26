@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import re
 from contextlib import asynccontextmanager
@@ -33,6 +34,7 @@ type JsonValue = (
 EmbeddingRow = tuple[str, list[float], dict[str, JsonValue]]
 ManifestState = Literal["building", "failed", "complete"]
 EMBEDDING_VECTOR_DIMENSION = 768
+logger = logging.getLogger(__name__)
 
 
 class Corpus(StrEnum):
@@ -570,6 +572,211 @@ async def corpus_manifests(
             )
         ).mappings()
         return tuple(_manifest(row) for row in rows)
+
+
+async def _restore_active_source_manifest(
+    connection: AsyncConnection,
+    corpus: Corpus,
+    build_id: UUID | None,
+) -> None:
+    await connection.execute(
+        text(
+            "UPDATE embedding_corpus_manifest SET is_active = false "
+            "WHERE corpus = :corpus AND is_active"
+        ),
+        {"corpus": corpus.value},
+    )
+    if build_id is not None:
+        await connection.execute(
+            text(
+                "UPDATE embedding_corpus_manifest SET is_active = true "
+                "WHERE corpus = :corpus AND build_id = :build_id "
+                "AND state = 'complete'"
+            ),
+            {"corpus": corpus.value, "build_id": build_id},
+        )
+    await connection.commit()
+
+
+async def _invalidate_with_note(
+    connection: AsyncConnection, original: BaseException
+) -> None:
+    try:
+        await connection.invalidate()
+    except BaseException as invalidate_error:
+        original.add_note(
+            f"Failed to invalidate embedding source connection: {invalidate_error}"
+        )
+
+
+async def _prepare_and_replace_source[T](
+    connection: AsyncConnection,
+    engine: AsyncEngine,
+    corpus: Corpus,
+    prepare: Callable[[], Awaitable[T]],
+    replace: Callable[[T], Awaitable[None]],
+) -> T:
+    candidate = await prepare()
+    active_build_id = await connection.scalar(
+        text(
+            "SELECT build_id FROM embedding_corpus_manifest "
+            "WHERE corpus = :corpus AND state = 'complete' AND is_active"
+        ),
+        {"corpus": corpus.value},
+    )
+    await connection.execute(
+        text(
+            "UPDATE embedding_corpus_manifest SET is_active = false "
+            "WHERE corpus = :corpus AND is_active"
+        ),
+        {"corpus": corpus.value},
+    )
+    try:
+        await connection.commit()
+    except BaseException as original:
+        await _invalidate_with_note(connection, original)
+        await _restore_active_source_manifest_fresh(
+            engine, corpus, active_build_id, original
+        )
+        raise
+    try:
+        await replace(candidate)
+    except BaseException as original:
+        try:
+            await _restore_active_source_manifest(connection, corpus, active_build_id)
+        except BaseException as restore_error:
+            original.add_note(
+                "Failed to restore active embedding manifest after source replacement "
+                f"failure: {restore_error}"
+            )
+            await _invalidate_with_note(connection, original)
+        raise
+    return candidate
+
+
+async def _restore_active_source_manifest_fresh(
+    engine: AsyncEngine,
+    corpus: Corpus,
+    build_id: UUID | None,
+    original: BaseException,
+) -> None:
+    key = f"embedding:{corpus.value}"
+    try:
+        recovery = await engine.connect()
+    except BaseException as recovery_error:
+        original.add_note(
+            "Failed to open a fresh connection to restore the active embedding "
+            f"manifest: {recovery_error}"
+        )
+        return
+    try:
+        await _acquire_source_lock(recovery, key)
+    except BaseException as recovery_error:
+        original.add_note(
+            "Failed to acquire embedding source lock for manifest recovery: "
+            f"{recovery_error}"
+        )
+        await _invalidate_with_note(recovery, original)
+        await _cleanup_failed_source_coordination(
+            recovery, key, lock_acquired=False, original=original
+        )
+        return
+    try:
+        await _restore_active_source_manifest(recovery, corpus, build_id)
+    except BaseException as recovery_error:
+        original.add_note(
+            "Failed to restore active embedding manifest after uncertain "
+            f"deactivation commit: {recovery_error}"
+        )
+    await _cleanup_failed_source_coordination(
+        recovery, key, lock_acquired=True, original=original
+    )
+
+
+async def _cleanup_failed_source_coordination(
+    connection: AsyncConnection,
+    key: str,
+    *,
+    lock_acquired: bool,
+    original: BaseException,
+) -> None:
+    if lock_acquired and not connection.invalidated:
+        try:
+            await _release_source_lock(connection, key)
+        except BaseException as unlock_error:
+            original.add_note(
+                f"Failed to release embedding source lock: {unlock_error}"
+            )
+            await _invalidate_with_note(connection, original)
+    try:
+        await connection.close()
+    except BaseException as close_error:
+        original.add_note(f"Failed to close embedding source connection: {close_error}")
+
+
+async def _cleanup_committed_source_coordination(
+    connection: AsyncConnection, key: str, corpus: Corpus
+) -> None:
+    try:
+        await _release_source_lock(connection, key)
+    except BaseException:
+        logger.exception(
+            "%s source replacement committed but lock cleanup failed", corpus.value
+        )
+        try:
+            await connection.invalidate()
+        except BaseException:
+            logger.exception(
+                "%s source replacement committed but invalidation failed",
+                corpus.value,
+            )
+    try:
+        await connection.close()
+    except BaseException:
+        logger.exception(
+            "%s source replacement committed but connection cleanup failed",
+            corpus.value,
+        )
+
+
+async def coordinate_corpus_source_replacement[T](
+    session_factory: async_sessionmaker[AsyncSession],
+    corpus: Corpus,
+    *,
+    prepare: Callable[[], Awaitable[T]],
+    replace: Callable[[T], Awaitable[None]],
+) -> T:
+    """Serialize source preparation and atomically commit its filesystem replacement."""
+    engine = session_factory.kw.get("bind")
+    if not isinstance(engine, AsyncEngine):
+        raise TypeError("embedding session factory must be bound to an AsyncEngine")
+    key = f"embedding:{corpus.value}"
+    connection = await engine.connect()
+    try:
+        await _acquire_source_lock(connection, key)
+    except BaseException as original:
+        await _invalidate_with_note(connection, original)
+        try:
+            await connection.close()
+        except BaseException as close_error:
+            original.add_note(
+                f"Failed to close embedding source connection: {close_error}"
+            )
+        raise
+    try:
+        candidate = await _prepare_and_replace_source(
+            connection, engine, corpus, prepare, replace
+        )
+    except BaseException as original:
+        await _cleanup_failed_source_coordination(
+            connection,
+            key,
+            lock_acquired=True,
+            original=original,
+        )
+        raise
+    await _cleanup_committed_source_coordination(connection, key, corpus)
+    return candidate
 
 
 @asynccontextmanager

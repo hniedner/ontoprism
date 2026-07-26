@@ -20,8 +20,8 @@ import json
 import logging
 import shutil
 import subprocess
-import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import typer
@@ -29,6 +29,7 @@ import typer
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.core.logging_config import get_logger
+from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
 from ontolib.repositories.embeddings.generate import (
@@ -44,8 +45,8 @@ from ontolib.repositories.embeddings.publication import (
     Corpus,
     CorpusBuild,
     EmbeddingCorpusPublisher,
+    coordinate_corpus_source_replacement,
     corpus_manifests,
-    replacing_corpus_source,
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
@@ -66,6 +67,11 @@ from ontolib.terminologies.ncit.search_index import (
     populate_from_store,
 )
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from ontolib.repositories.cadsr.build import ValidatedCadsrCandidate
 
 logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
@@ -142,44 +148,98 @@ async def _build_owl() -> None:
     )
 
 
+def _cadsr_sidecars(destination: Path) -> list[Path]:
+    return [
+        destination.with_name(destination.name + suffix)
+        for suffix in ("-journal", "-shm", "-wal")
+        if destination.with_name(destination.name + suffix).exists()
+    ]
+
+
+def _cleanup_cadsr_candidate(
+    candidate_path: Path, original: BaseException | None = None
+) -> None:
+    for suffix in ("", "-journal", "-shm", "-wal"):
+        path = candidate_path.with_name(candidate_path.name + suffix)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            if original is not None:
+                original.add_note(
+                    f"Failed to remove caDSR candidate artifact: {cleanup_error}"
+                )
+            else:
+                logger.exception(
+                    "caDSR replacement committed but candidate cleanup failed"
+                )
+
+
+async def _dispose_cadsr_engine(
+    engine: AsyncEngine, original: BaseException | None = None
+) -> None:
+    try:
+        await dispose_engine(engine)
+    except BaseException as dispose_error:
+        if original is not None:
+            original.add_note(f"Failed to dispose caDSR build engine: {dispose_error}")
+        else:
+            logger.exception(
+                "caDSR database replacement committed but engine disposal failed"
+            )
+
+
 def _build_cadsr() -> None:
     settings = get_settings()
     data_dir = Path(settings.cadsr_data_dir)
     destination = Path(settings.cadsr_db_path)
+    candidate_path = destination.with_name(
+        f".{destination.name}.{uuid4().hex}.candidate"
+    )
 
-    async def _replace_source(candidate: Path) -> None:
-        engine = make_engine(settings.database_url)
-        try:
-            async with replacing_corpus_source(make_sessionmaker(engine), Corpus.CADSR):
-                candidate.replace(destination)
-        finally:
-            await dispose_engine(engine)
-
-    async def _download() -> Path:
+    async def _prepare() -> ValidatedCadsrCandidate:
+        sidecars = _cadsr_sidecars(destination)
+        if sidecars:
+            raise RuntimeError(
+                "refusing to replace caDSR database with SQLite sidecars: "
+                + ", ".join(str(path) for path in sidecars)
+            )
         outcome = await download_cadsr_cdes(
             data_dir, base_url=settings.cadsr_download_url
         )
-        return Path(outcome.path)
+        with extract_cadsr_archive(
+            outcome,
+            expected_url=settings.cadsr_download_url,
+            workspace_parent=data_dir,
+        ) as extracted:
+            return build_database(extracted, candidate_path)
 
-    zip_path = asyncio.run(_download())
-    extract_dir = data_dir / "extracted"
-    extract_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(extract_dir)
-    xml_paths = sorted(extract_dir.rglob("*.xml"))
-    if not xml_paths:
-        typer.echo("No CDE XML found in the downloaded archive.", err=True)
-        raise typer.Exit(code=1)
-    candidate = destination.with_name(f".{destination.name}.{uuid4().hex}.candidate")
+    async def _replace_source(candidate: ValidatedCadsrCandidate) -> None:
+        candidate.path.replace(destination)
+
+    async def _run() -> ValidatedCadsrCandidate:
+        engine = make_engine(settings.database_url)
+        try:
+            candidate = await coordinate_corpus_source_replacement(
+                make_sessionmaker(engine),
+                Corpus.CADSR,
+                prepare=_prepare,
+                replace=_replace_source,
+            )
+        except BaseException as original:
+            await _dispose_cadsr_engine(engine, original)
+            raise
+        await _dispose_cadsr_engine(engine)
+        return candidate
+
     try:
-        count = build_database(xml_paths, candidate)
-        if count == 0:
-            typer.echo("caDSR build produced 0 CDEs — aborting.", err=True)
-            raise typer.Exit(code=1)
-        asyncio.run(_replace_source(candidate))
-    finally:
-        candidate.unlink(missing_ok=True)
-    typer.echo(f"Built caDSR DB with {count} CDEs at {settings.cadsr_db_path}")
+        candidate = asyncio.run(_run())
+    except BaseException as original:
+        _cleanup_cadsr_candidate(candidate_path, original)
+        raise
+    _cleanup_cadsr_candidate(candidate_path)
+    typer.echo(
+        f"Built caDSR DB with {candidate.cde_count} CDEs at {settings.cadsr_db_path}"
+    )
 
 
 def _sha256(path: Path) -> str:

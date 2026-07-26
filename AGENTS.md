@@ -187,9 +187,11 @@ cooldown) + secret scanning + push protection are enabled repo-side.
 - Versions live in five manifests and are stamped automatically on release — never bump
   them by hand.
 - **Pre-PR review fix cycle (mandatory, no exceptions): after implementation and local
-  gates are complete, but before the first push or PR creation, review the full local
-  branch diff against current `main` with the FULL `pr-review-toolkit` agent set in the
-  initial round — ALL FIVE, no cherry-picking:**
+  gates are complete, commit all intended changes on the feature branch. The worktree must
+  be clean before review starts. Then, before the first push or PR creation, review the
+  committed branch diff (`main...HEAD`) against current `main` with the FULL
+  `pr-review-toolkit` agent set in the initial round — ALL FIVE, no cherry-picking. A
+  review of staged or unstaged changes does not count toward convergence:**
   1. `pr-review-toolkit:code-reviewer` — correctness, guideline compliance
   2. `pr-review-toolkit:silent-failure-hunter` — swallowed errors, failures that look like
      clean results
@@ -208,9 +210,11 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   Running two of the five would have shipped the other three.
 
   Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
-  (anything you can confirm and act on) — then re-run the applicable local gates and
-  **only the non-converged agents**. Do not push or create the PR until all five agents
-  have converged and the final local gates pass. An agent converges only when a
+  (anything you can confirm and act on) — then re-run the applicable local gates and commit
+  those fixes before re-running **only the non-converged agents**. Every review round must
+  inspect a clean worktree and the committed `main...HEAD` diff. Do not push or create the
+  PR until all five agents have converged and the final local gates pass. An agent converges
+  only when a
   successfully completed full-diff review
   explicitly reports no unresolved actionable verified findings. An agent that reports
   any such finding remains non-converged whether the finding is new or repeated. Failed,
