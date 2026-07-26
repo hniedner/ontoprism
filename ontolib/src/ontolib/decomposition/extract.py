@@ -247,9 +247,11 @@ def part_of_pairs_from_rows(rows: Iterable[Row]) -> list[PartOfPair]:
 
 
 def part_of_expansions_from_rows(rows: Iterable[Row]) -> set[PartOfExpansion]:
-    """Parse strict ``?node``/``?kind``/``?target`` bounded-expansion rows."""
+    """Parse strict node/kind/target/target-type bounded-expansion rows."""
     expansions: set[PartOfExpansion] = set()
     for row in rows:
+        if _required_binding(row, "targetType") != "iri":
+            raise ValueError("R82 expansion target is not an IRI")
         kind = _required_binding(row, "kind")
         if kind == "parent":
             expansion_kind: Literal["parent", "whole"] = "parent"

@@ -67,6 +67,17 @@ class SelectRows(Protocol):
     ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
 
 
+class SingleAttemptSelectRows(Protocol):
+    """Client surface whose SELECT operation performs one transport attempt."""
+
+    def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Awaitable[Sequence[Mapping[str, str | None]]]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class _PartOfNodeExpansion:
     parents: frozenset[str]
@@ -295,12 +306,14 @@ def build_part_of_pairs_queries(codes: Iterable[str]) -> list[str]:
 
 
 def _part_of_expansion_branches(code: str) -> tuple[str, str]:
+    # Flattened SPARQL rows omit RDF term metadata, so carry target IRI-ness explicitly.
     iri = safe_iri(code, NCIT_NS)
     parent = f"""{{
         BIND(<{iri}> AS ?node)
         <{iri}> rdfs:subClassOf ?target .
         FILTER(isIRI(?target))
         BIND("parent" AS ?kind)
+        BIND("iri" AS ?targetType)
     }}"""
     whole = f"""{{
         BIND(<{iri}> AS ?node)
@@ -309,6 +322,7 @@ def _part_of_expansion_branches(code: str) -> tuple[str, str]:
             owl:onProperty <{NCIT_NS}R82> ;
             owl:someValuesFrom ?target .
         BIND("whole" AS ?kind)
+        BIND(IF(isIRI(?target), "iri", "non-iri") AS ?targetType)
     }}"""
     return parent, whole
 
@@ -325,7 +339,7 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
         raise ValueError("R82 expansion query accepts at most 16 codes")
     if not code_list:
         query = (
-            f"{_PREFIXES}SELECT DISTINCT ?node ?kind ?target "
+            f"{_PREFIXES}SELECT DISTINCT ?node ?kind ?target ?targetType "
             f"WHERE {{ FILTER(false) }} LIMIT {_PART_OF_EXPANSION_ROW_LIMIT + 1}"
         )
     else:
@@ -333,12 +347,12 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
             branch for code in code_list for branch in _part_of_expansion_branches(code)
         )
         query = f"""{_PREFIXES}
-            SELECT DISTINCT ?node ?kind ?target WHERE {{
+            SELECT DISTINCT ?node ?kind ?target ?targetType WHERE {{
                 GRAPH <{STATED_GRAPH_IRI}> {{
                     {branches}
                 }}
             }}
-            ORDER BY ?node ?kind ?target
+            ORDER BY ?node ?kind ?target ?targetType
             LIMIT {_PART_OF_EXPANSION_ROW_LIMIT + 1}
         """
     if len(query.encode()) > _PART_OF_MAX_QUERY_BYTES:
@@ -374,7 +388,7 @@ class _PartOfClosure:
         self.request_count += 1
         rows = await self.select_once(
             query,
-            required_variables={"node", "kind", "target"},
+            required_variables={"node", "kind", "target", "targetType"},
         )
         if len(rows) > _PART_OF_EXPANSION_ROW_LIMIT:
             raise ValueError("R82 closure row bound exceeds 256 rows")
@@ -453,7 +467,7 @@ class _PartOfClosure:
 
 
 async def resolve_part_of_pairs(
-    select_once: SelectRows,
+    client: SingleAttemptSelectRows,
     codes: Iterable[str],
 ) -> list[PartOfPair]:
     """Return bounded, non-reflexive transitive R82 reachability within *codes*.
@@ -461,8 +475,8 @@ async def resolve_part_of_pairs(
     Intermediate R82 wholes and named superclasses may lie outside the requested set,
     but only requested endpoint pairs are returned. Every store request expands fixed
     one-step edges from constant subjects; cycles and duplicate paths are deduplicated.
-    The *select_once* executor must make at most one transport attempt per invocation so
-    the 64-call store-request bound cannot be bypassed by hidden retries.
+    The client's ``select_once`` operation makes at most one transport attempt per
+    invocation, so hidden retries cannot bypass the 64-call store-request bound.
 
     Raises:
         ValueError: for invalid returned expansion bindings or an exhausted bound.
@@ -472,7 +486,10 @@ async def resolve_part_of_pairs(
         return []
     if len(requested) > _PART_OF_MAX_FRONTIER_CODES:
         raise ValueError("R82 closure frontier exceeds 256 codes")
-    return await _PartOfClosure(select_once=select_once, requested=requested).resolve()
+    return await _PartOfClosure(
+        select_once=client.select_once,
+        requested=requested,
+    ).resolve()
 
 
 def build_morphology_query(concept_code: str) -> str:

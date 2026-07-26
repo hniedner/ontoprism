@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
 import pytest
 
@@ -31,7 +31,7 @@ class _ExpansionStore:
         self._row_factory = row_factory
         self.calls: list[tuple[tuple[str, ...], frozenset[str]]] = []
 
-    async def __call__(
+    async def select_once(
         self,
         query: str,
         *,
@@ -40,15 +40,36 @@ class _ExpansionStore:
         required = frozenset(required_variables)
         codes = tuple(dict.fromkeys(_NODE_BINDING.findall(query)))
         self.calls.append((codes, required))
-        assert required == {"node", "kind", "target"}
+        assert required == {"node", "kind", "target", "targetType"}
         assert 1 <= len(codes) <= 16
         if self._row_factory is not None:
             return self._row_factory(codes, len(self.calls))
         return [
-            {"node": _iri(code), "kind": kind, "target": _iri(target)}
+            {
+                "node": _iri(code),
+                "kind": kind,
+                "target": _iri(target),
+                "targetType": "iri",
+            }
             for code in codes
             for kind, target in self._expansions.get(code, ())
         ]
+
+
+class _SingleAttemptClient:
+    def __init__(self, select_once: stated_queries.SelectRows) -> None:
+        self._select_once = select_once
+
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Sequence[Mapping[str, str | None]]:
+        return await self._select_once(
+            query,
+            required_variables=required_variables,
+        )
 
 
 @pytest.mark.unit
@@ -109,7 +130,10 @@ async def test_part_of_closure_handles_graph_shapes_deterministically() -> None:
         ]
     )
     assert len(store.calls) > 1
-    assert all(required == {"node", "kind", "target"} for _, required in store.calls)
+    assert all(
+        required == {"node", "kind", "target", "targetType"}
+        for _, required in store.calls
+    )
 
 
 @pytest.mark.unit
@@ -136,25 +160,57 @@ async def test_part_of_closure_rejects_invalid_input_before_store(
 @pytest.mark.parametrize(
     ("row", "message"),
     [
-        ({"node": _iri("C1"), "kind": "whole"}, "target"),
         (
-            {"node": _iri("C1"), "kind": "sideways", "target": _iri("C2")},
+            {"node": _iri("C1"), "kind": "whole", "target": _iri("C2")},
+            "targetType",
+        ),
+        (
+            {"node": _iri("C1"), "kind": "whole", "targetType": "iri"},
+            "target",
+        ),
+        (
+            {
+                "node": _iri("C1"),
+                "kind": "sideways",
+                "target": _iri("C2"),
+                "targetType": "iri",
+            },
             "kind",
+        ),
+        (
+            {
+                "node": _iri("C1"),
+                "kind": "whole",
+                "target": _iri("C2"),
+                "targetType": "non-iri",
+            },
+            "target is not an IRI",
         ),
         (
             {
                 "node": "https://example.org/C1",
                 "kind": "whole",
                 "target": _iri("C2"),
+                "targetType": "iri",
             },
             "node is not an NCIt IRI",
         ),
         (
-            {"node": _iri("C1"), "kind": "whole", "target": _iri("R82")},
+            {
+                "node": _iri("C1"),
+                "kind": "whole",
+                "target": _iri("R82"),
+                "targetType": "iri",
+            },
             "target is not an NCIt concept code",
         ),
         (
-            {"node": _iri("C999"), "kind": "whole", "target": _iri("C2")},
+            {
+                "node": _iri("C999"),
+                "kind": "whole",
+                "target": _iri("C2"),
+                "targetType": "iri",
+            },
             "unexpected R82 expansion node",
         ),
     ],
@@ -180,11 +236,13 @@ async def test_part_of_closure_requires_projection_and_propagates_store_error() 
         nonlocal calls
         del query
         calls += 1
-        assert set(required_variables) == {"node", "kind", "target"}
+        assert set(required_variables) == {"node", "kind", "target", "targetType"}
         raise StorageError("missing required projected variable: target")
 
     with pytest.raises(StorageError, match="projected variable"):
-        await stated_queries.resolve_part_of_pairs(malformed_projection, ["C1", "C2"])
+        await stated_queries.resolve_part_of_pairs(
+            _SingleAttemptClient(malformed_projection), ["C1", "C2"]
+        )
     assert calls == 1
 
 
@@ -194,6 +252,16 @@ async def test_part_of_closure_rejects_frontier_bound_before_store() -> None:
     with pytest.raises(ValueError, match=r"frontier.*256"):
         await stated_queries.resolve_part_of_pairs(store, (f"C{i}" for i in range(257)))
     assert store.calls == []
+
+
+@pytest.mark.unit
+async def test_part_of_closure_accepts_256_initial_codes() -> None:
+    store = _ExpansionStore()
+    assert (
+        await stated_queries.resolve_part_of_pairs(store, (f"C{i}" for i in range(256)))
+        == []
+    )
+    assert len(store.calls) == 16
 
 
 @pytest.mark.unit
@@ -227,7 +295,12 @@ async def test_part_of_closure_rejects_query_body_bound_before_store() -> None:
 async def test_part_of_closure_rejects_row_bound() -> None:
     def oversized(_codes: tuple[str, ...], _call: int) -> list[Row]:
         return [
-            {"node": _iri("C1"), "kind": "whole", "target": _iri(f"C{1000 + i}")}
+            {
+                "node": _iri("C1"),
+                "kind": "whole",
+                "target": _iri(f"C{1000 + i}"),
+                "targetType": "iri",
+            }
             for i in range(257)
         ]
 
@@ -251,6 +324,15 @@ async def test_part_of_closure_rejects_ninth_r82_hop() -> None:
     with pytest.raises(ValueError, match=r"R82 hop.*8"):
         await stated_queries.resolve_part_of_pairs(
             _ExpansionStore(expansions), ["C1000", "C1009"]
+        )
+
+
+@pytest.mark.unit
+async def test_part_of_closure_rejects_unrequested_ninth_hop() -> None:
+    expansions = {f"C{1000 + i}": [("whole", f"C{1001 + i}")] for i in range(10)}
+    with pytest.raises(ValueError, match=r"R82 hop.*8"):
+        await stated_queries.resolve_part_of_pairs(
+            _ExpansionStore(expansions), ["C1000", "C1010"]
         )
 
 
@@ -298,10 +380,10 @@ async def test_part_of_closure_rejects_total_row_memory_bound() -> None:
     ]
     expansions["C500241"] = [("whole", requested[0])]
 
+    store = _ExpansionStore(expansions)
     with pytest.raises(ValueError, match=r"total row.*4096"):
-        await stated_queries.resolve_part_of_pairs(
-            _ExpansionStore(expansions), requested
-        )
+        await stated_queries.resolve_part_of_pairs(store, requested)
+    assert len(store.calls) == 17
 
 
 @pytest.mark.unit
@@ -316,21 +398,43 @@ def test_part_of_expansion_query_is_constant_anchored_and_row_limited() -> None:
     query = stated_queries.build_part_of_expansion_query(["C2", "C1"])
 
     assert "VALUES ?node" not in query
-    assert "?node rdfs:subClassOf" not in query
-    assert "rdfs:subClassOf*" not in query
-    assert "rdfs:subClassOf+" not in query
+    assert [
+        line.strip() for line in query.splitlines() if "rdfs:subClassOf" in line
+    ] == [
+        f"<{NCIT_NS}C1> rdfs:subClassOf ?target .",
+        f"<{NCIT_NS}C1> rdfs:subClassOf ?restriction .",
+        f"<{NCIT_NS}C2> rdfs:subClassOf ?target .",
+        f"<{NCIT_NS}C2> rdfs:subClassOf ?restriction .",
+    ]
     assert query.count(f"BIND(<{NCIT_NS}C1> AS ?node)") == 2
     assert query.count(f"BIND(<{NCIT_NS}C2> AS ?node)") == 2
-    assert "LIMIT 257" in query
+    assert [
+        line.strip() for line in query.splitlines() if line.strip().startswith("LIMIT")
+    ] == ["LIMIT 257"]
 
 
 @pytest.mark.unit
 def test_part_of_expansion_parser_returns_typed_deduplicated_rows() -> None:
     parsed = extract.part_of_expansions_from_rows(
         [
-            {"node": _iri("C1"), "kind": "parent", "target": _iri("C2")},
-            {"node": _iri("C1"), "kind": "whole", "target": _iri("C3")},
-            {"node": _iri("C1"), "kind": "whole", "target": _iri("C3")},
+            {
+                "node": _iri("C1"),
+                "kind": "parent",
+                "target": _iri("C2"),
+                "targetType": "iri",
+            },
+            {
+                "node": _iri("C1"),
+                "kind": "whole",
+                "target": _iri("C3"),
+                "targetType": "iri",
+            },
+            {
+                "node": _iri("C1"),
+                "kind": "whole",
+                "target": _iri("C3"),
+                "targetType": "iri",
+            },
         ]
     )
     assert parsed == {

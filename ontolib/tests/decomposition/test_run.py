@@ -141,7 +141,12 @@ class _FakeClient:
                 dict.fromkeys(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))
             )
             return [
-                {"node": _iri(code), "kind": kind, "target": _iri(target)}
+                {
+                    "node": _iri(code),
+                    "kind": kind,
+                    "target": _iri(target),
+                    "targetType": "iri",
+                }
                 for code in codes
                 for kind, target in self._part_of_expansions.get(code, ())
             ]
@@ -459,7 +464,7 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
         frozenset({"ancestor", "descendant"})
     }
     assert requirements_for("SELECT DISTINCT ?node ?kind ?target") == {
-        frozenset({"node", "kind", "target"})
+        frozenset({"node", "kind", "target", "targetType"})
     }
     constituents = provenance.upsert_constituents.call_args.args[2]
     fillers = {c.filler_code for c in constituents}

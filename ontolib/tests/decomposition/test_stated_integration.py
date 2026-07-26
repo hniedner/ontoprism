@@ -47,7 +47,7 @@ from ontolib.terminologies.oxigraph_http_client import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Collection, Mapping, Sequence
 
 _DEFAULT_NCIT_URL = "http://localhost:7888"
 _EXPANSION_NODE = re.compile(rf"BIND\(<{re.escape(NCIT_NS)}(C[0-9]+)> AS \?node\)")
@@ -108,6 +108,22 @@ def _fixture_expansions() -> dict[str, list[tuple[str, str]]]:
         "C99222": [("whole", "C99223")],
         "C99230": [("whole", "C99231"), ("whole", "C99231")],
     }
+
+
+class _SingleAttemptClient:
+    def __init__(self, select_once: stated_queries.SelectRows) -> None:
+        self._select_once = select_once
+
+    async def select_once(
+        self,
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> Sequence[Mapping[str, str | None]]:
+        return await self._select_once(
+            query,
+            required_variables=required_variables,
+        )
 
 
 @pytest.mark.integration
@@ -229,21 +245,26 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        assert set(required_variables) == {"node", "kind", "target"}
+        assert set(required_variables) == {"node", "kind", "target", "targetType"}
         requested = tuple(dict.fromkeys(_EXPANSION_NODE.findall(query)))
         assert 1 <= len(requested) <= 16
         double_requests.append(requested)
         return [
-            {"node": f"{NCIT_NS}{code}", "kind": kind, "target": f"{NCIT_NS}{target}"}
+            {
+                "node": f"{NCIT_NS}{code}",
+                "kind": kind,
+                "target": f"{NCIT_NS}{target}",
+                "targetType": "iri",
+            }
             for code in requested
             for kind, target in expansions.get(code, ())
         ]
 
-    double_pairs = await stated_queries.resolve_part_of_pairs(double_select, codes)
+    double_pairs = await stated_queries.resolve_part_of_pairs(
+        _SingleAttemptClient(double_select), codes
+    )
     async with OxigraphHttpClient(isolated_oxigraph_url) as client:
-        actual_pairs = await stated_queries.resolve_part_of_pairs(
-            client.select_once, codes
-        )
+        actual_pairs = await stated_queries.resolve_part_of_pairs(client, codes)
 
         async def counted_select(
             query: str,
@@ -258,7 +279,8 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
 
         with pytest.raises(ValueError, match=r"frontier.*256"):
             await stated_queries.resolve_part_of_pairs(
-                counted_select, (f"C{i}" for i in range(257))
+                _SingleAttemptClient(counted_select),
+                (f"C{i}" for i in range(257)),
             )
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
@@ -295,7 +317,10 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
     malformed = (
         f"<{NCIT_NS}C99301> <{RDFS_NS}subClassOf> [ "
         f"a <{OWL_NS}Restriction> ; <{OWL_NS}onProperty> <{NCIT_NS}R82> ; "
-        f'<{OWL_NS}someValuesFrom> "not an IRI" ] .'
+        f'<{OWL_NS}someValuesFrom> "not an IRI" ] .\n'
+        f"<{NCIT_NS}C99302> <{RDFS_NS}subClassOf> [ "
+        f"a <{OWL_NS}Restriction> ; <{OWL_NS}onProperty> <{NCIT_NS}R82> ; "
+        f'<{OWL_NS}someValuesFrom> "{NCIT_NS}C99303" ] .'
     )
 
     async with OxigraphHttpClient(isolated_oxigraph_url) as client:
@@ -306,9 +331,11 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
             replace=False,
         )
         with pytest.raises(ValueError, match=r"row.*256"):
-            await stated_queries.resolve_part_of_pairs(client.select_once, ["C99300"])
-        with pytest.raises(ValueError, match="target is not an NCIt IRI"):
-            await stated_queries.resolve_part_of_pairs(client.select_once, ["C99301"])
+            await stated_queries.resolve_part_of_pairs(client, ["C99300"])
+        with pytest.raises(ValueError, match="target is not an IRI"):
+            await stated_queries.resolve_part_of_pairs(client, ["C99301"])
+        with pytest.raises(ValueError, match="target is not an IRI"):
+            await stated_queries.resolve_part_of_pairs(client, ["C99302"])
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )
@@ -381,7 +408,7 @@ async def test_part_of_closure_matches_version_pinned_full_store() -> None:
             build_part_of_pairs_query(part_codes=codes, whole_codes=codes),
             required_variables={"part", "whole"},
         )
-        closure = await stated_queries.resolve_part_of_pairs(client.select_once, codes)
+        closure = await stated_queries.resolve_part_of_pairs(client, codes)
         health = await client.select(
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )
