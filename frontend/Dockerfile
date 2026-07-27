@@ -1,16 +1,16 @@
 # syntax=docker/dockerfile:1
 # Frontend image (SvelteKit via adapter-node). Build context is the frontend/ dir:
 #   docker build -t ontoprism-web ./frontend
-# At runtime the app proxies /api to the backend; set ORIGIN for correct URLs.
+# Route /api through a reverse proxy in production; set ORIGIN when it cannot be inferred.
 
-FROM node:26-slim@sha256:715e55e4b84e4bb0ff48e49b398a848f08e55daed8eb6a0ea1839ae53bc57583 AS builder
+FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . ./
 RUN npm run build && npm prune --omit=dev
 
-FROM node:26-slim@sha256:715e55e4b84e4bb0ff48e49b398a848f08e55daed8eb6a0ea1839ae53bc57583
+FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/build ./build

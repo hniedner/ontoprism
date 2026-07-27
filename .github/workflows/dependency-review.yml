@@ -1,7 +1,7 @@
 name: Dependency review
 
-# Blocks PRs that introduce known-vulnerable or disallowed-license dependencies
-# (GitHub-native, free on public repos). Runs on the PR diff only.
+# Blocks PRs that introduce dependencies with known high-severity vulnerabilities.
+# GitHub-native and free on public repos; runs on the PR diff only.
 
 on:
   pull_request:

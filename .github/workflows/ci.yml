@@ -96,10 +96,10 @@ jobs:
           python-version: "3.13"
           cache: true
 
-      - name: Set up Node 22
+      - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -233,10 +233,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node 22
+      - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -372,9 +372,8 @@ jobs:
       - name: Verify pinned sentence-transformers contract
         run: pdm run pytest backend/tests/test_embedding_model_contract.py -v
 
-  # Lightweight image-build smoke: only runs when Dockerfiles / their build inputs change.
-  # CI otherwise never builds the images, so a bad FROM bump or dependency-install break
-  # (e.g. a python major outside requires-python) would only surface at deploy time.
+  # Image smoke: build and start both runtime images when their inputs change, so base-image,
+  # dependency-install, and runtime startup failures surface before deployment.
   docker-build:
     name: docker build smoke
     needs: [changes]
@@ -393,7 +392,9 @@ jobs:
         with:
           context: .
           file: backend/Dockerfile
+          load: true
           push: false
+          tags: ontoprism-api:ci
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
@@ -402,9 +403,37 @@ jobs:
         with:
           context: ./frontend
           file: frontend/Dockerfile
+          load: true
           push: false
+          tags: ontoprism-web:ci
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Verify image runtimes
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm --force ontoprism-api-ci ontoprism-web-ci >/dev/null 2>&1 || true
+          }
+          wait_for_command() {
+            container="$1"
+            shift
+            for attempt in $(seq 1 30); do
+              if docker exec "$container" "$@" >/dev/null 2>&1; then
+                return 0
+              fi
+              sleep 1
+            done
+            docker logs "$container"
+            return 1
+          }
+          trap cleanup EXIT
+          docker run --detach --name ontoprism-api-ci ontoprism-api:ci
+          docker run --detach --name ontoprism-web-ci --env ORIGIN=http://127.0.0.1:3000 ontoprism-web:ci
+          wait_for_command ontoprism-api-ci python -c \
+            "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
+          wait_for_command ontoprism-web-ci node -e \
+            "fetch('http://127.0.0.1:3000/', {signal: AbortSignal.timeout(2000)}).then(r => { if (!r.ok) throw new Error(String(r.status)) })"
 
   # Single aggregate status: fails if any job failed/was cancelled; treats skipped
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.

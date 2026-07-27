@@ -1,16 +1,16 @@
 name: Release
 
-# Fires after a PR merge to main, once that merge commit's CI run is green.
+# Fires after a successful push CI run on main, normally from a PR merge.
 #
 # Why `workflow_run` and not `pull_request: [closed]` or a bare `push`:
 #   - `push` would release code whose CI has not finished (or has failed).
 #   - `pull_request: closed` fires on the PR head, not the merge commit, so the
 #     released tree would not be what actually landed on main.
-#   - `workflow_run` on a successful CI run of a `push` to main is exactly
-#     "a PR was merged to main and the merged tree is green".
+#   - `workflow_run` on a successful CI run of a `push` to main means the pushed
+#     tree is green, whether it arrived through a PR or a permitted direct push.
 #
-# In practice main advances via PR merges, but it is NOT branch-protected today —
-# a direct push would also land here. That is safe: the guard step below refuses
+# Main's ruleset prevents force-pushes and deletion but does not yet require PRs or
+# CI, so a direct push would also land here. That is safe: the guard step below refuses
 # to release anything that is no longer main's tip, so a fast follow-up merge (or
 # a direct push racing a merge) can never be released twice or rewound. Protecting
 # main and requiring CI would make the invariant structural rather than incidental.
@@ -27,8 +27,9 @@ on:
   workflow_dispatch:
 
   # zizmor: ignore[dangerous-triggers] — workflow_run is used deliberately and
-  # safely here: the guard step below refuses to release anything that is not
-  # main's exact CI-validated tip, and the job never checks out untrusted PR code.
+  # safely here: the guard step below requires the CI-validated commit or a successor
+  # that differs only in README.md; manual dispatch relies on an operator check. The
+  # job never checks out untrusted PR code.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -65,7 +66,7 @@ jobs:
           fetch-depth: 0          # full history + tags: semantic-release needs both
           persist-credentials: true
 
-      - name: Guard — only release the exact commit CI validated
+      - name: Guard - release validated commit or README-only successor
         id: guard
         env:
           VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -106,7 +107,7 @@ jobs:
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "main advanced past $VALIDATED_SHA only by the README-stats bot (or not at all); safe to release HEAD."
+            echo "main advanced past $VALIDATED_SHA only in README.md (or not at all); safe to release HEAD."
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
