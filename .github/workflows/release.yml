@@ -1,16 +1,16 @@
 name: Release
 
-# Fires after a PR merge to main, once that merge commit's CI run is green.
+# Fires after a successful push CI run on main, normally from a PR merge.
 #
 # Why `workflow_run` and not `pull_request: [closed]` or a bare `push`:
 #   - `push` would release code whose CI has not finished (or has failed).
 #   - `pull_request: closed` fires on the PR head, not the merge commit, so the
 #     released tree would not be what actually landed on main.
-#   - `workflow_run` on a successful CI run of a `push` to main is exactly
-#     "a PR was merged to main and the merged tree is green".
+#   - `workflow_run` on a successful CI run of a `push` to main means the pushed
+#     tree is green, whether it arrived through a PR or a permitted direct push.
 #
-# In practice main advances via PR merges, but it is NOT branch-protected today —
-# a direct push would also land here. That is safe: the guard step below refuses
+# Main's ruleset prevents force-pushes and deletion but does not yet require PRs or
+# CI, so a direct push would also land here. That is safe: the guard step below refuses
 # to release anything that is no longer main's tip, so a fast follow-up merge (or
 # a direct push racing a merge) can never be released twice or rewound. Protecting
 # main and requiring CI would make the invariant structural rather than incidental.
@@ -18,7 +18,7 @@ name: Release
 on:
   # Manual escape hatch. The automatic path below DEFERS whenever main has advanced
   # past the CI-validated commit with non-README changes, on the assumption that the
-  # newer merge's own CI run will release. Two merges landing within ~a minute of each
+  # newer update's own CI run will release. Two updates landing within ~a minute of each
   # other can defeat that: the first defers to the second, and if the second's release
   # run does not fire, the release is simply lost — silently, with a green main. That
   # happened to v0.14.1 (the fix(search) relevance fix merged 40s before a docs PR).
@@ -27,8 +27,9 @@ on:
   workflow_dispatch:
 
   # zizmor: ignore[dangerous-triggers] — workflow_run is used deliberately and
-  # safely here: the guard step below refuses to release anything that is not
-  # main's exact CI-validated tip, and the job never checks out untrusted PR code.
+  # safely here: the guard step below requires the CI-validated commit or a successor
+  # that differs only in README.md; manual dispatch relies on an operator check. The
+  # job never checks out untrusted PR code.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -59,13 +60,13 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Checkout main
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: main
           fetch-depth: 0          # full history + tags: semantic-release needs both
           persist-credentials: true
 
-      - name: Guard — only release the exact commit CI validated
+      - name: Evaluate release eligibility
         id: guard
         env:
           VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -92,21 +93,21 @@ jobs:
           fi
           if [ "$head" != "$VALIDATED_SHA" ]; then
             # main advanced past the CI-validated commit. The "Update README Code
-            # Stats" bot commits after every merge but — being pushed with the default
-            # GITHUB_TOKEN — never triggers its own CI/release run. So the old
-            # "defer, its CI will release it" assumption stranded EVERY release after
-            # v0.7.3. Releasing HEAD is safe as long as the only drift from the
-            # CI-validated tree is README.md; any other change means a genuine newer
-            # merge is in flight, whose own (real) CI run will release it.
+            # Stats" workflow runs after each push to main and commits when stats change.
+            # Its commits use the default GITHUB_TOKEN, so they never trigger their own
+            # CI/release run. The old "defer, its CI will release it" assumption stranded
+            # every release after v0.7.3. Releasing HEAD is safe as long as the only drift
+            # from the CI-validated tree is README.md; any other change means a genuine newer
+            # main update is in flight, whose own (real) CI run will release it.
             drift="$(git diff --name-only "$VALIDATED_SHA" "$head" --)"
             non_readme="$(printf '%s\n' "$drift" | grep -vxF 'README.md' || true)"
             if [ -n "$non_readme" ]; then
-              echo "main advanced past $VALIDATED_SHA with non-README changes; deferring to that merge's own CI run."
+              echo "main advanced past $VALIDATED_SHA with non-README changes; deferring to that update's own CI run."
               printf '%s\n' "$non_readme" | sed 's/^/  drift: /'
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "main advanced past $VALIDATED_SHA only by the README-stats bot (or not at all); safe to release HEAD."
+            echo "main advanced past $VALIDATED_SHA only in README.md (or not at all); safe to release HEAD."
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
@@ -131,7 +132,7 @@ jobs:
             echo "## Release"
             echo
             if [ "$SKIPPED" = "true" ]; then
-              echo "Skipped — head is a release commit, or main advanced past the validated commit with non-README changes (that merge's own CI will release it)."
+              echo "Skipped — head is a release commit, or main advanced past the validated commit with non-README changes (that update's own CI will release it)."
             elif [ "$RELEASED" = "true" ]; then
               echo "Released **$TAG** — $LINK"
             else

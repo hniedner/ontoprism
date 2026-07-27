@@ -32,7 +32,7 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       embeddings: ${{ steps.filter.outputs.embeddings }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4.0.2
@@ -84,7 +84,7 @@ jobs:
     name: quality (pre-commit parity)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           # Full history so the fallow hook can resolve origin/main as its audit base.
@@ -96,10 +96,10 @@ jobs:
           python-version: "3.13"
           cache: true
 
-      - name: Set up Node 22
+      - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -118,7 +118,7 @@ jobs:
     if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -165,12 +165,12 @@ jobs:
     needs: [backend-tests, integration-tests]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.13"
 
@@ -229,19 +229,19 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up Node 22
+      - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.13"
 
@@ -290,7 +290,7 @@ jobs:
       NCIT_SPARQL_URL: http://127.0.0.1:9
       UBERON_SPARQL_URL: http://127.0.0.1:9
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -356,7 +356,7 @@ jobs:
     if: ${{ needs.changes.outputs.embeddings == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -372,16 +372,15 @@ jobs:
       - name: Verify pinned sentence-transformers contract
         run: pdm run pytest backend/tests/test_embedding_model_contract.py -v
 
-  # Lightweight image-build smoke: only runs when Dockerfiles / their build inputs change.
-  # CI otherwise never builds the images, so a bad FROM bump or dependency-install break
-  # (e.g. a python major outside requires-python) would only surface at deploy time.
+  # Image smoke: build and start both runtime images when their inputs change, so base-image,
+  # dependency-install, and runtime startup failures surface before deployment.
   docker-build:
     name: docker build smoke
     needs: [changes]
     if: ${{ needs.changes.outputs.docker == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -393,7 +392,9 @@ jobs:
         with:
           context: .
           file: backend/Dockerfile
+          load: true
           push: false
+          tags: ontoprism-api:ci
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
@@ -402,9 +403,37 @@ jobs:
         with:
           context: ./frontend
           file: frontend/Dockerfile
+          load: true
           push: false
+          tags: ontoprism-web:ci
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Verify image runtimes
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm --force ontoprism-api-ci ontoprism-web-ci >/dev/null 2>&1 || true
+          }
+          wait_for_command() {
+            container="$1"
+            shift
+            for attempt in $(seq 1 30); do
+              if docker exec "$container" "$@" >/dev/null 2>&1; then
+                return 0
+              fi
+              sleep 1
+            done
+            docker logs "$container"
+            return 1
+          }
+          trap cleanup EXIT
+          docker run --detach --name ontoprism-api-ci ontoprism-api:ci
+          docker run --detach --name ontoprism-web-ci --env ORIGIN=http://127.0.0.1:3000 ontoprism-web:ci
+          wait_for_command ontoprism-api-ci python -c \
+            "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
+          wait_for_command ontoprism-web-ci node -e \
+            "fetch('http://127.0.0.1:3000/', {signal: AbortSignal.timeout(2000)}).then(r => { if (!r.ok) throw new Error(String(r.status)) })"
 
   # Single aggregate status: fails if any job failed/was cancelled; treats skipped
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.
