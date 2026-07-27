@@ -1,6 +1,6 @@
 name: Dependency review
 
-# Blocks PRs that introduce dependencies with known high-severity vulnerabilities.
+# Blocks PRs that introduce runtime dependencies with known high-severity vulnerabilities.
 # GitHub-native and free on public repos; runs on the PR diff only.
 
 on:
