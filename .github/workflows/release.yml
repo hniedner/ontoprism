@@ -93,11 +93,11 @@ jobs:
           fi
           if [ "$head" != "$VALIDATED_SHA" ]; then
             # main advanced past the CI-validated commit. The "Update README Code
-            # Stats" bot commits after each push to main but — being pushed
-            # with the default GITHUB_TOKEN — never triggers its own CI/release run. So the old
-            # "defer, its CI will release it" assumption stranded EVERY release after
-            # v0.7.3. Releasing HEAD is safe as long as the only drift from the
-            # CI-validated tree is README.md; any other change means a genuine newer
+            # Stats" workflow runs after each push to main and commits when stats change.
+            # Its commits use the default GITHUB_TOKEN, so they never trigger their own
+            # CI/release run. The old "defer, its CI will release it" assumption stranded
+            # every release after v0.7.3. Releasing HEAD is safe as long as the only drift
+            # from the CI-validated tree is README.md; any other change means a genuine newer
             # main update is in flight, whose own (real) CI run will release it.
             drift="$(git diff --name-only "$VALIDATED_SHA" "$head" --)"
             non_readme="$(printf '%s\n' "$drift" | grep -vxF 'README.md' || true)"
