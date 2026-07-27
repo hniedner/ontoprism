@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import re
 from contextlib import asynccontextmanager
@@ -33,6 +34,7 @@ type JsonValue = (
 EmbeddingRow = tuple[str, list[float], dict[str, JsonValue]]
 ManifestState = Literal["building", "failed", "complete"]
 EMBEDDING_VECTOR_DIMENSION = 768
+logger = logging.getLogger(__name__)
 
 
 class Corpus(StrEnum):
@@ -570,6 +572,349 @@ async def corpus_manifests(
             )
         ).mappings()
         return tuple(_manifest(row) for row in rows)
+
+
+async def _restore_active_source_manifest(
+    connection: AsyncConnection,
+    corpus: Corpus,
+    build_id: UUID | None,
+) -> None:
+    await connection.execute(
+        text(
+            "UPDATE embedding_corpus_manifest SET is_active = false "
+            "WHERE corpus = :corpus AND is_active"
+        ),
+        {"corpus": corpus.value},
+    )
+    if build_id is not None:
+        await connection.execute(
+            text(
+                "UPDATE embedding_corpus_manifest SET is_active = true "
+                "WHERE corpus = :corpus AND build_id = :build_id "
+                "AND state = 'complete'"
+            ),
+            {"corpus": corpus.value, "build_id": build_id},
+        )
+    await connection.commit()
+
+
+async def _invalidate_with_note(
+    connection: AsyncConnection, original: BaseException
+) -> None:
+    try:
+        await connection.invalidate()
+    except asyncio.CancelledError:
+        raise
+    except Exception as invalidate_error:
+        original.add_note(
+            f"Failed to invalidate embedding source connection: {invalidate_error}"
+        )
+
+
+async def _run_failure_recovery(
+    recovery: Awaitable[None], original: BaseException
+) -> None:
+    task = asyncio.ensure_future(recovery)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError as cancelled:
+        try:
+            await task
+        except Exception as recovery_error:
+            cancelled.add_note(f"Failure recovery also failed: {recovery_error}")
+        cancelled.add_note(f"Source operation had already failed: {original}")
+        raise
+
+
+async def _recover_uncertain_deactivation(
+    connection: AsyncConnection,
+    engine: AsyncEngine,
+    corpus: Corpus,
+    active_build_id: UUID | None,
+    original: BaseException,
+) -> None:
+    await _invalidate_with_note(connection, original)
+    await _restore_active_source_manifest_fresh(
+        engine, corpus, active_build_id, original
+    )
+
+
+async def _recover_failed_replacement(
+    connection: AsyncConnection,
+    corpus: Corpus,
+    active_build_id: UUID | None,
+    original: BaseException,
+) -> None:
+    try:
+        await _restore_active_source_manifest(connection, corpus, active_build_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as restore_error:
+        original.add_note(
+            "Failed to restore active embedding manifest after source replacement "
+            f"failure: {restore_error}"
+        )
+        await _invalidate_with_note(connection, original)
+
+
+async def _prepare_and_replace_source[T](
+    connection: AsyncConnection,
+    engine: AsyncEngine,
+    corpus: Corpus,
+    prepare: Callable[[], Awaitable[T]],
+    replace: Callable[[T], None],
+) -> T:
+    candidate = await prepare()
+    active_build_id = await connection.scalar(
+        text(
+            "SELECT build_id FROM embedding_corpus_manifest "
+            "WHERE corpus = :corpus AND state = 'complete' AND is_active"
+        ),
+        {"corpus": corpus.value},
+    )
+    try:
+        await connection.execute(
+            text(
+                "UPDATE embedding_corpus_manifest SET is_active = false "
+                "WHERE corpus = :corpus AND is_active"
+            ),
+            {"corpus": corpus.value},
+        )
+        await connection.commit()
+    except BaseException as original:
+        await _run_failure_recovery(
+            _recover_uncertain_deactivation(
+                connection, engine, corpus, active_build_id, original
+            ),
+            original,
+        )
+        raise
+    try:
+        replace(candidate)
+    except BaseException as original:
+        await _run_failure_recovery(
+            _recover_failed_replacement(connection, corpus, active_build_id, original),
+            original,
+        )
+        raise
+    return candidate
+
+
+async def _restore_active_source_manifest_fresh(
+    engine: AsyncEngine,
+    corpus: Corpus,
+    build_id: UUID | None,
+    original: BaseException,
+) -> None:
+    key = f"embedding:{corpus.value}"
+    try:
+        recovery = await engine.connect()
+    except asyncio.CancelledError:
+        raise
+    except Exception as recovery_error:
+        original.add_note(
+            "Failed to open a fresh connection to restore the active embedding "
+            f"manifest: {recovery_error}"
+        )
+        return
+    try:
+        await _acquire_source_lock(recovery, key)
+    except asyncio.CancelledError as cancelled:
+        await _run_failure_recovery(
+            _cleanup_uncertain_source_lock(recovery, cancelled), cancelled
+        )
+        raise
+    except Exception as recovery_error:
+        original.add_note(
+            "Failed to acquire embedding source lock for manifest recovery: "
+            f"{recovery_error}"
+        )
+        await _invalidate_with_note(recovery, original)
+        await _cleanup_failed_source_coordination(
+            recovery, key, lock_acquired=False, original=original
+        )
+        return
+    try:
+        await _restore_active_source_manifest(recovery, corpus, build_id)
+    except asyncio.CancelledError as cancelled:
+        await _run_failure_recovery(
+            _cleanup_failed_source_coordination(
+                recovery, key, lock_acquired=True, original=cancelled
+            ),
+            cancelled,
+        )
+        raise
+    except Exception as recovery_error:
+        original.add_note(
+            "Failed to restore active embedding manifest after uncertain "
+            f"deactivation commit: {recovery_error}"
+        )
+    await _cleanup_failed_source_coordination(
+        recovery, key, lock_acquired=True, original=original
+    )
+
+
+async def _cleanup_failed_source_coordination(
+    connection: AsyncConnection,
+    key: str,
+    *,
+    lock_acquired: bool,
+    original: BaseException,
+) -> None:
+    cancellation: asyncio.CancelledError | None = None
+    if lock_acquired and not connection.invalidated:
+        try:
+            await _release_source_lock(connection, key)
+        except asyncio.CancelledError as exc:
+            cancellation = exc
+        except Exception as unlock_error:
+            original.add_note(
+                f"Failed to release embedding source lock: {unlock_error}"
+            )
+            await _invalidate_with_note(connection, original)
+    cancellation = await _close_failed_source_connection(
+        connection, original, cancellation
+    )
+    if cancellation is not None:
+        raise cancellation
+
+
+async def _close_failed_source_connection(
+    connection: AsyncConnection,
+    original: BaseException,
+    cancellation: asyncio.CancelledError | None,
+) -> asyncio.CancelledError | None:
+    try:
+        await _close_source_connection(connection)
+    except asyncio.CancelledError as exc:
+        if cancellation is None:
+            return exc
+        cancellation.add_note(
+            "Connection close was also cancelled during failure cleanup"
+        )
+    except Exception as close_error:
+        original.add_note(f"Failed to close embedding source connection: {close_error}")
+    return cancellation
+
+
+async def _cleanup_uncertain_source_lock(
+    connection: AsyncConnection, original: BaseException
+) -> None:
+    cancellation: asyncio.CancelledError | None = None
+    try:
+        await _invalidate_with_note(connection, original)
+    except asyncio.CancelledError as exc:
+        cancellation = exc
+    try:
+        await _close_source_connection(connection)
+    except asyncio.CancelledError as exc:
+        if cancellation is None:
+            cancellation = exc
+        else:
+            cancellation.add_note(
+                "Connection close was also cancelled after uncertain lock acquisition"
+            )
+    except Exception as close_error:
+        original.add_note(f"Failed to close embedding source connection: {close_error}")
+    if cancellation is not None:
+        raise cancellation
+
+
+async def _cleanup_committed_source_coordination(
+    connection: AsyncConnection, key: str, corpus: Corpus
+) -> None:
+    cancellation: asyncio.CancelledError | None = None
+    try:
+        await _release_source_lock(connection, key)
+    except asyncio.CancelledError as exc:
+        cancellation = exc
+    except Exception:
+        logger.exception(
+            "%s source replacement committed but lock cleanup failed", corpus.value
+        )
+        cancellation = await _invalidate_committed_source_connection(connection, corpus)
+    try:
+        await _close_source_connection(connection)
+    except asyncio.CancelledError as exc:
+        if cancellation is None:
+            cancellation = exc
+        else:
+            cancellation.add_note(
+                "Connection close was also cancelled after source replacement"
+            )
+    except Exception:
+        logger.exception(
+            "%s source replacement committed but connection cleanup failed",
+            corpus.value,
+        )
+    if cancellation is not None:
+        raise cancellation
+
+
+async def _invalidate_committed_source_connection(
+    connection: AsyncConnection, corpus: Corpus
+) -> asyncio.CancelledError | None:
+    try:
+        await connection.invalidate()
+    except asyncio.CancelledError as exc:
+        return exc
+    except Exception:
+        logger.exception(
+            "%s source replacement committed but invalidation failed", corpus.value
+        )
+    return None
+
+
+async def _close_source_connection(connection: AsyncConnection) -> None:
+    task = asyncio.create_task(connection.close())
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
+
+async def coordinate_corpus_source_replacement[T](
+    session_factory: async_sessionmaker[AsyncSession],
+    corpus: Corpus,
+    *,
+    prepare: Callable[[], Awaitable[T]],
+    replace: Callable[[T], None],
+) -> T:
+    """Run preparation and a caller-supplied atomic replacement under one lock.
+
+    Successful callback completion is the commit point. The synchronous callback must
+    perform its irreversible replacement as its final operation.
+    """
+    engine = session_factory.kw.get("bind")
+    if not isinstance(engine, AsyncEngine):
+        raise TypeError("embedding session factory must be bound to an AsyncEngine")
+    key = f"embedding:{corpus.value}"
+    connection = await engine.connect()
+    try:
+        await _acquire_source_lock(connection, key)
+    except BaseException as original:
+        await _run_failure_recovery(
+            _cleanup_uncertain_source_lock(connection, original), original
+        )
+        raise
+    try:
+        result = await _prepare_and_replace_source(
+            connection, engine, corpus, prepare, replace
+        )
+    except BaseException as original:
+        await _run_failure_recovery(
+            _cleanup_failed_source_coordination(
+                connection,
+                key,
+                lock_acquired=True,
+                original=original,
+            ),
+            original,
+        )
+        raise
+    await _cleanup_committed_source_coordination(connection, key, corpus)
+    return result
 
 
 @asynccontextmanager

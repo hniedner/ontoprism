@@ -2,6 +2,51 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-26 — caDSR SQLite publishes only from a locally identified release snapshot
+
+### D45. Build privately, certify the standalone candidate, then atomically replace caDSR
+
+The caDSR build extracted a mutable ZIP into a persistent directory and recursively built
+from every XML file there. A changed release could therefore include stale files from a
+previous release, `ZipFile.extractall` accepted platform-dependent traversal names, and a
+failed build had no artifact-level proof before replacing the serving SQLite database.
+The upstream endpoint provides HTTP validators but no authoritative checksum or manifest.
+
+**Decision:** under one per-corpus generation lock, copy the cached ZIP into a fresh
+private workspace, reject every member unless it is a flat, regular
+`cde_xml_<timestamp>_<sequence>.xml` in one contiguous sequence, and pass one sealed bundle
+of that provenance and those exact paths to the builder. Reused cached bytes require a
+valid persisted download manifest. Preserve available HTTP metadata and compute local
+SHA-256 hashes for the archive and ordered member names; the archive hash is reproducibility
+provenance, not an authenticity claim. Every XML member must contribute at least one usable
+CDE, and any record parser exception rejects the candidate.
+
+The candidate embeds that provenance in `cadsr_source`, uses standalone SQLite `DELETE`
+journal mode, and must pass integrity, foreign-key and schema/index-definition, source,
+row/JSON invariant, final unique-row-count consistency, and FTS external-content checks.
+Successful build returns a sealed validated-candidate token; only that token reaches the
+atomic rename callback. The count proves internal build/artifact consistency, not upstream
+release completeness: caDSR publishes no authoritative expected count, and the current
+81,209-row release must not be rejected by the older 79,827-row embedding expectation.
+
+Existing destination journal/WAL sidecars fail before download or embedding deactivation.
+Any failure before the atomic rename preserves the last accepted database and attempts to
+remove private candidate artifacts; cleanup failures remain explicit notes on the original
+error. A rename failure restores the prior active embedding manifest; an ambiguous
+deactivation commit invalidates that connection and reconciles the prior state on a fresh
+connection before the original error is reported. Recovery failures likewise remain notes
+rather than being mistaken for successful restoration. A successful rename is the commit
+point: subsequent ordinary advisory-lock, connection, engine, or candidate-cleanup errors
+are logged as committed cleanup incidents rather than reported as a failed publication;
+operator cancellation still propagates after cancellation-safe cleanup. Successful source
+replacement deliberately leaves caDSR embeddings inactive until their separately validated
+D42 rebuild is published.
+
+**Why:** a candidate and its locally verifiable identity become one self-contained
+artifact. Atomic replacement gives new repository connections either the old database or
+the fully checked new one, while pre-commit failures cannot publish a partial or
+mixed-release corpus and post-commit cleanup cannot misreport which database is serving.
+
 ## 2026-07-26 — raw SPARQL has no proven bounded HTTP executor
 
 ### D44. Caller-supplied raw SPARQL is unavailable until store-side bounds are proven

@@ -1,20 +1,89 @@
-"""Behavioral guards for embedding publication source preflight/stability."""
+"""Behavioral guards for source preparation and publication boundaries."""
 
+from __future__ import annotations
+
+import asyncio
+import hashlib
 import shutil
+import sqlite3
 import subprocess
 import zipfile
-from contextlib import asynccontextmanager
+from contextlib import closing
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
+from xml.etree.ElementTree import ParseError
 
 import pytest
 from scripts.data_build import (
     _build_cadsr,
     _build_owl,
     _code_commit,
+    _dispose_cadsr_engine,
     _require_ncit_source,
     _require_stable_cadsr_source,
     _require_stable_ncit_source,
 )
+
+from ontolib.core.download_cache import CacheManifest, DownloadOutcome
+from ontolib.core.exceptions import StorageError
+from ontolib.repositories.embeddings.publication import Corpus
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+_CADSR_URL = "https://example.test/releasedCDEsXML-OD.zip"
+
+
+@pytest.mark.unit
+async def test_cadsr_engine_disposal_propagates_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = asyncio.Event()
+    finish = asyncio.Event()
+    disposed = asyncio.Event()
+
+    async def delayed_disposal(_engine: object) -> None:
+        entered.set()
+        await finish.wait()
+        disposed.set()
+
+    monkeypatch.setattr("scripts.data_build.dispose_engine", delayed_disposal)
+
+    task = asyncio.create_task(
+        _dispose_cadsr_engine(object())  # type: ignore[arg-type]
+    )
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    finish.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert disposed.is_set()
+
+
+def _cadsr_outcome(archive: Path) -> DownloadOutcome:
+    return DownloadOutcome(
+        path=str(archive),
+        status="downloaded",
+        manifest=CacheManifest(
+            url=_CADSR_URL,
+            downloaded_at="2026-07-26T00:00:00+00:00",
+            size_bytes=archive.stat().st_size,
+            etag='"source-v1"',
+            last_modified="Thu, 02 Jul 2026 02:19:40 GMT",
+        ),
+    )
+
+
+def _cde_xml(public_id: str) -> str:
+    return (
+        "<DataElementsList><DataElement>"
+        f"<PUBLICID>{public_id}</PUBLICID><VERSION>1</VERSION>"
+        f"<PREFERREDNAME>CDE_{public_id}</PREFERREDNAME>"
+        "</DataElement></DataElementsList>"
+    )
 
 
 @pytest.mark.unit
@@ -154,85 +223,238 @@ async def test_owl_candidates_are_prepared_to_distinct_paths(
 
 
 @pytest.mark.unit
-def test_cadsr_candidate_failure_preserves_existing_source_and_skips_lock(
+def test_cadsr_candidate_failure_preserves_existing_source_before_replacement(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
     archive = tmp_path / "cdes.zip"
     with zipfile.ZipFile(archive, "w") as stream:
-        stream.writestr("cde.xml", "<DataElementsList/>")
+        stream.writestr("cde_xml_20260701120000_1.xml", "not XML")
     destination = tmp_path / "cde.db"
     destination.write_text("accepted")
     lock_entries: list[str] = []
 
-    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        return SimpleNamespace(path=str(archive))
+    async def download(*_args: object, **_kwargs: object) -> DownloadOutcome:
+        return _cadsr_outcome(archive)
 
-    @asynccontextmanager
-    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+    async def coordinate(  # type: ignore[no-untyped-def]
+        _session_factory, corpus, *, prepare, replace
+    ):
+        del replace
+        assert corpus is Corpus.CADSR
         lock_entries.append("entered")
-        yield
-
-    def fail_build(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        raise RuntimeError("candidate failed")
+        await prepare()
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
         lambda: SimpleNamespace(
             cadsr_data_dir=str(tmp_path / "data"),
-            cadsr_download_url="http://example.invalid",
+            cadsr_download_url=_CADSR_URL,
             cadsr_db_path=str(destination),
             database_url="postgresql+asyncpg://unused",
         ),
     )
     monkeypatch.setattr("scripts.data_build.download_cadsr_cdes", download)
-    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
-    monkeypatch.setattr("scripts.data_build.build_database", fail_build)
+    monkeypatch.setattr(
+        "scripts.data_build.coordinate_corpus_source_replacement", coordinate
+    )
+    monkeypatch.setattr("scripts.data_build.make_engine", lambda _url: object())
+    monkeypatch.setattr(
+        "scripts.data_build.make_sessionmaker", lambda _engine: object()
+    )
 
-    with pytest.raises(RuntimeError, match="candidate failed"):
+    async def dispose(_engine: object) -> None:
+        raise RuntimeError("dispose also failed")
+
+    monkeypatch.setattr("scripts.data_build.dispose_engine", dispose)
+
+    with pytest.raises(ParseError, match="syntax error") as captured:
         _build_cadsr()
 
     assert destination.read_text() == "accepted"
-    assert lock_entries == []
+    assert lock_entries == ["entered"]
+    assert any("dispose also failed" in note for note in captured.value.__notes__)
+    assert list(tmp_path.glob(".cde.db.*.candidate")) == []
 
 
 @pytest.mark.unit
-def test_cadsr_complete_candidate_replaces_source_inside_lock(
+def test_cadsr_validation_failure_never_reaches_replacement(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
     archive = tmp_path / "cdes.zip"
     with zipfile.ZipFile(archive, "w") as stream:
-        stream.writestr("cde.xml", "<DataElementsList/>")
+        stream.writestr("cde_xml_20260701120000_1.xml", _cde_xml("100"))
     destination = tmp_path / "cde.db"
     destination.write_text("accepted")
     events: list[str] = []
 
-    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        return SimpleNamespace(path=str(archive))
+    async def download(*_args: object, **_kwargs: object) -> DownloadOutcome:
+        return _cadsr_outcome(archive)
 
-    @asynccontextmanager
-    async def replacing(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        events.append("enter")
-        yield
-        events.append("exit")
+    async def coordinate(  # type: ignore[no-untyped-def]
+        _session_factory, corpus, *, prepare, replace
+    ):
+        assert corpus is Corpus.CADSR
+        events.append("entered")
+        candidate = await prepare()
+        events.append("prepared")
+        replace(candidate)
 
-    def build(_xml, candidate):  # type: ignore[no-untyped-def]
-        candidate.write_text("candidate")
-        return 1
+    def fail_validation(_connection: object) -> None:
+        raise StorageError("injected candidate validation failure")
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
         lambda: SimpleNamespace(
             cadsr_data_dir=str(tmp_path / "data"),
-            cadsr_download_url="http://example.invalid",
+            cadsr_download_url=_CADSR_URL,
             cadsr_db_path=str(destination),
             database_url="postgresql+asyncpg://unused",
         ),
     )
     monkeypatch.setattr("scripts.data_build.download_cadsr_cdes", download)
-    monkeypatch.setattr("scripts.data_build.replacing_corpus_source", replacing)
-    monkeypatch.setattr("scripts.data_build.build_database", build)
+    monkeypatch.setattr(
+        "scripts.data_build.coordinate_corpus_source_replacement", coordinate
+    )
+    monkeypatch.setattr(
+        "ontolib.repositories.cadsr.build._check_row_content", fail_validation
+    )
+    monkeypatch.setattr("scripts.data_build.make_engine", lambda _url: object())
+    monkeypatch.setattr(
+        "scripts.data_build.make_sessionmaker", lambda _engine: object()
+    )
+
+    async def dispose(_engine: object) -> None:
+        return None
+
+    monkeypatch.setattr("scripts.data_build.dispose_engine", dispose)
+    with pytest.raises(StorageError, match="injected candidate validation failure"):
+        _build_cadsr()
+
+    assert destination.read_text() == "accepted"
+    assert events == ["entered"]
+    assert list(tmp_path.glob(".cde.db.*.candidate")) == []
+
+
+@pytest.mark.unit
+def test_cadsr_complete_candidate_replaces_source_through_coordinator_callback(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    archive = tmp_path / "cdes.zip"
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cde_xml_20260701120000_1.xml", _cde_xml("100"))
+    persistent_extract = tmp_path / "data" / "extracted"
+    persistent_extract.mkdir(parents=True)
+    stale = persistent_extract / "stale.xml"
+    stale.write_text(_cde_xml("999"))
+    destination = tmp_path / "cde.db"
+    with closing(sqlite3.connect(destination)) as accepted:
+        accepted.execute("CREATE TABLE marker (value TEXT NOT NULL)")
+        accepted.execute("INSERT INTO marker VALUES ('accepted')")
+        accepted.commit()
+    events: list[str] = []
+    old_reader_results: list[str] = []
+
+    async def download(*_args: object, **_kwargs: object) -> DownloadOutcome:
+        return _cadsr_outcome(archive)
+
+    async def coordinate(  # type: ignore[no-untyped-def]
+        _session_factory, corpus, *, prepare, replace
+    ):
+        assert corpus is Corpus.CADSR
+        events.append("enter")
+        candidate = await prepare()
+        events.append("prepared")
+        with closing(sqlite3.connect(destination)) as old_reader:
+            assert old_reader.execute("SELECT value FROM marker").fetchone() == (
+                "accepted",
+            )
+            replace(candidate)
+            old_reader_results.append(
+                str(old_reader.execute("SELECT value FROM marker").fetchone()[0])
+            )
+        events.append("replaced")
+        events.append("exit")
+        return candidate
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            cadsr_data_dir=str(tmp_path / "data"),
+            cadsr_download_url=_CADSR_URL,
+            cadsr_db_path=str(destination),
+            database_url="postgresql+asyncpg://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_cadsr_cdes", download)
+    monkeypatch.setattr(
+        "scripts.data_build.coordinate_corpus_source_replacement", coordinate
+    )
+    monkeypatch.setattr("scripts.data_build.make_engine", lambda _url: object())
+    monkeypatch.setattr(
+        "scripts.data_build.make_sessionmaker", lambda _engine: object()
+    )
+
+    async def dispose(_engine):  # type: ignore[no-untyped-def]
+        raise RuntimeError("dispose failed after commit")
+
+    monkeypatch.setattr("scripts.data_build.dispose_engine", dispose)
+    _build_cadsr()
+
+    with closing(sqlite3.connect(destination)) as conn:
+        assert conn.execute("SELECT public_id FROM cdes").fetchall() == [("100",)]
+        assert conn.execute("SELECT archive_sha256 FROM cadsr_source").fetchone() == (
+            hashlib.sha256(archive.read_bytes()).hexdigest(),
+        )
+    assert stale.read_text() == _cde_xml("999")
+    assert old_reader_results == ["accepted"]
+    assert events == ["enter", "prepared", "replaced", "exit"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("suffix", ["-journal", "-shm", "-wal"])
+def test_cadsr_destination_sidecar_aborts_replacement_and_preserves_source(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+    suffix: str,
+) -> None:
+    archive = tmp_path / "cdes.zip"
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cde_xml_20260701120000_1.xml", _cde_xml("100"))
+    destination = tmp_path / "cde.db"
+    destination.write_text("accepted")
+    sidecar = tmp_path / f"cde.db{suffix}"
+    sidecar.write_text("uncheckpointed")
+    events: list[str] = []
+    downloads: list[str] = []
+
+    async def download(*_args: object, **_kwargs: object) -> DownloadOutcome:
+        downloads.append("called")
+        return _cadsr_outcome(archive)
+
+    async def coordinate(  # type: ignore[no-untyped-def]
+        _session_factory, corpus, *, prepare, replace
+    ):
+        del replace
+        assert corpus is Corpus.CADSR
+        events.append("enter")
+        await prepare()
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            cadsr_data_dir=str(tmp_path / "data"),
+            cadsr_download_url=_CADSR_URL,
+            cadsr_db_path=str(destination),
+            database_url="postgresql+asyncpg://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_cadsr_cdes", download)
+    monkeypatch.setattr(
+        "scripts.data_build.coordinate_corpus_source_replacement", coordinate
+    )
     monkeypatch.setattr("scripts.data_build.make_engine", lambda _url: object())
     monkeypatch.setattr(
         "scripts.data_build.make_sessionmaker", lambda _engine: object()
@@ -242,7 +464,11 @@ def test_cadsr_complete_candidate_replaces_source_inside_lock(
         return None
 
     monkeypatch.setattr("scripts.data_build.dispose_engine", dispose)
-    _build_cadsr()
+    with pytest.raises(RuntimeError, match="SQLite sidecars"):
+        _build_cadsr()
 
-    assert destination.read_text() == "candidate"
-    assert events == ["enter", "exit"]
+    assert destination.read_text() == "accepted"
+    assert sidecar.read_text() == "uncheckpointed"
+    assert events == ["enter"]
+    assert downloads == []
+    assert list(tmp_path.glob(".cde.db.*.candidate")) == []

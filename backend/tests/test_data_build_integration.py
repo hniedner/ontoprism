@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import zipfile
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -19,6 +20,8 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.core.download_cache import CacheManifest, DownloadOutcome
+from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.embeddings.generate import (
     EMBED_DIM,
@@ -78,6 +81,8 @@ _CADSR_XML = """<DataElementsList><DataElement>
   <VALUEDOMAIN><Datatype>CHARACTER</Datatype></VALUEDOMAIN>
 </DataElement></DataElementsList>"""
 
+_CADSR_SOURCE_URL = "https://example.test/cadsr.zip"
+
 
 def _publisher(
     session_factory: async_sessionmaker[AsyncSession],
@@ -119,7 +124,7 @@ async def test_generate_cde_embeddings_writes_vectors(
     session_factory: async_sessionmaker[AsyncSession], tmp_path: Path
 ) -> None:
     db = tmp_path / "cde.db"
-    build_database([_write(tmp_path, _CADSR_XML)], db)
+    _build_cadsr_db(tmp_path, db)
     embedder = _StubEmbedder()
     manifest = await generate_cde_embeddings(
         str(db), embedder, _publisher(session_factory, Corpus.CADSR, 1, embedder)
@@ -286,7 +291,7 @@ async def test_production_cadsr_publisher_records_file_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = tmp_path / "cde.db"
-    build_database([_write(tmp_path, _CADSR_XML)], db)
+    _build_cadsr_db(tmp_path, db)
     monkeypatch.setenv("CADSR_DB_PATH", str(db))
     monkeypatch.setenv("CADSR_EMBEDDING_EXPECTED_ROWS", "1")
     monkeypatch.setattr("scripts.data_build._code_commit", lambda: "e" * 40)
@@ -494,7 +499,7 @@ async def test_production_cadsr_source_drift_fails_candidate_and_preserves_activ
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = tmp_path / "cde.db"
-    build_database([_write(tmp_path, _CADSR_XML)], db)
+    _build_cadsr_db(tmp_path, db)
     embedder = _StubEmbedder()
     old = _publisher(session_factory, Corpus.CADSR, 1, embedder)
     await generate_cde_embeddings(str(db), embedder, old)
@@ -531,7 +536,22 @@ async def test_production_cadsr_source_drift_fails_candidate_and_preserves_activ
     assert state == "failed"
 
 
-def _write(tmp_path: Path, xml: str) -> Path:
-    path = tmp_path / "cdes.xml"
-    path.write_text(xml)
-    return path
+def _build_cadsr_db(tmp_path: Path, db_path: Path) -> None:
+    archive = tmp_path / "source.zip"
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cde_xml_20260701120000_1.xml", _CADSR_XML)
+    outcome = DownloadOutcome(
+        path=str(archive),
+        status="downloaded",
+        manifest=CacheManifest(
+            url=_CADSR_SOURCE_URL,
+            downloaded_at="2026-07-26T00:00:00+00:00",
+            size_bytes=archive.stat().st_size,
+        ),
+    )
+    with extract_cadsr_archive(
+        outcome,
+        expected_url=_CADSR_SOURCE_URL,
+        workspace_parent=tmp_path / "workspaces",
+    ) as extracted:
+        build_database(extracted, db_path)
