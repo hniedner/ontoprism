@@ -93,7 +93,7 @@ jobs:
           fi
           if [ "$head" != "$VALIDATED_SHA" ]; then
             # main advanced past the CI-validated commit. The "Update README Code
-            # Stats" bot commits after each successful main CI run but — being pushed
+            # Stats" bot commits after each push to main but — being pushed
             # with the default GITHUB_TOKEN — never triggers its own CI/release run. So the old
             # "defer, its CI will release it" assumption stranded EVERY release after
             # v0.7.3. Releasing HEAD is safe as long as the only drift from the
