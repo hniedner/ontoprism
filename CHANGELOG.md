@@ -19,6 +19,35 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.16.6 (2026-07-27)
+
+### Bug Fixes
+
+- **cadsr**: Address publication review findings
+  ([#223](https://github.com/hniedner/ontoprism/pull/223),
+  [`ca92898`](https://github.com/hniedner/ontoprism/commit/ca9289875d82a615769b1b868bdf864b90a94a54))
+
+- **cadsr**: Close publication recovery gaps
+  ([#223](https://github.com/hniedner/ontoprism/pull/223),
+  [`ca92898`](https://github.com/hniedner/ontoprism/commit/ca9289875d82a615769b1b868bdf864b90a94a54))
+
+- **cadsr**: Harden publication commit boundary
+  ([#223](https://github.com/hniedner/ontoprism/pull/223),
+  [`ca92898`](https://github.com/hniedner/ontoprism/commit/ca9289875d82a615769b1b868bdf864b90a94a54))
+
+- **cadsr**: Publish release archive atomically
+  ([#223](https://github.com/hniedner/ontoprism/pull/223),
+  [`ca92898`](https://github.com/hniedner/ontoprism/commit/ca9289875d82a615769b1b868bdf864b90a94a54))
+
+### Documentation
+
+- Update README code line-count table
+  ([`af818ca`](https://github.com/hniedner/ontoprism/commit/af818ca088ba0c1f26bb52d311438ae653b89cca))
+
+- Update README code line-count table
+  ([`d0d7bff`](https://github.com/hniedner/ontoprism/commit/d0d7bff10aed47b4d4adcead6755c18f72b62c5d))
+
+
 ## v0.16.5 (2026-07-26)
 
 ### Bug Fixes
