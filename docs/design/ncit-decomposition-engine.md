@@ -585,8 +585,10 @@ zero-output concepts. Resume never re-enumerates: it validates all caller-contro
 fingerprint dimensions and processes exactly unfinished items. Metrics and a normalized
 TTL are reconstructed from the full persisted run, making fresh and resumed execution
 equivalent. Source identity is rechecked before completion; drift fails the run and
-invalidates partial snapshot results. `--load` remains the separate generated-graph
-publication boundary owned by #147.
+invalidates every persisted result row. The `--out` TTL is rendered to a staging sibling
+and atomically moved into place only after that recheck and completion succeed, so a
+drifted or failed run never publishes an artifact. `--load` remains the separate
+generated-graph publication boundary owned by #147.
 
 `--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
 before configuration loads or clients are constructed.

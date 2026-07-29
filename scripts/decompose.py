@@ -130,8 +130,10 @@ async def _run(
                 )
                 raise
             if load:
-                # out is None already rejected in main() before any work started.
-                await _load_output(client, out)  # type: ignore[arg-type]
+                out_path = config.out
+                if out_path is None:
+                    raise ValueError("--load requires --out")
+                await _load_output(client, out_path)
     finally:
         try:
             await dispose_engine(engine)

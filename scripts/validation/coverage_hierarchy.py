@@ -1134,8 +1134,10 @@ def verify_identities_against_current(
     commit/config/manifest/source hashes are authoritative; collected layers themselves
     must still have been produced from clean worktrees.
     """
+    # Run the collected-layer check outside the wrapper so its own diagnostics (dirty
+    # worktree, missing identities) are not relabelled as a staleness mismatch.
+    verify_identities(identities)
     try:
-        verify_identities(identities)
         current_inputs = dataclasses.replace(current, worktree_dirty=False)
         verify_identities((*identities, current_inputs))
     except ValueError as error:

@@ -35,15 +35,15 @@ _REPOSITORY_WRITES: Final = frozenset(
         "create_run",
         "fail_run",
         "fail_work_item",
+        "finish_run",
         "invalidate_run",
         "persist_promotions",
         "populate",
         "quarantine_stale",
         "rebuild",
-        "upsert_constituents",
-        "upsert_minted_concept",
+        "resume_run",
+        "run_pipeline",
         "upsert_records",
-        "upsert_run",
     }
 )
 _OXIGRAPH_IMAGE = (
@@ -541,7 +541,7 @@ def build_safe_integration_environment(
     safe["CADSR_DB_PATH"] = str(root / "cadsr/cde_repository.db")
     safe["CADSR_DATA_DIR"] = str(root / "cadsr")
     safe["NCIT_OWL_DIR"] = str(root / "ncit-owl")
-    safe["RELOAD_ALLOWED_DIR"] = str(root)
+    safe["NCIT_STORE_DIR"] = str(root / "oxigraph-ncit")
     return safe
 
 

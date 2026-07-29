@@ -114,7 +114,12 @@ or remove only after independently verifying its owner marker.
 ### Source-bound decomposition runs
 
 Run decomposition only against an endpoint serving the certified candidate described by
-the required manifest:
+the required manifest.
+
+> **Not usable end to end until #148 lands.** `data-build ncit-store` deliberately leaves
+> the certified candidate inactive and there is no supported activation step yet, so an
+> endpoint configured against the active store will not match the candidate observation
+> and `decompose` fails closed. Do not promote a candidate by hand.
 
 ```bash
 pdm run decompose \
@@ -127,8 +132,10 @@ The CLI revalidates the D47 proof and compares its complete candidate observatio
 the live endpoint. It persists the exact worklist and immutable source/config fingerprint
 before processing. `--resume RUN_ID` accepts only the same source, branch, scope, limit,
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
-drift before completion fails closed and invalidates partial snapshot results. Graph
-publication with `--load` is a later, separate boundary (#147).
+drift before completion fails closed and invalidates every persisted result row. The
+`--out` TTL is staged and moved into place only after that check and completion succeed,
+so a drifted run leaves no artifact behind. Graph publication with `--load` is a later,
+separate boundary (#147).
 
 Every manifest records source version/hash, immutable model revision, vector dimension,
 expected unique-row count, code commit, build ID, sentinels, state, and timestamps;

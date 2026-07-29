@@ -14,6 +14,7 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
     CANDIDATE_MANIFEST_FILENAME,
     REJECTED_CANDIDATE_FILENAME,
+    CandidateGraph,
     CandidateObservation,
     CandidateValidationPolicy,
     DockerOxigraphRuntime,
@@ -158,6 +159,38 @@ class _ObservationDouble:
         return self._observation
 
 
+def _authored_observation() -> CandidateObservation:
+    """The observation a reader of the fixture would predict, authored by hand.
+
+    Every number here is an independent belief about what real Oxigraph reports for
+    the two fixture files, not a value copied from a run:
+
+    - ``default_triples`` is 3 because ``SELECT (COUNT(*)) WHERE { ?s ?p ?o }`` sees
+      only the default graph (``rdf:type owl:Ontology``, ``owl:versionInfo``, and
+      ``rdf:type owl:Class`` for C6135) — it does **not** union the named graph.
+    - ``stated_triples`` is 16: the stated file's ontology header (2), the deprecated
+      C14806 class (2), and C6135's equivalent-class intersection with its restriction
+      (12) as expanded by the RDF/XML collection parse.
+    - exactly one named graph exists, and its count equals ``stated_triples``.
+    - ``owl:versionInfo`` binds uniquely in each graph.
+
+    The unit suite's ``_Runtime`` double encodes these same beliefs. If any of them is
+    false, this test fails and names the wrong belief instead of leaving ~25 unit
+    tests green against a fiction.
+    """
+    return CandidateObservation(
+        default_triples=3,
+        stated_triples=16,
+        named_graphs=(CandidateGraph(graph_iri=STATED_GRAPH_IRI, triples=16),),
+        default_version=_VERSION,
+        stated_version=_VERSION,
+        restriction_count=1,
+        has_required_restriction=True,
+        default_has_stated_only_sentinel=False,
+        stated_has_stated_only_sentinel=True,
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.mutating_integration
 async def test_real_cli_candidate_matches_observation_double(
@@ -187,6 +220,11 @@ async def test_real_cli_candidate_matches_observation_double(
         ),
     )
 
+    # Data-shape contract: the authored belief must match what real Oxigraph reports.
+    assert real.observation == _authored_observation()
+
+    # Double fidelity: the same authored input, fed to the double rather than derived
+    # from the real result, must reach the same certified verdict.
     second_active = oxigraph_sibling_store_root / "second-active"
     second_active.mkdir()
     doubled = await build_ncit_sibling_store(
@@ -194,19 +232,63 @@ async def test_real_cli_candidate_matches_observation_double(
         active_store_path=second_active,
         owner="2" * 32,
         policy=policy,
-        runtime=_ObservationDouble(real.observation, real.loader),
+        runtime=_ObservationDouble(_authored_observation(), real.loader),
     )
 
-    assert real.observation.default_version == _VERSION
-    assert real.observation.stated_version == _VERSION
     assert real.observation.named_graphs[0].graph_iri == STATED_GRAPH_IRI
-    assert real.observation.restriction_count == 1
-    assert real.observation.has_required_restriction is True
-    assert real.observation.default_has_stated_only_sentinel is False
-    assert real.observation.stated_has_stated_only_sentinel is True
     assert doubled.observation == real.observation
     assert doubled.source_identity == real.source_identity
     assert sentinel.read_text() == "untouched"
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_real_store_refutes_a_double_that_overstates_the_candidate(
+    oxigraph_sibling_store_root: Path,
+    integration_connection_scope: Callable[[str], AbstractContextManager[None]],
+) -> None:
+    """A double stronger than reality must not be able to certify a build.
+
+    #73 shipped bugs because a hand-made double asserted a guarantee the real tool
+    does not provide. Here the double claims the stated-only sentinel is also visible
+    in the default graph; real Oxigraph disagrees, so the two verdicts must differ.
+    """
+    pair_path = _write_pair(oxigraph_sibling_store_root)
+    active = oxigraph_sibling_store_root / "oxigraph-ncit"
+    active.mkdir()
+    policy = CandidateValidationPolicy(
+        min_default_triples=1,
+        max_default_triples=100,
+        min_stated_triples=1,
+        max_stated_triples=100,
+        min_restrictions=1,
+        max_restrictions=5,
+    )
+    real = await build_ncit_sibling_store(
+        pair_path,
+        active_store_path=active,
+        owner="4" * 32,
+        policy=policy,
+        runtime=DockerOxigraphRuntime(
+            connection_scope=integration_connection_scope,
+        ),
+    )
+    assert real.observation.default_has_stated_only_sentinel is False
+
+    overstated = _authored_observation().model_copy(
+        update={"default_has_stated_only_sentinel": True}
+    )
+    second_active = oxigraph_sibling_store_root / "second-active"
+    second_active.mkdir()
+
+    with pytest.raises(SiblingStoreValidationError, match="stated-only"):
+        await build_ncit_sibling_store(
+            pair_path,
+            active_store_path=second_active,
+            owner="5" * 32,
+            policy=policy,
+            runtime=_ObservationDouble(overstated, real.loader),
+        )
 
 
 @pytest.mark.integration

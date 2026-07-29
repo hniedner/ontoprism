@@ -19,12 +19,12 @@ services:
       DATABASE_URL: postgresql+asyncpg://ontoprism:ontoprism@postgres:5432/ontoprism
       CADSR_DB_PATH: /app/data/cadsr/cde_repository.db
       CORS_ALLOW_ORIGINS: '["http://localhost:8080"]'
-      # Refresh downloads (caDSR zip, NCIt OWL) write here — a dedicated app-writable
-      # volume, kept out of the read-only reference mount. reload_allowed_dir points at
-      # it so a downloaded OWL can then be loaded via /reload.
+      # Refresh downloads (caDSR zip, NCIt OWL pair + ncit-artifact-pair.json) write
+      # here — a dedicated app-writable volume, kept out of the read-only reference
+      # mount. Loading a source ontology over HTTP is disabled (D46); an NCIt store is
+      # built offline as an inactive sibling via `pdm run data-build ncit-store`.
       CADSR_DATA_DIR: /app/refresh/cadsr
       NCIT_OWL_DIR: /app/refresh/ncit-owl
-      RELOAD_ALLOWED_DIR: /app/refresh
       # Set API_KEY in your environment to require X-API-Key on the mutating endpoints
       # (unset = open mode; the proxy is bound to localhost only).
       API_KEY: ${API_KEY:-}

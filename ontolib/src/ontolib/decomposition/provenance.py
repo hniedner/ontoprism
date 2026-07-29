@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import text
 
 if TYPE_CHECKING:
@@ -187,9 +188,19 @@ class ProvenanceStore:
         raw: object,
         persisted_identity: str,
     ) -> RunFingerprint:
-        fingerprint = RunFingerprint.model_validate_json(
-            _json.dumps(raw, sort_keys=True)
-        )
+        try:
+            fingerprint = RunFingerprint.model_validate_json(
+                _json.dumps(raw, sort_keys=True)
+            )
+        except ValidationError as exc:
+            # Rows written before the exact-run schema (migration 0008 backfills them
+            # as failed with a schema_version 0 fingerprint) are not resumable. Raise
+            # the domain error so the caller records a run failure instead of letting
+            # a raw ValidationError escape the pipeline's handler.
+            raise RunIdentityMismatchError(
+                "persisted run fingerprint predates the exact-run schema "
+                "and cannot be resumed"
+            ) from exc
         if fingerprint.identity != persisted_identity:
             raise RunIdentityMismatchError(
                 "persisted run fingerprint does not match its SHA-256 identity"
@@ -467,7 +478,13 @@ class ProvenanceStore:
             return bool(cast("int", result.rowcount))  # type: ignore[attr-defined]
 
     async def invalidate_run(self, run_id: str, error: BaseException) -> bool:
-        """Atomically discard every result after a source-identity violation."""
+        """Discard every persisted result after a source-identity violation.
+
+        One PostgreSQL transaction, so the rows cannot be partially discarded.
+        Returns ``False`` without discarding anything when the run is no longer
+        ``running``; the caller must surface that, because the results then survive.
+        Files already written outside PostgreSQL are not covered here.
+        """
         error_type, error_message = _bounded_failure(error)
         failed_at = datetime.datetime.now(datetime.UTC)
         async with self._sf() as session, session.begin():

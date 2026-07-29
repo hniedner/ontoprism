@@ -256,6 +256,26 @@ async def test_select_once_does_not_retry_transport_failure(stub_url: str) -> No
 
 
 @pytest.mark.unit
+async def test_ask_once_does_not_retry_transport_failure(stub_url: str) -> None:
+    """Candidate invariants must hold on the first attempt (D47).
+
+    ``ask`` retries, so certifying a store through it would let an intermittently
+    answering store pass a gate it did not actually satisfy on demand.
+    """
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="transport error"):
+            await client.ask_once(f"ASK {{}} # {_CLOSE_CONNECTION}")
+
+    assert _Handler.closed_connection_requests == 1
+
+
+@pytest.mark.unit
+async def test_ask_once_returns_the_boolean_result(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        assert await client.ask_once("ASK { ?s ?p ?o }") is True
+
+
+@pytest.mark.unit
 async def test_select_retries_transport_failure(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         rows = await client.select(

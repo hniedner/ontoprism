@@ -25,13 +25,17 @@ permitted only for a matching running/failed manifest, never re-enumerates, and 
 exactly non-complete work. Metrics and normalized TTL are reconstructed from the full
 worklist, so fresh and resumed completion agree. Mint proposals enter the global curator
 queue only when the run completes. The D47 manifest and full live candidate observation
-are required before work, and source drift before completion atomically invalidates all
-partial snapshot results.
+are required before work, and source drift before completion invalidates every persisted
+result row for the run in one transaction. The `--out` TTL is rendered to an unpublished
+staging sibling and atomically moved into place only after that final identity check and
+completion both succeed, so a drifted or failed run leaves no artifact at `--out`.
 
 **Why:** a successful manifest now proves one complete computation over one identified
 NCIt snapshot; interruption, collision, retry, and zero-output cases cannot masquerade as
-complete or mix source states. Generated-file/graph publication remains the separate #147
-boundary.
+complete or mix source states. PostgreSQL and the filesystem are still two systems and
+are not written atomically together; the ordering guarantees only that no published
+artifact can outlive an invalidated run, never a joint commit. Named-graph publication
+remains the separate #147 boundary.
 
 ## 2026-07-29 — NCIt stores are constructed and certified as inactive siblings
 
@@ -92,7 +96,8 @@ modified, swapped, ambiguous, stale-manifest, or cross-release inputs fail close
 
 `POST /api/v1/refresh/ncit/download` is pair-download/certification only and rejects legacy
 variant/load fields. Generic NCIt reload returns 410, and the former library HTTP loaders
-raise before touching a client. Offline validated sibling-store construction belongs to
+were deleted outright rather than left as raising shims. Offline validated sibling-store
+construction belongs to
 #181; activation remains #148. Small file-backed generated-graph publication streams from
 disk and stays confined to its additive named graph.
 
@@ -1269,7 +1274,7 @@ load it with Oxigraph's offline bulk loader into the RocksDB dir —
 produced fairdata's cloned store. Loaded 10.84M triples in ~20s, memory-safe. HTTP GSP
 stays for small/incremental writes (the decomposed named graph). *Also fixed a real bug:
 `client.load` passed a sync file handle to httpx's `AsyncClient`, which rejects it — now
-streamed as an async byte iterator (chunked).* Documented in `docs/DATA_SETUP.md`.
+streamed as an async byte iterator (chunked).* *Superseded operationally by D46/D47: the manual recipe was removed from `docs/DATA_SETUP.md` because loading into the active store directory is no longer permitted — build a certified inactive sibling with `pdm run data-build ncit-store` instead.*
 
 ### D13. Stated pre-coordination is layered defined classes → recursive genus-chain extraction
 Running 5a's roles-first extraction against the freshly-loaded stated graph revealed that

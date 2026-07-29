@@ -67,7 +67,7 @@ pdm run test                # grouped hermetic suites (backend unit/api/security
 pdm run test-unit            # unit-marked only, backend+ontolib
 pdm run test-integration     # safe default: nonce-owned disposable PG/Oxigraph
 pdm run test-integration-full-store  # explicit read-only contracts against configured corpora
-pdm run test-ci              # per-package coverage gate: ontolib/src & backend/src each >=90% (matches CI)
+pdm run test-ci              # strict gate: ontolib/src & backend/src each >90% line AND >90% branch (matches CI)
 pdm run test-smoke           # frontend vitest via npm
 ```
 

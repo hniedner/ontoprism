@@ -4,7 +4,8 @@ Pipeline: enumerate in-scope concepts, detect, extract, select,
 NLP fallback, mint, write TTL, commit provenance.
 
 Usage:
-    pdm run decompose --branch neoplasm [--out path.ttl] [--load]
+    pdm run decompose --source-manifest <candidate>/.ontoprism-ncit-candidate.json \
+        --branch neoplasm [--out path.ttl] [--load] [--resume RUN_ID]
 
 Scope of this orchestrator (documented boundaries, not oversights):
 - Extraction uses the genus-chain walker (``stated_queries.walk_genus_chain``) to
@@ -16,8 +17,11 @@ Scope of this orchestrator (documented boundaries, not oversights):
   non-staging genus, ``filler_selection._append_morphology`` adds the ``op:Morphology``
   constituent, and ``detector.detect`` counts it as a decomposable axis.
 - ``--load`` (pushing the written TTL into the store) is a CLI-layer concern, not this
-  function's — ``run_pipeline`` only ever writes the file at ``config.out``. The CLI
-  script performs the store load afterwards using the concrete client's ``.load()``.
+  function's — ``run_pipeline`` only ever writes the file at ``config.out``, and only
+  after the source identity is re-verified and the run is marked complete: the TTL is
+  rendered to an unpublished staging sibling and atomically moved into place, so a
+  drifted or failed run never leaves an artifact at ``config.out``. The CLI script
+  performs the store load afterwards using the concrete client's ``.load()``.
 - ``--resume`` consumes the immutable materialized worklist for a matching
   running/failed run. Every concept has an explicit state, including concepts producing
   no constituents. Per-concept replacement and completion are one fenced transaction.
@@ -131,6 +135,8 @@ class RunConfig:
                 "equivalence emission is not available until a proof-bearing "
                 "representation can establish exact completeness (#153)"
             )
+        if self.load_to_store and self.out is None:
+            raise ValueError("load_to_store requires an output path")
 
 
 @dataclass
@@ -704,28 +710,42 @@ async def _finish_run(
         decompositions, precoordinated_fillers=precoordinated
     )
     metrics.pct_decomposed = metrics.coverage
-    if config.out is not None:
+    out = config.out
+    staging: Path | None = None
+    if out is not None:
+        # Render to an unpublished staging sibling: the artifact must not appear at
+        # the operator's path unless the source identity still holds *and* the run
+        # completed, otherwise a drifted (mixed-source) run leaves a complete-looking
+        # TTL behind after its rows are invalidated.
+        staging = out.with_name(f".{out.name}.staging-{setup.run_id}")
         await write_ttl(
             decompositions,
-            dest=config.out,
+            dest=staging,
             run_id=setup.run_id,
             emitted_on=setup.fingerprint.emitted_at.date(),
         )
-    await _require_source_snapshot(
-        client,
-        get_source_snapshot,
-        expected=setup.source_snapshot,
-    )
-    finished = await provenance.finish_run(
-        setup.run_id,
-        source_identity=setup.fingerprint.source_identity,
-        metrics=asdict(metrics),
-    )
-    if not finished:
-        raise RuntimeError(
-            f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
-            f"(branch={config.branch!r})"
+    try:
+        await _require_source_snapshot(
+            client,
+            get_source_snapshot,
+            expected=setup.source_snapshot,
         )
+        finished = await provenance.finish_run(
+            setup.run_id,
+            source_identity=setup.fingerprint.source_identity,
+            metrics=asdict(metrics),
+        )
+        if not finished:
+            raise RuntimeError(
+                f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
+                f"(branch={config.branch!r})"
+            )
+    except BaseException:
+        if staging is not None:
+            staging.unlink(missing_ok=True)
+        raise
+    if out is not None and staging is not None:
+        staging.replace(out)
     return metrics
 
 
@@ -781,9 +801,20 @@ async def run_pipeline(
     except BaseException as exc:
         try:
             if isinstance(exc, SourceIdentityChangedError):
-                await provenance.invalidate_run(setup.run_id, exc)
+                discarded = await provenance.invalidate_run(setup.run_id, exc)
+                if not discarded:
+                    exc.add_note(
+                        "Partial results were NOT discarded: run "
+                        f"{setup.run_id!r} was no longer 'running'. Inspect "
+                        "decomp_constituent/decomp_minted_proposal before reuse."
+                    )
             else:
-                await provenance.fail_run(setup.run_id, exc)
+                recorded = await provenance.fail_run(setup.run_id, exc)
+                if not recorded:
+                    exc.add_note(
+                        f"Run failure was NOT recorded: run {setup.run_id!r} was "
+                        "no longer 'running'."
+                    )
         except BaseException as failure_error:
             exc.add_note(
                 "Recording the run failure also failed: "

@@ -510,6 +510,249 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
         await dispose_engine(engine)
 
 
+async def test_mint_proposals_reach_the_curator_queue_only_on_completion() -> None:
+    """D48: a proposal must not enter the global queue before the run completes.
+
+    Promoting on per-item completion would let an interrupted or invalidated run
+    permanently pollute the curator queue, which no other test would notice.
+    """
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        for code in ("C0", "C1"):
+            claim = await store.claim_work_item(run_id, code)
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                code,
+                claim,
+                decomposition=Decomposition(
+                    code=code,
+                    semantic_type="Neoplastic Process",
+                    constituents=[
+                        Constituent(
+                            axis="op:Laterality",
+                            filler_code=f"MINT-{code}",
+                            axis_source="nlp",
+                        )
+                    ],
+                ),
+                minted=(
+                    MintedConcept(
+                        axis="op:Laterality",
+                        label=f"minted {code}",
+                    ),
+                ),
+            )
+
+        queued = await conn.fetchval(
+            "SELECT count(*) FROM minted_concept WHERE run_id = $1", run_id
+        )
+        proposed = await conn.fetchval(
+            "SELECT count(*) FROM decomp_minted_proposal WHERE run_id = $1", run_id
+        )
+        assert queued == 0
+        assert proposed == 2
+
+        await store.finish_run(run_id, source_identity="a" * 64, metrics={})
+
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM minted_concept WHERE run_id = $1", run_id
+            )
+            == 2
+        )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> None:
+    """Proposals computed against a superseded source must never be promotable."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        claim = await store.claim_work_item(run_id, "C0")
+        assert claim is not None
+        await store.complete_work_item(
+            run_id,
+            "C0",
+            claim,
+            decomposition=Decomposition(
+                code="C0",
+                semantic_type="Neoplastic Process",
+                constituents=[
+                    Constituent(
+                        axis="op:Laterality",
+                        filler_code="MINT-C0",
+                        axis_source="nlp",
+                    )
+                ],
+            ),
+            minted=(MintedConcept(axis="op:Laterality", label="minted C0"),),
+        )
+
+        invalidated = await store.invalidate_run(run_id, RuntimeError("source changed"))
+        assert invalidated is True
+
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM decomp_minted_proposal WHERE run_id = $1", run_id
+            )
+            == 0
+        )
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM minted_concept WHERE run_id = $1", run_id
+            )
+            == 0
+        )
+
+        # Re-running the discarded work without mints must not resurrect them.
+        await store.resume_run(
+            run_id,
+            RunResumeIdentity.from_fingerprint(_fingerprint()),
+        )
+        for code in ("C0", "C1"):
+            retry = await store.claim_work_item(run_id, code)
+            assert retry is not None
+            await store.complete_work_item(
+                run_id, code, retry, decomposition=None, minted=()
+            )
+        await store.finish_run(run_id, source_identity="a" * 64, metrics={})
+
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM minted_concept WHERE run_id = $1", run_id
+            )
+            == 0
+        )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_resume_recovers_a_work_item_abandoned_in_running() -> None:
+    """A killed worker leaves a claim behind; resume must reclaim it, not deadlock.
+
+    Without the ``running`` -> ``failed`` reset, ``pending_codes`` keeps returning the
+    item while ``claim_work_item`` refuses it forever and the run is unresumable.
+    """
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        abandoned = await store.claim_work_item(run_id, "C0")
+        assert abandoned is not None
+        # Simulate SIGKILL: the claim is never completed and never failed.
+        assert await store.claim_work_item(run_id, "C0") is None
+
+        await store.fail_run(run_id, RuntimeError("worker died"))
+        await store.resume_run(
+            run_id,
+            RunResumeIdentity.from_fingerprint(_fingerprint()),
+        )
+
+        row = await conn.fetchrow(
+            "SELECT state, error_type, claim_token FROM decomp_work_item "
+            "WHERE run_id = $1 AND concept_code = 'C0'",
+            run_id,
+        )
+        assert row is not None
+        assert row["state"] == "failed"
+        assert row["error_type"] == "InterruptedRun"
+        assert row["claim_token"] is None
+
+        reclaimed = await store.claim_work_item(run_id, "C0")
+        assert reclaimed is not None
+        assert reclaimed != abandoned
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_non_running_run_rejects_claims_and_completions() -> None:
+    """A failed run must not accept writes from a worker still holding a claim."""
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        claim = await store.claim_work_item(run_id, "C0")
+        assert claim is not None
+
+        await store.fail_run(run_id, RuntimeError("operator stopped the run"))
+
+        assert await store.claim_work_item(run_id, "C1") is None
+        with pytest.raises(RunStateError):
+            await store.complete_work_item(
+                run_id,
+                "C0",
+                claim,
+                decomposition=None,
+                minted=(),
+            )
+
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM decomp_constituent WHERE run_id = $1", run_id
+            )
+            == 0
+        )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_legacy_fingerprint_rows_fail_closed_on_resume() -> None:
+    """Migration 0008 backfills pre-exact runs; resuming one must be a domain error.
+
+    A raw pydantic ValidationError here would escape the pipeline's failure handler,
+    so no run failure would ever be recorded.
+    """
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        # Insert the shape migration 0008 backfills. The identity trigger correctly
+        # refuses to mutate an existing run's fingerprint, so seed it directly.
+        await conn.execute(
+            "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
+            "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
+            "error_type, error_message) VALUES "
+            "($1, 'neoplasm', 'failed', '26.07d', now(), repeat('0', 64), "
+            "jsonb_build_object('schema_version', 0, 'legacy', true, "
+            "'run_id', $1::text), "
+            "repeat('0', 64), now(), 'LegacyRun', "
+            "'Legacy run predates exact worklist persistence')",
+            run_id,
+        )
+
+        with pytest.raises(RunIdentityMismatchError, match="predates"):
+            await store.resume_run(
+                run_id,
+                RunResumeIdentity.from_fingerprint(_fingerprint()),
+            )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

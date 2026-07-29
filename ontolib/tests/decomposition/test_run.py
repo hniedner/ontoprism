@@ -1255,6 +1255,105 @@ async def test_source_swap_after_work_leaves_run_failed_and_incomplete() -> None
 
 
 @pytest.mark.unit
+async def test_source_swap_at_completion_leaves_no_publishable_artifact(
+    tmp_path: Path,
+) -> None:
+    """Drift must not leave a complete-looking TTL at the operator's --out path.
+
+    The rows are invalidated, so an artifact surviving at ``--out`` would name a run
+    that no longer has any constituents and could still be hand-loaded or shipped.
+    """
+    out = tmp_path / "decomposed.ttl"
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(
+        return_value=[
+            Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=[
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C12345",
+                        axis_source="role",
+                    )
+                ],
+            )
+        ]
+    )
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=1,
+            decomposed=1,
+            residual=0,
+            minted_count=0,
+        )
+    )
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(SourceIdentityChangedError, match="changed"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    provenance.invalidate_run.assert_awaited_once()
+    provenance.finish_run.assert_not_awaited()
+    assert not out.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.unit
+async def test_failed_completion_leaves_no_publishable_artifact(
+    tmp_path: Path,
+) -> None:
+    """A run that cannot be marked complete must not publish its artifact."""
+    out = tmp_path / "decomposed.ttl"
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0,
+            decomposed=0,
+            residual=0,
+            minted_count=0,
+        )
+    )
+    provenance.finish_run = AsyncMock(return_value=False)
+
+    with pytest.raises(RuntimeError, match="finish_run found no decomp_run row"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            client,
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    assert not out.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.unit
+def test_run_config_rejects_load_without_output_path() -> None:
+    """``load_to_store`` without ``out`` would persist "loaded a file never written"."""
+    with pytest.raises(ValueError, match="load_to_store requires an output path"):
+        RunConfig(branch="neoplasm", load_to_store=True)
+
+
+@pytest.mark.unit
 async def test_label_failure_after_manifest_marks_run_failed() -> None:
     client = _FakeClient(pages=[["C1"]])
     provenance = _mock_provenance()

@@ -225,7 +225,7 @@ def test_safe_lane_separates_provisioning_credentials_from_application_targets(
     assert environment["CADSR_DB_PATH"] == str(data_root / "cadsr/cde_repository.db")
     assert environment["CADSR_DATA_DIR"] == str(data_root / "cadsr")
     assert environment["NCIT_OWL_DIR"] == str(data_root / "ncit-owl")
-    assert environment["RELOAD_ALLOWED_DIR"] == str(data_root)
+    assert environment["NCIT_STORE_DIR"] == str(data_root / "oxigraph-ncit")
     assert environment["ONTOPRISM_SAFE_INTEGRATION"] == "1"
 
 

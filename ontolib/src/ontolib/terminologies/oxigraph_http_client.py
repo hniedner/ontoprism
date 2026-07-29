@@ -339,6 +339,14 @@ class OxigraphHttpClient:
         """Run an ASK query and return its boolean result."""
         return parse_ask_result(await self.select_raw(query))
 
+    async def ask_once(self, query: str) -> bool:
+        """Run one ASK transport attempt without retrying a failed request.
+
+        Candidate-store invariants must hold on the first attempt: a store that only
+        answers after a retry has not demonstrated the property being certified.
+        """
+        return parse_ask_result(await self._select_raw(query, retry=False))
+
     async def count(self, query: str = _COUNT_ALL) -> int:
         """Run a ``SELECT (COUNT(...) AS ?count)`` query and return the integer.
 

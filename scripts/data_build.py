@@ -3,7 +3,7 @@
 
 One command to stand ontoprism up on a machine with no fairdata dependency:
 
-  pdm run data-build all          # OWL prepare -> caDSR build -> embeddings
+  pdm run data-build all          # OWL pair -> inactive sibling -> caDSR -> embeddings
   pdm run data-build owl          # certify inferred + stated release pair (#180)
   pdm run data-build ncit-store   # build + validate an inactive sibling (#181)
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite

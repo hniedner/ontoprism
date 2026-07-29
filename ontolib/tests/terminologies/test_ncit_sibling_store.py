@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.owl_download import (
@@ -203,7 +204,9 @@ async def test_build_persists_owned_validated_candidate_without_touching_active(
     assert manifest.loader.store_format_identity
     assert (candidate / CANDIDATE_MANIFEST_FILENAME).exists()
     assert (
-        validate_ncit_sibling_manifest(candidate / CANDIDATE_MANIFEST_FILENAME)
+        validate_ncit_sibling_manifest(
+            candidate / CANDIDATE_MANIFEST_FILENAME, expected_policy=_policy()
+        )
         == manifest
     )
     assert not (candidate / REJECTED_CANDIDATE_FILENAME).exists()
@@ -252,13 +255,13 @@ async def test_candidate_manifest_revalidation_rejects_identity_or_owner_drift(
     document["source_identity"] = "0" * 64
     path.write_text(json.dumps(document))
     with pytest.raises(SiblingStoreValidationError, match="source identity"):
-        validate_ncit_sibling_manifest(path)
+        validate_ncit_sibling_manifest(path, expected_policy=_policy())
 
     document["source_identity"] = manifest.source_identity
     path.write_text(json.dumps(document))
     (path.parent / ".ontoprism-ncit-owner").write_text("5" * 32)
     with pytest.raises(SiblingStoreValidationError, match="owner marker"):
-        validate_ncit_sibling_manifest(path)
+        validate_ncit_sibling_manifest(path, expected_policy=_policy())
 
 
 @pytest.mark.unit
@@ -308,7 +311,74 @@ async def test_candidate_manifest_revalidation_rejects_proof_drift(
         path.write_text(json.dumps(document))
 
     with pytest.raises(SiblingStoreValidationError, match=message):
+        validate_ncit_sibling_manifest(path, expected_policy=_policy())
+
+
+@pytest.mark.unit
+async def test_revalidation_refuses_a_manifest_that_supplies_its_own_bounds(
+    tmp_path: Path,
+) -> None:
+    """A proof may not define the bounds it is judged against.
+
+    ``source_identity`` hashes the policy in, so relaxing the policy and recomputing
+    the identity is self-consistent. Without an independent expected policy a forged
+    manifest could certify a near-empty store to the decomposition CLI.
+    """
+    pair_path = _write_pair(tmp_path / "pair")
+    active = tmp_path / "stores" / "oxigraph-ncit"
+    active.mkdir(parents=True)
+    manifest = await build_ncit_sibling_store(
+        pair_path,
+        active_store_path=active,
+        owner="6" * 32,
+        policy=_policy(),
+        runtime=_Runtime(),
+    )
+    path = Path(manifest.candidate_path) / CANDIDATE_MANIFEST_FILENAME
+
+    # The default (production) bounds are what an unqualified caller must get.
+    with pytest.raises(SiblingStoreValidationError, match="validation policy"):
         validate_ncit_sibling_manifest(path)
+
+
+@pytest.mark.unit
+async def test_rejected_candidate_is_never_revalidatable(tmp_path: Path) -> None:
+    """A rejection marker disqualifies the directory even beside a valid manifest."""
+    pair_path = _write_pair(tmp_path / "pair")
+    active = tmp_path / "stores" / "oxigraph-ncit"
+    active.mkdir(parents=True)
+    manifest = await build_ncit_sibling_store(
+        pair_path,
+        active_store_path=active,
+        owner="6" * 32,
+        policy=_policy(),
+        runtime=_Runtime(),
+    )
+    candidate = Path(manifest.candidate_path)
+    path = candidate / CANDIDATE_MANIFEST_FILENAME
+    assert validate_ncit_sibling_manifest(path, expected_policy=_policy()) == manifest
+
+    (candidate / REJECTED_CANDIDATE_FILENAME).write_text("{}")
+
+    with pytest.raises(SiblingStoreValidationError, match="rejected"):
+        validate_ncit_sibling_manifest(path, expected_policy=_policy())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "policy_fields",
+    [
+        {"min_default_triples": 140, "max_default_triples": 100},
+        {"min_stated_triples": 0},
+        {"min_restrictions": 30, "max_restrictions": 20},
+    ],
+)
+def test_validation_policy_rejects_bounds_that_can_never_gate(
+    policy_fields: dict[str, int],
+) -> None:
+    """Inverted or non-positive bounds would make the count gates vacuous."""
+    with pytest.raises(ValidationError):
+        CandidateValidationPolicy(**policy_fields)
 
 
 @pytest.mark.unit
@@ -338,7 +408,7 @@ async def test_candidate_manifest_revalidation_rejects_malformed_shapes(
     path.write_text(json.dumps(document))
 
     with pytest.raises(SiblingStoreValidationError, match="unreadable"):
-        validate_ncit_sibling_manifest(path)
+        validate_ncit_sibling_manifest(path, expected_policy=_policy())
 
 
 @pytest.mark.unit

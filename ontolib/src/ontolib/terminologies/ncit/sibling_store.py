@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -117,6 +117,21 @@ class CandidateValidationPolicy(_StrictProofModel):
     max_stated_triples: int = 12_000_000
     min_restrictions: int = 100_000
     max_restrictions: int = 250_000
+
+    @model_validator(mode="after")
+    def _bounds_are_ordered(self) -> CandidateValidationPolicy:
+        """Reject inverted or non-positive bounds, which can never gate anything."""
+        pairs = (
+            ("default_triples", self.min_default_triples, self.max_default_triples),
+            ("stated_triples", self.min_stated_triples, self.max_stated_triples),
+            ("restrictions", self.min_restrictions, self.max_restrictions),
+        )
+        for name, low, high in pairs:
+            if low < 1:
+                raise ValueError(f"min_{name} must be positive")
+            if low > high:
+                raise ValueError(f"min_{name} exceeds max_{name}")
+        return self
 
 
 class CandidateGraphLayout(_StrictProofModel):
@@ -688,7 +703,7 @@ async def observe_ncit_candidate(endpoint_url: str) -> CandidateObservation:
             "owl:onProperty ?property ; owl:someValuesFrom ?filler . } }",
             "count",
         )
-        required = await client.ask(
+        required = await client.ask_once(
             f"PREFIX owl: <{_OWL_NS}> PREFIX rdf: <{_RDF_NS}> ASK {{ "
             f"GRAPH <{STATED_GRAPH_IRI}> {{ <{NCIT_NS}C6135> "
             "owl:equivalentClass/owl:intersectionOf/rdf:rest*/rdf:first ?restriction . "
@@ -699,8 +714,8 @@ async def observe_ncit_candidate(endpoint_url: str) -> CandidateObservation:
             f"<{NCIT_NS}C14806> <{_OWL_NS}deprecated> "
             '"true"^^<http://www.w3.org/2001/XMLSchema#boolean>'
         )
-        default_sentinel = await client.ask(f"ASK {{ {sentinel} }}")
-        stated_sentinel = await client.ask(
+        default_sentinel = await client.ask_once(f"ASK {{ {sentinel} }}")
+        stated_sentinel = await client.ask_once(
             f"ASK {{ GRAPH <{STATED_GRAPH_IRI}> {{ {sentinel} }} }}"
         )
         return CandidateObservation(
@@ -769,6 +784,11 @@ def _candidate_artifact(
     record: OwlArtifactRecord,
     variant: Literal["stated", "inferred"],
 ) -> CandidateArtifact:
+    if record.variant != variant:
+        raise SiblingStoreValidationError(
+            f"NCIt artifact variants are swapped: expected {variant}, "
+            f"record declares {record.variant}"
+        )
     return CandidateArtifact(
         variant=variant,
         path=record.file_path,
@@ -808,6 +828,10 @@ def _validate_manifest_owner(
     _validate_owner(manifest.owner)
     if marker != manifest.owner:
         raise SiblingStoreValidationError("candidate owner marker does not match")
+    if (candidate / REJECTED_CANDIDATE_FILENAME).exists():
+        raise SiblingStoreValidationError(
+            "candidate is marked rejected and is never activatable"
+        )
 
 
 def _validate_manifest_runtime(manifest: NcitSiblingStoreManifest) -> None:
@@ -844,19 +868,38 @@ def _manifest_source_identity(manifest: NcitSiblingStoreManifest) -> str:
 
 def validate_ncit_sibling_manifest(
     manifest_path: Path,
+    *,
+    expected_policy: CandidateValidationPolicy | None = None,
 ) -> NcitSiblingStoreManifest:
-    """Revalidate an owner-marked candidate proof without the source files."""
+    """Revalidate an owner-marked candidate proof without the source files.
+
+    ``expected_policy`` defaults to the production bounds and the manifest's own
+    ``validation_policy`` must equal it. The recorded policy is never allowed to
+    define the bounds it is checked against: a forged proof could otherwise certify a
+    near-empty store under bounds it supplied itself, and the source identity would
+    still be self-consistent because it hashes the policy in.
+    """
     manifest = _read_sibling_manifest(manifest_path)
     if manifest.schema_version != CANDIDATE_MANIFEST_SCHEMA_VERSION:
         raise SiblingStoreValidationError(
             f"unsupported NCIt sibling schema {manifest.schema_version}"
         )
+    required_policy = expected_policy or CandidateValidationPolicy()
+    if manifest.validation_policy != required_policy:
+        raise SiblingStoreValidationError(
+            "candidate validation policy does not match the expected bounds"
+        )
     _validate_manifest_owner(manifest_path, manifest)
     _validate_manifest_runtime(manifest)
+    if (
+        manifest.stated_artifact.variant != "stated"
+        or manifest.inferred_artifact.variant != "inferred"
+    ):
+        raise SiblingStoreValidationError("candidate artifact variants are swapped")
     _validate_observation(
         manifest.observation,
         manifest.ontology_version,
-        manifest.validation_policy,
+        required_policy,
     )
     if manifest.source_identity != _manifest_source_identity(manifest):
         raise SiblingStoreValidationError(
@@ -923,7 +966,10 @@ async def build_ncit_sibling_store(
             observation=observation,
         )
         _write_json(candidate / CANDIDATE_MANIFEST_FILENAME, manifest)
-        return validate_ncit_sibling_manifest(candidate / CANDIDATE_MANIFEST_FILENAME)
+        return validate_ncit_sibling_manifest(
+            candidate / CANDIDATE_MANIFEST_FILENAME,
+            expected_policy=validation_policy,
+        )
     except BaseException as exc:
         try:
             _write_json(
