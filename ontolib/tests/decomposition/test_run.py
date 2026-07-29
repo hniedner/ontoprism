@@ -1379,7 +1379,9 @@ async def test_failed_completion_leaves_no_publishable_artifact(
     )
     _mark_run_row_missing(provenance, provenance._test_state)
 
-    with pytest.raises(RuntimeError, match="finish_run found no decomp_run row"):
+    with pytest.raises(
+        RuntimeError, match="finish_run found no decomp_run row"
+    ) as exc_info:
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
             client,
@@ -1388,6 +1390,11 @@ async def test_failed_completion_leaves_no_publishable_artifact(
         )
 
     assert not out.exists()
+    assert list(tmp_path.iterdir()) == []
+    # The run row is gone, so `fail_run` records nothing: the operator must be told.
+    assert any(
+        "Run failure was NOT recorded" in note for note in exc_info.value.__notes__
+    )
     assert list(tmp_path.iterdir()) == []
 
 

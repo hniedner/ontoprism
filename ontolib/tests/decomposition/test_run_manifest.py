@@ -60,6 +60,11 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     [
         {"source_identity": "not-a-source"},
         {"worklist": ("C1", "C1")},
+        {"worklist": ("C1", "")},
+        {"semantic_types": ()},
+        {"semantic_types": ("Neoplastic Process", "Disease or Syndrome")},
+        {"semantic_types": ("Disease or Syndrome", "Disease or Syndrome")},
+        {"semantic_types": ("Disease or Syndrome", "")},
         {"walker_max_depth": 0},
         {"total_limit": 0},
         {"emitted_at": datetime.datetime(2026, 7, 29, 12, 0)},
