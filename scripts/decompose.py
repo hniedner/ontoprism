@@ -34,14 +34,22 @@ from ontolib.decomposition.run import (
     SourceIdentityChangedError,
     run_pipeline,
 )
+from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.sibling_store import (
+    observation_without_graphs,
     observe_ncit_candidate,
     validate_ncit_sibling_manifest,
 )
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 logger = get_logger(__name__)
+
+# Graphs ontoprism publishes into the same store; they are not part of the NCIt
+# source identity and must not read as drift.
+_ADDITIVE_GRAPH_IRIS = frozenset(
+    {vocab.DECOMPOSED_GRAPH_IRI, NCIT_UPSTREAM_XREF_GRAPH_IRI}
+)
 
 
 def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
@@ -73,10 +81,19 @@ async def _source_snapshot(
     manifest_path: Path,
     endpoint_url: str,
 ) -> NcitSourceSnapshot:
-    """Bind the live endpoint to a freshly revalidated #181 candidate proof."""
+    """Bind the live endpoint to a freshly revalidated #181 candidate proof.
+
+    Compares only the NCIt source: ontoprism's own additive publication graphs are
+    ignored, otherwise a single `--load` would make every later run of the same
+    manifest fail as source drift. Default/stated counts, versions, restrictions and
+    the stated-only sentinels are still compared exactly.
+    """
     manifest = validate_ncit_sibling_manifest(manifest_path)
-    observed = await observe_ncit_candidate(endpoint_url)
-    if observed.model_dump(mode="json") != manifest.observation.model_dump(mode="json"):
+    observed = observation_without_graphs(
+        await observe_ncit_candidate(endpoint_url), _ADDITIVE_GRAPH_IRIS
+    )
+    expected = observation_without_graphs(manifest.observation, _ADDITIVE_GRAPH_IRIS)
+    if observed.model_dump(mode="json") != expected.model_dump(mode="json"):
         raise SourceIdentityChangedError(
             "live NCIt endpoint observation does not match the #181 candidate proof"
         )

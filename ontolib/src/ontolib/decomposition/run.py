@@ -137,6 +137,11 @@ class RunConfig:
             )
         if self.load_to_store and self.out is None:
             raise ValueError("load_to_store requires an output path")
+        # `branch` becomes part of the run id and therefore of the staging filename.
+        # Reject a path-unsafe branch here rather than after the whole worklist has
+        # been processed, where the run can no longer be resumed under a fixed name.
+        if not self.branch or set(self.branch) & {"/", "\\", "\0"}:
+            raise ValueError("branch must be non-empty and free of path separators")
 
 
 @dataclass
@@ -566,7 +571,7 @@ async def _load_pending_run_data(
             if not await provenance.fail_run(run_id, exc):
                 exc.add_note(
                     f"Run setup failure was NOT recorded: run {run_id!r} holds a "
-                    "terminal state other than 'failed'."
+                    "different terminal state, or its row is gone."
                 )
         except BaseException as failure_error:
             exc.add_note(
@@ -792,7 +797,17 @@ async def _finish_run(
             _discard_staging(publication[0], exc)
         raise
     if publication is not None:
-        publication[0].replace(publication[1])
+        try:
+            publication[0].replace(publication[1])
+        except OSError as publish_error:
+            # The run is already recorded complete: say so plainly rather than let
+            # the generic run-failure note claim the failure was never recorded.
+            publish_error.add_note(
+                f"Run {setup.run_id!r} completed but its artifact was not published "
+                f"to {publication[1]}; the rendered output remains at "
+                f"{publication[0]}."
+            )
+            raise
     return metrics
 
 
@@ -860,7 +875,7 @@ async def run_pipeline(
                 if not recorded:
                     exc.add_note(
                         f"Run failure was NOT recorded: run {setup.run_id!r} holds "
-                        "a terminal state other than 'failed'."
+                        "a different terminal state, or its row is gone."
                     )
         except BaseException as failure_error:
             exc.add_note(

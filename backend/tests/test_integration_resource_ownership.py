@@ -238,12 +238,15 @@ def test_safe_lane_separates_provisioning_credentials_from_application_targets(
 
 @pytest.mark.unit
 def test_every_persistent_store_writer_is_declared_a_repository_write() -> None:
-    """The mutating-test detector must not silently drift behind the write surface.
+    """Pin the detector against drift in the two stores this reflects over.
 
-    ``_REPOSITORY_WRITES`` is matched by method name against test source, so a new
-    writer that is missing from it makes a mutating integration test look read-only
-    and exempts it from the disposable-fixture requirement. Derive the expected set
-    from the stores themselves instead of trusting the literal to stay current.
+    ``_REPOSITORY_WRITES`` is matched by method name against test source, so a
+    writer missing from it makes a mutating integration test look read-only and
+    exempts it from the disposable-fixture requirement. This derives the expected
+    set for ``ProvenanceStore`` and ``XrefStore`` rather than trusting the literal.
+    Writers outside these two classes (``search_index.rebuild``,
+    ``xref.promotion.persist_promotions``, embedding publication) are still declared
+    by hand and can still drift — extend the loop when a write surface is added.
     """
     undeclared: list[str] = []
     for store in (ProvenanceStore, XrefStore):

@@ -479,8 +479,9 @@ class ProvenanceStore:
         Returns whether the run is recorded as failed once this call returns, not
         whether this call performed the write: ``fail_work_item`` already demotes the
         enclosing run, so an ordinary work-item failure reaches here with the run
-        already ``failed`` and correctly recorded. ``False`` therefore means the run
-        genuinely holds some other terminal state and no failure was recorded.
+        already ``failed`` and correctly recorded. ``False`` therefore means no
+        failure is recorded — the run holds a different terminal state, or its row is
+        gone.
         """
         error_type, error_message = _bounded_failure(error)
         async with self._sf() as session, session.begin():

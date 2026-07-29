@@ -838,11 +838,52 @@ async def test_permuted_worklist_order_is_rejected_on_resume() -> None:
         await dispose_engine(engine)
 
 
+async def test_fail_run_reports_whether_the_failure_is_recorded() -> None:
+    """`True` means "the run is recorded as failed", not "this call wrote it".
+
+    `fail_work_item` already demotes the enclosing run, so an ordinary work-item
+    failure reaches `fail_run` with the run already failed; reporting `False` there
+    made the pipeline claim an unrecorded failure on every routine error.
+    """
+    running_id = _new_run_id("neoplasm")
+    already_failed_id = _new_run_id("neoplasm")
+    complete_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await store.create_run(running_id, "26.07d", _fingerprint())
+        assert await store.fail_run(running_id, RuntimeError("first")) is True
+
+        await store.create_run(already_failed_id, "26.07d", _fingerprint())
+        claim = await store.claim_work_item(already_failed_id, "C0")
+        assert claim is not None
+        await store.fail_work_item(
+            already_failed_id, "C0", claim, RuntimeError("item failed")
+        )
+        # Already demoted by fail_work_item: the failure *is* recorded.
+        assert await store.fail_run(already_failed_id, RuntimeError("second")) is True
+
+        await store.create_run(complete_id, "26.07d", _fingerprint())
+        for code in ("C0", "C1"):
+            done = await store.claim_work_item(complete_id, code)
+            assert done is not None
+            await store.complete_work_item(
+                complete_id, code, done, decomposition=None, minted=()
+            )
+        await store.finish_run(complete_id, source_identity="a" * 64, metrics={})
+        assert await store.fail_run(complete_id, RuntimeError("too late")) is False
+    finally:
+        await _cleanup([running_id, already_failed_id, complete_id])
+        await dispose_engine(engine)
+
+
 async def test_legacy_fingerprint_rows_fail_closed_on_resume() -> None:
     """Migration 0008 backfills pre-exact runs; resuming one must be a domain error.
 
-    A raw pydantic ValidationError here would escape the pipeline's failure handler,
-    so no run failure would ever be recorded.
+    A raw pydantic ``ValidationError`` would leak the persistence schema through the
+    store's public contract. ``resume_run`` runs before ``run_pipeline``'s failure
+    handler, so neither error is recorded as a run failure — the caller can only
+    react to a typed one.
     """
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)

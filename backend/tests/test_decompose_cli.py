@@ -13,7 +13,14 @@ import typer
 from click import unstyle
 from scripts import decompose
 
+from ontolib.decomposition import vocab
 from ontolib.decomposition.run import SourceIdentityChangedError
+from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+from ontolib.terminologies.ncit.sibling_store import (
+    CandidateGraph,
+    CandidateObservation,
+)
 
 
 @pytest.mark.unit
@@ -109,20 +116,41 @@ def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
     assert "--emit-equivalence is not available" in error_text
 
 
-@pytest.mark.unit
-async def test_source_snapshot_binds_live_candidate_to_revalidated_manifest(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observation = SimpleNamespace(model_dump=lambda **_kwargs: {"count": 1})
-    manifest = SimpleNamespace(
+def _observation(*extra_graphs: str) -> CandidateObservation:
+    """A production-shaped candidate observation plus any additive graphs."""
+    return CandidateObservation(
+        default_triples=12_500_000,
+        stated_triples=10_800_000,
+        named_graphs=(
+            CandidateGraph(graph_iri=STATED_GRAPH_IRI, triples=10_800_000),
+            *(CandidateGraph(graph_iri=iri, triples=42) for iri in extra_graphs),
+        ),
+        default_version="26.07d",
+        stated_version="26.07d",
+        restriction_count=149_694,
+        has_required_restriction=True,
+        default_has_stated_only_sentinel=False,
+        stated_has_stated_only_sentinel=True,
+    )
+
+
+def _manifest(observation: CandidateObservation) -> SimpleNamespace:
+    return SimpleNamespace(
         source_identity="a" * 64,
         ontology_version="26.07d",
         observation=observation,
     )
+
+
+@pytest.mark.unit
+async def test_source_snapshot_binds_live_candidate_to_revalidated_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observation = _observation()
     monkeypatch.setattr(
         decompose,
         "validate_ncit_sibling_manifest",
-        lambda _path: manifest,
+        lambda _path: _manifest(observation),
     )
     observe = AsyncMock(return_value=observation)
     monkeypatch.setattr(decompose, "observe_ncit_candidate", observe)
@@ -138,25 +166,74 @@ async def test_source_snapshot_binds_live_candidate_to_revalidated_manifest(
 
 
 @pytest.mark.unit
-async def test_source_snapshot_rejects_endpoint_observation_mismatch(
+async def test_source_snapshot_ignores_ontoprisms_own_published_graphs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = SimpleNamespace(
-        source_identity="a" * 64,
-        ontology_version="26.07d",
-        observation=SimpleNamespace(model_dump=lambda **_kwargs: {"count": 1}),
-    )
+    """`--load` publishes into the same store; that must not read as source drift.
+
+    Without this, the first `decompose --load` would make every subsequent run of
+    the same candidate manifest fail permanently, including a resume.
+    """
     monkeypatch.setattr(
         decompose,
         "validate_ncit_sibling_manifest",
-        lambda _path: manifest,
+        lambda _path: _manifest(_observation()),
     )
     monkeypatch.setattr(
         decompose,
         "observe_ncit_candidate",
         AsyncMock(
-            return_value=SimpleNamespace(model_dump=lambda **_kwargs: {"count": 2})
+            return_value=_observation(
+                vocab.DECOMPOSED_GRAPH_IRI, NCIT_UPSTREAM_XREF_GRAPH_IRI
+            )
         ),
+    )
+
+    snapshot = await decompose._source_snapshot(
+        Path("candidate/.ontoprism-ncit-candidate.json"),
+        "http://127.0.0.1:7888",
+    )
+
+    assert snapshot.source_identity == "a" * 64
+
+
+@pytest.mark.unit
+async def test_source_snapshot_rejects_endpoint_observation_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        decompose,
+        "validate_ncit_sibling_manifest",
+        lambda _path: _manifest(_observation()),
+    )
+    drifted = _observation().model_copy(update={"stated_version": "26.08a"})
+    monkeypatch.setattr(
+        decompose,
+        "observe_ncit_candidate",
+        AsyncMock(return_value=drifted),
+    )
+
+    with pytest.raises(SourceIdentityChangedError, match="observation"):
+        await decompose._source_snapshot(
+            Path("candidate/.ontoprism-ncit-candidate.json"),
+            "http://127.0.0.1:7888",
+        )
+
+
+@pytest.mark.unit
+async def test_source_snapshot_rejects_an_unexpected_extra_named_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only ontoprism's own additive graphs are ignorable, not any extra graph."""
+    monkeypatch.setattr(
+        decompose,
+        "validate_ncit_sibling_manifest",
+        lambda _path: _manifest(_observation()),
+    )
+    monkeypatch.setattr(
+        decompose,
+        "observe_ncit_candidate",
+        AsyncMock(return_value=_observation("http://example.invalid/other-graph")),
     )
 
     with pytest.raises(SourceIdentityChangedError, match="observation"):

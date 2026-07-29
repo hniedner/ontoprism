@@ -585,6 +585,28 @@ def _validate_observed_versions(
         )
 
 
+def observation_without_graphs(
+    observation: CandidateObservation,
+    graph_iris: Collection[str],
+) -> CandidateObservation:
+    """Project an observation onto the NCIt source, ignoring additive graphs.
+
+    A candidate is certified with exactly one named graph, but the serving store it
+    is later compared against also carries ontoprism's own additive publication
+    graphs. Without this projection the first `decompose --load` would make every
+    subsequent run of the same manifest fail as source drift, permanently.
+    """
+    return observation.model_copy(
+        update={
+            "named_graphs": tuple(
+                graph
+                for graph in observation.named_graphs
+                if graph.graph_iri not in graph_iris
+            )
+        }
+    )
+
+
 def _validate_observed_graphs(observation: CandidateObservation) -> None:
     expected_graph = (
         CandidateGraph(
@@ -780,15 +802,15 @@ def _source_identity(
     )
 
 
-def _candidate_artifact(
-    record: OwlArtifactRecord,
-    variant: Literal["stated", "inferred"],
-) -> CandidateArtifact:
-    # No variant check here: `validate_ncit_owl_pair` is the only way a pair reaches
-    # this function and it already refuses a swapped record, so a guard here could
-    # never fire. Revalidation re-checks both fields, where tampering *is* reachable.
+def _candidate_artifact(record: OwlArtifactRecord) -> CandidateArtifact:
+    """Copy a validated pair record into the candidate proof.
+
+    The variant is taken from the record, which `validate_ncit_owl_pair` has already
+    bound to the right member, rather than from a caller-supplied literal that could
+    be transposed at the call site and then certified.
+    """
     return CandidateArtifact(
-        variant=variant,
+        variant=record.variant,
         path=record.file_path,
         size_bytes=record.size_bytes,
         sha256=record.owl_sha256,
@@ -936,8 +958,8 @@ async def build_ncit_sibling_store(
         validation_policy = policy or CandidateValidationPolicy()
         _validate_observation(observation, pair.ontology_version, validation_policy)
         layout = CandidateGraphLayout()
-        stated_artifact = _candidate_artifact(pair.stated, "stated")
-        inferred_artifact = _candidate_artifact(pair.inferred, "inferred")
+        stated_artifact = _candidate_artifact(pair.stated)
+        inferred_artifact = _candidate_artifact(pair.inferred)
         manifest = NcitSiblingStoreManifest(
             owner=owner,
             candidate_path=str(candidate.resolve()),

@@ -183,8 +183,10 @@ async def probe_owl_version(url: str) -> OwlVersionInfo:
     )
 
 
-# A content/identity verdict, never a transport failure: re-fetching the same URL
-# yields the same bytes, so callers treat it as terminal rather than retryable.
+# A verdict about artifact content, identity, or local availability — never an HTTP
+# transport error. Content and identity failures are terminal because re-fetching the
+# same URL returns the same bytes; a missing or unreadable local file needs the
+# artifact re-prepared, not the request retried.
 class OwlContentError(StorageError):
     """An NCIt artifact or artifact pair cannot be safely identified."""
 
@@ -294,7 +296,8 @@ def _extract_owl(zip_path: Path, output_dir: Path, variant: str) -> Path:
     """Extract the Thesaurus ``.owl`` member from *zip_path* into *output_dir*.
 
     Raises:
-        OwlContentError: the archive is valid but contains no ``.owl`` member.
+        OwlContentError: the archive has no single, correctly named, regular
+            ``.owl`` member, or is encrypted/unsupported.
         zipfile.BadZipFile: the archive is corrupt/truncated (retryable upstream).
         OSError: a filesystem error moving the extracted file.
     """

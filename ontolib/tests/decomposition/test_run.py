@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
@@ -37,7 +38,6 @@ from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Collection
-    from pathlib import Path
 
 
 def _iri(code: str) -> str:
@@ -1444,6 +1444,103 @@ async def test_duplicate_enumerated_codes_are_rejected_before_a_run_exists() -> 
         )
 
     provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_staging_cleanup_failure_never_replaces_the_drift_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An OSError from cleanup must not turn drift into an ordinary failure.
+
+    If it did, `run_pipeline` would call `fail_run` instead of `invalidate_run` and
+    the drifted run's mixed-source rows would survive in PostgreSQL.
+    """
+    out = tmp_path / "decomposed.ttl"
+    client = _FakeClient(pages=[[]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+
+    def explode(self: Path, **_kwargs: object) -> None:
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(Path, "unlink", explode)
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(SourceIdentityChangedError) as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    provenance.invalidate_run.assert_awaited_once()
+    provenance.fail_run.assert_not_awaited()
+    assert any("could not be removed" in note for note in exc_info.value.__notes__)
+
+
+@pytest.mark.unit
+async def test_publication_failure_reports_the_completed_unpublished_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rename failure after completion must not read as an unrecorded failure."""
+    out = tmp_path / "decomposed.ttl"
+    client = _FakeClient(pages=[[]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+
+    def explode(self: Path, _target: object) -> None:
+        raise OSError("is a directory")
+
+    monkeypatch.setattr(Path, "replace", explode)
+
+    with pytest.raises(OSError, match="is a directory") as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            client,
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    provenance.finish_run.assert_awaited_once()
+    assert any(
+        "completed but its artifact was not published" in note
+        for note in exc_info.value.__notes__
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("branch", ["", "neo/plasm", "neo\\plasm"])
+def test_run_config_rejects_a_path_unsafe_branch(branch: str) -> None:
+    """`branch` reaches the staging filename through the run id.
+
+    Rejecting it at construction avoids failing only at publication, after the whole
+    worklist has been processed and under a run id that can no longer be resumed.
+    """
+    with pytest.raises(ValueError, match="path separators"):
+        RunConfig(branch=branch)
 
 
 @pytest.mark.unit
