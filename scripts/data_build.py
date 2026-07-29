@@ -4,7 +4,7 @@
 One command to stand ontoprism up on a machine with no fairdata dependency:
 
   pdm run data-build all          # OWL prepare -> caDSR build -> embeddings
-  pdm run data-build owl          # prepare distinct inferred + stated artifacts (#148)
+  pdm run data-build owl          # certify inferred + stated release pair (#180)
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite
   pdm run data-build embeddings --publish  # validate + publish embeddings -> pgvector
 
@@ -61,7 +61,7 @@ from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
-from ontolib.terminologies.ncit.owl_download import download_ncit_owl
+from ontolib.terminologies.ncit.owl_download import download_ncit_owl_pair
 from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
@@ -120,30 +120,34 @@ def _require_stable_cadsr_source(
 
 
 async def _prepare_owl_artifacts() -> dict[str, Path]:
-    """Download inferred/stated artifacts to distinct paths for #148 offline build."""
+    """Download and certify the release-bound pair for offline store construction."""
     settings = get_settings()
     output_dir = Path(settings.ncit_owl_dir)
-    inferred = await download_ncit_owl(
-        output_dir, variant="inferred", base_url=settings.ncit_owl_base_url
+    pair = await download_ncit_owl_pair(
+        output_dir,
+        base_url=settings.ncit_owl_base_url,
+        max_retries=settings.ncit_owl_max_retries,
     )
-    if not inferred.success or inferred.file_path is None:
-        raise RuntimeError(f"NCIt inferred OWL download failed: {inferred.error}")
-    inferred_path = output_dir / "Thesaurus-inferred.owl"
-    shutil.copy2(inferred.file_path, inferred_path)
-    stated = await download_ncit_owl(
-        output_dir, variant="stated", base_url=settings.ncit_owl_base_url
-    )
-    if not stated.success or stated.file_path is None:
-        raise RuntimeError(f"NCIt stated OWL download failed: {stated.error}")
-    stated_path = output_dir / "Thesaurus-stated.owl"
-    shutil.copy2(stated.file_path, stated_path)
-    return {"inferred": inferred_path, "stated": stated_path}
+    if (
+        not pair.success
+        or pair.inferred is None
+        or pair.inferred.file_path is None
+        or pair.stated is None
+        or pair.stated.file_path is None
+        or pair.manifest_path is None
+    ):
+        raise RuntimeError(f"NCIt artifact-pair download failed: {pair.error}")
+    return {
+        "inferred": Path(pair.inferred.file_path),
+        "stated": Path(pair.stated.file_path),
+        "manifest": Path(pair.manifest_path),
+    }
 
 
 async def _build_owl() -> None:
     prepared = await _prepare_owl_artifacts()
     typer.echo(
-        "Prepared NCIt OWL artifacts for #148 offline publication: "
+        "Certified NCIt OWL artifact pair for #181 offline construction: "
         + ", ".join(f"{name}={path}" for name, path in prepared.items())
     )
 
@@ -651,8 +655,10 @@ async def _build_xref_promote(
 
 @app.command()
 def owl() -> None:
-    """Download + prepare distinct inferred and stated NCIt OWL artifacts (#148);
-    online store loading is disabled."""
+    """Download and certify the stated/inferred release pair for #181.
+
+    Online store loading is disabled.
+    """
     asyncio.run(_build_owl())
 
 

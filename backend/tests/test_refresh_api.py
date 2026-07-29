@@ -2,25 +2,20 @@
 
 import sqlite3
 from collections.abc import AsyncIterator, Iterator, Sequence
-from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import OperationalError
 
 from backend.config import get_settings
 from backend.dependencies import (
     get_cadsr_repo,
-    get_embedding_store,
     get_ncit_client,
     get_ncit_search_index,
     get_ncit_store,
 )
 from backend.main import create_app
 from ontolib.core.exceptions import StorageError
-from ontolib.repositories.embeddings.publication import Corpus
 
 
 @pytest.fixture(autouse=True)
@@ -28,24 +23,6 @@ def _clear_settings_cache() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
-
-
-@pytest.mark.api
-def test_reload_rejects_unsupported_extension(app_client: TestClient) -> None:
-    resp = app_client.post(
-        "/api/v1/refresh/ncit/reload", json={"source_path": "data/some-data.csv"}
-    )
-    assert resp.status_code == 400
-    assert "Unsupported" in resp.json()["detail"]
-
-
-@pytest.mark.api
-def test_reload_missing_file_is_404(app_client: TestClient) -> None:
-    resp = app_client.post(
-        "/api/v1/refresh/ncit/reload",
-        json={"source_path": "data/missing-file-xyz-12345.ttl"},
-    )
-    assert resp.status_code == 404
 
 
 class _OkClient:
@@ -152,204 +129,21 @@ def test_refresh_with_failing_cadsr_repo_reports_unhealthy() -> None:
 
 
 @pytest.mark.api
-def test_reload_success_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
-    ttl = tmp_path / "graph.ttl"
-    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
+def test_generic_reload_is_permanently_fail_closed_without_store_access() -> None:
     app = create_app()
-    app.dependency_overrides[get_ncit_client] = _OkClient
-    events: list[str] = []
 
-    class _Embeddings:
-        @asynccontextmanager
-        async def replacing(self, corpus: Corpus):  # type: ignore[no-untyped-def]
-            events.append(f"enter:{corpus.value}")
-            try:
-                yield
-            finally:
-                events.append(f"exit:{corpus.value}")
+    def _store_must_not_be_resolved() -> None:
+        raise AssertionError("retired reload endpoint resolved the NCIt store")
 
-    app.dependency_overrides[get_embedding_store] = _Embeddings
-    with TestClient(app) as client:
-        body = {"source_path": str(ttl), "replace": True}
-        resp = client.post("/api/v1/refresh/ncit/reload", json=body)
-    assert resp.status_code == 200
-    assert resp.json() == {"triples_before": 42, "triples_after": 42}
-    assert events == ["enter:ncit", "exit:ncit"]
-
-
-@pytest.mark.api
-def test_reload_coordination_failure_is_503_without_loading(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
-    ttl = tmp_path / "graph.ttl"
-    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
-    loaded = False
-
-    class _Client(_OkClient):
-        async def load(self, *args: Any, **kwargs: Any) -> None:
-            nonlocal loaded
-            del args, kwargs
-            loaded = True
-
-    class _UnavailableEmbeddings:
-        @asynccontextmanager
-        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
-            raise OperationalError("postgres down", None, Exception())
-            yield
-
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _Client
-    app.dependency_overrides[get_embedding_store] = _UnavailableEmbeddings
+    app.dependency_overrides[get_ncit_client] = _store_must_not_be_resolved
     with TestClient(app) as client:
         response = client.post(
-            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
+            "/api/v1/refresh/ncit/reload",
+            json={"source_path": "data/Thesaurus.owl", "replace": True},
         )
 
-    assert response.status_code == 503
-    assert not loaded
-
-
-@pytest.mark.api
-def test_reload_cleanup_failure_reports_source_changed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
-    ttl = tmp_path / "graph.ttl"
-    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
-    loaded = False
-
-    class _Client(_OkClient):
-        async def load(self, *args: Any, **kwargs: Any) -> None:
-            nonlocal loaded
-            del args, kwargs
-            loaded = True
-
-    class _CleanupFailure:
-        @asynccontextmanager
-        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
-            yield
-            raise OperationalError("unlock failed", None, Exception())
-
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _Client
-    app.dependency_overrides[get_embedding_store] = _CleanupFailure
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
-        )
-
-    assert response.status_code == 500
-    assert "source changed" in response.json()["detail"]
-    assert loaded
-
-
-@pytest.mark.api
-def test_reload_post_load_verification_failure_reports_source_changed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
-    ttl = tmp_path / "graph.ttl"
-    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
-
-    class _Client(_OkClient):
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def count(self) -> int:
-            self.calls += 1
-            if self.calls > 1:
-                raise StorageError("verification failed")
-            return 42
-
-    class _Embeddings:
-        @asynccontextmanager
-        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
-            yield
-
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _Client
-    app.dependency_overrides[get_embedding_store] = _Embeddings
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
-        )
-    assert response.status_code == 502
-    assert "source changed" in response.json()["detail"]
-
-
-@pytest.mark.api
-def test_reload_transport_failure_reports_unknown_mutation_outcome(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
-    ttl = tmp_path / "graph.ttl"
-    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
-
-    class _Client(_OkClient):
-        async def load(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            raise StorageError("response lost after PUT")
-
-    class _Embeddings:
-        @asynccontextmanager
-        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
-            yield
-
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _Client
-    app.dependency_overrides[get_embedding_store] = _Embeddings
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
-        )
-
-    assert response.status_code == 502
-    assert "outcome is unknown" in response.json()["detail"]
-
-
-@pytest.mark.api
-def test_reload_pre_mutation_store_read_failure_is_502_without_loading(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The store is down at the pre-load probe (`count()` before `replacing`): nothing
-    # was mutated, so this is the safe-to-retry 502 "store reload failed" — distinct
-    # from the "outcome is unknown" a failed load raises. Neither the load nor the
-    # embedding replacement lock must be reached.
-    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
-    ttl = tmp_path / "graph.ttl"
-    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
-    loaded = False
-    entered = False
-
-    class _Client:
-        async def count(self) -> int:
-            raise StorageError("store down before load")
-
-        async def load(self, *_args: Any, **_kwargs: Any) -> None:
-            nonlocal loaded
-            loaded = True
-
-    class _Embeddings:
-        @asynccontextmanager
-        async def replacing(self, _corpus: Corpus):  # type: ignore[no-untyped-def]
-            nonlocal entered
-            entered = True
-            yield
-
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _Client
-    app.dependency_overrides[get_embedding_store] = _Embeddings
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
-        )
-
-    assert response.status_code == 502
-    assert "reload failed" in response.json()["detail"].lower()
-    assert not loaded
-    assert not entered
+    assert response.status_code == 410
+    assert "offline" in response.json()["detail"]
 
 
 class _FakeNcitStore:

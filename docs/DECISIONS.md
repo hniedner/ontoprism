@@ -2,6 +2,35 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-29 — NCIt release inputs are one locally certified pair
+
+### D46. Bind stated and inferred artifacts before any offline store construction
+
+EVS publishes the asserted and materialized NCIt variants as separate archives with the
+same ontology IRI and release version but different member names and bytes. The old
+downloader normalized both extracted files to `Thesaurus.owl`, so a sequential download
+overwrote the first artifact. It retained HTTP cache metadata but no content hashes,
+ontology identity, or same-release proof. The refresh API and a library helper could then
+replace default/protected source graphs with a full ontology over Graph Store HTTP, a path
+already known to OOM a memory-limited Oxigraph container (D12).
+
+**Decision:** download the pair to variant-specific archive and OWL paths, stream extraction
+and SHA-256 calculation, require each archive's exact regular OWL member, parse the ontology
+IRI and `owl:versionInfo`, and publish a deterministic pair manifest only when both variants
+match. Persist source URL, HTTP validators, sizes, hashes, ontology identity, variant, and
+artifact/pair identities. Every consumer must revalidate the manifest and its files; missing,
+modified, swapped, ambiguous, stale-manifest, or cross-release inputs fail closed.
+
+`POST /api/v1/refresh/ncit/download` is pair-download/certification only and rejects legacy
+variant/load fields. Generic NCIt reload returns 410, and the former library HTTP loaders
+raise before touching a client. Offline validated sibling-store construction belongs to
+#181; activation remains #148. Small file-backed generated-graph publication streams from
+disk and stays confined to its additive named graph.
+
+**Why:** the pair manifest makes the exact decomposition/query inputs reproducible and
+prevents a plausible but mixed release from reaching a mutation boundary. Removing online
+source replacement also turns D12's operational workaround into an enforceable invariant.
+
 ## 2026-07-26 — caDSR SQLite publishes only from a locally identified release snapshot
 
 ### D45. Build privately, certify the standalone candidate, then atomically replace caDSR
