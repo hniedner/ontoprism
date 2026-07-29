@@ -581,6 +581,46 @@ def isolated_oxigraph_url(
 
 
 @pytest.fixture
+def oxigraph_sibling_store_root(
+    integration_resource_owner: IntegrationResourceOwner,
+) -> Iterator[Path]:
+    """Yield an exact owner-marked workspace path visible to the Docker runtime."""
+    data_root = (_ROOT / "data").resolve()
+    data_root.mkdir(exist_ok=True)
+    invocation = uuid.uuid4().hex
+    expected_name = (
+        f".ontoprism-ncit-sibling-test-{integration_resource_owner.nonce}-{invocation}"
+    )
+    root = data_root / expected_name
+    if root.exists():
+        raise ResourceOwnershipError(
+            f"refusing pre-existing sibling-store integration root: {root}"
+        )
+    root.mkdir(mode=0o700)
+    marker = root / ".ontoprism-test-owner"
+    marker.write_text(integration_resource_owner.nonce + "\n")
+    try:
+        yield root
+    finally:
+        if (
+            root.is_symlink()
+            or root.name != expected_name
+            or root.parent.resolve() != data_root
+            or marker.read_text().strip() != integration_resource_owner.nonce
+        ):
+            raise ResourceOwnershipError(
+                "sibling-store integration root owner identity does not match"
+            )
+        shutil.rmtree(root)
+
+
+@pytest.fixture
+def integration_connection_scope() -> Callable[[str], AbstractContextManager[None]]:
+    """Register only a production runtime's random loopback validation endpoint."""
+    return _CONNECTION_POLICY.registered
+
+
+@pytest.fixture
 def postgres_resource_provisioner() -> Callable[
     [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
 ]:

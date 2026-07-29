@@ -64,7 +64,7 @@ Legacy embedding rows remain inactive until an explicit validated rebuild.
 ## Rebuild-from-scratch (standalone, no fairdata)
 
 `pdm run data-build` stands ontoprism up from public sources with no fairdata
-dependency (issue #7). It has four steps, runnable individually or together:
+dependency (issue #7). It has five steps, runnable individually or together:
 
 ```bash
 # 0. Bring up the empty data services + apply the DB schema.
@@ -72,19 +72,24 @@ pdm run up                      # oxigraph-ncit :7888, postgres :5433
 pdm run migrate                 # pgvector embedding tables + ncit_search FTS cache
 
 # 1. Download, hash, same-release-bind, and revalidate the inferred/stated NCIt pair.
-#    Online full-store loading is disabled. #181 builds a queryable inactive sibling
-#    store offline; #148 owns later serving activation (D12/D46).
+#    Online full-store loading is disabled (D12/D46).
 pdm run data-build owl
-# 2. caDSR CDEs → SQLite. Downloads the released CDE XML and builds cde_repository.db
+
+# 2. Revalidate that pair, bulk-load it with the pinned Oxigraph CLI, and certify a
+#    directly queryable inactive sibling beside NCIT_STORE_DIR. This command never
+#    renames or activates the sibling; #148 owns later serving activation (D47).
+pdm run data-build ncit-store
+
+# 3. caDSR CDEs → SQLite. Downloads the released CDE XML and builds cde_repository.db
 #    (cdes + cde_concepts + the cdes_fts FTS5 index).
 pdm run data-build cadsr
 
-# 3. Inspect all embedding build manifests. This is read-only and exits non-zero rather
+# 4. Inspect all embedding build manifests. This is read-only and exits non-zero rather
 #    than writing implicitly:
 pdm install -G data-build
 pdm run data-build embeddings
 
-# 4. Explicitly build and validate NCIt, then caDSR. Each corpus has its own atomic
+# 5. Explicitly build and validate NCIt, then caDSR. Each corpus has its own atomic
 #    activation; this is intentionally not one cross-corpus transaction, so a caDSR
 #    failure cannot corrupt or roll back accepted NCIt vectors.
 pdm run data-build embeddings --publish
@@ -93,9 +98,18 @@ pdm run data-build embeddings --publish
 pdm run data-build embeddings --publish --corpus ncit
 pdm run data-build embeddings --publish --corpus cadsr
 
-# …or run 1→4 in one explicitly mutating shot:
+# …or run 1→5 in one explicitly mutating shot:
 pdm run data-build all
 ```
+
+`NCIT_STORE_DIR` defaults to `data/oxigraph-ncit`. The sibling builder resolves that
+directory only to choose the same parent filesystem; the active directory is never
+mounted into a loader or validation container. A successful candidate contains
+`.ontoprism-ncit-candidate.json`, which records the artifact-pair identity and hashes,
+release, graph layout, exact counts, loader image ID/digest/CLI version, owner, paths, and
+stable source identity. A rejected candidate contains
+`.ontoprism-ncit-rejected.json` and is not eligible for activation. Keep it for diagnosis
+or remove only after independently verifying its owner marker.
 
 Every manifest records source version/hash, immutable model revision, vector dimension,
 expected unique-row count, code commit, build ID, sentinels, state, and timestamps;
@@ -241,7 +255,8 @@ Notes:
   `Thesaurus-stated.owl`, their distinct cached archives, and
   `ncit-artifact-pair.json`. Revalidate that manifest before use. The *stated* build alone
   expands beyond 700 MB; D12 records why HTTP loading is unsafe, D46 makes the prohibition
-  executable, and #181 owns offline construction of a separate inactive store.
+  executable, and D47 constructs and certifies a separate inactive store with the pinned
+  CLI.
 - The embedding step is heavy (multi-GB model + compute over ~200k concepts + ~80k
   CDEs) and is a batch/offline operation. CI runs deterministic encoders against
   disposable pgvector to prove staged-batch invisibility, failure rollback, validation,

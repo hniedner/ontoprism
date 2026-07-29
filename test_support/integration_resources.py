@@ -463,6 +463,7 @@ def validate_integration_test_declaration(
         "postgres_setup_failure_provisioner",
     }
     oxigraph_fixtures = {
+        "oxigraph_sibling_store_root",
         "isolated_oxigraph_settings",
         "isolated_oxigraph_url",
         "oxigraph_resource_provisioner",

@@ -5,6 +5,7 @@ One command to stand ontoprism up on a machine with no fairdata dependency:
 
   pdm run data-build all          # OWL prepare -> caDSR build -> embeddings
   pdm run data-build owl          # certify inferred + stated release pair (#180)
+  pdm run data-build ncit-store   # build + validate an inactive sibling (#181)
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite
   pdm run data-build embeddings --publish  # validate + publish embeddings -> pgvector
 
@@ -61,10 +62,18 @@ from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
-from ontolib.terminologies.ncit.owl_download import download_ncit_owl_pair
+from ontolib.terminologies.ncit.owl_download import (
+    PAIR_MANIFEST_FILENAME,
+    download_ncit_owl_pair,
+)
 from ontolib.terminologies.ncit.search_index import (
     NcitSearchIndex,
     populate_from_store,
+)
+from ontolib.terminologies.ncit.sibling_store import (
+    DockerOxigraphRuntime,
+    NcitSiblingStoreManifest,
+    build_ncit_sibling_store,
 )
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
@@ -150,6 +159,22 @@ async def _build_owl() -> None:
         "Certified NCIt OWL artifact pair for #181 offline construction: "
         + ", ".join(f"{name}={path}" for name, path in prepared.items())
     )
+
+
+async def _build_ncit_sibling() -> NcitSiblingStoreManifest:
+    """Build one validated, inactive sibling from the current pair manifest."""
+    settings = get_settings()
+    manifest = await build_ncit_sibling_store(
+        Path(settings.ncit_owl_dir) / PAIR_MANIFEST_FILENAME,
+        active_store_path=Path(settings.ncit_store_dir),
+        runtime=DockerOxigraphRuntime(),
+    )
+    typer.echo(
+        "Certified inactive NCIt sibling: "
+        f"candidate={manifest.candidate_path}, "
+        f"source_identity={manifest.source_identity}"
+    )
+    return manifest
 
 
 def _cadsr_sidecars(destination: Path) -> list[Path]:
@@ -668,6 +693,12 @@ def cadsr() -> None:
     _build_cadsr()
 
 
+@app.command(name="ncit-store")
+def ncit_store() -> None:
+    """Build and validate an inactive NCIt sibling; never activate it."""
+    asyncio.run(_build_ncit_sibling())
+
+
 @app.command()
 def embeddings(
     publish: bool = typer.Option(
@@ -725,8 +756,9 @@ def xref_promote(
 
 @app.command(name="all")
 def build_all() -> None:
-    """Run the full build: OWL prepare -> caDSR build -> embeddings."""
+    """Run OWL pair -> inactive sibling -> caDSR -> embeddings."""
     asyncio.run(_build_owl())
+    asyncio.run(_build_ncit_sibling())
     _build_cadsr()
     asyncio.run(_build_embeddings(publish=True, corpus=None, restart=False))
 

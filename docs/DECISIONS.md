@@ -2,6 +2,44 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-29 — NCIt stores are constructed and certified as inactive siblings
+
+### D47. Build on the serving filesystem with the pinned CLI; activation is a separate capability
+
+The same-release artifact proof in D46 does not prove that the inferred file was loaded
+into the default graph, the stated file was loaded into its protected named graph, or the
+resulting RocksDB store is compatible with the serving executable. A hand-built test
+double initially placed `--graph` before the Oxigraph `load` subcommand; the real 0.5.3
+CLI rejected that order, demonstrating again that wrapper tests cannot establish an
+external tool's contract.
+
+**Decision:** `data-build ncit-store` revalidates the D46 pair before creating anything,
+derives a random owner-marked candidate as a sibling of the configured active store, and
+bulk-loads both RDF/XML files with the digest-pinned Oxigraph 0.5.3 image. Inferred goes
+to the default graph and stated to `STATED_GRAPH_IRI`; `--non-atomic` is allowed only
+because this is a private candidate, while `--lenient` is forbidden. The active store
+path is never passed to the loader and no rename or activation operation exists in this
+workflow.
+
+The candidate is temporarily served on a random loopback port and must prove, with
+one-attempt invariant queries: matching release versions; exactly one named graph; bounded
+default/stated counts; a production-shaped `C6135` restriction; bounded restriction
+population; and the same-release stated-only `C14806 owl:deprecated true` differential.
+The persisted manifest binds artifact hashes/pair identity, loader image ID/digest/CLI,
+graph layout, exact observations, owner and paths. Its stable source identity excludes
+owner and paths so independently built copies of identical inputs compare equal.
+Validation container teardown requires independent label, mount, container-ID and file
+owner markers. A failed candidate remains inactive with an explicit rejection marker
+rather than being mistaken for an activatable store.
+
+Real CLI, double-fidelity, malformed-candidate, and complete pinned-build contracts are
+mandatory. Serving activation remains #148 and must consume this proof rather than
+re-deriving it.
+
+**Why:** store construction becomes reproducible and directly query-tested without
+placing a multi-gigabyte ontology on Graph Store HTTP or giving the builder any way to
+replace production.
+
 ## 2026-07-29 — NCIt release inputs are one locally certified pair
 
 ### D46. Bind stated and inferred artifacts before any offline store construction
