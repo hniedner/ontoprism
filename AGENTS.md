@@ -202,8 +202,15 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   5. `pr-review-toolkit:type-design-analyzer` — are the invariants enforced by the types
      or only by the caller's good manners?
 
-  **Run the initial round in parallel; they find different classes of defect and they do
-  not substitute for one another.** On #73 the five caught, respectively: a vacuous
+  **Run the initial round in parallel, with one exception: `pr-test-analyzer` runs
+  ALONE.** It mutates production code to prove a test fails when the code is wrong, so a
+  concurrent reviewer can observe a dirty worktree and review code that is not the
+  committed diff. That invalidates the round's clean-worktree precondition for every
+  agent running beside it. Run the other four in parallel, then `pr-test-analyzer` on its
+  own against the same commit; it must restore every mutation and end with
+  `git status --porcelain` empty. The parallelism otherwise matters because they find
+  different classes of defect and do not substitute for one another. On #73 the five
+  caught, respectively: a vacuous
   satisfiability gate, an environment failure laundered into a verdict, a test double
   that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
   guarantee the merge could not provide, and an invariant enforced only by convention.

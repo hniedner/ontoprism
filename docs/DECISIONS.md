@@ -2,6 +2,28 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-29 — the mutating reviewer runs alone
+
+### D49. `pr-test-analyzer` runs on its own, never beside another reviewer
+
+The mandatory pre-PR review requires a clean worktree and a review of the committed
+`main...HEAD` diff. `pr-test-analyzer` earns its verdicts by mutating production code to
+prove a test fails when the code is wrong. Running it in parallel with the other four
+therefore breaks their precondition. Observed on PR #236 round 3: three reviewers
+independently reported a dirty worktree and an out-of-band mint-proposal promotion inside
+`finish_run` that no commit contained. It was the test analyst's mutation, reverted
+within a minute, but each of the three had to spend its round establishing that the code
+it was reading was not the code under review, and one filed it as a Critical finding.
+
+**Decision:** run the other four reviewers in parallel, then `pr-test-analyzer` alone
+against the same commit. It must restore every mutation and finish with
+`git status --porcelain` empty. Convergence bookkeeping is unchanged.
+
+**Why:** a reviewer that cannot trust the worktree cannot produce a verdict about the
+diff, and a mutation observed by a bystander looks exactly like a real defect. Serializing
+the one agent that writes costs a single extra round-trip and removes a whole class of
+false Critical findings — cheaper than re-running the four it disturbs.
+
 ## 2026-07-29 — decomposition runs are exact source-bound state machines
 
 ### D48. Materialize the worklist and fence every persisted concept result
