@@ -922,7 +922,12 @@ async def replacing_corpus_source(
     session_factory: async_sessionmaker[AsyncSession], corpus: Corpus
 ) -> AsyncIterator[None]:
     """Acquire a per-corpus session lock, commit deactivation, then hold that lock
-    across source replacement."""
+    across source replacement.
+
+    Deliberately retained without a production caller: #180 removed the HTTP source
+    replacement that used to call it, and #148's journaled activation must pause
+    source-dependent embedding publication through exactly this coordination (D42).
+    """
     engine = session_factory.kw.get("bind")
     if not isinstance(engine, AsyncEngine):
         raise TypeError("embedding session factory must be bound to an AsyncEngine")

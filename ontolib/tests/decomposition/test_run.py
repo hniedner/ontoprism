@@ -1347,6 +1347,106 @@ async def test_failed_completion_leaves_no_publishable_artifact(
 
 
 @pytest.mark.unit
+async def test_surviving_partial_results_are_reported_on_the_raised_error() -> None:
+    """`invalidate_run` returning False means the drifted rows were NOT discarded.
+
+    Dropping that result would leave the operator with only a drift error and no
+    indication that mixed-source constituents are still in PostgreSQL.
+    """
+    client = _FakeClient(pages=[[]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    provenance.invalidate_run = AsyncMock(return_value=False)
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(SourceIdentityChangedError) as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    assert any(
+        "Partial results were NOT discarded" in note
+        for note in exc_info.value.__notes__
+    )
+
+
+@pytest.mark.unit
+async def test_unrecorded_run_failure_is_reported_on_the_raised_error() -> None:
+    """A run in some other terminal state means the failure was never recorded."""
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    provenance.fail_run = AsyncMock(return_value=False)
+
+    async def fail_labels(_codes: list[str]) -> dict[str, str]:
+        raise RuntimeError("label store unavailable")
+
+    with pytest.raises(RuntimeError, match="label store unavailable") as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+            get_labels=fail_labels,
+        )
+
+    assert any("was NOT recorded" in note for note in exc_info.value.__notes__)
+
+
+@pytest.mark.unit
+async def test_non_positive_total_limit_is_rejected_before_a_run_exists() -> None:
+    """``total_limit=0`` would materialize a run that instantly "completes" over zero
+    concepts and report 0% coverage as a real result."""
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+
+    with pytest.raises(ValueError, match="total_limit must be greater than zero"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+            total_limit=0,
+        )
+
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_duplicate_enumerated_codes_are_rejected_before_a_run_exists() -> None:
+    """A duplicated code would make the worklist and its fingerprint disagree."""
+    client = _FakeClient(pages=[["C1", "C1"]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="duplicate concept codes"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
 def test_run_config_rejects_load_without_output_path() -> None:
     """``load_to_store`` without ``out`` would persist "loaded a file never written"."""
     with pytest.raises(ValueError, match="load_to_store requires an output path"):

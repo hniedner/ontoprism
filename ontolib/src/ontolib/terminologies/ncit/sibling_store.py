@@ -784,11 +784,9 @@ def _candidate_artifact(
     record: OwlArtifactRecord,
     variant: Literal["stated", "inferred"],
 ) -> CandidateArtifact:
-    if record.variant != variant:
-        raise SiblingStoreValidationError(
-            f"NCIt artifact variants are swapped: expected {variant}, "
-            f"record declares {record.variant}"
-        )
+    # No variant check here: `validate_ncit_owl_pair` is the only way a pair reaches
+    # this function and it already refuses a swapped record, so a guard here could
+    # never fire. Revalidation re-checks both fields, where tampering *is* reachable.
     return CandidateArtifact(
         variant=variant,
         path=record.file_path,
@@ -918,7 +916,8 @@ async def build_ncit_sibling_store(
 ) -> NcitSiblingStoreManifest:
     """Build and certify an inactive candidate beside the configured active store."""
     pair = validate_ncit_owl_pair(pair_manifest_path)
-    owner = owner or uuid4().hex
+    if owner is None:
+        owner = uuid4().hex
     _validate_owner(owner)
     active = active_store_path.resolve()
     if not active.is_dir():

@@ -20,6 +20,7 @@ from scripts.data_build import (
     _build_owl,
     _code_commit,
     _dispose_cadsr_engine,
+    _prepare_owl_artifacts,
     _require_ncit_source,
     _require_stable_cadsr_source,
     _require_stable_ncit_source,
@@ -216,10 +217,47 @@ async def test_owl_candidates_are_prepared_to_distinct_paths(
         ),
     )
     monkeypatch.setattr("scripts.data_build.download_ncit_owl_pair", download)
-    await _build_owl()
 
-    assert inferred.read_text() == "inferred"
-    assert stated.read_text() == "stated"
+    prepared = await _prepare_owl_artifacts()
+
+    assert prepared == {
+        "inferred": inferred,
+        "stated": stated,
+        "manifest": tmp_path / "ncit-artifact-pair.json",
+    }
+    assert prepared["inferred"] != prepared["stated"]
+
+
+@pytest.mark.unit
+async def test_owl_preparation_refuses_a_pair_missing_an_extracted_path(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """A "successful" pair without both extracted OWL paths must not be usable."""
+
+    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(
+            success=True,
+            inferred=SimpleNamespace(file_path=str(tmp_path / "inferred.owl")),
+            stated=SimpleNamespace(file_path=None),
+            manifest_path=str(tmp_path / "ncit-artifact-pair.json"),
+            error=None,
+        )
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            ncit_owl_dir=str(tmp_path),
+            ncit_owl_base_url="http://example.invalid",
+            ncit_owl_max_retries=0,
+            database_url="postgresql+asyncpg://unused",
+            ncit_sparql_url="http://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl_pair", download)
+
+    with pytest.raises(RuntimeError, match="artifact-pair download failed"):
+        await _prepare_owl_artifacts()
 
 
 @pytest.mark.unit

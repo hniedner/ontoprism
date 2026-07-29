@@ -274,6 +274,8 @@ async def test_candidate_manifest_revalidation_rejects_identity_or_owner_drift(
         ("marker", "owner marker"),
         ("loader", "loader identity"),
         ("layout", "graph layout"),
+        ("stated-variant", "variants are swapped"),
+        ("inferred-variant", "variants are swapped"),
     ],
 )
 async def test_candidate_manifest_revalidation_rejects_proof_drift(
@@ -305,6 +307,12 @@ async def test_candidate_manifest_revalidation_rejects_proof_drift(
         (path.parent / OWNER_MARKER_FILENAME).unlink()
     elif mutation == "loader":
         document["loader"]["image"] = "example.invalid/oxigraph@sha256:" + "0" * 64
+        path.write_text(json.dumps(document))
+    elif mutation == "stated-variant":
+        document["stated_artifact"]["variant"] = "inferred"
+        path.write_text(json.dumps(document))
+    elif mutation == "inferred-variant":
+        document["inferred_artifact"]["variant"] = "stated"
         path.write_text(json.dumps(document))
     else:
         document["graph_layout"]["default_graph"] = "stated"
@@ -366,18 +374,19 @@ async def test_rejected_candidate_is_never_revalidatable(tmp_path: Path) -> None
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "policy_fields",
+    ("policy_fields", "message"),
     [
-        {"min_default_triples": 140, "max_default_triples": 100},
-        {"min_stated_triples": 0},
-        {"min_restrictions": 30, "max_restrictions": 20},
+        ({"min_default_triples": 140, "max_default_triples": 100}, "exceeds max_"),
+        ({"min_stated_triples": 0}, "must be positive"),
+        ({"min_restrictions": 30, "max_restrictions": 20}, "exceeds max_"),
     ],
 )
 def test_validation_policy_rejects_bounds_that_can_never_gate(
     policy_fields: dict[str, int],
+    message: str,
 ) -> None:
     """Inverted or non-positive bounds would make the count gates vacuous."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match=message):
         CandidateValidationPolicy(**policy_fields)
 
 

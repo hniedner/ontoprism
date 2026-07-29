@@ -115,11 +115,11 @@ async def _never_resolves(_: str) -> str | None:
 class RunConfig:
     """Configuration for a decomposition run.
 
-    ``load_to_store`` is accepted here for the CLI to carry alongside the rest of the
-    config, but ``run_pipeline`` never reads it: loading into the store is a CLI-layer
-    concern performed by the caller after ``run_pipeline`` returns (see the module
-    docstring). Equivalence emission is quarantined until #153 provides a
-    proof-bearing representation.
+    ``load_to_store`` never causes ``run_pipeline`` to load anything: loading is a
+    CLI-layer concern performed by the caller after ``run_pipeline`` returns (see the
+    module docstring). It is read only to record ``load_mode`` in the immutable run
+    fingerprint, which is why it must agree with ``out``. Equivalence emission is
+    quarantined until #153 provides a proof-bearing representation.
     """
 
     branch: str
@@ -563,7 +563,11 @@ async def _load_pending_run_data(
         return pending, await _fetch_labels(get_labels, pending)
     except BaseException as exc:
         try:
-            await provenance.fail_run(run_id, exc)
+            if not await provenance.fail_run(run_id, exc):
+                exc.add_note(
+                    f"Run setup failure was NOT recorded: run {run_id!r} holds a "
+                    "terminal state other than 'failed'."
+                )
         except BaseException as failure_error:
             exc.add_note(
                 "Recording the run setup failure also failed: "
@@ -683,15 +687,15 @@ async def _process_pending_work(
         )
 
 
-async def _finish_run(
+async def _reconstructed_metrics(
     setup: _RunSetup,
     config: RunConfig,
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     *,
-    get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
-) -> RunMetrics:
+) -> tuple[RunMetrics, list[Decomposition]]:
+    """Rebuild metrics cumulatively from the full persisted worklist."""
     decompositions = await provenance.decompositions_for_run(setup.run_id)
     counts = await provenance.outcome_counts(setup.run_id)
     metrics = RunMetrics(
@@ -710,21 +714,64 @@ async def _finish_run(
         decompositions, precoordinated_fillers=precoordinated
     )
     metrics.pct_decomposed = metrics.coverage
-    out = config.out
-    staging: Path | None = None
-    if out is not None:
-        # Render to an unpublished staging sibling: the artifact must not appear at
-        # the operator's path unless the source identity still holds *and* the run
-        # completed, otherwise a drifted (mixed-source) run leaves a complete-looking
-        # TTL behind after its rows are invalidated.
-        staging = out.with_name(f".{out.name}.staging-{setup.run_id}")
-        await write_ttl(
-            decompositions,
-            dest=staging,
-            run_id=setup.run_id,
-            emitted_on=setup.fingerprint.emitted_at.date(),
-        )
+    return metrics, decompositions
+
+
+def _publication_paths(config: RunConfig, run_id: str) -> tuple[Path, Path] | None:
+    """Pair the unpublished staging path with its destination, or neither.
+
+    One correlated value: a staging path without a destination (or the reverse) is
+    not representable, so publication cannot be silently skipped.
+    """
+    if config.out is None:
+        return None
+    return config.out.with_name(f".{config.out.name}.staging-{run_id}"), config.out
+
+
+def _discard_staging(staging: Path, exc: BaseException) -> None:
+    """Remove an unpublished artifact without ever replacing the original error.
+
+    Letting an ``OSError`` escape here would hide a ``SourceIdentityChangedError``
+    and route the run to ``fail_run`` instead of ``invalidate_run``.
+    """
     try:
+        staging.unlink(missing_ok=True)
+    except OSError as cleanup_error:
+        exc.add_note(
+            f"Unpublished staging artifact {staging} could not be removed: "
+            f"{cleanup_error}"
+        )
+
+
+async def _finish_run(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    get_source_snapshot: GetSourceSnapshot,
+    get_labels: GetLabels | None,
+) -> RunMetrics:
+    metrics, decompositions = await _reconstructed_metrics(
+        setup,
+        config,
+        client,
+        provenance,
+        get_labels=get_labels,
+    )
+    publication = _publication_paths(config, setup.run_id)
+    try:
+        if publication is not None:
+            # Render to an unpublished staging sibling: the artifact must not appear
+            # at the operator's path unless the source identity still holds *and* the
+            # run completed, otherwise a drifted (mixed-source) run leaves a
+            # complete-looking TTL behind after its rows are invalidated.
+            await write_ttl(
+                decompositions,
+                dest=publication[0],
+                run_id=setup.run_id,
+                emitted_on=setup.fingerprint.emitted_at.date(),
+            )
         await _require_source_snapshot(
             client,
             get_source_snapshot,
@@ -740,12 +787,12 @@ async def _finish_run(
                 f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
                 f"(branch={config.branch!r})"
             )
-    except BaseException:
-        if staging is not None:
-            staging.unlink(missing_ok=True)
+    except BaseException as exc:
+        if publication is not None:
+            _discard_staging(publication[0], exc)
         raise
-    if out is not None and staging is not None:
-        staging.replace(out)
+    if publication is not None:
+        publication[0].replace(publication[1])
     return metrics
 
 
@@ -812,8 +859,8 @@ async def run_pipeline(
                 recorded = await provenance.fail_run(setup.run_id, exc)
                 if not recorded:
                     exc.add_note(
-                        f"Run failure was NOT recorded: run {setup.run_id!r} was "
-                        "no longer 'running'."
+                        f"Run failure was NOT recorded: run {setup.run_id!r} holds "
+                        "a terminal state other than 'failed'."
                     )
         except BaseException as failure_error:
             exc.add_note(

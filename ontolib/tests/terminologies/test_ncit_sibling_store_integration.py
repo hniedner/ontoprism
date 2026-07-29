@@ -174,9 +174,11 @@ def _authored_observation() -> CandidateObservation:
     - exactly one named graph exists, and its count equals ``stated_triples``.
     - ``owl:versionInfo`` binds uniquely in each graph.
 
-    The unit suite's ``_Runtime`` double encodes these same beliefs. If any of them is
-    false, this test fails and names the wrong belief instead of leaving ~25 unit
-    tests green against a fiction.
+    Scope of the guarantee: the unit suite's ``_Runtime`` double shares only the
+    *structural* beliefs pinned here — one named graph, that it is
+    ``STATED_GRAPH_IRI``, a unique version per graph, the required restriction, and
+    the stated-only sentinel asymmetry. Its triple and restriction counts are
+    synthetic values over a different fixture and are **not** covered by this test.
     """
     return CandidateObservation(
         default_triples=3,

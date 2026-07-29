@@ -134,8 +134,9 @@ before processing. `--resume RUN_ID` accepts only the same source, branch, scope
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
 drift before completion fails closed and invalidates every persisted result row. The
 `--out` TTL is staged and moved into place only after that check and completion succeed,
-so a drifted run leaves no artifact behind. Graph publication with `--load` is a later,
-separate boundary (#147).
+so a drifted run leaves no artifact behind. `--load` publishes the finished TTL into
+the additive `ncit_decomposed` named graph after the run; that publication is outside
+the run's transactional guarantees and its full design is #147.
 
 Every manifest records source version/hash, immutable model revision, vector dimension,
 expected unique-row count, code commit, build ID, sentinels, state, and timestamps;

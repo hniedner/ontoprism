@@ -22,30 +22,44 @@ from ontolib.terminologies.ncit.owl_download import (
 _ONTOLOGY_IRI = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl"
 
 
-def _owl(version: str) -> bytes:
+def _owl(version: str, iri: str = _ONTOLOGY_IRI) -> bytes:
     return f"""<?xml version="1.0"?>
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
          xmlns:owl="http://www.w3.org/2002/07/owl#">
-  <owl:Ontology rdf:about="{_ONTOLOGY_IRI}">
+  <owl:Ontology rdf:about="{iri}">
     <owl:versionInfo>{version}</owl:versionInfo>
   </owl:Ontology>
 </rdf:RDF>
 """.encode()
 
 
-def _zip(member: str, payload: bytes) -> bytes:
+def _zip(member: str, payload: bytes, *, external_attr: int | None = None) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr(member, payload)
+        info = zipfile.ZipInfo(member)
+        if external_attr is not None:
+            info.external_attr = external_attr
+        archive.writestr(info, payload)
     return buffer.getvalue()
 
 
 def _serve_pair(
-    *, stated_version: str = "26.07d", inferred_version: str = "26.07d"
+    *,
+    stated_version: str = "26.07d",
+    inferred_version: str = "26.07d",
+    stated_iri: str = _ONTOLOGY_IRI,
+    inferred_iri: str = _ONTOLOGY_IRI,
+    stated_body: bytes | None = None,
 ) -> tuple[ThreadingHTTPServer, str]:
     bodies = {
-        "/Thesaurus.OWL.zip": _zip("Thesaurus.owl", _owl(stated_version)),
-        "/ThesaurusInf.OWL.zip": _zip("ThesaurusInferred.owl", _owl(inferred_version)),
+        "/Thesaurus.OWL.zip": (
+            stated_body
+            if stated_body is not None
+            else _zip("Thesaurus.owl", _owl(stated_version, stated_iri))
+        ),
+        "/ThesaurusInf.OWL.zip": _zip(
+            "ThesaurusInferred.owl", _owl(inferred_version, inferred_iri)
+        ),
     }
 
     class _Handler(BaseHTTPRequestHandler):
@@ -106,6 +120,41 @@ async def test_pair_rejects_release_mismatch_without_manifest(tmp_path: Path) ->
 
     assert pair.success is False
     assert "version" in (pair.error or "").lower()
+    assert not (tmp_path / "ncit-artifact-pair.json").exists()
+
+
+@pytest.mark.unit
+async def test_pair_rejects_ontology_iri_mismatch(tmp_path: Path) -> None:
+    """Same release string is not proof of the same ontology."""
+    server, base_url = _serve_pair(
+        inferred_iri="http://example.invalid/other/Thesaurus.owl"
+    )
+    try:
+        pair = await download_ncit_owl_pair(tmp_path, base_url=base_url, max_retries=0)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert pair.success is False
+    assert "ontology iri" in (pair.error or "").lower()
+    assert not (tmp_path / "ncit-artifact-pair.json").exists()
+
+
+@pytest.mark.unit
+async def test_pair_rejects_a_non_regular_owl_member(tmp_path: Path) -> None:
+    """A symlink member would stream its target path as the OWL body."""
+    symlink_attr = (0o120000 | 0o644) << 16
+    server, base_url = _serve_pair(
+        stated_body=_zip("Thesaurus.owl", b"/etc/passwd", external_attr=symlink_attr)
+    )
+    try:
+        pair = await download_ncit_owl_pair(tmp_path, base_url=base_url, max_retries=0)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert pair.success is False
+    assert "regular owl member" in (pair.error or "").lower()
     assert not (tmp_path / "ncit-artifact-pair.json").exists()
 
 

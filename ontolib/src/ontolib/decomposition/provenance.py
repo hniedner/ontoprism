@@ -193,13 +193,23 @@ class ProvenanceStore:
                 _json.dumps(raw, sort_keys=True)
             )
         except ValidationError as exc:
-            # Rows written before the exact-run schema (migration 0008 backfills them
-            # as failed with a schema_version 0 fingerprint) are not resumable. Raise
-            # the domain error so the caller records a run failure instead of letting
-            # a raw ValidationError escape the pipeline's handler.
+            # Migration 0008 stamps every pre-exact-run row with a schema_version 0
+            # fingerprint and a zero identity, and demotes any non-complete run to
+            # 'failed'. Distinguish that expected shape from a fingerprint that is
+            # corrupt or was modified outside the pipeline: reporting the latter as a
+            # benign migration artifact would send an operator to close the ticket.
+            legacy = (
+                isinstance(raw, dict)
+                and raw.get("schema_version") == 0
+                and persisted_identity == "0" * 64
+            )
+            detail = (
+                "predates the exact-run schema"
+                if legacy
+                else "is corrupt or was modified outside the pipeline"
+            )
             raise RunIdentityMismatchError(
-                "persisted run fingerprint predates the exact-run schema "
-                "and cannot be resumed"
+                f"persisted run fingerprint {detail}"
             ) from exc
         if fingerprint.identity != persisted_identity:
             raise RunIdentityMismatchError(
@@ -420,8 +430,13 @@ class ProvenanceStore:
         claim_token: UUID,
         error: BaseException,
     ) -> None:
-        """Record bounded failure metadata after the processing transaction rolls
-        back."""
+        """Record bounded item failure and demote the enclosing run, in one
+        transaction.
+
+        Runs after the processing transaction has rolled back. Because the run leaves
+        ``running``, no further work item can be claimed and ``finish_run`` refuses
+        until the run is resumed.
+        """
         error_type, error_message = _bounded_failure(error)
         failed_at = datetime.datetime.now(datetime.UTC)
         async with self._sf() as session, session.begin():
@@ -459,7 +474,14 @@ class ProvenanceStore:
             )
 
     async def fail_run(self, run_id: str, error: BaseException) -> bool:
-        """Leave a running source-bound run visibly failed with bounded metadata."""
+        """Leave a source-bound run visibly failed with bounded metadata.
+
+        Returns whether the run is recorded as failed once this call returns, not
+        whether this call performed the write: ``fail_work_item`` already demotes the
+        enclosing run, so an ordinary work-item failure reaches here with the run
+        already ``failed`` and correctly recorded. ``False`` therefore means the run
+        genuinely holds some other terminal state and no failure was recorded.
+        """
         error_type, error_message = _bounded_failure(error)
         async with self._sf() as session, session.begin():
             result = await session.execute(
@@ -475,7 +497,15 @@ class ProvenanceStore:
                     "error_message": error_message,
                 },
             )
-            return bool(cast("int", result.rowcount))  # type: ignore[attr-defined]
+            if cast("int", result.rowcount):  # type: ignore[attr-defined]
+                return True
+            current = await session.execute(
+                text("SELECT status FROM decomp_run WHERE id = :run_id"),
+                {"run_id": run_id},
+            )
+            # fail_work_item already demotes the enclosing run, so an ordinary
+            # work-item failure lands here with the failure correctly recorded.
+            return current.scalar() == "failed"
 
     async def invalidate_run(self, run_id: str, error: BaseException) -> bool:
         """Discard every persisted result after a source-identity violation.
@@ -675,7 +705,12 @@ class ProvenanceStore:
         source_identity: str,
         metrics: dict[str, object],
     ) -> bool:
-        """Complete only the matching run after every exact work item completed."""
+        """Complete only the matching run after every exact work item completed.
+
+        The same transaction promotes the run's mint proposals into the global
+        ``minted_concept`` curator queue (D48: proposals become curator-visible only
+        on success).
+        """
         async with self._sf() as session, session.begin():
             locked = await session.execute(
                 text(
@@ -715,6 +750,10 @@ class ProvenanceStore:
                     "(id, run_id, axis, label, source_signal, status) "
                     "SELECT proposal_id, run_id, axis, label, source_signal, status "
                     "FROM decomp_minted_proposal WHERE run_id = :id "
+                    # Insert-or-ignore, never insert-or-update: a rerun re-mints the
+                    # same deterministic proposal id with status='proposed', and
+                    # promotion must never clobber a curator's earlier approve or
+                    # reject decision (design section 7.2).
                     "ON CONFLICT (id) DO NOTHING"
                 ),
                 {"id": run_id},

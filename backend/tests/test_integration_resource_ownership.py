@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import ast
 import fcntl
+import inspect
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import tomllib
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,6 +20,8 @@ import pytest
 import yaml
 from scripts.test_runner import suites
 from test_support.integration_resources import (
+    _PERSISTENT_SQL,
+    _REPOSITORY_WRITES,
     DockerRun,
     IntegrationConnectionPolicy,
     IntegrationResourceOwner,
@@ -33,6 +37,9 @@ from test_support.integration_resources import (
     validate_mutator_manifest_entries,
     validate_mutator_manifest_files,
 )
+
+from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.repositories.xref.store import XrefStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -227,6 +234,31 @@ def test_safe_lane_separates_provisioning_credentials_from_application_targets(
     assert environment["NCIT_OWL_DIR"] == str(data_root / "ncit-owl")
     assert environment["NCIT_STORE_DIR"] == str(data_root / "oxigraph-ncit")
     assert environment["ONTOPRISM_SAFE_INTEGRATION"] == "1"
+
+
+@pytest.mark.unit
+def test_every_persistent_store_writer_is_declared_a_repository_write() -> None:
+    """The mutating-test detector must not silently drift behind the write surface.
+
+    ``_REPOSITORY_WRITES`` is matched by method name against test source, so a new
+    writer that is missing from it makes a mutating integration test look read-only
+    and exempts it from the disposable-fixture requirement. Derive the expected set
+    from the stores themselves instead of trusting the literal to stay current.
+    """
+    undeclared: list[str] = []
+    for store in (ProvenanceStore, XrefStore):
+        for name, member in vars(store).items():
+            if name.startswith("_") or not callable(member):
+                continue
+            source = textwrap.dedent(inspect.getsource(member))
+            if _PERSISTENT_SQL.search(source) and name not in _REPOSITORY_WRITES:
+                undeclared.append(f"{store.__name__}.{name}")
+
+    assert undeclared == [], (
+        "these store methods execute persistent SQL but are not in "
+        f"_REPOSITORY_WRITES, so a test calling only them would be treated as "
+        f"non-mutating: {undeclared}"
+    )
 
 
 @pytest.mark.unit

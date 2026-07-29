@@ -43,7 +43,9 @@ _REPOSITORY_WRITES: Final = frozenset(
         "rebuild",
         "resume_run",
         "run_pipeline",
+        "update_run_metrics",
         "upsert_records",
+        "upsert_run",
     }
 )
 _OXIGRAPH_IMAGE = (

@@ -15,13 +15,11 @@ from sqlalchemy import text
 from ontolib.repositories.embeddings.publication import (
     Corpus,
     CorpusUnavailableError,
-    replacing_corpus_source,
 )
 
 _TABLE = {Corpus.NCIT: "ncit_concepts", Corpus.CADSR: "cde_repository"}
 
 if TYPE_CHECKING:
-    from contextlib import AbstractAsyncContextManager
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -117,7 +115,3 @@ class EmbeddingStore:
             raise CorpusUnavailableError(
                 f"active {corpus.value} embedding corpus changed during request"
             )
-
-    def replacing(self, corpus: Corpus) -> AbstractAsyncContextManager[None]:
-        """Commit invalidation and serialize publication during source replacement."""
-        return replacing_corpus_source(self._sf, corpus)

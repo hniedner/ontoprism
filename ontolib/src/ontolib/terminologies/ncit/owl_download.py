@@ -183,8 +183,8 @@ async def probe_owl_version(url: str) -> OwlVersionInfo:
     )
 
 
-# A valid archive that simply lacks a .owl member — re-downloading the same URL
-# would return the same archive, so this is terminal, not retryable.
+# A content/identity verdict, never a transport failure: re-fetching the same URL
+# yields the same bytes, so callers treat it as terminal rather than retryable.
 class OwlContentError(StorageError):
     """An NCIt artifact or artifact pair cannot be safely identified."""
 

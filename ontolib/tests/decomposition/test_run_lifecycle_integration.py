@@ -717,6 +717,127 @@ async def test_non_running_run_rejects_claims_and_completions() -> None:
         await dispose_engine(engine)
 
 
+async def test_failed_run_cannot_be_finished_or_promote_its_proposals() -> None:
+    """`fail_run` leaves proposals in place, so `finish_run` must refuse the run.
+
+    Unlike `invalidate_run`, failing a run does not delete `decomp_minted_proposal`
+    rows. A worker racing an operator stop would otherwise promote them into the
+    global curator queue permanently while the run still reports as failed.
+    """
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        for code in ("C0", "C1"):
+            claim = await store.claim_work_item(run_id, code)
+            assert claim is not None
+            await store.complete_work_item(
+                run_id,
+                code,
+                claim,
+                decomposition=Decomposition(
+                    code=code,
+                    semantic_type="Neoplastic Process",
+                    constituents=[
+                        Constituent(
+                            axis="op:Laterality",
+                            filler_code=f"MINT-{code}",
+                            axis_source="nlp",
+                        )
+                    ],
+                ),
+                minted=(MintedConcept(axis="op:Laterality", label=f"minted {code}"),),
+            )
+
+        await store.fail_run(run_id, RuntimeError("operator stopped the run"))
+
+        with pytest.raises(RunStateError, match="not running"):
+            await store.finish_run(run_id, source_identity="a" * 64, metrics={})
+
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM minted_concept WHERE run_id = $1", run_id
+            )
+            == 0
+        )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_fingerprint_that_does_not_hash_to_its_identity_is_rejected() -> None:
+    """The SHA-256 binding is what ties the fingerprint blob to the run's identity.
+
+    `RunResumeIdentity` omits `worklist`, and the worklist check compares against the
+    *persisted* fingerprint, so without this binding a tampered fingerprint plus
+    matching tampered work items would resume and finish cleanly.
+    """
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    fingerprint = _fingerprint()
+    try:
+        await conn.execute(
+            "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
+            "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
+            "error_type, error_message) VALUES "
+            "($1, 'neoplasm', 'failed', '26.07d', now(), $2, $3::jsonb, "
+            "repeat('0', 64), $4, 'Boom', 'injected')",
+            run_id,
+            fingerprint.source_identity,
+            fingerprint.model_dump_json(),
+            fingerprint.emitted_at,
+        )
+
+        with pytest.raises(RunIdentityMismatchError, match="SHA-256"):
+            await store.resume_run(
+                run_id,
+                RunResumeIdentity.from_fingerprint(fingerprint),
+            )
+        with pytest.raises(RunIdentityMismatchError, match="SHA-256"):
+            await store.finish_run(
+                run_id,
+                source_identity=fingerprint.source_identity,
+                metrics={},
+            )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_permuted_worklist_order_is_rejected_on_resume() -> None:
+    """Order is part of the worklist identity: it fixes the processing sequence.
+
+    A membership-only check would let permuted ordinals through, changing processing
+    order and the emitted TTL while still claiming fresh/resumed equivalence.
+    """
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        await conn.execute(
+            "UPDATE decomp_work_item SET ordinal = 3 - ordinal WHERE run_id = $1",
+            run_id,
+        )
+
+        with pytest.raises(RunIdentityMismatchError, match="worklist"):
+            await store.resume_run(
+                run_id,
+                RunResumeIdentity.from_fingerprint(_fingerprint()),
+            )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_legacy_fingerprint_rows_fail_closed_on_resume() -> None:
     """Migration 0008 backfills pre-exact runs; resuming one must be a domain error.
 
