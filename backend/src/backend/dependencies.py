@@ -80,19 +80,8 @@ class NcitStatusClient(Protocol):
     async def version(self) -> str | None: ...
 
 
-class NcitAdminClient(NcitStatusClient, Protocol):
-    async def load(
-        self,
-        data: bytes,
-        *,
-        content_type: str,
-        replace: bool = True,
-    ) -> None: ...
-
-
 NcitStore = Annotated[NcitGraphStore, Depends(get_ncit_store)]
 NcitStatus = Annotated[NcitStatusClient, Depends(get_ncit_client)]
-NcitAdmin = Annotated[NcitAdminClient, Depends(get_ncit_client)]
 DecompositionReads = Annotated[DecompositionReader, Depends(get_decomposition_reader)]
 CadsrRepo = Annotated[CdeRepository, Depends(get_cadsr_repo)]
 Embeddings = Annotated[EmbeddingStore, Depends(get_embedding_store)]

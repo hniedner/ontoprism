@@ -158,37 +158,31 @@ def test_code_commit_requires_clean_repo_and_returns_exact_head(tmp_path) -> Non
 
 
 @pytest.mark.unit
-async def test_owl_preparation_propagates_a_failed_stated_download(
+async def test_owl_preparation_propagates_a_failed_pair_download(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
-    inferred = tmp_path / "Thesaurus.owl"
-    inferred.write_text("inferred")
-    calls = 0
-
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return SimpleNamespace(success=True, file_path=str(inferred), error=None)
-        return SimpleNamespace(success=False, file_path=None, error="stated failed")
+        return SimpleNamespace(
+            success=False, stated=None, inferred=None, error="pair failed"
+        )
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
         lambda: SimpleNamespace(
             ncit_owl_dir=str(tmp_path),
             ncit_owl_base_url="http://example.invalid",
+            ncit_owl_max_retries=0,
             database_url="postgresql+asyncpg://unused",
             ncit_sparql_url="http://unused",
         ),
     )
-    monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl_pair", download)
 
-    with pytest.raises(RuntimeError, match="stated failed"):
+    with pytest.raises(RuntimeError, match="pair failed"):
         await _build_owl()
 
-    # A failed stated download halts before the stated candidate is written.
-    assert not (tmp_path / "Thesaurus-stated.owl").exists()
+    assert not (tmp_path / "ncit-artifact-pair.json").exists()
 
 
 @pytest.mark.unit
@@ -200,26 +194,31 @@ async def test_owl_candidates_are_prepared_to_distinct_paths(
     stated = tmp_path / "downloaded-stated.owl"
     inferred.write_text("inferred")
     stated.write_text("stated")
-    downloads = iter((inferred, stated))
 
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        path = next(downloads)
-        return SimpleNamespace(success=True, file_path=str(path), error=None)
+        return SimpleNamespace(
+            success=True,
+            inferred=SimpleNamespace(file_path=str(inferred)),
+            stated=SimpleNamespace(file_path=str(stated)),
+            manifest_path=str(tmp_path / "ncit-artifact-pair.json"),
+            error=None,
+        )
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
         lambda: SimpleNamespace(
             ncit_owl_dir=str(tmp_path),
             ncit_owl_base_url="http://example.invalid",
+            ncit_owl_max_retries=0,
             database_url="postgresql+asyncpg://unused",
             ncit_sparql_url="http://unused",
         ),
     )
-    monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl_pair", download)
     await _build_owl()
 
-    assert (tmp_path / "Thesaurus-inferred.owl").read_text() == "inferred"
-    assert (tmp_path / "Thesaurus-stated.owl").read_text() == "stated"
+    assert inferred.read_text() == "inferred"
+    assert stated.read_text() == "stated"
 
 
 @pytest.mark.unit

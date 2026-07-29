@@ -71,9 +71,9 @@ dependency (issue #7). It has four steps, runnable individually or together:
 pdm run up                      # oxigraph-ncit :7888, postgres :5433
 pdm run migrate                 # pgvector embedding tables + ncit_search FTS cache
 
-# 1. Prepare distinct inferred/stated NCIt OWL artifacts. Online full-store loading is
-#    disabled: #148 will build a disposable sibling store offline and publish it through
-#    a recoverable maintenance journal (D12).
+# 1. Download, hash, same-release-bind, and revalidate the inferred/stated NCIt pair.
+#    Online full-store loading is disabled. #181 builds a queryable inactive sibling
+#    store offline; #148 owns later serving activation (D12/D46).
 pdm run data-build owl
 # 2. caDSR CDEs → SQLite. Downloads the released CDE XML and builds cde_repository.db
 #    (cdes + cde_concepts + the cdes_fts FTS5 index).
@@ -236,22 +236,12 @@ that is correct, conservative behaviour. But do **not** read every zero that way
 
 Notes:
 
-- **Large OWL loads use the offline bulk loader, not HTTP.** The *stated* build is ~713 MB
-  RDF/XML (10.84M triples); pushing it through the HTTP Graph Store Protocol OOM-kills the
-  Oxigraph container. Load it with Oxigraph's bulk loader into the RocksDB dir instead
-  (server stopped so the store lock is free), then restart (DECISIONS D12):
-  ```bash
-  # download/extract the stated OWL (into data/ncit-owl/Thesaurus.owl) first, then:
-  docker compose stop oxigraph-ncit
-  docker run --rm --entrypoint oxigraph \
-    -v "$(pwd)/data/oxigraph-ncit:/data" -v "$(pwd)/data/ncit-owl:/owl" \
-    fairdata-oxigraph:local load --location /data --file /owl/Thesaurus.owl \
-    --format application/rdf+xml \
-    --graph http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl --non-atomic
-  docker compose up -d oxigraph-ncit
-  ```
-  Verify: `… GRAPH <…Thesaurus-stated.owl> { ?s ?p ?o }` → 10,841,591 triples, and the
-  default graph is unchanged at 12,836,426.
+- **Never send a source OWL through Graph Store HTTP or load it directly into the active
+  store.** `data-build owl` produces `Thesaurus-inferred.owl`,
+  `Thesaurus-stated.owl`, their distinct cached archives, and
+  `ncit-artifact-pair.json`. Revalidate that manifest before use. The *stated* build alone
+  expands beyond 700 MB; D12 records why HTTP loading is unsafe, D46 makes the prohibition
+  executable, and #181 owns offline construction of a separate inactive store.
 - The embedding step is heavy (multi-GB model + compute over ~200k concepts + ~80k
   CDEs) and is a batch/offline operation. CI runs deterministic encoders against
   disposable pgvector to prove staged-batch invisibility, failure rollback, validation,

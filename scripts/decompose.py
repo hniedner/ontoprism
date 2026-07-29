@@ -46,6 +46,17 @@ def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
     return lookup
 
 
+async def _load_output(client: OxigraphHttpClient, output: Path) -> None:
+    """Stream a bounded generated graph from disk into its dedicated named graph."""
+    with output.open("rb") as stream:
+        await client.load(
+            stream,
+            content_type="text/turtle",
+            graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
+            replace=True,
+        )
+
+
 async def _run(
     branch: str,
     out: Path | None,
@@ -86,12 +97,7 @@ async def _run(
                 raise
             if load:
                 # out is None already rejected in main() before any work started.
-                await client.load(
-                    out.read_bytes(),  # type: ignore[union-attr]
-                    content_type="text/turtle",
-                    graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
-                    replace=True,
-                )
+                await _load_output(client, out)  # type: ignore[arg-type]
     finally:
         try:
             await dispose_engine(engine)

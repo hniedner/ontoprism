@@ -4,12 +4,30 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 import typer
 from click import unstyle
 from scripts import decompose
+
+
+@pytest.mark.unit
+async def test_decomposition_output_load_streams_from_disk(tmp_path: Path) -> None:
+    output = tmp_path / "decomposed.ttl"
+    output.write_bytes(b"<urn:s> <urn:p> <urn:o> ." * 100_000)
+    received: bytes | None = None
+
+    class _Client:
+        async def load(self, data: Any, **_kwargs: Any) -> None:
+            nonlocal received
+            assert not isinstance(data, bytes)
+            received = data.read()
+
+    await decompose._load_output(_Client(), output)  # type: ignore[arg-type]
+
+    assert received == output.read_bytes()
 
 
 @pytest.mark.unit

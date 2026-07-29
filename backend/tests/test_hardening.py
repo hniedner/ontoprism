@@ -6,20 +6,14 @@ any live store is touched, so these need no running services.
 
 import logging
 from collections.abc import Iterator
-from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.responses import Response
 
 from backend.config import get_settings
-from backend.dependencies import get_embedding_store, get_ncit_client
 from backend.main import create_app
 from backend.middleware import _apply_hardening_headers
-from ontolib.core.exceptions import StorageError
-from ontolib.repositories.embeddings.publication import Corpus
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +44,7 @@ def test_error_envelope_shape(app_client: TestClient) -> None:
     resp = app_client.post(
         "/api/v1/refresh/ncit/reload", json={"source_path": "data/nope.csv"}
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 410
     body = resp.json()
     assert body["detail"]  # kept for existing clients
     assert body["error"] == "http_error"
@@ -64,21 +58,21 @@ def test_cors_allows_configured_origin(app_client: TestClient) -> None:
 
 
 @pytest.mark.security
-def test_reload_rejects_path_traversal(app_client: TestClient) -> None:
+def test_reload_fails_closed_for_path_traversal(app_client: TestClient) -> None:
     resp = app_client.post(
         "/api/v1/refresh/ncit/reload",
         json={"source_path": "../../../../etc/passwd"},
     )
-    assert resp.status_code == 403
-    assert "allowlist" in resp.json()["detail"]
+    assert resp.status_code == 410
+    assert "offline" in resp.json()["detail"]
 
 
 @pytest.mark.security
-def test_reload_rejects_absolute_outside_allowlist(app_client: TestClient) -> None:
+def test_reload_fails_closed_for_absolute_paths(app_client: TestClient) -> None:
     resp = app_client.post(
         "/api/v1/refresh/ncit/reload", json={"source_path": "/etc/hosts.ttl"}
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 410
 
 
 @pytest.mark.security
@@ -163,47 +157,3 @@ def test_open_mode_logs_startup_warning(
     with caplog.at_level(logging.WARNING), TestClient(create_app()):
         pass
     assert any("open mode" in r.getMessage() for r in caplog.records)
-
-
-@pytest.mark.security
-def test_reload_storage_error_is_logged_and_returns_502(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    # A failed PUT can have committed remotely before the response was lost. Report the
-    # outcome as unknown and log it rather than inviting a blind retry.
-    ttl = tmp_path / "graph.ttl"
-    ttl.write_text("@prefix ex: <http://e/> . ex:a ex:b ex:c .")
-    monkeypatch.setenv("RELOAD_ALLOWED_DIR", str(tmp_path))
-    get_settings.cache_clear()
-
-    class _FailingClient:
-        async def count(self) -> int:
-            return 0
-
-        async def load(self, *_args: Any, **_kwargs: Any) -> None:
-            raise StorageError("oxigraph unreachable")
-
-    coordination_events: list[str] = []
-
-    class _RecordingEmbeddings:
-        @asynccontextmanager
-        async def replacing(self, corpus: Corpus):  # type: ignore[no-untyped-def]
-            coordination_events.append(f"enter:{corpus.value}")
-            try:
-                yield
-            finally:
-                coordination_events.append(f"exit:{corpus.value}")
-
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _FailingClient
-    app.dependency_overrides[get_embedding_store] = _RecordingEmbeddings
-    with caplog.at_level(logging.ERROR), TestClient(app) as client:
-        resp = client.post(
-            "/api/v1/refresh/ncit/reload", json={"source_path": str(ttl)}
-        )
-    assert resp.status_code == 502
-    assert "outcome is unknown" in resp.json()["detail"].lower()
-    assert any("outcome is unknown" in r.getMessage().lower() for r in caplog.records)
-    assert coordination_events == ["enter:ncit", "exit:ncit"]
