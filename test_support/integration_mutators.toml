@@ -146,3 +146,7 @@ fixtures = ["isolated_postgres_settings"]
 [[mutator]]
 path = "ontolib/tests/terminologies/test_ncit_search_ranking_integration.py"
 fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/terminologies/test_ncit_sibling_store_integration.py"
+fixtures = ["oxigraph_sibling_store_root", "integration_connection_scope"]

@@ -16,6 +16,7 @@ from xml.etree.ElementTree import ParseError
 import pytest
 from scripts.data_build import (
     _build_cadsr,
+    _build_ncit_sibling,
     _build_owl,
     _code_commit,
     _dispose_cadsr_engine,
@@ -219,6 +220,46 @@ async def test_owl_candidates_are_prepared_to_distinct_paths(
 
     assert inferred.read_text() == "inferred"
     assert stated.read_text() == "stated"
+
+
+@pytest.mark.unit
+async def test_ncit_sibling_command_uses_certified_pair_and_configured_active_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pair = tmp_path / "ncit-owl" / "ncit-artifact-pair.json"
+    pair.parent.mkdir()
+    pair.write_text("pair")
+    active = tmp_path / "oxigraph-ncit"
+    active.mkdir()
+    calls: list[tuple[Path, Path]] = []
+
+    async def build(
+        pair_manifest_path: Path,
+        *,
+        active_store_path: Path,
+        runtime: object,
+    ) -> SimpleNamespace:
+        del runtime
+        calls.append((pair_manifest_path, active_store_path))
+        return SimpleNamespace(
+            candidate_path=str(tmp_path / "candidate"),
+            source_identity="source-identity",
+        )
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            ncit_owl_dir=str(pair.parent),
+            ncit_store_dir=str(active),
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.build_ncit_sibling_store", build)
+
+    result = await _build_ncit_sibling()
+
+    assert calls == [(pair, active)]
+    assert result.candidate_path == str(tmp_path / "candidate")
 
 
 @pytest.mark.unit
