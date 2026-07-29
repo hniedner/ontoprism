@@ -155,6 +155,37 @@ def test_flatten_bindings_rejects_invalid_cell_type(cell_type: object) -> None:
 
 
 @pytest.mark.unit
+def test_flatten_bindings_rejects_non_string_value_for_valid_binding_type() -> None:
+    data = {
+        "head": {"vars": ["part"]},
+        "results": {
+            "bindings": [{"part": {"type": "literal", "value": 42}}],
+        },
+    }
+    with pytest.raises(StorageError, match="no string value"):
+        flatten_bindings(data)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "binding_type",
+    ["uri", "bnode", "literal", "typed-literal"],
+)
+def test_flatten_bindings_accepts_every_sparql_json_binding_type(
+    binding_type: str,
+) -> None:
+    data = {
+        "head": {"vars": ["value"]},
+        "results": {
+            "bindings": [
+                {"value": {"type": binding_type, "value": "contract-value"}},
+            ],
+        },
+    }
+    assert flatten_bindings(data) == [{"value": "contract-value"}]
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("value", [True, False])
 def test_parse_ask_result_returns_boolean(value: bool) -> None:
     assert parse_ask_result({"head": {}, "boolean": value}) is value
