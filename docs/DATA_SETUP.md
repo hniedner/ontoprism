@@ -111,6 +111,25 @@ stable source identity. A rejected candidate contains
 `.ontoprism-ncit-rejected.json` and is not eligible for activation. Keep it for diagnosis
 or remove only after independently verifying its owner marker.
 
+### Source-bound decomposition runs
+
+Run decomposition only against an endpoint serving the certified candidate described by
+the required manifest:
+
+```bash
+pdm run decompose \
+  --source-manifest /absolute/candidate/path/.ontoprism-ncit-candidate.json \
+  --branch neoplasm \
+  --out data/ncit_decomposed.ttl
+```
+
+The CLI revalidates the D47 proof and compares its complete candidate observation with
+the live endpoint. It persists the exact worklist and immutable source/config fingerprint
+before processing. `--resume RUN_ID` accepts only the same source, branch, scope, limit,
+algorithm/config, output, and load modes; it processes exactly unfinished items. Source
+drift before completion fails closed and invalidates partial snapshot results. Graph
+publication with `--load` is a later, separate boundary (#147).
+
 Every manifest records source version/hash, immutable model revision, vector dimension,
 expected unique-row count, code commit, build ID, sentinels, state, and timestamps;
 completed manifests additionally record the validated actual count. The pinned model is

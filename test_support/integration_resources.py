@@ -30,6 +30,12 @@ _PERSISTENT_SQL = re.compile(
 )
 _REPOSITORY_WRITES: Final = frozenset(
     {
+        "claim_work_item",
+        "complete_work_item",
+        "create_run",
+        "fail_run",
+        "fail_work_item",
+        "invalidate_run",
         "persist_promotions",
         "populate",
         "quarantine_stale",
