@@ -315,8 +315,17 @@ async def test_validation_rejects_tampered_manifest_identity_fields(
 
 
 @pytest.mark.unit
-async def test_validation_rejects_a_self_consistent_release_forgery(
+@pytest.mark.parametrize(
+    ("field", "forged"),
+    [
+        ("ontology_version", "99.99z"),
+        ("ontology_iri", "http://example.invalid/forged/Thesaurus.owl"),
+    ],
+)
+async def test_validation_rejects_a_self_consistent_identity_forgery(
     tmp_path: Path,
+    field: str,
+    forged: str,
 ) -> None:
     """Recomputing the identities must not let a manifest relabel the release.
 
@@ -338,10 +347,10 @@ async def test_validation_rejects_a_self_consistent_release_forgery(
     manifest_path = Path(pair.manifest_path)
     document = json.loads(manifest_path.read_text())
 
-    document["ontology_version"] = "99.99z"
+    document[field] = forged
     for variant in ("stated", "inferred"):
         record = document[variant]
-        record["ontology_version"] = "99.99z"
+        record[field] = forged
         record["artifact_identity"] = _identity(
             {
                 "variant": record["variant"],
