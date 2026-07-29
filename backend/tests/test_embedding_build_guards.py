@@ -16,9 +16,11 @@ from xml.etree.ElementTree import ParseError
 import pytest
 from scripts.data_build import (
     _build_cadsr,
+    _build_ncit_sibling,
     _build_owl,
     _code_commit,
     _dispose_cadsr_engine,
+    _prepare_owl_artifacts,
     _require_ncit_source,
     _require_stable_cadsr_source,
     _require_stable_ncit_source,
@@ -158,37 +160,31 @@ def test_code_commit_requires_clean_repo_and_returns_exact_head(tmp_path) -> Non
 
 
 @pytest.mark.unit
-async def test_owl_preparation_propagates_a_failed_stated_download(
+async def test_owl_preparation_propagates_a_failed_pair_download(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
-    inferred = tmp_path / "Thesaurus.owl"
-    inferred.write_text("inferred")
-    calls = 0
-
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return SimpleNamespace(success=True, file_path=str(inferred), error=None)
-        return SimpleNamespace(success=False, file_path=None, error="stated failed")
+        return SimpleNamespace(
+            success=False, stated=None, inferred=None, error="pair failed"
+        )
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
         lambda: SimpleNamespace(
             ncit_owl_dir=str(tmp_path),
             ncit_owl_base_url="http://example.invalid",
+            ncit_owl_max_retries=0,
             database_url="postgresql+asyncpg://unused",
             ncit_sparql_url="http://unused",
         ),
     )
-    monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl_pair", download)
 
-    with pytest.raises(RuntimeError, match="stated failed"):
+    with pytest.raises(RuntimeError, match="pair failed"):
         await _build_owl()
 
-    # A failed stated download halts before the stated candidate is written.
-    assert not (tmp_path / "Thesaurus-stated.owl").exists()
+    assert not (tmp_path / "ncit-artifact-pair.json").exists()
 
 
 @pytest.mark.unit
@@ -198,28 +194,108 @@ async def test_owl_candidates_are_prepared_to_distinct_paths(
 ) -> None:
     inferred = tmp_path / "downloaded-inferred.owl"
     stated = tmp_path / "downloaded-stated.owl"
-    inferred.write_text("inferred")
-    stated.write_text("stated")
-    downloads = iter((inferred, stated))
 
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        path = next(downloads)
-        return SimpleNamespace(success=True, file_path=str(path), error=None)
+        return SimpleNamespace(
+            success=True,
+            inferred=SimpleNamespace(file_path=str(inferred)),
+            stated=SimpleNamespace(file_path=str(stated)),
+            manifest_path=str(tmp_path / "ncit-artifact-pair.json"),
+            error=None,
+        )
 
     monkeypatch.setattr(
         "scripts.data_build.get_settings",
         lambda: SimpleNamespace(
             ncit_owl_dir=str(tmp_path),
             ncit_owl_base_url="http://example.invalid",
+            ncit_owl_max_retries=0,
             database_url="postgresql+asyncpg://unused",
             ncit_sparql_url="http://unused",
         ),
     )
-    monkeypatch.setattr("scripts.data_build.download_ncit_owl", download)
-    await _build_owl()
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl_pair", download)
 
-    assert (tmp_path / "Thesaurus-inferred.owl").read_text() == "inferred"
-    assert (tmp_path / "Thesaurus-stated.owl").read_text() == "stated"
+    prepared = await _prepare_owl_artifacts()
+
+    assert prepared == {
+        "inferred": inferred,
+        "stated": stated,
+        "manifest": tmp_path / "ncit-artifact-pair.json",
+    }
+    assert prepared["inferred"] != prepared["stated"]
+
+
+@pytest.mark.unit
+async def test_owl_preparation_refuses_a_pair_missing_an_extracted_path(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """A "successful" pair without both extracted OWL paths must not be usable."""
+
+    async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(
+            success=True,
+            inferred=SimpleNamespace(file_path=str(tmp_path / "inferred.owl")),
+            stated=SimpleNamespace(file_path=None),
+            manifest_path=str(tmp_path / "ncit-artifact-pair.json"),
+            error=None,
+        )
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            ncit_owl_dir=str(tmp_path),
+            ncit_owl_base_url="http://example.invalid",
+            ncit_owl_max_retries=0,
+            database_url="postgresql+asyncpg://unused",
+            ncit_sparql_url="http://unused",
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_ncit_owl_pair", download)
+
+    with pytest.raises(RuntimeError, match="artifact-pair download failed"):
+        await _prepare_owl_artifacts()
+
+
+@pytest.mark.unit
+async def test_ncit_sibling_command_uses_certified_pair_and_configured_active_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pair = tmp_path / "ncit-owl" / "ncit-artifact-pair.json"
+    pair.parent.mkdir()
+    pair.write_text("pair")
+    active = tmp_path / "oxigraph-ncit"
+    active.mkdir()
+    calls: list[tuple[Path, Path]] = []
+
+    async def build(
+        pair_manifest_path: Path,
+        *,
+        active_store_path: Path,
+        runtime: object,
+    ) -> SimpleNamespace:
+        del runtime
+        calls.append((pair_manifest_path, active_store_path))
+        return SimpleNamespace(
+            candidate_path=str(tmp_path / "candidate"),
+            source_identity="source-identity",
+        )
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            ncit_owl_dir=str(pair.parent),
+            ncit_store_dir=str(active),
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.build_ncit_sibling_store", build)
+
+    result = await _build_ncit_sibling()
+
+    assert calls == [(pair, active)]
+    assert result.candidate_path == str(tmp_path / "candidate")
 
 
 @pytest.mark.unit

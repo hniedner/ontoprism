@@ -4,7 +4,7 @@ limitations = [
   "Coverage.py 7.15 native function/class regions are authoritative for Python ownership; zero-branch scopes are rendered as N/A instead of Coverage.py's synthetic 100%.",
   "Vitest's native Istanbul map is authoritative for frontend module denominators. Production-bundle Playwright maps attribute to original Svelte sources but cannot be merged with Vitest without duplicate regions, so browser coverage is behavioral evidence only.",
   "Executable production surfaces absent from their trusted measurement layer report 0% unmeasured. YAML, shell, browser-only routes, and excluded rendering shells are never silently omitted.",
-  "The hierarchy is report-only in #170. Existing aggregate Python and frontend threshold gates remain the only blocking coverage gates until #169.",
+  "The hierarchy is report-only in #170. Strict independent line and branch aggregate gates for ontolib/src, backend/src, and frontend/src/lib are the blocking gates for those two metrics; Vitest's own thresholds (lines/functions/branches/statements >= 90) additionally block frontend/src/lib. No other coverage gate blocks until #169.",
 ]
 required_production_paths = [
   "ontolib/src/ontolib/decomposition/stated_queries.py",

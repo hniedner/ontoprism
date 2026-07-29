@@ -20,10 +20,11 @@ def test_safe_lane_rejects_an_unregistered_tcp_target_before_connection() -> Non
 
 @pytest.mark.integration
 def test_safe_lane_uses_only_run_owned_application_paths() -> None:
-    root = Path(os.environ["RELOAD_ALLOWED_DIR"])
+    root = Path(os.environ["NCIT_OWL_DIR"]).parent
 
     assert root.is_absolute()
     assert root.name.startswith("ontoprism-integration-data-")
     assert Path(os.environ["CADSR_DB_PATH"]).is_relative_to(root)
     assert Path(os.environ["CADSR_DATA_DIR"]).is_relative_to(root)
     assert Path(os.environ["NCIT_OWL_DIR"]).is_relative_to(root)
+    assert Path(os.environ["NCIT_STORE_DIR"]).is_relative_to(root)

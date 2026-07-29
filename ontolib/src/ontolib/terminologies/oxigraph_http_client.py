@@ -339,6 +339,14 @@ class OxigraphHttpClient:
         """Run an ASK query and return its boolean result."""
         return parse_ask_result(await self.select_raw(query))
 
+    async def ask_once(self, query: str) -> bool:
+        """Run one ASK transport attempt without retrying a failed request.
+
+        Candidate-store invariants must hold on the first attempt: a store that only
+        answers after a retry has not demonstrated the property being certified.
+        """
+        return parse_ask_result(await self._select_raw(query, retry=False))
+
     async def count(self, query: str = _COUNT_ALL) -> int:
         """Run a ``SELECT (COUNT(...) AS ?count)`` query and return the integer.
 
@@ -356,17 +364,21 @@ class OxigraphHttpClient:
             raise StorageError(f"COUNT value did not parse as int: {value!r}") from e
 
     async def version(self) -> str | None:
-        """Return the store's ``owl:versionInfo``, or ``None`` if unset.
+        """Return the store's unique ``owl:versionInfo``, or ``None`` if unset.
 
         Matches any ``owl:Ontology`` carrying a versionInfo (the NCIt store has one).
+        Multiple distinct values are ambiguous and therefore raise ``StorageError``.
         """
         query = (
             "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
-            "SELECT ?v WHERE { ?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 1"
+            "SELECT DISTINCT ?v WHERE { "
+            "?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 2"
         )
         rows = await self.select(query, required_variables={"v"})
         if not rows:
             return None
+        if len(rows) > 1:
+            raise StorageError("VERSION query returned multiple distinct values")
         version = rows[0].get("v")
         if not version:
             raise StorageError("VERSION query returned no 'v' binding")

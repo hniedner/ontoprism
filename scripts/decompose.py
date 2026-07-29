@@ -1,15 +1,17 @@
 #!/usr/bin/env python
 """Decomposition engine CLI (design §9 / §12 PR 5b).
 
-  pdm run decompose --branch neoplasm
-  pdm run decompose --branch neoplasm --out data/ncit_decomposed.ttl --load
-  pdm run decompose --branch neoplasm --resume neoplasm-2026-07-08T00:00:00
+  pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json
+  pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
+      --branch neoplasm --out data/ncit_decomposed.ttl --load
+  pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
+      --branch neoplasm --resume neoplasm-7bb8b360-a2ec-45d0-b06d-a79ae18c3689
 
 Wires the pure orchestrator (`ontolib.decomposition.run.run_pipeline`) to the real
 Oxigraph client, the Postgres provenance store, and `NcitGraphStore` for the concept
 labels the NLP fallback needs. See ``run.py``'s module docstring for the documented
-scope boundaries (genus-DAG role extraction, morphology-from-parent, best-effort
-resume).
+scope boundaries (genus-DAG role extraction, morphology-from-parent, source-bound
+exact resume).
 """
 
 from __future__ import annotations
@@ -25,11 +27,29 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import vocab
 from ontolib.decomposition.provenance import ProvenanceStore
-from ontolib.decomposition.run import RunConfig, RunMetrics, run_pipeline
+from ontolib.decomposition.provenance_models import NcitSourceSnapshot
+from ontolib.decomposition.run import (
+    RunConfig,
+    RunMetrics,
+    SourceIdentityChangedError,
+    run_pipeline,
+)
+from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
+from ontolib.terminologies.ncit.sibling_store import (
+    observation_without_graphs,
+    observe_ncit_candidate,
+    validate_ncit_sibling_manifest,
+)
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 logger = get_logger(__name__)
+
+# Graphs ontoprism publishes into the same store; they are not part of the NCIt
+# source identity and must not read as drift.
+_ADDITIVE_GRAPH_IRIS = frozenset(
+    {vocab.DECOMPOSED_GRAPH_IRI, NCIT_UPSTREAM_XREF_GRAPH_IRI}
+)
 
 
 def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
@@ -46,7 +66,45 @@ def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
     return lookup
 
 
+async def _load_output(client: OxigraphHttpClient, output: Path) -> None:
+    """Stream a bounded generated graph from disk into its dedicated named graph."""
+    with output.open("rb") as stream:
+        await client.load(
+            stream,
+            content_type="text/turtle",
+            graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
+            replace=True,
+        )
+
+
+async def _source_snapshot(
+    manifest_path: Path,
+    endpoint_url: str,
+) -> NcitSourceSnapshot:
+    """Bind the live endpoint to a freshly revalidated #181 candidate proof.
+
+    Compares only the NCIt source: ontoprism's own additive publication graphs are
+    ignored, otherwise a single `--load` would make every later run of the same
+    manifest fail as source drift. Default/stated counts, versions, restrictions and
+    the stated-only sentinels are still compared exactly.
+    """
+    manifest = validate_ncit_sibling_manifest(manifest_path)
+    observed = observation_without_graphs(
+        await observe_ncit_candidate(endpoint_url), _ADDITIVE_GRAPH_IRIS
+    )
+    expected = observation_without_graphs(manifest.observation, _ADDITIVE_GRAPH_IRIS)
+    if observed.model_dump(mode="json") != expected.model_dump(mode="json"):
+        raise SourceIdentityChangedError(
+            "live NCIt endpoint observation does not match the #181 candidate proof"
+        )
+    return NcitSourceSnapshot(
+        source_identity=manifest.source_identity,
+        ontology_version=manifest.ontology_version,
+    )
+
+
 async def _run(
+    source_manifest: Path,
     branch: str,
     out: Path | None,
     load: bool,
@@ -75,6 +133,10 @@ async def _run(
                     config,
                     client,
                     provenance,
+                    get_source_snapshot=lambda: _source_snapshot(
+                        source_manifest,
+                        settings.ncit_sparql_url,
+                    ),
                     get_labels=store.labels_for,
                     label_lookup=_make_label_lookup(store),
                     total_limit=total_limit,
@@ -85,13 +147,10 @@ async def _run(
                 )
                 raise
             if load:
-                # out is None already rejected in main() before any work started.
-                await client.load(
-                    out.read_bytes(),  # type: ignore[union-attr]
-                    content_type="text/turtle",
-                    graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
-                    replace=True,
-                )
+                out_path = config.out
+                if out_path is None:
+                    raise ValueError("--load requires --out")
+                await _load_output(client, out_path)
     finally:
         try:
             await dispose_engine(engine)
@@ -103,6 +162,13 @@ async def _run(
 
 
 def main(
+    source_manifest: Annotated[
+        Path,
+        typer.Option(
+            "--source-manifest",
+            help="Validated #181 inactive-candidate manifest for this endpoint.",
+        ),
+    ],
     branch: Annotated[
         str, typer.Option(help="Run label ('neoplasm' | 'disease').")
     ] = "neoplasm",
@@ -124,7 +190,10 @@ def main(
     ] = False,
     resume: Annotated[
         str | None,
-        typer.Option("--resume", help="Run id to resume (best-effort — see run.py)."),
+        typer.Option(
+            "--resume",
+            help="Matching running/failed exact-worklist run id to resume.",
+        ),
     ] = None,
     total_limit: Annotated[
         int | None,
@@ -146,8 +215,21 @@ def main(
         )
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
+    if not branch or set(branch) & {"/", "\\", "\0"}:
+        raise typer.BadParameter(
+            "--branch must be non-empty and free of path separators"
+        )
     metrics = asyncio.run(
-        _run(branch, out, load, emit_equivalence, resume, total_limit, walker_max_depth)
+        _run(
+            source_manifest,
+            branch,
+            out,
+            load,
+            emit_equivalence,
+            resume,
+            total_limit,
+            walker_max_depth,
+        )
     )
     typer.echo(
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "

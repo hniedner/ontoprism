@@ -2,6 +2,109 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-29 — decomposition runs are exact source-bound state machines
+
+### D48. Materialize the worklist and fence every persisted concept result
+
+The former run ID used second-resolution timestamps, resume inferred progress from
+constituent rows (so zero-output concepts disappeared), and a concept's constituents and
+minted proposals committed separately. The manifest recorded only `owl:versionInfo`;
+tests could therefore agree with one another while a retry crossed a different NCIt
+snapshot or a failure exposed partial results.
+
+**Decision:** every run uses a branch-prefixed UUID and atomically persists an immutable,
+canonical fingerprint plus the exact ordered worklist. The fingerprint binds D47's stable
+source identity, branch, semantic-type scope, selected worklist and limit,
+algorithm/config versions, walker depth, output/load modes, and one stable emission
+timestamp. PostgreSQL constrains run/work-item states and rejects identity mutation.
+
+Each non-complete work item is claimed with a fresh fencing token. Replacing that
+concept's constituents and run-scoped mint proposals and marking it complete is one
+transaction; failures roll back before bounded error evidence is recorded. Resume is
+permitted only for a matching running/failed manifest, never re-enumerates, and processes
+exactly non-complete work. Metrics and normalized TTL are reconstructed from the full
+worklist, so fresh and resumed completion agree. Mint proposals enter the global curator
+queue only when the run completes. The D47 manifest and full live candidate observation
+are required before work, and source drift before completion invalidates every persisted
+result row for the run in one transaction. The `--out` TTL is rendered to an unpublished
+staging sibling and atomically moved into place only after that final identity check and
+completion both succeed, so a drifted or failed run leaves no artifact at `--out`.
+
+**Why:** a successful manifest now proves one complete computation over one identified
+NCIt snapshot; interruption, collision, retry, and zero-output cases cannot masquerade as
+complete or mix source states. PostgreSQL and the filesystem are still two systems and
+are not written atomically together; the ordering guarantees only that no published
+artifact can outlive an invalidated run, never a joint commit. Named-graph publication
+remains the separate #147 boundary.
+
+## 2026-07-29 — NCIt stores are constructed and certified as inactive siblings
+
+### D47. Build on the serving filesystem with the pinned CLI; activation is a separate capability
+
+The same-release artifact proof in D46 does not prove that the inferred file was loaded
+into the default graph, the stated file was loaded into its protected named graph, or the
+resulting RocksDB store is compatible with the serving executable. A hand-built test
+double initially placed `--graph` before the Oxigraph `load` subcommand; the real 0.5.3
+CLI rejected that order, demonstrating again that wrapper tests cannot establish an
+external tool's contract.
+
+**Decision:** `data-build ncit-store` revalidates the D46 pair before creating anything,
+derives a random owner-marked candidate as a sibling of the configured active store, and
+bulk-loads both RDF/XML files with the digest-pinned Oxigraph 0.5.3 image. Inferred goes
+to the default graph and stated to `STATED_GRAPH_IRI`; `--non-atomic` is allowed only
+because this is a private candidate, while `--lenient` is forbidden. The active store
+path is never passed to the loader and no rename or activation operation exists in this
+workflow.
+
+The candidate is temporarily served on a random loopback port and must prove, with
+one-attempt invariant queries: matching release versions; exactly one named graph; bounded
+default/stated counts; a production-shaped `C6135` restriction; bounded restriction
+population; and the same-release stated-only `C14806 owl:deprecated true` differential.
+The persisted manifest binds artifact hashes/pair identity, loader image ID/digest/CLI,
+graph layout, exact observations, owner and paths. Its stable source identity excludes
+owner and paths so independently built copies of identical inputs compare equal.
+Validation container teardown requires independent label, mount, container-ID and file
+owner markers. A failed candidate remains inactive with an explicit rejection marker
+rather than being mistaken for an activatable store.
+
+Real CLI, double-fidelity, malformed-candidate, and complete pinned-build contracts are
+mandatory. Serving activation remains #148 and must consume this proof rather than
+re-deriving it.
+
+**Why:** store construction becomes reproducible and directly query-tested without
+placing a multi-gigabyte ontology on Graph Store HTTP or giving the builder any way to
+replace production.
+
+## 2026-07-29 — NCIt release inputs are one locally certified pair
+
+### D46. Bind stated and inferred artifacts before any offline store construction
+
+EVS publishes the asserted and materialized NCIt variants as separate archives with the
+same ontology IRI and release version but different member names and bytes. The old
+downloader normalized both extracted files to `Thesaurus.owl`, so a sequential download
+overwrote the first artifact. It retained HTTP cache metadata but no content hashes,
+ontology identity, or same-release proof. The refresh API and a library helper could then
+replace default/protected source graphs with a full ontology over Graph Store HTTP, a path
+already known to OOM a memory-limited Oxigraph container (D12).
+
+**Decision:** download the pair to variant-specific archive and OWL paths, stream extraction
+and SHA-256 calculation, require each archive's exact regular OWL member, parse the ontology
+IRI and `owl:versionInfo`, and publish a deterministic pair manifest only when both variants
+match. Persist source URL, HTTP validators, sizes, hashes, ontology identity, variant, and
+artifact/pair identities. Every consumer must revalidate the manifest and its files; missing,
+modified, swapped, ambiguous, stale-manifest, or cross-release inputs fail closed.
+
+`POST /api/v1/refresh/ncit/download` is pair-download/certification only and rejects legacy
+variant/load fields. Generic NCIt reload returns 410, and the former library HTTP loaders
+were deleted outright rather than left as raising shims. Offline validated sibling-store
+construction belongs to
+#181; activation remains #148. Small file-backed generated-graph publication streams from
+disk and stays confined to its additive named graph.
+
+**Why:** the pair manifest makes the exact decomposition/query inputs reproducible and
+prevents a plausible but mixed release from reaching a mutation boundary. Removing online
+source replacement also turns D12's operational workaround into an enforceable invariant.
+
 ## 2026-07-26 — caDSR SQLite publishes only from a locally identified release snapshot
 
 ### D45. Build privately, certify the standalone candidate, then atomically replace caDSR
@@ -1171,7 +1274,7 @@ load it with Oxigraph's offline bulk loader into the RocksDB dir —
 produced fairdata's cloned store. Loaded 10.84M triples in ~20s, memory-safe. HTTP GSP
 stays for small/incremental writes (the decomposed named graph). *Also fixed a real bug:
 `client.load` passed a sync file handle to httpx's `AsyncClient`, which rejects it — now
-streamed as an async byte iterator (chunked).* Documented in `docs/DATA_SETUP.md`.
+streamed as an async byte iterator (chunked).* *Superseded operationally by D46/D47: the manual recipe was removed from `docs/DATA_SETUP.md` because loading into the active store directory is no longer permitted — build a certified inactive sibling with `pdm run data-build ncit-store` instead.*
 
 ### D13. Stated pre-coordination is layered defined classes → recursive genus-chain extraction
 Running 5a's roles-first extraction against the freshly-loaded stated graph revealed that

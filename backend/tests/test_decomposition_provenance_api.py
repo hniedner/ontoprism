@@ -72,6 +72,8 @@ _SAMPLE_RUN = RunSummary(
     branch="neoplasm",
     status="complete",
     ncit_version="26.05d",
+    source_identity="a" * 64,
+    fingerprint_sha256="b" * 64,
     started_at=datetime(2026, 7, 12, 0, 0, tzinfo=timezone.utc),  # noqa: UP017
     finished_at=datetime(2026, 7, 12, 1, 0, tzinfo=timezone.utc),  # noqa: UP017
     total_in_scope=5,
@@ -124,6 +126,9 @@ def test_list_runs_returns_summaries() -> None:
     assert complete["minted_count"] == 1
     assert complete["pct_decomposed"] == 0.6
     assert complete["roundtrip_fidelity"] == 0.95
+    assert complete["source_identity"] == "a" * 64
+    assert complete["fingerprint_sha256"] == "b" * 64
+    assert complete["error_type"] is None
     running = next(r for r in body if r["status"] == "running")
     assert running["total_in_scope"] is None
     assert running["finished_at"] is None

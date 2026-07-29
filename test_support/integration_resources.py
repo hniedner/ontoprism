@@ -30,12 +30,20 @@ _PERSISTENT_SQL = re.compile(
 )
 _REPOSITORY_WRITES: Final = frozenset(
     {
+        "claim_work_item",
+        "complete_work_item",
+        "create_run",
+        "fail_run",
+        "fail_work_item",
+        "finish_run",
+        "invalidate_run",
         "persist_promotions",
         "populate",
         "quarantine_stale",
         "rebuild",
-        "upsert_constituents",
-        "upsert_minted_concept",
+        "resume_run",
+        "run_pipeline",
+        "update_run_metrics",
         "upsert_records",
         "upsert_run",
     }
@@ -463,6 +471,7 @@ def validate_integration_test_declaration(
         "postgres_setup_failure_provisioner",
     }
     oxigraph_fixtures = {
+        "oxigraph_sibling_store_root",
         "isolated_oxigraph_settings",
         "isolated_oxigraph_url",
         "oxigraph_resource_provisioner",
@@ -534,7 +543,7 @@ def build_safe_integration_environment(
     safe["CADSR_DB_PATH"] = str(root / "cadsr/cde_repository.db")
     safe["CADSR_DATA_DIR"] = str(root / "cadsr")
     safe["NCIT_OWL_DIR"] = str(root / "ncit-owl")
-    safe["RELOAD_ALLOWED_DIR"] = str(root)
+    safe["NCIT_STORE_DIR"] = str(root / "oxigraph-ncit")
     return safe
 
 

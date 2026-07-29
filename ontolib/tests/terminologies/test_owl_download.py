@@ -7,6 +7,7 @@ serving a small in-memory OWL zip — no network, no live EVS, no mocks.
 from __future__ import annotations
 
 import io
+import json
 import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,7 +41,14 @@ def _encrypted_zip(data: bytes) -> bytes:
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-_OWL_BYTES = b"<?xml version='1.0'?><rdf:RDF>tiny ncit owl</rdf:RDF>"
+_OWL_BYTES = b"""<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#">
+  <owl:Ontology rdf:about="http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl">
+    <owl:versionInfo>26.07d</owl:versionInfo>
+  </owl:Ontology>
+</rdf:RDF>
+"""
 
 
 def _make_zip() -> bytes:
@@ -304,8 +312,27 @@ async def test_download_returns_error_on_no_owl_member(tmp_path: Path) -> None:
         server.server_close()
     assert result.success is False
     assert result.error is not None
-    assert "No .owl member" in result.error
+    assert "Expected OWL member" in result.error
     assert _Counting.gets == 1  # terminal — not retried despite max_retries=2
+
+
+@pytest.mark.unit
+async def test_download_rejects_ambiguous_owl_members(tmp_path: Path) -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("Thesaurus.owl", _OWL_BYTES)
+        archive.writestr("unexpected.owl", _OWL_BYTES)
+    server, base = _serve(_bytes_handler(buffer.getvalue()))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result.success is False
+    assert "found" in (result.error or "")
 
 
 @pytest.mark.unit
@@ -326,10 +353,43 @@ async def test_download_returns_error_on_corrupt_zip(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-async def test_download_renames_non_root_member(tmp_path: Path) -> None:
-    # Real inferred archives carry ThesaurusInf.owl; it must be normalized to
-    # Thesaurus.owl (exercises the rename/move branch).
-    zip_bytes = _zip_with("ThesaurusInf.owl", _OWL_BYTES)
+async def test_download_rejects_malformed_owl_xml(tmp_path: Path) -> None:
+    zip_bytes = _zip_with("Thesaurus.owl", b"<rdf:RDF>")
+    server, base = _serve(_bytes_handler(zip_bytes))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result.success is False
+    assert "Malformed OWL XML" in (result.error or "")
+
+
+@pytest.mark.unit
+async def test_download_rejects_owl_without_release_identity(tmp_path: Path) -> None:
+    payload = b"""<rdf:RDF
+        xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns:owl="http://www.w3.org/2002/07/owl#"/>"""
+    zip_bytes = _zip_with("Thesaurus.owl", payload)
+    server, base = _serve(_bytes_handler(zip_bytes))
+    try:
+        result = await download_ncit_owl(
+            tmp_path, variant="stated", base_url=base, max_retries=0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result.success is False
+    assert "lacks ontology IRI" in (result.error or "")
+
+
+@pytest.mark.unit
+async def test_download_preserves_distinct_inferred_identity(tmp_path: Path) -> None:
+    zip_bytes = _zip_with("ThesaurusInferred.owl", _OWL_BYTES)
     server, base = _serve(_bytes_handler(zip_bytes))
     try:
         result = await download_ncit_owl(
@@ -341,7 +401,7 @@ async def test_download_renames_non_root_member(tmp_path: Path) -> None:
     assert result.success is True
     assert result.file_path is not None
     owl = Path(result.file_path)
-    assert owl.name == "Thesaurus.owl"
+    assert owl.name == "Thesaurus-inferred.owl"
     assert owl.read_bytes() == _OWL_BYTES
 
 
@@ -449,6 +509,33 @@ async def test_download_reports_error_on_invalid_variant(tmp_path: Path) -> None
     )
     assert result.success is False
     assert result.error is not None
+
+
+@pytest.mark.unit
+async def test_download_rejects_cache_manifest_from_another_source(
+    tmp_path: Path,
+) -> None:
+    archive = tmp_path / "Thesaurus.OWL.zip"
+    archive.write_bytes(_make_zip())
+    archive.with_name(archive.name + ".meta.json").write_text(
+        json.dumps(
+            {
+                "url": "https://stale.example/Thesaurus.OWL.zip",
+                "downloaded_at": "2026-07-01T00:00:00+00:00",
+                "size_bytes": archive.stat().st_size,
+            }
+        )
+    )
+
+    result = await download_ncit_owl(
+        tmp_path,
+        variant="stated",
+        base_url="http://127.0.0.1:1",
+        max_retries=0,
+    )
+
+    assert result.success is False
+    assert "source URL" in (result.error or "")
 
 
 @pytest.mark.unit

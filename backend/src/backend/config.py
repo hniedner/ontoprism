@@ -43,15 +43,13 @@ class Settings(BaseSettings):
     # Per-client-IP rate limit on all endpoints (fixed window). 0 disables it.
     rate_limit_per_minute: int = 600
 
-    # Reload allowlist: the reload endpoint may only ingest RDF files resolving inside
-    # this directory (defence against arbitrary-file ingest / path traversal).
-    reload_allowed_dir: str = "data"
-
-    # NCIt OWL refresh: EVS download base + the managed dir OWL files land in (kept
-    # inside reload_allowed_dir so a downloaded file can then be loaded via /reload).
+    # NCIt OWL refresh: EVS download base + the managed artifact-pair directory.
     ncit_owl_base_url: str = "https://evs.nci.nih.gov/ftp1/NCI_Thesaurus"
     ncit_owl_dir: str = "data/ncit-owl"
     ncit_owl_max_retries: int = 3
+    # Serving-store location is read only by M0 sibling construction: candidates are
+    # derived beside it but never activated or renamed by that workflow.
+    ncit_store_dir: str = "data/oxigraph-ncit"
 
     # caDSR CDE refresh: source archive URL + the managed dir the CDE XML zip is cached
     # in. Threaded through to ontolib.repositories.cadsr.download (mirrors NCIt keys).

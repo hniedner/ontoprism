@@ -11,6 +11,7 @@ import json
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -20,7 +21,8 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+    from contextlib import AbstractContextManager
 
 
 # Sentinel markers for error-path tests (the handler converts these into the
@@ -32,6 +34,7 @@ _NON_OBJECT_JSON = "non_object_json"  # valid JSON with the wrong top-level shap
 _MISSING_PROJECTION = "missing_projection"
 _CLOSE_CONNECTION = "close_connection"
 _CLOSE_FIRST_CONNECTION = "close_first_connection"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
@@ -113,6 +116,32 @@ class _Handler(BaseHTTPRequestHandler):
                 "application/sparql-results+json",
                 {"head": {"vars": []}, "results": {"bindings": []}},
             )
+        elif self.path.startswith("/empty-version/"):
+            status, content_type, payload = (
+                200,
+                "application/sparql-results+json",
+                {"head": {"vars": ["v"]}, "results": {"bindings": []}},
+            )
+        elif self.path.startswith("/unbound-version/"):
+            status, content_type, payload = (
+                200,
+                "application/sparql-results+json",
+                {"head": {"vars": ["v"]}, "results": {"bindings": [{}]}},
+            )
+        elif self.path.startswith("/ambiguous-version/"):
+            status, content_type, payload = (
+                200,
+                "application/sparql-results+json",
+                {
+                    "head": {"vars": ["v"]},
+                    "results": {
+                        "bindings": [
+                            {"v": {"type": "literal", "value": "26.02d"}},
+                            {"v": {"type": "literal", "value": "26.03d"}},
+                        ]
+                    },
+                },
+            )
         else:
             status, content_type, payload = _respond_for(query)
         if isinstance(payload, dict):
@@ -175,6 +204,26 @@ async def test_version_rejects_missing_projected_variable(stub_url: str) -> None
 
 
 @pytest.mark.unit
+async def test_version_returns_none_for_valid_empty_result(stub_url: str) -> None:
+    async with OxigraphHttpClient(f"{stub_url}/empty-version") as client:
+        assert await client.version() is None
+
+
+@pytest.mark.unit
+async def test_version_rejects_unbound_result_row(stub_url: str) -> None:
+    async with OxigraphHttpClient(f"{stub_url}/unbound-version") as client:
+        with pytest.raises(StorageError, match="no 'v' binding"):
+            await client.version()
+
+
+@pytest.mark.unit
+async def test_version_rejects_ambiguous_values(stub_url: str) -> None:
+    async with OxigraphHttpClient(f"{stub_url}/ambiguous-version") as client:
+        with pytest.raises(StorageError, match="multiple"):
+            await client.version()
+
+
+@pytest.mark.unit
 async def test_ask_returns_boolean(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         assert await client.ask("ASK { ?s ?p ?o }") is True
@@ -204,6 +253,26 @@ async def test_select_once_does_not_retry_transport_failure(stub_url: str) -> No
             await client.select_once(f"SELECT ?x WHERE {{}} # {_CLOSE_CONNECTION}")
 
     assert _Handler.closed_connection_requests == 1
+
+
+@pytest.mark.unit
+async def test_ask_once_does_not_retry_transport_failure(stub_url: str) -> None:
+    """Candidate invariants must hold on the first attempt (D47).
+
+    ``ask`` retries, so certifying a store through it would let an intermittently
+    answering store pass a gate it did not actually satisfy on demand.
+    """
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="transport error"):
+            await client.ask_once(f"ASK {{}} # {_CLOSE_CONNECTION}")
+
+    assert _Handler.closed_connection_requests == 1
+
+
+@pytest.mark.unit
+async def test_ask_once_returns_the_boolean_result(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        assert await client.ask_once("ASK { ?s ?p ?o }") is True
 
 
 @pytest.mark.unit
@@ -267,3 +336,44 @@ async def test_load_server_error_raises_storage_error(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="Store load failed"):
             await client.load(b"<a> <b> <c> .", content_type="text/turtle")
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_version_cardinality_verdict_matches_real_oxigraph_and_http_double(
+    stub_url: str,
+    isolated_oxigraph_url: str,
+    integration_connection_scope: Callable[[str], AbstractContextManager[None]],
+) -> None:
+    query = (
+        "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+        "SELECT DISTINCT ?v WHERE { "
+        "?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 2"
+    )
+    async with OxigraphHttpClient(isolated_oxigraph_url) as real_client:
+        assert await real_client.select(query, required_variables={"v"}) == [
+            {"v": "26.02d"}
+        ]
+        second_version = (
+            b"@prefix owl: <http://www.w3.org/2002/07/owl#> . "
+            b"<urn:ontoprism:test:second-ontology> a owl:Ontology ; "
+            b'owl:versionInfo "26.03d" .'
+        )
+        await real_client.load(
+            second_version,
+            content_type="text/turtle",
+            replace=False,
+        )
+        try:
+            with pytest.raises(StorageError, match="multiple") as real_error:
+                await real_client.version()
+        finally:
+            seed = (_REPO_ROOT / "scripts/ci/fixtures/ncit-fixture.ttl").read_bytes()
+            await real_client.load(seed, content_type="text/turtle", replace=True)
+
+    with integration_connection_scope(stub_url):
+        async with OxigraphHttpClient(f"{stub_url}/ambiguous-version") as double_client:
+            with pytest.raises(StorageError, match="multiple") as double_error:
+                await double_client.version()
+
+    assert str(real_error.value) == str(double_error.value)

@@ -111,7 +111,16 @@ tests = ["test_migration_upgrade_downgrade_roundtrip"]
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_decomposition_run_lifecycle_migration_roundtrip"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_provenance_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_run_lifecycle_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
@@ -146,3 +155,12 @@ fixtures = ["isolated_postgres_settings"]
 [[mutator]]
 path = "ontolib/tests/terminologies/test_ncit_search_ranking_integration.py"
 fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/terminologies/test_oxigraph_client_http.py"
+tests = ["test_version_cardinality_verdict_matches_real_oxigraph_and_http_double"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
+path = "ontolib/tests/terminologies/test_ncit_sibling_store_integration.py"
+fixtures = ["oxigraph_sibling_store_root", "integration_connection_scope"]

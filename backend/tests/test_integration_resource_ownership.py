@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import ast
 import fcntl
+import inspect
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import tomllib
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,6 +20,8 @@ import pytest
 import yaml
 from scripts.test_runner import suites
 from test_support.integration_resources import (
+    _PERSISTENT_SQL,
+    _REPOSITORY_WRITES,
     DockerRun,
     IntegrationConnectionPolicy,
     IntegrationResourceOwner,
@@ -33,6 +37,9 @@ from test_support.integration_resources import (
     validate_mutator_manifest_entries,
     validate_mutator_manifest_files,
 )
+
+from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.repositories.xref.store import XrefStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -225,8 +232,40 @@ def test_safe_lane_separates_provisioning_credentials_from_application_targets(
     assert environment["CADSR_DB_PATH"] == str(data_root / "cadsr/cde_repository.db")
     assert environment["CADSR_DATA_DIR"] == str(data_root / "cadsr")
     assert environment["NCIT_OWL_DIR"] == str(data_root / "ncit-owl")
-    assert environment["RELOAD_ALLOWED_DIR"] == str(data_root)
+    assert environment["NCIT_STORE_DIR"] == str(data_root / "oxigraph-ncit")
     assert environment["ONTOPRISM_SAFE_INTEGRATION"] == "1"
+
+
+@pytest.mark.unit
+def test_every_persistent_store_writer_is_declared_a_repository_write() -> None:
+    """Pin the detector against drift in the two stores this reflects over.
+
+    ``_REPOSITORY_WRITES`` is matched by method name against test source, so a
+    writer missing from it makes a mutating integration test look read-only and
+    exempts it from the disposable-fixture requirement. This derives the expected
+    set for ``ProvenanceStore`` and ``XrefStore`` rather than trusting the literal.
+    Writers outside these two classes are declared by name in the literal —
+    ``search_index.rebuild``, ``xref.promotion.persist_promotions``,
+    ``run.run_pipeline`` — and are not derived here. The embedding publication API
+    (``EmbeddingCorpusPublisher.start/stage/publish/fail`` in
+    ``ontolib.repositories.embeddings.publication``) is not declared at all, so a
+    test whose only write is that API reads as non-mutating. Extend the loop or the
+    literal when a write surface is added.
+    """
+    undeclared: list[str] = []
+    for store in (ProvenanceStore, XrefStore):
+        for name, member in vars(store).items():
+            if name.startswith("_") or not callable(member):
+                continue
+            source = textwrap.dedent(inspect.getsource(member))
+            if _PERSISTENT_SQL.search(source) and name not in _REPOSITORY_WRITES:
+                undeclared.append(f"{store.__name__}.{name}")
+
+    assert undeclared == [], (
+        "these store methods execute persistent SQL but are not in "
+        f"_REPOSITORY_WRITES, so a test calling only them would be treated as "
+        f"non-mutating: {undeclared}"
+    )
 
 
 @pytest.mark.unit
