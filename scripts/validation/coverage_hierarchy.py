@@ -1123,6 +1123,27 @@ def verify_identities(identities: Sequence[ArtifactIdentity]) -> None:
                 )
 
 
+def verify_identities_against_current(
+    identities: Sequence[ArtifactIdentity],
+    current: ArtifactIdentity,
+) -> None:
+    """Reject layers stale against current tracked inputs.
+
+    Coverage artifacts are downloaded into the verification checkout, so unrelated
+    untracked output may make ``git status`` dirty. The current identity's explicit
+    commit/config/manifest/source hashes are authoritative; collected layers themselves
+    must still have been produced from clean worktrees.
+    """
+    try:
+        verify_identities(identities)
+        current_inputs = dataclasses.replace(current, worktree_dirty=False)
+        verify_identities((*identities, current_inputs))
+    except ValueError as error:
+        raise ValueError(
+            f"coverage artifacts are stale against current checkout: {error}"
+        ) from error
+
+
 def _write_json(path: Path, value: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -1194,6 +1215,7 @@ def _parser() -> argparse.ArgumentParser:
     identity.add_argument("--output", type=Path, required=True)
     verify = subparsers.add_parser("verify-identities")
     verify.add_argument("identities", type=Path, nargs="+")
+    verify.add_argument("--against-current", action="store_true")
     python_report = subparsers.add_parser("python-report")
     python_report.add_argument("--coverage-data", type=Path, required=True)
     python_report.add_argument("--identity", type=Path, required=True)
@@ -1236,11 +1258,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json(args.output, identity.as_dict())
         return 0
     if args.command == "verify-identities":
-        verify_identities(
-            tuple(
-                identity_from_mapping(_json_mapping(path)) for path in args.identities
-            )
+        identities = tuple(
+            identity_from_mapping(_json_mapping(path)) for path in args.identities
         )
+        verify_identities(identities)
+        if args.against_current:
+            baseline = identities[0]
+            current = make_identity(
+                manifest,
+                layer="current-checkout",
+                tool=baseline.tool,
+                tool_version=baseline.tool_version,
+                root=root,
+            )
+            verify_identities_against_current(identities, current)
         return 0
     if args.command == "python-report":
         identity = identity_from_mapping(_json_mapping(args.identity))
