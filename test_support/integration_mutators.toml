@@ -157,5 +157,10 @@ path = "ontolib/tests/terminologies/test_ncit_search_ranking_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "ontolib/tests/terminologies/test_oxigraph_client_http.py"
+tests = ["test_version_cardinality_verdict_matches_real_oxigraph_and_http_double"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
 path = "ontolib/tests/terminologies/test_ncit_sibling_store_integration.py"
 fixtures = ["oxigraph_sibling_store_root", "integration_connection_scope"]

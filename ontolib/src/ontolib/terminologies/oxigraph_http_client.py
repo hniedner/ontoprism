@@ -356,17 +356,21 @@ class OxigraphHttpClient:
             raise StorageError(f"COUNT value did not parse as int: {value!r}") from e
 
     async def version(self) -> str | None:
-        """Return the store's ``owl:versionInfo``, or ``None`` if unset.
+        """Return the store's unique ``owl:versionInfo``, or ``None`` if unset.
 
         Matches any ``owl:Ontology`` carrying a versionInfo (the NCIt store has one).
+        Multiple distinct values are ambiguous and therefore raise ``StorageError``.
         """
         query = (
             "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
-            "SELECT ?v WHERE { ?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 1"
+            "SELECT DISTINCT ?v WHERE { "
+            "?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 2"
         )
         rows = await self.select(query, required_variables={"v"})
         if not rows:
             return None
+        if len(rows) > 1:
+            raise StorageError("VERSION query returned multiple distinct values")
         version = rows[0].get("v")
         if not version:
             raise StorageError("VERSION query returned no 'v' binding")
