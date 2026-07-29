@@ -2,6 +2,37 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-29 — decomposition runs are exact source-bound state machines
+
+### D48. Materialize the worklist and fence every persisted concept result
+
+The former run ID used second-resolution timestamps, resume inferred progress from
+constituent rows (so zero-output concepts disappeared), and a concept's constituents and
+minted proposals committed separately. The manifest recorded only `owl:versionInfo`;
+tests could therefore agree with one another while a retry crossed a different NCIt
+snapshot or a failure exposed partial results.
+
+**Decision:** every run uses a branch-prefixed UUID and atomically persists an immutable,
+canonical fingerprint plus the exact ordered worklist. The fingerprint binds D47's stable
+source identity, branch, semantic-type scope, selected worklist and limit,
+algorithm/config versions, walker depth, output/load modes, and one stable emission
+timestamp. PostgreSQL constrains run/work-item states and rejects identity mutation.
+
+Each non-complete work item is claimed with a fresh fencing token. Replacing that
+concept's constituents and run-scoped mint proposals and marking it complete is one
+transaction; failures roll back before bounded error evidence is recorded. Resume is
+permitted only for a matching running/failed manifest, never re-enumerates, and processes
+exactly non-complete work. Metrics and normalized TTL are reconstructed from the full
+worklist, so fresh and resumed completion agree. Mint proposals enter the global curator
+queue only when the run completes. The D47 manifest and full live candidate observation
+are required before work, and source drift before completion atomically invalidates all
+partial snapshot results.
+
+**Why:** a successful manifest now proves one complete computation over one identified
+NCIt snapshot; interruption, collision, retry, and zero-output cases cannot masquerade as
+complete or mix source states. Generated-file/graph publication remains the separate #147
+boundary.
+
 ## 2026-07-29 — NCIt stores are constructed and certified as inactive siblings
 
 ### D47. Build on the serving filesystem with the pinned CLI; activation is a separate capability

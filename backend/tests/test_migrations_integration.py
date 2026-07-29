@@ -119,6 +119,79 @@ async def _table_count(dsn: str) -> int:
         await conn.close()
 
 
+async def _decomposition_lifecycle_facts(dsn: str) -> dict[str, Any]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        tables = {
+            row["table_name"]
+            for row in await conn.fetch(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_name IN ('decomp_work_item', "
+                "'decomp_minted_proposal')"
+            )
+        }
+        run_columns = {
+            row["column_name"]: row["data_type"]
+            for row in await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'decomp_run'"
+            )
+        }
+        constituent_columns = {
+            row["column_name"]: row["data_type"]
+            for row in await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'decomp_constituent'"
+            )
+        }
+        constraints = [
+            row["definition"]
+            for row in await conn.fetch(
+                "SELECT pg_get_constraintdef(oid) AS definition "
+                "FROM pg_constraint WHERE conrelid IN "
+                "('decomp_run'::regclass, 'decomp_work_item'::regclass)"
+            )
+        ]
+        trigger = await conn.fetchval(
+            "SELECT pg_get_triggerdef(oid) FROM pg_trigger "
+            "WHERE tgrelid = 'decomp_run'::regclass "
+            "AND tgname = 'decomp_run_identity_immutable'"
+        )
+        proposal_pk = await conn.fetchval(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conrelid = 'decomp_minted_proposal'::regclass "
+            "AND contype = 'p'"
+        )
+        return {
+            "tables": tables,
+            "run_columns": run_columns,
+            "constituent_columns": constituent_columns,
+            "constraints": constraints,
+            "trigger": trigger,
+            "proposal_pk": proposal_pk,
+        }
+    finally:
+        await conn.close()
+
+
+async def _decomposition_lifecycle_is_absent(dsn: str) -> bool:
+    conn = await asyncpg.connect(dsn)
+    try:
+        table_count = await conn.fetchval(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_name IN ('decomp_work_item', 'decomp_minted_proposal')"
+        )
+        column_count = await conn.fetchval(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = 'decomp_run' "
+            "AND column_name IN ('source_identity', 'fingerprint', "
+            "'fingerprint_sha256', 'emitted_at', 'error_type', 'error_message')"
+        )
+        return table_count == 0 and column_count == 0
+    finally:
+        await conn.close()
+
+
 def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["has_vector_ext"] == 1
     assert facts["tables"] == 4
@@ -225,9 +298,81 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0007_embedding_publication"
+    assert revision == "0008_decomposition_run_lifecycle"
     assert legacy_rows == 1
     assert publication_tables == 2
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+
+    async def seed_legacy_running_run() -> None:
+        conn = await asyncpg.connect(dsn)
+        try:
+            await conn.execute(
+                "INSERT INTO decomp_run "
+                "(id, branch, status, ncit_version, started_at) "
+                "VALUES ('legacy-running', 'neoplasm', 'running', '26.02d', now())"
+            )
+        finally:
+            await conn.close()
+
+    async def legacy_run_facts() -> tuple[str, str | None, int]:
+        conn = await asyncpg.connect(dsn)
+        try:
+            row = await conn.fetchrow(
+                "SELECT status, error_type FROM decomp_run WHERE id = 'legacy-running'"
+            )
+            work_items = await conn.fetchval(
+                "SELECT count(*) FROM decomp_work_item WHERE run_id = 'legacy-running'"
+            )
+            return row["status"], row["error_type"], work_items
+        finally:
+            await conn.close()
+
+    try:
+        command.downgrade(cfg, "0007_embedding_publication")
+        absent_after_down = asyncio.run(_decomposition_lifecycle_is_absent(dsn))
+        asyncio.run(seed_legacy_running_run())
+        command.upgrade(cfg, "head")
+        facts = asyncio.run(_decomposition_lifecycle_facts(dsn))
+        legacy_status, legacy_error_type, legacy_work_items = asyncio.run(
+            legacy_run_facts()
+        )
+    finally:
+        command.upgrade(cfg, "head")
+
+    assert absent_after_down is True
+    assert facts["tables"] == {"decomp_work_item", "decomp_minted_proposal"}
+    assert {
+        "source_identity": "text",
+        "fingerprint": "jsonb",
+        "fingerprint_sha256": "text",
+        "emitted_at": "timestamp with time zone",
+        "error_type": "text",
+        "error_message": "text",
+    }.items() <= facts["run_columns"].items()
+    assert {
+        "needs_review": "boolean",
+        "relationship_group": "text",
+    }.items() <= facts["constituent_columns"].items()
+    constraints = " ".join(facts["constraints"])
+    assert "running" in constraints
+    assert "failed" in constraints
+    assert "complete" in constraints
+    assert "pending" in constraints
+    assert facts["trigger"] is not None
+    assert facts["proposal_pk"] == ("PRIMARY KEY (run_id, concept_code, proposal_id)")
+    assert (legacy_status, legacy_error_type, legacy_work_items) == (
+        "failed",
+        "LegacyRun",
+        0,
+    )
 
 
 @pytest.mark.integration

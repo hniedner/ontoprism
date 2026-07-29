@@ -18,19 +18,11 @@ Scope of this orchestrator (documented boundaries, not oversights):
 - ``--load`` (pushing the written TTL into the store) is a CLI-layer concern, not this
   function's — ``run_pipeline`` only ever writes the file at ``config.out``. The CLI
   script performs the store load afterwards using the concrete client's ``.load()``.
-- ``--resume`` skips concept codes that already have persisted constituents for the
-  resumed run id (``ProvenanceStore.processed_codes``). A concept that decomposed to
-  *zero* constituents leaves no such row, so it is reprocessed on resume — safe
-  (idempotent upserts), not exhaustive. The resumed run's ``ncit_version`` is checked
-  against the live store's current version (``_prepare_run``) and refused on a mismatch
-  (design §9/§13) — roles are version-pinned, so mixing two builds in one manifest would
-  silently corrupt it.
-- ``total_in_scope`` reflects the *full* branch enumeration on every invocation
-  (including a resume); ``decomposed``/``residual``/``residual_precoordinated_count``/
-  ``minted_count`` cover only the pending subset actually processed *this* invocation.
-  So on a resumed run,
-  ``coverage``/``pct_decomposed`` understates true cumulative progress — it is not
-  self-consistently scoped to "this invocation" the way the other counters are.
+- ``--resume`` consumes the immutable materialized worklist for a matching
+  running/failed run. Every concept has an explicit state, including concepts producing
+  no constituents. Per-concept replacement and completion are one fenced transaction.
+- Metrics and output are reconstructed cumulatively from the full persisted worklist,
+  so an interrupted/resumed run is equivalent to a fresh run over the same fingerprint.
 """
 
 from __future__ import annotations
@@ -39,6 +31,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
+from uuid import uuid4
 
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import (
@@ -52,6 +45,12 @@ from ontolib.decomposition import (
 from ontolib.decomposition import filler_selection as fs
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Decomposition
+from ontolib.decomposition.provenance import RunStateError
+from ontolib.decomposition.provenance_models import (
+    NcitSourceSnapshot,
+    RunFingerprint,
+    RunResumeIdentity,
+)
 
 logger = get_logger(__name__)
 
@@ -68,8 +67,15 @@ if TYPE_CHECKING:
 # advisory label_multi_aspect signal needs it too). Injected so this module has no
 # hard dependency on a concrete graph-store class — see the module docstring.
 GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
+GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
 
 _DEFAULT_PAGE_SIZE = 500
+_ALGORITHM_VERSION = "decomposition-v1"
+_CONFIG_VERSION = "axes-v1"
+
+
+class SourceIdentityChangedError(RuntimeError):
+    """The query source no longer matches the #181 identity pinned by the run."""
 
 
 class SparqlClient(Protocol):
@@ -135,7 +141,7 @@ class RunMetrics:
 
     * ``residual`` — a concept detected as pre-coordinated that produced *zero*
       constituents. A degenerate safety net (currently unreachable: every defining role
-      or NLP aspect yields >=1 constituent — see ``_persist_candidate``). NOT design
+      or NLP aspect yields >=1 constituent). NOT design
       §10's residual metric.
     * ``residual_precoordinated_count`` / :attr:`residual_precoordination` — **D37's
       metric**: decomposed concepts at least one of whose *emitted constituents is
@@ -214,7 +220,7 @@ class _CandidateResult:
 
 
 def _new_run_id(branch: str) -> str:
-    return f"{branch}-{datetime.now(UTC).isoformat(timespec='seconds')}"
+    return f"{branch}-{uuid4()}"
 
 
 async def enumerate_in_scope_codes(
@@ -436,67 +442,13 @@ async def _precoordinated_fillers(
     return precoordinated
 
 
-async def _persist_candidate(
-    run_id: str,
-    code: str,
-    decomposition: Decomposition,
-    minted: list[MintedConcept],
-    provenance: ProvenanceStore,
-    metrics: RunMetrics,
-    decompositions: list[Decomposition],
-) -> None:
-    """Classify one decomposed candidate's outcome into *metrics* and persist it."""
-    if not decomposition.constituents:
-        # A concept flagged as precoordinated (≥2 decomposable axes including
-        # morphology-from-parent) that somehow produced zero constituents.
-        # Currently unreachable: every defining role or NLP aspect yields ≥1
-        # constituent. Kept as a safety net for future edge cases.
-        metrics.residual += 1
-        return
-
-    metrics.decomposed += 1
-    decompositions.append(decomposition)
-    await provenance.upsert_constituents(run_id, code, decomposition.constituents)
-    for m in minted:
-        await provenance.upsert_minted_concept(
-            run_id,
-            id=m.id,
-            axis=m.axis,
-            label=m.label,
-            source_signal=m.source_signal,
-            status=m.status,
-        )
-    metrics.minted_count += len(minted)
-
-
 @dataclass(frozen=True)
 class _RunSetup:
     run_id: str
-    codes: list[str]
+    source_snapshot: NcitSourceSnapshot
+    fingerprint: RunFingerprint
     pending: list[str]
     labels: dict[str, str]
-
-
-async def _codes_to_process(
-    client: SparqlClient,
-    provenance: ProvenanceStore,
-    config: RunConfig,
-    run_id: str,
-    *,
-    semantic_types: Sequence[str] | None,
-    page_size: int,
-    total_limit: int | None,
-) -> tuple[list[str], list[str]]:
-    """Enumerate in-scope codes and the subset still pending for *run_id*."""
-    already_processed: set[str] = set()
-    if config.resume_from:
-        already_processed = await provenance.processed_codes(run_id)
-
-    codes = await enumerate_in_scope_codes(client, semantic_types, page_size=page_size)
-    if total_limit is not None:
-        codes = codes[:total_limit]
-    pending = [c for c in codes if c not in already_processed]
-    return codes, pending
 
 
 async def _fetch_labels(
@@ -508,22 +460,110 @@ async def _fetch_labels(
     return await get_labels(pending)
 
 
-async def _check_resume_version(
-    provenance: ProvenanceStore, run_id: str, current_version: str
-) -> None:
-    """Refuse to resume *run_id* against a different NCIt build than it started with.
-
-    Roles are version-pinned (design §9/§13): silently mixing two builds' roles into
-    one manifest would corrupt it. ``None`` (no stored manifest yet for this id) is
-    not a mismatch — there is nothing to compare against.
-    """
-    pinned = await provenance.run_version(run_id)
-    if pinned is not None and pinned != current_version:
-        raise RuntimeError(
-            f"refusing to resume run_id={run_id!r}: pinned ncit_version={pinned!r} "
-            f"but the live store now reports {current_version!r} — roles are "
-            "version-pinned; resuming across a build bump would corrupt the manifest"
+async def _require_source_snapshot(
+    client: SparqlClient,
+    get_source_snapshot: GetSourceSnapshot,
+    *,
+    expected: NcitSourceSnapshot | None = None,
+) -> NcitSourceSnapshot:
+    snapshot = await get_source_snapshot()
+    current_version = await client.version()
+    if current_version != snapshot.ontology_version:
+        raise SourceIdentityChangedError(
+            "query endpoint ontology version does not match the #181 source proof"
         )
+    if expected is not None and snapshot != expected:
+        raise SourceIdentityChangedError(
+            "NCIt source identity changed during the decomposition run"
+        )
+    return snapshot
+
+
+def _resume_identity(
+    config: RunConfig,
+    snapshot: NcitSourceSnapshot,
+    *,
+    semantic_types: tuple[str, ...],
+    total_limit: int | None,
+) -> RunResumeIdentity:
+    return RunResumeIdentity(
+        source_identity=snapshot.source_identity,
+        branch=config.branch,
+        semantic_types=semantic_types,
+        total_limit=total_limit,
+        algorithm_version=_ALGORITHM_VERSION,
+        config_version=_CONFIG_VERSION,
+        walker_max_depth=config.walker_max_depth,
+        output_mode="file" if config.out is not None else "none",
+        load_mode="named-graph" if config.load_to_store else "none",
+    )
+
+
+def _canonical_scope(semantic_types: Sequence[str] | None) -> tuple[str, ...]:
+    selected = (
+        semantic_types if semantic_types is not None else axes.IN_SCOPE_SEMANTIC_TYPES
+    )
+    return tuple(sorted(selected))
+
+
+async def _create_fresh_run(
+    config: RunConfig,
+    client: SparqlClient,
+    provenance: ProvenanceStore,
+    snapshot: NcitSourceSnapshot,
+    *,
+    get_source_snapshot: GetSourceSnapshot,
+    scope: tuple[str, ...],
+    page_size: int,
+    total_limit: int | None,
+) -> tuple[str, RunFingerprint]:
+    run_id = _new_run_id(config.branch)
+    codes = await enumerate_in_scope_codes(client, scope, page_size=page_size)
+    if total_limit is not None:
+        if total_limit <= 0:
+            raise ValueError("total_limit must be greater than zero")
+        codes = codes[:total_limit]
+    if len(codes) != len(set(codes)):
+        raise RuntimeError("scope enumeration returned duplicate concept codes")
+    await _require_source_snapshot(
+        client,
+        get_source_snapshot,
+        expected=snapshot,
+    )
+    fingerprint = RunFingerprint(
+        source_identity=snapshot.source_identity,
+        branch=config.branch,
+        semantic_types=scope,
+        worklist=tuple(codes),
+        total_limit=total_limit,
+        algorithm_version=_ALGORITHM_VERSION,
+        config_version=_CONFIG_VERSION,
+        walker_max_depth=config.walker_max_depth,
+        output_mode="file" if config.out is not None else "none",
+        load_mode="named-graph" if config.load_to_store else "none",
+        emitted_at=datetime.now(UTC),
+    )
+    await provenance.create_run(run_id, snapshot.ontology_version, fingerprint)
+    return run_id, fingerprint
+
+
+async def _load_pending_run_data(
+    provenance: ProvenanceStore,
+    run_id: str,
+    get_labels: GetLabels | None,
+) -> tuple[list[str], dict[str, str]]:
+    try:
+        pending = await provenance.pending_codes(run_id)
+        return pending, await _fetch_labels(get_labels, pending)
+    except BaseException as exc:
+        try:
+            await provenance.fail_run(run_id, exc)
+        except BaseException as failure_error:
+            exc.add_note(
+                "Recording the run setup failure also failed: "
+                f"{type(failure_error).__name__}: {failure_error}"
+            )
+        raise
 
 
 async def _prepare_run(
@@ -531,38 +571,162 @@ async def _prepare_run(
     client: SparqlClient,
     provenance: ProvenanceStore,
     *,
+    get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
     semantic_types: Sequence[str] | None,
     page_size: int,
     total_limit: int | None,
 ) -> _RunSetup:
-    """Resolve the run id, enumerate codes, and batch-fetch labels for a fresh run."""
-    run_id = config.resume_from or _new_run_id(config.branch)
-    raw_version = await client.version()
-    if raw_version is None:
-        logger.warning(
-            "No owl:versionInfo in the stated graph for branch=%s (run_id=%s); "
-            "recording ncit_version='unknown' — verify the NCIt bulk load completed",
-            config.branch,
-            run_id,
-        )
-    ncit_version = raw_version or "unknown"
-
+    """Create or reopen one exact source-bound worklist."""
+    snapshot = await _require_source_snapshot(client, get_source_snapshot)
+    scope = _canonical_scope(semantic_types)
     if config.resume_from:
-        await _check_resume_version(provenance, run_id, ncit_version)
-    await provenance.upsert_run(run_id, config.branch, ncit_version)
-
-    codes, pending = await _codes_to_process(
-        client,
+        run_id = config.resume_from
+        fingerprint = await provenance.resume_run(
+            run_id,
+            _resume_identity(
+                config,
+                snapshot,
+                semantic_types=scope,
+                total_limit=total_limit,
+            ),
+        )
+    else:
+        run_id, fingerprint = await _create_fresh_run(
+            config,
+            client,
+            provenance,
+            snapshot,
+            get_source_snapshot=get_source_snapshot,
+            scope=scope,
+            page_size=page_size,
+            total_limit=total_limit,
+        )
+    pending, labels = await _load_pending_run_data(
         provenance,
-        config,
         run_id,
-        semantic_types=semantic_types,
-        page_size=page_size,
-        total_limit=total_limit,
+        get_labels,
     )
-    labels = await _fetch_labels(get_labels, pending)
-    return _RunSetup(run_id=run_id, codes=codes, pending=pending, labels=labels)
+    return _RunSetup(
+        run_id=run_id,
+        source_snapshot=snapshot,
+        fingerprint=fingerprint,
+        pending=pending,
+        labels=labels,
+    )
+
+
+async def _process_work_item(
+    setup: _RunSetup,
+    code: str,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    label_lookup: LabelLookup,
+    walker_max_depth: int,
+) -> None:
+    claim = await provenance.claim_work_item(setup.run_id, code)
+    if claim is None:
+        raise RunStateError(f"work item {setup.run_id!r}/{code!r} could not be claimed")
+    try:
+        result = await _decompose_one(
+            code,
+            client,
+            label=setup.labels.get(code),
+            label_lookup=label_lookup,
+            walker_max_depth=walker_max_depth,
+        )
+        await provenance.complete_work_item(
+            setup.run_id,
+            code,
+            claim,
+            decomposition=result.decomposition,
+            minted=tuple(result.minted),
+        )
+    except BaseException as exc:
+        logger.exception(
+            "decomposition failed for concept_code=%s (run_id=%s)",
+            code,
+            setup.run_id,
+        )
+        try:
+            await provenance.fail_work_item(setup.run_id, code, claim, exc)
+        except BaseException as failure_error:
+            exc.add_note(
+                "Recording the work-item failure also failed: "
+                f"{type(failure_error).__name__}: {failure_error}"
+            )
+        raise
+
+
+async def _process_pending_work(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    label_lookup: LabelLookup,
+) -> None:
+    for code in setup.pending:
+        await _process_work_item(
+            setup,
+            code,
+            client,
+            provenance,
+            label_lookup=label_lookup,
+            walker_max_depth=config.walker_max_depth,
+        )
+
+
+async def _finish_run(
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    *,
+    get_source_snapshot: GetSourceSnapshot,
+    get_labels: GetLabels | None,
+) -> RunMetrics:
+    decompositions = await provenance.decompositions_for_run(setup.run_id)
+    counts = await provenance.outcome_counts(setup.run_id)
+    metrics = RunMetrics(
+        total_in_scope=counts.total_in_scope,
+        decomposed=counts.decomposed,
+        residual=counts.residual,
+        minted_count=counts.minted_count,
+    )
+    precoordinated = await _precoordinated_fillers(
+        decompositions,
+        client,
+        get_labels,
+        walker_max_depth=config.walker_max_depth,
+    )
+    metrics.residual_precoordinated_count = _residual_count(
+        decompositions, precoordinated_fillers=precoordinated
+    )
+    metrics.pct_decomposed = metrics.coverage
+    if config.out is not None:
+        await write_ttl(
+            decompositions,
+            dest=config.out,
+            run_id=setup.run_id,
+            emitted_on=setup.fingerprint.emitted_at.date(),
+        )
+    await _require_source_snapshot(
+        client,
+        get_source_snapshot,
+        expected=setup.source_snapshot,
+    )
+    finished = await provenance.finish_run(
+        setup.run_id,
+        source_identity=setup.fingerprint.source_identity,
+        metrics=asdict(metrics),
+    )
+    if not finished:
+        raise RuntimeError(
+            f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
+            f"(branch={config.branch!r})"
+        )
+    return metrics
 
 
 async def run_pipeline(
@@ -570,6 +734,7 @@ async def run_pipeline(
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     *,
+    get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None = None,
     label_lookup: LabelLookup = _never_resolves,
     semantic_types: Sequence[str] | None = None,
@@ -590,68 +755,38 @@ async def run_pipeline(
         config,
         client,
         provenance,
+        get_source_snapshot=get_source_snapshot,
         get_labels=get_labels,
         semantic_types=semantic_types,
         page_size=page_size,
         total_limit=total_limit,
     )
 
-    metrics = RunMetrics(total_in_scope=len(setup.codes))
-    decompositions: list[Decomposition] = []
-    for code in setup.pending:
-        try:
-            result = await _decompose_one(
-                code,
-                client,
-                label=setup.labels.get(code),
-                label_lookup=label_lookup,
-                walker_max_depth=config.walker_max_depth,
-            )
-        except Exception:
-            logger.exception(
-                "decomposition failed for concept_code=%s (run_id=%s)",
-                code,
-                setup.run_id,
-            )
-            raise
-        if result.decomposition is None:
-            continue
-
-        await _persist_candidate(
-            setup.run_id,
-            code,
-            result.decomposition,
-            result.minted,
+    try:
+        await _process_pending_work(
+            setup,
+            config,
+            client,
             provenance,
-            metrics,
-            decompositions,
+            label_lookup,
         )
-
-    metrics.pct_decomposed = metrics.coverage
-
-    # D37: a decomposition is residually pre-coordinated when one of its own emitted
-    # constituents is itself pre-coordinated (decomposition bottomed out on a compound).
-    # Judged by the same detector, after the run so each distinct filler is classified
-    # once. See RunMetrics for the detector-relative caveat.
-    precoordinated = await _precoordinated_fillers(
-        decompositions, client, get_labels, walker_max_depth=config.walker_max_depth
-    )
-    metrics.residual_precoordinated_count = _residual_count(
-        decompositions, precoordinated_fillers=precoordinated
-    )
-
-    if config.out is not None:
-        await write_ttl(
-            decompositions,
-            dest=config.out,
-            run_id=setup.run_id,
+        return await _finish_run(
+            setup,
+            config,
+            client,
+            provenance,
+            get_source_snapshot=get_source_snapshot,
+            get_labels=get_labels,
         )
-
-    finished = await provenance.finish_run(setup.run_id, metrics=asdict(metrics))
-    if not finished:
-        raise RuntimeError(
-            f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
-            f"(branch={config.branch!r}) — its constituents/minted rows were "
-            "written but the run manifest was never marked complete"
-        )
-    return metrics
+    except BaseException as exc:
+        try:
+            if isinstance(exc, SourceIdentityChangedError):
+                await provenance.invalidate_run(setup.run_id, exc)
+            else:
+                await provenance.fail_run(setup.run_id, exc)
+        except BaseException as failure_error:
+            exc.add_note(
+                "Recording the run failure also failed: "
+                f"{type(failure_error).__name__}: {failure_error}"
+            )
+        raise

@@ -125,19 +125,34 @@ measured `roundtrip_fidelity`. The quarantine does not block the additive consti
 view or future post-coordination grammar; it prevents the curated view from being
 misrepresented as an exact definition.
 
-### 4.5 Postgres provenance (Alembic migration `0003_decomposition`)
+### 4.5 Postgres provenance (Alembic migrations `0003_decomposition` + `0008_decomposition_run_lifecycle`)
 
-The graph is the queryable artifact; Postgres holds the run state for resumability, metrics, and the minted-concept governance list.
+The graph is the queryable artifact; Postgres holds an exact, source-bound run manifest,
+the materialized worklist, transactional results, metrics, and the minted-concept
+governance list.
 
 ```
 decomp_run
-  id            text PRIMARY KEY        -- e.g. "neoplasm-2026-07-06T…"
+  id            text PRIMARY KEY        -- branch + UUID; collision-safe
   branch        text NOT NULL           -- "neoplasm" | "disease" | "regimen"
-  status        text NOT NULL           -- "running" | "complete" | "failed"
-  ncit_version  text NOT NULL           -- pinned build (owl:versionInfo), e.g. "26.05d"
+  status        text NOT NULL CHECK (...) -- "running" | "complete" | "failed"
+  ncit_version  text NOT NULL
+  source_identity text NOT NULL          -- D47 candidate identity
+  fingerprint   jsonb NOT NULL           -- exact source/scope/worklist/config/modes/time
+  fingerprint_sha256 text NOT NULL
+  emitted_at    timestamptz NOT NULL     -- stable across resume
   started_at    timestamptz NOT NULL
   finished_at   timestamptz
   metrics       jsonb                   -- CoverageReport (§10)
+  error_type/error_message text          -- bounded failure evidence
+
+decomp_work_item
+  run_id/concept_code PRIMARY KEY
+  ordinal       integer NOT NULL         -- exact original order, including zero-output
+  state         text NOT NULL CHECK (...) -- pending | running | failed | complete
+  attempt_count integer NOT NULL
+  claim_token   uuid                     -- fences stale workers
+  outcome/error/timestamps               -- state-shape constrained
 
 decomp_constituent
   run_id        text NOT NULL REFERENCES decomp_run(id)
@@ -146,7 +161,13 @@ decomp_constituent
   filler_code   text NOT NULL           -- constituent concept (may be minted)
   axis_source   text NOT NULL           -- "role" | "nlp" | "parent"
   most_specific boolean NOT NULL
+  needs_review  boolean NOT NULL
+  relationship_group text
   PRIMARY KEY (run_id, concept_code, axis, filler_code)
+
+decomp_minted_proposal
+  run_id/concept_code/proposal_id PRIMARY KEY
+  axis/label/source_signal/status
 
 minted_concept
   id            text PRIMARY KEY        -- deterministic synthetic id (§7.2)
@@ -157,7 +178,13 @@ minted_concept
   status        text NOT NULL DEFAULT 'proposed'  -- proposed | approved | rejected
 ```
 
-`minted_concept.status` is the governance hook: minting never silently creates a clinical entity — it records a *proposal* for curator review (assessment §6.3, §7).
+Creating a run and its ordered worklist is one transaction. A claim-token-fenced
+per-concept transaction replaces its constituents/proposals and marks it complete;
+failures roll back before bounded failure evidence is recorded. Resume accepts only a
+matching running/failed fingerprint and processes exactly non-complete items. If the
+source changes before completion, all partial result rows are invalidated before a retry.
+Only successful run completion promotes run-scoped proposals into `minted_concept`, whose
+status is the governance hook: minting never silently creates a clinical entity.
 
 ---
 
@@ -546,15 +573,27 @@ Pure function: `(source_code, list[Constituent], run) → RDF triples` in `DECOM
 ## 9. Run orchestration & CLI (`run.py`)
 
 ```
-pdm run decompose --branch neoplasm --out data/ncit_decomposed.ttl [--load] [--resume RUN_ID]
+pdm run decompose \
+  --source-manifest /path/to/.ontoprism-ncit-candidate.json \
+  --branch neoplasm --out data/ncit_decomposed.ttl [--load] [--resume RUN_ID]
 ```
 
-Pipeline per branch: enumerate in-scope concepts (semantic-type filter) → detect → for each candidate: stated-query roles → filler-select → NLP fallback → resolve/mint constituents → buffer triples + provenance rows. Writes the `decomp_run` manifest incrementally (status `running`→`complete`), so `--resume` restarts from the last persisted concept. `--load` pushes the TTL into Oxigraph; default is file-only (CI-friendly, deterministic).
+The required D47 candidate manifest is revalidated and its full live-endpoint observation
+must match before work begins. A fresh run enumerates the scope once, persists the exact
+ordered worklist and immutable fingerprint, then processes every item, including
+zero-output concepts. Resume never re-enumerates: it validates all caller-controlled
+fingerprint dimensions and processes exactly unfinished items. Metrics and a normalized
+TTL are reconstructed from the full persisted run, making fresh and resumed execution
+equivalent. Source identity is rechecked before completion; drift fails the run and
+invalidates partial snapshot results. `--load` remains the separate generated-graph
+publication boundary owned by #147.
 
 `--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
 before configuration loads or clients are constructed.
 
-**Version pinning:** the run records `owl:versionInfo` of the stated graph and refuses to reuse a manifest across a version bump (roles are version-pinned — assessment §4). A guard test fails loudly if the loaded build differs from the pinned build.
+**Source pinning:** the run records both `owl:versionInfo` and D47's stable source
+identity, which binds the exact stated/inferred artifact pair, loader, layout, policy,
+and candidate observation. Version or identity mismatch fails closed.
 
 ---
 
@@ -562,7 +601,7 @@ before configuration loads or clients are constructed.
 
 | Metric | Status | Definition |
 |---|---|---|
-| `pct_decomposed` | stored in `decomp_run.metrics` | concepts decomposed in this invocation / full in-scope branch count; this understates cumulative progress on resume |
+| `pct_decomposed` | stored in `decomp_run.metrics` | cumulative decomposed concepts / exact persisted worklist size; identical after fresh or resumed completion |
 | `residual_precoordination` | computed property; `residual_precoordinated_count` is stored | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37) |
 | `minted_count` | stored in `decomp_run.metrics` | size of the mint tail (governance signal — should stay low hundreds) |
 | `roundtrip_fidelity` | unavailable (`null`) for new runs | #153 may measure this only from a complete proof-bearing representation, never from the curated projection; historical numeric values remain readable |

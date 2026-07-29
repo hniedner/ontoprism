@@ -3,24 +3,35 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID
 
 import pytest
 
+from ontolib.decomposition import axes
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import Constituent, Decomposition
-from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
+from ontolib.decomposition.provenance_models import (
+    NcitSourceSnapshot,
+    RunFingerprint,
+    RunOutcomeCounts,
+)
 from ontolib.decomposition.run import (
     RunConfig,
     RunMetrics,
+    SourceIdentityChangedError,
     _CandidateResult,
-    _persist_candidate,
+    _new_run_id,
     _precoordinated_fillers,
     _residual_count,
     _store_resident_constituent_fillers,
     enumerate_in_scope_codes,
-    run_pipeline,
+)
+from ontolib.decomposition.run import (
+    run_pipeline as _run_pipeline_impl,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -171,13 +182,151 @@ class _FakeClient:
 
 def _mock_provenance() -> Any:
     store = MagicMock(spec=ProvenanceStore)
-    store.upsert_run = AsyncMock(return_value=1)
-    store.upsert_constituents = AsyncMock(return_value=0)
-    store.upsert_minted_concept = AsyncMock(return_value=1)
+    state: dict[str, Any] = {
+        "fingerprint": None,
+        "pending": [],
+        "decompositions": [],
+        "decomposed": 0,
+        "residual": 0,
+        "minted": 0,
+        "failed": None,
+        "invalidated": None,
+    }
     store.finish_run = AsyncMock(return_value=True)
-    store.processed_codes = AsyncMock(return_value=set())
-    store.run_version = AsyncMock(return_value=None)
+    store.fail_work_item = AsyncMock()
+
+    async def fail_run(run_id: str, error: BaseException) -> bool:
+        state["failed"] = (run_id, type(error).__name__, str(error))
+        return True
+
+    async def invalidate_run(run_id: str, error: BaseException) -> bool:
+        state["invalidated"] = (run_id, type(error).__name__, str(error))
+        return True
+
+    store.fail_run = AsyncMock(side_effect=fail_run)
+    store.invalidate_run = AsyncMock(side_effect=invalidate_run)
+
+    async def create_run(
+        run_id: str,
+        ncit_version: str,
+        fingerprint: RunFingerprint,
+    ) -> None:
+        state["fingerprint"] = fingerprint
+        state["pending"] = list(fingerprint.worklist)
+        del run_id, ncit_version
+
+    async def resume_run(
+        run_id: str,
+        expected: object,
+    ) -> RunFingerprint:
+        del run_id, expected
+        fingerprint = state["fingerprint"]
+        if fingerprint is None:
+            fingerprint = RunFingerprint(
+                source_identity="a" * 64,
+                branch="neoplasm",
+                semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+                worklist=(),
+                total_limit=None,
+                algorithm_version="decomposition-v1",
+                config_version="axes-v1",
+                walker_max_depth=5,
+                output_mode="none",
+                load_mode="none",
+                emitted_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+            )
+            state["fingerprint"] = fingerprint
+        return fingerprint
+
+    async def complete_work_item(
+        run_id: str,
+        code: str,
+        claim: UUID,
+        *,
+        decomposition: Decomposition | None,
+        minted: tuple[MintedConcept, ...],
+    ) -> None:
+        del claim
+        if decomposition is not None:
+            if decomposition.constituents:
+                state["decomposed"] += 1
+                state["decompositions"].append(decomposition)
+            else:
+                state["residual"] += 1
+        del run_id, code
+        state["minted"] += len(minted)
+
+    async def outcome_counts(_run_id: str) -> RunOutcomeCounts:
+        fingerprint = state["fingerprint"]
+        return RunOutcomeCounts(
+            total_in_scope=len(fingerprint.worklist) if fingerprint else 0,
+            decomposed=state["decomposed"],
+            residual=state["residual"],
+            minted_count=state["minted"],
+        )
+
+    store.create_run = AsyncMock(side_effect=create_run)
+    store.resume_run = AsyncMock(side_effect=resume_run)
+    store.pending_codes = AsyncMock(side_effect=lambda _run_id: state["pending"])
+    store.claim_work_item = AsyncMock(return_value=UUID(int=1))
+    store.complete_work_item = AsyncMock(side_effect=complete_work_item)
+    store.decompositions_for_run = AsyncMock(
+        side_effect=lambda _run_id: state["decompositions"]
+    )
+    store.outcome_counts = AsyncMock(side_effect=outcome_counts)
+    store._test_state = state
     return store
+
+
+def _source_snapshot(identity: str = "a" * 64) -> NcitSourceSnapshot:
+    return NcitSourceSnapshot(
+        source_identity=identity,
+        ontology_version="26.02d",
+    )
+
+
+def _set_resume_worklist(
+    provenance: Any,
+    *,
+    worklist: tuple[str, ...],
+    pending: list[str],
+) -> None:
+    provenance._test_state["fingerprint"] = RunFingerprint(
+        source_identity="a" * 64,
+        branch="neoplasm",
+        semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+        worklist=worklist,
+        total_limit=None,
+        algorithm_version="decomposition-v1",
+        config_version="axes-v1",
+        walker_max_depth=5,
+        output_mode="none",
+        load_mode="none",
+        emitted_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+    )
+    provenance._test_state["pending"] = pending
+
+
+async def _stable_source_snapshot() -> NcitSourceSnapshot:
+    return _source_snapshot()
+
+
+async def run_pipeline(
+    config: RunConfig,
+    client: _FakeClient,
+    provenance: Any,
+    *,
+    get_source_snapshot: Any = _stable_source_snapshot,
+    **kwargs: Any,
+) -> RunMetrics:
+    """Keep individual behavior tests concise while production requires a proof."""
+    return await _run_pipeline_impl(
+        config,
+        client,
+        provenance,
+        get_source_snapshot=get_source_snapshot,
+        **kwargs,
+    )
 
 
 @pytest.mark.unit
@@ -231,16 +380,12 @@ async def test_run_pipeline_skeleton_returns_metrics() -> None:
 
 
 @pytest.mark.unit
-async def test_run_pipeline_warns_and_records_unknown_when_version_missing(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+async def test_run_pipeline_rejects_endpoint_without_proved_version() -> None:
     client = _FakeClient(pages=[[]], version=None)
     provenance = _mock_provenance()
-    await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
-    provenance.upsert_run.assert_called_once_with(
-        provenance.upsert_run.call_args.args[0], "neoplasm", "unknown"
-    )
-    assert any("owl:versionInfo" in record.message for record in caplog.records)
+    with pytest.raises(SourceIdentityChangedError, match="version"):
+        await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+    provenance.create_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -256,7 +401,7 @@ async def test_run_pipeline_atomic_concept_is_not_decomposed() -> None:
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 0
-    provenance.upsert_constituents.assert_not_called()
+    assert provenance.complete_work_item.await_args.kwargs["decomposition"] is None
 
 
 @pytest.mark.unit
@@ -311,8 +456,8 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     assert metrics.decomposed == 1
     assert metrics.residual == 0
     assert metrics.coverage == 1.0
-    provenance.upsert_run.assert_called_once()
-    provenance.upsert_constituents.assert_called_once()
+    provenance.create_run.assert_awaited_once()
+    provenance.complete_work_item.assert_awaited_once()
     provenance.finish_run.assert_called_once()
     # dataclasses.asdict() doesn't serialize @property fields — pct_decomposed is a
     # plain field precisely so it survives into the persisted metrics jsonb payload.
@@ -345,7 +490,9 @@ async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
     provenance = _mock_provenance()
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
     assert metrics.decomposed == 1
-    constituents = provenance.upsert_constituents.call_args.args[2]
+    constituents = provenance.complete_work_item.await_args.kwargs[
+        "decomposition"
+    ].constituents
     region_fillers = {
         c.filler_code for c in constituents if c.axis == "op:AssociatedRegion"
     }
@@ -408,7 +555,9 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
     provenance = _mock_provenance()
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
     assert metrics.decomposed == 1
-    constituents = provenance.upsert_constituents.call_args.args[2]
+    constituents = provenance.complete_work_item.await_args.kwargs[
+        "decomposition"
+    ].constituents
     site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
     assert site_fillers == {"C12401"}  # the ancestor C12400 was dropped
 
@@ -436,7 +585,9 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
     provenance = _mock_provenance()
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
     assert metrics.decomposed == 1
-    constituents = provenance.upsert_constituents.call_args.args[2]
+    constituents = provenance.complete_work_item.await_args.kwargs[
+        "decomposition"
+    ].constituents
     site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
     assert site_fillers == {"C12400"}
     assert all(c.filler_code != "C9000" for c in constituents)
@@ -473,7 +624,9 @@ async def test_run_pipeline_preserves_cyclic_fillers_for_review() -> None:
     metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
 
     assert metrics.decomposed == 1
-    constituents = provenance.upsert_constituents.call_args.args[2]
+    constituents = provenance.complete_work_item.await_args.kwargs[
+        "decomposition"
+    ].constituents
     sites = [c for c in constituents if c.axis == "R101"]
     assert {c.filler_code for c in sites} == {"C120", "C121", "C130"}
     assert all(c.needs_review and not c.most_specific for c in sites)
@@ -518,7 +671,9 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
     assert requirements_for("SELECT DISTINCT ?node ?kind ?target") == {
         frozenset({"node", "kind", "target", "targetType"})
     }
-    constituents = provenance.upsert_constituents.call_args.args[2]
+    constituents = provenance.complete_work_item.await_args.kwargs[
+        "decomposition"
+    ].constituents
     fillers = {c.filler_code for c in constituents}
     assert "C10000" in fillers
     assert "C99999" not in fillers
@@ -552,13 +707,17 @@ async def test_run_pipeline_resume_skips_processed_but_still_decomposes_pending(
         },
     )
     provenance = _mock_provenance()
-    provenance.processed_codes = AsyncMock(return_value={"C1"})
+    _set_resume_worklist(
+        provenance,
+        worklist=("C1", "C6135"),
+        pending=["C6135"],
+    )
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 2
     assert metrics.decomposed == 1
-    provenance.upsert_constituents.assert_called_once()
-    assert provenance.upsert_constituents.call_args.args[1] == "C6135"
+    provenance.complete_work_item.assert_awaited_once()
+    assert provenance.complete_work_item.await_args.args[1] == "C6135"
 
 
 @pytest.mark.unit
@@ -619,7 +778,7 @@ async def test_run_pipeline_nlp_fallback_mints_when_no_label_lookup_given() -> N
     assert metrics.decomposed == 1
     # "Left" minted — no label_lookup given, so the default never resolves.
     assert metrics.minted_count == 1
-    provenance.upsert_minted_concept.assert_called_once()
+    assert len(provenance.complete_work_item.await_args.kwargs["minted"]) == 1
 
 
 @pytest.mark.unit
@@ -651,58 +810,57 @@ async def test_run_pipeline_nlp_aspect_resolves_via_label_lookup() -> None:
     )
     assert metrics.decomposed == 1
     assert metrics.minted_count == 0
-    provenance.upsert_minted_concept.assert_not_called()
+    assert provenance.complete_work_item.await_args.kwargs["minted"] == ()
 
 
 @pytest.mark.unit
 async def test_run_pipeline_resume_skips_already_processed_codes() -> None:
     client = _FakeClient(pages=[["C1", "C2"]])
     provenance = _mock_provenance()
-    provenance.processed_codes = AsyncMock(return_value={"C1"})
+    _set_resume_worklist(
+        provenance,
+        worklist=("C1", "C2"),
+        pending=["C2"],
+    )
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     metrics = await run_pipeline(config, client, provenance)
     # Only C2 is newly processed; C1 is skipped. Neither is in scope here (no roles),
     # so this exercises the skip path rather than the extraction path.
     assert metrics.total_in_scope == 2
-    provenance.processed_codes.assert_called_once_with("neoplasm-run-1")
-    provenance.upsert_run.assert_called_once_with(
-        "neoplasm-run-1", "neoplasm", "26.02d"
-    )
+    provenance.resume_run.assert_awaited_once()
+    provenance.create_run.assert_not_awaited()
 
 
 @pytest.mark.unit
 async def test_run_pipeline_resume_with_matching_version_proceeds() -> None:
     client = _FakeClient(pages=[[]], version="26.02d")
     provenance = _mock_provenance()
-    provenance.run_version = AsyncMock(return_value="26.02d")
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 0
-    provenance.run_version.assert_called_once_with("neoplasm-run-1")
+    provenance.resume_run.assert_awaited_once()
 
 
 @pytest.mark.unit
-async def test_run_pipeline_resume_with_no_prior_manifest_proceeds() -> None:
-    # run_version returns None when the resumed id has no stored manifest yet (e.g. a
-    # fresh id reused as --resume by mistake) — nothing to compare against, so this is
-    # not a mismatch.
+async def test_run_pipeline_resume_with_no_prior_manifest_is_rejected() -> None:
     client = _FakeClient(pages=[[]], version="26.02d")
     provenance = _mock_provenance()
-    provenance.run_version = AsyncMock(return_value=None)
+    provenance.resume_run = AsyncMock(
+        side_effect=RunStateError("decomposition run does not exist")
+    )
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
-    metrics = await run_pipeline(config, client, provenance)
-    assert metrics.total_in_scope == 0
+    with pytest.raises(RunStateError, match="does not exist"):
+        await run_pipeline(config, client, provenance)
 
 
 @pytest.mark.unit
 async def test_run_pipeline_resume_with_version_mismatch_raises() -> None:
     client = _FakeClient(pages=[[]], version="26.05d")
     provenance = _mock_provenance()
-    provenance.run_version = AsyncMock(return_value="26.02d")
     config = RunConfig(branch="neoplasm", resume_from="neoplasm-run-1")
-    with pytest.raises(RuntimeError, match="version"):
+    with pytest.raises(SourceIdentityChangedError, match="version"):
         await run_pipeline(config, client, provenance)
-    provenance.processed_codes.assert_not_called()  # refused before any work
+    provenance.resume_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -962,17 +1120,177 @@ def test_candidate_result_allows_none_with_no_minted() -> None:
 
 
 @pytest.mark.unit
-async def test_persist_candidate_empty_constituents_increments_residual() -> None:
-    decomposition = Decomposition(
-        code="C1", semantic_type="Neoplastic Process", constituents=[]
-    )
-    metrics = RunMetrics()
-    decompositions: list[Decomposition] = []
+def test_run_ids_are_collision_safe_within_one_clock_tick() -> None:
+    first = _new_run_id("neoplasm")
+    second = _new_run_id("neoplasm")
+
+    assert first != second
+    assert first.startswith("neoplasm-")
+    assert second.startswith("neoplasm-")
+
+
+@pytest.mark.unit
+async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
-    await _persist_candidate(
-        "run-1", "C1", decomposition, [], provenance, metrics, decompositions
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=["C0"])
+    provenance.claim_work_item = AsyncMock(return_value=UUID(int=1))
+    provenance.complete_work_item = AsyncMock()
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=1,
+            decomposed=0,
+            residual=0,
+            minted_count=0,
+        )
     )
-    assert metrics.residual == 1
-    assert metrics.decomposed == 0
-    assert decompositions == []
-    provenance.upsert_constituents.assert_not_called()
+    provenance.fail_run = AsyncMock()
+    source = AsyncMock(return_value=_source_snapshot())
+
+    metrics = await run_pipeline(
+        RunConfig(branch="neoplasm"),
+        client,
+        provenance,
+        get_source_snapshot=source,
+    )
+
+    fingerprint = provenance.create_run.await_args.args[2]
+    assert isinstance(fingerprint, RunFingerprint)
+    assert fingerprint.worklist == ("C0",)
+    assert fingerprint.source_identity == "a" * 64
+    assert fingerprint.output_mode == "none"
+    assert fingerprint.load_mode == "none"
+    provenance.complete_work_item.assert_awaited_once()
+    assert provenance.complete_work_item.await_args.kwargs["decomposition"] is None
+    assert metrics.total_in_scope == 1
+    assert source.await_count == 3
+    provenance.fail_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> None:
+    emitted_at = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
+    fingerprint = RunFingerprint(
+        source_identity="a" * 64,
+        branch="neoplasm",
+        semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+        worklist=("C0", "C1"),
+        total_limit=None,
+        algorithm_version="decomposition-v1",
+        config_version="axes-v1",
+        walker_max_depth=5,
+        output_mode="none",
+        load_mode="none",
+        emitted_at=emitted_at,
+    )
+    client = _FakeClient(pages=[["MUST-NOT-BE-ENUMERATED"]])
+    provenance = _mock_provenance()
+    provenance.resume_run = AsyncMock(return_value=fingerprint)
+    provenance.pending_codes = AsyncMock(return_value=["C1"])
+    provenance.claim_work_item = AsyncMock(return_value=UUID(int=2))
+    provenance.complete_work_item = AsyncMock()
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=2,
+            decomposed=0,
+            residual=0,
+            minted_count=0,
+        )
+    )
+    provenance.fail_run = AsyncMock()
+
+    await run_pipeline(
+        RunConfig(branch="neoplasm", resume_from="run-1"),
+        client,
+        provenance,
+        get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+    )
+
+    assert all("ORDER BY ?concept" not in query for query in client.queries)
+    provenance.complete_work_item.assert_awaited_once()
+    assert provenance.complete_work_item.await_args.args[1] == "C1"
+
+
+@pytest.mark.unit
+async def test_source_swap_after_work_leaves_run_failed_and_incomplete() -> None:
+    client = _FakeClient(pages=[[]])
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0,
+            decomposed=0,
+            residual=0,
+            minted_count=0,
+        )
+    )
+    source = AsyncMock(
+        side_effect=[
+            _source_snapshot(),
+            _source_snapshot(),
+            _source_snapshot("b" * 64),
+        ]
+    )
+
+    with pytest.raises(SourceIdentityChangedError, match="changed"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=source,
+        )
+
+    provenance.invalidate_run.assert_awaited_once()
+    assert provenance._test_state["invalidated"][1:] == (
+        "SourceIdentityChangedError",
+        "NCIt source identity changed during the decomposition run",
+    )
+    provenance.fail_run.assert_not_awaited()
+    provenance.finish_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_label_failure_after_manifest_marks_run_failed() -> None:
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+
+    async def fail_labels(_codes: list[str]) -> dict[str, str]:
+        raise RuntimeError("label store unavailable")
+
+    with pytest.raises(RuntimeError, match="label store unavailable"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_labels=fail_labels,
+        )
+
+    provenance.fail_run.assert_awaited_once()
+    assert provenance._test_state["failed"][1:] == (
+        "RuntimeError",
+        "label store unavailable",
+    )
+    provenance.finish_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_unclaimable_work_item_marks_run_failed() -> None:
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    provenance.claim_work_item = AsyncMock(return_value=None)
+
+    with pytest.raises(RunStateError, match="could not be claimed"):
+        await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    provenance.fail_run.assert_awaited_once()
+    assert provenance._test_state["failed"][1:] == (
+        "RunStateError",
+        provenance._test_state["failed"][2],
+    )
+    assert "could not be claimed" in provenance._test_state["failed"][2]
+    provenance.finish_run.assert_not_awaited()

@@ -4,13 +4,16 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import typer
 from click import unstyle
 from scripts import decompose
+
+from ontolib.decomposition.run import SourceIdentityChangedError
 
 
 @pytest.mark.unit
@@ -39,6 +42,7 @@ async def test_equivalence_refusal_precedes_settings_and_clients(
 
     with pytest.raises(ValueError, match="not available"):
         await decompose._run(
+            source_manifest=Path("unused-manifest.json"),
             branch="neoplasm",
             out=Path("unused.ttl"),
             load=True,
@@ -59,6 +63,7 @@ def test_cli_rejects_equivalence_before_starting_event_loop(
 
     with pytest.raises(typer.BadParameter, match="not available"):
         decompose.main(
+            source_manifest=Path("unused-manifest.json"),
             branch="neoplasm",
             out=None,
             load=False,
@@ -83,7 +88,13 @@ def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
     }
 
     result = subprocess.run(
-        [sys.executable, "scripts/decompose.py", "--emit-equivalence"],
+        [
+            sys.executable,
+            "scripts/decompose.py",
+            "--source-manifest",
+            "unused-manifest.json",
+            "--emit-equivalence",
+        ],
         cwd=repo_root,
         env=env,
         capture_output=True,
@@ -96,3 +107,60 @@ def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
     assert result.stdout == ""
     error_text = " ".join(unstyle(result.stderr).split())
     assert "--emit-equivalence is not available" in error_text
+
+
+@pytest.mark.unit
+async def test_source_snapshot_binds_live_candidate_to_revalidated_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observation = SimpleNamespace(model_dump=lambda **_kwargs: {"count": 1})
+    manifest = SimpleNamespace(
+        source_identity="a" * 64,
+        ontology_version="26.07d",
+        observation=observation,
+    )
+    monkeypatch.setattr(
+        decompose,
+        "validate_ncit_sibling_manifest",
+        lambda _path: manifest,
+    )
+    observe = AsyncMock(return_value=observation)
+    monkeypatch.setattr(decompose, "observe_ncit_candidate", observe)
+
+    snapshot = await decompose._source_snapshot(
+        Path("candidate/.ontoprism-ncit-candidate.json"),
+        "http://127.0.0.1:7888",
+    )
+
+    assert snapshot.source_identity == "a" * 64
+    assert snapshot.ontology_version == "26.07d"
+    observe.assert_awaited_once_with("http://127.0.0.1:7888")
+
+
+@pytest.mark.unit
+async def test_source_snapshot_rejects_endpoint_observation_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = SimpleNamespace(
+        source_identity="a" * 64,
+        ontology_version="26.07d",
+        observation=SimpleNamespace(model_dump=lambda **_kwargs: {"count": 1}),
+    )
+    monkeypatch.setattr(
+        decompose,
+        "validate_ncit_sibling_manifest",
+        lambda _path: manifest,
+    )
+    monkeypatch.setattr(
+        decompose,
+        "observe_ncit_candidate",
+        AsyncMock(
+            return_value=SimpleNamespace(model_dump=lambda **_kwargs: {"count": 2})
+        ),
+    )
+
+    with pytest.raises(SourceIdentityChangedError, match="observation"):
+        await decompose._source_snapshot(
+            Path("candidate/.ontoprism-ncit-candidate.json"),
+            "http://127.0.0.1:7888",
+        )

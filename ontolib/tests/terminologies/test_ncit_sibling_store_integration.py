@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from scripts.decompose import _source_snapshot
 
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
+    CANDIDATE_MANIFEST_FILENAME,
     REJECTED_CANDIDATE_FILENAME,
     CandidateObservation,
     CandidateValidationPolicy,
@@ -292,4 +294,16 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     assert manifest.loader.image.endswith(
         "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
     )
+    source = await DockerOxigraphRuntime(
+        connection_scope=integration_connection_scope,
+    ).observe(
+        Path(manifest.candidate_path),
+        manifest.owner,
+        lambda endpoint: _source_snapshot(
+            Path(manifest.candidate_path) / CANDIDATE_MANIFEST_FILENAME,
+            endpoint,
+        ),
+    )
+    assert source.source_identity == manifest.source_identity
+    assert source.ontology_version == "26.07d"
     assert sentinel.read_text() == "untouched"
