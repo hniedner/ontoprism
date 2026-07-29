@@ -57,6 +57,7 @@ jobs:
               - 'frontend/**'
               - 'coverage-surfaces.toml'
               - 'scripts/validation/coverage_hierarchy.py'
+              - 'scripts/validation/strict_coverage_gate.py'
               - '.github/workflows/ci.yml'
             embeddings:
               - 'ontolib/src/ontolib/repositories/embeddings/**'
@@ -191,18 +192,21 @@ jobs:
           path: coverage-integration
 
       - name: Combine same-commit coverage layers
+        env:
+          COVERAGE_CONFIG_SET: python-combined
         run: |
           python scripts/validation/coverage_hierarchy.py verify-identities \
+            --against-current \
             coverage-unit/coverage-unit.identity.json \
             coverage-integration/coverage-integration.identity.json
           python -m coverage combine \
             coverage-unit/.coverage coverage-integration/.coverage.integration
 
-      - name: Verify ontolib coverage >= 90%
-        run: python -m coverage report --include='*ontolib/src/*' --fail-under=90
-
-      - name: Verify backend coverage >= 90%
-        run: python -m coverage report --include='*backend/src/*' --fail-under=90
+      - name: Verify independent Python line and branch coverage > 90%
+        run: >-
+          python scripts/validation/strict_coverage_gate.py python
+          --coverage-data .coverage
+          --root .
 
       - name: Report native Python coverage hierarchy (non-blocking deficits)
         run: >-

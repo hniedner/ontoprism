@@ -15,6 +15,7 @@ from scripts.validation.coverage_hierarchy import (
     load_manifest,
     validate_manifest,
     verify_identities,
+    verify_identities_against_current,
 )
 from scripts.validation.coverage_hierarchy import (
     _python_raw_report as python_raw_report,
@@ -292,6 +293,35 @@ def test_identity_verification_rejects_dirty_collection() -> None:
 
     with pytest.raises(ValueError, match="dirty worktree"):
         verify_identities((dirty,))
+
+
+def test_identity_verification_rejects_artifacts_stale_against_checkout() -> None:
+    artifact = _identity("a" * 40)
+    current = ArtifactIdentity(
+        **{
+            **artifact.as_dict(),
+            "commit": "e" * 40,
+            "layer": "current-checkout",
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"stale.*current checkout"):
+        verify_identities_against_current((artifact,), current)
+
+
+def test_current_identity_allows_downloaded_artifacts_outside_source_inventory() -> (
+    None
+):
+    artifact = _identity()
+    current_with_auxiliary_outputs = ArtifactIdentity(
+        **{
+            **artifact.as_dict(),
+            "layer": "current-checkout",
+            "worktree_dirty": True,
+        }
+    )
+
+    verify_identities_against_current((artifact,), current_with_auxiliary_outputs)
 
 
 def test_coverage_py_contract_exposes_native_functions_classes_and_branches(
