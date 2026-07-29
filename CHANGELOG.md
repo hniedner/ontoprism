@@ -19,6 +19,96 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.17.0 (2026-07-29)
+
+### Bug Fixes
+
+- **data**: Bind paired NCIt artifacts ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **decomposition**: Correct failure reporting and close untested guards
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **decomposition**: Keep source identity stable across own publications
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **decomposition**: Persist exact source-bound runs
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **decomposition**: Publish run artifacts only after identity checks
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **decomposition**: Separate publication failure from run failure
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **storage**: Reject ambiguous Oxigraph versions
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+### Build System
+
+- **deps**: Consolidate Dependabot updates ([#224](https://github.com/hniedner/ontoprism/pull/224),
+  [`20614e1`](https://github.com/hniedner/ontoprism/commit/20614e116d700ee6e797e7c6281b09c015d24401))
+
+### Continuous Integration
+
+- Validate updated runtime images ([#224](https://github.com/hniedner/ontoprism/pull/224),
+  [`20614e1`](https://github.com/hniedner/ontoprism/commit/20614e116d700ee6e797e7c6281b09c015d24401))
+
+- **coverage**: Enforce strict aggregate floors
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+### Documentation
+
+- Update README code line-count table
+  ([`c5eb361`](https://github.com/hniedner/ontoprism/commit/c5eb3612c56074a70ad7335bb56ca5db39a6b1ea))
+
+- Update README code line-count table
+  ([`d45aab2`](https://github.com/hniedner/ontoprism/commit/d45aab2c2e89d548bd58972507967005887378d0))
+
+- **ci**: Clarify workflow guarantees ([#224](https://github.com/hniedner/ontoprism/pull/224),
+  [`20614e1`](https://github.com/hniedner/ontoprism/commit/20614e116d700ee6e797e7c6281b09c015d24401))
+
+- **ci**: Correct README workflow timing ([#224](https://github.com/hniedner/ontoprism/pull/224),
+  [`20614e1`](https://github.com/hniedner/ontoprism/commit/20614e116d700ee6e797e7c6281b09c015d24401))
+
+- **ci**: Describe README stats trigger ([#224](https://github.com/hniedner/ontoprism/pull/224),
+  [`20614e1`](https://github.com/hniedner/ontoprism/commit/20614e116d700ee6e797e7c6281b09c015d24401))
+
+### Features
+
+- Complete the M0 pre-real-data safety gate ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **ncit**: Build validated offline sibling stores
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+### Testing
+
+- **data**: Pin both halves of the NCIt ontology identity gate
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **data**: Reject a self-consistent NCIt release forgery
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **decomposition**: Make the fingerprint scope gate provably live
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+- **decomposition**: Make the run-state doubles faithful to the store
+  ([#236](https://github.com/hniedner/ontoprism/pull/236),
+  [`b952683`](https://github.com/hniedner/ontoprism/commit/b9526838d5236a7ceb21e2e39474313d158ec076))
+
+
 ## v0.16.6 (2026-07-27)
 
 ### Bug Fixes
