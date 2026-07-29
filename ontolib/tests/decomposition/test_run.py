@@ -181,12 +181,29 @@ class _FakeClient:
         return await self.select(query, required_variables=required_variables)
 
 
+def _mark_run_row_missing(store: Any, state: dict[str, Any]) -> None:
+    """Model `finish_run` finding no row: the run id no longer exists.
+
+    The store returns ``False`` only in that case, so `fail_run` must then also
+    report that nothing was recorded.
+    """
+
+    async def finish_run(*_args: Any, **_kwargs: Any) -> bool:
+        state["status"] = "missing"
+        return False
+
+    store.finish_run = AsyncMock(side_effect=finish_run)
+
+
 def _install_lifecycle_doubles(store: Any, state: dict[str, Any]) -> None:
     """Give the run-state doubles the store's real contract.
 
     `fail_run` only demotes a still-running run and reports whether the run *is*
     recorded as failed once it returns; a double that always returned True would
-    certify a guarantee the store does not give.
+    certify a guarantee the store does not give. `finish_run` here models the
+    success case; use `_mark_run_row_missing` for the store's ``False``, and
+    override it directly for the `RunStateError`/`RunIdentityMismatchError`
+    refusals, which are pinned against real PostgreSQL instead.
     """
 
     async def finish_run(*_args: Any, **_kwargs: Any) -> bool:
@@ -194,7 +211,12 @@ def _install_lifecycle_doubles(store: Any, state: dict[str, Any]) -> None:
         return True
 
     async def fail_run(run_id: str, error: BaseException) -> bool:
-        if state["status"] == "complete":
+        if state["status"] == "failed":
+            # Already demoted (fail_work_item): the failure *is* recorded.
+            state["failed"] = (run_id, type(error).__name__, str(error))
+            return True
+        if state["status"] != "running":
+            # Complete, or the row is gone: nothing was recorded.
             return False
         state["status"] = "failed"
         state["failed"] = (run_id, type(error).__name__, str(error))
@@ -532,7 +554,7 @@ async def test_run_pipeline_raises_if_finish_run_finds_no_manifest_row() -> None
     # 'complete'.
     client = _FakeClient(pages=[[]])
     provenance = _mock_provenance()
-    provenance.finish_run = AsyncMock(return_value=False)
+    _mark_run_row_missing(provenance, provenance._test_state)
     with pytest.raises(RuntimeError, match="finish_run"):
         await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
 
@@ -1355,7 +1377,7 @@ async def test_failed_completion_leaves_no_publishable_artifact(
             minted_count=0,
         )
     )
-    provenance.finish_run = AsyncMock(return_value=False)
+    _mark_run_row_missing(provenance, provenance._test_state)
 
     with pytest.raises(RuntimeError, match="finish_run found no decomp_run row"):
         await run_pipeline(
@@ -1551,6 +1573,11 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
     provenance.fail_run.assert_not_awaited()
     assert isinstance(exc_info.value.__cause__, OSError)
     assert not getattr(exc_info.value, "__notes__", [])
+    # The message promises the rendered output survives; it is the only copy,
+    # because the completed run can no longer be resumed.
+    staging = next(path for path in tmp_path.iterdir() if ".staging-" in path.name)
+    assert str(staging) in str(exc_info.value)
+    assert not out.exists()
 
 
 @pytest.mark.unit
