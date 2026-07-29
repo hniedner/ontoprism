@@ -1600,6 +1600,32 @@ def test_run_config_rejects_a_path_unsafe_branch(branch: str) -> None:
 
 
 @pytest.mark.unit
+async def test_a_failed_failure_record_is_reported_on_the_original_error() -> None:
+    """A double fault must not lose the identity of the secondary failure.
+
+    The primary error still propagates; without the note the operator would not
+    learn that the run was additionally left unmarked in PostgreSQL.
+    """
+    client = _FakeClient(pages=[["C1"]])
+    provenance = _mock_provenance()
+    provenance.fail_run = AsyncMock(side_effect=RuntimeError("postgres unreachable"))
+
+    async def fail_labels(_codes: list[str]) -> dict[str, str]:
+        raise RuntimeError("label store unavailable")
+
+    with pytest.raises(RuntimeError, match="label store unavailable") as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            client,
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+            get_labels=fail_labels,
+        )
+
+    assert any("postgres unreachable" in note for note in exc_info.value.__notes__)
+
+
+@pytest.mark.unit
 def test_run_config_rejects_load_without_output_path() -> None:
     """``load_to_store`` without ``out`` would persist "loaded a file never written"."""
     with pytest.raises(ValueError, match="load_to_store requires an output path"):

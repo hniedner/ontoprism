@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import threading
@@ -31,6 +32,14 @@ def _owl(version: str, iri: str = _ONTOLOGY_IRI) -> bytes:
   </owl:Ontology>
 </rdf:RDF>
 """.encode()
+
+
+def _identity(payload: object) -> str:
+    """Recompute a manifest identity the way an attacker would: it is unkeyed."""
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _zip(member: str, payload: bytes, *, external_attr: int | None = None) -> bytes:
@@ -302,6 +311,59 @@ async def test_validation_rejects_tampered_manifest_identity_fields(
     manifest_path.write_text(json.dumps(document))
 
     with pytest.raises(OwlContentError, match=message):
+        validate_ncit_owl_pair(manifest_path)
+
+
+@pytest.mark.unit
+async def test_validation_rejects_a_self_consistent_release_forgery(
+    tmp_path: Path,
+) -> None:
+    """Recomputing the identities must not let a manifest relabel the release.
+
+    The hash and artifact-identity gates only prove the manifest is internally
+    consistent: both are unkeyed SHA-256 over public fields, so an edited
+    `ontology_version` can be made to agree with them. Re-parsing the OWL is the
+    only check that binds the manifest to the bytes on disk, and the version it
+    carries flows into the candidate source identity and the run fingerprint.
+    """
+    server, base_url = _serve_pair()
+    try:
+        pair = await download_ncit_owl_pair(tmp_path, base_url=base_url, max_retries=0)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert pair.success
+    assert pair.manifest_path
+    manifest_path = Path(pair.manifest_path)
+    document = json.loads(manifest_path.read_text())
+
+    document["ontology_version"] = "99.99z"
+    for variant in ("stated", "inferred"):
+        record = document[variant]
+        record["ontology_version"] = "99.99z"
+        record["artifact_identity"] = _identity(
+            {
+                "variant": record["variant"],
+                "source_url": record["source_url"],
+                "archive_sha256": record["archive_sha256"],
+                "owl_sha256": record["owl_sha256"],
+                "ontology_version": record["ontology_version"],
+                "ontology_iri": record["ontology_iri"],
+            }
+        )
+    document["manifest_identity"] = _identity(
+        {
+            "schema_version": 1,
+            "stated": document["stated"]["artifact_identity"],
+            "inferred": document["inferred"]["artifact_identity"],
+            "ontology_version": document["ontology_version"],
+            "ontology_iri": document["ontology_iri"],
+        }
+    )
+    manifest_path.write_text(json.dumps(document))
+
+    with pytest.raises(OwlContentError, match="ontology identity"):
         validate_ncit_owl_pair(manifest_path)
 
 
