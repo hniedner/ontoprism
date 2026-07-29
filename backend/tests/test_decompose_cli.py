@@ -116,6 +116,41 @@ def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
     assert "--emit-equivalence is not available" in error_text
 
 
+@pytest.mark.unit
+def test_command_rejects_a_path_unsafe_branch_at_real_cli_boundary() -> None:
+    """The branch reaches the staging filename; refuse it before any work starts."""
+    repo_root = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "DATABASE_URL": "invalid://must-not-be-used",
+        "NCIT_SPARQL_URL": "invalid://must-not-be-used",
+        "FORCE_COLOR": "0",
+        "NO_COLOR": "1",
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/decompose.py",
+            "--source-manifest",
+            "unused-manifest.json",
+            "--branch",
+            "neo/plasm",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    error_text = " ".join(unstyle(result.stderr).split())
+    assert "--branch must be non-empty and free of path separators" in error_text
+
+
 def _observation(*extra_graphs: str) -> CandidateObservation:
     """A production-shaped candidate observation plus any additive graphs."""
     return CandidateObservation(

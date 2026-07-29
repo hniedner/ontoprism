@@ -82,6 +82,15 @@ class SourceIdentityChangedError(RuntimeError):
     """The query source no longer matches the #181 identity pinned by the run."""
 
 
+class RunPublicationError(RuntimeError):
+    """The run completed, but its rendered artifact was not published.
+
+    Distinct from a run failure: the run is already recorded ``complete``, so there
+    is nothing for ``fail_run`` to record. Publication of the file and the named
+    graph is the separate #147 boundary.
+    """
+
+
 class SparqlClient(Protocol):
     """The minimal client surface this orchestrator needs (structural typing).
 
@@ -140,6 +149,7 @@ class RunConfig:
         # `branch` becomes part of the run id and therefore of the staging filename.
         # Reject a path-unsafe branch here rather than after the whole worklist has
         # been processed, where the run can no longer be resumed under a fixed name.
+        # An empty branch is rejected separately: the run id would carry no label.
         if not self.branch or set(self.branch) & {"/", "\\", "\0"}:
             raise ValueError("branch must be non-empty and free of path separators")
 
@@ -800,14 +810,11 @@ async def _finish_run(
         try:
             publication[0].replace(publication[1])
         except OSError as publish_error:
-            # The run is already recorded complete: say so plainly rather than let
-            # the generic run-failure note claim the failure was never recorded.
-            publish_error.add_note(
+            raise RunPublicationError(
                 f"Run {setup.run_id!r} completed but its artifact was not published "
                 f"to {publication[1]}; the rendered output remains at "
                 f"{publication[0]}."
-            )
-            raise
+            ) from publish_error
     return metrics
 
 
@@ -860,6 +867,10 @@ async def run_pipeline(
             get_source_snapshot=get_source_snapshot,
             get_labels=get_labels,
         )
+    except RunPublicationError:
+        # The run is recorded complete; there is no run failure to record, and
+        # calling fail_run here would append a spurious "not recorded" note.
+        raise
     except BaseException as exc:
         try:
             if isinstance(exc, SourceIdentityChangedError):

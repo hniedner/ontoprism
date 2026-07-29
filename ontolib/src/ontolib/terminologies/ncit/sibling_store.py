@@ -27,6 +27,7 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Collection
+    from collections.abc import Set as AbstractSet
     from contextlib import AbstractContextManager
 
 CANDIDATE_MANIFEST_FILENAME = ".ontoprism-ncit-candidate.json"
@@ -587,7 +588,7 @@ def _validate_observed_versions(
 
 def observation_without_graphs(
     observation: CandidateObservation,
-    graph_iris: Collection[str],
+    graph_iris: AbstractSet[str],
 ) -> CandidateObservation:
     """Project an observation onto the NCIt source, ignoring additive graphs.
 

@@ -215,6 +215,10 @@ def main(
         )
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
+    if not branch or set(branch) & {"/", "\\", "\0"}:
+        raise typer.BadParameter(
+            "--branch must be non-empty and free of path separators"
+        )
     metrics = asyncio.run(
         _run(
             source_manifest,

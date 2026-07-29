@@ -194,8 +194,6 @@ async def test_owl_candidates_are_prepared_to_distinct_paths(
 ) -> None:
     inferred = tmp_path / "downloaded-inferred.owl"
     stated = tmp_path / "downloaded-stated.owl"
-    inferred.write_text("inferred")
-    stated.write_text("stated")
 
     async def download(*_args, **_kwargs):  # type: ignore[no-untyped-def]
         return SimpleNamespace(

@@ -244,9 +244,12 @@ def test_every_persistent_store_writer_is_declared_a_repository_write() -> None:
     writer missing from it makes a mutating integration test look read-only and
     exempts it from the disposable-fixture requirement. This derives the expected
     set for ``ProvenanceStore`` and ``XrefStore`` rather than trusting the literal.
-    Writers outside these two classes (``search_index.rebuild``,
-    ``xref.promotion.persist_promotions``, embedding publication) are still declared
-    by hand and can still drift — extend the loop when a write surface is added.
+    Writers outside these two classes are declared by name in the literal —
+    ``search_index.rebuild``, ``xref.promotion.persist_promotions``,
+    ``run.run_pipeline`` — and are not derived here. The embedding publication API
+    (``CorpusPublication.start/stage/publish/fail``) is not declared at all, so a
+    test whose only write is that API reads as non-mutating. Extend the loop or the
+    literal when a write surface is added.
     """
     undeclared: list[str] = []
     for store in (ProvenanceStore, XrefStore):

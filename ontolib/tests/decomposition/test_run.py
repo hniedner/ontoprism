@@ -23,6 +23,7 @@ from ontolib.decomposition.provenance_models import (
 from ontolib.decomposition.run import (
     RunConfig,
     RunMetrics,
+    RunPublicationError,
     SourceIdentityChangedError,
     _CandidateResult,
     _new_run_id,
@@ -180,6 +181,38 @@ class _FakeClient:
         return await self.select(query, required_variables=required_variables)
 
 
+def _install_lifecycle_doubles(store: Any, state: dict[str, Any]) -> None:
+    """Give the run-state doubles the store's real contract.
+
+    `fail_run` only demotes a still-running run and reports whether the run *is*
+    recorded as failed once it returns; a double that always returned True would
+    certify a guarantee the store does not give.
+    """
+
+    async def finish_run(*_args: Any, **_kwargs: Any) -> bool:
+        state["status"] = "complete"
+        return True
+
+    async def fail_run(run_id: str, error: BaseException) -> bool:
+        if state["status"] == "complete":
+            return False
+        state["status"] = "failed"
+        state["failed"] = (run_id, type(error).__name__, str(error))
+        return True
+
+    async def invalidate_run(run_id: str, error: BaseException) -> bool:
+        if state["status"] != "running":
+            return False
+        state["status"] = "failed"
+        state["invalidated"] = (run_id, type(error).__name__, str(error))
+        return True
+
+    store.finish_run = AsyncMock(side_effect=finish_run)
+    store.fail_work_item = AsyncMock()
+    store.fail_run = AsyncMock(side_effect=fail_run)
+    store.invalidate_run = AsyncMock(side_effect=invalidate_run)
+
+
 def _mock_provenance() -> Any:
     store = MagicMock(spec=ProvenanceStore)
     state: dict[str, Any] = {
@@ -191,20 +224,10 @@ def _mock_provenance() -> Any:
         "minted": 0,
         "failed": None,
         "invalidated": None,
+        "status": "running",
     }
-    store.finish_run = AsyncMock(return_value=True)
-    store.fail_work_item = AsyncMock()
 
-    async def fail_run(run_id: str, error: BaseException) -> bool:
-        state["failed"] = (run_id, type(error).__name__, str(error))
-        return True
-
-    async def invalidate_run(run_id: str, error: BaseException) -> bool:
-        state["invalidated"] = (run_id, type(error).__name__, str(error))
-        return True
-
-    store.fail_run = AsyncMock(side_effect=fail_run)
-    store.invalidate_run = AsyncMock(side_effect=invalidate_run)
+    _install_lifecycle_doubles(store, state)
 
     async def create_run(
         run_id: str,
@@ -1516,7 +1539,7 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
 
     monkeypatch.setattr(Path, "replace", explode)
 
-    with pytest.raises(OSError, match="is a directory") as exc_info:
+    with pytest.raises(RunPublicationError, match="was not published") as exc_info:
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
             client,
@@ -1525,10 +1548,9 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
         )
 
     provenance.finish_run.assert_awaited_once()
-    assert any(
-        "completed but its artifact was not published" in note
-        for note in exc_info.value.__notes__
-    )
+    provenance.fail_run.assert_not_awaited()
+    assert isinstance(exc_info.value.__cause__, OSError)
+    assert not getattr(exc_info.value, "__notes__", [])
 
 
 @pytest.mark.unit
