@@ -116,31 +116,40 @@ def _r101_semantic_type_constituents(
     if not region:
         return []
 
-    result: list[Constituent] = []
     organ_ambiguous = len(organ) > 1
-    region_ambiguous = len(region) > 1
-    for filler in organ:
-        result.append(
-            Constituent(
-                axis=axes.PRIMARY_SITE_ROLE,
-                filler_code=filler,
-                axis_source="role",
-                most_specific=_is_most_specific(filler, fillers, is_ancestor),
-                needs_review=organ_ambiguous,
-            )
+    organ_constituents = [
+        Constituent(
+            axis=axes.PRIMARY_SITE_ROLE,
+            filler_code=filler,
+            axis_source="role",
+            most_specific=_is_most_specific(filler, fillers, is_ancestor),
+            needs_review=organ_ambiguous,
         )
-    for filler in region:
-        result.append(
-            Constituent(
-                axis=axes.ASSOCIATED_REGION_AXIS,
-                filler_code=filler,
-                axis_source="role",
-                most_specific=_is_most_specific(filler, fillers, is_ancestor),
-                needs_review=False,
-                group=axes.ASSOCIATED_REGION_AXIS if region_ambiguous else None,
-            )
+        for filler in organ
+    ]
+    return [
+        *organ_constituents,
+        *_associated_region_constituents(region, fillers, is_ancestor),
+    ]
+
+
+def _associated_region_constituents(
+    regions: set[str],
+    fillers: set[str],
+    is_ancestor: IsAncestor,
+) -> list[Constituent]:
+    group = axes.ASSOCIATED_REGION_AXIS if len(regions) > 1 else None
+    return [
+        Constituent(
+            axis=axes.ASSOCIATED_REGION_AXIS,
+            filler_code=filler,
+            axis_source="role",
+            most_specific=_is_most_specific(filler, fillers, is_ancestor),
+            needs_review=False,
+            group=group,
         )
-    return result
+        for filler in regions
+    ]
 
 
 def _standard_constituents(
@@ -185,37 +194,51 @@ def comparison_filler_codes(restrictions: Iterable[RoleRestriction]) -> list[str
     )
 
 
+def _known_r101_organ(
+    leaves: set[str],
+    fillers: set[str],
+    parent_morphology: str | None,
+    axis_name: str,
+) -> str | None:
+    if (
+        axis_name != axes.PRIMARY_SITE_ROLE
+        or parent_morphology is None
+        or len(fillers) <= 1
+    ):
+        return None
+    organ = organ_for_morphology(parent_morphology)
+    return organ if organ in leaves else None
+
+
 def _resolve_r101_with_organ_lookup(
     leaves: set[str],
     fillers: set[str],
     is_ancestor: IsAncestor,
     parent_morphology: str | None,
+    semantic_type_of: Callable[[str], str | None] | None,
     axis_name: str = "",
 ) -> list[Constituent] | None:
-    """When the morphology has a known D23 organ mapping, prefer it over
-    generic or data-quality-issue R101 candidates.
-
-    Short-circuits the generic semantic-type ranking when the known organ
-    is among the surviving leaves. Returns ``None`` to fall through to
-    existing logic when no mapping applies.
-    """
-    if (
-        axis_name != axes.PRIMARY_SITE_ROLE
-        or parent_morphology is None
-        or len(leaves) <= 1
-    ):
+    """Prefer the known D23 organ while preserving distinct D20 region facts."""
+    organ = _known_r101_organ(leaves, fillers, parent_morphology, axis_name)
+    if organ is None:
         return None
-    organ = organ_for_morphology(parent_morphology)
-    if organ is None or organ not in leaves:
-        return None
+    primary = Constituent(
+        axis=axes.PRIMARY_SITE_ROLE,
+        filler_code=organ,
+        axis_source="role",
+        most_specific=_is_most_specific(organ, fillers, is_ancestor),
+        needs_review=False,
+    )
+    if semantic_type_of is None:
+        return [primary]
+    regions = {
+        filler
+        for filler in fillers - {organ}
+        if semantic_type_of(filler) != axes.ORGAN_SEMANTIC_TYPE
+    }
     return [
-        Constituent(
-            axis=axes.PRIMARY_SITE_ROLE,
-            filler_code=organ,
-            axis_source="role",
-            most_specific=_is_most_specific(organ, fillers, is_ancestor),
-            needs_review=False,
-        )
+        primary,
+        *_associated_region_constituents(regions, fillers, is_ancestor),
     ]
 
 
@@ -245,7 +268,12 @@ def _constituents_for_axis(
     leaves = _resolved_leaves(axis_name, fillers, is_ancestor)
 
     resolved = _resolve_r101_with_organ_lookup(
-        leaves, fillers, is_ancestor, parent_morphology, axis_name
+        leaves,
+        fillers,
+        is_ancestor,
+        parent_morphology,
+        semantic_type_of,
+        axis_name,
     )
     if resolved is not None:
         return resolved

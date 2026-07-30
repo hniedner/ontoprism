@@ -556,6 +556,10 @@ Gland` type as "…Organ…") — which is exactly why (1) must carve off the li
 groups, while the D50 complete record preserves every stated site and associated
 region/lineage fact even when projection policy omits it. Both refinements are additive
 (new `op:` axes, never rewriting `R101` triples).
+The D23 morphology-to-organ lookup selects the primary organ but does not bypass this
+split: region/tissue fillers are taken from the pre-collapse R101 set and routed to
+`op:AssociatedRegion`, so an R82 whole/part comparison never deletes a fact merely
+because it belongs on a different normalized axis (#156).
 Validate via the D14/D15/D17 golden-set methodology.
 
 Full narrative and the confirmed-shared-ancestor evidence: this §6 and DECISIONS D17.

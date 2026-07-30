@@ -390,6 +390,53 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
 
 
 @pytest.mark.unit
+def test_organ_lookup_preserves_co_present_regions_on_their_own_axis() -> None:
+    semantic_types = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C12418": "Anatomical Structure",
+        "C13063": "Anatomical Structure",
+    }
+    restrictions = [
+        RoleRestriction("R101", code, "Disease_Has_Primary_Anatomic_Site")
+        for code in semantic_types
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda broader, narrower: (
+            (broader, narrower)
+            in {
+                ("C12418", "C13063"),
+                ("C13063", "C12400"),
+            }
+        ),
+        parent_morphology="C3879",
+        semantic_type_of=semantic_types.get,
+    )
+    by_axis = {
+        axis: {
+            constituent.filler_code
+            for constituent in constituents
+            if constituent.axis == axis
+        }
+        for axis in ("R101", ASSOCIATED_REGION_AXIS)
+    }
+
+    assert by_axis["R101"] == {"C12400"}
+    assert by_axis[ASSOCIATED_REGION_AXIS] == {"C12418", "C13063"}
+    regions = [
+        constituent
+        for constituent in constituents
+        if constituent.axis == ASSOCIATED_REGION_AXIS
+    ]
+    assert all(
+        constituent.group == ASSOCIATED_REGION_AXIS
+        and constituent.needs_review is False
+        for constituent in regions
+    )
+
+
+@pytest.mark.unit
 def test_organ_lookup_falls_through_when_organ_not_in_candidates() -> None:
     """When the known organ is not among the R101 candidates, existing logic
     (most_specific or semantic-type split) takes over."""
@@ -406,6 +453,30 @@ def test_organ_lookup_falls_through_when_organ_not_in_candidates() -> None:
     r101 = [c for c in constituents if c.axis == "R101"]
     assert len(r101) == 2
     assert all(c.needs_review for c in r101)
+
+
+@pytest.mark.unit
+def test_region_only_candidates_reach_fallback_without_known_organ() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12418", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R101", "C13063", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _a, _b: False,
+        parent_morphology="C3879",
+        semantic_type_of=lambda _code: "Anatomical Structure",
+    )
+
+    regions = [
+        constituent for constituent in constituents if constituent.axis_source == "role"
+    ]
+    assert {constituent.axis for constituent in regions} == {ASSOCIATED_REGION_AXIS}
+    assert {constituent.filler_code for constituent in regions} == {
+        "C12418",
+        "C13063",
+    }
 
 
 @pytest.mark.unit
