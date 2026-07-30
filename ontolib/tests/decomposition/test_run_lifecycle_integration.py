@@ -19,6 +19,7 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
     Decomposition,
+    DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
 )
@@ -227,12 +228,26 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
                     RestrictionDefinitionFact(
                         fact_id="b" * 64,
                         anchor_code="C1",
-                        group_id="c" * 64,
+                        group_id="d" * 64,
                         depth=0,
                         role_code="R101",
                         filler_code="C12400",
                     ),
                 ),
+                groups=(
+                    DefinitionGroup(
+                        group_id="c" * 64,
+                        anchor_code="C1",
+                        depth=0,
+                        child_group_ids=("d" * 64,),
+                    ),
+                    DefinitionGroup(
+                        group_id="d" * 64,
+                        anchor_code="C1",
+                        depth=0,
+                    ),
+                ),
+                root_group_ids=("c" * 64,),
             ),
         )
         mint = MintedConcept(axis="op:Laterality", label="Left")

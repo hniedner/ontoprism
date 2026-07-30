@@ -31,6 +31,32 @@ def _require_sha256(value: str, field_name: str) -> None:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class DefinitionGroup:
+    """One canonical stated ``owl:intersectionOf`` expression.
+
+    ``child_group_ids`` preserves nested anonymous intersections without relying on
+    store-local blank-node labels. A group belongs to one named definition anchor and
+    one named-genus DAG depth; several parent groups may reference the same canonical
+    child when the stated RDF graph reuses an equivalent anonymous expression.
+    """
+
+    group_id: str
+    anchor_code: str
+    depth: int
+    child_group_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.group_id, "group_id")
+        _require_code(self.anchor_code, _CONCEPT_CODE, "anchor_code")
+        if self.depth < 0:
+            raise ValueError("depth must be non-negative")
+        canonical = tuple(sorted(set(self.child_group_ids)))
+        for child_group_id in canonical:
+            _require_sha256(child_group_id, "child_group_ids item")
+        object.__setattr__(self, "child_group_ids", canonical)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class GenusDefinitionFact:
     """One named genus edge in a stated equivalent-class intersection."""
 
@@ -80,19 +106,40 @@ class CompleteDefinition:
 
     root_code: str
     facts: tuple[DefinitionFact, ...]
+    groups: tuple[DefinitionGroup, ...] = ()
+    root_group_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_code(self.root_code, _CONCEPT_CODE, "root_code")
-        canonical = tuple(sorted(self.facts, key=lambda fact: fact.fact_id))
-        if len({fact.fact_id for fact in canonical}) != len(canonical):
-            raise ValueError("complete-definition fact IDs must be unique")
+        canonical = _canonical_definition_facts(self.facts)
+        groups, group_by_id, child_group_ids = _canonical_definition_groups(
+            self.groups or _groups_from_facts(canonical)
+        )
+        roots = _canonical_definition_roots(
+            self.root_group_ids,
+            groups,
+            group_by_id,
+            child_group_ids,
+        )
+        _validate_definition_group_graph(group_by_id, roots)
+        _validate_definition_fact_groups(canonical, group_by_id)
         object.__setattr__(self, "facts", canonical)
+        object.__setattr__(self, "groups", groups)
+        object.__setattr__(self, "root_group_ids", roots)
 
     @property
     def identity(self) -> str:
         """Stable identity independent of row order and store blank-node labels."""
         payload = {
             "root_code": self.root_code,
+            "root_group_ids": self.root_group_ids,
+            "groups": [
+                {
+                    field_name: getattr(group, field_name)
+                    for field_name in group.__dataclass_fields__
+                }
+                for group in self.groups
+            ],
             "facts": [
                 {
                     field_name: getattr(fact, field_name)
@@ -105,6 +152,116 @@ class CompleteDefinition:
             "utf-8"
         )
         return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_definition_facts(
+    facts: tuple[DefinitionFact, ...],
+) -> tuple[DefinitionFact, ...]:
+    canonical = tuple(sorted(facts, key=lambda fact: fact.fact_id))
+    if len({fact.fact_id for fact in canonical}) != len(canonical):
+        raise ValueError("complete-definition fact IDs must be unique")
+    return canonical
+
+
+def _canonical_definition_groups(
+    groups: tuple[DefinitionGroup, ...],
+) -> tuple[
+    tuple[DefinitionGroup, ...],
+    dict[str, DefinitionGroup],
+    set[str],
+]:
+    canonical = tuple(sorted(groups, key=lambda group: group.group_id))
+    group_by_id = {group.group_id: group for group in canonical}
+    if len(group_by_id) != len(canonical):
+        raise ValueError("complete-definition group IDs must be unique")
+    child_group_ids = {
+        child_group_id
+        for group in canonical
+        for child_group_id in group.child_group_ids
+    }
+    if child_group_ids - group_by_id.keys():
+        raise ValueError("complete-definition group references an unknown child")
+    return canonical, group_by_id, child_group_ids
+
+
+def _canonical_definition_roots(
+    root_group_ids: tuple[str, ...],
+    groups: tuple[DefinitionGroup, ...],
+    group_by_id: dict[str, DefinitionGroup],
+    child_group_ids: set[str],
+) -> tuple[str, ...]:
+    roots = tuple(sorted(set(root_group_ids)))
+    if not roots and groups:
+        roots = tuple(sorted(group_by_id.keys() - child_group_ids))
+    if set(roots) - group_by_id.keys():
+        raise ValueError("complete-definition root references an unknown group")
+    return roots
+
+
+def _validate_definition_fact_groups(
+    facts: tuple[DefinitionFact, ...],
+    group_by_id: dict[str, DefinitionGroup],
+) -> None:
+    for fact in facts:
+        group = group_by_id.get(fact.group_id)
+        if group is None:
+            raise ValueError("complete-definition fact references an unknown group")
+        if (fact.anchor_code, fact.depth) != (group.anchor_code, group.depth):
+            raise ValueError(
+                "complete-definition fact and group anchors/depths must agree"
+            )
+
+
+def _groups_from_facts(
+    facts: tuple[DefinitionFact, ...],
+) -> tuple[DefinitionGroup, ...]:
+    """Build flat groups for historical/manual records created before nested groups."""
+    group_shapes: dict[str, tuple[str, int]] = {}
+    for fact in facts:
+        shape = (fact.anchor_code, fact.depth)
+        previous = group_shapes.setdefault(fact.group_id, shape)
+        if previous != shape:
+            raise ValueError(
+                "complete-definition group cannot span anchors or DAG depths"
+            )
+    return tuple(
+        DefinitionGroup(
+            group_id=group_id,
+            anchor_code=anchor_code,
+            depth=depth,
+        )
+        for group_id, (anchor_code, depth) in group_shapes.items()
+    )
+
+
+def _validate_definition_group_graph(
+    groups: dict[str, DefinitionGroup],
+    roots: tuple[str, ...],
+) -> None:
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(group_id: str) -> None:
+        if group_id in visiting:
+            raise ValueError("complete-definition group graph contains a cycle")
+        if group_id in visited:
+            return
+        visiting.add(group_id)
+        group = groups[group_id]
+        for child_group_id in group.child_group_ids:
+            child = groups[child_group_id]
+            if (child.anchor_code, child.depth) != (group.anchor_code, group.depth):
+                raise ValueError(
+                    "nested definition groups must share an anchor and DAG depth"
+                )
+            visit(child_group_id)
+        visiting.remove(group_id)
+        visited.add(group_id)
+
+    for root_group_id in roots:
+        visit(root_group_id)
+    if visited != groups.keys():
+        raise ValueError("complete-definition group graph has no reachable root")
 
 
 @dataclass(frozen=True, slots=True)

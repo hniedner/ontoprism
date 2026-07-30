@@ -8,9 +8,10 @@ Usage:
         --branch neoplasm [--out path.ttl] [--load] [--resume RUN_ID]
 
 Scope of this orchestrator (documented boundaries, not oversights):
-- Extraction uses the genus-chain walker (``stated_queries.walk_genus_chain``) to
-  traverse ``owl:equivalentClass``/``owl:intersectionOf`` members, collecting role
-  restrictions from defined classes. A ``_CORE_NEOPLASM_ROLES`` boundary filter
+- Extraction uses the bounded complete-definition reader through
+  ``stated_queries.read_complete_genus_chain`` to traverse named-genus and anonymous
+  nested ``owl:intersectionOf`` groups once, collecting role restrictions from the same
+  record later persisted as provenance. A ``_CORE_NEOPLASM_ROLES`` boundary filter
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
 - Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
   ``stated_queries.resolve_morphology_filler`` walks the genus chain for the first
@@ -58,7 +59,7 @@ from ontolib.decomposition.branches import (
     parse_branch,
 )
 from ontolib.decomposition.legacy_writer import write_ttl
-from ontolib.decomposition.models import Decomposition
+from ontolib.decomposition.models import CompleteDefinition, Decomposition
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
     NcitSourceSnapshot,
@@ -290,7 +291,12 @@ async def _detect_concept(
     *,
     label: str | None,
     walker_max_depth: int,
-) -> tuple[detector.DetectionResult, list[RoleRestriction], str | None]:
+) -> tuple[
+    detector.DetectionResult,
+    list[RoleRestriction],
+    str | None,
+    CompleteDefinition,
+]:
     """Run the detector on *code*: semantic types, genus-chain roles, and morphology.
 
     Returns the ``DetectionResult`` plus the ``roles`` and ``morphology_filler`` the
@@ -305,7 +311,7 @@ async def _detect_concept(
             required_variables={"semanticType"},
         )
     )
-    roles = await stated_queries.walk_genus_chain(
+    definition, roles = await stated_queries.read_complete_genus_chain(
         client.select, code, max_depth=walker_max_depth
     )
     morphology_filler = await stated_queries.resolve_morphology_filler(
@@ -318,7 +324,7 @@ async def _detect_concept(
         has_parent_morphology=morphology_filler is not None,
         label=label,
     )
-    return result, roles, morphology_filler
+    return result, roles, morphology_filler, definition
 
 
 async def _decompose_one(
@@ -335,7 +341,7 @@ async def _decompose_one(
     # Phase 1: detect (semantic types + genus-chain roles + morphology-from-parent).
     # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
     # which is correct — nothing to decompose.
-    result, roles, morphology_filler = await _detect_concept(
+    result, roles, morphology_filler, definition = await _detect_concept(
         code, client, label=label, walker_max_depth=walker_max_depth
     )
 
@@ -386,10 +392,6 @@ async def _decompose_one(
     aspects = nlp_fallback.parse_label_aspects(label)
     nlp_constituents, minted = await constituent_index.resolve_aspects(
         aspects, label_lookup
-    )
-    definition = await complete_definition.read_complete_definition(
-        client.select,
-        code,
     )
     curated = complete_definition.trace_curated_projection(
         [*role_constituents, *nlp_constituents],
@@ -464,7 +466,7 @@ async def _precoordinated_fillers(
     precoordinated: set[str] = set()
     for filler in fillers:
         try:
-            result, _roles, _morph = await _detect_concept(
+            result, _roles, _morph, _definition = await _detect_concept(
                 filler,
                 client,
                 label=labels.get(filler),

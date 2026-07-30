@@ -127,22 +127,28 @@ The curated constituent view intentionally filters, routes, and collapses stated
 It therefore cannot serve as the source of truth for reconstruction, and storing only
 that view made `group`/`needs_review` lossy across PostgreSQL and the read API.
 
-**Decision:** for every decomposed concept, breadth-first read every direct
+**Decision:** for every decomposed concept, breadth-first read every
 `owl:equivalentClass`/`owl:intersectionOf` member from the protected stated graph,
-following every named genus that is itself defined. Record typed genus and existential
-restriction facts with their anchoring concept, source expression group, DAG depth, and
-deterministic SHA-256 identity; blank-node labels never enter an identity. The traversal
-is explicitly bounded (64 members per intersection with an overflow sentinel, depth 64,
-4096 scheduled genera), queries each reconvergent genus once, and fails closed on
-overflow, gaps, foreign IRIs, conflicts, or store failure. It never reconstructs from
-inferred `rdfs:subClassOf+`.
+following every named genus that is itself defined. Anonymous nested intersections are
+canonical group nodes with explicit child-group edges and root-group identities;
+atomic typed genus and existential-restriction facts attach to those groups with their
+anchoring concept and named-genus DAG depth. Recursive structural SHA-256 identities
+ignore blank-node labels and semantically irrelevant intersection order while preserving
+the nested group graph. One compact subject-anchored query returns the reachable RDF
+list cells; application validation bounds the accepted record to 64 members per
+intersection, anonymous nesting depth 4, named-definition depth 64, and 4096 scheduled
+genera. It queries each reconvergent named genus once and fails closed on overflow,
+gaps, disconnected cells, missing nested groups, list/group cycles, foreign IRIs,
+conflicts, or store failure. It never reconstructs from inferred
+`rdfs:subClassOf+`.
 
 The existing constituent view remains useful, but is now an explicit projection whose
 members link back to their source definition-fact IDs. Complete/projected/lost fact
-counts are run metrics. PostgreSQL migration `0009_complete_definition` stores the typed
-facts and source links atomically with each fenced work item; invalidation removes them
-in the same transaction. The additive RDF artifact carries the same facts, identities,
-counts, groups, review flags, and trace links. The read API round-trips constituent
+counts are run metrics. PostgreSQL migrations `0009_complete_definition` and
+`0012_nested_definition_groups` store the typed facts, canonical groups/edges, and
+source links atomically with each fenced work item; invalidation removes them in the
+same transaction. The additive RDF artifact carries the same facts, group graph,
+identities, counts, review flags, and trace links. The read API round-trips constituent
 `group`, `needs_review`, and all source-fact IDs.
 
 The version-pinned stated-store contract proves the real shapes independently:
@@ -152,6 +158,16 @@ It also exposed that the C6135 morphology-to-organ tiebreaker had short-circuite
 and erased the associated regions from the projection. Issue #156 corrected that
 cross-axis collapse: the known organ remains `R101`, while every co-present non-organ
 fact is routed to `op:AssociatedRegion` and traced to this complete record.
+
+A later source-qualified 26.07d build corrected the original direct-member assumption:
+97 concepts contain an anonymous nested intersection member, 91 of which are in the
+inferred neoplasm scope. C27262 has eight direct outer members plus three restrictions
+in one nested group. The old six-position detector walker both rejected that group and
+could not reach the final two direct restrictions. Detection now derives its roles from
+the same complete record instance used by projection and provenance, so structural
+coverage cannot drift between two readers. The detector's configurable walker-depth
+bound limits only that legacy role projection; it never truncates the independently
+bounded complete record.
 
 **Why:** completeness and a convenient navigation view are different artifacts. Keeping
 both makes every curated omission measurable and traceable without weakening the

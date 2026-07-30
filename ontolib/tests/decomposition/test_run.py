@@ -70,12 +70,9 @@ class _FakeClient:
     """Branches on query-text markers, matching the repo's fake-client convention
     (see ``test_oxigraph_client_http.py``).
 
-    The walker queries (``build_genus_walk_members_query``) return per-concept
-    genus-walk rows: for each code the fake produces one hop-0 genus member
-    (the code itself as a named class, making it a defined class) and one
-    hop-1 restriction per role defined in ``self._genus_walk[code]``. This
-    makes the walker behave equivalently to the old flat query while testing
-    the walker's actual query-splitting, parsing, and frontier logic.
+    The complete-definition query returns one canonical root group per concept and
+    preserves every configured role. The older direct member rows remain only for the
+    separate morphology resolver, whose contract intentionally follows named genera.
     """
 
     def __init__(
@@ -94,16 +91,25 @@ class _FakeClient:
         self._pages = pages if pages is not None else [[]]
         self._semantic_types = semantic_types or {}
         self._label_rows = label_rows or []
+        self._role_labels: dict[str, str] = {}
         self._complete_rows: dict[str, list[dict[str, str | None]]] = {}
         for code, role_rows in (roles or {}).items():
+            for role_row in role_rows:
+                role_iri = role_row["rel"]
+                role_label = role_row.get("relLabel")
+                if role_iri is not None and role_label is not None:
+                    self._role_labels[role_iri.removeprefix(NCIT_NS)] = role_label
             self._complete_rows[code] = [
                 {
                     "expression": f"_:complete-{code}",
+                    "parentExpression": None,
+                    "nestingDepth": "0",
                     "position": str(position),
                     "member": f"_:complete-{code}-r{position}",
                     "role": role_row["rel"],
                     "target": role_row["target"],
                     "childExpression": None,
+                    "nestedExpression": None,
                     "overflow": "false",
                 }
                 for position, role_row in enumerate(role_rows)
@@ -169,9 +175,15 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
-        if "SELECT ?expression ?position ?member" in query:
+        if "SELECT ?expression ?parentExpression ?list ?cell" in query:
             code = self._code_in(query)
             return self._complete_rows.get(code or "", [])
+        if "SELECT ?role ?roleLabel" in query:
+            return [
+                {"role": _iri(role_code), "roleLabel": label}
+                for role_code, label in self._role_labels.items()
+                if f"#{role_code}>" in query
+            ]
         if "rdf:first ?member" in query:
             code = self._code_in(query)
             return self._genus_walk.get(code or "", [])

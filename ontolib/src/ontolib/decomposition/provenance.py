@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
@@ -31,6 +31,7 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
     Decomposition,
+    DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
 )
@@ -273,6 +274,46 @@ def _definition_fact_rows(
     return rows
 
 
+def _definition_group_rows(
+    run_id: str,
+    concept_code: str,
+    complete_definition: CompleteDefinition | None,
+) -> list[dict[str, object]]:
+    if complete_definition is None:
+        return []
+    roots = set(complete_definition.root_group_ids)
+    return [
+        {
+            "run_id": run_id,
+            "concept_code": concept_code,
+            "group_id": group.group_id,
+            "anchor_code": group.anchor_code,
+            "depth": group.depth,
+            "is_root": group.group_id in roots,
+        }
+        for group in complete_definition.groups
+    ]
+
+
+def _definition_group_edge_rows(
+    run_id: str,
+    concept_code: str,
+    complete_definition: CompleteDefinition | None,
+) -> list[dict[str, object]]:
+    if complete_definition is None:
+        return []
+    return [
+        {
+            "run_id": run_id,
+            "concept_code": concept_code,
+            "parent_group_id": group.group_id,
+            "child_group_id": child_group_id,
+        }
+        for group in complete_definition.groups
+        for child_group_id in group.child_group_ids
+    ]
+
+
 def _proposal_rows(
     run_id: str,
     concept_code: str,
@@ -290,6 +331,290 @@ def _proposal_rows(
         }
         for proposal in minted
     ]
+
+
+async def _delete_completion_rows(
+    session: AsyncSession,
+    run_id: str,
+    concept_code: str,
+) -> None:
+    params = {"run_id": run_id, "concept_code": concept_code}
+    for statement in (
+        "DELETE FROM decomp_definition_fact "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
+        "DELETE FROM decomp_definition_group_edge "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
+        "DELETE FROM decomp_definition_group "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
+        "DELETE FROM decomp_constituent "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
+        "DELETE FROM decomp_minted_proposal "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
+    ):
+        await session.execute(text(statement), params)
+
+
+async def _insert_completion_rows(
+    session: AsyncSession,
+    statement: str,
+    rows: list[dict[str, object]],
+) -> None:
+    if rows:
+        await session.execute(text(statement), rows)
+
+
+async def _persist_completion_rows(
+    session: AsyncSession,
+    run_id: str,
+    concept_code: str,
+    constituents: list[Constituent],
+    complete_definition: CompleteDefinition | None,
+    minted: tuple[MintedProposal, ...],
+) -> None:
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_constituent "
+        "(run_id, concept_code, axis, filler_code, axis_source, source_role, "
+        "most_specific, needs_review, relationship_group, source_definition_ids) "
+        "VALUES (:run_id, :concept_code, :axis, :filler_code, :axis_source, "
+        ":source_role, :most_specific, :needs_review, :relationship_group, "
+        "CAST(:source_definition_ids AS jsonb))",
+        _constituent_rows(run_id, concept_code, constituents),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_definition_group "
+        "(run_id, concept_code, group_id, anchor_code, depth, is_root) "
+        "VALUES (:run_id, :concept_code, :group_id, :anchor_code, :depth, :is_root)",
+        _definition_group_rows(run_id, concept_code, complete_definition),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_definition_group_edge "
+        "(run_id, concept_code, parent_group_id, child_group_id) "
+        "VALUES (:run_id, :concept_code, :parent_group_id, :child_group_id)",
+        _definition_group_edge_rows(run_id, concept_code, complete_definition),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_definition_fact "
+        "(run_id, concept_code, fact_id, anchor_code, group_id, depth, fact_kind, "
+        "genus_code, is_defined, role_code, filler_code) "
+        "VALUES (:run_id, :concept_code, :fact_id, :anchor_code, :group_id, "
+        ":depth, :fact_kind, :genus_code, :is_defined, :role_code, :filler_code)",
+        _definition_fact_rows(run_id, concept_code, complete_definition),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_minted_proposal "
+        "(run_id, concept_code, proposal_id, axis, label, source_signal, status) "
+        "VALUES (:run_id, :concept_code, :proposal_id, :axis, :label, "
+        ":source_signal, :status)",
+        _proposal_rows(run_id, concept_code, minted),
+    )
+
+
+async def _mark_work_item_complete(
+    session: AsyncSession,
+    run_id: str,
+    concept_code: str,
+    claim_token: UUID,
+    decomposition: Decomposition | None,
+    constituents: list[Constituent],
+    minted: tuple[MintedProposal, ...],
+    *,
+    is_decomposed: bool,
+    is_residual: bool,
+) -> None:
+    updated = await session.execute(
+        text(
+            "UPDATE decomp_work_item SET state = 'complete', "
+            "claim_token = NULL, claimed_at = NULL, semantic_type = :semantic_type, "
+            "is_decomposed = :is_decomposed, is_residual = :is_residual, "
+            "constituent_count = :constituent_count, minted_count = :minted_count, "
+            "completed_at = :completed_at "
+            "WHERE run_id = :run_id AND concept_code = :concept_code "
+            "AND state = 'running' AND claim_token = :claim_token"
+        ),
+        {
+            "run_id": run_id,
+            "concept_code": concept_code,
+            "claim_token": claim_token,
+            "semantic_type": (
+                decomposition.semantic_type if decomposition is not None else None
+            ),
+            "is_decomposed": is_decomposed,
+            "is_residual": is_residual,
+            "constituent_count": len(constituents),
+            "minted_count": len(minted),
+            "completed_at": datetime.datetime.now(datetime.UTC),
+        },
+    )
+    if not cast("int", updated.rowcount):  # type: ignore[attr-defined]
+        raise RunStateError("work-item claim changed before completion")
+
+
+async def _load_decomposition_rows(
+    session: AsyncSession,
+    run_id: str,
+) -> tuple[
+    Sequence[RowMapping],
+    Sequence[RowMapping],
+    Sequence[RowMapping],
+    Sequence[RowMapping],
+    Sequence[RowMapping],
+]:
+    work_items = await session.execute(
+        text(
+            "SELECT concept_code, semantic_type FROM decomp_work_item "
+            "WHERE run_id = :run_id AND state = 'complete' "
+            "AND is_decomposed ORDER BY ordinal"
+        ),
+        {"run_id": run_id},
+    )
+    constituent_result = await session.execute(
+        text(
+            "SELECT concept_code, axis, filler_code, axis_source, source_role, "
+            "most_specific, needs_review, relationship_group, source_definition_ids "
+            "FROM decomp_constituent WHERE run_id = :run_id "
+            "ORDER BY concept_code, axis, filler_code"
+        ),
+        {"run_id": run_id},
+    )
+    definition_result = await session.execute(
+        text(
+            "SELECT concept_code, fact_id, anchor_code, group_id, depth, "
+            "fact_kind, genus_code, is_defined, role_code, filler_code "
+            "FROM decomp_definition_fact WHERE run_id = :run_id "
+            "ORDER BY concept_code, fact_id"
+        ),
+        {"run_id": run_id},
+    )
+    group_result = await session.execute(
+        text(
+            "SELECT concept_code, group_id, anchor_code, depth, is_root "
+            "FROM decomp_definition_group WHERE run_id = :run_id "
+            "ORDER BY concept_code, group_id"
+        ),
+        {"run_id": run_id},
+    )
+    edge_result = await session.execute(
+        text(
+            "SELECT concept_code, parent_group_id, child_group_id "
+            "FROM decomp_definition_group_edge WHERE run_id = :run_id "
+            "ORDER BY concept_code, parent_group_id, child_group_id"
+        ),
+        {"run_id": run_id},
+    )
+    return (
+        work_items.mappings().all(),
+        constituent_result.mappings().all(),
+        definition_result.mappings().all(),
+        group_result.mappings().all(),
+        edge_result.mappings().all(),
+    )
+
+
+def _constituents_by_code(
+    rows: Sequence[RowMapping],
+) -> dict[str, list[Constituent]]:
+    by_code: dict[str, list[Constituent]] = {}
+    for row in rows:
+        raw_source_ids = row["source_definition_ids"]
+        if isinstance(raw_source_ids, str):
+            raw_source_ids = _json.loads(raw_source_ids)
+        by_code.setdefault(row["concept_code"], []).append(
+            Constituent(
+                axis=row["axis"],
+                filler_code=row["filler_code"],
+                axis_source=row["axis_source"],
+                source_role=row["source_role"],
+                most_specific=row["most_specific"],
+                needs_review=row["needs_review"],
+                group=row["relationship_group"],
+                source_definition_ids=tuple(raw_source_ids),
+            )
+        )
+    return by_code
+
+
+def _definition_fact_from_row(
+    row: RowMapping,
+) -> GenusDefinitionFact | RestrictionDefinitionFact:
+    common = {
+        "fact_id": row["fact_id"],
+        "anchor_code": row["anchor_code"],
+        "group_id": row["group_id"],
+        "depth": row["depth"],
+    }
+    if row["fact_kind"] == "genus":
+        return GenusDefinitionFact(
+            **common,
+            genus_code=row["genus_code"],
+            is_defined=row["is_defined"],
+        )
+    return RestrictionDefinitionFact(
+        **common,
+        role_code=row["role_code"],
+        filler_code=row["filler_code"],
+    )
+
+
+def _definition_facts_by_code(
+    rows: Sequence[RowMapping],
+) -> dict[str, list[GenusDefinitionFact | RestrictionDefinitionFact]]:
+    by_code: dict[str, list[GenusDefinitionFact | RestrictionDefinitionFact]] = {}
+    for row in rows:
+        by_code.setdefault(row["concept_code"], []).append(
+            _definition_fact_from_row(row)
+        )
+    return by_code
+
+
+def _definition_groups_by_code(
+    group_rows: Sequence[RowMapping],
+    edge_rows: Sequence[RowMapping],
+) -> tuple[dict[str, list[DefinitionGroup]], dict[str, list[str]]]:
+    children_by_group: dict[tuple[str, str], list[str]] = {}
+    for row in edge_rows:
+        children_by_group.setdefault(
+            (row["concept_code"], row["parent_group_id"]),
+            [],
+        ).append(row["child_group_id"])
+    groups_by_code: dict[str, list[DefinitionGroup]] = {}
+    roots_by_code: dict[str, list[str]] = {}
+    for row in group_rows:
+        concept_code = row["concept_code"]
+        group_id = row["group_id"]
+        groups_by_code.setdefault(concept_code, []).append(
+            DefinitionGroup(
+                group_id=group_id,
+                anchor_code=row["anchor_code"],
+                depth=row["depth"],
+                child_group_ids=tuple(
+                    children_by_group.get((concept_code, group_id), [])
+                ),
+            )
+        )
+        if row["is_root"]:
+            roots_by_code.setdefault(concept_code, []).append(group_id)
+    return groups_by_code, roots_by_code
+
+
+def _complete_definition_for_code(
+    concept_code: str,
+    facts_by_code: dict[str, list[GenusDefinitionFact | RestrictionDefinitionFact]],
+    groups_by_code: dict[str, list[DefinitionGroup]],
+    roots_by_code: dict[str, list[str]],
+) -> CompleteDefinition | None:
+    if concept_code not in facts_by_code and concept_code not in groups_by_code:
+        return None
+    return CompleteDefinition(
+        root_code=concept_code,
+        facts=tuple(facts_by_code.get(concept_code, [])),
+        groups=tuple(groups_by_code.get(concept_code, [])),
+        root_group_ids=tuple(roots_by_code.get(concept_code, [])),
+    )
 
 
 class ProvenanceStore:
@@ -549,98 +874,26 @@ class ProvenanceStore:
             )
             row = locked.mappings().first()
             _require_owned_claim(row, run_id, concept_code, claim_token)
-            await session.execute(
-                text(
-                    "DELETE FROM decomp_definition_fact "
-                    "WHERE run_id = :run_id AND concept_code = :concept_code"
-                ),
-                {"run_id": run_id, "concept_code": concept_code},
-            )
-            await session.execute(
-                text(
-                    "DELETE FROM decomp_constituent "
-                    "WHERE run_id = :run_id AND concept_code = :concept_code"
-                ),
-                {"run_id": run_id, "concept_code": concept_code},
-            )
-            await session.execute(
-                text(
-                    "DELETE FROM decomp_minted_proposal "
-                    "WHERE run_id = :run_id AND concept_code = :concept_code"
-                ),
-                {"run_id": run_id, "concept_code": concept_code},
-            )
-            if constituents:
-                await session.execute(
-                    text(
-                        "INSERT INTO decomp_constituent "
-                        "(run_id, concept_code, axis, filler_code, axis_source, "
-                        "source_role, most_specific, needs_review, relationship_group, "
-                        "source_definition_ids) VALUES "
-                        "(:run_id, :concept_code, :axis, :filler_code, "
-                        ":axis_source, :source_role, :most_specific, :needs_review, "
-                        ":relationship_group, CAST(:source_definition_ids AS jsonb))"
-                    ),
-                    _constituent_rows(run_id, concept_code, constituents),
-                )
-            definition_rows = _definition_fact_rows(
+            await _delete_completion_rows(session, run_id, concept_code)
+            await _persist_completion_rows(
+                session,
                 run_id,
                 concept_code,
+                constituents,
                 complete_definition,
+                minted,
             )
-            if definition_rows:
-                await session.execute(
-                    text(
-                        "INSERT INTO decomp_definition_fact "
-                        "(run_id, concept_code, fact_id, anchor_code, group_id, "
-                        "depth, fact_kind, genus_code, is_defined, role_code, "
-                        "filler_code) VALUES "
-                        "(:run_id, :concept_code, :fact_id, :anchor_code, "
-                        ":group_id, :depth, :fact_kind, :genus_code, "
-                        ":is_defined, :role_code, :filler_code)"
-                    ),
-                    definition_rows,
-                )
-            if minted:
-                await session.execute(
-                    text(
-                        "INSERT INTO decomp_minted_proposal "
-                        "(run_id, concept_code, proposal_id, axis, label, "
-                        "source_signal, status) VALUES "
-                        "(:run_id, :concept_code, :proposal_id, :axis, :label, "
-                        ":source_signal, :status)"
-                    ),
-                    _proposal_rows(run_id, concept_code, minted),
-                )
-            updated = await session.execute(
-                text(
-                    "UPDATE decomp_work_item SET state = 'complete', "
-                    "claim_token = NULL, claimed_at = NULL, "
-                    "semantic_type = :semantic_type, "
-                    "is_decomposed = :is_decomposed, is_residual = :is_residual, "
-                    "constituent_count = :constituent_count, "
-                    "minted_count = :minted_count, completed_at = :completed_at "
-                    "WHERE run_id = :run_id AND concept_code = :concept_code "
-                    "AND state = 'running' AND claim_token = :claim_token"
-                ),
-                {
-                    "run_id": run_id,
-                    "concept_code": concept_code,
-                    "claim_token": claim_token,
-                    "semantic_type": (
-                        decomposition.semantic_type
-                        if decomposition is not None
-                        else None
-                    ),
-                    "is_decomposed": is_decomposed,
-                    "is_residual": is_residual,
-                    "constituent_count": len(constituents),
-                    "minted_count": len(minted),
-                    "completed_at": datetime.datetime.now(datetime.UTC),
-                },
+            await _mark_work_item_complete(
+                session,
+                run_id,
+                concept_code,
+                claim_token,
+                decomposition,
+                constituents,
+                minted,
+                is_decomposed=is_decomposed,
+                is_residual=is_residual,
             )
-            if not cast("int", updated.rowcount):  # type: ignore[attr-defined]
-                raise RunStateError("work-item claim changed before completion")
 
     async def fail_work_item(
         self,
@@ -791,91 +1044,30 @@ class ProvenanceStore:
     async def decompositions_for_run(self, run_id: str) -> list[Decomposition]:
         """Reconstruct the normalized artifact in persisted worklist order."""
         async with self._sf() as session:
-            work_items = await session.execute(
-                text(
-                    "SELECT concept_code, semantic_type FROM decomp_work_item "
-                    "WHERE run_id = :run_id AND state = 'complete' "
-                    "AND is_decomposed ORDER BY ordinal"
-                ),
-                {"run_id": run_id},
-            )
-            constituent_result = await session.execute(
-                text(
-                    "SELECT concept_code, axis, filler_code, axis_source, source_role, "
-                    "most_specific, needs_review, relationship_group, "
-                    "source_definition_ids FROM decomp_constituent "
-                    "WHERE run_id = :run_id "
-                    "ORDER BY concept_code, axis, filler_code"
-                ),
-                {"run_id": run_id},
-            )
-            definition_result = await session.execute(
-                text(
-                    "SELECT concept_code, fact_id, anchor_code, group_id, depth, "
-                    "fact_kind, genus_code, is_defined, role_code, filler_code "
-                    "FROM decomp_definition_fact WHERE run_id = :run_id "
-                    "ORDER BY concept_code, fact_id"
-                ),
-                {"run_id": run_id},
-            )
-            work_item_rows = work_items.mappings().all()
-            constituent_rows = constituent_result.mappings().all()
-            definition_rows = definition_result.mappings().all()
+            (
+                work_item_rows,
+                constituent_rows,
+                definition_rows,
+                group_rows,
+                edge_rows,
+            ) = await _load_decomposition_rows(session, run_id)
 
-        constituents_by_code: dict[str, list[Constituent]] = {}
-        for row in constituent_rows:
-            raw_source_ids = row["source_definition_ids"]
-            if isinstance(raw_source_ids, str):
-                raw_source_ids = _json.loads(raw_source_ids)
-            constituents_by_code.setdefault(row["concept_code"], []).append(
-                Constituent(
-                    axis=row["axis"],
-                    filler_code=row["filler_code"],
-                    axis_source=row["axis_source"],
-                    source_role=row["source_role"],
-                    most_specific=row["most_specific"],
-                    needs_review=row["needs_review"],
-                    group=row["relationship_group"],
-                    source_definition_ids=tuple(raw_source_ids),
-                )
-            )
-
-        facts_by_code: dict[
-            str, list[GenusDefinitionFact | RestrictionDefinitionFact]
-        ] = {}
-        for row in definition_rows:
-            common = {
-                "fact_id": row["fact_id"],
-                "anchor_code": row["anchor_code"],
-                "group_id": row["group_id"],
-                "depth": row["depth"],
-            }
-            if row["fact_kind"] == "genus":
-                fact = GenusDefinitionFact(
-                    **common,
-                    genus_code=row["genus_code"],
-                    is_defined=row["is_defined"],
-                )
-            else:
-                fact = RestrictionDefinitionFact(
-                    **common,
-                    role_code=row["role_code"],
-                    filler_code=row["filler_code"],
-                )
-            facts_by_code.setdefault(row["concept_code"], []).append(fact)
-
+        constituents_by_code = _constituents_by_code(constituent_rows)
+        facts_by_code = _definition_facts_by_code(definition_rows)
+        groups_by_code, roots_by_code = _definition_groups_by_code(
+            group_rows,
+            edge_rows,
+        )
         return [
             Decomposition(
                 code=row["concept_code"],
                 semantic_type=row["semantic_type"],
                 constituents=constituents_by_code.get(row["concept_code"], []),
-                complete_definition=(
-                    CompleteDefinition(
-                        root_code=row["concept_code"],
-                        facts=tuple(facts_by_code[row["concept_code"]]),
-                    )
-                    if row["concept_code"] in facts_by_code
-                    else None
+                complete_definition=_complete_definition_for_code(
+                    row["concept_code"],
+                    facts_by_code,
+                    groups_by_code,
+                    roots_by_code,
                 ),
             )
             for row in work_item_rows

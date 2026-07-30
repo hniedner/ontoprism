@@ -16,6 +16,7 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
     Decomposition,
+    DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
 )
@@ -427,6 +428,7 @@ async def test_complete_definition_and_projection_trace_are_rendered(
     genus_id = "a" * 64
     restriction_id = "b" * 64
     group_id = "c" * 64
+    nested_group_id = "d" * 64
     decs = [
         Decomposition(
             code="C6135",
@@ -455,12 +457,26 @@ async def test_complete_definition_and_projection_trace_are_rendered(
                     RestrictionDefinitionFact(
                         fact_id=restriction_id,
                         anchor_code="C6135",
-                        group_id=group_id,
+                        group_id=nested_group_id,
                         depth=0,
                         role_code="R88",
                         filler_code="C27970",
                     ),
                 ),
+                groups=(
+                    DefinitionGroup(
+                        group_id=group_id,
+                        anchor_code="C6135",
+                        depth=0,
+                        child_group_ids=(nested_group_id,),
+                    ),
+                    DefinitionGroup(
+                        group_id=nested_group_id,
+                        anchor_code="C6135",
+                        depth=0,
+                    ),
+                ),
+                root_group_ids=(group_id,),
             ),
         )
     ]
@@ -471,6 +487,8 @@ async def test_complete_definition_and_projection_trace_are_rendered(
     graph.parse(out, format="turtle")
     source = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135")
     restriction = URIRef(f"{vocab.DEFINITION_FACT_NS}{restriction_id}")
+    root_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}{group_id}")
+    nested_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}{nested_group_id}")
     assert (source, URIRef(vocab.HAS_DEFINITION_FACT), restriction) in graph
     assert (
         restriction,
@@ -480,7 +498,17 @@ async def test_complete_definition_and_projection_trace_are_rendered(
     assert (
         restriction,
         URIRef(vocab.DEFINITION_GROUP),
-        Literal(group_id),
+        nested_group,
+    ) in graph
+    assert (
+        source,
+        URIRef(vocab.HAS_ROOT_DEFINITION_GROUP),
+        root_group,
+    ) in graph
+    assert (
+        root_group,
+        URIRef(vocab.HAS_CHILD_DEFINITION_GROUP),
+        nested_group,
     ) in graph
     constituent = next(graph.objects(source, URIRef(vocab.HAS_CONSTITUENT)))
     assert (

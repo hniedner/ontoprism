@@ -4,6 +4,7 @@ from collections.abc import Collection
 
 import pytest
 
+from ontolib.decomposition.complete_definition import CompleteDefinitionError
 from ontolib.decomposition.stated_queries import (
     _intersection_hop_pattern,
     _is_staging_concept_label,
@@ -496,6 +497,60 @@ def test_staging_label_markers_do_not_match_morphology_concepts(label: str) -> N
     assert _is_staging_concept_label(label) is False
 
 
+def _definition_rows(
+    expression: str,
+    *members: tuple[str, str | None, str | None, bool],
+) -> list[dict[str, str | None]]:
+    return [
+        {
+            "expression": expression,
+            "parentExpression": None,
+            "nestingDepth": "0",
+            "position": str(position),
+            "member": member,
+            "role": role,
+            "target": target,
+            "childExpression": "_:defined" if is_defined else None,
+            "nestedExpression": None,
+            "overflow": "false",
+        }
+        for position, (member, role, target, is_defined) in enumerate(members)
+    ]
+
+
+def _walker_select_double(
+    rows_by_code: dict[str, list[dict[str, str | None]]],
+    *,
+    role_labels: dict[str, str] | None = None,
+    queried_codes: list[str] | None = None,
+):  # type: ignore[no-untyped-def]
+    labels = role_labels or {}
+
+    async def select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        if "SELECT ?role ?roleLabel" in query:
+            assert set(required_variables) == {"role"}
+            return [
+                {"role": _iri(role_code), "roleLabel": label}
+                for role_code, label in labels.items()
+                if f"#{role_code}>" in query
+            ]
+        assert set(required_variables) == {
+            "expression",
+            "list",
+            "cell",
+        }
+        code = next(code for code in rows_by_code if f"#{code}>" in query)
+        if queried_codes is not None:
+            queried_codes.append(code)
+        return rows_by_code[code]
+
+    return select
+
+
 @pytest.mark.unit
 async def test_walk_genus_chain_populates_anchoring_genus() -> None:
     """The walker must record which genus anchored each restriction so D20 lineage
@@ -503,29 +558,22 @@ async def test_walk_genus_chain_populates_anchoring_genus() -> None:
     PR-B gap where ``anchoring_genus`` was left ``None`` on the walker path, which
     silently disabled ``op:AssociatedLineageClassification`` routing entirely.
     """
-    restriction_row: dict[str, str | None] = {
-        "member": "_:r1",
-        "type": OWL_NS + "Restriction",
-        "role": _iri("R101"),
-        "target": _iri("C12704"),
-        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+    rows_by_code = {
+        "C6135": _definition_rows(
+            "_:root",
+            (_iri("C3809"), None, None, True),
+        ),
+        "C3809": _definition_rows(
+            "_:genus",
+            ("_:r1", _iri("R101"), _iri("C12704"), False),
+        ),
     }
+    select = _walker_select_double(
+        rows_by_code,
+        role_labels={"R101": "Disease_Has_Primary_Anatomic_Site"},
+    )
 
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        assert set(required_variables) == {"member"}
-        # C6135 (start, depth 0) has the lineage-generic genus C3809 as a member.
-        if "#C6135>" in query:
-            return [{"member": _iri("C3809"), "type": None}]
-        # C3809 (depth 1) anchors the overloaded R101 -> Endocrine Gland restriction.
-        if "#C3809>" in query:
-            return [restriction_row]
-        return []
-
-    roles = await walk_genus_chain(fake_select, "C6135", max_depth=3)
+    roles = await walk_genus_chain(select, "C6135", max_depth=3)
 
     lineage = [r for r in roles if r.filler_code == "C12704"]
     assert len(lineage) == 1
@@ -538,130 +586,164 @@ async def test_walk_genus_chain_populates_anchoring_genus() -> None:
 async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> None:
     """A restriction found directly on the starting concept is anchored on that
     concept's own code (depth 0), not left ``None``."""
-    restriction_row: dict[str, str | None] = {
-        "member": "_:r0",
-        "type": OWL_NS + "Restriction",
-        "role": _iri("R88"),
-        "target": _iri("C27970"),
-        "roleLabel": "Disease_Is_Stage",
+    rows_by_code = {
+        "C6135": _definition_rows(
+            "_:root",
+            ("_:r0", _iri("R88"), _iri("C27970"), False),
+        )
     }
+    select = _walker_select_double(
+        rows_by_code,
+        role_labels={"R88": "Disease_Is_Stage"},
+    )
 
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        assert set(required_variables) == {"member"}
-        if "#C6135>" in query:
-            return [restriction_row]
-        return []
-
-    roles = await walk_genus_chain(fake_select, "C6135", max_depth=2)
+    roles = await walk_genus_chain(select, "C6135", max_depth=2)
 
     assert len(roles) == 1
     assert roles[0].anchoring_genus == "C6135"
 
 
 @pytest.mark.unit
-async def test_walk_genus_chain_stops_at_first_empty_intersection_position() -> None:
-    later_restriction: dict[str, str | None] = {
-        "member": "_:r1",
-        "type": OWL_NS + "Restriction",
-        "role": _iri("R101"),
-        "target": _iri("C12704"),
-        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
-    }
+@pytest.mark.parametrize(
+    ("label_rows", "message"),
+    [
+        ([{"role": None, "roleLabel": "Site"}], "required role"),
+        (
+            [{"role": "https://example.org/R101", "roleLabel": "Site"}],
+            "not an NCIt IRI",
+        ),
+        (
+            [{"role": _iri("R999"), "roleLabel": "Unexpected"}],
+            "unrequested role",
+        ),
+        (
+            [
+                {"role": _iri("R101"), "roleLabel": "Site A"},
+                {"role": _iri("R101"), "roleLabel": "Site B"},
+            ],
+            "conflicting labels",
+        ),
+    ],
+)
+async def test_walk_genus_chain_fails_closed_on_invalid_role_label_rows(
+    label_rows: list[dict[str, str | None]],
+    message: str,
+) -> None:
+    definition_rows = _definition_rows(
+        "_:root",
+        ("_:restriction", _iri("R101"), _iri("C12400"), False),
+    )
 
-    async def fake_select(
+    async def select(
         query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        assert set(required_variables) == {"member"}
-        if "?mid0 rdf:first ?member" in query:
-            return [later_restriction]
-        return []
+        return label_rows if "SELECT ?role ?roleLabel" in query else definition_rows
 
-    assert await walk_genus_chain(fake_select, "C6135") == []
+    with pytest.raises(ValueError, match=message):
+        await walk_genus_chain(select, "C6135")
 
 
 @pytest.mark.unit
-async def test_walk_genus_chain_rejects_an_unrepresentable_class_member() -> None:
-    async def fake_select(
+async def test_walk_genus_chain_prefers_a_bound_label_over_an_unbound_duplicate() -> (
+    None
+):
+    definition_rows = _definition_rows(
+        "_:root",
+        ("_:restriction", _iri("R101"), _iri("C12400"), False),
+    )
+
+    async def select(
         query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        del query
-        assert set(required_variables) == {"member"}
-        return [{"member": "_:nested-class", "type": OWL_NS + "Class"}]
+        if "SELECT ?role ?roleLabel" in query:
+            return [
+                {"role": _iri("R101"), "roleLabel": None},
+                {
+                    "role": _iri("R101"),
+                    "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+                },
+            ]
+        return definition_rows
 
-    with pytest.raises(ValueError, match="member is not an NCIt IRI"):
-        await walk_genus_chain(fake_select, "C6135")
+    roles = await walk_genus_chain(select, "C6135")
+
+    assert len(roles) == 1
+    assert roles[0].role_label == "Disease_Has_Primary_Anatomic_Site"
+
+
+@pytest.mark.unit
+async def test_walk_genus_chain_returns_empty_for_an_undefined_concept() -> None:
+    select = _walker_select_double({"C6135": []})
+
+    assert await walk_genus_chain(select, "C6135") == []
+
+
+@pytest.mark.unit
+async def test_walk_genus_chain_rejects_an_incomplete_nested_group() -> None:
+    rows = _definition_rows(
+        "_:root",
+        ("_:nested-class", None, None, False),
+    )
+    rows[0]["nestedExpression"] = "_:nested-class"
+    select = _walker_select_double({"C6135": rows})
+
+    with pytest.raises(CompleteDefinitionError, match="missing nested group"):
+        await walk_genus_chain(select, "C6135")
 
 
 @pytest.mark.unit
 async def test_walk_genus_chain_deduplicates_roles_and_terminates_on_cycle() -> None:
-    core_role: dict[str, str | None] = {
-        "member": "_:core",
-        "type": OWL_NS + "Restriction",
-        "role": _iri("R101"),
-        "target": _iri("C12704"),
-        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
-    }
-    non_core_role: dict[str, str | None] = {
-        "member": "_:non-core",
-        "type": OWL_NS + "Restriction",
-        "role": _iri("R999"),
-        "target": _iri("C999"),
-        "roleLabel": "Not_A_Core_Neoplasm_Role",
-    }
     queried_codes: list[str] = []
+    rows_by_code = {
+        "C6135": _definition_rows(
+            "_:root",
+            (_iri("C3809"), None, None, True),
+        ),
+        "C3809": _definition_rows(
+            "_:genus",
+            ("_:core", _iri("R101"), _iri("C12704"), False),
+            ("_:core-copy", _iri("R101"), _iri("C12704"), False),
+            ("_:non-core", _iri("R999"), _iri("C999"), False),
+            (_iri("C6135"), None, None, True),
+        ),
+    }
+    select = _walker_select_double(
+        rows_by_code,
+        role_labels={
+            "R101": "Disease_Has_Primary_Anatomic_Site",
+            "R999": "Not_A_Core_Neoplasm_Role",
+        },
+        queried_codes=queried_codes,
+    )
 
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        assert set(required_variables) == {"member"}
-        if "#C6135>" in query:
-            queried_codes.append("C6135")
-            return [{"member": _iri("C3809"), "type": None}]
-        if "#C3809>" in query:
-            queried_codes.append("C3809")
-            return [
-                core_role,
-                core_role,
-                non_core_role,
-                {"member": _iri("C6135"), "type": None},
-            ]
-        return []
-
-    roles = await walk_genus_chain(fake_select, "C6135", max_depth=5)
+    roles = await walk_genus_chain(select, "C6135", max_depth=5)
 
     assert [(role.role_code, role.filler_code) for role in roles] == [
         ("R101", "C12704")
     ]
     assert roles[0].anchoring_genus == "C3809"
-    assert queried_codes.count("C6135") == len(build_genus_walk_members_query("C6135"))
-    assert queried_codes.count("C3809") == len(build_genus_walk_members_query("C3809"))
+    assert queried_codes == ["C6135", "C3809"]
 
 
 @pytest.mark.unit
-async def test_walk_genus_chain_does_not_cross_depth_bound() -> None:
+async def test_walk_genus_chain_limits_role_projection_without_truncating_record() -> (
+    None
+):
     queried_codes: list[str] = []
+    select = _walker_select_double(
+        {
+            "C6135": _definition_rows(
+                "_:root",
+                (_iri("C3809"), None, None, True),
+            ),
+            "C3809": [],
+        },
+        queried_codes=queried_codes,
+    )
 
-    async def fake_select(
-        query: str,
-        *,
-        required_variables: Collection[str] = (),
-    ) -> list[dict[str, str | None]]:
-        assert set(required_variables) == {"member"}
-        if "#C6135>" in query:
-            queried_codes.append("C6135")
-            return [{"member": _iri("C3809"), "type": None}]
-        queried_codes.append("C3809")
-        return []
-
-    assert await walk_genus_chain(fake_select, "C6135", max_depth=1) == []
-    assert set(queried_codes) == {"C6135"}
+    assert await walk_genus_chain(select, "C6135", max_depth=1) == []
+    assert queried_codes == ["C6135", "C3809"]

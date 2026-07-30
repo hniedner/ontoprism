@@ -18,6 +18,7 @@ from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
     Decomposition,
+    DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
 )
@@ -25,7 +26,7 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from collections.abc import Callable, Collection
 
 
 def _iri(code: str) -> str:
@@ -37,12 +38,15 @@ def test_complete_definition_query_is_bounded_and_stated_only() -> None:
     query = build_complete_definition_query("C6135")
 
     assert f"GRAPH <{STATED_GRAPH_IRI}>" in query
-    assert f"<{_iri('C6135')}> owl:equivalentClass ?expression" in query
-    assert "rdf:rest*" not in query
+    assert f"<{_iri('C6135')}> owl:equivalentClass ?rootExpression" in query
+    assert "rdf:rest*" in query
     assert "rdf:rest+" not in query
-    assert "?position" in query
+    assert "?cell" in query
+    assert "?next" in query
     assert "?childExpression" in query
-    assert "?overflow" in query
+    assert "?nestedExpression" in query
+    assert "?parentExpression" in query
+    assert len(query) < 5_000
 
 
 @pytest.mark.unit
@@ -105,6 +109,160 @@ def test_rows_preserve_multiple_axioms_genera_restrictions_and_groups() -> None:
 
 
 @pytest.mark.unit
+async def test_nested_intersection_is_a_stable_proof_bearing_group_tree() -> None:
+    rows = [
+        {
+            "expression": "_:outer-a",
+            "parentExpression": None,
+            "nestingDepth": "0",
+            "position": "0",
+            "member": _iri("C35501"),
+            "childExpression": None,
+            "nestedExpression": None,
+            "role": None,
+            "target": None,
+            "overflow": "false",
+        },
+        {
+            "expression": "_:outer-a",
+            "parentExpression": None,
+            "nestingDepth": "0",
+            "position": "1",
+            "member": "_:inner-a",
+            "childExpression": None,
+            "nestedExpression": "_:inner-a",
+            "role": None,
+            "target": None,
+            "overflow": "false",
+        },
+        {
+            "expression": "_:inner-a",
+            "parentExpression": "_:outer-a",
+            "nestingDepth": "1",
+            "position": "0",
+            "member": "_:restriction-a",
+            "childExpression": None,
+            "nestedExpression": None,
+            "role": _iri("R140"),
+            "target": _iri("C36715"),
+            "overflow": "false",
+        },
+        {
+            "expression": "_:inner-a",
+            "parentExpression": "_:outer-a",
+            "nestingDepth": "1",
+            "position": "1",
+            "member": "_:restriction-b",
+            "childExpression": None,
+            "nestedExpression": None,
+            "role": _iri("R141"),
+            "target": _iri("C13271"),
+            "overflow": "false",
+        },
+        {
+            "expression": "_:outer-a",
+            "parentExpression": None,
+            "nestingDepth": "0",
+            "position": "2",
+            "member": "_:restriction-c",
+            "childExpression": None,
+            "nestedExpression": None,
+            "role": _iri("R101"),
+            "target": _iri("C12431"),
+            "overflow": "false",
+        },
+    ]
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        assert "?nestedExpression" in query
+        assert required_variables == {
+            "expression",
+            "list",
+            "cell",
+        }
+        return rows
+
+    complete = await read_complete_definition(select, "C27262")
+
+    assert len(complete.groups) == 2
+    assert len(complete.root_group_ids) == 1
+    outer = next(
+        group for group in complete.groups if group.group_id in complete.root_group_ids
+    )
+    assert len(outer.child_group_ids) == 1
+    inner = next(
+        group for group in complete.groups if group.group_id == outer.child_group_ids[0]
+    )
+    assert inner.child_group_ids == ()
+    assert {fact.group_id for fact in complete.facts} == {
+        outer.group_id,
+        inner.group_id,
+    }
+    assert {
+        (fact.role_code, fact.filler_code)
+        for fact in complete.facts
+        if isinstance(fact, RestrictionDefinitionFact)
+        and fact.group_id == inner.group_id
+    } == {("R140", "C36715"), ("R141", "C13271")}
+
+    renamed_and_reordered = [
+        {
+            key: (
+                value.replace("_:outer-a", "_:outer-b").replace(
+                    "_:inner-a", "_:inner-b"
+                )
+                if isinstance(value, str)
+                else value
+            )
+            for key, value in row.items()
+        }
+        for row in reversed(rows)
+    ]
+
+    async def select_renamed(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return renamed_and_reordered
+
+    renamed = await read_complete_definition(select_renamed, "C27262")
+    assert renamed == complete
+    assert renamed.identity == complete.identity
+
+
+@pytest.mark.unit
+def test_definition_group_rejects_unknown_children_and_cycles() -> None:
+    root = DefinitionGroup(
+        group_id="a" * 64,
+        anchor_code="C1",
+        depth=0,
+        child_group_ids=("b" * 64,),
+    )
+    child = DefinitionGroup(
+        group_id="b" * 64,
+        anchor_code="C1",
+        depth=0,
+        child_group_ids=("a" * 64,),
+    )
+
+    with pytest.raises(ValueError, match="cycle"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(),
+            groups=(root, child),
+            root_group_ids=(root.group_id,),
+        )
+    with pytest.raises(ValueError, match="unknown child"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(),
+            groups=(replace(root, child_group_ids=("c" * 64,)),),
+            root_group_ids=(root.group_id,),
+        )
+
+
+@pytest.mark.unit
 def test_row_parser_fails_closed_on_bounded_list_overflow() -> None:
     with pytest.raises(CompleteDefinitionError, match="list bound"):
         definition_facts_from_rows(
@@ -122,6 +280,218 @@ def test_row_parser_fails_closed_on_bounded_list_overflow() -> None:
                 }
             ],
         )
+
+
+def _linked_definition_rows(length: int) -> list[dict[str, str | None]]:
+    return [
+        {
+            "expression": "_:expression",
+            "parentExpression": None,
+            "list": "_:cell-0",
+            "cell": f"_:cell-{position}",
+            "next": (
+                f"_:cell-{position + 1}"
+                if position + 1 < length
+                else "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil"
+            ),
+            "member": _iri(f"C{position + 1}"),
+            "role": None,
+            "target": None,
+            "childExpression": None,
+            "nestedExpression": None,
+        }
+        for position in range(length)
+    ]
+
+
+@pytest.mark.unit
+async def test_linked_list_reader_accepts_bound_and_rejects_overflow() -> None:
+    async def at_bound(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return _linked_definition_rows(64)
+
+    complete = await read_complete_definition(at_bound, "C900")
+    assert len(complete.facts) == 64
+
+    async def over_bound(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return _linked_definition_rows(65)
+
+    with pytest.raises(CompleteDefinitionError, match="member list bound"):
+        await read_complete_definition(over_bound, "C900")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda rows: rows[0].update(member=None),
+            "member",
+        ),
+        (
+            lambda rows: rows[0].update(next=None),
+            "next",
+        ),
+        (
+            lambda rows: rows[0].update(next="_:missing"),
+            "missing cell",
+        ),
+        (
+            lambda rows: rows[1].update(next="_:cell-0"),
+            "cycle",
+        ),
+        (
+            lambda rows: rows.append(dict(rows[0], member=_iri("C999"))),
+            "conflicting members",
+        ),
+        (
+            lambda rows: rows[1].update(list="_:different-list"),
+            "conflicting RDF lists",
+        ),
+        (
+            lambda rows: rows.append(
+                dict(
+                    rows[0],
+                    cell="_:disconnected",
+                    next="http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+                )
+            ),
+            "disconnected cells",
+        ),
+    ],
+)
+async def test_linked_list_reader_fails_closed_on_malformed_graph(
+    mutate: Callable[[list[dict[str, str | None]]], None],
+    message: str,
+) -> None:
+    rows = _linked_definition_rows(2)
+    mutate(rows)
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return rows
+
+    with pytest.raises(CompleteDefinitionError, match=message):
+        await read_complete_definition(select, "C900")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (
+            [
+                {
+                    "expression": "_:outer",
+                    "parentExpression": "_:inner",
+                    "list": "_:outer-cell",
+                    "cell": "_:outer-cell",
+                    "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+                    "member": "_:inner",
+                    "role": None,
+                    "target": None,
+                    "childExpression": None,
+                    "nestedExpression": "_:inner",
+                },
+                {
+                    "expression": "_:inner",
+                    "parentExpression": "_:outer",
+                    "list": "_:inner-cell",
+                    "cell": "_:inner-cell",
+                    "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+                    "member": _iri("C1"),
+                    "role": None,
+                    "target": None,
+                    "childExpression": None,
+                    "nestedExpression": None,
+                },
+            ],
+            "groups contain a cycle",
+        ),
+        (
+            [
+                {
+                    "expression": "_:inner",
+                    "parentExpression": "_:missing",
+                    "list": "_:inner-cell",
+                    "cell": "_:inner-cell",
+                    "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+                    "member": _iri("C1"),
+                    "role": None,
+                    "target": None,
+                    "childExpression": None,
+                    "nestedExpression": None,
+                }
+            ],
+            "missing its parent",
+        ),
+    ],
+)
+async def test_linked_group_reader_rejects_cyclic_or_missing_parent_graphs(
+    rows: list[dict[str, str | None]],
+    message: str,
+) -> None:
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return rows
+
+    with pytest.raises(CompleteDefinitionError, match=message):
+        await read_complete_definition(select, "C900")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (
+            [
+                {
+                    "expression": "_:outer",
+                    "parentExpression": None,
+                    "nestingDepth": "0",
+                    "position": "0",
+                    "member": "_:inner",
+                    "nestedExpression": "_:inner",
+                    "role": None,
+                    "target": None,
+                    "overflow": "false",
+                }
+            ],
+            "missing nested group",
+        ),
+        (
+            [
+                {
+                    "expression": "_:too-deep",
+                    "parentExpression": "_:parent",
+                    "nestingDepth": "5",
+                    "position": "0",
+                    "member": _iri("C1"),
+                    "nestedExpression": None,
+                    "role": None,
+                    "target": None,
+                    "overflow": "false",
+                }
+            ],
+            "nesting depth bound",
+        ),
+    ],
+)
+async def test_nested_intersection_fails_closed_on_incomplete_or_too_deep_shape(
+    rows: list[dict[str, str | None]], message: str
+) -> None:
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return rows
+
+    with pytest.raises(CompleteDefinitionError, match=message):
+        await read_complete_definition(select, "C1")
 
 
 @pytest.mark.unit
@@ -188,6 +558,27 @@ def test_row_parser_fails_closed_on_bounded_list_overflow() -> None:
             },
             "NCIt",
         ),
+        (
+            {
+                "expression": "_:expression",
+                "position": "0",
+                "member": _iri("R101"),
+                "role": None,
+                "target": None,
+            },
+            "NCIt C",
+        ),
+        (
+            {
+                "expression": "_:expression",
+                "position": "0",
+                "member": "_:nested",
+                "nestedExpression": "_:nested",
+                "role": _iri("R101"),
+                "target": _iri("C200"),
+            },
+            "nested definition member",
+        ),
     ],
 )
 def test_row_parser_rejects_incomplete_or_foreign_facts(
@@ -195,6 +586,98 @@ def test_row_parser_rejects_incomplete_or_foreign_facts(
 ) -> None:
     with pytest.raises(CompleteDefinitionError, match=message):
         definition_facts_from_rows("C1", depth=0, rows=[row])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (
+            [
+                {
+                    "expression": "_:positional",
+                    "position": "0",
+                    "member": _iri("C1"),
+                    "role": None,
+                    "target": None,
+                },
+                *_linked_definition_rows(1),
+            ],
+            "mixes linked and positional",
+        ),
+        (
+            [
+                {
+                    "expression": "_:root",
+                    "position": "0",
+                    "member": _iri("C1"),
+                    "role": None,
+                    "target": None,
+                    "parentExpression": "_:unexpected",
+                    "nestingDepth": "0",
+                }
+            ],
+            "root definition group unexpectedly has a parent",
+        ),
+        (
+            [
+                {
+                    "expression": "_:nested",
+                    "position": "0",
+                    "member": _iri("C1"),
+                    "role": None,
+                    "target": None,
+                    "parentExpression": None,
+                    "nestingDepth": "1",
+                }
+            ],
+            "nested definition group is missing its parent",
+        ),
+        (
+            [
+                {
+                    "expression": "_:root",
+                    "position": "0",
+                    "member": _iri("C1"),
+                    "role": None,
+                    "target": None,
+                    "parentExpression": None,
+                    "nestingDepth": "not-an-integer",
+                }
+            ],
+            "nesting depth is not an integer",
+        ),
+        (
+            [
+                {
+                    "expression": "_:root",
+                    "position": "0",
+                    "member": _iri("C1"),
+                    "role": None,
+                    "target": None,
+                    "parentExpression": None,
+                    "nestingDepth": "0",
+                },
+                {
+                    "expression": "_:root",
+                    "position": "1",
+                    "member": _iri("C2"),
+                    "role": None,
+                    "target": None,
+                    "parentExpression": "_:parent",
+                    "nestingDepth": "1",
+                },
+            ],
+            "conflicting nesting depths",
+        ),
+    ],
+)
+def test_row_parser_rejects_inconsistent_transport_and_group_metadata(
+    rows: list[dict[str, str | None]],
+    message: str,
+) -> None:
+    with pytest.raises(CompleteDefinitionError, match=message):
+        definition_facts_from_rows("C1", depth=0, rows=rows)
 
 
 @pytest.mark.unit
@@ -366,6 +849,135 @@ def test_complete_definition_types_reject_invalid_identity_and_link_shapes() -> 
         )
 
 
+@pytest.mark.unit
+def test_complete_definition_group_model_enforces_graph_invariants() -> None:
+    root_id = "a" * 64
+    other_root_id = "b" * 64
+    child_id = "c" * 64
+    unknown_id = "d" * 64
+    root = DefinitionGroup(
+        group_id=root_id,
+        anchor_code="C1",
+        depth=0,
+        child_group_ids=(child_id,),
+    )
+    other_root = DefinitionGroup(
+        group_id=other_root_id,
+        anchor_code="C1",
+        depth=0,
+        child_group_ids=(child_id,),
+    )
+    child = DefinitionGroup(
+        group_id=child_id,
+        anchor_code="C1",
+        depth=0,
+    )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        replace(child, depth=-1)
+    with pytest.raises(ValueError, match="unique"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(),
+            groups=(child, child),
+            root_group_ids=(child_id,),
+        )
+    with pytest.raises(ValueError, match="unknown child"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(),
+            groups=(replace(root, child_group_ids=(unknown_id,)),),
+            root_group_ids=(root_id,),
+        )
+    with pytest.raises(ValueError, match="unknown group"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(),
+            groups=(child,),
+            root_group_ids=(unknown_id,),
+        )
+
+    inferred_roots = CompleteDefinition(
+        root_code="C1",
+        facts=(),
+        groups=(child, root),
+    )
+    assert inferred_roots.root_group_ids == (root_id,)
+
+    reconvergent = CompleteDefinition(
+        root_code="C1",
+        facts=(),
+        groups=(child, other_root, root),
+        root_group_ids=(root_id, other_root_id),
+    )
+    assert reconvergent.root_group_ids == (root_id, other_root_id)
+
+    with pytest.raises(ValueError, match="share an anchor and DAG depth"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(),
+            groups=(root, replace(child, anchor_code="C2")),
+            root_group_ids=(root_id,),
+        )
+    with pytest.raises(ValueError, match="no reachable root"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(),
+            groups=(
+                replace(root, child_group_ids=()),
+                replace(other_root, child_group_ids=()),
+            ),
+            root_group_ids=(root_id,),
+        )
+
+
+@pytest.mark.unit
+def test_complete_definition_fact_model_enforces_group_membership() -> None:
+    group_id = "a" * 64
+    fact = RestrictionDefinitionFact(
+        fact_id="b" * 64,
+        anchor_code="C1",
+        group_id=group_id,
+        depth=0,
+        role_code="R101",
+        filler_code="C2",
+    )
+    with pytest.raises(ValueError, match="non-negative"):
+        replace(fact, depth=-1)
+    with pytest.raises(ValueError, match="unknown group"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(fact,),
+            groups=(
+                DefinitionGroup(
+                    group_id="c" * 64,
+                    anchor_code="C1",
+                    depth=0,
+                ),
+            ),
+        )
+    with pytest.raises(ValueError, match="anchors/depths"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(fact,),
+            groups=(
+                DefinitionGroup(
+                    group_id=group_id,
+                    anchor_code="C2",
+                    depth=0,
+                ),
+            ),
+        )
+    with pytest.raises(ValueError, match="cannot span anchors"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(
+                fact,
+                replace(fact, fact_id="c" * 64, anchor_code="C2"),
+            ),
+        )
+
+
 def _definition_rows(
     expression: str,
     *members: tuple[str, str | None, str | None, bool],
@@ -508,7 +1120,7 @@ async def test_complete_definition_walks_every_defined_genus_once() -> None:
     async def select(
         query: str, *, required_variables: Collection[str] = ()
     ) -> list[dict[str, str | None]]:
-        assert required_variables == {"expression", "position", "member", "overflow"}
+        assert required_variables == {"expression", "list", "cell"}
         code = next(code for code in rows_by_code if f"#{code}>" in query)
         calls.append(code)
         return rows_by_code[code]
