@@ -710,6 +710,7 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 | Consumer breakage | Additive-only by construction (single output graph, no deletions), proven by `test_additive_no_deletions` |
 | Scope drift or semantic-type/hierarchy conflation | Rooted stated-DAG closure is fingerprinted; semantic type remains an explicit algorithm-applicability gate |
 | NCIt version bump silently changes roles | Version-pinned run manifest + guard test that fails on a build mismatch |
+| A deep filler superclass cone exhausts R82 safety bounds | Constant-subject closure permits the certified C27262 minimum of 14 inherited-superclass hops while retaining the independent 8-hop R82, 64-request, 256-code, and 4,096-row caps (D54) |
 
 ---
 

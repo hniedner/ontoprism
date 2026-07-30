@@ -2,6 +2,34 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-30 — R82 closure bounds include real definition-filler cones
+
+### D54. Calibrate inherited-superclass depth to the certified C27262 sample
+
+#213 selected an eight-hop inherited-superclass bound from an owned synthetic chain and
+proved the constant-subject R82 expansion query safe. The first source-qualified 26.07d
+sample run later failed closed on C27262: one of its five comparison-filler superclass
+cones needs fourteen hops before termination. The eight-hop policy therefore prevented a
+certified production-shaped concept from reaching a verdict even though the query shape
+and every independent resource cap remained well within their envelope.
+
+**Decision:** permit at most fourteen inherited named-superclass hops while retaining
+#213's eight-hop R82-to-R82 limit, one-attempt constant-subject queries, 16-code request
+tiles, 64-request limit, 256 expanded-code limit, 256-row response sentinel, 4,096 total
+rows, and 64 KiB query-body limit. Exhaustion errors report the configured bound rather
+than a hard-coded historical number.
+
+On the certified source identity
+`f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8`,
+C27262's closure terminates at fourteen hops with no requested R82 pair, using 11
+requests, 40 rows, and 35 expanded codes. Thirteen hops still fails closed, establishing
+boundary liveness; a following source query remains healthy at NCIt 26.07d.
+
+**Why:** a safety limit that rejects a canonical production case is not empirically
+calibrated. Raising only the measured depth dimension to the smallest sufficient value
+preserves the bounded algorithm and leaves substantial independent request, row, and
+memory headroom.
+
 ## 2026-07-30 — normalized axes have executable semantic contracts
 
 ### D52. Preserve source roles while serving only univocal projection relations
