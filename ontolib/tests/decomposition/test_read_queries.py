@@ -23,6 +23,9 @@ def test_query_projects_status_and_constituent_fields() -> None:
         "?filler",
         "?axisSource",
         "?mostSpecific",
+        "?group",
+        "?needsReview",
+        "?sourceDefinitionFact",
     ):
         assert var in q
 

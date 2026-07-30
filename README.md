@@ -120,10 +120,11 @@ seductive form is the wrong one, and three of them would quietly *destroy inform
 built as stated.
 
 **1 · Decompose.** Every pre-coordinated NCIt concept gets an additive constituent view.
-The current view is a deliberately lossy curated projection: it does not assert
-`owl:equivalentClass`, and `roundtrip_fidelity` is unavailable. A future proof-bearing
-representation must preserve the complete multi-parent, grouped definition before it can
-assert and measure reversibility (#153; D19/D21/D43).
+The human-facing view is a deliberately lossy curated projection, but its representation
+of record now preserves the complete stated multi-parent, grouped definition and traces
+each projected constituent back to its source facts (D50). It still does not assert
+`owl:equivalentClass`, and `roundtrip_fidelity` remains unavailable until a separate
+proof/validation step establishes exact reversibility (D19/D21/D43/D50).
 
 > **Guardrail.** *Sounds better:* **"zero pre-coordinated concepts."** *Why it fails:*
 > the target is zero **unanalyzed** pre-coordination, not zero pre-coordinated concepts. These are not the same thing, and only the first is
@@ -131,7 +132,7 @@ assert and measure reversibility (#153; D19/D21/D43).
 > pre-coordinated NCIt codes, so deleting them would break the very anchoring the caDSR
 > coverage guarantee exists to protect. GALEN attempted full elimination and was not
 > adopted; SNOMED CT retains pre-coordination and *sanctions* post-coordination. We
-> follow SNOMED. Future success, after #153, is: **no pre-coordinated concept without a sanctioned,
+> follow SNOMED. Success is: **no pre-coordinated concept without a sanctioned,
 > reversible, genuinely atomic definition** — measured by `roundtrip_fidelity` (did we
 > capture everything the source asserts?) and `residual_precoordination` (is what we
 > produced actually atomic?). The second is **detector-relative**: it measures reducibility

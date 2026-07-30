@@ -2,6 +2,46 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-30 — the complete stated definition is the decomposition record
+
+### D50. Persist the stated definition DAG separately from its curated projection
+
+The curated constituent view intentionally filters, routes, and collapses stated facts.
+It therefore cannot serve as the source of truth for reconstruction, and storing only
+that view made `group`/`needs_review` lossy across PostgreSQL and the read API.
+
+**Decision:** for every decomposed concept, breadth-first read every direct
+`owl:equivalentClass`/`owl:intersectionOf` member from the protected stated graph,
+following every named genus that is itself defined. Record typed genus and existential
+restriction facts with their anchoring concept, source expression group, DAG depth, and
+deterministic SHA-256 identity; blank-node labels never enter an identity. The traversal
+is explicitly bounded (64 members per intersection with an overflow sentinel, depth 64,
+4096 scheduled genera), queries each reconvergent genus once, and fails closed on
+overflow, gaps, foreign IRIs, conflicts, or store failure. It never reconstructs from
+inferred `rdfs:subClassOf+`.
+
+The existing constituent view remains useful, but is now an explicit projection whose
+members link back to their source definition-fact IDs. Complete/projected/lost fact
+counts are run metrics. PostgreSQL migration `0009_complete_definition` stores the typed
+facts and source links atomically with each fenced work item; invalidation removes them
+in the same transaction. The additive RDF artifact carries the same facts, identities,
+counts, groups, review flags, and trace links. The read API round-trips constituent
+`group`, `needs_review`, and all source-fact IDs.
+
+The version-pinned stated-store contract proves the real shapes independently:
+`C3879` has the two stated genera `C160980` and `C4815`; `C136775` preserves a traced
+co-equal region group; and `C27787` preserves a traced review-required `R105` pair.
+It also exposed that the draft C6135 projection's grouped-region expectation is no
+longer emitted after the morphology tiebreaker—exactly the kind of projection loss the
+complete record must retain for #156 to adjudicate rather than silently erase.
+
+**Why:** completeness and a convenient navigation view are different artifacts. Keeping
+both makes every curated omission measurable and traceable without weakening the
+additive, non-destructive model. This is the only representation future equivalence or
+round-trip fidelity may consume. It does **not** itself enable equivalence emission or
+claim a fidelity score; D43's quarantine remains until a separate proof/validation step
+defines and verifies those semantics.
+
 ## 2026-07-29 — the mutating reviewer runs alone
 
 ### D49. `pr-test-analyzer` runs on its own, never beside another reviewer

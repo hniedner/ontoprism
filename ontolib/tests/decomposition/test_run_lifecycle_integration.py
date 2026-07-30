@@ -14,7 +14,13 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import run as run_module
 from ontolib.decomposition.minting import MintedConcept
-from ontolib.decomposition.models import Constituent, Decomposition
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    Constituent,
+    Decomposition,
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+)
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
     RunIdentityMismatchError,
@@ -201,8 +207,30 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
                     most_specific=True,
                     needs_review=True,
                     group="anatomy-1",
+                    source_definition_ids=("b" * 64,),
                 )
             ],
+            complete_definition=CompleteDefinition(
+                root_code="C1",
+                facts=(
+                    GenusDefinitionFact(
+                        fact_id="a" * 64,
+                        anchor_code="C1",
+                        group_id="c" * 64,
+                        depth=0,
+                        genus_code="C2916",
+                        is_defined=True,
+                    ),
+                    RestrictionDefinitionFact(
+                        fact_id="b" * 64,
+                        anchor_code="C1",
+                        group_id="c" * 64,
+                        depth=0,
+                        role_code="R101",
+                        filler_code="C12400",
+                    ),
+                ),
+            ),
         )
         mint = MintedConcept(axis="op:Laterality", label="Left")
         claim = await store.claim_work_item(run_id, "C1")

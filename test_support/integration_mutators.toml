@@ -116,6 +116,11 @@ tests = ["test_decomposition_run_lifecycle_migration_roundtrip"]
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_complete_definition_migration_roundtrip"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_provenance_integration.py"
 fixtures = ["isolated_postgres_settings"]
 

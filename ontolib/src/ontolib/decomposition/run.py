@@ -40,6 +40,7 @@ from uuid import uuid4
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import (
     axes,
+    complete_definition,
     constituent_index,
     detector,
     extract,
@@ -74,8 +75,8 @@ GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
 GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
 
 _DEFAULT_PAGE_SIZE = 500
-_ALGORITHM_VERSION = "decomposition-v1"
-_CONFIG_VERSION = "axes-v1"
+_ALGORITHM_VERSION = "decomposition-v2"
+_CONFIG_VERSION = "complete-definition-v1"
 
 
 class SourceIdentityChangedError(RuntimeError):
@@ -204,6 +205,11 @@ class RunMetrics:
     residual: int = 0
     residual_precoordinated_count: int = 0
     minted_count: int = 0
+    complete_definition_count: int = 0
+    complete_fact_count: int = 0
+    projected_fact_count: int = 0
+    projection_loss_count: int = 0
+    projection_loss_rate: float = 0.0
     pct_decomposed: float = 0.0
     roundtrip_fidelity: None = None
 
@@ -375,11 +381,20 @@ async def _decompose_one(
     nlp_constituents, minted = await constituent_index.resolve_aspects(
         aspects, label_lookup
     )
+    definition = await complete_definition.read_complete_definition(
+        client.select,
+        code,
+    )
+    curated = complete_definition.trace_curated_projection(
+        [*role_constituents, *nlp_constituents],
+        definition,
+    )
 
     decomposition = Decomposition(
         code=code,
         semantic_type=result.semantic_type,
-        constituents=[*role_constituents, *nlp_constituents],
+        constituents=curated,
+        complete_definition=definition,
     )
     return _CandidateResult(decomposition=decomposition, minted=minted)
 
@@ -719,6 +734,23 @@ async def _reconstructed_metrics(
         residual=counts.residual,
         minted_count=counts.minted_count,
     )
+    metrics.complete_definition_count = sum(
+        decomposition.complete_definition is not None
+        for decomposition in decompositions
+    )
+    metrics.complete_fact_count = sum(
+        decomposition.complete_fact_count for decomposition in decompositions
+    )
+    metrics.projected_fact_count = sum(
+        decomposition.projected_fact_count for decomposition in decompositions
+    )
+    metrics.projection_loss_count = sum(
+        decomposition.projection_loss_count for decomposition in decompositions
+    )
+    if metrics.complete_fact_count:
+        metrics.projection_loss_rate = (
+            metrics.projection_loss_count / metrics.complete_fact_count
+        )
     precoordinated = await _precoordinated_fillers(
         decompositions,
         client,

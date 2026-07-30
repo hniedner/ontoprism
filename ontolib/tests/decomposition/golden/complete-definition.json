@@ -1,0 +1,55 @@
+{
+  "_meta": {
+    "purpose": "Issue #153 complete-record golden contract",
+    "status": "structural oracle paired with the version-pinned real-store contract"
+  },
+  "root_code": "C900",
+  "definition_groups": [
+    [
+      {
+        "kind": "genus",
+        "code": "C100",
+        "is_defined": true
+      },
+      {
+        "kind": "restriction",
+        "role": "R101",
+        "filler": "C200"
+      }
+    ],
+    [
+      {
+        "kind": "genus",
+        "code": "C300",
+        "is_defined": false
+      },
+      {
+        "kind": "restriction",
+        "role": "R105",
+        "filler": "C400"
+      }
+    ]
+  ],
+  "curated_projection": [
+    {
+      "axis": "op:AssociatedRegion",
+      "filler": "C200",
+      "axis_source": "role",
+      "group": "region-1",
+      "needs_review": false
+    },
+    {
+      "axis": "R105",
+      "filler": "C400",
+      "axis_source": "role",
+      "group": null,
+      "needs_review": true
+    }
+  ],
+  "expected": {
+    "definition_fact_count": 4,
+    "definition_group_count": 2,
+    "projected_fact_count": 2,
+    "projection_loss_count": 2
+  }
+}

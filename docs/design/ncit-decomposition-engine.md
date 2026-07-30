@@ -86,10 +86,16 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#
 | `op:decomposedBy` | literal run id (joins to `decomp_run.id`) |
 | `op:hasConstituent` | source concept → a constituent node (blank node) |
 | `op:axis` | constituent node → the axis IRI (reuse the NCIt role IRI where one exists, else an `op:` axis like `op:Morphology`, `op:Laterality`, `op:AssociatedLineageClassification`, `op:AssociatedRegion` — the last two carry `R101` senses split off per D20/§6.6) |
-| `op:group` | constituent node → a relationship-group id (D19). The writer can serialize supplied groups; #153 must persist and read back complete groups before round-trip claims are possible. |
+| `op:group` | constituent node → a relationship-group id (D19), persisted and read back unchanged |
 | `op:filler` | constituent node → the filler concept IRI (existing NCIt concept or minted `op:` concept) |
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
 | `op:mostSpecific` | boolean — filler is the hierarchy leaf chosen over ancestors (audit aid) |
+| `op:needsReview` | boolean — unresolved ordinary-axis ambiguity requiring curation |
+| `op:sourceDefinitionFact` | constituent node → one or more deterministic complete-definition fact IRIs |
+| `op:hasDefinitionFact` | source concept → a typed complete-definition fact |
+| `op:factKind`, `op:anchor`, `op:definitionGroup`, `op:definitionDepth` | fact type, anchoring genus, source-expression group, and DAG depth |
+| `op:genus`, `op:isDefined`, `op:role`, `op:filler` | typed genus/restriction fact payload |
+| `op:completeDefinitionIdentity`, `op:completeFactCount`, `op:projectedFactCount`, `op:projectionLossCount` | stable complete-record identity and projection-loss evidence |
 
 Example (`C6135`, matching assessment §5). **Superseded in detail by D15/D19/D20** — the
 authoritative constituent set is now `ontolib/tests/decomposition/golden/neoplasm.json`
@@ -110,7 +116,7 @@ ncit:C6135 op:representationStatus "legacy-precoordinated" ;
 - **Additive:** the engine writes *only* to `DECOMPOSED_GRAPH_IRI`. The stated and inferred graphs are never targets of a write. A consumer that ignores the new graph sees today's NCIt unchanged.
 - **caDSR reachability:** CDE→concept mappings key on the NCIt concept IRI (`ncit:Cxxxxx`), which is untouched — the legacy code keeps its label, definition, and all axioms and stays fully resolvable. Every constituent filler is itself an existing active NCIt IRI (100% coverage on the roles path), so a decomposed concept remains reachable from its CDEs and every constituent is a valid navigation target.
 
-### 4.4 Proof-bearing equivalence (quarantined; future #153)
+### 4.4 Complete representation and proof-bearing equivalence quarantine
 
 The current single-valued, allowlist-filtered output (§6) cannot prove that it preserves
 the source's complete multi-parent and grouped definition. It is an explicitly lossy
@@ -118,14 +124,16 @@ curated projection and never asserts `owl:equivalentClass`. The reserved
 `--emit-equivalence` option fails closed before settings, clients, provenance, stdout, or
 filesystem effects; the writer independently refuses the same request.
 
-Issue #153 owns the future proof-bearing representation: the full multi-parent-DAG
-unfolding with genuinely multi-valued axes preserved in relationship groups (D19). Only
-that complete representation may reintroduce successful equivalence emission and a
-measured `roundtrip_fidelity`. The quarantine does not block the additive constituent
-view or future post-coordination grammar; it prevents the curated view from being
-misrepresented as an exact definition.
+The complete representation is now materialized independently of the projection (D50):
+a bounded stated-only DAG of typed genus/restriction facts, with deterministic identities,
+source-expression groups, anchoring genera, and projection trace links. Only this record
+may feed future equivalence emission or measured `roundtrip_fidelity`. Its existence alone
+does not prove those semantics, so D43's quarantine remains. The quarantine does not block
+the additive constituent view or future post-coordination grammar; it prevents either the
+curated view or an unvalidated structural capture from being misrepresented as an exact
+definition.
 
-### 4.5 Postgres provenance (Alembic migrations `0003_decomposition` + `0008_decomposition_run_lifecycle`)
+### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`, and `0009_complete_definition`)
 
 The graph is the queryable artifact; Postgres holds an exact, source-bound run manifest,
 the materialized worklist, transactional results, metrics, and the minted-concept
@@ -163,7 +171,15 @@ decomp_constituent
   most_specific boolean NOT NULL
   needs_review  boolean NOT NULL
   relationship_group text
+  source_definition_ids jsonb NOT NULL
   PRIMARY KEY (run_id, concept_code, axis, filler_code)
+
+decomp_definition_fact
+  run_id/concept_code/fact_id PRIMARY KEY
+  anchor_code/group_id/depth
+  fact_kind     text NOT NULL            -- genus | restriction
+  genus_code/is_defined                  -- genus shape
+  role_code/filler_code                  -- restriction shape
 
 decomp_minted_proposal
   run_id/concept_code/proposal_id PRIMARY KEY
@@ -467,9 +483,9 @@ D19)** as this project's target axis model, over either "pick one" (loses inform
 D15's most-specific rule with README goal 4: most-specific collapse is correct **only**
 within a nested (is-a/part-of) candidate set, where the coarser fact stays derivable by
 subsumption; genuinely co-equal, non-nested values (site vs. lineage, organ vs. region) are
-kept as distinct grouped facts and never collapsed, so #153's complete representation can
-be lossless and round-trippable. The current single-valued projection predates that record;
-#153 must make it derived and traceable rather than a replacement (§6.6, D19).
+kept as distinct grouped facts and never collapsed. D50 materializes the complete
+representation and makes the single-valued projection derived and traceable rather than
+a replacement (§6.6, D19).
 
 ### 6.6 Strategy: classify role-bearing *genus concepts* by sense, additively, before axis assignment — validated direction, refined from a stronger initial proposal
 
@@ -536,10 +552,10 @@ is. The resolution:
 
 Order matters because semantic type *fails* on the lineage case (both `Lung` and `Endocrine
 Gland` type as "…Organ…") — which is exactly why (1) must carve off the lineage sense before
-(2) is applied. The current curated projection can report one primary site and serialize
-supplied groups, but it is not round-trippable. The future D19/#153 representation must
-preserve every literal site and associated region/lineage as distinct grouped facts. Both
-refinements are additive (new `op:` axes, never rewriting `R101` triples).
+(2) is applied. The curated projection can report one primary site and serialize supplied
+groups, while the D50 complete record preserves every stated site and associated
+region/lineage fact even when projection policy omits it. Both refinements are additive
+(new `op:` axes, never rewriting `R101` triples).
 Validate via the D14/D15/D17 golden-set methodology.
 
 Full narrative and the confirmed-shared-ancestor evidence: this §6 and DECISIONS D17.
@@ -606,12 +622,13 @@ and candidate observation. Version or identity mismatch fails closed.
 | `pct_decomposed` | stored in `decomp_run.metrics` | cumulative decomposed concepts / exact persisted worklist size; identical after fresh or resumed completion |
 | `residual_precoordination` | computed property; `residual_precoordinated_count` is stored | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37) |
 | `minted_count` | stored in `decomp_run.metrics` | size of the mint tail (governance signal — should stay low hundreds) |
-| `roundtrip_fidelity` | unavailable (`null`) for new runs | #153 may measure this only from a complete proof-bearing representation, never from the curated projection; historical numeric values remain readable |
+| `roundtrip_fidelity` | unavailable (`null`) for new runs | a future proof/validation step may measure this only from D50's complete representation, never from the curated projection; historical numeric values remain readable |
 | `constituent_existence_rate` | future | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
-| `projection_lossiness` | future #153 | concepts where the curated projection drops a non-nested co-equal value retained by the complete representation (D19) |
+| `complete_definition_count`, `complete_fact_count` | stored in `decomp_run.metrics` | decompositions with a complete record and total stated definition facts |
+| `projected_fact_count`, `projection_loss_count`, `projection_loss_rate` | stored in `decomp_run.metrics` | distinct complete facts referenced by the curated view, omitted fact count, and omitted / complete ratio |
 | `needs_review_count` | future | ambiguous anatomy / multi-filler axes flagged for curation |
 
-The inferred default graph may validate constituent existence even though extraction never reads from it. No current round-trip closure or projection-loss metric is claimed or measured. Future fidelity and `projection_lossiness` are properties of the **complete** representation (D19/#153); the curated single-valued projection is not expected to round-trip.
+The inferred default graph may validate constituent existence even though extraction never reads from it. Projection loss is measured against the stated complete record; no round-trip closure or fidelity is claimed. Future fidelity is a property of the **complete** representation (D19/D50); the curated projection is not expected to round-trip.
 
 ---
 
@@ -674,14 +691,14 @@ records the call and the rationale.
 3. **Vocabulary namespace — `https://w3id.org/ontoprism/vocab#` (prefix `op:`).**
    Nothing in-repo pins `ontoprism.org`; the only canonical identifier is `github.com/hniedner/ontoprism`. A **w3id.org persistent identifier** is the right choice: it is community-standard for linked-data/OBO vocabularies, is made resolvable via a one-line redirect PR to the w3id registry, and does **not** depend on owning (or keeping) the `ontoprism.org` domain — matching the repo's existing use of a purl persistent identifier for `UBERON_NS` (`namespaces.py`). Set `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"`. *Only* switch to `https://ontoprism.org/vocab#` if that domain is actually owned and committed to long-term; a namespace IRI need not resolve to be valid, but a stable, controllable one avoids a future migration of every `op:` triple.
 
-4. **`owl:equivalentClass` emission — reserved and fail-closed until #153.**
-   Issue **#6 ("Post-coordination expression syntax for observations & findings")** still owns the *user-facing post-coordination grammar*. Issue #153 owns the proof-bearing complete representation that must precede any exact axiom or fidelity measurement. The CLI flag remains reserved but rejects every request before effects (D43); the current curated projection cannot authorize equivalence.
+4. **`owl:equivalentClass` emission — reserved and fail-closed pending proof validation.**
+   Issue **#6 ("Post-coordination expression syntax for observations & findings")** still owns the *user-facing post-coordination grammar*. D50 provides the complete structural record that must precede any exact axiom or fidelity measurement, but does not by itself prove equivalence. The CLI flag remains reserved and rejects every request before effects (D43); the curated projection cannot authorize equivalence.
 
 5. **Most-specific filler selection applies *across alternate DAG branches*, not just within one branch's collected candidates. Resolved 2026-07-08 — see DECISIONS D14/D15 and §6.3.**
    §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption. **Scope-corrected by decision 6 below:** this "nothing is lost" reasoning holds only for *nested* (is-a/part-of) candidate sets; non-nested co-equal values must not be collapsed.
 
-6. **The reversible representation of record is the complete lossless unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 — see DECISIONS D19 and §6.5.**
-   §6.5 established that a defined concept's full `owl:equivalentClass` unfolding is exact and lossless, and that the *only* fidelity loss comes from this project's own simplifications (the defining-axis allowlist + single-valued collapse). Because README goal 4 requires round-tripping back to the original pre-coordinated concept, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG unfolding (all defining axes, multi-valued preserved via SNOMED-style **relationship groups**) is the future representation of record and basis for `roundtrip_fidelity`; the single-most-specific, allowlist-filtered output is the current explicitly-lossy projection, not the source of truth. Most-specific collapse (decision 5 / D15) is scoped to *nested* candidate sets only; genuinely co-equal non-nested values (site vs. lineage, organ vs. region) are kept as grouped facts. #153 must materialize the complete layer before the reserved emission seam can succeed.
+6. **The reversible representation of record is the complete lossless unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 and materialized by D50 — see DECISIONS D19/D50 and §6.5.**
+   §6.5 established that a defined concept's full `owl:equivalentClass` unfolding is exact and lossless, and that the *only* fidelity loss comes from this project's own simplifications (the defining-axis allowlist + single-valued collapse). Because README goal 4 requires round-tripping back to the original pre-coordinated concept, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG unfolding (all defining axes and source-expression groups) is the representation of record; D50 materializes it and makes the single-most-specific, allowlist-filtered output explicitly derived and traceable. Most-specific collapse (decision 5 / D15) is scoped to the projection and cannot delete a complete-record fact. Exact equivalence remains quarantined pending separate proof/validation.
 
 7. **`R101` primary-site disambiguation uses two independent, composable refinements. Resolved 2026-07-08 — see DECISIONS D20 and §6.6.**
    D17 left open whether the region-vs-organ ties (`Colon`/`Colorectal Region`, `Left Atrium`/`Endocardium`) need a second mechanism beyond genus-sense classification. They do. Decision: (1) genus-sense classification (D17) runs first and routes lineage-generic restrictions to `op:AssociatedLineageClassification`, then (2) filler-semantic-type ranking orders the residual non-lineage ties (organ-level "Body Part, Organ, or Organ Component" wins the `R101` site; region/tissue is routed to `op:AssociatedRegion`). Order matters — semantic type fails on the lineage case both fillers type as organs, so (1) must carve off lineage before (2). Both additive; under decision 6's groups model each tie becomes distinct grouped facts rather than a forced single value.
