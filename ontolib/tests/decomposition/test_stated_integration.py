@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from ontolib.decomposition import stated_queries
+from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.extract import (
     AncestorPair,
     PartOfPair,
@@ -26,6 +27,8 @@ from ontolib.decomposition.extract import (
     semantic_type_of_from_rows,
 )
 from ontolib.decomposition.filler_selection import select_constituents
+from ontolib.decomposition.models import GenusDefinitionFact
+from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
@@ -617,3 +620,87 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
     assert len(morphology_constituents) == 1
     assert morphology_constituents[0].filler_code == "C3879"
     assert morphology_constituents[0].axis_source == "parent"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_complete_record_matches_real_multi_parent_group_and_review_cases() -> (
+    None
+):
+    """Pin the production shapes that #153 must preserve, not fixture assumptions."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        stated_version = await client.select(
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?ontology a <{OWL_NS}Ontology> ; "
+            f"<{OWL_NS}versionInfo> ?version . }} }}"
+        )
+        assert stated_version == [{"version": "26.06e"}]
+        multi_parent = await read_complete_definition(client.select, "C3879")
+        grouped_result = await _decompose_one(
+            "C136775",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+        review_result = await _decompose_one(
+            "C27787",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+        c3879_genera = {
+            fact.genus_code
+            for fact in multi_parent.facts
+            if isinstance(fact, GenusDefinitionFact) and fact.anchor_code == "C3879"
+        }
+        assert c3879_genera == {"C160980", "C4815"}
+
+        grouped = grouped_result.decomposition
+        assert grouped is not None
+        assert grouped.complete_definition is not None
+        grouped_regions = [
+            constituent
+            for constituent in grouped.constituents
+            if constituent.axis == "op:AssociatedRegion"
+            and constituent.filler_code in {"C12471", "C33209"}
+        ]
+        assert {constituent.filler_code for constituent in grouped_regions} == {
+            "C12471",
+            "C33209",
+        }, grouped.constituents
+        assert all(
+            constituent.group == "op:AssociatedRegion"
+            and constituent.source_definition_ids
+            for constituent in grouped_regions
+        )
+
+        review = review_result.decomposition
+        assert review is not None
+        assert review.complete_definition is not None
+        review_required = [
+            constituent
+            for constituent in review.constituents
+            if constituent.axis == "R105"
+            and constituent.filler_code in {"C12917", "C36903"}
+        ]
+        assert {constituent.filler_code for constituent in review_required} == {
+            "C12917",
+            "C36903",
+        }, review.constituents
+        assert all(
+            constituent.needs_review and constituent.source_definition_ids
+            for constituent in review_required
+        )

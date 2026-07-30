@@ -16,12 +16,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition import vocab
+from ontolib.decomposition.models import GenusDefinitionFact
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ontolib.decomposition.models import Decomposition
+    from ontolib.decomposition.models import Constituent, Decomposition, DefinitionFact
 
 
 def _filler_iri(code: str) -> str:
@@ -41,6 +42,70 @@ def _axis_uri(axis: str) -> str:
 def _p(predicate_iri: str) -> str:
     """Bracket a vocabulary predicate IRI for embedding as a Turtle term."""
     return f"<{predicate_iri}>"
+
+
+def _render_constituent(subj: str, constituent: Constituent) -> str:
+    filler = _filler_iri(constituent.filler_code)
+    auri = _axis_uri(constituent.axis)
+    rendered = (
+        f"   [{_p(vocab.AXIS)} {auri} ; "
+        f"{_p(vocab.FILLER)} {filler} ; "
+        f'{_p(vocab.AXIS_SOURCE)} "{constituent.axis_source}"'
+    )
+    if constituent.most_specific:
+        rendered += f" ; {_p(vocab.MOST_SPECIFIC)} true"
+    if constituent.group is not None:
+        rendered += f' ; {_p(vocab.GROUP)} "{constituent.group}"'
+    if constituent.needs_review:
+        rendered += f" ; {_p(vocab.NEEDS_REVIEW)} true"
+    for source_id in constituent.source_definition_ids:
+        rendered += (
+            f" ; {_p(vocab.SOURCE_DEFINITION_FACT)} "
+            f"<{vocab.DEFINITION_FACT_NS}{source_id}>"
+        )
+    return f"{subj} {_p(vocab.HAS_CONSTITUENT)}{rendered} ] ."
+
+
+def _render_definition_fact(subj: str, fact: DefinitionFact) -> list[str]:
+    fact_iri = f"<{vocab.DEFINITION_FACT_NS}{fact.fact_id}>"
+    fact_kind = "genus" if isinstance(fact, GenusDefinitionFact) else "restriction"
+    lines = [
+        f"{subj} {_p(vocab.HAS_DEFINITION_FACT)} {fact_iri} .",
+        f'{fact_iri} {_p(vocab.FACT_KIND)} "{fact_kind}" .',
+        f"{fact_iri} {_p(vocab.ANCHOR)} <{NCIT_NS}{fact.anchor_code}> .",
+        f'{fact_iri} {_p(vocab.DEFINITION_GROUP)} "{fact.group_id}" .',
+        f"{fact_iri} {_p(vocab.DEFINITION_DEPTH)} {fact.depth} .",
+    ]
+    if isinstance(fact, GenusDefinitionFact):
+        lines.extend(
+            (
+                f"{fact_iri} {_p(vocab.GENUS)} <{NCIT_NS}{fact.genus_code}> .",
+                f"{fact_iri} {_p(vocab.IS_DEFINED)} {str(fact.is_defined).lower()} .",
+            )
+        )
+        return lines
+    lines.extend(
+        (
+            f"{fact_iri} {_p(vocab.DEFINITION_ROLE)} <{NCIT_NS}{fact.role_code}> .",
+            f"{fact_iri} {_p(vocab.FILLER)} <{NCIT_NS}{fact.filler_code}> .",
+        )
+    )
+    return lines
+
+
+def _render_complete_definition(subj: str, dec: Decomposition) -> list[str]:
+    complete = dec.complete_definition
+    if complete is None:
+        return []
+    lines = [
+        f'{subj} {_p(vocab.COMPLETE_DEFINITION_IDENTITY)} "{complete.identity}" .',
+        f"{subj} {_p(vocab.COMPLETE_FACT_COUNT)} {dec.complete_fact_count} .",
+        f"{subj} {_p(vocab.PROJECTED_FACT_COUNT)} {dec.projected_fact_count} .",
+        f"{subj} {_p(vocab.PROJECTION_LOSS_COUNT)} {dec.projection_loss_count} .",
+    ]
+    for fact in complete.facts:
+        lines.extend(_render_definition_fact(subj, fact))
+    return lines
 
 
 def _render_one(
@@ -64,20 +129,8 @@ def _render_one(
     if run_id:
         lines.append(f'{subj} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .')
 
-    for c in dec.constituents:
-        filler = _filler_iri(c.filler_code)
-        auri = _axis_uri(c.axis)
-        const = (
-            f"   [{_p(vocab.AXIS)} {auri} ; "
-            f"{_p(vocab.FILLER)} {filler} ; "
-            f'{_p(vocab.AXIS_SOURCE)} "{c.axis_source}"'
-        )
-        if c.most_specific:
-            const += f" ; {_p(vocab.MOST_SPECIFIC)} true"
-        if c.group is not None:
-            const += f' ; {_p(vocab.GROUP)} "{c.group}"'
-        lines.append(f"{subj} {_p(vocab.HAS_CONSTITUENT)}{const} ] .")
-
+    lines.extend(_render_constituent(subj, c) for c in dec.constituents)
+    lines.extend(_render_complete_definition(subj, dec))
     return lines
 
 

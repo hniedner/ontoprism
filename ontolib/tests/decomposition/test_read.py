@@ -14,7 +14,17 @@ def _ncit(code: str) -> str:
 def _row(**kw: str) -> dict[str, str | None]:
     return (
         dict.fromkeys(
-            ("status", "decomposedOn", "axis", "filler", "axisSource", "mostSpecific"),
+            (
+                "status",
+                "decomposedOn",
+                "axis",
+                "filler",
+                "axisSource",
+                "mostSpecific",
+                "group",
+                "needsReview",
+                "sourceDefinitionFact",
+            ),
             None,
         )
         | kw
@@ -96,3 +106,65 @@ def test_axis_source_defaults_to_role_when_absent() -> None:
         ],
     )
     assert d.constituents[0].axis_source == "role"
+
+
+@pytest.mark.unit
+def test_group_review_flag_and_all_definition_sources_round_trip() -> None:
+    fact_a = f"{vocab.DEFINITION_FACT_NS}{'a' * 64}"
+    fact_b = f"{vocab.DEFINITION_FACT_NS}{'b' * 64}"
+    common = {
+        "status": vocab.LEGACY_PRECOORDINATED,
+        "axis": _ncit("R101"),
+        "filler": _ncit("C12400"),
+        "axisSource": "role",
+        "group": "anatomy-1",
+        "needsReview": "true",
+    }
+    d = decomposition_from_rows(
+        "C6135",
+        [
+            _row(**common, sourceDefinitionFact=fact_b),
+            _row(**common, sourceDefinitionFact=fact_a),
+        ],
+    )
+
+    assert len(d.constituents) == 1
+    constituent = d.constituents[0]
+    assert constituent.group == "anatomy-1"
+    assert constituent.needs_review is True
+    assert constituent.source_definition_ids == ("a" * 64, "b" * 64)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "source_iri",
+    [
+        "https://example.org/not-an-ontoprism-fact",
+        f"{vocab.DEFINITION_FACT_NS}not-a-digest",
+    ],
+)
+def test_invalid_projection_source_fact_fails_closed(source_iri: str) -> None:
+    with pytest.raises(ValueError, match="source definition fact"):
+        decomposition_from_rows(
+            "C1",
+            [
+                _row(
+                    axis=_ncit("R101"),
+                    filler=_ncit("C2"),
+                    sourceDefinitionFact=source_iri,
+                )
+            ],
+        )
+
+
+@pytest.mark.unit
+def test_conflicting_rows_for_one_constituent_fail_closed() -> None:
+    common = {"axis": _ncit("R101"), "filler": _ncit("C2")}
+    with pytest.raises(ValueError, match="conflicting"):
+        decomposition_from_rows(
+            "C1",
+            [
+                _row(**common, group="one"),
+                _row(**common, group="two"),
+            ],
+        )

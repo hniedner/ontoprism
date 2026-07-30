@@ -68,14 +68,14 @@ with/without <finding>, staging-manual version). Scope: disease/neoplasm(/regime
 gene/protein role families are excluded by a semantic-type gate. Extraction runs off the
 **stated** OWL (DECISIONS D4); the inferred store is used only for validation/closure.
 
-The deployed graph is the deliberately **lossy curated projection** for human legibility.
-It never emits `owl:equivalentClass`; requests for equivalence fail closed before client or
-artifact effects, and new runs record no round-trip-fidelity value (D43). Exact
-reversibility requires the future **complete, proof-bearing representation of record**:
-the full multi-parent-DAG unfolding with genuinely co-equal axes kept multi-valued as
-SNOMED-style relationship groups (#153; D19). Most-specific collapse applies only to
-*nested* (is-a/part-of) candidates, never to non-nested co-equal values such as
-site-vs-lineage (D19/D20).
+The human-facing view is a deliberately **lossy curated projection**. The representation
+of record separately preserves the complete stated multi-parent definition DAG, every
+genus/restriction group, and stable trace links from projected constituents (D50).
+PostgreSQL and the additive RDF artifact both round-trip groups, review flags, and those
+facts. The graph still never emits `owl:equivalentClass`; requests for equivalence fail
+closed and new runs record no round-trip-fidelity value until a separate proof/validation
+step establishes exact semantics (D43/D50). Most-specific collapse applies only to the
+projection and never changes the complete record.
 
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
 (the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)

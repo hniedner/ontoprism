@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 Row = Mapping[str, str | None]
+_SHA256_LENGTH = 64
 
 
 def _local(iri: str) -> str:
@@ -38,6 +39,58 @@ def _as_bool(value: str | None) -> bool:
     return value in ("true", "1")
 
 
+def _source_definition_id(iri: str | None) -> str | None:
+    if iri is None:
+        return None
+    if not iri.startswith(vocab.DEFINITION_FACT_NS):
+        raise ValueError("source definition fact is outside the OntoPrism namespace")
+    fact_id = iri.removeprefix(vocab.DEFINITION_FACT_NS)
+    if len(fact_id) != _SHA256_LENGTH or any(
+        c not in "0123456789abcdef" for c in fact_id
+    ):
+        raise ValueError("source definition fact does not contain a SHA-256 ID")
+    return fact_id
+
+
+def _constituent_from_row(
+    axis_iri: str,
+    filler_iri: str,
+    row: Row,
+) -> DecompositionConstituent:
+    source_id = _source_definition_id(row.get("sourceDefinitionFact"))
+    return DecompositionConstituent(
+        axis=_axis_code(axis_iri),
+        filler=_local(filler_iri),
+        axis_source=row.get("axisSource") or "role",
+        most_specific=_as_bool(row.get("mostSpecific")),
+        needs_review=_as_bool(row.get("needsReview")),
+        group=row.get("group"),
+        source_definition_ids=((source_id,) if source_id is not None else ()),
+    )
+
+
+def _without_source_ids(
+    constituent: DecompositionConstituent,
+) -> DecompositionConstituent:
+    return constituent.model_copy(update={"source_definition_ids": ()})
+
+
+def _merge_constituent(
+    existing: DecompositionConstituent | None,
+    candidate: DecompositionConstituent,
+) -> DecompositionConstituent:
+    if existing is None:
+        return candidate
+    if _without_source_ids(existing) != _without_source_ids(candidate):
+        raise ValueError("one constituent resolved to conflicting persisted fields")
+    source_ids = tuple(
+        sorted(
+            set(existing.source_definition_ids) | set(candidate.source_definition_ids)
+        )
+    )
+    return existing.model_copy(update={"source_definition_ids": source_ids})
+
+
 def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposition:
     """Fold the (repeating) result rows into one decomposition for *code*.
 
@@ -55,11 +108,11 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
         filler_iri = row.get("filler")
         if not axis_iri or not filler_iri:
             continue
-        constituents[(axis_iri, filler_iri)] = DecompositionConstituent(
-            axis=_axis_code(axis_iri),
-            filler=_local(filler_iri),
-            axis_source=row.get("axisSource") or "role",
-            most_specific=_as_bool(row.get("mostSpecific")),
+        key = (axis_iri, filler_iri)
+        candidate = _constituent_from_row(axis_iri, filler_iri, row)
+        constituents[key] = _merge_constituent(
+            constituents.get(key),
+            candidate,
         )
 
     return ConceptDecomposition(

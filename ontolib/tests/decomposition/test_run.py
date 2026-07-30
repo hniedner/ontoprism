@@ -92,6 +92,20 @@ class _FakeClient:
         self._pages = pages if pages is not None else [[]]
         self._semantic_types = semantic_types or {}
         self._label_rows = label_rows or []
+        self._complete_rows: dict[str, list[dict[str, str | None]]] = {}
+        for code, role_rows in (roles or {}).items():
+            self._complete_rows[code] = [
+                {
+                    "expression": f"_:complete-{code}",
+                    "position": str(position),
+                    "member": f"_:complete-{code}-r{position}",
+                    "role": role_row["rel"],
+                    "target": role_row["target"],
+                    "childExpression": None,
+                    "overflow": "false",
+                }
+                for position, role_row in enumerate(role_rows)
+            ]
         # Convert old role format to genus-walk rows
         self._genus_walk: dict[str, list[dict[str, str | None]]] = {}
         for code, role_rows in (roles or {}).items():
@@ -143,6 +157,9 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
+        if "SELECT ?expression ?position ?member" in query:
+            code = self._code_in(query)
+            return self._complete_rows.get(code or "", [])
         if "rdf:first ?member" in query:
             code = self._code_in(query)
             return self._genus_walk.get(code or "", [])
@@ -501,6 +518,10 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     assert metrics.decomposed == 1
     assert metrics.residual == 0
     assert metrics.coverage == 1.0
+    assert metrics.complete_definition_count == 1
+    assert metrics.complete_fact_count == 2
+    assert metrics.projected_fact_count == 2
+    assert metrics.projection_loss_count == 0
     provenance.create_run.assert_awaited_once()
     provenance.complete_work_item.assert_awaited_once()
     provenance.finish_run.assert_called_once()
@@ -511,6 +532,12 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     assert persisted_metrics["decomposed"] == 1
     assert persisted_metrics["roundtrip_fidelity"] is None
     assert metrics.roundtrip_fidelity is None
+    decomposition = provenance.complete_work_item.await_args.kwargs["decomposition"]
+    assert decomposition.complete_definition is not None
+    assert decomposition.complete_fact_count == 2
+    assert all(
+        constituent.source_definition_ids for constituent in decomposition.constituents
+    )
 
 
 @pytest.mark.unit

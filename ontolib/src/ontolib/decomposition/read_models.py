@@ -45,6 +45,9 @@ class DecompositionConstituent(BaseModel):
     filler_label: str | None = None
     axis_source: str
     most_specific: bool = False
+    needs_review: bool = False
+    group: str | None = None
+    source_definition_ids: tuple[str, ...] = ()
     upstream: list[UpstreamMapping] = []
 
 

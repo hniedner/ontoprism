@@ -192,6 +192,52 @@ async def _decomposition_lifecycle_is_absent(dsn: str) -> bool:
         await conn.close()
 
 
+async def _complete_definition_schema_facts(dsn: str) -> dict[str, Any]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        definition_columns = {
+            row["column_name"]: row["data_type"]
+            for row in await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'decomp_definition_fact'"
+            )
+        }
+        constituent_source_type = await conn.fetchval(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = 'decomp_constituent' "
+            "AND column_name = 'source_definition_ids'"
+        )
+        definition_constraints = [
+            row["definition"]
+            for row in await conn.fetch(
+                "SELECT pg_get_constraintdef(oid) AS definition "
+                "FROM pg_constraint "
+                "WHERE conrelid = to_regclass('decomp_definition_fact')"
+            )
+        ]
+        return {
+            "definition_columns": definition_columns,
+            "constituent_source_type": constituent_source_type,
+            "definition_constraints": definition_constraints,
+        }
+    finally:
+        await conn.close()
+
+
+async def _complete_definition_schema_is_absent(dsn: str) -> bool:
+    conn = await asyncpg.connect(dsn)
+    try:
+        table = await conn.fetchval("SELECT to_regclass('decomp_definition_fact')")
+        column = await conn.fetchval(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = 'decomp_constituent' "
+            "AND column_name = 'source_definition_ids'"
+        )
+        return table is None and column is None
+    finally:
+        await conn.close()
+
+
 def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["has_vector_ext"] == 1
     assert facts["tables"] == 4
@@ -298,7 +344,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0008_decomposition_run_lifecycle"
+    assert revision == "0009_complete_definition"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -373,6 +419,43 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
         "LegacyRun",
         0,
     )
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_complete_definition_migration_roundtrip() -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    try:
+        command.downgrade(cfg, "0008_decomposition_run_lifecycle")
+        absent_after_down = asyncio.run(_complete_definition_schema_is_absent(dsn))
+        command.upgrade(cfg, "head")
+        facts = asyncio.run(_complete_definition_schema_facts(dsn))
+    finally:
+        command.upgrade(cfg, "head")
+
+    assert absent_after_down is True
+    assert facts["definition_columns"] == {
+        "run_id": "text",
+        "concept_code": "text",
+        "fact_id": "text",
+        "anchor_code": "text",
+        "group_id": "text",
+        "depth": "integer",
+        "fact_kind": "text",
+        "genus_code": "text",
+        "is_defined": "boolean",
+        "role_code": "text",
+        "filler_code": "text",
+    }
+    assert facts["constituent_source_type"] == "jsonb"
+    constraints = " ".join(facts["definition_constraints"])
+    assert "PRIMARY KEY (run_id, concept_code, fact_id)" in constraints
+    assert "fact_kind" in constraints
+    assert "genus" in constraints
+    assert "restriction" in constraints
 
 
 @pytest.mark.integration

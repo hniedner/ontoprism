@@ -5,12 +5,19 @@ from pathlib import Path
 
 import pytest
 import rdflib
+from rdflib import Literal, URIRef
 from rdflib.namespace import OWL
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.axes import MORPHOLOGY_AXIS
 from ontolib.decomposition.legacy_writer import write_ttl
-from ontolib.decomposition.models import Constituent, Decomposition
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    Constituent,
+    Decomposition,
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+)
 
 
 @pytest.mark.unit
@@ -341,3 +348,83 @@ async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
     graph = rdflib.Graph()
     graph.parse(out, format="turtle")
     assert len(graph) > 0
+
+
+@pytest.mark.unit
+async def test_complete_definition_and_projection_trace_are_rendered(
+    tmp_path: Path,
+) -> None:
+    genus_id = "a" * 64
+    restriction_id = "b" * 64
+    group_id = "c" * 64
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            constituents=[
+                Constituent(
+                    axis="R88",
+                    filler_code="C27970",
+                    axis_source="role",
+                    needs_review=True,
+                    group="disease-1",
+                    source_definition_ids=(restriction_id,),
+                )
+            ],
+            complete_definition=CompleteDefinition(
+                root_code="C6135",
+                facts=(
+                    GenusDefinitionFact(
+                        fact_id=genus_id,
+                        anchor_code="C6135",
+                        group_id=group_id,
+                        depth=0,
+                        genus_code="C141041",
+                        is_defined=True,
+                    ),
+                    RestrictionDefinitionFact(
+                        fact_id=restriction_id,
+                        anchor_code="C6135",
+                        group_id=group_id,
+                        depth=0,
+                        role_code="R88",
+                        filler_code="C27970",
+                    ),
+                ),
+            ),
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out)
+
+    graph = rdflib.Graph()
+    graph.parse(out, format="turtle")
+    source = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135")
+    restriction = URIRef(f"{vocab.DEFINITION_FACT_NS}{restriction_id}")
+    assert (source, URIRef(vocab.HAS_DEFINITION_FACT), restriction) in graph
+    assert (
+        restriction,
+        URIRef(vocab.FACT_KIND),
+        Literal("restriction"),
+    ) in graph
+    assert (
+        restriction,
+        URIRef(vocab.DEFINITION_GROUP),
+        Literal(group_id),
+    ) in graph
+    constituent = next(graph.objects(source, URIRef(vocab.HAS_CONSTITUENT)))
+    assert (
+        constituent,
+        URIRef(vocab.NEEDS_REVIEW),
+        Literal(True),
+    ) in graph
+    assert (
+        constituent,
+        URIRef(vocab.SOURCE_DEFINITION_FACT),
+        restriction,
+    ) in graph
+    assert (
+        source,
+        URIRef(vocab.PROJECTION_LOSS_COUNT),
+        Literal(1),
+    ) in graph

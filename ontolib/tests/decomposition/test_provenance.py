@@ -7,6 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    Constituent,
+    Decomposition,
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+)
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import RunFingerprint
 
@@ -284,3 +291,94 @@ async def test_list_minted_concepts_limit_offset() -> None:
     params = args[1]
     assert params["limit"] == 1
     assert params["offset"] == 1
+
+
+@pytest.mark.unit
+async def test_decompositions_for_run_reconstructs_complete_typed_record() -> None:
+    sf = _make_mock_sf()
+    restriction_id = "b" * 64
+    work_items = MagicMock()
+    work_items.mappings.return_value.all.return_value = [
+        {"concept_code": "C1", "semantic_type": "Neoplastic Process"}
+    ]
+    constituents = MagicMock()
+    constituents.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "axis": "R101",
+            "filler_code": "C200",
+            "axis_source": "role",
+            "most_specific": True,
+            "needs_review": True,
+            "relationship_group": "anatomy-1",
+            "source_definition_ids": f'["{restriction_id}"]',
+        }
+    ]
+    definitions = MagicMock()
+    definitions.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "fact_id": "a" * 64,
+            "anchor_code": "C1",
+            "group_id": "c" * 64,
+            "depth": 0,
+            "fact_kind": "genus",
+            "genus_code": "C100",
+            "is_defined": True,
+            "role_code": None,
+            "filler_code": None,
+        },
+        {
+            "concept_code": "C1",
+            "fact_id": "b" * 64,
+            "anchor_code": "C1",
+            "group_id": "c" * 64,
+            "depth": 0,
+            "fact_kind": "restriction",
+            "genus_code": None,
+            "is_defined": None,
+            "role_code": "R101",
+            "filler_code": "C200",
+        },
+    ]
+    sf().execute.side_effect = [work_items, constituents, definitions]
+    store = ProvenanceStore(sf)
+
+    assert await store.decompositions_for_run("run-1") == [
+        Decomposition(
+            code="C1",
+            semantic_type="Neoplastic Process",
+            constituents=[
+                Constituent(
+                    axis="R101",
+                    filler_code="C200",
+                    axis_source="role",
+                    most_specific=True,
+                    needs_review=True,
+                    group="anatomy-1",
+                    source_definition_ids=(restriction_id,),
+                )
+            ],
+            complete_definition=CompleteDefinition(
+                root_code="C1",
+                facts=(
+                    GenusDefinitionFact(
+                        fact_id="a" * 64,
+                        anchor_code="C1",
+                        group_id="c" * 64,
+                        depth=0,
+                        genus_code="C100",
+                        is_defined=True,
+                    ),
+                    RestrictionDefinitionFact(
+                        fact_id="b" * 64,
+                        anchor_code="C1",
+                        group_id="c" * 64,
+                        depth=0,
+                        role_code="R101",
+                        filler_code="C200",
+                    ),
+                ),
+            ),
+        )
+    ]
