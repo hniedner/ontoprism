@@ -117,10 +117,11 @@ async def _run(
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     provenance = ProvenanceStore(sf)
+    primary_error: BaseException | None = None
     try:
-        async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
-            store = NcitGraphStore(client)
-            try:
+        try:
+            async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+                store = NcitGraphStore(client)
                 metrics = await run_pipeline(
                     config,
                     client,
@@ -133,17 +134,24 @@ async def _run(
                     label_lookup=_make_label_lookup(store),
                     total_limit=total_limit,
                 )
-            except Exception:
-                logger.exception(
-                    "decompose run failed (branch=%s resume=%s)", branch, resume
-                )
-                raise
+        except Exception:
+            logger.exception(
+                "decompose run failed (branch=%s resume=%s)", branch, resume
+            )
+            raise
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
         try:
             await dispose_engine(engine)
-        except Exception:
-            # Never let a cleanup-time failure replace/mask the pipeline's own
-            # exception (if any) propagating out of the `try` block above.
+        except Exception as cleanup_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(
+                "Disposing the decomposition database engine also failed: "
+                f"{type(cleanup_error).__name__}: {cleanup_error}"
+            )
             logger.exception("dispose_engine failed during cleanup (branch=%s)", branch)
     return metrics
 
