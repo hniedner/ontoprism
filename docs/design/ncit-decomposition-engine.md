@@ -104,10 +104,10 @@ authoritative constituent set is now `ontolib/tests/decomposition/golden/neoplas
 ```turtle
 ncit:C6135 op:representationStatus "legacy-precoordinated" ;
            op:decomposedOn "2026-07-06"^^xsd:date ;
-           op:hasConstituent [ op:axis ncit:R88  ; op:filler ncit:C27970 ; op:axisSource "role" ] ;  # Stage III
-           op:hasConstituent [ op:axis op:StageSystem ; op:filler ncit:C90530 ; op:axisSource "role" ] ;  # AJCC v7
-           op:hasConstituent [ op:axis ncit:R101 ; op:filler ncit:C12400 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Thyroid Gland
-           op:hasConstituent [ op:axis ncit:R105 ; op:filler ncit:C36761 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Neoplastic Neuroendocrine Cell
+           op:hasConstituent [ op:axis op:StageValue ; op:sourceRole ncit:R88 ; op:filler ncit:C27970 ; op:axisSource "role" ] ;  # Stage III
+           op:hasConstituent [ op:axis op:StageSystem ; op:sourceRole ncit:R88 ; op:filler ncit:C90530 ; op:axisSource "role" ] ;  # AJCC v7
+           op:hasConstituent [ op:axis op:PrimarySite ; op:sourceRole ncit:R101 ; op:filler ncit:C12400 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Thyroid Gland
+           op:hasConstituent [ op:axis op:CellType ; op:sourceRole ncit:R105 ; op:filler ncit:C36761 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Neoplastic Neuroendocrine Cell
            op:hasConstituent [ op:axis op:Morphology ; op:filler ncit:C… ; op:axisSource "parent" ] .  # Medullary Carcinoma
 ```
 
@@ -133,7 +133,7 @@ the additive constituent view or future post-coordination grammar; it prevents e
 curated view or an unvalidated structural capture from being misrepresented as an exact
 definition.
 
-### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`, and `0009_complete_definition`)
+### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`, `0009`, and `0010`)
 
 The graph is the queryable artifact; Postgres holds an exact, source-bound run manifest,
 the materialized worklist, transactional results, metrics, and the minted-concept
@@ -165,7 +165,8 @@ decomp_work_item
 decomp_constituent
   run_id        text NOT NULL REFERENCES decomp_run(id)
   concept_code  text NOT NULL           -- the decomposed (source) concept
-  axis          text NOT NULL           -- role code or op: axis
+  axis          text NOT NULL           -- normalized op: axis (or unknown role)
+  source_role   text                    -- NCIt role that produced the projection
   filler_code   text NOT NULL           -- constituent concept (may be minted)
   axis_source   text NOT NULL           -- "role" | "nlp" | "parent"
   most_specific boolean NOT NULL
@@ -228,17 +229,17 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   axes, use NCIt's stated `rdfs:subClassOf` hierarchy plus bounded transitive `R82`
   containment. A filler is dropped only when it is strictly broader than another
   returned filler; unrelated or mutually broader fillers remain.
-- **Non-defining filter:** `Excludes_*` negative axioms and optional R114/R115 roles are
-  removed before selection (§5).
+- **Non-defining filter:** `Excludes_*` negative axioms and optional
+  R89/R111–R116 `May_Have_*` roles are removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
 - **Anatomy validation:** specificity uses NCIt's own is-a + bounded transitive `R82`
   part-of hierarchy. Unresolved ordinary axes receive `needs_review`; ambiguous routed
   region, lineage, and stage-system values are retained as grouped, review-exempt facts.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
-- **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `R101`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
+- **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
 
-Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review, group)]`.
+Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 
 ### 6.1 Stated encoding is *layered defined classes* (verified 2026-07-06)
 
@@ -526,7 +527,7 @@ additional metadata on a node *already visited*, not a new traversal.
    non-destructive principle (README goal 2) rather than introducing a second kind of mutation
    risk alongside it.
 3. During per-level role extraction, consult that classification to route a restriction to
-   its raw role code (site-specific / default) or to a new `op:` axis such as
+   its univocal `op:` axis (site-specific / default) or a contextual `op:` axis such as
    `op:AssociatedLineageClassification` (lineage-generic) — the same pattern already used
    for `R88`'s stage-value/stage-system split, generalized from a per-filler label check to
    a per-genus classification lookup.

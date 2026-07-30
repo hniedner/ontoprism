@@ -171,6 +171,21 @@ def test_get_run_found() -> None:
 
 
 @pytest.mark.api
+def test_axis_contract_catalogue_is_served_without_database_access() -> None:
+    client = next(_client(_ErrorFakeStore()))
+
+    resp = client.get("/api/v1/decomposition/axes")
+
+    assert resp.status_code == 200
+    primary = next(item for item in resp.json() if item["axis"] == "op:PrimarySite")
+    assert primary["source_roles"] == ["R101"]
+    assert primary["domain_code"] == "C7057"
+    assert primary["range_code"] == "C12219"
+    assert primary["definition"]
+    assert primary["provenance"]
+
+
+@pytest.mark.api
 def test_get_run_not_found_404() -> None:
     fake = _FakeProvenanceStore(runs=[_SAMPLE_RUN])
     client = next(_client(fake))

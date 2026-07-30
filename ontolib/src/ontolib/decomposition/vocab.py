@@ -30,6 +30,9 @@ AXIS_SOURCE = f"{ONTOPRISM_NS}axisSource"
 MOST_SPECIFIC = f"{ONTOPRISM_NS}mostSpecific"
 NEEDS_REVIEW = f"{ONTOPRISM_NS}needsReview"
 SOURCE_DEFINITION_FACT = f"{ONTOPRISM_NS}sourceDefinitionFact"
+SOURCE_ROLE = f"{ONTOPRISM_NS}sourceRole"
+NORMALIZED_FROM_ROLE = f"{ONTOPRISM_NS}normalizedFromRole"
+CONTRACT_PROVENANCE = f"{ONTOPRISM_NS}contractProvenance"
 
 # --- Complete stated definition ---------------------------------------------------
 HAS_DEFINITION_FACT = f"{ONTOPRISM_NS}hasDefinitionFact"
@@ -56,9 +59,9 @@ DECOMPOSITION_KIND = f"{ONTOPRISM_NS}decompositionKind"
 GROUP = f"{ONTOPRISM_NS}group"
 
 # D20, refinement 1: a primary-site restriction anchored on a lineage/histology-generic
-# genus (e.g. via C3010 "Endocrine Neoplasm") is routed here instead of NCIt's R101.
+# genus (e.g. via C3010 "Endocrine Neoplasm") is routed here from NCIt's R101.
 ASSOCIATED_LINEAGE_CLASSIFICATION = f"{ONTOPRISM_NS}associatedLineageClassification"
 
 # D20, refinement 2: the co-present region/tissue filler of a residual, non-lineage
-# primary-site tie; the organ-level filler stays on R101.
+# primary-site tie; the organ-level filler routes to op:PrimarySite.
 ASSOCIATED_REGION = f"{ONTOPRISM_NS}associatedRegion"

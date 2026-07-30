@@ -344,7 +344,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0009_complete_definition"
+    assert revision == "0010_constituent_source_role"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -406,6 +406,7 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
     assert {
         "needs_review": "boolean",
         "relationship_group": "text",
+        "source_role": "text",
     }.items() <= facts["constituent_columns"].items()
     constraints = " ".join(facts["constraints"])
     assert "running" in constraints
