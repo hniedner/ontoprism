@@ -14,7 +14,10 @@ from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
 )
-from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.provenance import (
+    ProvenanceStore,
+    RunIdentityMismatchError,
+)
 from ontolib.decomposition.provenance_models import RunFingerprint
 
 
@@ -42,12 +45,38 @@ async def test_publication_lock_requires_an_engine_bound_session_factory() -> No
 
 
 @pytest.mark.unit
+def test_schema_v1_fingerprint_cannot_resume_as_hierarchy_scoped_identity() -> None:
+    legacy = {
+        "schema_version": 1,
+        "source_identity": "a" * 64,
+        "branch": "neoplasm",
+        "semantic_types": ["Neoplastic Process"],
+        "worklist": ["C3262"],
+        "total_limit": None,
+        "algorithm_version": "decomposition-v2",
+        "config_version": "complete-definition-v1",
+        "walker_max_depth": 5,
+        "output_mode": "none",
+        "load_mode": "none",
+        "emitted_at": "2026-07-30T00:00:00Z",
+    }
+
+    with pytest.raises(
+        RunIdentityMismatchError,
+        match="predates the hierarchy-scope schema",
+    ):
+        ProvenanceStore._validated_fingerprint(legacy, "f" * 64)
+
+
+@pytest.mark.unit
 async def test_finish_run_sets_complete() -> None:
     sf = _make_mock_sf(rowcount=1)
     locked = MagicMock()
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
         semantic_types=("Neoplastic Process",),
         worklist=(),
         algorithm_version="decomposition-v1",

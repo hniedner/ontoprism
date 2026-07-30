@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal
 
 from ontolib.decomposition import axes
+
+ScopeRoot = Literal["C3262", "C2991"]
+ScopeVersion = Literal["stated-genus-subclass-v1"]
 
 
 class DecompositionBranch(StrEnum):
     """Implemented decomposition kinds accepted at run boundaries."""
 
     NEOPLASM = "neoplasm"
+    DISEASE = "disease"
 
 
 class DecompositionAlgorithm(StrEnum):
@@ -24,14 +29,27 @@ class DecompositionAlgorithm(StrEnum):
 class BranchSpec:
     """The scope and algorithm selected by one supported branch."""
 
+    root_code: ScopeRoot
+    scope_version: ScopeVersion
     semantic_types: tuple[str, ...]
     algorithm: DecompositionAlgorithm
     algorithm_version: str
 
 
+_SCOPE_VERSION: ScopeVersion = "stated-genus-subclass-v1"
+_AXIS_SEMANTIC_TYPES = tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
 _BRANCH_SPECS = {
     DecompositionBranch.NEOPLASM: BranchSpec(
-        semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+        root_code="C3262",
+        scope_version=_SCOPE_VERSION,
+        semantic_types=_AXIS_SEMANTIC_TYPES,
+        algorithm=DecompositionAlgorithm.AXIS_QUALIFIED,
+        algorithm_version="decomposition-v2",
+    ),
+    DecompositionBranch.DISEASE: BranchSpec(
+        root_code="C2991",
+        scope_version=_SCOPE_VERSION,
+        semantic_types=_AXIS_SEMANTIC_TYPES,
         algorithm=DecompositionAlgorithm.AXIS_QUALIFIED,
         algorithm_version="decomposition-v2",
     ),
@@ -46,7 +64,7 @@ def parse_branch(value: DecompositionBranch | str) -> DecompositionBranch:
         supported = ", ".join(branch.value for branch in DecompositionBranch)
         raise ValueError(
             f"unsupported decomposition branch {value!r}; supported: {supported}. "
-            "The disease label was cosmetic and regimen remains unimplemented."
+            "The regimen remains unimplemented."
         ) from None
 
 

@@ -38,7 +38,6 @@ from uuid import uuid4
 
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import (
-    axes,
     complete_definition,
     constituent_index,
     detector,
@@ -47,9 +46,14 @@ from ontolib.decomposition import (
     stated_queries,
 )
 from ontolib.decomposition import filler_selection as fs
+from ontolib.decomposition import (
+    scope as hierarchy_scope,
+)
 from ontolib.decomposition.branches import (
     DecompositionAlgorithm,
     DecompositionBranch,
+    ScopeRoot,
+    ScopeVersion,
     branch_spec,
     parse_branch,
 )
@@ -83,7 +87,6 @@ if TYPE_CHECKING:
 GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
 GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
 
-_DEFAULT_PAGE_SIZE = 500
 _CONFIG_VERSION = "complete-definition-v1"
 
 
@@ -154,8 +157,18 @@ class RunConfig:
 
     @property
     def semantic_types(self) -> tuple[str, ...]:
-        """Canonical semantic-type scope selected by this branch."""
+        """Canonical algorithm-applicability types selected by this branch."""
         return branch_spec(self.branch).semantic_types
+
+    @property
+    def scope_root(self) -> ScopeRoot:
+        """NCIt root whose stated named-class DAG defines the branch population."""
+        return branch_spec(self.branch).root_code
+
+    @property
+    def scope_version(self) -> ScopeVersion:
+        """Version of the hierarchy-edge and closure contract."""
+        return branch_spec(self.branch).scope_version
 
     @property
     def algorithm(self) -> DecompositionAlgorithm:
@@ -264,31 +277,11 @@ def _new_run_id(branch: DecompositionBranch | str) -> str:
 
 
 async def enumerate_in_scope_codes(
-    client: SparqlClient,
-    semantic_types: Sequence[str] | None = None,
-    *,
-    page_size: int = _DEFAULT_PAGE_SIZE,
+    client: DecompositionSparqlClient,
+    root_code: str,
 ) -> list[str]:
-    """Page through every stated-graph concept carrying an in-scope semantic type."""
-    scope = (
-        tuple(semantic_types)
-        if semantic_types is not None
-        else tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
-    )
-    codes: list[str] = []
-    offset = 0
-    while True:
-        rows = await client.select(
-            stated_queries.build_in_scope_concepts_query(
-                scope, limit=page_size, offset=offset
-            ),
-            required_variables={"concept"},
-        )
-        page = extract.concepts_from_rows(rows)
-        codes.extend(page)
-        if len(page) < page_size:
-            return codes
-        offset += page_size
+    """Materialize a hierarchy-defined branch population from stated named edges."""
+    return list(await hierarchy_scope.enumerate_scope_codes(client, root_code))
 
 
 async def _detect_concept(
@@ -538,6 +531,8 @@ def _resume_identity(
     return RunResumeIdentity(
         source_identity=snapshot.source_identity,
         branch=config.branch.value,
+        scope_root=config.scope_root,
+        scope_version=config.scope_version,
         semantic_types=semantic_types,
         total_limit=total_limit,
         algorithm_version=config.algorithm_version,
@@ -550,17 +545,16 @@ def _resume_identity(
 
 async def _create_fresh_run(
     config: RunConfig,
-    client: SparqlClient,
+    client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     snapshot: NcitSourceSnapshot,
     *,
     get_source_snapshot: GetSourceSnapshot,
-    scope: tuple[str, ...],
-    page_size: int,
+    semantic_types: tuple[str, ...],
     total_limit: int | None,
 ) -> tuple[str, RunFingerprint]:
     run_id = _new_run_id(config.branch)
-    codes = await enumerate_in_scope_codes(client, scope, page_size=page_size)
+    codes = await enumerate_in_scope_codes(client, config.scope_root)
     if total_limit is not None:
         if total_limit <= 0:
             raise ValueError("total_limit must be greater than zero")
@@ -575,7 +569,9 @@ async def _create_fresh_run(
     fingerprint = RunFingerprint(
         source_identity=snapshot.source_identity,
         branch=config.branch.value,
-        semantic_types=scope,
+        scope_root=config.scope_root,
+        scope_version=config.scope_version,
+        semantic_types=semantic_types,
         worklist=tuple(codes),
         total_limit=total_limit,
         algorithm_version=config.algorithm_version,
@@ -614,17 +610,16 @@ async def _load_pending_run_data(
 
 async def _prepare_run(
     config: RunConfig,
-    client: SparqlClient,
+    client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     *,
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
-    page_size: int,
     total_limit: int | None,
 ) -> _RunSetup:
     """Create or reopen one exact source-bound worklist."""
     snapshot = await _require_source_snapshot(client, get_source_snapshot)
-    scope = config.semantic_types
+    semantic_types = config.semantic_types
     if config.resume_from:
         run_id = config.resume_from
         fingerprint = await provenance.resume_run(
@@ -632,7 +627,7 @@ async def _prepare_run(
             _resume_identity(
                 config,
                 snapshot,
-                semantic_types=scope,
+                semantic_types=semantic_types,
                 total_limit=total_limit,
             ),
         )
@@ -643,8 +638,7 @@ async def _prepare_run(
             provenance,
             snapshot,
             get_source_snapshot=get_source_snapshot,
-            scope=scope,
-            page_size=page_size,
+            semantic_types=semantic_types,
             total_limit=total_limit,
         )
     pending, labels = await _load_pending_run_data(
@@ -922,7 +916,6 @@ async def run_pipeline(
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None = None,
     label_lookup: LabelLookup = _never_resolves,
-    page_size: int = _DEFAULT_PAGE_SIZE,
     total_limit: int | None = None,
 ) -> RunMetrics:
     """Execute the decomposition pipeline for a given branch (design §9).
@@ -941,7 +934,6 @@ async def run_pipeline(
         provenance,
         get_source_snapshot=get_source_snapshot,
         get_labels=get_labels,
-        page_size=page_size,
         total_limit=total_limit,
     )
 

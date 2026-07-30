@@ -14,6 +14,8 @@ def _fingerprint(**updates: object) -> RunFingerprint:
     values: dict[str, object] = {
         "source_identity": "a" * 64,
         "branch": "neoplasm",
+        "scope_root": "C3262",
+        "scope_version": "stated-genus-subclass-v1",
         "semantic_types": ("Disease or Syndrome", "Neoplastic Process"),
         "worklist": ("C1", "C2"),
         "total_limit": 2,
@@ -38,6 +40,7 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
 
     mutations = (
         {"source_identity": "b" * 64},
+        {"branch": "disease", "scope_root": "C2991"},
         {"semantic_types": ("Neoplastic Process",)},
         {"worklist": ("C2", "C1")},
         {"total_limit": None},
@@ -60,6 +63,9 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
         {"source_identity": "not-a-source"},
         {"branch": "disease"},
         {"branch": "regimen"},
+        {"scope_root": "C2991"},
+        {"scope_root": "C9999"},
+        {"scope_version": "stated-genus-subclass-v2"},
         {"worklist": ("C1", "C1")},
         {"worklist": ("C1", "")},
         {"semantic_types": ()},

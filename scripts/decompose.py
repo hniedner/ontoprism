@@ -5,6 +5,8 @@
   pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
       --branch neoplasm --out data/ncit_decomposed.ttl --load
   pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
+      --branch disease --out data/ncit_decomposed.ttl
+  pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
       --branch neoplasm --resume neoplasm-7bb8b360-a2ec-45d0-b06d-a79ae18c3689
 
 Wires the pure orchestrator (`ontolib.decomposition.run.run_pipeline`) to the real
@@ -158,8 +160,9 @@ def main(
         DecompositionBranch,
         typer.Option(
             help=(
-                "Implemented decomposition kind. Regimen remains unavailable until "
-                "its component-bag algorithm is implemented."
+                "Hierarchy population: neoplasm (C3262 descendants) or disease "
+                "(C2991 descendants). Regimen remains unavailable until its "
+                "component-bag algorithm is implemented."
             )
         ),
     ] = DecompositionBranch.NEOPLASM,

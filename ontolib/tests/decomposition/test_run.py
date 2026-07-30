@@ -138,7 +138,7 @@ class _FakeClient:
                 return token
         return None
 
-    async def select(  # noqa: PLR0911 — test helper, many query-type branches
+    async def select(  # noqa: C901, PLR0911 — query-routing test helper
         self,
         query: str,
         *,
@@ -148,6 +148,16 @@ class _FakeClient:
         self.required_variables.append(required)
         self.query_requirements.append((query, required))
         self.queries.append(query)
+        if "?overflowChild" in query:
+            return []
+        if "SELECT DISTINCT ?child ?parent" in query:
+            if "rdfs:subClassOf ?parent" not in query:
+                return []
+            codes = [code for page in self._pages for code in page]
+            return [
+                {"child": _iri("C3262"), "parent": _iri("C2991")},
+                *({"child": _iri(code), "parent": _iri("C3262")} for code in codes),
+            ]
         if "ORDER BY ?concept" in query:
             offset = int(query.split("OFFSET")[1].split(maxsplit=1)[0])
             page_index = offset // 500
@@ -288,6 +298,8 @@ def _mock_provenance() -> Any:
             fingerprint = RunFingerprint(
                 source_identity="a" * 64,
                 branch="neoplasm",
+                scope_root="C3262",
+                scope_version="stated-genus-subclass-v1",
                 semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
                 worklist=(),
                 total_limit=None,
@@ -357,6 +369,8 @@ def _set_resume_worklist(
     provenance._test_state["fingerprint"] = RunFingerprint(
         source_identity="a" * 64,
         branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
         semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
         worklist=worklist,
         total_limit=None,
@@ -393,33 +407,37 @@ async def run_pipeline(
 
 
 @pytest.mark.unit
-async def test_enumerate_in_scope_codes_pages_until_short_page() -> None:
-    client = _FakeClient(pages=[["C1", "C2"]])
-    codes = await enumerate_in_scope_codes(
-        client, ["Neoplastic Process"], page_size=500
-    )
-    assert codes == ["C1", "C2"]
-
-
-@pytest.mark.unit
-async def test_enumerate_in_scope_codes_follows_full_pages() -> None:
-    full_page = [f"C{i}" for i in range(500)]
-    client = _FakeClient(pages=[full_page, ["C500"]])
-    codes = await enumerate_in_scope_codes(
-        client, ["Neoplastic Process"], page_size=500
-    )
-    assert len(codes) == 501
-    assert codes[-1] == "C500"
-
-
-@pytest.mark.unit
-async def test_enumerate_in_scope_codes_aborts_on_missing_concept_binding() -> None:
+async def test_enumerate_in_scope_codes_uses_named_hierarchy_closure() -> None:
     client = MagicMock()
-    client.select = AsyncMock(return_value=[{}])
+    client.select_once = AsyncMock(
+        side_effect=[
+            [{"child": _iri("C3262"), "parent": _iri("C2991")}],
+            [{"child": _iri("C9305"), "parent": _iri("C3262")}],
+            [{"child": _iri("C6135"), "parent": _iri("C9305")}],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ]
+    )
 
-    with pytest.raises(ValueError, match="concept"):
-        await enumerate_in_scope_codes(client, ["Neoplastic Process"], page_size=500)
-    assert client.select.await_args.kwargs["required_variables"] == {"concept"}
+    codes = await enumerate_in_scope_codes(client, "C3262")
+
+    assert codes == ["C6135", "C9305"]
+
+
+@pytest.mark.unit
+async def test_enumerate_in_scope_codes_aborts_on_missing_hierarchy_binding() -> None:
+    client = MagicMock()
+    client.select_once = AsyncMock(return_value=[{}])
+
+    with pytest.raises(RuntimeError, match="child"):
+        await enumerate_in_scope_codes(client, "C3262")
+    assert client.select_once.await_args.kwargs["required_variables"] == {
+        "child",
+        "parent",
+    }
 
 
 @pytest.mark.unit
@@ -737,7 +755,10 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
             if query_fragment in query
         }
 
-    assert requirements_for("ORDER BY ?concept") == {frozenset({"concept"})}
+    assert requirements_for("SELECT DISTINCT ?child ?parent") == {
+        frozenset({"child", "parent"})
+    }
+    assert requirements_for("?overflowChild") == {frozenset({"overflowChild"})}
     assert requirements_for("SELECT ?semanticType") == {frozenset({"semanticType"})}
     assert requirements_for("BIND(REPLACE(STR(?concept)") == {frozenset({"code", "st"})}
     assert requirements_for("rdfs:subClassOf+") == {
@@ -758,7 +779,11 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
         if "SELECT DISTINCT ?node ?kind ?target" in query
     ]
     assert len(expansion_queries) > 1
-    assert expansion_queries == client.single_attempt_queries
+    assert expansion_queries == [
+        query
+        for query in client.single_attempt_queries
+        if "SELECT DISTINCT ?node ?kind ?target" in query
+    ]
     assert all(
         len(set(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))) <= 16
         for query in expansion_queries
@@ -1190,10 +1215,23 @@ def test_run_metrics_coverage_computed_correctly() -> None:
 def test_run_config_defaults() -> None:
     cfg = RunConfig(branch="neoplasm")
     assert cfg.branch == "neoplasm"
+    assert cfg.scope_root == "C3262"
+    assert cfg.scope_version == "stated-genus-subclass-v1"
     assert cfg.semantic_types == tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
     assert cfg.algorithm == "axis-qualified"
     assert cfg.out is None
     assert not cfg.load_to_store
+
+
+@pytest.mark.unit
+def test_disease_config_uses_the_broader_root_with_the_same_algorithm() -> None:
+    neoplasm = RunConfig(branch="neoplasm")
+    disease = RunConfig(branch="disease")
+
+    assert disease.scope_root == "C2991"
+    assert disease.scope_root != neoplasm.scope_root
+    assert disease.algorithm == neoplasm.algorithm
+    assert disease.semantic_types == neoplasm.semantic_types
 
 
 @pytest.mark.unit
@@ -1268,6 +1306,8 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
         semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
         worklist=("C0", "C1"),
         total_limit=None,
@@ -1525,21 +1565,20 @@ async def test_non_positive_total_limit_is_rejected_before_a_run_exists() -> Non
 
 
 @pytest.mark.unit
-async def test_duplicate_enumerated_codes_are_rejected_before_a_run_exists() -> None:
-    """A duplicated code would make the worklist and its fingerprint disagree."""
+async def test_duplicate_hierarchy_edges_materialize_one_work_item() -> None:
+    """Polyhierarchy/duplicate source edges cannot duplicate the exact worklist."""
     client = _FakeClient(pages=[["C1", "C1"]])
     provenance = _mock_provenance()
-    provenance.create_run = AsyncMock()
 
-    with pytest.raises(RuntimeError, match="duplicate concept codes"):
-        await run_pipeline(
-            RunConfig(branch="neoplasm"),
-            client,
-            provenance,
-            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
-        )
+    await run_pipeline(
+        RunConfig(branch="neoplasm"),
+        client,
+        provenance,
+        get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+    )
 
-    provenance.create_run.assert_not_awaited()
+    fingerprint = provenance._test_state["fingerprint"]
+    assert fingerprint.worklist == ("C1",)
 
 
 @pytest.mark.unit
@@ -1634,7 +1673,7 @@ async def test_publication_failure_is_recorded_as_retryable_before_completion(
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "branch",
-    ["", "disease", "regimen", "experimental", "neo/plasm", "neo\\plasm"],
+    ["", "regimen", "experimental", "neo/plasm", "neo\\plasm"],
 )
 def test_run_config_rejects_every_unsupported_branch_before_a_run_exists(
     branch: str,

@@ -55,6 +55,8 @@ def _fingerprint(*, source: str = "a" * 64) -> RunFingerprint:
     return RunFingerprint(
         source_identity=source,
         branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
         semantic_types=("Disease or Syndrome", "Neoplastic Process"),
         worklist=("C0", "C1"),
         total_limit=2,

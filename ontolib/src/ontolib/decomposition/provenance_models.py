@@ -4,9 +4,28 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+
+# Pydantic resolves these aliases while constructing the runtime model schema.
+from ontolib.decomposition.branches import ScopeRoot, ScopeVersion  # noqa: TC001
+
+
+def _require_matching_scope_root(
+    branch: Literal["neoplasm", "disease"],
+    scope_root: ScopeRoot,
+) -> None:
+    expected = "C3262" if branch == "neoplasm" else "C2991"
+    if scope_root != expected:
+        raise ValueError(f"{branch} branch requires scope root {expected}")
 
 
 class NcitSourceSnapshot(BaseModel):
@@ -23,9 +42,11 @@ class RunFingerprint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    branch: Literal["neoplasm"]
+    branch: Literal["neoplasm", "disease"]
+    scope_root: ScopeRoot
+    scope_version: ScopeVersion
     semantic_types: tuple[str, ...]
     worklist: tuple[str, ...]
     total_limit: int | None = Field(default=None, gt=0)
@@ -35,6 +56,11 @@ class RunFingerprint(BaseModel):
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
     emitted_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def _scope_root_matches_branch(self) -> Self:
+        _require_matching_scope_root(self.branch, self.scope_root)
+        return self
 
     @field_validator("semantic_types")
     @classmethod
@@ -71,7 +97,9 @@ class RunResumeIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    branch: Literal["neoplasm"]
+    branch: Literal["neoplasm", "disease"]
+    scope_root: ScopeRoot
+    scope_version: ScopeVersion
     semantic_types: tuple[str, ...]
     total_limit: int | None = Field(default=None, gt=0)
     algorithm_version: str = Field(min_length=1)
@@ -80,12 +108,19 @@ class RunResumeIdentity(BaseModel):
     output_mode: Literal["none", "file"]
     load_mode: Literal["none", "named-graph"]
 
+    @model_validator(mode="after")
+    def _scope_root_matches_branch(self) -> Self:
+        _require_matching_scope_root(self.branch, self.scope_root)
+        return self
+
     @classmethod
     def from_fingerprint(cls, fingerprint: RunFingerprint) -> RunResumeIdentity:
         """Project only the dimensions a resume invocation can independently know."""
         return cls(
             source_identity=fingerprint.source_identity,
             branch=fingerprint.branch,
+            scope_root=fingerprint.scope_root,
+            scope_version=fingerprint.scope_version,
             semantic_types=fingerprint.semantic_types,
             total_limit=fingerprint.total_limit,
             algorithm_version=fingerprint.algorithm_version,

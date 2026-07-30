@@ -130,10 +130,12 @@ pdm run decompose \
 
 The CLI revalidates the D47 proof and compares its complete candidate observation with
 the live endpoint. It persists the exact worklist and immutable source/config fingerprint
-before processing. `--branch` is a closed choice: only `neoplasm` is implemented; the
-former `disease` label selected identical behavior and was removed, while `regimen`
-remains unavailable until its distinct component-bag algorithm is implemented.
-`--resume RUN_ID` accepts only the same source, branch, scope, limit,
+before processing. `--branch` is a closed choice: `neoplasm` selects strict descendants
+of `C3262`; `disease` selects strict descendants of `C2991`, including the neoplasm
+population. Both share the axis-qualified algorithm, while their hierarchy root and
+scope-algorithm version are independent fingerprint dimensions. `regimen` remains
+unavailable until its distinct component-bag algorithm is implemented. `--resume RUN_ID`
+accepts only the same source, branch, root, scope algorithm, limit,
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
 drift before publication fails closed and invalidates every persisted result row. The
 `--out` TTL is staged, flushed, validated, and source-checked before publication. With
@@ -161,6 +163,21 @@ pdm run test-integration-full-build -k pinned_sentence_transformer
 This explicitly downloads/loads the pinned model revision and requires one 768-vector
 per input. It is `full_build` and intentionally excluded from the lightweight seeded CI
 job; absence is a failed applicable manual contract, not a skip.
+
+The source-qualified decomposition hierarchy contract is also an explicit `full_build`
+test:
+
+```bash
+pdm run pytest \
+  ontolib/tests/terminologies/test_ncit_sibling_store_integration.py::test_complete_pinned_ncit_pair_builds_certified_sibling \
+  -v
+```
+
+It revalidates the cached `ncit-artifact-pair.json`, including both OWL hashes and their
+same-release binding, rebuilds an inactive sibling with the pinned loader, and evaluates
+both hierarchy branches only after the candidate proof matches the live temporary
+endpoint. It never uses the configured active store and is deliberately excluded from
+`test`, `test-ci`, `test-integration`, and the read-only `full_store` lane.
 
 ### Validation and recovery
 

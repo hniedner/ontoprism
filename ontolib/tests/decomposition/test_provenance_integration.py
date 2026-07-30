@@ -49,6 +49,8 @@ def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
     return RunFingerprint(
         source_identity="a" * 64,
         branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
         semantic_types=("Neoplastic Process",),
         worklist=worklist,
         total_limit=None,

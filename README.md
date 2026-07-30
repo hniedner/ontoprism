@@ -216,10 +216,12 @@ through caDSR; NAACCR keeps its exchange format, operational rules, and mandate.
 
 ## The Approach
 
-1. **Detect** — Identify pre-coordinated concepts via a semantic-type gate
-   (neoplasm/disease/regimen branches; gene/protein role families excluded) and a
-   defining-role count ≥ 2, excluding pure qualifier or value-set nodes. Each
-   role-filler pair is a semantic dimension that can be factored out.
+1. **Detect** — Select the `neoplasm` or `disease` population from NCIt's stated
+   named-class hierarchy (direct subclass plus defined-class genus edges), then apply
+   the shared axis algorithm's semantic-type and defining-axis gates. The disease
+   branch contains the neoplasm branch; regimen remains reserved for its distinct
+   component-bag algorithm. Each role-filler pair is a semantic dimension that can be
+   factored out.
 
 2. **Extract** — Walk each concept's genus chain recursively (a multi-parent DAG,
    not a single lineage). For each defining role, select the most-specific filler
