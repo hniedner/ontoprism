@@ -1150,9 +1150,25 @@ async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
     assert metrics.decomposed == 1
     assert metrics.residual_precoordinated_count == 1
     assert metrics.residual_precoordination == pytest.approx(1.0)
-    # persisted honestly (the count is a field; the fraction is derived on read)
+    # Persist both numerator and derived rate so every read surface has one schema.
     persisted = provenance.finish_run.call_args.kwargs["metrics"]
     assert persisted["residual_precoordinated_count"] == 1
+    assert persisted["residual_precoordination"] == pytest.approx(1.0)
+    assert set(persisted) == {
+        "total_in_scope",
+        "decomposed",
+        "residual",
+        "residual_precoordinated_count",
+        "residual_precoordination",
+        "minted_count",
+        "complete_definition_count",
+        "complete_fact_count",
+        "projected_fact_count",
+        "projection_loss_count",
+        "projection_loss_rate",
+        "pct_decomposed",
+        "roundtrip_fidelity",
+    }
 
 
 @pytest.mark.unit
@@ -1171,6 +1187,8 @@ def test_run_metrics_coverage_computed_correctly() -> None:
 def test_run_config_defaults() -> None:
     cfg = RunConfig(branch="neoplasm")
     assert cfg.branch == "neoplasm"
+    assert cfg.semantic_types == tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
+    assert cfg.algorithm == "axis-qualified"
     assert cfg.out is None
     assert not cfg.load_to_store
 
@@ -1615,14 +1633,15 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("branch", ["", "neo/plasm", "neo\\plasm"])
-def test_run_config_rejects_a_path_unsafe_branch(branch: str) -> None:
-    """`branch` reaches the staging filename through the run id.
-
-    Rejecting it at construction avoids failing only at publication, after the whole
-    worklist has been processed and under a run id that can no longer be resumed.
-    """
-    with pytest.raises(ValueError, match="path separators"):
+@pytest.mark.parametrize(
+    "branch",
+    ["", "disease", "regimen", "experimental", "neo/plasm", "neo\\plasm"],
+)
+def test_run_config_rejects_every_unsupported_branch_before_a_run_exists(
+    branch: str,
+) -> None:
+    """Cosmetic and unimplemented branch labels must not create provenance."""
+    with pytest.raises(ValueError, match="unsupported decomposition branch"):
         RunConfig(branch=branch)
 
 

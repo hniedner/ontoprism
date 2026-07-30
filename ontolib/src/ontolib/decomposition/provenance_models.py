@@ -25,7 +25,7 @@ class RunFingerprint(BaseModel):
 
     schema_version: Literal[1] = 1
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    branch: str = Field(min_length=1)
+    branch: Literal["neoplasm"]
     semantic_types: tuple[str, ...]
     worklist: tuple[str, ...]
     total_limit: int | None = Field(default=None, gt=0)
@@ -71,7 +71,7 @@ class RunResumeIdentity(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    branch: str = Field(min_length=1)
+    branch: Literal["neoplasm"]
     semantic_types: tuple[str, ...]
     total_limit: int | None = Field(default=None, gt=0)
     algorithm_version: str = Field(min_length=1)
@@ -108,7 +108,7 @@ class RunOutcomeCounts(BaseModel):
 
 
 class RunSummary(BaseModel):
-    """One decomposition run's manifest + (if finished) its metric counts."""
+    """One run manifest plus metrics, including immutable historical labels."""
 
     id: str
     branch: str
@@ -124,7 +124,14 @@ class RunSummary(BaseModel):
     total_in_scope: int | None = None
     decomposed: int | None = None
     residual: int | None = None
+    residual_precoordinated_count: int | None = None
+    residual_precoordination: float | None = None
     minted_count: int | None = None
+    complete_definition_count: int | None = None
+    complete_fact_count: int | None = None
+    projected_fact_count: int | None = None
+    projection_loss_count: int | None = None
+    projection_loss_rate: float | None = None
     pct_decomposed: float | None = None
     roundtrip_fidelity: float | None = None
 

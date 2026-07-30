@@ -98,7 +98,11 @@ async def test_list_runs_returns_summaries_with_parsed_metrics() -> None:
             "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
             "finished_at": datetime.datetime(2026, 7, 12, 1, 0, tzinfo=datetime.UTC),
             "metrics": '{"total_in_scope":5,"decomposed":3,"residual":2,'
-            '"minted_count":1,"pct_decomposed":0.6,"roundtrip_fidelity":0.95}',
+            '"residual_precoordinated_count":1,'
+            '"minted_count":1,"complete_definition_count":3,'
+            '"complete_fact_count":12,"projected_fact_count":9,'
+            '"projection_loss_count":3,"projection_loss_rate":0.25,'
+            '"pct_decomposed":0.6,"roundtrip_fidelity":0.95}',
         },
     ]
     store = ProvenanceStore(sf)
@@ -112,10 +116,62 @@ async def test_list_runs_returns_summaries_with_parsed_metrics() -> None:
     assert r.total_in_scope == 5
     assert r.decomposed == 3
     assert r.residual == 2
+    assert r.residual_precoordinated_count == 1
+    assert r.residual_precoordination == pytest.approx(1 / 3)
     assert r.minted_count == 1
+    assert r.complete_definition_count == 3
+    assert r.complete_fact_count == 12
+    assert r.projected_fact_count == 9
+    assert r.projection_loss_count == 3
+    assert r.projection_loss_rate == 0.25
     assert r.pct_decomposed == 0.6
     assert r.roundtrip_fidelity == 0.95
     assert r.finished_at is not None
+
+
+@pytest.mark.unit
+async def test_completed_zero_output_run_derives_an_honest_zero_residual_rate() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "run-zero",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.05d",
+            "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
+            "finished_at": datetime.datetime(2026, 7, 12, 1, tzinfo=datetime.UTC),
+            "metrics": {
+                "decomposed": 0,
+                "residual_precoordinated_count": 0,
+            },
+        }
+    ]
+
+    runs = await ProvenanceStore(sf).list_runs()
+
+    assert runs[0].residual_precoordination == 0.0
+
+
+@pytest.mark.unit
+async def test_historical_cosmetic_branch_run_remains_readable() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "historical-disease-run",
+            "branch": "disease",
+            "status": "complete",
+            "ncit_version": "26.05d",
+            "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
+            "finished_at": datetime.datetime(2026, 7, 12, 1, tzinfo=datetime.UTC),
+            "metrics": {"decomposed": 0},
+        }
+    ]
+
+    runs = await ProvenanceStore(sf).list_runs()
+
+    assert runs[0].branch == "disease"
 
 
 @pytest.mark.unit

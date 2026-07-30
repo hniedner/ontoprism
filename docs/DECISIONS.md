@@ -2,6 +2,37 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-30 — decomposition branches are executable contracts, not run labels
+
+### D51. Keep one typed branch until a second algorithm exists
+
+`neoplasm` and `disease` previously selected the same semantic-type population and the
+same axis-qualified algorithm; the free-form label only changed run identity. The
+regimen mini-design describes a genuinely different component-bag algorithm, but no
+regimen detector, extractor, representation, or metrics exist.
+
+**Decision:** a closed `DecompositionBranch` accepts only `neoplasm`. Its executable
+specification owns the canonical three-type scope (`Neoplastic Process`, `Disease or
+Syndrome`, `Cell or Molecular Dysfunction`) and the axis-qualified algorithm/version;
+callers cannot override scope independently. The compatibility-preserving name denotes
+the existing disease/neoplasm decomposition family, not only one semantic type.
+`disease`, `regimen`, and arbitrary labels fail before provenance is created. Regimen
+stays explicitly unavailable until its separate mini-design is implemented end to end.
+Completed historical rows retain their original free-form label on the read-only summary
+API, but the closed fingerprint/resume boundary prevents those labels from starting or
+resuming work.
+
+Run completion persists one stable metric schema, including the residual numerator and
+rate. The run-summary API exposes every accepted stored metric: worklist/decomposition,
+residual, mint, complete-definition, projection-loss, coverage, and historical
+round-trip fields. Fresh and resumed runs both reconstruct and serialize through this
+same completion path.
+
+**Why:** a branch is meaningful only if it changes executable semantics. A cosmetic
+string creates false confidence, fragments provenance, and makes resume identity appear
+more precise than the computation. A closed boundary also ensures that adding regimen
+later requires an explicit algorithm dispatch and its distinct contracts.
+
 ## 2026-07-30 — the complete stated definition is the decomposition record
 
 ### D50. Persist the stated definition DAG separately from its curated projection

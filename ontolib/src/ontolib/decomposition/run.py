@@ -48,6 +48,12 @@ from ontolib.decomposition import (
     stated_queries,
 )
 from ontolib.decomposition import filler_selection as fs
+from ontolib.decomposition.branches import (
+    DecompositionAlgorithm,
+    DecompositionBranch,
+    branch_spec,
+    parse_branch,
+)
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Decomposition
 from ontolib.decomposition.provenance import RunStateError
@@ -75,7 +81,6 @@ GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
 GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
 
 _DEFAULT_PAGE_SIZE = 500
-_ALGORITHM_VERSION = "decomposition-v2"
 _CONFIG_VERSION = "complete-definition-v1"
 
 
@@ -129,10 +134,11 @@ class RunConfig:
     CLI-layer concern performed by the caller after ``run_pipeline`` returns (see the
     module docstring). It is read only to record ``load_mode`` in the immutable run
     fingerprint, which is why it must agree with ``out``. Equivalence emission is
-    quarantined until #153 provides a proof-bearing representation.
+    quarantined until a separate equivalence-validation step can prove the complete
+    representation is exact.
     """
 
-    branch: str
+    branch: DecompositionBranch
     out: Path | None = None
     load_to_store: bool = False
     emit_equivalence: bool = False
@@ -140,19 +146,29 @@ class RunConfig:
     walker_max_depth: int = 5
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "branch", parse_branch(self.branch))
         if self.emit_equivalence:
             raise ValueError(
-                "equivalence emission is not available until a proof-bearing "
-                "representation can establish exact completeness (#153)"
+                "equivalence emission is not available until a separate validation "
+                "step can establish exact completeness"
             )
         if self.load_to_store and self.out is None:
             raise ValueError("load_to_store requires an output path")
-        # `branch` becomes part of the run id and therefore of the staging filename.
-        # Reject a path-unsafe branch here rather than after the whole worklist has
-        # been processed, where the run can no longer be resumed under a fixed name.
-        # An empty branch is rejected separately: the run id would carry no label.
-        if not self.branch or set(self.branch) & {"/", "\\", "\0"}:
-            raise ValueError("branch must be non-empty and free of path separators")
+
+    @property
+    def semantic_types(self) -> tuple[str, ...]:
+        """Canonical semantic-type scope selected by this branch."""
+        return branch_spec(self.branch).semantic_types
+
+    @property
+    def algorithm(self) -> DecompositionAlgorithm:
+        """Algorithm selected by this branch."""
+        return branch_spec(self.branch).algorithm
+
+    @property
+    def algorithm_version(self) -> str:
+        """Version of the selected algorithm, persisted in the run identity."""
+        return branch_spec(self.branch).algorithm_version
 
 
 @dataclass
@@ -197,7 +213,7 @@ class RunMetrics:
 
     ``roundtrip_fidelity`` is unavailable for the current curated projection. Numeric
     values from historical runs remain readable, but new runs record ``None`` until
-    #153 provides a proof-bearing representation.
+    a separate validation step proves exact equivalence from the complete record.
     """
 
     total_in_scope: int = 0
@@ -246,7 +262,7 @@ class _CandidateResult:
             )
 
 
-def _new_run_id(branch: str) -> str:
+def _new_run_id(branch: DecompositionBranch | str) -> str:
     return f"{branch}-{uuid4()}"
 
 
@@ -524,22 +540,15 @@ def _resume_identity(
 ) -> RunResumeIdentity:
     return RunResumeIdentity(
         source_identity=snapshot.source_identity,
-        branch=config.branch,
+        branch=config.branch.value,
         semantic_types=semantic_types,
         total_limit=total_limit,
-        algorithm_version=_ALGORITHM_VERSION,
+        algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
         output_mode="file" if config.out is not None else "none",
         load_mode="named-graph" if config.load_to_store else "none",
     )
-
-
-def _canonical_scope(semantic_types: Sequence[str] | None) -> tuple[str, ...]:
-    selected = (
-        semantic_types if semantic_types is not None else axes.IN_SCOPE_SEMANTIC_TYPES
-    )
-    return tuple(sorted(selected))
 
 
 async def _create_fresh_run(
@@ -568,11 +577,11 @@ async def _create_fresh_run(
     )
     fingerprint = RunFingerprint(
         source_identity=snapshot.source_identity,
-        branch=config.branch,
+        branch=config.branch.value,
         semantic_types=scope,
         worklist=tuple(codes),
         total_limit=total_limit,
-        algorithm_version=_ALGORITHM_VERSION,
+        algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
         output_mode="file" if config.out is not None else "none",
@@ -613,13 +622,12 @@ async def _prepare_run(
     *,
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
-    semantic_types: Sequence[str] | None,
     page_size: int,
     total_limit: int | None,
 ) -> _RunSetup:
     """Create or reopen one exact source-bound worklist."""
     snapshot = await _require_source_snapshot(client, get_source_snapshot)
-    scope = _canonical_scope(semantic_types)
+    scope = config.semantic_types
     if config.resume_from:
         run_id = config.resume_from
         fingerprint = await provenance.resume_run(
@@ -824,10 +832,12 @@ async def _finish_run(
             get_source_snapshot,
             expected=setup.source_snapshot,
         )
+        persisted_metrics = asdict(metrics)
+        persisted_metrics["residual_precoordination"] = metrics.residual_precoordination
         finished = await provenance.finish_run(
             setup.run_id,
             source_identity=setup.fingerprint.source_identity,
-            metrics=asdict(metrics),
+            metrics=persisted_metrics,
         )
         if not finished:
             raise RuntimeError(
@@ -858,7 +868,6 @@ async def run_pipeline(
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None = None,
     label_lookup: LabelLookup = _never_resolves,
-    semantic_types: Sequence[str] | None = None,
     page_size: int = _DEFAULT_PAGE_SIZE,
     total_limit: int | None = None,
 ) -> RunMetrics:
@@ -878,7 +887,6 @@ async def run_pipeline(
         provenance,
         get_source_snapshot=get_source_snapshot,
         get_labels=get_labels,
-        semantic_types=semantic_types,
         page_size=page_size,
         total_limit=total_limit,
     )

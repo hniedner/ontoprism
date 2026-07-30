@@ -624,7 +624,7 @@ and candidate observation. Version or identity mismatch fails closed.
 | Metric | Status | Definition |
 |---|---|---|
 | `pct_decomposed` | stored in `decomp_run.metrics` | cumulative decomposed concepts / exact persisted worklist size; identical after fresh or resumed completion |
-| `residual_precoordination` | computed property; `residual_precoordinated_count` is stored | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37) |
+| `residual_precoordination`, `residual_precoordinated_count` | stored together in `decomp_run.metrics` | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37); storing numerator and rate gives fresh, resumed, CLI, and API reads one schema |
 | `minted_count` | stored in `decomp_run.metrics` | size of the mint tail (governance signal — should stay low hundreds) |
 | `roundtrip_fidelity` | unavailable (`null`) for new runs | a future proof/validation step may measure this only from D50's complete representation, never from the curated projection; historical numeric values remain readable |
 | `constituent_existence_rate` | future | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
