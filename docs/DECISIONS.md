@@ -8,21 +8,29 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 The mandatory pre-PR review requires a clean worktree and a review of the committed
 `main...HEAD` diff. `pr-test-analyzer` earns its verdicts by mutating production code to
-prove a test fails when the code is wrong. Running it in parallel with the other four
-therefore breaks their precondition. Observed on PR #236 round 3: three reviewers
-independently reported a dirty worktree and an out-of-band mint-proposal promotion inside
-`finish_run` that no commit contained. It was the test analyst's mutation, reverted
-within a minute, but each of the three had to spend its round establishing that the code
-it was reading was not the code under review, and one filed it as a Critical finding.
+prove a test fails when the code is wrong. Running it beside the other four therefore
+breaks their precondition, in any round. Observed on PR #236 round 3: three reviewers
+independently reported a dirty worktree and a `finish_run` body that did not match the
+commit under review — a *second*, out-of-band mint promotion on its own connection, ahead
+of the run-state gates, which no commit on the branch contained. (The legitimate
+promotion inside that transaction, after the gates, is D48 and was present throughout;
+the entry is about the duplicate, not about D48.) It was `pr-test-analyzer`'s mutation,
+reverted within a minute, but each of the three had to spend its round establishing that
+the code it was reading was not the code under review, and one filed it as a Critical
+finding.
 
-**Decision:** run the other four reviewers in parallel, then `pr-test-analyzer` alone
-against the same commit. It must restore every mutation and finish with
-`git status --porcelain` empty. Convergence bookkeeping is unchanged.
+**Decision:** in every round, run the other non-converged reviewers in parallel and
+`pr-test-analyzer` alone against the same commit. It must restore every mutation; the
+orchestrator then verifies `git status --porcelain` is empty **and** `HEAD` is unchanged
+before accepting the verdict, and treats a failure of either check as an inconclusive,
+non-converged run. Convergence bookkeeping is otherwise unchanged.
 
 **Why:** a reviewer that cannot trust the worktree cannot produce a verdict about the
-diff, and a mutation observed by a bystander looks exactly like a real defect. Serializing
-the one agent that writes costs a single extra round-trip and removes a whole class of
-false Critical findings — cheaper than re-running the four it disturbs.
+diff, and a mutation observed by a bystander looks exactly like a real defect. An empty
+`git status` alone is not proof of restoration — a mutation that was committed or stashed
+leaves the tree clean while the reviewed diff has moved. Serializing the one agent that
+writes costs a single extra round-trip and removes a whole class of false Critical
+findings — cheaper than re-running the four it disturbs.
 
 ## 2026-07-29 — decomposition runs are exact source-bound state machines
 
