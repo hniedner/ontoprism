@@ -216,6 +216,22 @@ def test_part_of_pairs_query_requires_directional_keywords() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("part_codes", "whole_codes"),
+    [([], ["C2"]), (["C1"], [])],
+)
+def test_part_of_pairs_query_empty_endpoint_matches_nothing(
+    part_codes: list[str],
+    whole_codes: list[str],
+) -> None:
+    query = build_part_of_pairs_query(
+        part_codes=part_codes,
+        whole_codes=whole_codes,
+    )
+    assert "FILTER(false)" in query
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("oversized_endpoint", ["part", "whole"])
 def test_part_of_pairs_query_rejects_more_than_measured_tile_limit(
     oversized_endpoint: str,
@@ -326,6 +342,104 @@ async def test_resolve_morphology_filler_rejects_non_ncit_genus() -> None:
 
     with pytest.raises(ValueError, match="not an NCIt IRI"):
         await resolve_morphology_filler(fake_select, "C6135")
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_rejects_non_concept_ncit_member() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [{"member": _iri("R101"), "type": None}]
+
+    with pytest.raises(ValueError, match="not an NCIt concept code"):
+        await resolve_morphology_filler(fake_select, "C6135")
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_skips_restriction_before_named_genus() -> None:
+    call_count = 0
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            assert set(required_variables) == {"member"}
+            return [
+                {"member": "_:restriction", "type": OWL_NS + "Restriction"},
+                {"member": _iri("C3879"), "type": None},
+            ]
+        assert set(required_variables) == {"label"}
+        return [{"label": "Thyroid Gland Medullary Carcinoma"}]
+
+    assert await resolve_morphology_filler(fake_select, "C6135") == "C3879"
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_continues_past_unlabelled_genus() -> None:
+    responses: list[list[dict[str, str | None]]] = [
+        [{"member": _iri("C141041"), "type": None}],
+        [],
+        [{"member": _iri("C3879"), "type": None}],
+        [{"label": "Thyroid Gland Medullary Carcinoma"}],
+    ]
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        expected_variables = {"label"} if "SELECT ?label" in query else {"member"}
+        assert set(required_variables) == expected_variables
+        return responses.pop(0)
+
+    assert await resolve_morphology_filler(fake_select, "C6135") == "C3879"
+    assert responses == []
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_stops_on_genus_cycle() -> None:
+    responses: list[list[dict[str, str | None]]] = [
+        [{"member": _iri("C141041"), "type": None}],
+        [{"label": "Stage II Thyroid Gland Medullary Carcinoma"}],
+        [{"member": _iri("C6135"), "type": None}],
+    ]
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return responses.pop(0)
+
+    assert await resolve_morphology_filler(fake_select, "C6135") is None
+    assert responses == []
+
+
+@pytest.mark.unit
+async def test_resolve_morphology_filler_stops_at_depth_bound() -> None:
+    responses: list[list[dict[str, str | None]]] = [
+        [{"member": _iri("C141041"), "type": None}],
+        [{"label": "Stage II Thyroid Gland Medullary Carcinoma"}],
+    ]
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return responses.pop(0)
+
+    assert await resolve_morphology_filler(fake_select, "C6135", max_depth=1) is None
+    assert responses == []
 
 
 @pytest.mark.unit
@@ -446,3 +560,93 @@ async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> N
 
     assert len(roles) == 1
     assert roles[0].anchoring_genus == "C6135"
+
+
+@pytest.mark.unit
+async def test_walk_genus_chain_stops_at_first_empty_intersection_position() -> None:
+    later_restriction: dict[str, str | None] = {
+        "member": "_:r1",
+        "type": OWL_NS + "Restriction",
+        "role": _iri("R101"),
+        "target": _iri("C12704"),
+        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+    }
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
+        if "?mid0 rdf:first ?member" in query:
+            return [later_restriction]
+        return []
+
+    assert await walk_genus_chain(fake_select, "C6135") == []
+
+
+@pytest.mark.unit
+async def test_walk_genus_chain_deduplicates_roles_and_terminates_on_cycle() -> None:
+    core_role: dict[str, str | None] = {
+        "member": "_:core",
+        "type": OWL_NS + "Restriction",
+        "role": _iri("R101"),
+        "target": _iri("C12704"),
+        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+    }
+    non_core_role: dict[str, str | None] = {
+        "member": "_:non-core",
+        "type": OWL_NS + "Restriction",
+        "role": _iri("R999"),
+        "target": _iri("C999"),
+        "roleLabel": "Not_A_Core_Neoplasm_Role",
+    }
+    queried_codes: list[str] = []
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
+        if "#C6135>" in query:
+            queried_codes.append("C6135")
+            return [{"member": _iri("C3809"), "type": None}]
+        if "#C3809>" in query:
+            queried_codes.append("C3809")
+            return [
+                core_role,
+                core_role,
+                non_core_role,
+                {"member": _iri("C6135"), "type": None},
+            ]
+        return []
+
+    roles = await walk_genus_chain(fake_select, "C6135", max_depth=5)
+
+    assert [(role.role_code, role.filler_code) for role in roles] == [
+        ("R101", "C12704")
+    ]
+    assert roles[0].anchoring_genus == "C3809"
+    assert queried_codes.count("C6135") == len(build_genus_walk_members_query("C6135"))
+    assert queried_codes.count("C3809") == len(build_genus_walk_members_query("C3809"))
+
+
+@pytest.mark.unit
+async def test_walk_genus_chain_does_not_cross_depth_bound() -> None:
+    queried_codes: list[str] = []
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
+        if "#C6135>" in query:
+            queried_codes.append("C6135")
+            return [{"member": _iri("C3809"), "type": None}]
+        queried_codes.append("C3809")
+        return []
+
+    assert await walk_genus_chain(fake_select, "C6135", max_depth=1) == []
+    assert set(queried_codes) == {"C6135"}
