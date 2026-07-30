@@ -38,23 +38,37 @@ misidentified NCIt roles from silently becoming the public composition grammar.
 
 ## 2026-07-30 — decomposition branches are executable contracts, not run labels
 
-### D51. Keep one typed branch until a second algorithm exists
+### D51. Separate a branch's hierarchy population from its decomposition algorithm
 
 `neoplasm` and `disease` previously selected the same semantic-type population and the
-same axis-qualified algorithm; the free-form label only changed run identity. The
-regimen mini-design describes a genuinely different component-bag algorithm, but no
-regimen detector, extractor, representation, or metrics exist.
+same axis-qualified algorithm; the free-form label only changed run identity. That was a
+false interface promise, but removing `disease` was also wrong: NCIt's `Neoplasm`
+(`C3262`) is a descendant of `Disease or Disorder` (`C2991`), and hierarchical concepts
+may legitimately share an algorithm while selecting different populations. Semantic
+types are not a hierarchy oracle: the certified stated corpus contains hierarchy members
+outside the canonical three semantic types and concepts with those types outside the
+disease hierarchy.
 
-**Decision:** a closed `DecompositionBranch` accepts only `neoplasm`. Its executable
-specification owns the canonical three-type scope (`Neoplastic Process`, `Disease or
-Syndrome`, `Cell or Molecular Dysfunction`) and the axis-qualified algorithm/version;
-callers cannot override scope independently. The compatibility-preserving name denotes
-the existing disease/neoplasm decomposition family, not only one semantic type.
-`disease`, `regimen`, and arbitrary labels fail before provenance is created. Regimen
-stays explicitly unavailable until its separate mini-design is implemented end to end.
+**Decision:** a closed `DecompositionBranch` accepts `neoplasm` and `disease`. Each
+executable specification owns an immutable hierarchy root and scope algorithm:
+`neoplasm → C3262`, `disease → C2991`, both at
+`stated-genus-subclass-v1`. Scope is the strict descendant closure of the stated named
+class DAG, combining named `rdfs:subClassOf` edges with named genus members from
+`owl:equivalentClass/owl:intersectionOf`. The bounded definition-list reader fails
+closed if a later named genus exists. The disease population therefore contains the
+neoplasm root and every neoplasm descendant; the neoplasm worklist excludes its own
+scope anchor.
+
+Both branches deliberately dispatch to the same `axis-qualified` algorithm and canonical
+semantic-type applicability gate (`Neoplastic Process`, `Disease or Syndrome`,
+`Cell or Molecular Dysfunction`). The hierarchy defines which concepts are considered;
+semantic type determines whether this algorithm applies to a considered concept. Scope
+root and scope-algorithm version are persisted in the fingerprint, so historical
+pre-hierarchy runs cannot resume and a future hierarchy change cannot masquerade as the
+same run. `regimen` and arbitrary labels fail before provenance is created. Regimen stays
+unavailable until its separate component-bag mini-design is implemented end to end.
 Completed historical rows retain their original free-form label on the read-only summary
-API, but the closed fingerprint/resume boundary prevents those labels from starting or
-resuming work.
+API.
 
 Run completion persists one stable metric schema, including the residual numerator and
 rate. The run-summary API exposes every accepted stored metric: worklist/decomposition,
@@ -62,10 +76,11 @@ residual, mint, complete-definition, projection-loss, coverage, and historical
 round-trip fields. Fresh and resumed runs both reconstruct and serialize through this
 same completion path.
 
-**Why:** a branch is meaningful only if it changes executable semantics. A cosmetic
-string creates false confidence, fragments provenance, and makes resume identity appear
-more precise than the computation. A closed boundary also ensures that adding regimen
-later requires an explicit algorithm dispatch and its distinct contracts.
+**Why:** a branch is meaningful when it changes an executable contract—population,
+algorithm, or both. Keeping population and algorithm explicit avoids cosmetic labels
+without forcing different hierarchy levels to invent different decomposers. A closed
+boundary also ensures that adding regimen later requires an explicit algorithm dispatch
+and its distinct contracts.
 
 ## 2026-07-30 — decomposition publication is journaled and reconcilable
 

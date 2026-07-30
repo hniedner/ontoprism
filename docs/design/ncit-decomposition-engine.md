@@ -31,9 +31,22 @@ Mapped to the issue's checklist:
 
 ## 2. Scope
 
-**In scope (by NCIt semantic type):** Neoplastic Process (16,467 role-bearing), Disease or Syndrome (5,808), Cell or Molecular Dysfunction (3,911), and — secondary — Therapeutic/Preventive Procedure regimens (Chemotherapy_Regimen_Has_Component). These are the families where pre-coordination drives combinatorial concept explosion.
+**Hierarchy populations:** `neoplasm` is rooted at NCIt Neoplasm (`C3262`);
+`disease` is rooted at Disease or Disorder (`C2991`) and therefore includes the
+neoplasm population. Both are strict descendant closures of the stated named-class DAG:
+direct named `rdfs:subClassOf` edges plus named genus members in
+`owl:equivalentClass/owl:intersectionOf`. A bounded definition-list reader detects and
+fails on a named genus beyond its supported prefix instead of silently truncating the
+hierarchy. The branch fingerprint includes both root and scope algorithm version.
 
-**Out of scope:** the molecular-biology role families — Gene (14,662), Amino Acid/Peptide/Protein (9,942), Enzyme, Receptor. Their roles (`Gene_Plays_Role_In_Process`, etc.) express genuine biology, not label-level aggregation; decomposing them yields no benefit. Enforced by a semantic-type gate in the detector (§5), which is also the guard against scope creep.
+**Algorithm applicability (by NCIt semantic type):** the shared axis-qualified
+decomposer accepts Neoplastic Process, Disease or Syndrome, and Cell or Molecular
+Dysfunction. These types do not define either population: they gate whether this
+algorithm applies after a hierarchy member has been selected. This distinction is
+empirically necessary because NCIt has hierarchy members outside those types and
+same-typed concepts outside the disease hierarchy.
+
+**Out of scope:** the molecular-biology role families — Gene (14,662), Amino Acid/Peptide/Protein (9,942), Enzyme, Receptor. Their roles (`Gene_Plays_Role_In_Process`, etc.) express genuine biology, not label-level aggregation; decomposing them yields no benefit. The hierarchy population excludes unrelated families; the detector's semantic-type applicability gate is defense in depth. Regimens remain unavailable until their distinct component-bag algorithm is implemented.
 
 **Input graph:** the **stated** NCIt OWL, already loaded into the named graph `http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl` (`STATED_GRAPH_IRI`, `ontolib/terminologies/ncit/owl_load.py`). The inferred default graph is used only for validation (§10), never for extraction — this avoids the ancestor-closure bleed and the `Excludes_*` negative axioms documented in assessment §4.
 
@@ -142,7 +155,7 @@ governance list.
 ```
 decomp_run
   id            text PRIMARY KEY        -- branch + UUID; collision-safe
-  branch        text NOT NULL           -- "neoplasm" | "disease" | "regimen"
+  branch        text NOT NULL           -- "neoplasm" | "disease" (regimen reserved)
   status        text NOT NULL CHECK (...) -- "running" | "complete" | "failed"
   ncit_version  text NOT NULL
   source_identity text NOT NULL          -- D47 candidate identity
@@ -209,7 +222,9 @@ status is the governance hook: minting never silently creates a clinical entity.
 
 Deterministic scorer, config-driven thresholds. A concept is a decomposition candidate when **all** hold:
 
-1. **Semantic-type gate** — its `P106` semantic type is in the in-scope set (§2). This is the hard scope boundary; gene/protein concepts fail here.
+1. **Semantic-type applicability gate** — its `P106` semantic type is supported by the
+   branch's algorithm (§2). Hierarchy membership is the population boundary; this gate
+   rejects members the axis-qualified algorithm does not claim to decompose.
 2. **Defining-role count ≥ 2** — it carries ≥2 defining role restrictions in the *stated* graph (assessment: 55,044 concepts corpus-wide). Exactly-1-role concepts (12,818) are borderline and gated by config `min_defining_roles` (default 2); single-axis concepts are largely already atomic-adjacent.
 3. Not itself a pure qualifier/value-set node (excluded by semantic type).
 
@@ -620,6 +635,11 @@ marker-ahead retry is idempotent (D53).
 `--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
 before configuration loads or clients are constructed.
 
+`--branch neoplasm` materializes strict descendants of `C3262`;
+`--branch disease` materializes strict descendants of `C2991`, including `C3262` and
+its descendants. Both use `stated-genus-subclass-v1` and the axis-qualified algorithm.
+Changing a root or scope algorithm version invalidates resume just like a source change.
+
 **Source pinning:** the run records both `owl:versionInfo` and D47's stable source
 identity, which binds the exact stated/inferred artifact pair, loader, layout, policy,
 and candidate observation. Version or identity mismatch fails closed.
@@ -647,7 +667,14 @@ The inferred default graph may validate constituent existence even though extrac
 
 Strict TDD (repo standard): failing test → minimum code → green → ruff + basedpyright clean → commit. RED tests, with fixtures captured from the running stated store:
 
-- `test_detect_precoordination` — `C6135` (≥2 roles, in-scope type) flagged; `C12400` (Thyroid Gland, atomic) not; a gene concept fails the semantic-type gate.
+- `test_hierarchy_scope` — the disease closure contains the neoplasm closure; defined
+  classes such as `C9305`, `C2916`, and `C6135` are reached through named genus edges;
+  unrelated `C12400` is rejected; cycles and duplicate edges terminate deterministically.
+- `test_hierarchy_scope_source_contract` — rebuild the cached, same-release-bound NCIt
+  pair into a certified inactive sibling and prove the hierarchy contract against that
+  exact source identity. This explicit `full_build` test is excluded from automatic
+  suites.
+- `test_detect_precoordination` — `C6135` (≥2 roles, supported type) flagged; `C12400` (Thyroid Gland, atomic) not; a hierarchy member with an unsupported type fails the algorithm-applicability gate.
 - `test_extract_constituents_roles_first` — `C6135` → {stage C27970, stage-system C90530, primary-site C12400, abnormal-cell C36761, morphology-from-parent}; `Excludes_*` filtered; most-specific filler chosen over ancestors.
 - `test_constituent_existence` — every roles-path constituent resolves to an existing active `owl:Class` (≈100%).
 - `test_most_specific_filler` — given an axis result set {Thyroid Gland, Endocrine Gland, …Neck}, selection returns only Thyroid Gland.
@@ -681,7 +708,7 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 | Most-specific errors on multi-parent anatomy | NCIt-hierarchy (is-a + `R82` part-of) cross-check, validated §6.4 as a real-but-partial fix; ambiguous cases flagged `needs_review`, not silently resolved; Uberon not validated as a general fix |
 | Semantic loss on "without/excludes" | Model absence explicitly as a minted qualifier + `polarity`; never drop the negation |
 | Consumer breakage | Additive-only by construction (single output graph, no deletions), proven by `test_additive_no_deletions` |
-| Scope creep into gene/protein | Semantic-type gate in the detector is the hard boundary |
+| Scope drift or semantic-type/hierarchy conflation | Rooted stated-DAG closure is fingerprinted; semantic type remains an explicit algorithm-applicability gate |
 | NCIt version bump silently changes roles | Version-pinned run manifest + guard test that fails on a build mismatch |
 
 ---
@@ -693,7 +720,7 @@ resolved below (grounded in the assessment data, the code, and the issue tracker
 records the call and the rationale.
 
 1. **`min_defining_roles` — keep default 2, but gate on ≥2 *decomposable axes*, not raw roles.**
-   First, a correction: **55,044 is the corpus-wide count** (all 204K classes, incl. the out-of-scope gene/protein families). It must **not** be used as the in-scope candidate figure — the semantic-type gate (§5.1) fires first, so the true candidate set is measured *after* the gate over the ~26K in-scope role-bearing concepts (Neoplastic Process 16,467 + Disease or Syndrome 5,808 + Cell/Molecular Dysfunction 3,911). The golden spike must report that gated number, not 55,044.
+   First, a correction: **55,044 is the corpus-wide count** (all 204K classes, incl. the out-of-scope gene/protein families). It must **not** be used as a branch population figure. The hierarchy root selects the population, then the semantic-type applicability gate (§5.1) selects concepts handled by the axis-qualified algorithm. Reports must expose both the hierarchy worklist and post-gate results rather than presenting the canonical three-type total as branch scope.
    Second, the gate itself: count **decomposable axes** = stated defining roles **+** morphology-from-parent (§6) **+** label-signalled axes (`label_multi_aspect`, §5). A concept with a single site role but a morphology-bearing taxonomic parent is genuinely 2-axis (site + morphology) and must qualify; a raw `role_count ≥ 2` test would wrongly drop it, while truly single-axis nodes (one role, atomic parent, no label signal) are still excluded. Config key stays `min_defining_roles` (default 2) for the role component; the axis-count framing is the detector's actual predicate.
 
 2. **Regimen branch — deferred, and it needs its own mini-design (not just a later run).**

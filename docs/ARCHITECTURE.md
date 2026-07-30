@@ -64,9 +64,13 @@ Legacy pre-coordinated concepts are **flagged, never deleted**
 (`representationStatus="legacy-precoordinated"`) and linked to constituents via
 `hasConstituent[axis, filler]`. Constituents come roles-first (100% already exist as
 active concepts) with NLP/label parsing as fallback for label-only axes (laterality,
-with/without <finding>, staging-manual version). Scope: disease/neoplasm(/regimen);
-gene/protein role families are excluded by a semantic-type gate. Extraction runs off the
-**stated** OWL (DECISIONS D4); the inferred store is used only for validation/closure.
+with/without <finding>, staging-manual version). The `neoplasm` (`C3262`) and `disease`
+(`C2991`) populations are strict descendant closures of the stated named-class DAG,
+including defined-class genus edges; disease contains neoplasm. Both use the same
+axis-qualified algorithm and its semantic-type applicability gate. Regimen is reserved
+for a distinct component-bag algorithm; gene/protein role families remain excluded.
+Extraction runs off the **stated** OWL (DECISIONS D4/D51); the inferred store is used
+only for validation/closure.
 
 The human-facing view is a deliberately **lossy curated projection**. The representation
 of record separately preserves the complete stated multi-parent definition DAG, every

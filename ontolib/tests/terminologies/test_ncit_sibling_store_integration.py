@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 from scripts.decompose import _source_snapshot
 
+from ontolib.decomposition.scope import enumerate_scope_codes
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
@@ -21,12 +22,15 @@ from ontolib.terminologies.ncit.sibling_store import (
     LoaderIdentity,
     SiblingStoreValidationError,
     build_ncit_sibling_store,
+    observe_ncit_candidate,
 )
+from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from contextlib import AbstractContextManager
 
+    from ontolib.decomposition.provenance_models import NcitSourceSnapshot
     from ontolib.terminologies.ncit.owl_download import OwlArtifactPairManifest
 
 _ONTOLOGY_IRI = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl"
@@ -378,16 +382,42 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     assert manifest.loader.image.endswith(
         "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
     )
-    source = await DockerOxigraphRuntime(
+    runtime = DockerOxigraphRuntime(
         connection_scope=integration_connection_scope,
-    ).observe(
+    )
+    scope_codes: dict[str, tuple[str, ...]] = {}
+    source_snapshots: list[NcitSourceSnapshot] = []
+
+    async def inspect_certified_candidate(endpoint: str) -> CandidateObservation:
+        source_snapshots.append(
+            await _source_snapshot(
+                Path(manifest.candidate_path) / CANDIDATE_MANIFEST_FILENAME,
+                endpoint,
+            )
+        )
+        async with OxigraphHttpClient(endpoint) as client:
+            scope_codes["neoplasm"] = await enumerate_scope_codes(client, "C3262")
+            scope_codes["disease"] = await enumerate_scope_codes(client, "C2991")
+        return await observe_ncit_candidate(endpoint)
+
+    observation = await runtime.observe(
         Path(manifest.candidate_path),
         manifest.owner,
-        lambda endpoint: _source_snapshot(
-            Path(manifest.candidate_path) / CANDIDATE_MANIFEST_FILENAME,
-            endpoint,
-        ),
+        inspect_certified_candidate,
     )
+    assert observation == manifest.observation
+    assert len(source_snapshots) == 1
+    source = source_snapshots[0]
     assert source.source_identity == manifest.source_identity
     assert source.ontology_version == "26.07d"
+    neoplasms = set(scope_codes["neoplasm"])
+    diseases = set(scope_codes["disease"])
+    assert len(neoplasms) > 15_000
+    assert len(diseases) > 22_000
+    assert neoplasms < diseases
+    assert {"C3262", "C9305", "C2916", "C6135", "C100012"} <= diseases
+    assert {"C9305", "C2916", "C6135"} <= neoplasms
+    assert {"C3262", "C100012", "C12400"}.isdisjoint(neoplasms)
+    assert "C100012" in diseases - neoplasms
+    assert "C12400" not in diseases
     assert sentinel.read_text() == "untouched"

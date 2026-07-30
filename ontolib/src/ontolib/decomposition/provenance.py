@@ -92,6 +92,18 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     return error_type, message
 
 
+def _invalid_fingerprint_detail(raw: object, persisted_identity: str) -> str:
+    """Classify known historical schemas without laundering arbitrary corruption."""
+    if not isinstance(raw, dict):
+        return "is corrupt or was modified outside the pipeline"
+    schema_version = raw.get("schema_version")
+    if schema_version == 0 and persisted_identity == "0" * 64:
+        return "predates the exact-run schema"
+    if schema_version == 1:
+        return "predates the hierarchy-scope schema"
+    return "is corrupt or was modified outside the pipeline"
+
+
 async def _acquire_publication_lock(connection: AsyncConnection) -> None:
     task = asyncio.create_task(
         connection.execute(
@@ -385,18 +397,9 @@ class ProvenanceStore:
             # 'failed'. Distinguish that expected shape from a fingerprint that is
             # corrupt or was modified outside the pipeline: reporting the latter as a
             # benign migration artifact would send an operator to close the ticket.
-            legacy = (
-                isinstance(raw, dict)
-                and raw.get("schema_version") == 0
-                and persisted_identity == "0" * 64
-            )
-            detail = (
-                "predates the exact-run schema"
-                if legacy
-                else "is corrupt or was modified outside the pipeline"
-            )
             raise RunIdentityMismatchError(
-                f"persisted run fingerprint {detail}"
+                "persisted run fingerprint "
+                f"{_invalid_fingerprint_detail(raw, persisted_identity)}"
             ) from exc
         if fingerprint.identity != persisted_identity:
             raise RunIdentityMismatchError(

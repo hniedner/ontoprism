@@ -162,6 +162,11 @@ tests = ["test_part_of_closure_rejects_row_sentinel_and_malformed_target"]
 fixtures = ["isolated_oxigraph_url"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_scope_integration.py"
+tests = ["test_scope_fails_closed_when_named_genus_follows_bounded_prefix"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
 path = "ontolib/tests/repositories/xref/test_additivity_integration.py"
 fixtures = ["isolated_oxigraph_settings"]
 
