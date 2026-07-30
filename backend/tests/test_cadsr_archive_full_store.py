@@ -18,7 +18,12 @@ pytestmark = [pytest.mark.integration, pytest.mark.full_store, pytest.mark.full_
 _RELEASE_SHA256 = "68a99b43cd763b063394b545e1ff02f38051927bf8a50c8d7cb1c388e2d39748"
 _RELEASE_MEMBER_COUNT = 14
 _RELEASE_UNCOMPRESSED_BYTES = 1_318_221_540
-_RELEASE_CDE_COUNT = 81_209
+# The archive holds 81_209 <DataElement> records, but `cdes` is keyed by
+# (public_id, version) and 589 keys repeat, so 1_374 records collapse on insert.
+# `cde_count` is therefore the distinct-key count, never the record count — pinning
+# the record count here is what made this contract unrunnable. Which variant of a
+# repeated key survives is #238.
+_RELEASE_CDE_COUNT = 79_835
 _HISTORICAL_SHA256 = "2be552dbc9b906a084c7fd285ecfaa19d452ebe88719d48f8d45168721c184bd"
 _HISTORICAL_MEMBER_SIZES = (2_592_992,) + (38,) * 13
 
