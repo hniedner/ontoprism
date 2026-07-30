@@ -13,6 +13,7 @@ from uuid import UUID
 import pytest
 
 from ontolib.decomposition import axes
+from ontolib.decomposition import run as run_module
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -1579,6 +1580,90 @@ async def test_duplicate_hierarchy_edges_materialize_one_work_item() -> None:
 
     fingerprint = provenance._test_state["fingerprint"]
     assert fingerprint.worklist == ("C1",)
+
+
+@pytest.mark.unit
+async def test_duplicate_scope_enumeration_is_rejected_before_run_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The final materialization guard must remain live even if enumeration regresses.
+
+    The hierarchy walker currently deduplicates edges itself, but the immutable
+    worklist must not depend on that collaborator continuing to do so.
+    """
+    provenance = _mock_provenance()
+    monkeypatch.setattr(
+        run_module,
+        "enumerate_in_scope_codes",
+        AsyncMock(return_value=["C1", "C1"]),
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate concept codes"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(),
+            provenance,
+        )
+
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_work_item_failure_recording_error_is_attached_to_primary_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.fail_work_item = AsyncMock(
+        side_effect=RuntimeError("work-item journal unavailable")
+    )
+
+    async def fail_decomposition(*_args: object, **_kwargs: object) -> object:
+        raise ValueError("malformed stated definition")
+
+    monkeypatch.setattr(run_module, "_decompose_one", fail_decomposition)
+
+    with pytest.raises(ValueError, match="malformed stated definition") as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    assert any(
+        "work-item journal unavailable" in note for note in exc_info.value.__notes__
+    )
+    provenance.fail_run.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_serialization_and_run_journal_double_fault_preserves_primary_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "decomposed.ttl"
+    provenance = _mock_provenance()
+    provenance.fail_run = AsyncMock(side_effect=RuntimeError("run journal unavailable"))
+
+    async def fail_write(
+        _decompositions: object,
+        dest: Path,
+        **_kwargs: object,
+    ) -> None:
+        dest.write_text("partial artifact", encoding="utf-8")
+        raise OSError("serialization interrupted")
+
+    monkeypatch.setattr(run_module, "write_ttl", fail_write)
+
+    with pytest.raises(OSError, match="serialization interrupted") as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            _FakeClient(pages=[[]]),
+            provenance,
+        )
+
+    assert any("run journal unavailable" in note for note in exc_info.value.__notes__)
+    assert not out.exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.unit

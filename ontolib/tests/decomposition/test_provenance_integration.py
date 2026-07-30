@@ -443,6 +443,50 @@ async def test_failed_publication_unlock_invalidates_connection_and_releases_loc
 
 
 @pytest.mark.integration
+async def test_body_and_unlock_failure_preserve_body_error_and_release_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    contender = await asyncpg.connect(_asyncpg_dsn(get_settings().database_url))
+    key = "decomposition:publication"
+    body_error = ValueError("publication body failed")
+
+    async def fail_unlock(_connection: object) -> None:
+        raise RuntimeError("injected unlock failure")
+
+    monkeypatch.setattr(
+        provenance_module,
+        "_release_publication_lock",
+        fail_unlock,
+    )
+    try:
+        with pytest.raises(ValueError, match="publication body failed") as exc_info:
+            async with store.publication_lock():
+                raise body_error
+
+        assert exc_info.value is body_error
+        assert any("injected unlock failure" in note for note in body_error.__notes__)
+        assert (
+            await contender.fetchval(
+                "SELECT pg_try_advisory_lock(hashtextextended($1, 0))",
+                key,
+            )
+            is True
+        )
+        assert (
+            await contender.fetchval(
+                "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+                key,
+            )
+            is True
+        )
+    finally:
+        await contender.close()
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
 async def test_minted_concept_status_survives_a_rerun() -> None:
     # The regression this test pins: a rerun re-mints the same deterministic id with
     # status="proposed" by default (minting.py); the engine's upsert must never
