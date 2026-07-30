@@ -20,9 +20,10 @@ _RELEASE_MEMBER_COUNT = 14
 _RELEASE_UNCOMPRESSED_BYTES = 1_318_221_540
 # The archive holds 81_209 <DataElement> records, but `cdes` is keyed by
 # (public_id, version) and 589 keys repeat, so 1_374 records collapse on insert.
-# `cde_count` is therefore the distinct-key count, never the record count — pinning
-# the record count here is what made this contract unrunnable. Which variant of a
-# repeated key survives is #238.
+# `cde_count` is therefore the distinct-key count, which equals the record count only
+# when no key repeats — for this release it does not. Pinning the record count here is
+# what made this contract fail on every run. Which variant of a repeated key survives
+# is #238.
 _RELEASE_CDE_COUNT = 79_835
 _HISTORICAL_SHA256 = "2be552dbc9b906a084c7fd285ecfaa19d452ebe88719d48f8d45168721c184bd"
 _HISTORICAL_MEMBER_SIZES = (2_592_992,) + (38,) * 13
