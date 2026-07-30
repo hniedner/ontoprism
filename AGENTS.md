@@ -210,9 +210,9 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   `pr-test-analyzer` on its own against the same commit; it must restore every mutation.
   After it returns, verify `git status --porcelain` is empty **and** `git rev-parse HEAD`
   is unchanged before accepting its verdict or starting another round — a mutation that
-  was committed or stashed leaves the tree clean while the reviewed diff has moved. If
-  either check fails, restore the tree yourself and treat that run as inconclusive, hence
-  non-converged. The full set otherwise matters because they find different classes of
+  was committed or amended into `HEAD` leaves the tree clean while the reviewed diff has
+  moved. If either check fails, restore the tree yourself and treat that run as
+  inconclusive, hence non-converged. The full set otherwise matters because they find different classes of
   defect and do not substitute for one another. On #73 the five caught, respectively: a
   vacuous satisfiability gate, an environment failure laundered into a verdict, a test
   double that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21

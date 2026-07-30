@@ -27,10 +27,10 @@ non-converged run. Convergence bookkeeping is otherwise unchanged.
 
 **Why:** a reviewer that cannot trust the worktree cannot produce a verdict about the
 diff, and a mutation observed by a bystander looks exactly like a real defect. An empty
-`git status` alone is not proof of restoration — a mutation that was committed or stashed
-leaves the tree clean while the reviewed diff has moved. Serializing the one agent that
-writes costs a single extra round-trip and removes a whole class of false Critical
-findings — cheaper than re-running the four it disturbs.
+`git status` alone is not proof of restoration — a mutation that was committed or amended
+into `HEAD` leaves the tree clean while the reviewed diff has moved. Serializing the one
+agent that writes costs a single extra round-trip and removes a whole class of false
+Critical findings — cheaper than re-running the four it disturbs.
 
 ## 2026-07-29 — decomposition runs are exact source-bound state machines
 
