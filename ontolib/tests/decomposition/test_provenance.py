@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID
 
 import pytest
 
+from ontolib.decomposition import provenance as provenance_module
 from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
@@ -17,6 +20,7 @@ from ontolib.decomposition.models import (
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
     RunIdentityMismatchError,
+    RunStateError,
 )
 from ontolib.decomposition.provenance_models import RunFingerprint
 
@@ -66,6 +70,121 @@ def test_schema_v1_fingerprint_cannot_resume_as_hierarchy_scoped_identity() -> N
         match="predates the hierarchy-scope schema",
     ):
         ProvenanceStore._validated_fingerprint(legacy, "f" * 64)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not a JSON object",
+        {"schema_version": 99, "unexpected": "shape"},
+    ],
+)
+def test_unknown_or_non_object_fingerprint_is_reported_as_corrupt(raw: object) -> None:
+    with pytest.raises(
+        RunIdentityMismatchError,
+        match="corrupt or was modified outside the pipeline",
+    ):
+        ProvenanceStore._validated_fingerprint(raw, "f" * 64)
+
+
+@pytest.mark.unit
+async def test_cancelled_lock_acquisition_invalidates_when_cleanup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+    release_execute = asyncio.Event()
+    connection = MagicMock()
+
+    async def blocked_execute(*_args: object, **_kwargs: object) -> None:
+        started.set()
+        await release_execute.wait()
+
+    async def fail_unlock(_connection: object) -> None:
+        raise RuntimeError("unlock transport unavailable")
+
+    connection.execute = AsyncMock(side_effect=blocked_execute)
+    connection.invalidate = AsyncMock()
+    monkeypatch.setattr(
+        provenance_module,
+        "_release_publication_lock",
+        fail_unlock,
+    )
+
+    task = asyncio.create_task(provenance_module._acquire_publication_lock(connection))
+    await started.wait()
+    task.cancel()
+    release_execute.set()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        await task
+
+    assert any(
+        "unlock transport unavailable" in note for note in exc_info.value.__notes__
+    )
+    connection.invalidate.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_unsuccessful_advisory_unlock_fails_closed_after_commit() -> None:
+    class _UnsuccessfulUnlockConnection:
+        def __init__(self) -> None:
+            self.committed = False
+
+        async def scalar(self, *_args: object, **_kwargs: object) -> bool:
+            return False
+
+        async def commit(self) -> None:
+            self.committed = True
+
+    connection = _UnsuccessfulUnlockConnection()
+
+    with pytest.raises(RunStateError, match="failed to release"):
+        await provenance_module._release_publication_lock(connection)  # type: ignore[arg-type]
+
+    assert connection.committed is True
+
+
+@pytest.mark.unit
+async def test_cancellation_during_unlock_waits_for_database_result() -> None:
+    started = asyncio.Event()
+    release_scalar = asyncio.Event()
+    scalar_completed = False
+
+    class _BlockingUnlockConnection:
+        def __init__(self) -> None:
+            self.committed = False
+
+        async def scalar(self, *_args: object, **_kwargs: object) -> bool:
+            nonlocal scalar_completed
+            started.set()
+            await release_scalar.wait()
+            scalar_completed = True
+            return True
+
+        async def commit(self) -> None:
+            self.committed = True
+
+    connection = _BlockingUnlockConnection()
+
+    task = asyncio.create_task(
+        provenance_module._release_publication_lock(connection)  # type: ignore[arg-type]
+    )
+    await started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+
+    assert task.done() is False
+    assert scalar_completed is False
+    assert connection.committed is False
+
+    release_scalar.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert scalar_completed is True
+    assert connection.committed is True
 
 
 @pytest.mark.unit
@@ -191,6 +310,68 @@ async def test_completed_zero_output_run_derives_an_honest_zero_residual_rate() 
     runs = await ProvenanceStore(sf).list_runs()
 
     assert runs[0].residual_precoordination == 0.0
+
+
+@pytest.mark.unit
+async def test_explicit_residual_rate_takes_precedence_over_historical_derivation() -> (
+    None
+):
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "run-explicit-rate",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.07d",
+            "started_at": datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC),
+            "finished_at": datetime.datetime(
+                2026,
+                7,
+                30,
+                1,
+                tzinfo=datetime.UTC,
+            ),
+            "metrics": {
+                "decomposed": 3,
+                "residual_precoordinated_count": 1,
+                "residual_precoordination": 0.75,
+            },
+        }
+    ]
+
+    runs = await ProvenanceStore(sf).list_runs()
+
+    assert runs[0].residual_precoordination == 0.75
+
+
+@pytest.mark.unit
+async def test_completion_detects_claim_change_after_locked_validation() -> None:
+    claim = UUID(int=1)
+    sf = _make_mock_sf()
+    locked = MagicMock()
+    locked.mappings.return_value.first.return_value = {
+        "state": "running",
+        "claim_token": claim,
+        "status": "running",
+    }
+    update_lost_claim = MagicMock(rowcount=0)
+    sf().execute.side_effect = [
+        locked,
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        update_lost_claim,
+    ]
+
+    with pytest.raises(RunStateError, match="claim changed before completion"):
+        await ProvenanceStore(sf).complete_work_item(
+            "run-1",
+            "C1",
+            claim,
+            decomposition=None,
+            minted=(),
+        )
 
 
 @pytest.mark.unit

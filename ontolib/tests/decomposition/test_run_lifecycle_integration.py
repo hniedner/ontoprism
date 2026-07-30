@@ -466,6 +466,79 @@ async def test_invalid_completion_inputs_and_stale_claims_fail_closed() -> None:
         await dispose_engine(engine)
 
 
+async def test_completion_rowcount_guard_matches_real_asyncpg_behavior() -> None:
+    """A database-side suppressed UPDATE must surface as a lost claim.
+
+    This is the real-driver counterpart to the focused session double: PostgreSQL
+    reports zero affected rows when a BEFORE UPDATE trigger returns NULL.
+    """
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    claim = None
+    trigger_installed = False
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        claim = await store.claim_work_item(run_id, "C0")
+        assert claim is not None
+        await conn.execute(
+            """
+            CREATE FUNCTION suppress_decomp_completion() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+                IF NEW.state = 'complete' THEN
+                    RETURN NULL;
+                END IF;
+                RETURN NEW;
+            END
+            $$
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TRIGGER suppress_decomp_completion
+            BEFORE UPDATE ON decomp_work_item
+            FOR EACH ROW EXECUTE FUNCTION suppress_decomp_completion()
+            """
+        )
+        trigger_installed = True
+
+        with pytest.raises(RunStateError, match="claim changed before completion"):
+            await store.complete_work_item(
+                run_id,
+                "C0",
+                claim,
+                decomposition=None,
+                minted=(),
+            )
+
+        persisted = await conn.fetchrow(
+            "SELECT state, claim_token FROM decomp_work_item "
+            "WHERE run_id = $1 AND concept_code = 'C0'",
+            run_id,
+        )
+        assert persisted is not None
+        assert persisted["state"] == "running"
+        assert persisted["claim_token"] == claim
+    finally:
+        if trigger_installed:
+            await conn.execute(
+                "DROP TRIGGER suppress_decomp_completion ON decomp_work_item"
+            )
+            await conn.execute("DROP FUNCTION suppress_decomp_completion()")
+        if claim is not None:
+            await store.fail_work_item(
+                run_id,
+                "C0",
+                claim,
+                RuntimeError("test cleanup"),
+            )
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 async def test_finish_and_resume_reject_invalid_run_identity_or_state() -> None:
     run_id = _new_run_id("neoplasm")
     engine = make_engine(get_settings().database_url)

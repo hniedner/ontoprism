@@ -19,6 +19,7 @@ from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.publication import (
     PublicationMarker,
     PublicationValidationError,
+    _record_failure_without_masking,
     build_replacement_update,
     publish_artifact,
     read_publication_marker,
@@ -617,6 +618,16 @@ async def test_partial_or_conflicting_marker_fails_closed() -> None:
         representation_identity="b" * 64,
         built_at=datetime(2026, 7, 30, 12, 0, tzinfo=UTC),
     )
+    missing_predicate = _marker_rows(complete)
+    missing_predicate[0]["predicate"] = None  # type: ignore[assignment]
+    with pytest.raises(PublicationValidationError, match="partial or ambiguous"):
+        await read_publication_marker(_GraphClient(missing_predicate))
+
+    unexpected_predicate = _marker_rows(complete)
+    unexpected_predicate[0]["predicate"] = "urn:unexpected-predicate"
+    with pytest.raises(PublicationValidationError, match="partial or ambiguous"):
+        await read_publication_marker(_GraphClient(unexpected_predicate))
+
     wrong_type = _marker_rows(complete)
     wrong_type[0]["value"] = "urn:not-a-publication"
     with pytest.raises(PublicationValidationError, match=r"wrong.*type"):
@@ -631,6 +642,40 @@ async def test_partial_or_conflicting_marker_fails_closed() -> None:
     invalid_time[-1]["value"] = "not-a-date"
     with pytest.raises(PublicationValidationError, match="invalid"):
         await read_publication_marker(_GraphClient(invalid_time))
+
+
+@pytest.mark.unit
+async def test_cancelled_failure_journal_waits_for_recording_to_finish() -> None:
+    recording_started = asyncio.Event()
+    release_recording = asyncio.Event()
+    recorded: list[BaseException] = []
+
+    class _BlockingFailureJournal:
+        async def record_publication_failure(
+            self,
+            _run_id: str,
+            error: BaseException,
+        ) -> None:
+            recording_started.set()
+            await release_recording.wait()
+            recorded.append(error)
+
+    original = RuntimeError("graph replacement failed")
+    task = asyncio.create_task(
+        _record_failure_without_masking(
+            _BlockingFailureJournal(),  # type: ignore[arg-type]
+            "neoplasm-run-1",
+            original,
+        )
+    )
+    await recording_started.wait()
+    task.cancel()
+    release_recording.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert recorded == [original]
 
 
 @pytest.mark.unit
