@@ -8,19 +8,20 @@ in a ``GRAPH <STATED_GRAPH_IRI>`` clause, and reuse ``safe_iri`` for injection s
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
-if TYPE_CHECKING:
-    from ontolib.decomposition.models import RoleRestriction
-
+from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.extract import (
     PartOfPair,
-    genus_walk_rows_to_roles_and_genuses,
     part_of_expansions_from_rows,
+)
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    RestrictionDefinitionFact,
+    RoleRestriction,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -659,61 +660,6 @@ _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
 )
 
 
-def _flatten_hop_results(
-    results: Iterable[Sequence[Mapping[str, str | None]]],
-) -> list[Mapping[str, str | None]]:
-    flat: list[Mapping[str, str | None]] = []
-    for rows in results:
-        if not rows:
-            break
-        flat.extend(rows)
-    return flat
-
-
-def _collect_new_roles(
-    roles: list[RoleRestriction],
-    depth: int,
-    seen: set[tuple[str, str]],
-    dest: list[RoleRestriction],
-    anchoring_genus: str,
-) -> None:
-    for r in roles:
-        key = (r.role_code, r.filler_code)
-        if (depth == 0 or r.role_code in _CORE_NEOPLASM_ROLES) and key not in seen:
-            seen.add(key)
-            # Record the genus this restriction was found on so D20 lineage
-            # routing (filler_selection.route_axis) can key on it. Without this
-            # the op:AssociatedLineageClassification axis never fires.
-            dest.append(replace(r, anchoring_genus=anchoring_genus))
-
-
-async def _process_walk_node(
-    select_fn: SelectRows,
-    current: str,
-    depth: int,
-    seen_pairs: set[tuple[str, str]],
-    all_roles: list[RoleRestriction],
-    visited: set[str],
-    next_frontier: list[str],
-) -> None:
-    queries = build_genus_walk_members_query(current)
-    results = await asyncio.gather(
-        *(select_fn(q, required_variables={"member"}) for q in queries),
-        return_exceptions=False,
-    )
-    member_rows = _flatten_hop_results(results)
-    if not member_rows:
-        return
-
-    roles, genuses = genus_walk_rows_to_roles_and_genuses(member_rows)
-    _collect_new_roles(roles, depth, seen_pairs, all_roles, current)
-
-    for g in genuses:
-        if g not in visited:
-            visited.add(g)
-            next_frontier.append(g)
-
-
 _STAGING_LABEL_MARKERS = frozenset(
     {
         "Stage I",
@@ -831,25 +777,140 @@ async def resolve_morphology_filler(
     return None
 
 
+def _build_role_labels_query(role_codes: Iterable[str]) -> str:
+    iris = " ".join(f"<{safe_iri(code, NCIT_NS)}>" for code in sorted(role_codes))
+    return f"""{_PREFIXES}
+        SELECT ?role ?roleLabel WHERE {{
+            VALUES ?role {{ {iris} }}
+            OPTIONAL {{ ?role rdfs:label ?roleLabel }}
+        }}
+        ORDER BY STR(?role) STR(?roleLabel)
+    """
+
+
+async def _definition_role_labels(
+    select_fn: SelectRows,
+    role_codes: set[str],
+) -> dict[str, str | None]:
+    if not role_codes:
+        return {}
+    rows = await select_fn(
+        _build_role_labels_query(role_codes),
+        required_variables={"role"},
+    )
+    labels: dict[str, str | None] = {}
+    for row in rows:
+        _record_definition_role_label(labels, role_codes, row)
+    return labels
+
+
+def _record_definition_role_label(
+    labels: dict[str, str | None],
+    requested_codes: set[str],
+    row: Mapping[str, str | None],
+) -> None:
+    role_code = _validated_definition_role_code(row, requested_codes)
+    _merge_definition_role_label(labels, role_code, row.get("roleLabel"))
+
+
+def _validated_definition_role_code(
+    row: Mapping[str, str | None],
+    requested_codes: set[str],
+) -> str:
+    role_iri = _required_row_binding(row, "role")
+    if not role_iri.startswith(NCIT_NS):
+        raise ValueError("role label row is not an NCIt IRI")
+    role_code = role_iri.removeprefix(NCIT_NS)
+    if role_code not in requested_codes:
+        raise ValueError("role label query returned an unrequested role")
+    return role_code
+
+
+def _merge_definition_role_label(
+    labels: dict[str, str | None],
+    role_code: str,
+    label: str | None,
+) -> None:
+    previous = labels.setdefault(role_code, label)
+    if previous != label and previous is not None and label is not None:
+        raise ValueError(f"role {role_code} has conflicting labels")
+    if previous is None and label is not None:
+        labels[role_code] = label
+
+
+def _projected_restriction_facts(
+    complete: CompleteDefinition,
+    max_depth: int,
+) -> list[RestrictionDefinitionFact]:
+    return sorted(
+        (
+            fact
+            for fact in complete.facts
+            if isinstance(fact, RestrictionDefinitionFact) and fact.depth < max_depth
+        ),
+        key=lambda fact: (fact.depth, fact.anchor_code, fact.fact_id),
+    )
+
+
+def _detector_role_projection(
+    restrictions: Iterable[RestrictionDefinitionFact],
+    labels: Mapping[str, str | None],
+) -> list[RoleRestriction]:
+    roles: list[RoleRestriction] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for fact in restrictions:
+        key = (fact.role_code, fact.filler_code)
+        if not _is_detector_role(fact) or key in seen_pairs:
+            continue
+        seen_pairs.add(key)
+        roles.append(
+            RoleRestriction(
+                role_code=fact.role_code,
+                filler_code=fact.filler_code,
+                role_label=labels.get(fact.role_code),
+                anchoring_genus=fact.anchor_code,
+            )
+        )
+    return roles
+
+
+def _is_detector_role(fact: RestrictionDefinitionFact) -> bool:
+    return fact.depth == 0 or fact.role_code in _CORE_NEOPLASM_ROLES
+
+
+async def read_complete_genus_chain(
+    select_fn: SelectRows,
+    code: str,
+    *,
+    max_depth: int = 5,
+) -> tuple[CompleteDefinition, list[RoleRestriction]]:
+    """Return the complete definition and its detector-compatible role projection.
+
+    The former six-position query loop silently truncated longer intersections and
+    rejected anonymous nested intersection groups as non-NCIt genera. Reusing the
+    proof-bearing reader gives detection and projection the same complete structure.
+    ``max_depth`` limits only the detector-compatible role projection; the complete
+    record retains its independent fail-closed named-definition depth bound.
+    """
+    complete = await read_complete_definition(select_fn, code)
+    restrictions = _projected_restriction_facts(complete, max_depth)
+    labels = await _definition_role_labels(
+        select_fn,
+        {fact.role_code for fact in restrictions},
+    )
+    return complete, _detector_role_projection(restrictions, labels)
+
+
 async def walk_genus_chain(
     select_fn: SelectRows,
     code: str,
     *,
     max_depth: int = 5,
 ) -> list[RoleRestriction]:
-    all_roles: list[RoleRestriction] = []
-    seen_pairs: set[tuple[str, str]] = set()
-    visited: set[str] = {code}
-    frontier: list[str] = [code]
-
-    for depth in range(max_depth):
-        if not frontier:
-            break
-        next_frontier: list[str] = []
-        for current in frontier:
-            await _process_walk_node(
-                select_fn, current, depth, seen_pairs, all_roles, visited, next_frontier
-            )
-        frontier = next_frontier
-
-    return all_roles
+    """Return detector-compatible roles from the complete bounded stated record."""
+    _complete, roles = await read_complete_genus_chain(
+        select_fn,
+        code,
+        max_depth=max_depth,
+    )
+    return roles

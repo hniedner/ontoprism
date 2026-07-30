@@ -16,7 +16,10 @@ import httpx
 import pytest
 
 from ontolib.decomposition import stated_queries
-from ontolib.decomposition.complete_definition import read_complete_definition
+from ontolib.decomposition.complete_definition import (
+    build_complete_definition_query,
+    read_complete_definition,
+)
 from ontolib.decomposition.extract import (
     AncestorPair,
     PartOfPair,
@@ -249,16 +252,31 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
         ("C99401", "C99402", "C99410"),
         ("C99402", "C99403", "C99411"),
     ):
-        queries = build_genus_walk_members_query(code)
-        double_rows[queries[0]] = [{"member": f"{NCIT_NS}{genus}"}]
-        double_rows[queries[1]] = [
+        double_rows[build_complete_definition_query(code)] = [
             {
+                "expression": f"_:expression-{code}",
+                "parentExpression": None,
+                "nestingDepth": "0",
+                "position": "0",
+                "member": f"{NCIT_NS}{genus}",
+                "childExpression": ("_:defined" if genus == "C99402" else None),
+                "nestedExpression": None,
+                "role": None,
+                "target": None,
+                "overflow": "false",
+            },
+            {
+                "expression": f"_:expression-{code}",
+                "parentExpression": None,
+                "nestingDepth": "0",
+                "position": "1",
                 "member": "_:restriction",
-                "type": f"{OWL_NS}Restriction",
+                "childExpression": None,
+                "nestedExpression": None,
                 "role": f"{NCIT_NS}R101",
                 "target": f"{NCIT_NS}{filler}",
-                "roleLabel": "Disease_Has_Primary_Anatomic_Site",
-            }
+                "overflow": "false",
+            },
         ]
 
     async def double_select(
@@ -266,7 +284,19 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
         *,
         required_variables: Collection[str] = (),
     ) -> list[dict[str, str | None]]:
-        assert set(required_variables) == {"member"}
+        if "SELECT ?role ?roleLabel" in query:
+            assert set(required_variables) == {"role"}
+            return [
+                {
+                    "role": f"{NCIT_NS}R101",
+                    "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+                }
+            ]
+        assert set(required_variables) == {
+            "expression",
+            "list",
+            "cell",
+        }
         return double_rows.get(query, [])
 
     assert await walk_genus_chain(double_select, "C99401", max_depth=3) == roles
@@ -283,6 +313,125 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
     assert {(item.axis, item.filler_code) for item in constituents} == {
         ("op:PrimarySite", "C99410"),
         ("op:AssociatedRegion", "C99411"),
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_nested_intersection_groups_and_late_members_match_real_oxigraph(
+    isolated_oxigraph_url: str,
+) -> None:
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99601
+            <{NCIT_NS}P106> "Neoplastic Process" ;
+            owl:equivalentClass [
+                owl:intersectionOf (
+                    ncit:C99602
+                    ncit:C99603
+                    [
+                        a owl:Class ;
+                        owl:intersectionOf (
+                            [
+                                a owl:Restriction ;
+                                owl:onProperty ncit:R140 ;
+                                owl:someValuesFrom ncit:C99610
+                            ]
+                            [
+                                a owl:Restriction ;
+                                owl:onProperty ncit:R141 ;
+                                owl:someValuesFrom ncit:C99611
+                            ]
+                        )
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R101 ;
+                        owl:someValuesFrom ncit:C99612
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R105 ;
+                        owl:someValuesFrom ncit:C99613
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R108 ;
+                        owl:someValuesFrom ncit:C99614
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R139 ;
+                        owl:someValuesFrom ncit:C99615
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R142 ;
+                        owl:someValuesFrom ncit:C99616
+                    ]
+                )
+            ] .
+        ncit:C99602 rdfs:label "Synthetic Morphology" .
+        ncit:C99603 rdfs:label "Synthetic Second Genus" .
+        ncit:R101 rdfs:label "Disease_Has_Primary_Anatomic_Site" .
+        ncit:R105 rdfs:label "Disease_Has_Abnormal_Cell" .
+        ncit:R108 rdfs:label "Disease_Has_Finding" .
+        ncit:R139 rdfs:label "Disease_Has_Something" .
+        ncit:R140 rdfs:label "Disease_Has_Nested_One" .
+        ncit:R141 rdfs:label "Disease_Has_Nested_Two" .
+        ncit:R142 rdfs:label "Disease_Has_Late_Member" .
+    """
+
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        direct_primitive_rows = await client.select(
+            f"SELECT ?expression WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"<{NCIT_NS}C99603> <{OWL_NS}equivalentClass> ?expression . }} }}"
+        )
+        assert direct_primitive_rows == []
+        primitive_rows = await client.select(build_complete_definition_query("C99603"))
+        assert primitive_rows == []
+        complete = await read_complete_definition(client.select, "C99601")
+        roles = await walk_genus_chain(client.select, "C99601", max_depth=3)
+
+    assert {group.anchor_code for group in complete.groups} == {"C99601"}
+    assert len(complete.groups) == 2
+    assert len(complete.root_group_ids) == 1
+    root = next(
+        group for group in complete.groups if group.group_id in complete.root_group_ids
+    )
+    assert len(root.child_group_ids) == 1
+    assert {
+        (fact.role_code, fact.filler_code)
+        for fact in complete.facts
+        if isinstance(fact, RestrictionDefinitionFact)
+    } == {
+        ("R101", "C99612"),
+        ("R105", "C99613"),
+        ("R108", "C99614"),
+        ("R139", "C99615"),
+        ("R140", "C99610"),
+        ("R141", "C99611"),
+        ("R142", "C99616"),
+    }
+    assert {
+        (role.role_code, role.filler_code, role.anchoring_genus) for role in roles
+    } == {
+        ("R101", "C99612", "C99601"),
+        ("R105", "C99613", "C99601"),
+        ("R108", "C99614", "C99601"),
+        ("R139", "C99615", "C99601"),
+        ("R140", "C99610", "C99601"),
+        ("R141", "C99611", "C99601"),
+        ("R142", "C99616", "C99601"),
     }
 
 

@@ -361,6 +361,8 @@ async def test_completion_detects_claim_change_after_locked_validation() -> None
         MagicMock(),
         MagicMock(),
         MagicMock(),
+        MagicMock(),
+        MagicMock(),
         update_lost_claim,
     ]
 
@@ -619,7 +621,25 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
             "filler_code": "C200",
         },
     ]
-    sf().execute.side_effect = [work_items, constituents, definitions]
+    groups = MagicMock()
+    groups.mappings.return_value.all.return_value = [
+        {
+            "concept_code": "C1",
+            "group_id": "c" * 64,
+            "anchor_code": "C1",
+            "depth": 0,
+            "is_root": True,
+        }
+    ]
+    edges = MagicMock()
+    edges.mappings.return_value.all.return_value = []
+    sf().execute.side_effect = [
+        work_items,
+        constituents,
+        definitions,
+        groups,
+        edges,
+    ]
     store = ProvenanceStore(sf)
 
     assert await store.decompositions_for_run("run-1") == [

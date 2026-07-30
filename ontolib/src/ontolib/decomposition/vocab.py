@@ -11,6 +11,7 @@ from __future__ import annotations
 # namespace, but is community-standard and controllable via a one-line redirect PR.
 ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"
 DEFINITION_FACT_NS = "https://w3id.org/ontoprism/decomposition/fact/"
+DEFINITION_GROUP_NS = "https://w3id.org/ontoprism/decomposition/group/"
 
 # All engine output goes to this named graph, kept separate from both the inferred
 # default graph and the stated input graph — additive, never mutating the source.
@@ -42,6 +43,9 @@ PUBLICATION_BUILT_AT = f"{ONTOPRISM_NS}publicationBuiltAt"
 
 # --- Complete stated definition ---------------------------------------------------
 HAS_DEFINITION_FACT = f"{ONTOPRISM_NS}hasDefinitionFact"
+HAS_DEFINITION_GROUP = f"{ONTOPRISM_NS}hasDefinitionGroup"
+HAS_ROOT_DEFINITION_GROUP = f"{ONTOPRISM_NS}hasRootDefinitionGroup"
+HAS_CHILD_DEFINITION_GROUP = f"{ONTOPRISM_NS}hasChildDefinitionGroup"
 COMPLETE_DEFINITION_IDENTITY = f"{ONTOPRISM_NS}completeDefinitionIdentity"
 COMPLETE_FACT_COUNT = f"{ONTOPRISM_NS}completeFactCount"
 PROJECTED_FACT_COUNT = f"{ONTOPRISM_NS}projectedFactCount"

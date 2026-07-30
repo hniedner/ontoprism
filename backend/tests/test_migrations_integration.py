@@ -238,6 +238,54 @@ async def _complete_definition_schema_is_absent(dsn: str) -> bool:
         await conn.close()
 
 
+async def _nested_definition_group_schema_facts(dsn: str) -> dict[str, Any]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        group_columns = {
+            row["column_name"]: row["data_type"]
+            for row in await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'decomp_definition_group'"
+            )
+        }
+        edge_columns = {
+            row["column_name"]: row["data_type"]
+            for row in await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'decomp_definition_group_edge'"
+            )
+        }
+        fact_constraints = [
+            row["definition"]
+            for row in await conn.fetch(
+                "SELECT pg_get_constraintdef(oid) AS definition "
+                "FROM pg_constraint "
+                "WHERE conrelid = to_regclass('decomp_definition_fact')"
+            )
+        ]
+        return {
+            "group_columns": group_columns,
+            "edge_columns": edge_columns,
+            "fact_constraints": fact_constraints,
+        }
+    finally:
+        await conn.close()
+
+
+async def _nested_definition_group_schema_is_absent(dsn: str) -> bool:
+    conn = await asyncpg.connect(dsn)
+    try:
+        return (
+            await conn.fetchval("SELECT to_regclass('decomp_definition_group')") is None
+            and await conn.fetchval(
+                "SELECT to_regclass('decomp_definition_group_edge')"
+            )
+            is None
+        )
+    finally:
+        await conn.close()
+
+
 def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["has_vector_ext"] == 1
     assert facts["tables"] == 4
@@ -344,7 +392,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0011_decomposition_publication"
+    assert revision == "0012_nested_definition_groups"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -471,6 +519,43 @@ def test_complete_definition_migration_roundtrip() -> None:
     assert "fact_kind" in constraints
     assert "genus" in constraints
     assert "restriction" in constraints
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_nested_definition_group_migration_roundtrip() -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    try:
+        command.downgrade(cfg, "0011_decomposition_publication")
+        absent_after_down = asyncio.run(_nested_definition_group_schema_is_absent(dsn))
+        command.upgrade(cfg, "head")
+        facts = asyncio.run(_nested_definition_group_schema_facts(dsn))
+    finally:
+        command.upgrade(cfg, "head")
+
+    assert absent_after_down is True
+    assert facts["group_columns"] == {
+        "run_id": "text",
+        "concept_code": "text",
+        "group_id": "text",
+        "anchor_code": "text",
+        "depth": "integer",
+        "is_root": "boolean",
+    }
+    assert facts["edge_columns"] == {
+        "run_id": "text",
+        "concept_code": "text",
+        "parent_group_id": "text",
+        "child_group_id": "text",
+    }
+    assert any(
+        "FOREIGN KEY (run_id, concept_code, group_id)" in constraint
+        and "decomp_definition_group" in constraint
+        for constraint in facts["fact_constraints"]
+    )
 
 
 @pytest.mark.integration

@@ -121,6 +121,11 @@ tests = ["test_complete_definition_migration_roundtrip"]
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_nested_definition_group_migration_roundtrip"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_provenance_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
@@ -164,6 +169,11 @@ fixtures = ["isolated_oxigraph_url"]
 [[mutator]]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
 tests = ["test_genus_traversal_matches_disposable_owl_list_shape"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_nested_intersection_groups_and_late_members_match_real_oxigraph"]
 fixtures = ["isolated_oxigraph_url"]
 
 [[mutator]]

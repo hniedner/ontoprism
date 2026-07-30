@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 import pytest
 from scripts.decompose import _source_snapshot
 
+from ontolib.decomposition.complete_definition import read_complete_definition
+from ontolib.decomposition.models import CompleteDefinition, RestrictionDefinitionFact
 from ontolib.decomposition.scope import enumerate_scope_codes
 from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
@@ -84,7 +86,12 @@ def _identity(payload: object) -> str:
 
 async def _m1_walker_evidence(
     client: OxigraphHttpClient,
-) -> tuple[list[dict[str, str | None]], dict[str, int]]:
+) -> tuple[
+    list[dict[str, str | None]],
+    dict[str, int],
+    CompleteDefinition,
+    set[str],
+]:
     root_rows = await client.select_once(
         build_genus_walk_members_query("C27262")[0],
         required_variables={"member"},
@@ -94,13 +101,35 @@ async def _m1_walker_evidence(
         role_counts[code] = len(
             await walk_genus_chain(client.select, code, max_depth=5)
         )
-    return list(root_rows), role_counts
+    complete = await read_complete_definition(client.select, "C27262")
+    nested_rows = await client.select(
+        f"""
+        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        PREFIX owl: <{OWL_NS}>
+        SELECT DISTINCT ?concept WHERE {{
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                ?concept owl:equivalentClass ?expression .
+                ?expression owl:intersectionOf/rdf:rest*/rdf:first ?member .
+                FILTER(isBlank(?member))
+                ?member owl:intersectionOf ?nestedList .
+            }}
+        }}
+        """
+    )
+    nested_codes = {
+        row["concept"].removeprefix(NCIT_NS)
+        for row in nested_rows
+        if row.get("concept", "").startswith(NCIT_NS)
+    }
+    return list(root_rows), role_counts, complete, nested_codes
 
 
 def _assert_m1_scope_and_walker_evidence(
     scope_codes: dict[str, tuple[str, ...]],
     c27262_root_rows: list[dict[str, str | None]],
     canonical_role_counts: dict[str, int],
+    c27262_complete: CompleteDefinition,
+    nested_definition_codes: set[str],
 ) -> None:
     neoplasms = set(scope_codes["neoplasm"])
     diseases = set(scope_codes["disease"])
@@ -120,6 +149,34 @@ def _assert_m1_scope_and_walker_evidence(
     ]
     assert canonical_role_counts["C6135"] > 0
     assert canonical_role_counts["C27787"] > 0
+    assert len(nested_definition_codes) == 97
+    assert len(nested_definition_codes & neoplasms) == 91
+    assert "C27262" in nested_definition_codes
+    assert (
+        len(
+            [group for group in c27262_complete.groups if group.anchor_code == "C27262"]
+        )
+        == 2
+    )
+    root_group = next(
+        group
+        for group in c27262_complete.groups
+        if group.group_id in c27262_complete.root_group_ids
+        and group.anchor_code == "C27262"
+    )
+    assert len(root_group.child_group_ids) == 1
+    c27262_restrictions = {
+        (fact.role_code, fact.filler_code)
+        for fact in c27262_complete.facts
+        if isinstance(fact, RestrictionDefinitionFact) and fact.anchor_code == "C27262"
+    }
+    assert {
+        ("R140", "C36715"),
+        ("R141", "C13271"),
+        ("R141", "C28452"),
+        ("R139", "C37030"),
+        ("R142", "C41235"),
+    } <= c27262_restrictions
 
 
 def _write_pair(root: Path, *, stated_bytes: bytes = _STATED) -> Path:
@@ -433,6 +490,8 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     source_snapshots: list[NcitSourceSnapshot] = []
     c27262_root_rows: list[dict[str, str | None]] = []
     canonical_role_counts: dict[str, int] = {}
+    c27262_complete_records: list[CompleteDefinition] = []
+    nested_definition_codes: set[str] = set()
 
     async def inspect_certified_candidate(endpoint: str) -> CandidateObservation:
         source_snapshots.append(
@@ -444,9 +503,16 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         async with OxigraphHttpClient(endpoint) as client:
             scope_codes["neoplasm"] = await enumerate_scope_codes(client, "C3262")
             scope_codes["disease"] = await enumerate_scope_codes(client, "C2991")
-            root_rows, role_counts = await _m1_walker_evidence(client)
+            (
+                root_rows,
+                role_counts,
+                complete,
+                nested_codes,
+            ) = await _m1_walker_evidence(client)
             c27262_root_rows.extend(root_rows)
             canonical_role_counts.update(role_counts)
+            c27262_complete_records.append(complete)
+            nested_definition_codes.update(nested_codes)
         return await observe_ncit_candidate(endpoint)
 
     observation = await runtime.observe(
@@ -463,5 +529,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         scope_codes,
         c27262_root_rows,
         canonical_role_counts,
+        c27262_complete_records[0],
+        nested_definition_codes,
     )
     assert sentinel.read_text() == "untouched"

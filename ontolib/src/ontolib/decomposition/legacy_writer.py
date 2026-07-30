@@ -24,7 +24,12 @@ from ontolib.terminologies.namespaces import NCIT_NS
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ontolib.decomposition.models import Constituent, Decomposition, DefinitionFact
+    from ontolib.decomposition.models import (
+        Constituent,
+        Decomposition,
+        DefinitionFact,
+        DefinitionGroup,
+    )
 
 
 def _filler_iri(code: str) -> str:
@@ -103,12 +108,13 @@ def _render_axis_contracts() -> list[str]:
 
 def _render_definition_fact(subj: str, fact: DefinitionFact) -> list[str]:
     fact_iri = f"<{vocab.DEFINITION_FACT_NS}{fact.fact_id}>"
+    group_iri = f"<{vocab.DEFINITION_GROUP_NS}{fact.group_id}>"
     fact_kind = "genus" if isinstance(fact, GenusDefinitionFact) else "restriction"
     lines = [
         f"{subj} {_p(vocab.HAS_DEFINITION_FACT)} {fact_iri} .",
         f'{fact_iri} {_p(vocab.FACT_KIND)} "{fact_kind}" .',
         f"{fact_iri} {_p(vocab.ANCHOR)} <{NCIT_NS}{fact.anchor_code}> .",
-        f'{fact_iri} {_p(vocab.DEFINITION_GROUP)} "{fact.group_id}" .',
+        f"{fact_iri} {_p(vocab.DEFINITION_GROUP)} {group_iri} .",
         f"{fact_iri} {_p(vocab.DEFINITION_DEPTH)} {fact.depth} .",
     ]
     if isinstance(fact, GenusDefinitionFact):
@@ -128,6 +134,28 @@ def _render_definition_fact(subj: str, fact: DefinitionFact) -> list[str]:
     return lines
 
 
+def _render_definition_group(
+    subj: str,
+    group: DefinitionGroup,
+    *,
+    is_root: bool,
+) -> list[str]:
+    group_iri = f"<{vocab.DEFINITION_GROUP_NS}{group.group_id}>"
+    lines = [
+        f"{subj} {_p(vocab.HAS_DEFINITION_GROUP)} {group_iri} .",
+        f"{group_iri} {_p(vocab.ANCHOR)} <{NCIT_NS}{group.anchor_code}> .",
+        f"{group_iri} {_p(vocab.DEFINITION_DEPTH)} {group.depth} .",
+    ]
+    if is_root:
+        lines.append(f"{subj} {_p(vocab.HAS_ROOT_DEFINITION_GROUP)} {group_iri} .")
+    lines.extend(
+        f"{group_iri} {_p(vocab.HAS_CHILD_DEFINITION_GROUP)} "
+        f"<{vocab.DEFINITION_GROUP_NS}{child_group_id}> ."
+        for child_group_id in group.child_group_ids
+    )
+    return lines
+
+
 def _render_complete_definition(subj: str, dec: Decomposition) -> list[str]:
     complete = dec.complete_definition
     if complete is None:
@@ -138,6 +166,15 @@ def _render_complete_definition(subj: str, dec: Decomposition) -> list[str]:
         f"{subj} {_p(vocab.PROJECTED_FACT_COUNT)} {dec.projected_fact_count} .",
         f"{subj} {_p(vocab.PROJECTION_LOSS_COUNT)} {dec.projection_loss_count} .",
     ]
+    root_group_ids = set(complete.root_group_ids)
+    for group in complete.groups:
+        lines.extend(
+            _render_definition_group(
+                subj,
+                group,
+                is_root=group.group_id in root_group_ids,
+            )
+        )
     for fact in complete.facts:
         lines.extend(_render_definition_fact(subj, fact))
     return lines
