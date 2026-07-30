@@ -616,6 +616,11 @@ or filesystem effects.
 pdm run decompose \
   --source-manifest /path/to/.ontoprism-ncit-candidate.json \
   --branch neoplasm --out data/ncit_decomposed.ttl [--load] [--resume RUN_ID]
+
+pdm run decompose \
+  --source-manifest /path/to/.ontoprism-ncit-candidate.json \
+  --branch neoplasm --sample-manifest samples/ncit-26.07d-m1-review.json \
+  --out data/ncit-26.07d-m1-review.ttl
 ```
 
 The required D47 candidate manifest is revalidated and its full live-endpoint observation
@@ -639,6 +644,16 @@ before configuration loads or clients are constructed.
 `--branch disease` materializes strict descendants of `C2991`, including `C3262` and
 its descendants. Both use `stated-genus-subclass-v1` and the axis-qualified algorithm.
 Changing a root or scope algorithm version invalidates resume just like a source change.
+
+The optional D55 sample manifest replaces hierarchy-order truncation with an explicit
+source-bound review worklist. It is validated before provenance: branch/root/scope,
+source identity and ontology version must match, and every selected code must occur in
+the freshly enumerated hierarchy closure. Its exact order and canonical digest are part
+of schema-v3 run/resume identity. Sample execution is file-only: it requires `--out` and
+is mutually exclusive with `--total-limit`, `--load`, and equivalence emission. The
+tracked 26.07d M1 sample covers the applicable and excluded semantic-type paths, deep
+genus/morphology, every observed staging family, multi-parent and grouped/multi-value
+definitions, NLP/mint, region/organ, known-hard, and atomic/no-op cases.
 
 **Source pinning:** the run records both `owl:versionInfo` and D47's stable source
 identity, which binds the exact stated/inferred artifact pair, loader, layout, policy,
@@ -672,8 +687,9 @@ Strict TDD (repo standard): failing test → minimum code → green → ruff + b
   unrelated `C12400` is rejected; cycles and duplicate edges terminate deterministically.
 - `test_hierarchy_scope_source_contract` — rebuild the cached, same-release-bound NCIt
   pair into a certified inactive sibling and prove the hierarchy contract against that
-  exact source identity. This explicit `full_build` test is excluded from automatic
-  suites.
+  exact source identity. It also proves the tracked D55 sample is bound to that source
+  and every selected code is in the certified neoplasm hierarchy. This explicit
+  `full_build` test is excluded from automatic suites.
 - `test_detect_precoordination` — `C6135` (≥2 roles, supported type) flagged; `C12400` (Thyroid Gland, atomic) not; a hierarchy member with an unsupported type fails the algorithm-applicability gate.
 - `test_extract_constituents_roles_first` — `C6135` → {stage C27970, stage-system C90530, primary-site C12400, abnormal-cell C36761, morphology-from-parent}; `Excludes_*` filtered; most-specific filler chosen over ancestors.
 - `test_constituent_existence` — every roles-path constituent resolves to an existing active `owl:Class` (≈100%).

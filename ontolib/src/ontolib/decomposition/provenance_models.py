@@ -18,6 +18,9 @@ from pydantic import (
 # Pydantic resolves these aliases while constructing the runtime model schema.
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion  # noqa: TC001
 
+_STANDARD_RUN_SCHEMA = 2
+_SAMPLE_RUN_SCHEMA = 3
+
 
 def _require_matching_scope_root(
     branch: Literal["neoplasm", "disease"],
@@ -42,7 +45,7 @@ class RunFingerprint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[2, 3] = 2
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
@@ -50,6 +53,10 @@ class RunFingerprint(BaseModel):
     semantic_types: tuple[str, ...]
     worklist: tuple[str, ...]
     total_limit: int | None = Field(default=None, gt=0)
+    sample_manifest_identity: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     algorithm_version: str = Field(min_length=1)
     config_version: str = Field(min_length=1)
     walker_max_depth: int = Field(gt=0)
@@ -60,6 +67,11 @@ class RunFingerprint(BaseModel):
     @model_validator(mode="after")
     def _scope_root_matches_branch(self) -> Self:
         _require_matching_scope_root(self.branch, self.scope_root)
+        _require_matching_sample_schema(
+            self.schema_version,
+            self.sample_manifest_identity,
+            self.total_limit,
+        )
         return self
 
     @field_validator("semantic_types")
@@ -82,6 +94,8 @@ class RunFingerprint(BaseModel):
     def identity(self) -> str:
         """SHA-256 over the exact canonical JSON representation."""
         payload = self.model_dump(mode="json")
+        if self.schema_version == _STANDARD_RUN_SCHEMA:
+            payload.pop("sample_manifest_identity")
         encoded = json.dumps(
             payload,
             sort_keys=True,
@@ -96,12 +110,17 @@ class RunResumeIdentity(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
+    schema_version: Literal[2, 3] = 2
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
     scope_version: ScopeVersion
     semantic_types: tuple[str, ...]
     total_limit: int | None = Field(default=None, gt=0)
+    sample_manifest_identity: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     algorithm_version: str = Field(min_length=1)
     config_version: str = Field(min_length=1)
     walker_max_depth: int = Field(gt=0)
@@ -111,24 +130,44 @@ class RunResumeIdentity(BaseModel):
     @model_validator(mode="after")
     def _scope_root_matches_branch(self) -> Self:
         _require_matching_scope_root(self.branch, self.scope_root)
+        _require_matching_sample_schema(
+            self.schema_version,
+            self.sample_manifest_identity,
+            self.total_limit,
+        )
         return self
 
     @classmethod
     def from_fingerprint(cls, fingerprint: RunFingerprint) -> RunResumeIdentity:
         """Project only the dimensions a resume invocation can independently know."""
         return cls(
+            schema_version=fingerprint.schema_version,
             source_identity=fingerprint.source_identity,
             branch=fingerprint.branch,
             scope_root=fingerprint.scope_root,
             scope_version=fingerprint.scope_version,
             semantic_types=fingerprint.semantic_types,
             total_limit=fingerprint.total_limit,
+            sample_manifest_identity=fingerprint.sample_manifest_identity,
             algorithm_version=fingerprint.algorithm_version,
             config_version=fingerprint.config_version,
             walker_max_depth=fingerprint.walker_max_depth,
             output_mode=fingerprint.output_mode,
             load_mode=fingerprint.load_mode,
         )
+
+
+def _require_matching_sample_schema(
+    schema_version: Literal[2, 3],
+    sample_manifest_identity: str | None,
+    total_limit: int | None,
+) -> None:
+    if schema_version == _SAMPLE_RUN_SCHEMA and sample_manifest_identity is None:
+        raise ValueError("schema-v3 runs require a sample manifest identity")
+    if schema_version == _STANDARD_RUN_SCHEMA and sample_manifest_identity is not None:
+        raise ValueError("sample manifest identity requires schema-v3")
+    if sample_manifest_identity is not None and total_limit is not None:
+        raise ValueError("sample manifest and total_limit are mutually exclusive")
 
 
 class RunOutcomeCounts(BaseModel):

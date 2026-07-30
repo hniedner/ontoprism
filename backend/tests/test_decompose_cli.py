@@ -19,6 +19,11 @@ from scripts import decompose
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.run import SourceIdentityChangedError
+from ontolib.decomposition.sampling import (
+    REQUIRED_SAMPLE_STRATA,
+    DecompositionSampleManifest,
+    SampleConcept,
+)
 from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
@@ -114,6 +119,26 @@ def _install_run_collaborators(
         store=store,
         provenance=provenance,
         settings=settings,
+    )
+
+
+def _sample_manifest() -> DecompositionSampleManifest:
+    return DecompositionSampleManifest(
+        name="ncit-26.07d-review",
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        source_identity="a" * 64,
+        ontology_version="26.07d",
+        selection_method="explicit-stratified",
+        seed=None,
+        concepts=(
+            SampleConcept(
+                code="C27262",
+                strata=tuple(sorted(REQUIRED_SAMPLE_STRATA)),
+                rationale="Known nested-definition hard case.",
+            ),
+        ),
     )
 
 
@@ -429,6 +454,94 @@ def test_cli_rejects_load_without_output_before_starting_event_loop(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("out", "load", "total_limit", "message"),
+    [
+        (None, False, None, "requires --out"),
+        (Path("review.ttl"), True, None, "cannot be combined with --load"),
+        (Path("review.ttl"), False, 1, "mutually exclusive"),
+    ],
+)
+def test_cli_rejects_unsafe_sample_modes_before_starting_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    out: Path | None,
+    load: bool,
+    total_limit: int | None,
+    message: str,
+) -> None:
+    run = MagicMock(side_effect=AssertionError("event loop started"))
+    monkeypatch.setattr(decompose.asyncio, "run", run)
+
+    with pytest.raises(typer.BadParameter, match=message):
+        decompose.main(
+            source_manifest=Path("unused-manifest.json"),
+            branch="neoplasm",
+            out=out,
+            load=load,
+            emit_equivalence=False,
+            resume=None,
+            total_limit=total_limit,
+            walker_max_depth=5,
+            sample_manifest=Path("sample.json"),
+        )
+
+    run.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_invalid_sample_manifest_fails_before_settings_are_loaded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    malformed = tmp_path / "sample.json"
+    malformed.write_text("{not-json", encoding="utf-8")
+    get_settings = MagicMock(side_effect=AssertionError("settings were loaded"))
+    monkeypatch.setattr(decompose, "get_settings", get_settings)
+
+    with pytest.raises(ValueError, match="valid sample manifest"):
+        await decompose._run(
+            source_manifest=Path("unused-manifest.json"),
+            branch="neoplasm",
+            out=tmp_path / "review.ttl",
+            load=False,
+            emit_equivalence=False,
+            resume=None,
+            total_limit=None,
+            sample_manifest=malformed,
+        )
+
+    get_settings.assert_not_called()
+
+
+@pytest.mark.unit
+async def test_sample_manifest_is_loaded_and_wired_to_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sample = _sample_manifest()
+    sample_path = tmp_path / "sample.json"
+    sample_path.write_text(sample.model_dump_json(indent=2), encoding="utf-8")
+    pipeline = AsyncMock(return_value=decompose.RunMetrics(total_in_scope=1))
+    _install_run_collaborators(monkeypatch, pipeline)
+
+    metrics = await decompose._run(
+        source_manifest=Path("candidate.json"),
+        branch="neoplasm",
+        out=tmp_path / "review.ttl",
+        load=False,
+        emit_equivalence=False,
+        resume=None,
+        total_limit=None,
+        sample_manifest=sample_path,
+    )
+
+    config = pipeline.await_args.args[0]
+    assert metrics.total_in_scope == 1
+    assert config.sample_manifest == sample
+    assert config.sample_manifest.identity == sample.identity
+
+
+@pytest.mark.unit
 def test_main_prints_metrics_and_forwards_resume_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -469,6 +582,7 @@ def test_main_prints_metrics_and_forwards_resume_options(
         "disease-run-1",
         4,
         6,
+        None,
     )
     assert capsys.readouterr().out == (
         "in_scope=4 decomposed=2 residual=2 minted=1 coverage=50.00% "
@@ -564,6 +678,41 @@ def test_command_rejects_load_without_output_at_real_cli_boundary() -> None:
     assert result.returncode == 2
     assert result.stdout == ""
     assert "--load requires --out" in " ".join(unstyle(result.stderr).split())
+
+
+@pytest.mark.unit
+def test_command_rejects_sample_without_output_at_real_cli_boundary() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    env = {
+        **os.environ,
+        "DATABASE_URL": "invalid://must-not-be-used",
+        "NCIT_SPARQL_URL": "invalid://must-not-be-used",
+        "FORCE_COLOR": "0",
+        "NO_COLOR": "1",
+    }
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/decompose.py",
+            "--source-manifest",
+            "unused-manifest.json",
+            "--sample-manifest",
+            "unused-sample.json",
+        ],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "--sample-manifest requires --out" in " ".join(
+        unstyle(result.stderr).split()
+    )
 
 
 @pytest.mark.unit

@@ -81,6 +81,7 @@ if TYPE_CHECKING:
     from ontolib.decomposition.minting import MintedConcept
     from ontolib.decomposition.models import RoleRestriction
     from ontolib.decomposition.provenance import ProvenanceStore
+    from ontolib.decomposition.sampling import DecompositionSampleManifest
 
 # Batch code -> preferred label (design's NLP fallback needs the label; the detector's
 # advisory label_multi_aspect signal needs it too). Injected so this module has no
@@ -88,7 +89,7 @@ if TYPE_CHECKING:
 GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
 GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
 
-_CONFIG_VERSION = "complete-definition-v1"
+_CONFIG_VERSION = "nested-definition-v2"
 
 
 class SourceIdentityChangedError(RuntimeError):
@@ -129,6 +130,23 @@ async def _never_resolves(_: str) -> str | None:
     return None
 
 
+def _validate_sample_config(config: RunConfig) -> None:
+    sample = config.sample_manifest
+    if sample is None:
+        return
+    if config.out is None:
+        raise ValueError("a sample run requires an output path")
+    if config.load_to_store:
+        raise ValueError("a sample run cannot load into the configured store")
+    if sample.branch != config.branch.value:
+        raise ValueError("sample manifest does not match run branch")
+    if (
+        sample.scope_root != config.scope_root
+        or sample.scope_version != config.scope_version
+    ):
+        raise ValueError("sample manifest does not match run hierarchy scope")
+
+
 @dataclass(frozen=True)
 class RunConfig:
     """Configuration for a decomposition run.
@@ -145,6 +163,7 @@ class RunConfig:
     emit_equivalence: bool = False
     resume_from: str | None = None
     walker_max_depth: int = 5
+    sample_manifest: DecompositionSampleManifest | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "branch", parse_branch(self.branch))
@@ -155,6 +174,7 @@ class RunConfig:
             )
         if self.load_to_store and self.out is None:
             raise ValueError("load_to_store requires an output path")
+        _validate_sample_config(self)
 
     @property
     def semantic_types(self) -> tuple[str, ...]:
@@ -530,13 +550,18 @@ def _resume_identity(
     semantic_types: tuple[str, ...],
     total_limit: int | None,
 ) -> RunResumeIdentity:
+    sample_identity = (
+        config.sample_manifest.identity if config.sample_manifest is not None else None
+    )
     return RunResumeIdentity(
+        schema_version=3 if sample_identity is not None else 2,
         source_identity=snapshot.source_identity,
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
         semantic_types=semantic_types,
         total_limit=total_limit,
+        sample_manifest_identity=sample_identity,
         algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
@@ -554,21 +579,21 @@ async def _create_fresh_run(
     get_source_snapshot: GetSourceSnapshot,
     semantic_types: tuple[str, ...],
     total_limit: int | None,
+    worklist: tuple[str, ...] | None = None,
 ) -> tuple[str, RunFingerprint]:
     run_id = _new_run_id(config.branch)
-    codes = await enumerate_in_scope_codes(client, config.scope_root)
-    if total_limit is not None:
-        if total_limit <= 0:
-            raise ValueError("total_limit must be greater than zero")
-        codes = codes[:total_limit]
-    if len(codes) != len(set(codes)):
-        raise RuntimeError("scope enumeration returned duplicate concept codes")
+    codes = (
+        await _standard_worklist(config, client, total_limit)
+        if worklist is None
+        else list(worklist)
+    )
     await _require_source_snapshot(
         client,
         get_source_snapshot,
         expected=snapshot,
     )
     fingerprint = RunFingerprint(
+        schema_version=3 if config.sample_manifest is not None else 2,
         source_identity=snapshot.source_identity,
         branch=config.branch.value,
         scope_root=config.scope_root,
@@ -576,6 +601,11 @@ async def _create_fresh_run(
         semantic_types=semantic_types,
         worklist=tuple(codes),
         total_limit=total_limit,
+        sample_manifest_identity=(
+            config.sample_manifest.identity
+            if config.sample_manifest is not None
+            else None
+        ),
         algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
@@ -585,6 +615,65 @@ async def _create_fresh_run(
     )
     await provenance.create_run(run_id, snapshot.ontology_version, fingerprint)
     return run_id, fingerprint
+
+
+async def _standard_worklist(
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    total_limit: int | None,
+) -> list[str]:
+    codes = await enumerate_in_scope_codes(client, config.scope_root)
+    if total_limit is not None:
+        if total_limit <= 0:
+            raise ValueError("total_limit must be greater than zero")
+        codes = codes[:total_limit]
+    if len(codes) != len(set(codes)):
+        raise RuntimeError("scope enumeration returned duplicate concept codes")
+    return codes
+
+
+def _require_sample_source(
+    sample: DecompositionSampleManifest,
+    snapshot: NcitSourceSnapshot,
+) -> None:
+    if sample.source_identity != snapshot.source_identity:
+        raise SourceIdentityChangedError(
+            "sample manifest source identity does not match the revalidated source"
+        )
+    if sample.ontology_version != snapshot.ontology_version:
+        raise SourceIdentityChangedError(
+            "sample manifest ontology version does not match the revalidated source"
+        )
+
+
+def _require_sample_scope(
+    sample: DecompositionSampleManifest,
+    scope_codes: list[str],
+) -> None:
+    if len(scope_codes) != len(set(scope_codes)):
+        raise RuntimeError("scope enumeration returned duplicate concept codes")
+    scope_code_set = set(scope_codes)
+    outside_scope = tuple(code for code in sample.codes if code not in scope_code_set)
+    if outside_scope:
+        raise ValueError(
+            "sample concepts outside the configured hierarchy scope: "
+            + ", ".join(outside_scope)
+        )
+
+
+async def _validated_sample_worklist(
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    snapshot: NcitSourceSnapshot,
+) -> tuple[str, ...] | None:
+    """Validate a review manifest against the live source and complete branch scope."""
+    sample = config.sample_manifest
+    if sample is None:
+        return None
+    _require_sample_source(sample, snapshot)
+    scope_codes = await enumerate_in_scope_codes(client, config.scope_root)
+    _require_sample_scope(sample, scope_codes)
+    return sample.codes
 
 
 async def _load_pending_run_data(
@@ -620,8 +709,11 @@ async def _prepare_run(
     total_limit: int | None,
 ) -> _RunSetup:
     """Create or reopen one exact source-bound worklist."""
+    if config.sample_manifest is not None and total_limit is not None:
+        raise ValueError("sample manifest and total_limit are mutually exclusive")
     snapshot = await _require_source_snapshot(client, get_source_snapshot)
     semantic_types = config.semantic_types
+    sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if config.resume_from:
         run_id = config.resume_from
         fingerprint = await provenance.resume_run(
@@ -642,6 +734,7 @@ async def _prepare_run(
             get_source_snapshot=get_source_snapshot,
             semantic_types=semantic_types,
             total_limit=total_limit,
+            worklist=sample_worklist,
         )
     pending, labels = await _load_pending_run_data(
         provenance,

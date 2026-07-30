@@ -7,7 +7,7 @@ import datetime
 import pytest
 from pydantic import ValidationError
 
-from ontolib.decomposition.provenance_models import RunFingerprint
+from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
 
 
 def _fingerprint(**updates: object) -> RunFingerprint:
@@ -36,6 +36,10 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     equivalent = RunFingerprint.model_validate_json(original.model_dump_json())
 
     assert equivalent.identity == original.identity
+    assert (
+        original.identity
+        == "9707720a292ac5487abd396d4c0736c3bd8409e23ae67414a7ac664062a0c38f"
+    )
     assert len(original.identity) == 64
 
     mutations = (
@@ -57,6 +61,25 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
 
 
 @pytest.mark.unit
+def test_sample_fingerprint_binds_manifest_identity_and_resume_contract() -> None:
+    sample = _fingerprint(
+        schema_version=3,
+        total_limit=None,
+        sample_manifest_identity="b" * 64,
+    )
+    different_sample = _fingerprint(
+        schema_version=3,
+        total_limit=None,
+        sample_manifest_identity="c" * 64,
+    )
+
+    assert sample.identity != different_sample.identity
+    resume = RunResumeIdentity.from_fingerprint(sample)
+    assert resume.schema_version == 3
+    assert resume.sample_manifest_identity == "b" * 64
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "updates",
     [
@@ -74,6 +97,13 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
         {"semantic_types": ("Disease or Syndrome", "")},
         {"walker_max_depth": 0},
         {"total_limit": 0},
+        {"schema_version": 3},
+        {"sample_manifest_identity": "b" * 64},
+        {
+            "schema_version": 3,
+            "total_limit": None,
+            "sample_manifest_identity": "not-a-digest",
+        },
         {"emitted_at": datetime.datetime(2026, 7, 29, 12, 0)},
         {"unknown_field": "ignored-proof"},
     ],

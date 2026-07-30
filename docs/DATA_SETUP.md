@@ -128,6 +128,22 @@ pdm run decompose \
   --out data/ncit_decomposed.ttl
 ```
 
+For the deterministic, review-only 26.07d M1 slice:
+
+```bash
+pdm run decompose \
+  --source-manifest /absolute/candidate/path/.ontoprism-ncit-candidate.json \
+  --branch neoplasm \
+  --sample-manifest samples/ncit-26.07d-m1-review.json \
+  --out data/ncit-26.07d-m1-review.ttl
+```
+
+The sample manifest records the exact ordered codes, overlapping strata and rationales,
+source identity/version, and selection method. Its digest is part of run/resume identity.
+Sample execution validates every code against the revalidated hierarchy before
+provenance, requires `--out`, and rejects `--total-limit`, `--load`, and equivalence
+emission. It does not replace the later full-corpus acceptance run.
+
 The CLI revalidates the D47 proof and compares its complete candidate observation with
 the live endpoint. It persists the exact worklist and immutable source/config fingerprint
 before processing. `--branch` is a closed choice: `neoplasm` selects strict descendants
@@ -177,7 +193,9 @@ It revalidates the cached `ncit-artifact-pair.json`, including both OWL hashes a
 same-release binding, rebuilds an inactive sibling with the pinned loader, and evaluates
 both hierarchy branches only after the candidate proof matches the live temporary
 endpoint. It never uses the configured active store and is deliberately excluded from
-`test`, `test-ci`, `test-integration`, and the read-only `full_store` lane.
+`test`, `test-ci`, `test-integration`, and the read-only `full_store` lane. It also
+checks that the tracked 26.07d review sample names that exact certified source and that
+all selected codes are members of its neoplasm hierarchy.
 
 ### Validation and recovery
 
