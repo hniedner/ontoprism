@@ -344,7 +344,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0010_constituent_source_role"
+    assert revision == "0011_decomposition_publication"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -368,16 +368,22 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
         finally:
             await conn.close()
 
-    async def legacy_run_facts() -> tuple[str, str | None, int]:
+    async def legacy_run_facts() -> tuple[str, str | None, str, int]:
         conn = await asyncpg.connect(dsn)
         try:
             row = await conn.fetchrow(
-                "SELECT status, error_type FROM decomp_run WHERE id = 'legacy-running'"
+                "SELECT status, error_type, publication_state "
+                "FROM decomp_run WHERE id = 'legacy-running'"
             )
             work_items = await conn.fetchval(
                 "SELECT count(*) FROM decomp_work_item WHERE run_id = 'legacy-running'"
             )
-            return row["status"], row["error_type"], work_items
+            return (
+                row["status"],
+                row["error_type"],
+                row["publication_state"],
+                work_items,
+            )
         finally:
             await conn.close()
 
@@ -387,9 +393,7 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
         asyncio.run(seed_legacy_running_run())
         command.upgrade(cfg, "head")
         facts = asyncio.run(_decomposition_lifecycle_facts(dsn))
-        legacy_status, legacy_error_type, legacy_work_items = asyncio.run(
-            legacy_run_facts()
-        )
+        legacy_facts = asyncio.run(legacy_run_facts())
     finally:
         command.upgrade(cfg, "head")
 
@@ -402,6 +406,15 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
         "emitted_at": "timestamp with time zone",
         "error_type": "text",
         "error_message": "text",
+        "publication_state": "text",
+        "publication_attempt_count": "integer",
+        "representation_identity": "text",
+        "publication_artifact_path": "text",
+        "publication_built_at": "timestamp with time zone",
+        "publication_started_at": "timestamp with time zone",
+        "publication_finished_at": "timestamp with time zone",
+        "publication_error_type": "text",
+        "publication_error_message": "text",
     }.items() <= facts["run_columns"].items()
     assert {
         "needs_review": "boolean",
@@ -415,9 +428,10 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
     assert "pending" in constraints
     assert facts["trigger"] is not None
     assert facts["proposal_pk"] == ("PRIMARY KEY (run_id, concept_code, proposal_id)")
-    assert (legacy_status, legacy_error_type, legacy_work_items) == (
+    assert legacy_facts == (
         "failed",
         "LegacyRun",
+        "pending",
         0,
     )
 

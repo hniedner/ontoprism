@@ -67,6 +67,43 @@ string creates false confidence, fragments provenance, and makes resume identity
 more precise than the computation. A closed boundary also ensures that adding regimen
 later requires an explicit algorithm dispatch and its distinct contracts.
 
+## 2026-07-30 — decomposition publication is journaled and reconcilable
+
+### D53. Commit each system at its native boundary; reconcile marker-ahead retries
+
+PostgreSQL, a filesystem, and Oxigraph cannot participate in one atomic commit. Marking
+the run complete before publishing the file and graph exposed a false success, while a
+Graph Store `PUT` after completion had no durable identity or recovery protocol.
+
+**Decision:** render the complete Turtle to a same-directory staging file, flush and
+`fsync` it, parse it, and prove its exact concept set and run links before publication.
+Its SHA-256 is the representation identity. A session-level PostgreSQL advisory lock
+serializes publishers across the external coordination window; the run journal stores
+an immutable representation identity, destination, build time, attempt count, and
+bounded publication-only failures separately from processing failures.
+
+When `--load` is requested, upload the artifact to a unique run-scoped staging graph.
+One Oxigraph SPARQL Update clears the public decomposed graph, adds the staging graph,
+drops it, and inserts a marker containing run ID, D47 source identity, representation
+identity, and build timestamp. The pinned real Oxigraph contract proves that the update
+is transactional, including clean replacement by an artifact with no decomposed
+concepts. SPARQL Update transport failures are never blindly replayed: the marker is
+read first to determine whether the server committed.
+
+After graph publication, atomically replace the file and `fsync` its directory; only
+then may PostgreSQL mark the run and publication `complete`/`published`. A crash can
+therefore leave the graph and/or file ahead of PostgreSQL, but never a partially replaced
+public graph or a completed database row ahead of requested publication. A matching
+marker-ahead retry skips graph replacement, republishes the same validated file if
+needed, and completes the journal. A journal-ahead retry with no marker restages and
+replaces the graph. A conflicting or malformed marker fails closed. Historical complete
+runs are labelled `legacy`, not retroactively certified.
+
+**Why:** cross-system atomicity would be a false guarantee. Native atomic replacement,
+an immutable intent, and idempotent state-based reconciliation provide the strongest
+honest contract while retaining the last complete public graph until one complete new
+graph commits.
+
 ## 2026-07-30 — the complete stated definition is the decomposition record
 
 ### D50. Persist the stated definition DAG separately from its curated projection
@@ -161,17 +198,14 @@ permitted only for a matching running/failed manifest, never re-enumerates, and 
 exactly non-complete work. Metrics and normalized TTL are reconstructed from the full
 worklist, so fresh and resumed completion agree. Mint proposals enter the global curator
 queue only when the run completes. The D47 manifest and full live candidate observation
-are required before work, and source drift before completion invalidates every persisted
+are required before work, and source drift before publication invalidates every persisted
 result row for the run in one transaction. The `--out` TTL is rendered to an unpublished
-staging sibling and atomically moved into place only after that final identity check and
-completion both succeed, so a drifted or failed run leaves no artifact at `--out`.
+staging sibling and source identity is rechecked before the publication protocol begins.
 
 **Why:** a successful manifest now proves one complete computation over one identified
 NCIt snapshot; interruption, collision, retry, and zero-output cases cannot masquerade as
-complete or mix source states. PostgreSQL and the filesystem are still two systems and
-are not written atomically together; the ordering guarantees only that no published
-artifact can outlive an invalidated run, never a joint commit. Named-graph publication
-remains the separate #147 boundary.
+complete or mix source states. D53 owns the multi-system publication and reconciliation
+contract.
 
 ## 2026-07-29 — NCIt stores are constructed and certified as inactive siblings
 

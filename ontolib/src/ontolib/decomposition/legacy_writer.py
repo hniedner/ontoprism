@@ -1,16 +1,16 @@
 """Write additive decomposition triples to a TTL file (design §8).
 
-Pure function: takes decompositions and writes RDF/Turtle to stdout or a file path.
-Emits plain, graph-agnostic Turtle triples — it has no concept of "which named graph"
-and never emits a ``DELETE``; the caller loads the output into ``DECOMPOSED_GRAPH_IRI``
-(see ``scripts/decompose.py``'s ``client.load(..., graph_iri=...)``). The source graphs
-are never referenced in the output at all.  Uses the op: vocabulary from
-:mod:`ontolib.decomposition.vocab`.
+Pure function: takes decompositions and writes RDF/Turtle to stdout or a durable file.
+It emits plain, graph-agnostic triples and never emits a ``DELETE``; D53's publication
+protocol validates the staged artifact before promoting it into the decomposed named
+graph. The source graphs are never referenced in the output. Uses the op: vocabulary
+from :mod:`ontolib.decomposition.vocab`.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -207,5 +207,8 @@ async def write_ttl(
         return None
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(ttl, encoding="utf-8")
+    with dest.open("w", encoding="utf-8") as stream:
+        stream.write(ttl)
+        stream.flush()
+        os.fsync(stream.fileno())
     return dest

@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -24,20 +23,44 @@ from ontolib.terminologies.ncit.sibling_store import (
 
 
 @pytest.mark.unit
-async def test_decomposition_output_load_streams_from_disk(tmp_path: Path) -> None:
+async def test_load_is_coordinated_inside_pipeline_before_run_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     output = tmp_path / "decomposed.ttl"
-    output.write_bytes(b"<urn:s> <urn:p> <urn:o> ." * 100_000)
-    received: bytes | None = None
+    settings = SimpleNamespace(
+        database_url="postgresql+asyncpg://unused",
+        ncit_sparql_url="http://unused",
+    )
+    monkeypatch.setattr(decompose, "get_settings", lambda: settings)
+    engine = object()
+    monkeypatch.setattr(decompose, "make_engine", lambda _url: engine)
+    monkeypatch.setattr(decompose, "make_sessionmaker", MagicMock())
+    monkeypatch.setattr(decompose, "dispose_engine", AsyncMock())
+    client = MagicMock()
+    client.load = AsyncMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(decompose, "OxigraphHttpClient", lambda _url: client)
+    store = SimpleNamespace(labels_for=AsyncMock())
+    monkeypatch.setattr(decompose, "NcitGraphStore", lambda _client: store)
+    pipeline = AsyncMock(return_value=decompose.RunMetrics())
+    monkeypatch.setattr(decompose, "run_pipeline", pipeline)
 
-    class _Client:
-        async def load(self, data: Any, **_kwargs: Any) -> None:
-            nonlocal received
-            assert not isinstance(data, bytes)
-            received = data.read()
+    await decompose._run(
+        source_manifest=Path("candidate.json"),
+        branch="neoplasm",
+        out=output,
+        load=True,
+        emit_equivalence=False,
+        resume=None,
+        total_limit=None,
+    )
 
-    await decompose._load_output(_Client(), output)  # type: ignore[arg-type]
-
-    assert received == output.read_bytes()
+    config = pipeline.await_args.args[0]
+    assert config.out == output
+    assert config.load_to_store is True
+    client.load.assert_not_awaited()
 
 
 @pytest.mark.unit
