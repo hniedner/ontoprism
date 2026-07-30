@@ -23,7 +23,7 @@ _C6135_ROLES = _roles(
 def test_multi_axis_in_scope_concept_is_precoordinated() -> None:
     result = detect("C6135", ["Neoplastic Process"], _C6135_ROLES)
     assert result.is_precoordinated
-    assert result.defining_role_count == 4
+    assert result.defining_role_count == 3
     assert result.semantic_type == "Neoplastic Process"
 
 

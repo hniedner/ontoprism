@@ -8,6 +8,8 @@ from ontolib.decomposition.axes import (
     ASSOCIATED_LINEAGE_AXIS,
     ASSOCIATED_REGION_AXIS,
     MORPHOLOGY_AXIS,
+    PRIMARY_SITE_AXIS,
+    STAGE_VALUE_AXIS,
 )
 from ontolib.decomposition.filler_selection import (
     comparison_filler_codes,
@@ -83,7 +85,7 @@ def test_most_specific_single_filler_is_unchanged() -> None:
 
 @pytest.mark.unit
 def test_select_constituents_one_per_single_filler_axis() -> None:
-    # C6135's four distinct single-filler axes (design §4.2).
+    # R89 is optional and filtered; the three defining roles are normalized.
     restrictions = _roles(
         ("R88", "C27970", "Disease_Is_Stage"),
         ("R89", "C90530", "Disease_Has_Stage_System"),
@@ -92,8 +94,8 @@ def test_select_constituents_one_per_single_filler_axis() -> None:
     )
     constituents = select_constituents(restrictions, _is_ancestor)
     by_axis = {c.axis: c for c in constituents}
-    assert set(by_axis) == {"R88", "R89", "R101", "R105"}
-    assert by_axis["R101"].filler_code == "C12400"
+    assert set(by_axis) == {STAGE_VALUE_AXIS, PRIMARY_SITE_AXIS, "op:CellType"}
+    assert by_axis[PRIMARY_SITE_AXIS].filler_code == "C12400"
     assert all(c.axis_source == "role" for c in constituents)
     # Single-filler axes made no choice, so most_specific stays False.
     assert all(not c.most_specific for c in constituents)
@@ -180,7 +182,7 @@ def test_select_excludes_negative_axioms() -> None:
         ("R109", "C9999", "Disease_Excludes_Finding"),
     )
     constituents = select_constituents(restrictions, _is_ancestor)
-    assert [c.axis for c in constituents] == ["R101"]
+    assert [c.axis for c in constituents] == [PRIMARY_SITE_AXIS]
 
 
 @pytest.mark.unit
@@ -206,19 +208,58 @@ def test_route_axis_maps_r101_with_lineage_generic_to_lineage_axis() -> None:
 @pytest.mark.unit
 def test_route_axis_keeps_non_r101_on_role_code() -> None:
     r = RoleRestriction("R88", "C27970")
-    assert route_axis(r) == "R88"
+    assert route_axis(r) == "op:StageValue"
 
 
 @pytest.mark.unit
 def test_route_axis_keeps_r101_without_genus_on_role_code() -> None:
     r = RoleRestriction("R101", "C12400")
-    assert route_axis(r) == "R101"
+    assert route_axis(r) == "op:PrimarySite"
 
 
 @pytest.mark.unit
 def test_route_axis_keeps_r101_with_non_lineage_genus_on_role_code() -> None:
     r = RoleRestriction("R101", "C12400", anchoring_genus="C4815")
-    assert route_axis(r) == "R101"
+    assert route_axis(r) == "op:PrimarySite"
+
+
+@pytest.mark.unit
+def test_supported_role_keeps_source_role_separate_from_normalized_axis() -> None:
+    (constituent,) = select_constituents(
+        [RoleRestriction("R106", "C17121")],
+        lambda _a, _b: False,
+    )
+
+    assert constituent.axis == "op:MolecularAbnormality"
+    assert constituent.source_role == "R106"
+    assert constituent.needs_review is False
+
+
+@pytest.mark.unit
+def test_unknown_defining_role_is_preserved_and_review_required() -> None:
+    (constituent,) = select_constituents(
+        [RoleRestriction("R999", "C1", "Disease_Has_Unknown")],
+        lambda _a, _b: False,
+    )
+
+    assert constituent.axis == "R999"
+    assert constituent.source_role == "R999"
+    assert constituent.needs_review is True
+
+
+@pytest.mark.unit
+def test_actual_2607d_optional_roles_are_excluded_from_the_projection() -> None:
+    optional_roles = [
+        RoleRestriction("R89", "C1", "Disease_May_Have_Molecular_Abnormality"),
+        RoleRestriction("R111", "C2", "Disease_May_Have_Normal_Tissue_Origin"),
+        RoleRestriction("R112", "C3", "Disease_May_Have_Normal_Cell_Origin"),
+        RoleRestriction("R113", "C4", "Disease_May_Have_Abnormal_Cell"),
+        RoleRestriction("R114", "C5", "Disease_May_Have_Cytogenetic_Abnormality"),
+        RoleRestriction("R115", "C6", "Disease_May_Have_Finding"),
+        RoleRestriction("R116", "C7", "Disease_May_Have_Associated_Disease"),
+    ]
+
+    assert filter_excluded(optional_roles) == []
 
 
 # --- A3: D20 refinement 1 — genus-sense routing in select_constituents ---
@@ -255,7 +296,7 @@ def test_site_specific_genus_stays_on_r101() -> None:
             anchoring_genus="C4815",
         )
     ]
-    assert select_constituents(r, lambda a, b: False)[0].axis == "R101"
+    assert select_constituents(r, lambda a, b: False)[0].axis == PRIMARY_SITE_AXIS
 
 
 # --- A4: D20 refinement 2 — filler-semantic-type ranking ---
@@ -276,7 +317,7 @@ def test_semantic_type_ranking_splits_organ_from_region() -> None:
         c.filler_code: c
         for c in select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
     }
-    assert cons["C12400"].axis == "R101"
+    assert cons["C12400"].axis == PRIMARY_SITE_AXIS
     assert cons["C12418"].axis == ASSOCIATED_REGION_AXIS
     assert cons["C13063"].axis == ASSOCIATED_REGION_AXIS
 
@@ -343,7 +384,7 @@ def test_semantic_type_ranking_one_organ_one_region() -> None:
     ]
     cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
     by_filler = {c.filler_code: c for c in cons}
-    assert by_filler["C12400"].axis == "R101"
+    assert by_filler["C12400"].axis == PRIMARY_SITE_AXIS
     assert by_filler["C12400"].needs_review is False
     assert by_filler["C12418"].axis == ASSOCIATED_REGION_AXIS
     assert by_filler["C12418"].needs_review is False
@@ -361,7 +402,7 @@ def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
         for c in ("C12400", "C12401")
     ]
     cons = select_constituents(r, lambda a, b: False, semantic_type_of=sem.get)
-    assert {c.axis for c in cons} == {"R101"}
+    assert {c.axis for c in cons} == {PRIMARY_SITE_AXIS}
     assert all(c.needs_review for c in cons)
     assert all(c.group is None for c in cons)
 
@@ -382,7 +423,7 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
         lambda a, b: (a, b) == ("C75102", "C12400"),
         parent_morphology="C3879",
     )
-    r101 = [c for c in constituents if c.axis == "R101"]
+    r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 1
     assert r101[0].filler_code == "C12400"
     assert r101[0].needs_review is False
@@ -419,10 +460,10 @@ def test_organ_lookup_preserves_co_present_regions_on_their_own_axis() -> None:
             for constituent in constituents
             if constituent.axis == axis
         }
-        for axis in ("R101", ASSOCIATED_REGION_AXIS)
+        for axis in (PRIMARY_SITE_AXIS, ASSOCIATED_REGION_AXIS)
     }
 
-    assert by_axis["R101"] == {"C12400"}
+    assert by_axis[PRIMARY_SITE_AXIS] == {"C12400"}
     assert by_axis[ASSOCIATED_REGION_AXIS] == {"C12418", "C13063"}
     regions = [
         constituent
@@ -450,7 +491,7 @@ def test_organ_lookup_falls_through_when_organ_not_in_candidates() -> None:
         parent_morphology="C3879",
         semantic_type_of=lambda _: "Body Part, Organ, or Organ Component",
     )
-    r101 = [c for c in constituents if c.axis == "R101"]
+    r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 2
     assert all(c.needs_review for c in r101)
 
@@ -491,7 +532,7 @@ def test_organ_lookup_falls_through_on_unknown_morphology() -> None:
         lambda a, b: False,
         parent_morphology="C99999",
     )
-    r101 = [c for c in constituents if c.axis == "R101"]
+    r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 2
 
 
@@ -507,7 +548,7 @@ def test_organ_lookup_not_triggered_for_single_filler() -> None:
         lambda a, b: False,
         parent_morphology="C3879",
     )
-    r101 = [c for c in constituents if c.axis == "R101"]
+    r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 1
     assert r101[0].filler_code == "C12400"
     assert r101[0].needs_review is False
@@ -545,7 +586,7 @@ def test_c6135_r101_family_matches_golden_split() -> None:
     by_axis: dict[str, set[str]] = defaultdict(set)
     for c in select_constituents(r, lambda a, b: False, semantic_type_of=sem.get):
         by_axis[c.axis].add(c.filler_code)
-    assert by_axis["R101"] == {"C12400"}
+    assert by_axis[PRIMARY_SITE_AXIS] == {"C12400"}
     assert by_axis[ASSOCIATED_LINEAGE_AXIS] == {"C12704", "C12705"}
     assert by_axis[ASSOCIATED_REGION_AXIS] == {"C12418", "C13063"}
 
@@ -599,7 +640,7 @@ def test_dropped_role_r114_is_filtered_from_output() -> None:
     ]
     cons = select_constituents(restrictions, lambda a, b: False)
     axes_found = {c.axis for c in cons}
-    assert "R101" in axes_found
+    assert PRIMARY_SITE_AXIS in axes_found
     assert "R114" not in axes_found
 
 
@@ -611,7 +652,7 @@ def test_dropped_role_r115_is_filtered_from_output() -> None:
     ]
     cons = select_constituents(restrictions, lambda a, b: False)
     axes_found = {c.axis for c in cons}
-    assert "R101" in axes_found
+    assert PRIMARY_SITE_AXIS in axes_found
     assert "R115" not in axes_found
 
 
@@ -622,7 +663,7 @@ def test_molecular_abnormality_r106_is_kept() -> None:
         RoleRestriction("R106", "C17121", "Disease_Has_Molecular_Abnormality"),
     ]
     cons = select_constituents(restrictions, lambda a, b: False)
-    assert any(c.axis == "R106" for c in cons)
+    assert any(c.axis == "op:MolecularAbnormality" for c in cons)
 
 
 # --- D23: op:StageSystem axis ---
@@ -635,7 +676,7 @@ def test_stage_system_axis_routes_known_system_code() -> None:
         RoleRestriction("R88", "C90529", "Disease_Is_Stage"),  # AJCC v6 Stage (system)
     ]
     cons = select_constituents(restrictions, lambda a, b: False)
-    r88 = [c for c in cons if c.axis == "R88"]
+    r88 = [c for c in cons if c.axis == STAGE_VALUE_AXIS]
     stage_sys = [c for c in cons if c.axis == "op:StageSystem"]
     assert len(r88) == 1
     assert r88[0].filler_code == "C27970"
@@ -644,12 +685,12 @@ def test_stage_system_axis_routes_known_system_code() -> None:
 
 
 @pytest.mark.unit
-def test_stage_system_axis_preserves_unknown_r88_as_role() -> None:
+def test_stage_value_axis_normalizes_non_system_r88() -> None:
     restrictions = [
         RoleRestriction("R88", "C27970", "Disease_Is_Stage"),
     ]
     cons = select_constituents(restrictions, lambda a, b: False)
-    r88 = [c for c in cons if c.axis == "R88"]
+    r88 = [c for c in cons if c.axis == STAGE_VALUE_AXIS]
     assert len(r88) == 1
     assert r88[0].filler_code == "C27970"
     assert not any(c.axis == "op:StageSystem" for c in cons)
@@ -678,21 +719,21 @@ def test_stage_value_and_system_on_separate_axes() -> None:
     ]
     cons = select_constituents(restrictions, lambda a, b: False)
     axes_found = {c.axis for c in cons}
-    assert "R88" in axes_found
+    assert STAGE_VALUE_AXIS in axes_found
     assert "op:StageSystem" in axes_found
-    assert "R101" in axes_found
+    assert PRIMARY_SITE_AXIS in axes_found
 
 
 @pytest.mark.unit
-def test_stage_system_code_value_keeps_r88_on_role_code_not_op() -> None:
+def test_stage_system_code_value_routes_r88_to_distinct_normalized_axes() -> None:
     """Verify a value-stage filler that is NOT in the system-codes set
-    stays on R88 even when a system code is also present."""
+    routes to StageValue even when a system code is also present."""
     restrictions = [
         RoleRestriction("R88", "C27970", "Disease_Is_Stage"),  # Stage III
         RoleRestriction("R88", "C90530", "Disease_Is_Stage"),  # AJCC v7
     ]
     cons = select_constituents(restrictions, lambda a, b: False)
-    r88_fillers = {c.filler_code for c in cons if c.axis == "R88"}
+    r88_fillers = {c.filler_code for c in cons if c.axis == STAGE_VALUE_AXIS}
     sys_fillers = {c.filler_code for c in cons if c.axis == "op:StageSystem"}
     assert r88_fillers == {"C27970"}
     assert sys_fillers == {"C90530"}

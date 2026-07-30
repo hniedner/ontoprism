@@ -128,6 +128,7 @@ def _constituent_rows(
             "axis": constituent.axis,
             "filler_code": constituent.filler_code,
             "axis_source": constituent.axis_source,
+            "source_role": constituent.source_role,
             "most_specific": constituent.most_specific,
             "needs_review": constituent.needs_review,
             "relationship_group": constituent.group,
@@ -455,10 +456,10 @@ class ProvenanceStore:
                     text(
                         "INSERT INTO decomp_constituent "
                         "(run_id, concept_code, axis, filler_code, axis_source, "
-                        "most_specific, needs_review, relationship_group, "
+                        "source_role, most_specific, needs_review, relationship_group, "
                         "source_definition_ids) VALUES "
                         "(:run_id, :concept_code, :axis, :filler_code, "
-                        ":axis_source, :most_specific, :needs_review, "
+                        ":axis_source, :source_role, :most_specific, :needs_review, "
                         ":relationship_group, CAST(:source_definition_ids AS jsonb))"
                     ),
                     _constituent_rows(run_id, concept_code, constituents),
@@ -681,7 +682,7 @@ class ProvenanceStore:
             )
             constituent_result = await session.execute(
                 text(
-                    "SELECT concept_code, axis, filler_code, axis_source, "
+                    "SELECT concept_code, axis, filler_code, axis_source, source_role, "
                     "most_specific, needs_review, relationship_group, "
                     "source_definition_ids FROM decomp_constituent "
                     "WHERE run_id = :run_id "
@@ -712,6 +713,7 @@ class ProvenanceStore:
                     axis=row["axis"],
                     filler_code=row["filler_code"],
                     axis_source=row["axis_source"],
+                    source_role=row["source_role"],
                     most_specific=row["most_specific"],
                     needs_review=row["needs_review"],
                     group=row["relationship_group"],

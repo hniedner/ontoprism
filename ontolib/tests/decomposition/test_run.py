@@ -542,9 +542,11 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
 
 @pytest.mark.unit
 async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
-    """R101 fillers with semantic type "Body Part, Organ, or Organ Component"
-    stay on R101 (D20 — recognised organ site). Fillers without a recognised
-    semantic type route to op:AssociatedRegion (D19 — ambiguous body region)."""
+    """R101 organ fillers normalize to ``op:PrimarySite`` (D20).
+
+    Fillers without a recognized organ semantic type route to
+    ``op:AssociatedRegion`` (D19).
+    """
     client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
@@ -569,7 +571,7 @@ async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
         c.filler_code for c in constituents if c.axis == "op:AssociatedRegion"
     }
     assert region_fillers == {"C13063"}
-    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12400"}
 
 
@@ -630,7 +632,7 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
     constituents = provenance.complete_work_item.await_args.kwargs[
         "decomposition"
     ].constituents
-    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12401"}  # the ancestor C12400 was dropped
 
 
@@ -660,7 +662,7 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
     constituents = provenance.complete_work_item.await_args.kwargs[
         "decomposition"
     ].constituents
-    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12400"}
     assert all(c.filler_code != "C9000" for c in constituents)
     assert all(
@@ -699,7 +701,7 @@ async def test_run_pipeline_preserves_cyclic_fillers_for_review() -> None:
     constituents = provenance.complete_work_item.await_args.kwargs[
         "decomposition"
     ].constituents
-    sites = [c for c in constituents if c.axis == "R101"]
+    sites = [c for c in constituents if c.axis == "op:PrimarySite"]
     assert {c.filler_code for c in sites} == {"C120", "C121", "C130"}
     assert all(c.needs_review and not c.most_specific for c in sites)
 

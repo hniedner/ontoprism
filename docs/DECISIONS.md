@@ -2,6 +2,40 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-30 — normalized axes have executable semantic contracts
+
+### D52. Preserve source roles while serving only univocal projection relations
+
+The certified 26.07d stated artifact exposed a factual error in D23's old prose:
+`R108` is `Disease_Has_Finding`, `R104` is `Disease_Has_Normal_Cell_Origin`, and
+`R111`–`R116` (plus `R89`) are the probabilistic `May_Have_*` family. In particular,
+`R114` is `Disease_May_Have_Cytogenetic_Abnormality` and `R115` is
+`Disease_May_Have_Finding`; they are not the defining clinical-finding and cell-origin
+roles formerly assigned to them.
+
+**Decision:** the curated projection routes every supported defining NCIt role to a
+single-sense `op:` relation. Each relation has an executable contract containing its
+human label and definition, NCIt-backed domain/range codes and labels, provenance, and
+source-role mapping. Direct mappings include `R88 → op:StageValue`,
+`R100 → op:AssociatedSite`, `R101 → op:PrimarySite`, `R102 → op:MetastaticSite`,
+`R103 → op:NormalTissueOrigin`, `R104 → op:CellOrigin`, `R105 → op:CellType`,
+`R106 → op:MolecularAbnormality`, `R107 → op:CytogeneticAbnormality`,
+`R108 → op:ClinicalFinding`, and `R110 → op:Grade`. Contextual splits retain the same
+source role: R88 stage systems use `op:StageSystem`; R101 regions and
+lineage classifications use their existing dedicated axes.
+
+Every role-derived constituent stores `source_role` separately from `axis`. Unknown
+roles retain their NCIt code and always require review; probabilistic R89/R111–R116 and
+negative `Excludes_*` restrictions do not enter the curated projection but remain in
+D50's complete definition. Migration `0010_constituent_source_role` carries the
+provenance through PostgreSQL. Turtle publishes the axis contracts and
+`op:sourceRole`; the read API preserves it, and `GET /api/v1/decomposition/axes`
+serves the catalogue without requiring a database.
+
+**Why:** a raw source identifier is provenance, not a semantic contract. Keeping it
+separate makes normalization reversible while preventing ambiguous or factually
+misidentified NCIt roles from silently becoming the public composition grammar.
+
 ## 2026-07-30 — decomposition branches are executable contracts, not run labels
 
 ### D51. Keep one typed branch until a second algorithm exists
@@ -963,14 +997,15 @@ All proposal axes from D23 draft are ratified:
 - `op:PrimarySite` (R101) — organ per Part 1
 - `op:CellType` (R105) — histology
 - `op:AssociatedSite` (R100) — non-primary, non-metastatic
-- `op:ClinicalFinding` (R114) — probabilistic, not defining (SME distinction: `Has_*` = defining; `May_Have_*` = optional)
-- `op:CellOrigin` (R115) — lineage, optional per above
+- `op:ClinicalFinding` (R108) — defining `Disease_Has_Finding`
+- `op:CellOrigin` (R104) — defining normal cell origin
+- R89 and R111–R116 — probabilistic `May_Have_*`, not defining
 
 **Part 3: Settings model change**
 
 | Setting | Old | New | SME Note |
 |---------|-----|-----|----------|
-| `drop_out_of_scope` | yes | **SPLIT per role** | R106 keep; R114/R115 may drop |
+| `drop_out_of_scope` | yes | **SPLIT per role** | R100–R108/R110 keep; R89/R111–R116 drop |
 | `include_associated_sites` | yes | **maybe** | Metastatic sites need separate axis |
 
 **Part 4: Collisions = Both**

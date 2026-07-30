@@ -327,6 +327,8 @@ async def read_complete_definition(
 
 
 def _source_role(constituent: Constituent) -> str | None:
+    if constituent.source_role is not None:
+        return constituent.source_role
     if constituent.axis.startswith("R"):
         return constituent.axis
     return _ROUTED_SOURCE_ROLES.get(constituent.axis)

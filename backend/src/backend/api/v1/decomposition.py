@@ -6,9 +6,16 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import ProvenanceReads
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS, AxisContract
 from ontolib.decomposition.provenance_models import MintedConcept, RunSummary
 
 router = APIRouter(prefix="/api/v1/decomposition", tags=["decomposition"])
+
+
+@router.get("/axes", response_model=list[AxisContract])
+async def list_axis_contracts() -> list[AxisContract]:
+    """Return the stable univocal relation catalogue without a store dependency."""
+    return [AXIS_CONTRACTS[axis] for axis in sorted(AXIS_CONTRACTS)]
 
 
 @router.get("/runs", response_model=list[RunSummary])

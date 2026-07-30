@@ -1,9 +1,8 @@
 """Axis catalogue: which concepts are in decomposition scope, and which role
 restrictions are *defining* axes vs. ``Excludes_*`` negative axioms.
 
-The engine reuses the NCIt role code itself as the axis identifier (design §4.2), so
-this module classifies roles rather than renaming them. Morphology is the exception —
-it is carried by the taxonomic parent, not a role — so it gets an ``op:`` axis.
+The curated projection routes defining NCIt source roles to univocal ``op:`` axes
+(design §4.2). Morphology is carried by the taxonomic parent rather than a role.
 """
 
 from __future__ import annotations
@@ -29,6 +28,8 @@ MORPHOLOGY_AXIS = "op:Morphology"
 
 # D23 first-class axis for the staging manual/system (AJCC v6/v7/v8/v9, FIGO, etc.)
 STAGE_SYSTEM_AXIS = "op:StageSystem"
+STAGE_VALUE_AXIS = "op:StageValue"
+PRIMARY_SITE_AXIS = "op:PrimarySite"
 
 # D20 refinement 1 axis: genus-sense classification (lineage) carved from R101.
 ASSOCIATED_LINEAGE_AXIS = "op:AssociatedLineageClassification"
@@ -67,10 +68,11 @@ def is_lineage_generic(genus_code: str | None) -> bool:
     return genus_code in LINEAGE_GENERIC_GENERA
 
 
-# D23 SME decision: probabilistic/optional roles (R114 Clinical Finding,
-# R115 Cell Origin) are non-defining and dropped from decomposition output.
-# ``Has_*`` = defining; ``May_Have_*`` = probabilistic (SME distinction).
-DROPPED_ROLES: frozenset[str] = frozenset({"R114", "R115"})
+# NCIt 26.07d's probabilistic ``May_Have_*`` roles are non-defining and excluded
+# from the curated projection. D50's complete definition still retains them.
+DROPPED_ROLES: frozenset[str] = frozenset(
+    {"R89", "R111", "R112", "R113", "R114", "R115", "R116"}
+)
 
 
 def is_dropped_role(role_code: str) -> bool:

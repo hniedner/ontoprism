@@ -663,9 +663,9 @@ async def test_c6135_organ_lookup_preserves_real_associated_regions() -> None:
             for constituent in decomposition.constituents
             if constituent.axis == axis
         }
-        for axis in ("R101", "op:AssociatedRegion")
+        for axis in ("op:PrimarySite", "op:AssociatedRegion")
     }
-    assert by_axis["R101"] == {"C12400"}
+    assert by_axis["op:PrimarySite"] == {"C12400"}
     assert by_axis["op:AssociatedRegion"] == {"C12418", "C13063"}
     regions = [
         constituent
@@ -674,6 +674,7 @@ async def test_c6135_organ_lookup_preserves_real_associated_regions() -> None:
     ]
     assert all(
         constituent.group == "op:AssociatedRegion"
+        and constituent.source_role == "R101"
         and constituent.source_definition_ids
         and constituent.needs_review is False
         for constituent in regions
@@ -764,7 +765,7 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
         review_required = [
             constituent
             for constituent in review.constituents
-            if constituent.axis == "R105"
+            if constituent.axis == "op:CellType"
             and constituent.filler_code in {"C12917", "C36903"}
         ]
         assert {constituent.filler_code for constituent in review_required} == {
@@ -772,6 +773,42 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
             "C36903",
         }, review.constituents
         assert all(
-            constituent.needs_review and constituent.source_definition_ids
+            constituent.needs_review
+            and constituent.source_role == "R105"
+            and constituent.source_definition_ids
             for constituent in review_required
         )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_ncit_role_metadata_contract_matches_normalization() -> None:
+    """Pin the real role identities that distinguish Has from May_Have."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        rows = await client.select(
+            f"""
+            SELECT ?role ?label WHERE {{
+                GRAPH <{STATED_GRAPH_IRI}> {{
+                    VALUES ?role {{
+                        <{NCIT_NS}R104> <{NCIT_NS}R108>
+                        <{NCIT_NS}R114> <{NCIT_NS}R115>
+                    }}
+                    ?role <{RDFS_NS}label> ?label .
+                }}
+            }}
+            """
+        )
+
+    assert {(row["role"].removeprefix(NCIT_NS), row["label"]) for row in rows} == {
+        ("R104", "Disease_Has_Normal_Cell_Origin"),
+        ("R108", "Disease_Has_Finding"),
+        ("R114", "Disease_May_Have_Cytogenetic_Abnormality"),
+        ("R115", "Disease_May_Have_Finding"),
+    }

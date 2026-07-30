@@ -1,16 +1,13 @@
 """Morphology-to-organ resolution table (D23 SME-validated).
 
-The SME established the governing principle: R101 = the named organ
-(``tmp/plans/D23-site-specific-resolution-and-role-naming.md``, Part 1).
+The SME established the governing principle: R101 = the named organ (DECISIONS D23).
 This module encodes the validated morphology→organ mapping for the concepts
 in the ``ontolib/tests/decomposition/golden/`` golden set. It is used as a
 tiebreaker when the walker returns multiple R101 candidates — the matching
 organ is preferred over generic or data-quality-issue alternatives.
 
-References
-----------
-- D23 site-specific resolution: ``tmp/plans/sme_decisions.json``
-- SME workbook: ``tmp/plans/SME_Review_Workbook.xlsx``
+The durable decision and its validated lookup table are recorded in
+``docs/DECISIONS.md`` D23.
 """
 
 # Maps morphology code → SME-validated organ code.

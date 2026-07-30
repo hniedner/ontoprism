@@ -14,6 +14,7 @@ from ontolib.decomposition.read_models import (
     DecompositionConstituent,
     UpstreamMapping,
 )
+from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -52,6 +53,17 @@ def _source_definition_id(iri: str | None) -> str | None:
     return fact_id
 
 
+def _source_role(iri: str | None) -> str | None:
+    if iri is None:
+        return None
+    if not iri.startswith(NCIT_NS):
+        raise ValueError("source role is outside the NCIt namespace")
+    role_code = iri.removeprefix(NCIT_NS)
+    if not role_code.startswith("R") or not role_code[1:].isdigit():
+        raise ValueError("source role is not an NCIt role code")
+    return role_code
+
+
 def _constituent_from_row(
     axis_iri: str,
     filler_iri: str,
@@ -62,6 +74,7 @@ def _constituent_from_row(
         axis=_axis_code(axis_iri),
         filler=_local(filler_iri),
         axis_source=row.get("axisSource") or "role",
+        source_role=_source_role(row.get("sourceRole")),
         most_specific=_as_bool(row.get("mostSpecific")),
         needs_review=_as_bool(row.get("needsReview")),
         group=row.get("group"),

@@ -79,15 +79,29 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
             _RUN_ID,
             "C6135",
             claim,
-            decomposition=None,
+            decomposition=Decomposition(
+                code="C6135",
+                semantic_type="Neoplastic Process",
+                constituents=[
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C12400",
+                        axis_source="role",
+                        source_role="R101",
+                    )
+                ],
+            ),
             minted=(),
         )
         assert await store.pending_codes(_RUN_ID) == []
+        persisted = await store.decompositions_for_run(_RUN_ID)
+        assert persisted[0].constituents[0].axis == "op:PrimarySite"
+        assert persisted[0].constituents[0].source_role == "R101"
 
         finished = await store.finish_run(
             _RUN_ID,
             source_identity="a" * 64,
-            metrics={"decomposed": 0, "total_in_scope": 1},
+            metrics={"decomposed": 1, "total_in_scope": 1},
         )
         assert finished is True
     finally:

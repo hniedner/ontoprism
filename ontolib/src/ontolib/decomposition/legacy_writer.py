@@ -10,12 +10,14 @@ are never referenced in the output at all.  Uses the op: vocabulary from
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition import vocab
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS, AxisContract
 from ontolib.decomposition.models import GenusDefinitionFact
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -52,6 +54,8 @@ def _render_constituent(subj: str, constituent: Constituent) -> str:
         f"{_p(vocab.FILLER)} {filler} ; "
         f'{_p(vocab.AXIS_SOURCE)} "{constituent.axis_source}"'
     )
+    if constituent.source_role is not None:
+        rendered += f" ; {_p(vocab.SOURCE_ROLE)} <{NCIT_NS}{constituent.source_role}>"
     if constituent.most_specific:
         rendered += f" ; {_p(vocab.MOST_SPECIFIC)} true"
     if constituent.group is not None:
@@ -64,6 +68,37 @@ def _render_constituent(subj: str, constituent: Constituent) -> str:
             f"<{vocab.DEFINITION_FACT_NS}{source_id}>"
         )
     return f"{subj} {_p(vocab.HAS_CONSTITUENT)}{rendered} ] ."
+
+
+def _render_axis_contract(contract: AxisContract) -> list[str]:
+    axis = _axis_uri(contract.axis)
+    owl_object_property = "<http://www.w3.org/2002/07/owl#ObjectProperty>"
+    rdfs = "http://www.w3.org/2000/01/rdf-schema#"
+    lines = [
+        f"{axis} <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> "
+        f"{owl_object_property} .",
+        f"{axis} <{rdfs}label> {json.dumps(contract.label)} .",
+        f"{axis} <{rdfs}comment> {json.dumps(contract.definition)} .",
+        f"{axis} <{rdfs}domain> <{NCIT_NS}{contract.domain_code}> .",
+        f"{axis} <{rdfs}range> <{NCIT_NS}{contract.range_code}> .",
+    ]
+    lines.extend(
+        f"{axis} {_p(vocab.NORMALIZED_FROM_ROLE)} <{NCIT_NS}{role}> ."
+        for role in contract.source_roles
+    )
+    lines.extend(
+        f"{axis} {_p(vocab.CONTRACT_PROVENANCE)} {json.dumps(source)} ."
+        for source in contract.provenance
+    )
+    return lines
+
+
+def _render_axis_contracts() -> list[str]:
+    return [
+        line
+        for axis in sorted(AXIS_CONTRACTS)
+        for line in _render_axis_contract(AXIS_CONTRACTS[axis])
+    ]
 
 
 def _render_definition_fact(subj: str, fact: DefinitionFact) -> list[str]:
@@ -149,12 +184,12 @@ async def write_ttl(
     """
     if emit_equivalence:
         raise ValueError(
-            "equivalence emission is not available until a proof-bearing "
-            "representation can establish exact completeness (#153)"
+            "equivalence emission is not available without a separately validated "
+            "proof-bearing export mode"
         )
     if emitted_on is None:
         emitted_on = date.today()
-    buf: list[str] = []
+    buf = _render_axis_contracts()
 
     for dec in decompositions:
         buf.extend(

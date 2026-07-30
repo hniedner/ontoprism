@@ -51,6 +51,40 @@ async def test_single_decomposition_writes_to_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+async def test_ttl_publishes_axis_contract_and_constituent_source_role(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "out.ttl"
+    await write_ttl(
+        [
+            Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=[
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C12400",
+                        axis_source="role",
+                        source_role="R101",
+                    )
+                ],
+            )
+        ],
+        dest=out,
+    )
+    graph = rdflib.Graph().parse(out)
+    primary_site = URIRef(f"{vocab.ONTOPRISM_NS}PrimarySite")
+    source_role = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R101")
+
+    assert (primary_site, rdflib.RDF.type, OWL.ObjectProperty) in graph
+    assert (primary_site, rdflib.RDFS.domain, None) in graph
+    assert (primary_site, rdflib.RDFS.range, None) in graph
+    assert (primary_site, rdflib.RDFS.comment, None) in graph
+    assert (primary_site, URIRef(vocab.NORMALIZED_FROM_ROLE), source_role) in graph
+    assert (None, URIRef(vocab.SOURCE_ROLE), source_role) in graph
+
+
+@pytest.mark.unit
 async def test_minted_filler_uses_opns_prefix(tmp_path: Path) -> None:
     decs = [
         Decomposition(

@@ -23,6 +23,7 @@ def _row(**kw: str) -> dict[str, str | None]:
                 "mostSpecific",
                 "group",
                 "needsReview",
+                "sourceRole",
                 "sourceDefinitionFact",
             ),
             None,
@@ -74,6 +75,46 @@ def test_op_axis_keeps_its_prefix() -> None:
     d = decomposition_from_rows("C6135", rows)
     assert d.constituents[0].axis == "op:Morphology"
     assert d.constituents[0].axis_source == "parent"
+
+
+@pytest.mark.unit
+def test_normalized_axis_preserves_valid_ncit_source_role() -> None:
+    d = decomposition_from_rows(
+        "C6135",
+        [
+            _row(
+                status=vocab.LEGACY_PRECOORDINATED,
+                axis=f"{vocab.ONTOPRISM_NS}PrimarySite",
+                filler=_ncit("C12400"),
+                sourceRole=_ncit("R101"),
+            )
+        ],
+    )
+
+    assert d.constituents[0].axis == "op:PrimarySite"
+    assert d.constituents[0].source_role == "R101"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "source_role",
+    [
+        "https://example.org/R101",
+        f"{NCIT_NS}C101",
+    ],
+)
+def test_invalid_source_role_fails_closed(source_role: str) -> None:
+    with pytest.raises(ValueError, match="source role"):
+        decomposition_from_rows(
+            "C6135",
+            [
+                _row(
+                    axis=f"{vocab.ONTOPRISM_NS}PrimarySite",
+                    filler=_ncit("C12400"),
+                    sourceRole=source_role,
+                )
+            ],
+        )
 
 
 @pytest.mark.unit

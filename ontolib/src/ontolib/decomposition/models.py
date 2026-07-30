@@ -128,22 +128,27 @@ class RoleRestriction:
 class Constituent:
     """A single decomposed constituent: an axis and the concept that fills it.
 
-    ``axis`` is the NCIt role code (reused as the axis identifier) or an ``op:`` axis
-    such as ``op:Morphology``. ``most_specific`` records that the filler was chosen over
-    a strictly broader is-a/R82 candidate; ``needs_review`` flags an unresolved ordinary
-    axis for curation. ``group`` is a D19 relationship-group id shared by ambiguous
-    fillers on the same routed axis, including hierarchy-related lineage values.
+    ``axis`` is the normalized ``op:`` relation (or an unknown legacy NCIt role);
+    ``source_role`` preserves the defining NCIt role independently. ``most_specific``
+    records that the filler was chosen over a strictly broader is-a/R82 candidate;
+    ``needs_review`` flags an unresolved ordinary axis for curation. ``group`` is a D19
+    relationship-group id shared by ambiguous fillers on the same routed axis.
     """
 
     axis: str
     filler_code: str
     axis_source: AxisSource
+    source_role: str | None = None
     most_specific: bool = False
     needs_review: bool = False
     group: str | None = None
     source_definition_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.source_role is not None and (
+            not self.source_role.startswith("R") or not self.source_role[1:].isdigit()
+        ):
+            raise ValueError("source_role must be an NCIt role code")
         canonical = tuple(sorted(set(self.source_definition_ids)))
         for source_id in canonical:
             _require_sha256(source_id, "source_definition_ids item")

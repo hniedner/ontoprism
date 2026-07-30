@@ -361,9 +361,10 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     constituents.mappings.return_value.all.return_value = [
         {
             "concept_code": "C1",
-            "axis": "R101",
+            "axis": "op:PrimarySite",
             "filler_code": "C200",
             "axis_source": "role",
+            "source_role": "R101",
             "most_specific": True,
             "needs_review": True,
             "relationship_group": "anatomy-1",
@@ -406,9 +407,10 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
             semantic_type="Neoplastic Process",
             constituents=[
                 Constituent(
-                    axis="R101",
+                    axis="op:PrimarySite",
                     filler_code="C200",
                     axis_source="role",
+                    source_role="R101",
                     most_specific=True,
                     needs_review=True,
                     group="anatomy-1",

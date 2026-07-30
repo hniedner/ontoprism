@@ -13,6 +13,10 @@ from collections.abc import Callable, Iterable
 from typing import cast
 
 from ontolib.decomposition import axes
+from ontolib.decomposition.axis_contracts import (
+    AXIS_CONTRACTS,
+    normalized_axis_for_role,
+)
 from ontolib.decomposition.models import Constituent, RoleRestriction
 from ontolib.decomposition.site_resolution import organ_for_morphology
 
@@ -30,7 +34,7 @@ def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -
 
 
 def filter_excluded(restrictions: Iterable[RoleRestriction]) -> list[RoleRestriction]:
-    """Drop ``Excludes_*`` and optional R114/R115 non-defining restrictions."""
+    """Drop ``Excludes_*`` and probabilistic ``May_Have_*`` restrictions."""
     return [r for r in restrictions if axes.is_defining_role(r)]
 
 
@@ -52,7 +56,8 @@ def route_axis(r: RoleRestriction) -> str:
 
     * R101 with lineage-generic ``anchoring_genus`` → ``ASSOCIATED_LINEAGE_AXIS``
     * R88 with a known stage-system filler code → ``STAGE_SYSTEM_AXIS``
-    * Everything else keeps its role code as the axis.
+    * Known defining roles route to their univocal ``op:`` axis.
+    * Unknown roles keep their source code and are flagged for review downstream.
     """
     if r.role_code == axes.PRIMARY_SITE_ROLE and axes.is_lineage_generic(
         r.anchoring_genus
@@ -60,7 +65,7 @@ def route_axis(r: RoleRestriction) -> str:
         return axes.ASSOCIATED_LINEAGE_AXIS
     if r.role_code == "R88" and r.filler_code in _STAGE_SYSTEM_CODES:
         return axes.STAGE_SYSTEM_AXIS
-    return r.role_code
+    return normalized_axis_for_role(r.role_code) or r.role_code
 
 
 _REVIEW_EXEMPT_AXES: frozenset[str] = frozenset(
@@ -99,7 +104,7 @@ def _is_r101_semantic_split(
     semantic_type_of: Callable[[str], str | None] | None,
 ) -> bool:
     return (
-        axis_name == axes.PRIMARY_SITE_ROLE
+        axis_name == axes.PRIMARY_SITE_AXIS
         and semantic_type_of is not None
         and len(leaves) > 1
     )
@@ -119,9 +124,10 @@ def _r101_semantic_type_constituents(
     organ_ambiguous = len(organ) > 1
     organ_constituents = [
         Constituent(
-            axis=axes.PRIMARY_SITE_ROLE,
+            axis=axes.PRIMARY_SITE_AXIS,
             filler_code=filler,
             axis_source="role",
+            source_role=axes.PRIMARY_SITE_ROLE,
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=organ_ambiguous,
         )
@@ -144,12 +150,26 @@ def _associated_region_constituents(
             axis=axes.ASSOCIATED_REGION_AXIS,
             filler_code=filler,
             axis_source="role",
+            source_role=axes.PRIMARY_SITE_ROLE,
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=False,
             group=group,
         )
         for filler in regions
     ]
+
+
+def _source_role_for_axis(axis_name: str) -> str | None:
+    contract = AXIS_CONTRACTS.get(axis_name)
+    if contract is not None and len(contract.source_roles) == 1:
+        return contract.source_roles[0]
+    return axis_name if axis_name.startswith("R") else None
+
+
+def _requires_review(axis_name: str, *, ambiguous: bool) -> bool:
+    if axis_name not in AXIS_CONTRACTS:
+        return True
+    return ambiguous and axis_name not in _REVIEW_EXEMPT_AXES
 
 
 def _standard_constituents(
@@ -165,8 +185,9 @@ def _standard_constituents(
             axis=axis_name,
             filler_code=filler,
             axis_source="role",
+            source_role=_source_role_for_axis(axis_name),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
-            needs_review=not is_routed and ambiguous,
+            needs_review=_requires_review(axis_name, ambiguous=ambiguous),
             group=axis_name if is_routed and ambiguous else None,
         )
         for filler in leaves
@@ -201,7 +222,7 @@ def _known_r101_organ(
     axis_name: str,
 ) -> str | None:
     if (
-        axis_name != axes.PRIMARY_SITE_ROLE
+        axis_name != axes.PRIMARY_SITE_AXIS
         or parent_morphology is None
         or len(fillers) <= 1
     ):
@@ -223,9 +244,10 @@ def _resolve_r101_with_organ_lookup(
     if organ is None:
         return None
     primary = Constituent(
-        axis=axes.PRIMARY_SITE_ROLE,
+        axis=axes.PRIMARY_SITE_AXIS,
         filler_code=organ,
         axis_source="role",
+        source_role=axes.PRIMARY_SITE_ROLE,
         most_specific=_is_most_specific(organ, fillers, is_ancestor),
         needs_review=False,
     )
@@ -317,9 +339,10 @@ def select_constituents(
 ) -> list[Constituent]:
     """Turn a concept's stated role restrictions into its selected constituents.
 
-    Filters non-defining restrictions (``Excludes_*`` and optional R114/R115), groups
-    defining roles by routed axis (D20 refinement 1), collapses hierarchy-comparable
-    axes to their most-specific filler(s), and preserves all associated-lineage fillers.
+    Filters non-defining restrictions (``Excludes_*`` and optional ``May_Have_*``),
+    groups defining roles by routed axis (D20 refinement 1), collapses
+    hierarchy-comparable axes to their most-specific filler(s), and preserves all
+    associated-lineage fillers.
     It then applies D20 refinement 2 (semantic-type ranking on residual R101 leaves) and
     assigns D19 relationship-group ids to ambiguous routed-axis values. Output is sorted
     (axis, filler) for deterministic, diffable results.
