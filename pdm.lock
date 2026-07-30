@@ -965,7 +965,7 @@ files = [
 
 [[package]]
 name = "ontolib"
-version = "0.17.0"
+version = "0.17.1"
 requires_python = ">=3.13,<3.14"
 editable = true
 path = "./ontolib"
@@ -974,7 +974,7 @@ groups = ["local"]
 
 [[package]]
 name = "ontoprism-backend"
-version = "0.17.0"
+version = "0.17.1"
 requires_python = ">=3.13,<3.14"
 editable = true
 path = "./backend"

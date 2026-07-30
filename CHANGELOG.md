@@ -19,6 +19,38 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.17.1 (2026-07-30)
+
+### Bug Fixes
+
+- **cadsr**: Pin the distinct CDE count, not the record count
+  ([#239](https://github.com/hniedner/ontoprism/pull/239),
+  [`bc5dd99`](https://github.com/hniedner/ontoprism/commit/bc5dd9984f3054e1b0426ab52fd0386d4d38bf8a))
+
+### Documentation
+
+- Apply review findings to the mutating-reviewer rule
+  ([#237](https://github.com/hniedner/ontoprism/pull/237),
+  [`d5cde38`](https://github.com/hniedner/ontoprism/commit/d5cde3812a3af931160f48ac729e94f2b10afd74))
+
+- Correct the stash rationale in the mutating-reviewer rule
+  ([#237](https://github.com/hniedner/ontoprism/pull/237),
+  [`d5cde38`](https://github.com/hniedner/ontoprism/commit/d5cde3812a3af931160f48ac729e94f2b10afd74))
+
+- Run the mutating reviewer alone ([#237](https://github.com/hniedner/ontoprism/pull/237),
+  [`d5cde38`](https://github.com/hniedner/ontoprism/commit/d5cde3812a3af931160f48ac729e94f2b10afd74))
+
+- Update README code line-count table
+  ([`a1c1d62`](https://github.com/hniedner/ontoprism/commit/a1c1d62a9d63a108bc31a88ab7e3846d93522509))
+
+- Update README code line-count table
+  ([`b07a468`](https://github.com/hniedner/ontoprism/commit/b07a468315264252d0d250ff67ac18639c442856))
+
+- **cadsr**: Correct the pin comment's overreach
+  ([#239](https://github.com/hniedner/ontoprism/pull/239),
+  [`bc5dd99`](https://github.com/hniedner/ontoprism/commit/bc5dd9984f3054e1b0426ab52fd0386d4d38bf8a))
+
+
 ## v0.17.0 (2026-07-29)
 
 ### Bug Fixes
