@@ -436,7 +436,8 @@ class _PartOfClosure:
         frontiers = {root: {root} for root in root_list}
         wholes = {root: set() for root in root_list}
 
-        for depth in range(_PART_OF_MAX_SUPERCLASS_HOPS + 1):
+        depth = 0
+        while True:
             await self._expand(_frontier_nodes(frontiers))
             next_frontiers = _next_superclass_frontiers(
                 self.cache,
@@ -449,7 +450,7 @@ class _PartOfClosure:
             if depth == _PART_OF_MAX_SUPERCLASS_HOPS:
                 raise ValueError("R82 superclass hop bound exhausted at 8 hops")
             frontiers = next_frontiers
-        raise AssertionError("unreachable R82 superclass traversal state")
+            depth += 1
 
     async def resolve(self) -> list[PartOfPair]:
         requested_set = frozenset(self.requested)
@@ -457,7 +458,8 @@ class _PartOfClosure:
         frontiers = {origin: {origin} for origin in self.requested}
         pairs: set[PartOfPair] = set()
 
-        for hop in range(1, _PART_OF_MAX_R82_HOPS + 2):
+        hop = 1
+        while True:
             outgoing = await self._inherited_wholes(_frontier_nodes(frontiers))
             next_frontiers = _next_part_of_frontiers(frontiers, outgoing, reached)
             if hop > _PART_OF_MAX_R82_HOPS:
@@ -468,6 +470,7 @@ class _PartOfClosure:
             if not _frontier_nodes(next_frontiers):
                 break
             frontiers = next_frontiers
+            hop += 1
 
         return sorted(pairs, key=lambda pair: (pair.part, pair.whole))
 
@@ -770,8 +773,6 @@ async def _get_genus_from_intersection(
 ) -> str | None:
     """Get the genus code from the first owl:intersectionOf member."""
     queries = build_genus_walk_members_query(code)
-    if not queries:
-        return None
 
     rows = await select_fn(
         queries[0], required_variables={"member"}

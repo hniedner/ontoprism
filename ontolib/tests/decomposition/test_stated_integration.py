@@ -156,6 +156,78 @@ async def test_stated_query_builders_parse_against_disposable_store(
 
 
 @pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_genus_traversal_matches_disposable_owl_list_shape(
+    isolated_oxigraph_url: str,
+) -> None:
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99401 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99402
+                [
+                    a owl:Restriction ;
+                    owl:onProperty ncit:R101 ;
+                    owl:someValuesFrom ncit:C99410
+                ]
+            )
+        ] .
+        ncit:C99402
+            rdfs:label "Synthetic Carcinoma by AJCC Stage II" ;
+            owl:equivalentClass [
+                owl:intersectionOf (
+                    ncit:C99403
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R101 ;
+                        owl:someValuesFrom ncit:C99411
+                    ]
+                )
+            ] .
+        ncit:C99403 rdfs:label "Synthetic Carcinoma" .
+    """
+
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        roles = await walk_genus_chain(client.select, "C99401", max_depth=3)
+        morphology = await resolve_morphology_filler(
+            client.select,
+            "C99401",
+            max_depth=3,
+        )
+
+    assert [
+        (role.role_code, role.filler_code, role.anchoring_genus) for role in roles
+    ] == [
+        ("R101", "C99410", "C99401"),
+        ("R101", "C99411", "C99402"),
+    ]
+    assert morphology == "C99403"
+
+    semantic_types = {
+        "C99410": "Body Part, Organ, or Organ Component",
+        "C99411": "Anatomical Structure",
+    }
+    constituents = select_constituents(
+        roles,
+        lambda _ancestor, _descendant: False,
+        semantic_type_of=semantic_types.get,
+    )
+    assert {(item.axis, item.filler_code) for item in constituents} == {
+        ("op:PrimarySite", "C99410"),
+        ("op:AssociatedRegion", "C99411"),
+    }
+
+
+@pytest.mark.integration
 async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
     isolated_oxigraph_url: str,
 ) -> None:
