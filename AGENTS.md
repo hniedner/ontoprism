@@ -202,16 +202,27 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   5. `pr-review-toolkit:type-design-analyzer` — are the invariants enforced by the types
      or only by the caller's good manners?
 
-  **Run the initial round in parallel; they find different classes of defect and they do
-  not substitute for one another.** On #73 the five caught, respectively: a vacuous
-  satisfiability gate, an environment failure laundered into a verdict, a test double
-  that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
+  **In every round `pr-test-analyzer` runs ALONE; the others run in parallel (see D49).**
+  It mutates production code to prove a test fails when the code is wrong, so a
+  concurrent reviewer can observe a dirty worktree and review code that is not the
+  committed diff. That invalidates the round's clean-worktree precondition for every
+  agent running beside it. Run the other non-converged agents in parallel, then
+  `pr-test-analyzer` on its own against the same commit; it must restore every mutation.
+  After it returns, verify `git status --porcelain` is empty **and** `git rev-parse HEAD`
+  is unchanged before accepting its verdict or starting another round — a mutation that
+  was committed or amended into `HEAD` leaves the tree clean while the reviewed diff has
+  moved. If either check fails, restore the tree yourself and treat that run as
+  inconclusive, hence non-converged. The full set otherwise matters because they find different classes of
+  defect and do not substitute for one another. On #73 the five caught, respectively: a
+  vacuous satisfiability gate, an environment failure laundered into a verdict, a test
+  double that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
   guarantee the merge could not provide, and an invariant enforced only by convention.
   Running two of the five would have shipped the other three.
 
   Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
   (anything you can confirm and act on) — then re-run the applicable local gates and commit
-  those fixes before re-running **only the non-converged agents**. Every review round must
+  those fixes before re-running **only the non-converged agents** (if that reduced set
+  includes `pr-test-analyzer`, it still runs by itself, after the others). Every review round must
   inspect a clean worktree and the committed `main...HEAD` diff. Do not push or create the
   PR until all five agents have converged and the final local gates pass. An agent converges
   only when a
