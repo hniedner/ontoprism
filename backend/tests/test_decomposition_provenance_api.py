@@ -76,6 +76,13 @@ _SAMPLE_RUN = RunSummary(
     fingerprint_sha256="b" * 64,
     started_at=datetime(2026, 7, 12, 0, 0, tzinfo=timezone.utc),  # noqa: UP017
     finished_at=datetime(2026, 7, 12, 1, 0, tzinfo=timezone.utc),  # noqa: UP017
+    publication_state="published",
+    publication_attempt_count=2,
+    representation_identity="c" * 64,
+    publication_artifact_path="/data/ncit_decomposed.ttl",
+    publication_built_at=datetime(2026, 7, 12, 0, 55, tzinfo=timezone.utc),  # noqa: UP017
+    publication_started_at=datetime(2026, 7, 12, 0, 56, tzinfo=timezone.utc),  # noqa: UP017
+    publication_finished_at=datetime(2026, 7, 12, 1, 0, tzinfo=timezone.utc),  # noqa: UP017
     total_in_scope=5,
     decomposed=3,
     residual=2,
@@ -97,6 +104,7 @@ _SAMPLE_INCOMPLETE_RUN = RunSummary(
     status="running",
     ncit_version="26.05d",
     started_at=datetime(2026, 7, 12, 0, 0, tzinfo=timezone.utc),  # noqa: UP017
+    publication_state="pending",
 )
 
 _SAMPLE_MINT = MintedConcept(
@@ -143,7 +151,14 @@ def test_list_runs_returns_summaries() -> None:
     assert complete["source_identity"] == "a" * 64
     assert complete["fingerprint_sha256"] == "b" * 64
     assert complete["error_type"] is None
+    assert complete["publication_state"] == "published"
+    assert complete["publication_attempt_count"] == 2
+    assert complete["representation_identity"] == "c" * 64
+    assert complete["publication_built_at"] == "2026-07-12T00:55:00Z"
+    assert complete["publication_finished_at"] == "2026-07-12T01:00:00Z"
+    assert complete["publication_error_type"] is None
     running = next(r for r in body if r["status"] == "running")
+    assert running["publication_state"] == "pending"
     assert running["total_in_scope"] is None
     assert running["residual_precoordinated_count"] is None
     assert running["projection_loss_rate"] is None

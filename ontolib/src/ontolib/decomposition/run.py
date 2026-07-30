@@ -16,12 +16,11 @@ Scope of this orchestrator (documented boundaries, not oversights):
   ``stated_queries.resolve_morphology_filler`` walks the genus chain for the first
   non-staging genus, ``filler_selection._append_morphology`` adds the ``op:Morphology``
   constituent, and ``detector.detect`` counts it as a decomposable axis.
-- ``--load`` (pushing the written TTL into the store) is a CLI-layer concern, not this
-  function's — ``run_pipeline`` only ever writes the file at ``config.out``, and only
-  after the source identity is re-verified and the run is marked complete: the TTL is
-  rendered to an unpublished staging sibling and atomically moved into place, so a
-  drifted or failed run never leaves an artifact at ``config.out``. The CLI script
-  performs the store load afterwards using the concrete client's ``.load()``.
+- File and optional named-graph publication are coordinated inside ``run_pipeline``.
+  A complete artifact is rendered and validated first, the graph is replaced through
+  a run-scoped staging graph and one transactional update, the file is atomically
+  replaced, and only then is the run marked complete. Publication failures remain
+  separately journaled and resumable.
 - ``--resume`` consumes the immutable materialized worklist for a matching
   running/failed run. Every concept has an explicit state, including concepts producing
   no constituents. Per-concept replacement and completion are one fenced transaction.
@@ -62,6 +61,10 @@ from ontolib.decomposition.provenance_models import (
     RunFingerprint,
     RunResumeIdentity,
 )
+from ontolib.decomposition.publication import (
+    PublicationGraphClient,
+    publish_artifact,
+)
 
 logger = get_logger(__name__)
 
@@ -89,12 +92,7 @@ class SourceIdentityChangedError(RuntimeError):
 
 
 class RunPublicationError(RuntimeError):
-    """The run completed, but its rendered artifact was not published.
-
-    Distinct from a run failure: the run is already recorded ``complete``, so there
-    is nothing for ``fail_run`` to record. Publication of the file and the named
-    graph is the separate #147 boundary.
-    """
+    """Artifact publication failed and remains retryable on the running run."""
 
 
 class SparqlClient(Protocol):
@@ -116,6 +114,7 @@ class SparqlClient(Protocol):
 class DecompositionSparqlClient(
     SparqlClient,
     stated_queries.SingleAttemptSelectRows,
+    PublicationGraphClient,
     Protocol,
 ):
     """SPARQL client with a non-retrying SELECT path for bounded closure."""
@@ -130,12 +129,10 @@ async def _never_resolves(_: str) -> str | None:
 class RunConfig:
     """Configuration for a decomposition run.
 
-    ``load_to_store`` never causes ``run_pipeline`` to load anything: loading is a
-    CLI-layer concern performed by the caller after ``run_pipeline`` returns (see the
-    module docstring). It is read only to record ``load_mode`` in the immutable run
-    fingerprint, which is why it must agree with ``out``. Equivalence emission is
-    quarantined until a separate equivalence-validation step can prove the complete
-    representation is exact.
+    ``load_to_store`` publishes the validated artifact through a staging graph before
+    run completion. It therefore requires ``out`` and is part of the immutable run
+    fingerprint. Equivalence emission is quarantined until a separate
+    equivalence-validation step can prove the complete representation is exact.
     """
 
     branch: DecompositionBranch
@@ -798,6 +795,89 @@ def _discard_staging(staging: Path, exc: BaseException) -> None:
         )
 
 
+async def _write_staging_artifact(
+    publication: tuple[Path, Path] | None,
+    decompositions: Sequence[Decomposition],
+    setup: _RunSetup,
+) -> None:
+    if publication is None:
+        return
+    try:
+        await write_ttl(
+            decompositions,
+            dest=publication[0],
+            run_id=setup.run_id,
+            emitted_on=setup.fingerprint.emitted_at.date(),
+        )
+    except BaseException as exc:
+        _discard_staging(publication[0], exc)
+        raise
+
+
+async def _verify_final_source_snapshot(
+    setup: _RunSetup,
+    client: DecompositionSparqlClient,
+    get_source_snapshot: GetSourceSnapshot,
+    publication: tuple[Path, Path] | None,
+) -> None:
+    try:
+        await _require_source_snapshot(
+            client,
+            get_source_snapshot,
+            expected=setup.source_snapshot,
+        )
+    except BaseException as exc:
+        if publication is not None:
+            _discard_staging(publication[0], exc)
+        raise
+
+
+def _persisted_metrics(metrics: RunMetrics) -> dict[str, object]:
+    persisted = asdict(metrics)
+    persisted["residual_precoordination"] = metrics.residual_precoordination
+    return persisted
+
+
+async def _publish_or_complete_run(
+    *,
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    decompositions: Sequence[Decomposition],
+    metrics: dict[str, object],
+    publication: tuple[Path, Path] | None,
+) -> None:
+    if publication is not None:
+        try:
+            await publish_artifact(
+                run_id=setup.run_id,
+                source_identity=setup.fingerprint.source_identity,
+                artifact=publication[0],
+                destination=publication[1],
+                expected_codes={decomposition.code for decomposition in decompositions},
+                metrics=metrics,
+                load_to_store=config.load_to_store,
+                client=client,
+                provenance=provenance,
+            )
+        except BaseException as publish_error:
+            raise RunPublicationError(
+                f"Run {setup.run_id!r} publication failed and remains retryable"
+            ) from publish_error
+        return
+    finished = await provenance.finish_run(
+        setup.run_id,
+        source_identity=setup.fingerprint.source_identity,
+        metrics=metrics,
+    )
+    if not finished:
+        raise RuntimeError(
+            f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
+            f"(branch={config.branch!r})"
+        )
+
+
 async def _finish_run(
     setup: _RunSetup,
     config: RunConfig,
@@ -815,48 +895,22 @@ async def _finish_run(
         get_labels=get_labels,
     )
     publication = _publication_paths(config, setup.run_id)
-    try:
-        if publication is not None:
-            # Render to an unpublished staging sibling: the artifact must not appear
-            # at the operator's path unless the source identity still holds *and* the
-            # run completed, otherwise a drifted (mixed-source) run leaves a
-            # complete-looking TTL behind after its rows are invalidated.
-            await write_ttl(
-                decompositions,
-                dest=publication[0],
-                run_id=setup.run_id,
-                emitted_on=setup.fingerprint.emitted_at.date(),
-            )
-        await _require_source_snapshot(
-            client,
-            get_source_snapshot,
-            expected=setup.source_snapshot,
-        )
-        persisted_metrics = asdict(metrics)
-        persisted_metrics["residual_precoordination"] = metrics.residual_precoordination
-        finished = await provenance.finish_run(
-            setup.run_id,
-            source_identity=setup.fingerprint.source_identity,
-            metrics=persisted_metrics,
-        )
-        if not finished:
-            raise RuntimeError(
-                f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
-                f"(branch={config.branch!r})"
-            )
-    except BaseException as exc:
-        if publication is not None:
-            _discard_staging(publication[0], exc)
-        raise
-    if publication is not None:
-        try:
-            publication[0].replace(publication[1])
-        except OSError as publish_error:
-            raise RunPublicationError(
-                f"Run {setup.run_id!r} completed but its artifact was not published "
-                f"to {publication[1]}; the rendered output remains at "
-                f"{publication[0]}."
-            ) from publish_error
+    await _write_staging_artifact(publication, decompositions, setup)
+    await _verify_final_source_snapshot(
+        setup,
+        client,
+        get_source_snapshot,
+        publication,
+    )
+    await _publish_or_complete_run(
+        setup=setup,
+        config=config,
+        client=client,
+        provenance=provenance,
+        decompositions=decompositions,
+        metrics=_persisted_metrics(metrics),
+        publication=publication,
+    )
     return metrics
 
 

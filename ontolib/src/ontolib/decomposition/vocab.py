@@ -33,6 +33,12 @@ SOURCE_DEFINITION_FACT = f"{ONTOPRISM_NS}sourceDefinitionFact"
 SOURCE_ROLE = f"{ONTOPRISM_NS}sourceRole"
 NORMALIZED_FROM_ROLE = f"{ONTOPRISM_NS}normalizedFromRole"
 CONTRACT_PROVENANCE = f"{ONTOPRISM_NS}contractProvenance"
+PUBLICATION_MARKER = f"{ONTOPRISM_NS}decompositionPublication"
+PUBLICATION_CLASS = f"{ONTOPRISM_NS}DecompositionPublication"
+PUBLICATION_RUN = f"{ONTOPRISM_NS}publicationRun"
+PUBLICATION_SOURCE_IDENTITY = f"{ONTOPRISM_NS}publicationSourceIdentity"
+PUBLICATION_REPRESENTATION_IDENTITY = f"{ONTOPRISM_NS}publicationRepresentationIdentity"
+PUBLICATION_BUILT_AT = f"{ONTOPRISM_NS}publicationBuiltAt"
 
 # --- Complete stated definition ---------------------------------------------------
 HAS_DEFINITION_FACT = f"{ONTOPRISM_NS}hasDefinitionFact"

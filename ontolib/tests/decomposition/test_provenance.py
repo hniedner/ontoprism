@@ -33,6 +33,15 @@ def _make_mock_sf(*, rowcount: int = 1) -> MagicMock:
 
 
 @pytest.mark.unit
+async def test_publication_lock_requires_an_engine_bound_session_factory() -> None:
+    store = ProvenanceStore(_make_mock_sf())
+
+    with pytest.raises(TypeError, match="bound to an AsyncEngine"):
+        async with store.publication_lock():
+            raise AssertionError("unbound factory entered the lock body")
+
+
+@pytest.mark.unit
 async def test_finish_run_sets_complete() -> None:
     sf = _make_mock_sf(rowcount=1)
     locked = MagicMock()
@@ -53,6 +62,8 @@ async def test_finish_run_sets_complete() -> None:
         "source_identity": "a" * 64,
         "fingerprint": fingerprint.model_dump(mode="json"),
         "fingerprint_sha256": fingerprint.identity,
+        "publication_state": "not_requested",
+        "representation_identity": None,
     }
     worklist = MagicMock()
     worklist.scalars.return_value.all.return_value = []

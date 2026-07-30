@@ -121,6 +121,22 @@ class RunSummary(BaseModel):
     emitted_at: AwareDatetime | None = None
     error_type: str | None = None
     error_message: str | None = None
+    publication_state: Literal[
+        "legacy",
+        "not_requested",
+        "pending",
+        "publishing",
+        "failed",
+        "published",
+    ] = "legacy"
+    publication_attempt_count: int = Field(default=0, ge=0)
+    representation_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    publication_artifact_path: str | None = None
+    publication_built_at: AwareDatetime | None = None
+    publication_started_at: AwareDatetime | None = None
+    publication_finished_at: AwareDatetime | None = None
+    publication_error_type: str | None = None
+    publication_error_message: str | None = None
     total_in_scope: int | None = None
     decomposed: int | None = None
     residual: int | None = None

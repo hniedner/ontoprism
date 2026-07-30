@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1406,10 +1407,10 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
 
 
 @pytest.mark.unit
-async def test_failed_completion_leaves_no_publishable_artifact(
+async def test_final_status_failure_surfaces_marker_ahead_for_reconciliation(
     tmp_path: Path,
 ) -> None:
-    """A run that cannot be marked complete must not publish its artifact."""
+    """External publication may lead the DB; that state must fail visibly."""
     out = tmp_path / "decomposed.ttl"
     client = _FakeClient(pages=[["C1"]])
     provenance = _mock_provenance()
@@ -1426,9 +1427,7 @@ async def test_failed_completion_leaves_no_publishable_artifact(
     )
     _mark_run_row_missing(provenance, provenance._test_state)
 
-    with pytest.raises(
-        RuntimeError, match="finish_run found no decomp_run row"
-    ) as exc_info:
+    with pytest.raises(RunPublicationError, match="remains retryable") as exc_info:
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
             client,
@@ -1436,13 +1435,11 @@ async def test_failed_completion_leaves_no_publishable_artifact(
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )
 
-    assert not out.exists()
-    assert list(tmp_path.iterdir()) == []
-    # The run row is gone, so `fail_run` records nothing: the operator must be told.
-    assert any(
-        "Run failure was NOT recorded" in note for note in exc_info.value.__notes__
-    )
-    assert list(tmp_path.iterdir()) == []
+    assert out.exists()
+    assert not list(tmp_path.glob("*.staging-*"))
+    assert isinstance(exc_info.value.__cause__, RunStateError)
+    provenance.record_publication_failure.assert_awaited_once()
+    provenance.fail_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -1593,11 +1590,11 @@ async def test_staging_cleanup_failure_never_replaces_the_drift_error(
 
 
 @pytest.mark.unit
-async def test_publication_failure_reports_the_completed_unpublished_run(
+async def test_publication_failure_is_recorded_as_retryable_before_completion(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A rename failure after completion must not read as an unrecorded failure."""
+    """A rename failure remains a publication retry, not a completed run."""
     out = tmp_path / "decomposed.ttl"
     client = _FakeClient(pages=[[]])
     provenance = _mock_provenance()
@@ -1610,12 +1607,12 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
         )
     )
 
-    def explode(self: Path, _target: object) -> None:
+    def explode(_source: object, _target: object) -> None:
         raise OSError("is a directory")
 
-    monkeypatch.setattr(Path, "replace", explode)
+    monkeypatch.setattr(os, "replace", explode)
 
-    with pytest.raises(RunPublicationError, match="was not published") as exc_info:
+    with pytest.raises(RunPublicationError, match="remains retryable") as exc_info:
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
             client,
@@ -1623,14 +1620,14 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )
 
-    provenance.finish_run.assert_awaited_once()
+    provenance.finish_run.assert_not_awaited()
+    provenance.record_publication_failure.assert_awaited_once()
     provenance.fail_run.assert_not_awaited()
     assert isinstance(exc_info.value.__cause__, OSError)
     assert not getattr(exc_info.value, "__notes__", [])
-    # The message promises the rendered output survives; it is the only copy,
-    # because the completed run can no longer be resumed.
+    # The complete staging artifact survives so a matching resume can reconcile it.
     staging = next(path for path in tmp_path.iterdir() if ".staging-" in path.name)
-    assert str(staging) in str(exc_info.value)
+    assert staging.exists()
     assert not out.exists()
 
 

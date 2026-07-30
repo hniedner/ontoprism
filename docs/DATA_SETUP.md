@@ -135,11 +135,13 @@ former `disease` label selected identical behavior and was removed, while `regim
 remains unavailable until its distinct component-bag algorithm is implemented.
 `--resume RUN_ID` accepts only the same source, branch, scope, limit,
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
-drift before completion fails closed and invalidates every persisted result row. The
-`--out` TTL is staged and moved into place only after that check and completion succeed,
-so a drifted run leaves no artifact behind. `--load` publishes the finished TTL into
-the additive `ncit_decomposed` named graph after the run; that publication is outside
-the run's transactional guarantees and its full design is #147.
+drift before publication fails closed and invalidates every persisted result row. The
+`--out` TTL is staged, flushed, validated, and source-checked before publication. With
+`--load`, the CLI loads a unique staging graph and transactionally replaces the additive
+`ncit_decomposed` graph together with its publication marker. It then atomically replaces
+and directory-syncs the file before marking the run complete. Publication failures
+remain separately visible and resumable; matching marker-ahead retries reconcile without
+replaying a committed graph update (D53).
 
 Every manifest records source version/hash, immutable model revision, vector dimension,
 expected unique-row count, code commit, build ID, sentinels, state, and timestamps;

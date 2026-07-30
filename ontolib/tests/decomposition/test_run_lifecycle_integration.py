@@ -61,7 +61,7 @@ def _fingerprint(*, source: str = "a" * 64) -> RunFingerprint:
         algorithm_version="decomposition-v1",
         config_version="axes-v1",
         walker_max_depth=5,
-        output_mode="file",
+        output_mode="none",
         load_mode="none",
         emitted_at=datetime.datetime(2026, 7, 29, 12, 0, tzinfo=datetime.UTC),
     )
@@ -813,9 +813,9 @@ async def test_fingerprint_that_does_not_hash_to_its_identity_is_rejected() -> N
         await conn.execute(
             "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
             "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
-            "error_type, error_message) VALUES "
+            "error_type, error_message, publication_state) VALUES "
             "($1, 'neoplasm', 'failed', '26.07d', now(), $2, $3::jsonb, "
-            "repeat('0', 64), $4, 'Boom', 'injected')",
+            "repeat('0', 64), $4, 'Boom', 'injected', 'not_requested')",
             run_id,
             fingerprint.source_identity,
             fingerprint.model_dump_json(),
@@ -924,12 +924,12 @@ async def test_legacy_fingerprint_rows_fail_closed_on_resume() -> None:
         await conn.execute(
             "INSERT INTO decomp_run (id, branch, status, ncit_version, started_at, "
             "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
-            "error_type, error_message) VALUES "
+            "error_type, error_message, publication_state) VALUES "
             "($1, 'neoplasm', 'failed', '26.07d', now(), repeat('0', 64), "
             "jsonb_build_object('schema_version', 0, 'legacy', true, "
             "'run_id', $1::text), "
             "repeat('0', 64), now(), 'LegacyRun', "
-            "'Legacy run predates exact worklist persistence')",
+            "'Legacy run predates exact worklist persistence', 'pending')",
             run_id,
         )
 

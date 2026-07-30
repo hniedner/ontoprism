@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json as _json
 import logging
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from sqlalchemy.engine import RowMapping
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
     from ontolib.decomposition.minting import MintedConcept as MintedProposal
     from ontolib.decomposition.models import (
@@ -38,6 +43,7 @@ from ontolib.decomposition.provenance_models import (
 )
 
 _logger = logging.getLogger(__name__)
+_PUBLICATION_LOCK_KEY = "decomposition:publication"
 
 
 class RunStateError(RuntimeError):
@@ -48,10 +54,82 @@ class RunIdentityMismatchError(RuntimeError):
     """A resume or completion attempted to cross an immutable run identity."""
 
 
+def _require_completion_source(row: RowMapping, source_identity: str) -> None:
+    if row["source_identity"] != source_identity:
+        raise RunIdentityMismatchError(
+            "completion source identity does not match persisted run"
+        )
+
+
+def _require_completion_publication(
+    row: RowMapping,
+    representation_identity: str | None,
+    run_id: str,
+) -> None:
+    publication_state = row["publication_state"]
+    if publication_state == "not_requested":
+        if representation_identity is not None:
+            raise RunIdentityMismatchError(
+                "a non-publishing run cannot complete a representation"
+            )
+        return
+    if publication_state == "publishing":
+        if row["representation_identity"] != representation_identity:
+            raise RunIdentityMismatchError(
+                "completion representation identity does not match "
+                "the publication intent"
+            )
+        return
+    raise RunStateError(
+        f"decomposition run {run_id!r} publication has not completed coordination "
+        f"(state={publication_state!r})"
+    )
+
+
 def _bounded_failure(error: BaseException) -> tuple[str, str]:
     error_type = type(error).__name__[:128] or "Exception"
     message = str(error)[:1000] or error_type
     return error_type, message
+
+
+async def _acquire_publication_lock(connection: AsyncConnection) -> None:
+    task = asyncio.create_task(
+        connection.execute(
+            text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
+            {"key": _PUBLICATION_LOCK_KEY},
+        )
+    )
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError as cancelled:
+        await task
+        try:
+            await _release_publication_lock(connection)
+        except BaseException as unlock_error:
+            cancelled.add_note(
+                "Failed to release decomposition publication lock after "
+                f"cancellation: {unlock_error}"
+            )
+            await connection.invalidate()
+        raise
+
+
+async def _release_publication_lock(connection: AsyncConnection) -> None:
+    async def release() -> None:
+        unlocked = await connection.scalar(
+            text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+            {"key": _PUBLICATION_LOCK_KEY},
+        )
+        await connection.commit()
+        if not unlocked:
+            raise RunStateError("failed to release decomposition publication lock")
+
+    task = asyncio.create_task(release())
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
 
 
 def _residual_precoordination_metric(
@@ -208,6 +286,38 @@ class ProvenanceStore:
     def __init__(self, sf: async_sessionmaker[AsyncSession]) -> None:
         self._sf = sf
 
+    @asynccontextmanager
+    async def publication_lock(self) -> AsyncIterator[None]:
+        """Serialize publishers while keeping the database connection checked out."""
+        engine = self._sf.kw.get("bind")
+        if not isinstance(engine, AsyncEngine):
+            raise TypeError(
+                "decomposition session factory must be bound to an AsyncEngine"
+            )
+        async with engine.connect() as connection:
+            lock_acquired = False
+            try:
+                await _acquire_publication_lock(connection)
+                lock_acquired = True
+                yield
+            except BaseException as original:
+                if lock_acquired:
+                    try:
+                        await _release_publication_lock(connection)
+                    except BaseException as unlock_error:
+                        original.add_note(
+                            "Failed to release decomposition publication lock: "
+                            f"{unlock_error}"
+                        )
+                        await connection.invalidate()
+                raise
+            else:
+                try:
+                    await _release_publication_lock(connection)
+                except BaseException:
+                    await connection.invalidate()
+                    raise
+
     async def create_run(
         self,
         run_id: str,
@@ -221,10 +331,11 @@ class ProvenanceStore:
                 text(
                     "INSERT INTO decomp_run "
                     "(id, branch, status, ncit_version, started_at, "
-                    "source_identity, fingerprint, fingerprint_sha256, emitted_at) "
+                    "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
+                    "publication_state) "
                     "VALUES (:id, :branch, 'running', :ncit_version, :started_at, "
                     ":source_identity, CAST(:fingerprint AS jsonb), "
-                    ":fingerprint_sha256, :emitted_at)"
+                    ":fingerprint_sha256, :emitted_at, :publication_state)"
                 ),
                 {
                     "id": run_id,
@@ -235,6 +346,11 @@ class ProvenanceStore:
                     "fingerprint": fingerprint.model_dump_json(),
                     "fingerprint_sha256": fingerprint.identity,
                     "emitted_at": fingerprint.emitted_at,
+                    "publication_state": (
+                        "not_requested"
+                        if fingerprint.output_mode == "none"
+                        else "pending"
+                    ),
                 },
             )
             if fingerprint.worklist:
@@ -778,11 +894,123 @@ class ProvenanceStore:
             row = result.mappings().one()
             return RunOutcomeCounts.model_validate(dict(row))
 
+    async def begin_publication(
+        self,
+        run_id: str,
+        *,
+        representation_identity: str,
+        artifact_path: str,
+        built_at: datetime.datetime,
+    ) -> None:
+        """Persist or retry one immutable publication intent.
+
+        Retrying the same intent advances the attempt counter and clears only the
+        publication failure. A different representation, destination, or build time
+        is rejected because it cannot safely reconcile against an existing marker.
+        """
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "SELECT status, publication_state, representation_identity, "
+                    "publication_artifact_path, publication_built_at "
+                    "FROM decomp_run WHERE id = :id FOR UPDATE"
+                ),
+                {"id": run_id},
+            )
+            row = result.mappings().first()
+            if row is None:
+                raise RunStateError(f"decomposition run {run_id!r} does not exist")
+            if row["status"] != "running":
+                raise RunStateError(f"decomposition run {run_id!r} is not running")
+            incomplete = await session.execute(
+                text(
+                    "SELECT count(*) FROM decomp_work_item "
+                    "WHERE run_id = :id AND state <> 'complete'"
+                ),
+                {"id": run_id},
+            )
+            if incomplete.scalar_one() != 0:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} has unfinished work items"
+                )
+            state = row["publication_state"]
+            if state not in {"pending", "publishing", "failed"}:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} publication is {state!r}"
+                )
+            persisted_identity = (
+                row["representation_identity"],
+                row["publication_artifact_path"],
+                row["publication_built_at"],
+            )
+            requested_identity = (
+                representation_identity,
+                artifact_path,
+                built_at,
+            )
+            if state != "pending" and persisted_identity != requested_identity:
+                raise RunIdentityMismatchError(
+                    "publication representation, destination, or build time "
+                    "does not match the persisted intent"
+                )
+            await session.execute(
+                text(
+                    "UPDATE decomp_run SET publication_state = 'publishing', "
+                    "publication_attempt_count = publication_attempt_count + 1, "
+                    "representation_identity = :representation_identity, "
+                    "publication_artifact_path = :artifact_path, "
+                    "publication_built_at = :built_at, "
+                    "publication_started_at = :started_at, "
+                    "publication_finished_at = NULL, "
+                    "publication_error_type = NULL, "
+                    "publication_error_message = NULL "
+                    "WHERE id = :id"
+                ),
+                {
+                    "id": run_id,
+                    "representation_identity": representation_identity,
+                    "artifact_path": artifact_path,
+                    "built_at": built_at,
+                    "started_at": datetime.datetime.now(datetime.UTC),
+                },
+            )
+
+    async def record_publication_failure(
+        self,
+        run_id: str,
+        error: BaseException,
+    ) -> None:
+        """Record a bounded retryable publication failure without failing work."""
+        error_type, error_message = _bounded_failure(error)
+        async with self._sf() as session, session.begin():
+            result = await session.execute(
+                text(
+                    "UPDATE decomp_run SET publication_state = 'failed', "
+                    "publication_error_type = :error_type, "
+                    "publication_error_message = :error_message "
+                    "WHERE id = :id AND status = 'running' "
+                    "AND publication_state = 'publishing'"
+                ),
+                {
+                    "id": run_id,
+                    "error_type": error_type,
+                    "error_message": error_message,
+                },
+            )
+            if not result.rowcount:  # type: ignore[attr-defined]
+                raise RunStateError(
+                    f"decomposition run {run_id!r} has no active publication"
+                )
+
     async def list_runs(self, limit: int = 50, offset: int = 0) -> list[RunSummary]:
         sql = text(
             "SELECT id, branch, status, ncit_version, started_at, finished_at, "
             "source_identity, fingerprint_sha256, emitted_at, error_type, "
-            "error_message, metrics "
+            "error_message, publication_state, publication_attempt_count, "
+            "representation_identity, publication_artifact_path, "
+            "publication_built_at, publication_started_at, "
+            "publication_finished_at, publication_error_type, "
+            "publication_error_message, metrics "
             "FROM decomp_run ORDER BY started_at DESC LIMIT :limit OFFSET :offset"
         )
         async with self._sf() as s:
@@ -793,7 +1021,11 @@ class ProvenanceStore:
         sql = text(
             "SELECT id, branch, status, ncit_version, started_at, finished_at, "
             "source_identity, fingerprint_sha256, emitted_at, error_type, "
-            "error_message, metrics "
+            "error_message, publication_state, publication_attempt_count, "
+            "representation_identity, publication_artifact_path, "
+            "publication_built_at, publication_started_at, "
+            "publication_finished_at, publication_error_type, "
+            "publication_error_message, metrics "
             "FROM decomp_run WHERE id = :run_id"
         )
         async with self._sf() as s:
@@ -851,6 +1083,15 @@ class ProvenanceStore:
             emitted_at=row.get("emitted_at"),
             error_type=row.get("error_type"),
             error_message=row.get("error_message"),
+            publication_state=row.get("publication_state", "legacy"),
+            publication_attempt_count=row.get("publication_attempt_count", 0),
+            representation_identity=row.get("representation_identity"),
+            publication_artifact_path=row.get("publication_artifact_path"),
+            publication_built_at=row.get("publication_built_at"),
+            publication_started_at=row.get("publication_started_at"),
+            publication_finished_at=row.get("publication_finished_at"),
+            publication_error_type=row.get("publication_error_type"),
+            publication_error_message=row.get("publication_error_message"),
             total_in_scope=m.get("total_in_scope"),
             decomposed=m.get("decomposed"),
             residual=m.get("residual"),
@@ -872,8 +1113,9 @@ class ProvenanceStore:
         *,
         source_identity: str,
         metrics: dict[str, object],
+        representation_identity: str | None = None,
     ) -> bool:
-        """Complete only the matching run after every exact work item completed.
+        """Complete only after exact work and requested publication completed.
 
         The same transaction promotes the run's mint proposals into the global
         ``minted_concept`` curator queue (D48: proposals become curator-visible only
@@ -882,7 +1124,9 @@ class ProvenanceStore:
         async with self._sf() as session, session.begin():
             locked = await session.execute(
                 text(
-                    "SELECT status, source_identity, fingerprint, fingerprint_sha256 "
+                    "SELECT status, source_identity, fingerprint, "
+                    "fingerprint_sha256, publication_state, "
+                    "representation_identity "
                     "FROM decomp_run "
                     "WHERE id = :id FOR UPDATE"
                 ),
@@ -891,10 +1135,7 @@ class ProvenanceStore:
             row = locked.mappings().first()
             if row is None:
                 return False
-            if row["source_identity"] != source_identity:
-                raise RunIdentityMismatchError(
-                    "completion source identity does not match persisted run"
-                )
+            _require_completion_source(row, source_identity)
             fingerprint = self._validated_fingerprint(
                 row["fingerprint"], row["fingerprint_sha256"]
             )
@@ -912,6 +1153,7 @@ class ProvenanceStore:
                 raise RunStateError(
                     f"decomposition run {run_id!r} has unfinished work items"
                 )
+            _require_completion_publication(row, representation_identity, run_id)
             await session.execute(
                 text(
                     "INSERT INTO minted_concept "
@@ -930,6 +1172,12 @@ class ProvenanceStore:
                 text(
                     "UPDATE decomp_run SET status = 'complete', "
                     "finished_at = :finished_at, "
+                    "publication_state = CASE "
+                    "WHEN publication_state = 'publishing' THEN 'published' "
+                    "ELSE publication_state END, "
+                    "publication_finished_at = CASE "
+                    "WHEN publication_state = 'publishing' THEN :finished_at "
+                    "ELSE publication_finished_at END, "
                     "metrics = CAST(:metrics AS jsonb) WHERE id = :id "
                     "AND status = 'running'"
                 ),

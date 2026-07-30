@@ -1,5 +1,6 @@
 """Unit tests for legacy_writer — TTL rendering from Decomposition objects."""
 
+import os
 from datetime import date
 from pathlib import Path
 
@@ -48,6 +49,41 @@ async def test_single_decomposition_writes_to_file(tmp_path: Path) -> None:
     assert vocab.FILLER in content
     assert '"parent"' in content
     assert vocab.MOST_SPECIFIC in content
+
+
+@pytest.mark.unit
+async def test_file_artifact_is_flushed_and_fsynced_before_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "out.ttl"
+    synced_inodes: list[int] = []
+    real_fsync = os.fsync
+
+    def record_fsync(file_descriptor: int) -> None:
+        synced_inodes.append(os.fstat(file_descriptor).st_ino)
+        real_fsync(file_descriptor)
+
+    monkeypatch.setattr(os, "fsync", record_fsync)
+    await write_ttl([_decomposition_for_durability()], dest=out, run_id="run-1")
+
+    assert synced_inodes == [out.stat().st_ino]
+    assert out.read_text(encoding="utf-8").endswith("\n")
+
+
+def _decomposition_for_durability() -> Decomposition:
+    return Decomposition(
+        code="C1",
+        semantic_type="Neoplastic Process",
+        constituents=[
+            Constituent(
+                axis="op:PrimarySite",
+                filler_code="C12400",
+                axis_source="role",
+                source_role="R101",
+            )
+        ],
+    )
 
 
 @pytest.mark.unit

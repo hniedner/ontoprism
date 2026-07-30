@@ -125,6 +125,26 @@ path = "ontolib/tests/decomposition/test_provenance_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_oxigraph_update_is_transactional_and_empty_replacement_is_clean"]
+fixtures = ["isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_postgres_advisory_lock_excludes_and_then_admits_a_publisher"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_production_publication_reconciles_marker_ahead_and_clears_stale_graph"]
+fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_concurrent_publishers_are_serialized_and_readers_see_complete_graphs"]
+fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_run_lifecycle_integration.py"
 fixtures = ["isolated_postgres_settings"]
 

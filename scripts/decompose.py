@@ -67,17 +67,6 @@ def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
     return lookup
 
 
-async def _load_output(client: OxigraphHttpClient, output: Path) -> None:
-    """Stream a bounded generated graph from disk into its dedicated named graph."""
-    with output.open("rb") as stream:
-        await client.load(
-            stream,
-            content_type="text/turtle",
-            graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
-            replace=True,
-        )
-
-
 async def _source_snapshot(
     manifest_path: Path,
     endpoint_url: str,
@@ -147,11 +136,6 @@ async def _run(
                     "decompose run failed (branch=%s resume=%s)", branch, resume
                 )
                 raise
-            if load:
-                out_path = config.out
-                if out_path is None:
-                    raise ValueError("--load requires --out")
-                await _load_output(client, out_path)
     finally:
         try:
             await dispose_engine(engine)

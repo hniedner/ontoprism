@@ -587,7 +587,11 @@ When an NLP aspect has no existing NCIt concept (e.g. an explicit *absent/exclud
 
 ## 8. Legacy writer (`legacy_writer.py`)
 
-Pure function: `(source_code, list[Constituent], run) → RDF triples` in `DECOMPOSED_GRAPH_IRI`. Emits only the additive §4.2 vocabulary. Buffers to a `data/ncit_decomposed.ttl` file and bulk-loads via `client.load(..., graph_iri=DECOMPOSED_GRAPH_IRI)`. No `DELETE`, no write to any other graph, and no `owl:equivalentClass`. A reserved equivalence request is rejected before stdout or filesystem effects.
+Pure function: `(source_code, list[Constituent], run) → RDF triples`. Emits only the
+additive §4.2 vocabulary into a durable staging file; D53's publisher validates and
+promotes it to `DECOMPOSED_GRAPH_IRI`. The writer emits no `DELETE`, names no graph, and
+emits no `owl:equivalentClass`. A reserved equivalence request is rejected before stdout
+or filesystem effects.
 
 ---
 
@@ -605,11 +609,13 @@ ordered worklist and immutable fingerprint, then processes every item, including
 zero-output concepts. Resume never re-enumerates: it validates all caller-controlled
 fingerprint dimensions and processes exactly unfinished items. Metrics and a normalized
 TTL are reconstructed from the full persisted run, making fresh and resumed execution
-equivalent. Source identity is rechecked before completion; drift fails the run and
-invalidates every persisted result row. The `--out` TTL is rendered to a staging sibling
-and atomically moved into place only after that recheck and completion succeed, so a
-drifted or failed run never publishes an artifact. `--load` remains the separate
-generated-graph publication boundary owned by #147.
+equivalent. Source identity is rechecked before publication; drift fails the run and
+invalidates every persisted result row. The `--out` TTL is rendered to a durable staging
+sibling and validated against the exact run. With `--load`, a unique staging graph is
+transactionally promoted with its source/representation marker; the file is then
+atomically replaced and directory-synced. Only after both requested publications succeed
+is the run complete. Publication failures are journaled separately and a matching
+marker-ahead retry is idempotent (D53).
 
 `--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
 before configuration loads or clients are constructed.
