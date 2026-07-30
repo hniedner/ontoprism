@@ -130,7 +130,10 @@ pdm run decompose \
 
 The CLI revalidates the D47 proof and compares its complete candidate observation with
 the live endpoint. It persists the exact worklist and immutable source/config fingerprint
-before processing. `--resume RUN_ID` accepts only the same source, branch, scope, limit,
+before processing. `--branch` is a closed choice: only `neoplasm` is implemented; the
+former `disease` label selected identical behavior and was removed, while `regimen`
+remains unavailable until its distinct component-bag algorithm is implemented.
+`--resume RUN_ID` accepts only the same source, branch, scope, limit,
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
 drift before completion fails closed and invalidates every persisted result row. The
 `--out` TTL is staged and moved into place only after that check and completion succeed,

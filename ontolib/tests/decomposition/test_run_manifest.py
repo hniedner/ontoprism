@@ -38,7 +38,6 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
 
     mutations = (
         {"source_identity": "b" * 64},
-        {"branch": "disease"},
         {"semantic_types": ("Neoplastic Process",)},
         {"worklist": ("C2", "C1")},
         {"total_limit": None},
@@ -59,6 +58,8 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     "updates",
     [
         {"source_identity": "not-a-source"},
+        {"branch": "disease"},
+        {"branch": "regimen"},
         {"worklist": ("C1", "C1")},
         {"worklist": ("C1", "")},
         {"semantic_types": ()},

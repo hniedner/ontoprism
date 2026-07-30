@@ -79,7 +79,14 @@ _SAMPLE_RUN = RunSummary(
     total_in_scope=5,
     decomposed=3,
     residual=2,
+    residual_precoordinated_count=1,
+    residual_precoordination=1 / 3,
     minted_count=1,
+    complete_definition_count=3,
+    complete_fact_count=12,
+    projected_fact_count=9,
+    projection_loss_count=3,
+    projection_loss_rate=0.25,
     pct_decomposed=0.6,
     roundtrip_fidelity=0.95,
 )
@@ -123,7 +130,14 @@ def test_list_runs_returns_summaries() -> None:
     assert complete["total_in_scope"] == 5
     assert complete["decomposed"] == 3
     assert complete["residual"] == 2
+    assert complete["residual_precoordinated_count"] == 1
+    assert complete["residual_precoordination"] == pytest.approx(1 / 3)
     assert complete["minted_count"] == 1
+    assert complete["complete_definition_count"] == 3
+    assert complete["complete_fact_count"] == 12
+    assert complete["projected_fact_count"] == 9
+    assert complete["projection_loss_count"] == 3
+    assert complete["projection_loss_rate"] == 0.25
     assert complete["pct_decomposed"] == 0.6
     assert complete["roundtrip_fidelity"] == 0.95
     assert complete["source_identity"] == "a" * 64
@@ -131,6 +145,8 @@ def test_list_runs_returns_summaries() -> None:
     assert complete["error_type"] is None
     running = next(r for r in body if r["status"] == "running")
     assert running["total_in_scope"] is None
+    assert running["residual_precoordinated_count"] is None
+    assert running["projection_loss_rate"] is None
     assert running["finished_at"] is None
 
 

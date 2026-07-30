@@ -26,6 +26,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import vocab
+from ontolib.decomposition.branches import DecompositionBranch
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import NcitSourceSnapshot
 from ontolib.decomposition.run import (
@@ -105,7 +106,7 @@ async def _source_snapshot(
 
 async def _run(
     source_manifest: Path,
-    branch: str,
+    branch: DecompositionBranch,
     out: Path | None,
     load: bool,
     emit_equivalence: bool,
@@ -170,8 +171,14 @@ def main(
         ),
     ],
     branch: Annotated[
-        str, typer.Option(help="Run label ('neoplasm' | 'disease').")
-    ] = "neoplasm",
+        DecompositionBranch,
+        typer.Option(
+            help=(
+                "Implemented decomposition kind. Regimen remains unavailable until "
+                "its component-bag algorithm is implemented."
+            )
+        ),
+    ] = DecompositionBranch.NEOPLASM,
     out: Annotated[
         Path | None, typer.Option(help="Write the decomposed TTL here.")
     ] = None,
@@ -185,7 +192,10 @@ def main(
         bool,
         typer.Option(
             "--emit-equivalence",
-            help="Reserved for #153; requests currently fail closed.",
+            help=(
+                "Reserved until a separate validation step proves exact "
+                "equivalence; requests currently fail closed."
+            ),
         ),
     ] = False,
     resume: Annotated[
@@ -210,15 +220,11 @@ def main(
     """Run the decomposition pipeline for a branch and print its coverage metrics."""
     if emit_equivalence:
         raise typer.BadParameter(
-            "--emit-equivalence is not available until #153 provides a "
-            "proof-bearing representation"
+            "--emit-equivalence is not available until a separate validation step "
+            "can establish exact completeness"
         )
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
-    if not branch or set(branch) & {"/", "\\", "\0"}:
-        raise typer.BadParameter(
-            "--branch must be non-empty and free of path separators"
-        )
     metrics = asyncio.run(
         _run(
             source_manifest,

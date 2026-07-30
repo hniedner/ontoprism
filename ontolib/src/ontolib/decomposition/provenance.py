@@ -54,6 +54,20 @@ def _bounded_failure(error: BaseException) -> tuple[str, str]:
     return error_type, message
 
 
+def _residual_precoordination_metric(
+    metrics: dict[str, object],
+) -> float | None:
+    """Read a stored rate or derive it for count-only historical run rows."""
+    rate = metrics.get("residual_precoordination")
+    if rate is not None:
+        return cast("float", rate)
+    count = metrics.get("residual_precoordinated_count")
+    decomposed = metrics.get("decomposed")
+    if isinstance(count, int) and isinstance(decomposed, int):
+        return count / decomposed if decomposed else 0.0
+    return None
+
+
 def _completion_outcome(
     concept_code: str,
     decomposition: Decomposition | None,
@@ -838,7 +852,14 @@ class ProvenanceStore:
             total_in_scope=m.get("total_in_scope"),
             decomposed=m.get("decomposed"),
             residual=m.get("residual"),
+            residual_precoordinated_count=m.get("residual_precoordinated_count"),
+            residual_precoordination=_residual_precoordination_metric(m),
             minted_count=m.get("minted_count"),
+            complete_definition_count=m.get("complete_definition_count"),
+            complete_fact_count=m.get("complete_fact_count"),
+            projected_fact_count=m.get("projected_fact_count"),
+            projection_loss_count=m.get("projection_loss_count"),
+            projection_loss_rate=m.get("projection_loss_rate"),
             pct_decomposed=m.get("pct_decomposed"),
             roundtrip_fidelity=m.get("roundtrip_fidelity"),
         )

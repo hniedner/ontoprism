@@ -117,8 +117,8 @@ def test_command_rejects_equivalence_at_real_cli_boundary() -> None:
 
 
 @pytest.mark.unit
-def test_command_rejects_a_path_unsafe_branch_at_real_cli_boundary() -> None:
-    """The branch reaches the staging filename; refuse it before any work starts."""
+def test_command_rejects_an_unsupported_branch_at_real_cli_boundary() -> None:
+    """A cosmetic or unimplemented branch is rejected before settings are loaded."""
     repo_root = Path(__file__).resolve().parents[2]
     env = {
         **os.environ,
@@ -135,7 +135,7 @@ def test_command_rejects_a_path_unsafe_branch_at_real_cli_boundary() -> None:
             "--source-manifest",
             "unused-manifest.json",
             "--branch",
-            "neo/plasm",
+            "disease",
         ],
         cwd=repo_root,
         env=env,
@@ -148,7 +148,8 @@ def test_command_rejects_a_path_unsafe_branch_at_real_cli_boundary() -> None:
     assert result.returncode == 2
     assert result.stdout == ""
     error_text = " ".join(unstyle(result.stderr).split())
-    assert "--branch must be non-empty and free of path separators" in error_text
+    assert "Invalid value for '--branch'" in error_text
+    assert "neoplasm" in error_text
 
 
 def _observation(*extra_graphs: str) -> CandidateObservation:

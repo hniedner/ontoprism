@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 from typing import TYPE_CHECKING
 
 import asyncpg
@@ -987,6 +988,34 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
         run_ids.append(fresh_run)
 
         assert resumed == fresh
+        conn = await asyncpg.connect(_dsn())
+        try:
+            resumed_payload = await conn.fetchval(
+                "SELECT metrics FROM decomp_run WHERE id = $1",
+                interrupted_run,
+            )
+            fresh_payload = await conn.fetchval(
+                "SELECT metrics FROM decomp_run WHERE id = $1",
+                fresh_run,
+            )
+        finally:
+            await conn.close()
+        assert resumed_payload == fresh_payload
+        assert set(json.loads(resumed_payload)) == {
+            "total_in_scope",
+            "decomposed",
+            "residual",
+            "residual_precoordinated_count",
+            "residual_precoordination",
+            "minted_count",
+            "complete_definition_count",
+            "complete_fact_count",
+            "projected_fact_count",
+            "projection_loss_count",
+            "projection_loss_rate",
+            "pct_decomposed",
+            "roundtrip_fidelity",
+        }
         assert await store.decompositions_for_run(
             interrupted_run
         ) == await store.decompositions_for_run(fresh_run)
