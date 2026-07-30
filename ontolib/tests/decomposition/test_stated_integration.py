@@ -27,7 +27,10 @@ from ontolib.decomposition.extract import (
     semantic_type_of_from_rows,
 )
 from ontolib.decomposition.filler_selection import select_constituents
-from ontolib.decomposition.models import GenusDefinitionFact
+from ontolib.decomposition.models import (
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+)
 from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
@@ -620,6 +623,74 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
     assert len(morphology_constituents) == 1
     assert morphology_constituents[0].filler_code == "C3879"
     assert morphology_constituents[0].axis_source == "parent"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_c6135_organ_lookup_preserves_real_associated_regions() -> None:
+    """Pin #156 to the stated C6135 organ-plus-region production shape."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        stated_version = await client.select(
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?ontology a <{OWL_NS}Ontology> ; "
+            f"<{OWL_NS}versionInfo> ?version . }} }}"
+        )
+        result = await _decompose_one(
+            "C6135",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    assert stated_version == [{"version": "26.06e"}]
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    by_axis = {
+        axis: {
+            constituent.filler_code
+            for constituent in decomposition.constituents
+            if constituent.axis == axis
+        }
+        for axis in ("R101", "op:AssociatedRegion")
+    }
+    assert by_axis["R101"] == {"C12400"}
+    assert by_axis["op:AssociatedRegion"] == {"C12418", "C13063"}
+    regions = [
+        constituent
+        for constituent in decomposition.constituents
+        if constituent.axis == "op:AssociatedRegion"
+    ]
+    assert all(
+        constituent.group == "op:AssociatedRegion"
+        and constituent.source_definition_ids
+        and constituent.needs_review is False
+        for constituent in regions
+    )
+    stated_site_facts = [
+        fact
+        for fact in decomposition.complete_definition.facts
+        if isinstance(fact, RestrictionDefinitionFact)
+        and fact.role_code == "R101"
+        and fact.filler_code in {"C12400", "C12418", "C13063"}
+    ]
+    assert {fact.filler_code for fact in stated_site_facts} == {
+        "C12400",
+        "C12418",
+        "C13063",
+    }
+    assert all(fact.anchor_code and fact.group_id for fact in stated_site_facts)
 
 
 @pytest.mark.integration

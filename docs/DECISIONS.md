@@ -31,9 +31,10 @@ counts, groups, review flags, and trace links. The read API round-trips constitu
 The version-pinned stated-store contract proves the real shapes independently:
 `C3879` has the two stated genera `C160980` and `C4815`; `C136775` preserves a traced
 co-equal region group; and `C27787` preserves a traced review-required `R105` pair.
-It also exposed that the draft C6135 projection's grouped-region expectation is no
-longer emitted after the morphology tiebreaker—exactly the kind of projection loss the
-complete record must retain for #156 to adjudicate rather than silently erase.
+It also exposed that the C6135 morphology-to-organ tiebreaker had short-circuited D20
+and erased the associated regions from the projection. Issue #156 corrected that
+cross-axis collapse: the known organ remains `R101`, while every co-present non-organ
+fact is routed to `op:AssociatedRegion` and traced to this complete record.
 
 **Why:** completeness and a convenient navigation view are different artifacts. Keeping
 both makes every curated omission measurable and traceable without weakening the
