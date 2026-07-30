@@ -189,6 +189,14 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
             ] .
         ncit:C99403 rdfs:label "Synthetic Carcinoma" .
     """
+    default_labels = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:R101 rdfs:label "Disease_Has_Primary_Anatomic_Site" .
+        ncit:C99991 rdfs:label "Unrelated Default Label One" .
+        ncit:C99992 rdfs:label "Unrelated Default Label Two" .
+    """
 
     async with OxigraphHttpClient(isolated_oxigraph_url) as client:
         await client.load(
@@ -197,6 +205,20 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
             graph_iri=STATED_GRAPH_IRI,
             replace=False,
         )
+        await client.load(
+            default_labels.encode(),
+            content_type="text/turtle",
+            replace=False,
+        )
+        root_queries = build_genus_walk_members_query("C99401")
+        genus_rows = await client.select_once(
+            root_queries[0],
+            required_variables={"member"},
+        )
+        restriction_rows = await client.select_once(
+            root_queries[1],
+            required_variables={"member"},
+        )
         roles = await walk_genus_chain(client.select, "C99401", max_depth=3)
         morphology = await resolve_morphology_filler(
             client.select,
@@ -204,6 +226,16 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
             max_depth=3,
         )
 
+    assert genus_rows == [{"member": f"{NCIT_NS}C99402"}]
+    assert len(restriction_rows) == 1
+    assert {
+        key: value for key, value in restriction_rows[0].items() if key != "member"
+    } == {
+        "role": f"{NCIT_NS}R101",
+        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+        "target": f"{NCIT_NS}C99410",
+        "type": f"{OWL_NS}Restriction",
+    }
     assert [
         (role.role_code, role.filler_code, role.anchoring_genus) for role in roles
     ] == [
@@ -211,6 +243,33 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
         ("R101", "C99411", "C99402"),
     ]
     assert morphology == "C99403"
+
+    double_rows: dict[str, list[dict[str, str | None]]] = {}
+    for code, genus, filler in (
+        ("C99401", "C99402", "C99410"),
+        ("C99402", "C99403", "C99411"),
+    ):
+        queries = build_genus_walk_members_query(code)
+        double_rows[queries[0]] = [{"member": f"{NCIT_NS}{genus}"}]
+        double_rows[queries[1]] = [
+            {
+                "member": "_:restriction",
+                "type": f"{OWL_NS}Restriction",
+                "role": f"{NCIT_NS}R101",
+                "target": f"{NCIT_NS}{filler}",
+                "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+            }
+        ]
+
+    async def double_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        assert set(required_variables) == {"member"}
+        return double_rows.get(query, [])
+
+    assert await walk_genus_chain(double_select, "C99401", max_depth=3) == roles
 
     semantic_types = {
         "C99410": "Body Part, Organ, or Organ Component",

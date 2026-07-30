@@ -586,6 +586,21 @@ async def test_walk_genus_chain_stops_at_first_empty_intersection_position() -> 
 
 
 @pytest.mark.unit
+async def test_walk_genus_chain_rejects_an_unrepresentable_class_member() -> None:
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        del query
+        assert set(required_variables) == {"member"}
+        return [{"member": "_:nested-class", "type": OWL_NS + "Class"}]
+
+    with pytest.raises(ValueError, match="member is not an NCIt IRI"):
+        await walk_genus_chain(fake_select, "C6135")
+
+
+@pytest.mark.unit
 async def test_walk_genus_chain_deduplicates_roles_and_terminates_on_cycle() -> None:
     core_role: dict[str, str | None] = {
         "member": "_:core",

@@ -10,7 +10,11 @@ import pytest
 from scripts.decompose import _source_snapshot
 
 from ontolib.decomposition.scope import enumerate_scope_codes
-from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.decomposition.stated_queries import (
+    build_genus_walk_members_query,
+    walk_genus_chain,
+)
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
     CANDIDATE_MANIFEST_FILENAME,
@@ -76,6 +80,46 @@ def _identity(payload: object) -> str:
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
         ).encode()
     ).hexdigest()
+
+
+async def _m1_walker_evidence(
+    client: OxigraphHttpClient,
+) -> tuple[list[dict[str, str | None]], dict[str, int]]:
+    root_rows = await client.select_once(
+        build_genus_walk_members_query("C27262")[0],
+        required_variables={"member"},
+    )
+    role_counts: dict[str, int] = {}
+    for code in ("C6135", "C27787"):
+        role_counts[code] = len(
+            await walk_genus_chain(client.select, code, max_depth=5)
+        )
+    return list(root_rows), role_counts
+
+
+def _assert_m1_scope_and_walker_evidence(
+    scope_codes: dict[str, tuple[str, ...]],
+    c27262_root_rows: list[dict[str, str | None]],
+    canonical_role_counts: dict[str, int],
+) -> None:
+    neoplasms = set(scope_codes["neoplasm"])
+    diseases = set(scope_codes["disease"])
+    assert len(neoplasms) > 15_000
+    assert len(diseases) > 22_000
+    assert neoplasms < diseases
+    assert {"C3262", "C9305", "C2916", "C6135", "C100012"} <= diseases
+    assert {"C9305", "C2916", "C6135"} <= neoplasms
+    assert {"C3262", "C100012", "C12400"}.isdisjoint(neoplasms)
+    assert "C100012" in diseases - neoplasms
+    assert "C12400" not in diseases
+    assert c27262_root_rows == [
+        {
+            "member": f"{NCIT_NS}C35501",
+            "type": f"{OWL_NS}Class",
+        }
+    ]
+    assert canonical_role_counts["C6135"] > 0
+    assert canonical_role_counts["C27787"] > 0
 
 
 def _write_pair(root: Path, *, stated_bytes: bytes = _STATED) -> Path:
@@ -387,6 +431,8 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     )
     scope_codes: dict[str, tuple[str, ...]] = {}
     source_snapshots: list[NcitSourceSnapshot] = []
+    c27262_root_rows: list[dict[str, str | None]] = []
+    canonical_role_counts: dict[str, int] = {}
 
     async def inspect_certified_candidate(endpoint: str) -> CandidateObservation:
         source_snapshots.append(
@@ -398,6 +444,9 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         async with OxigraphHttpClient(endpoint) as client:
             scope_codes["neoplasm"] = await enumerate_scope_codes(client, "C3262")
             scope_codes["disease"] = await enumerate_scope_codes(client, "C2991")
+            root_rows, role_counts = await _m1_walker_evidence(client)
+            c27262_root_rows.extend(root_rows)
+            canonical_role_counts.update(role_counts)
         return await observe_ncit_candidate(endpoint)
 
     observation = await runtime.observe(
@@ -410,14 +459,9 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     source = source_snapshots[0]
     assert source.source_identity == manifest.source_identity
     assert source.ontology_version == "26.07d"
-    neoplasms = set(scope_codes["neoplasm"])
-    diseases = set(scope_codes["disease"])
-    assert len(neoplasms) > 15_000
-    assert len(diseases) > 22_000
-    assert neoplasms < diseases
-    assert {"C3262", "C9305", "C2916", "C6135", "C100012"} <= diseases
-    assert {"C9305", "C2916", "C6135"} <= neoplasms
-    assert {"C3262", "C100012", "C12400"}.isdisjoint(neoplasms)
-    assert "C100012" in diseases - neoplasms
-    assert "C12400" not in diseases
+    _assert_m1_scope_and_walker_evidence(
+        scope_codes,
+        c27262_root_rows,
+        canonical_role_counts,
+    )
     assert sentinel.read_text() == "untouched"

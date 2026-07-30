@@ -198,7 +198,12 @@ def build_genus_walk_members_query(
                         ?member owl:onProperty ?role ; owl:someValuesFrom ?target .
                     }}
                 }}
-                OPTIONAL {{ ?role rdfs:label ?roleLabel }}
+                OPTIONAL {{
+                    GRAPH <{STATED_GRAPH_IRI}> {{
+                        ?member owl:onProperty ?role .
+                    }}
+                    ?role rdfs:label ?roleLabel .
+                }}
             }}
             """
         )
