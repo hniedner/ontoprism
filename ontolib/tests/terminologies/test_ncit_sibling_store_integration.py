@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING
 import pytest
 from scripts.decompose import _source_snapshot
 
+from ontolib.decomposition import stated_queries as stated_queries_module
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.models import CompleteDefinition, RestrictionDefinitionFact
 from ontolib.decomposition.scope import enumerate_scope_codes
 from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
+    resolve_part_of_pairs,
     walk_genus_chain,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
@@ -91,6 +93,10 @@ async def _m1_walker_evidence(
     dict[str, int],
     CompleteDefinition,
     set[str],
+    int,
+    int,
+    int,
+    str | None,
 ]:
     root_rows = await client.select_once(
         build_genus_walk_members_query("C27262")[0],
@@ -121,7 +127,28 @@ async def _m1_walker_evidence(
         for row in nested_rows
         if row.get("concept", "").startswith(NCIT_NS)
     }
-    return list(root_rows), role_counts, complete, nested_codes
+    closure = stated_queries_module._PartOfClosure(
+        select_once=client.select_once,
+        requested=("C12917", "C36220", "C37060", "C41063", "C41397"),
+    )
+    assert await closure.resolve() == []
+    assert (
+        await resolve_part_of_pairs(
+            client,
+            ("C12917", "C36220", "C37060", "C41063", "C41397"),
+        )
+        == []
+    )
+    return (
+        list(root_rows),
+        role_counts,
+        complete,
+        nested_codes,
+        closure.request_count,
+        closure.total_rows,
+        len(closure.expanded_codes),
+        await client.version(),
+    )
 
 
 def _assert_m1_scope_and_walker_evidence(
@@ -130,6 +157,7 @@ def _assert_m1_scope_and_walker_evidence(
     canonical_role_counts: dict[str, int],
     c27262_complete: CompleteDefinition,
     nested_definition_codes: set[str],
+    r82_resource_evidence: tuple[int, int, int, str | None],
 ) -> None:
     neoplasms = set(scope_codes["neoplasm"])
     diseases = set(scope_codes["disease"])
@@ -152,6 +180,7 @@ def _assert_m1_scope_and_walker_evidence(
     assert len(nested_definition_codes) == 97
     assert len(nested_definition_codes & neoplasms) == 91
     assert "C27262" in nested_definition_codes
+    assert r82_resource_evidence == (11, 40, 35, "26.07d")
     assert (
         len(
             [group for group in c27262_complete.groups if group.anchor_code == "C27262"]
@@ -492,6 +521,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     canonical_role_counts: dict[str, int] = {}
     c27262_complete_records: list[CompleteDefinition] = []
     nested_definition_codes: set[str] = set()
+    r82_resource_evidence: list[tuple[int, int, int, str | None]] = []
 
     async def inspect_certified_candidate(endpoint: str) -> CandidateObservation:
         source_snapshots.append(
@@ -508,11 +538,23 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
                 role_counts,
                 complete,
                 nested_codes,
+                request_count,
+                row_count,
+                expanded_count,
+                following_version,
             ) = await _m1_walker_evidence(client)
             c27262_root_rows.extend(root_rows)
             canonical_role_counts.update(role_counts)
             c27262_complete_records.append(complete)
             nested_definition_codes.update(nested_codes)
+            r82_resource_evidence.append(
+                (
+                    request_count,
+                    row_count,
+                    expanded_count,
+                    following_version,
+                )
+            )
         return await observe_ncit_candidate(endpoint)
 
     observation = await runtime.observe(
@@ -531,5 +573,6 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         canonical_role_counts,
         c27262_complete_records[0],
         nested_definition_codes,
+        r82_resource_evidence[0],
     )
     assert sentinel.read_text() == "untouched"

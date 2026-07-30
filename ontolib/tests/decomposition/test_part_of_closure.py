@@ -361,12 +361,22 @@ async def test_part_of_closure_rejects_unrequested_ninth_hop() -> None:
 
 
 @pytest.mark.unit
-async def test_part_of_closure_rejects_ninth_superclass_hop() -> None:
-    expansions = {f"C{2000 + i}": [("parent", f"C{2001 + i}")] for i in range(9)}
-    expansions["C2009"] = [("whole", "C2010")]
-    with pytest.raises(ValueError, match=r"superclass hop.*8"):
+async def test_part_of_closure_accepts_fourteenth_superclass_hop() -> None:
+    expansions = {f"C{2000 + i}": [("parent", f"C{2001 + i}")] for i in range(14)}
+    expansions["C2014"] = [("whole", "C2015")]
+
+    assert await stated_queries.resolve_part_of_pairs(
+        _ExpansionStore(expansions), ["C2000", "C2015"]
+    ) == [PartOfPair(part="C2000", whole="C2015")]
+
+
+@pytest.mark.unit
+async def test_part_of_closure_rejects_fifteenth_superclass_hop() -> None:
+    expansions = {f"C{2000 + i}": [("parent", f"C{2001 + i}")] for i in range(15)}
+    expansions["C2015"] = [("whole", "C2016")]
+    with pytest.raises(ValueError, match=r"superclass hop.*14"):
         await stated_queries.resolve_part_of_pairs(
-            _ExpansionStore(expansions), ["C2000", "C2010"]
+            _ExpansionStore(expansions), ["C2000", "C2016"]
         )
 
 

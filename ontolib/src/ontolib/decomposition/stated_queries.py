@@ -47,7 +47,7 @@ _MAX_INTERSECTION_HOPS = 6
 _PART_OF_QUERY_CODE_LIMIT = 16
 _PART_OF_EXPANSION_ROW_LIMIT = 256
 _PART_OF_MAX_R82_HOPS = 8
-_PART_OF_MAX_SUPERCLASS_HOPS = 8
+_PART_OF_MAX_SUPERCLASS_HOPS = 14
 _PART_OF_MAX_EXPANDED_CODES = 256
 _PART_OF_MAX_REQUESTS = 64
 _PART_OF_MAX_TOTAL_ROWS = 4096
@@ -454,7 +454,10 @@ class _PartOfClosure:
             if not _frontier_nodes(next_frontiers):
                 return wholes
             if depth == _PART_OF_MAX_SUPERCLASS_HOPS:
-                raise ValueError("R82 superclass hop bound exhausted at 8 hops")
+                raise ValueError(
+                    "R82 superclass hop bound exhausted at "
+                    f"{_PART_OF_MAX_SUPERCLASS_HOPS} hops"
+                )
             frontiers = next_frontiers
             depth += 1
 
