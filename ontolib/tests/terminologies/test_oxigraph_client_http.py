@@ -12,7 +12,7 @@ import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
 
@@ -95,10 +95,27 @@ def _respond_for(query: str) -> tuple[int, str, dict[str, Any] | str]:
 class _Handler(BaseHTTPRequestHandler):
     closed_connection_requests = 0
     close_first_connection_requests = 0
+    update_requests: ClassVar[list[tuple[str, str, str | None]]] = []
+
+    def _handle_update(self, update: str) -> None:
+        type(self).update_requests.append(
+            (self.path, update, self.headers.get("Content-Type"))
+        )
+        if _CLOSE_CONNECTION in update:
+            type(self).closed_connection_requests += 1
+            self.connection.shutdown(socket.SHUT_RDWR)
+            self.connection.close()
+            return
+        self.send_response(400 if "boom" in update else 204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         query = self.rfile.read(length).decode("utf-8")
+        if self.path.endswith("/update"):
+            self._handle_update(query)
+            return
         if _CLOSE_CONNECTION in query:
             type(self).closed_connection_requests += 1
             self.connection.shutdown(socket.SHUT_RDWR)
@@ -170,6 +187,7 @@ class _Handler(BaseHTTPRequestHandler):
 def stub_url() -> Iterator[str]:
     _Handler.closed_connection_requests = 0
     _Handler.close_first_connection_requests = 0
+    _Handler.update_requests = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -336,6 +354,41 @@ async def test_load_server_error_raises_storage_error(stub_url: str) -> None:
     async with OxigraphHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="Store load failed"):
             await client.load(b"<a> <b> <c> .", content_type="text/turtle")
+
+
+@pytest.mark.unit
+async def test_update_posts_sparql_update_to_the_update_endpoint(
+    stub_url: str,
+) -> None:
+    update = "CLEAR GRAPH <urn:public>"
+
+    async with OxigraphHttpClient(stub_url) as client:
+        await client.update(update)
+
+    assert _Handler.update_requests == [
+        ("/update", update, "application/sparql-update")
+    ]
+
+
+@pytest.mark.unit
+async def test_update_rejects_http_error_without_replay(stub_url: str) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="SPARQL update failed: HTTP 400"):
+            await client.update("CLEAR GRAPH <urn:public> # boom")
+
+    assert len(_Handler.update_requests) == 1
+
+
+@pytest.mark.unit
+async def test_update_does_not_replay_ambiguous_transport_failure(
+    stub_url: str,
+) -> None:
+    async with OxigraphHttpClient(stub_url) as client:
+        with pytest.raises(StorageError, match="update transport error"):
+            await client.update(f"CLEAR GRAPH <urn:public> # {_CLOSE_CONNECTION}")
+
+    assert _Handler.closed_connection_requests == 1
+    assert len(_Handler.update_requests) == 1
 
 
 @pytest.mark.integration
