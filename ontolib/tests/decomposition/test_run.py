@@ -37,6 +37,11 @@ from ontolib.decomposition.run import (
 from ontolib.decomposition.run import (
     run_pipeline as _run_pipeline_impl,
 )
+from ontolib.decomposition.sampling import (
+    REQUIRED_SAMPLE_STRATA,
+    DecompositionSampleManifest,
+    SampleConcept,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
@@ -370,6 +375,36 @@ def _source_snapshot(identity: str = "a" * 64) -> NcitSourceSnapshot:
     return NcitSourceSnapshot(
         source_identity=identity,
         ontology_version="26.02d",
+    )
+
+
+def _sample_manifest(
+    *codes: str,
+    source_identity: str = "a" * 64,
+    ontology_version: str = "26.02d",
+) -> DecompositionSampleManifest:
+    concepts = tuple(
+        SampleConcept(
+            code=code,
+            strata=(
+                tuple(sorted(REQUIRED_SAMPLE_STRATA))
+                if index == 0
+                else ("atomic-no-op",)
+            ),
+            rationale=f"Review concept {code}.",
+        )
+        for index, code in enumerate(codes)
+    )
+    return DecompositionSampleManifest(
+        name="ncit-26.02d-review",
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        source_identity=source_identity,
+        ontology_version=ontology_version,
+        selection_method="explicit-stratified",
+        seed=None,
+        concepts=concepts,
     )
 
 
@@ -1237,6 +1272,27 @@ def test_run_config_defaults() -> None:
 
 
 @pytest.mark.unit
+def test_sample_run_config_is_review_only_and_scope_bound(tmp_path: Path) -> None:
+    sample = _sample_manifest("C1")
+
+    with pytest.raises(ValueError, match="requires an output path"):
+        RunConfig(branch="neoplasm", sample_manifest=sample)
+    with pytest.raises(ValueError, match="cannot load"):
+        RunConfig(
+            branch="neoplasm",
+            out=tmp_path / "review.ttl",
+            load_to_store=True,
+            sample_manifest=sample,
+        )
+    with pytest.raises(ValueError, match="does not match run branch"):
+        RunConfig(
+            branch="disease",
+            out=tmp_path / "review.ttl",
+            sample_manifest=sample,
+        )
+
+
+@pytest.mark.unit
 def test_disease_config_uses_the_broader_root_with_the_same_algorithm() -> None:
     neoplasm = RunConfig(branch="neoplasm")
     disease = RunConfig(branch="disease")
@@ -1304,6 +1360,7 @@ async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
     assert isinstance(fingerprint, RunFingerprint)
     assert fingerprint.worklist == ("C0",)
     assert fingerprint.source_identity == "a" * 64
+    assert fingerprint.config_version == "nested-definition-v2"
     assert fingerprint.output_mode == "none"
     assert fingerprint.load_mode == "none"
     provenance.complete_work_item.assert_awaited_once()
@@ -1357,6 +1414,55 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
 
     assert all("ORDER BY ?concept" not in query for query in client.queries)
     provenance.complete_work_item.assert_awaited_once()
+    assert provenance.complete_work_item.await_args.args[1] == "C1"
+
+
+@pytest.mark.unit
+async def test_sample_resume_revalidates_scope_and_manifest_identity(
+    tmp_path: Path,
+) -> None:
+    sample = _sample_manifest("C2", "C1")
+    fingerprint = RunFingerprint(
+        schema_version=3,
+        source_identity="a" * 64,
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+        worklist=sample.codes,
+        total_limit=None,
+        sample_manifest_identity=sample.identity,
+        algorithm_version="axis-qualified-v1",
+        config_version="nested-definition-v2",
+        walker_max_depth=5,
+        output_mode="file",
+        load_mode="none",
+        emitted_at=datetime(2026, 7, 30, 12, 0, tzinfo=UTC),
+    )
+    client = _FakeClient(pages=[["C1", "C2", "C3"]])
+    provenance = _mock_provenance()
+    provenance._test_state["fingerprint"] = fingerprint
+    provenance._test_state["pending"] = ["C1"]
+    provenance.resume_run = AsyncMock(return_value=fingerprint)
+
+    metrics = await run_pipeline(
+        RunConfig(
+            branch="neoplasm",
+            out=tmp_path / "review.ttl",
+            resume_from="review-run-1",
+            sample_manifest=sample,
+        ),
+        client,
+        provenance,
+    )
+
+    expected = provenance.resume_run.await_args.args[1]
+    assert metrics.total_in_scope == 2
+    assert expected.schema_version == 3
+    assert expected.sample_manifest_identity == sample.identity
+    assert expected.config_version == "nested-definition-v2"
+    assert any("SELECT DISTINCT ?child ?parent" in query for query in client.queries)
+    provenance.create_run.assert_not_awaited()
     assert provenance.complete_work_item.await_args.args[1] == "C1"
 
 
@@ -1575,6 +1681,109 @@ async def test_non_positive_total_limit_is_rejected_before_a_run_exists() -> Non
         )
 
     provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_sample_and_total_limit_are_rejected_before_source_or_provenance(
+    tmp_path: Path,
+) -> None:
+    provenance = _mock_provenance()
+    source = AsyncMock(side_effect=AssertionError("source was inspected"))
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "review.ttl",
+                sample_manifest=_sample_manifest("C1"),
+            ),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+            get_source_snapshot=source,
+            total_limit=1,
+        )
+
+    source.assert_not_awaited()
+    provenance.create_run.assert_not_awaited()
+    provenance.resume_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("sample", "message"),
+    [
+        (_sample_manifest("C1", source_identity="b" * 64), "source identity"),
+        (_sample_manifest("C1", ontology_version="26.05d"), "ontology version"),
+    ],
+)
+async def test_sample_source_drift_is_rejected_before_provenance(
+    tmp_path: Path,
+    sample: DecompositionSampleManifest,
+    message: str,
+) -> None:
+    provenance = _mock_provenance()
+
+    with pytest.raises(SourceIdentityChangedError, match=message):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "review.ttl",
+                sample_manifest=sample,
+            ),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    provenance.create_run.assert_not_awaited()
+    provenance.resume_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_sample_rejects_out_of_scope_code_before_provenance(
+    tmp_path: Path,
+) -> None:
+    provenance = _mock_provenance()
+
+    with pytest.raises(
+        ValueError,
+        match=r"outside the configured hierarchy scope.*C9",
+    ):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "review.ttl",
+                sample_manifest=_sample_manifest("C1", "C9"),
+            ),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_sample_order_and_identity_are_persisted_as_exact_worklist(
+    tmp_path: Path,
+) -> None:
+    sample = _sample_manifest("C2", "C1")
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(
+        RunConfig(
+            branch="neoplasm",
+            out=tmp_path / "review.ttl",
+            sample_manifest=sample,
+        ),
+        _FakeClient(pages=[["C1", "C2", "C3"]]),
+        provenance,
+    )
+
+    fingerprint = provenance._test_state["fingerprint"]
+    assert metrics.total_in_scope == 2
+    assert fingerprint.schema_version == 3
+    assert fingerprint.worklist == ("C2", "C1")
+    assert fingerprint.sample_manifest_identity == sample.identity
+    assert fingerprint.total_limit is None
 
 
 @pytest.mark.unit

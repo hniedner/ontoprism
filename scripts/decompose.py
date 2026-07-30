@@ -37,6 +37,7 @@ from ontolib.decomposition.run import (
     SourceIdentityChangedError,
     run_pipeline,
 )
+from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.sibling_store import (
@@ -104,7 +105,11 @@ async def _run(
     resume: str | None,
     total_limit: int | None,
     walker_max_depth: int = 5,
+    sample_manifest: Path | None = None,
 ) -> RunMetrics:
+    sample = (
+        load_sample_manifest(sample_manifest) if sample_manifest is not None else None
+    )
     config = RunConfig(
         branch=branch,
         out=out,
@@ -112,7 +117,10 @@ async def _run(
         emit_equivalence=emit_equivalence,
         resume_from=resume,
         walker_max_depth=walker_max_depth,
+        sample_manifest=sample,
     )
+    if sample is not None and total_limit is not None:
+        raise ValueError("sample manifest and total_limit are mutually exclusive")
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
@@ -211,6 +219,16 @@ def main(
             help="Genus-chain walker recursion depth (default 5).",
         ),
     ] = 5,
+    sample_manifest: Annotated[
+        Path | None,
+        typer.Option(
+            "--sample-manifest",
+            help=(
+                "Run an explicit source-bound review sample. Requires --out and "
+                "cannot be combined with --load or --total-limit."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run the decomposition pipeline for a branch and print its coverage metrics."""
     if emit_equivalence:
@@ -220,6 +238,15 @@ def main(
         )
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
+    if sample_manifest is not None:
+        if out is None:
+            raise typer.BadParameter("--sample-manifest requires --out")
+        if load:
+            raise typer.BadParameter("--sample-manifest cannot be combined with --load")
+        if total_limit is not None:
+            raise typer.BadParameter(
+                "--sample-manifest and --total-limit are mutually exclusive"
+            )
     metrics = asyncio.run(
         _run(
             source_manifest,
@@ -230,6 +257,7 @@ def main(
             resume,
             total_limit,
             walker_max_depth,
+            sample_manifest,
         )
     )
     typer.echo(

@@ -12,6 +12,7 @@ from scripts.decompose import _source_snapshot
 from ontolib.decomposition import stated_queries as stated_queries_module
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.models import CompleteDefinition, RestrictionDefinitionFact
+from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.decomposition.scope import enumerate_scope_codes
 from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
@@ -206,6 +207,20 @@ def _assert_m1_scope_and_walker_evidence(
         ("R139", "C37030"),
         ("R142", "C41235"),
     } <= c27262_restrictions
+
+
+def _assert_m1_sample_contract(
+    source: NcitSourceSnapshot,
+    scope_codes: dict[str, tuple[str, ...]],
+) -> None:
+    sample = load_sample_manifest(
+        Path(__file__).resolve().parents[3] / "samples" / "ncit-26.07d-m1-review.json"
+    )
+    assert sample.source_identity == source.source_identity
+    assert sample.ontology_version == source.ontology_version
+    assert sample.branch == "neoplasm"
+    assert sample.scope_root == "C3262"
+    assert set(sample.codes) <= set(scope_codes["neoplasm"])
 
 
 def _write_pair(root: Path, *, stated_bytes: bytes = _STATED) -> Path:
@@ -567,6 +582,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     source = source_snapshots[0]
     assert source.source_identity == manifest.source_identity
     assert source.ontology_version == "26.07d"
+    _assert_m1_sample_contract(source, scope_codes)
     _assert_m1_scope_and_walker_evidence(
         scope_codes,
         c27262_root_rows,

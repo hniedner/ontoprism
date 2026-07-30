@@ -30,6 +30,39 @@ calibrated. Raising only the measured depth dimension to the smallest sufficient
 preserves the bounded algorithm and leaves substantial independent request, row, and
 memory headroom.
 
+## 2026-07-30 — review samples are explicit source-bound worklists
+
+### D55. Persist the canonical stratified sample definition in run identity
+
+`--total-limit` is a deterministic truncation, not a stratified sample: it cannot
+guarantee coverage of rare staging editions, semantic exclusions, deep genus DAGs,
+multi-valued/grouped definitions, NLP/mint paths, region/organ resolution, or atomic
+controls.
+
+**Decision:** a decomposition review sample is a strict, tracked JSON manifest containing
+its schema, name, branch/root/scope contract, D47 source identity, ontology version,
+selection method and optional seed, plus an exactly ordered unique code list. Every code
+has sorted overlapping stratum tags and a non-empty rationale; the schema requires the
+complete review-stratum catalogue. The canonical 26.07d M1 manifest is
+`samples/ncit-26.07d-m1-review.json`, identity
+`729c6c73ec3367bfacaa93ee34d961c74deef2268f48b308d81051b3a01ddbc1`.
+
+Every invocation revalidates the live D47 source, proves the manifest release and source
+identity match, enumerates the complete hierarchy scope, and rejects any selected code
+outside it before creating or reopening provenance. The manifest order is the persisted
+worklist. Sample runs require a file output and reject `--load`, `--total-limit`, and
+equivalence emission, keeping review separate from publication. Their schema-v3 run
+fingerprint and resume identity bind the manifest digest; ordinary and historical runs
+remain schema v2 with their existing canonical digests. The configuration version is
+`nested-definition-v2`, preventing pre-D50/D55 work from resuming under the complete
+nested-definition reader.
+
+**Why:** reproducibility requires the selected cases and the source they were selected
+from, not merely a random seed or release label. Binding the exact reviewed definition to
+resume prevents a changed rationale, order, source, or stratum set from masquerading as
+the same scientific run, while review-only execution prevents a sample from accidentally
+becoming production data.
+
 ## 2026-07-30 — normalized axes have executable semantic contracts
 
 ### D52. Preserve source roles while serving only univocal projection relations
