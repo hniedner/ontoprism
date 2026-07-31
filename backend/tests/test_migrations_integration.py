@@ -286,6 +286,98 @@ async def _nested_definition_group_schema_is_absent(dsn: str) -> bool:
         await conn.close()
 
 
+async def _seed_historical_decomposition_outcomes(dsn: str) -> None:
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(
+            "INSERT INTO decomp_run "
+            "(id, branch, status, ncit_version, started_at, finished_at, "
+            "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
+            "publication_state) VALUES "
+            "('historical-outcomes', 'neoplasm', 'complete', '26.07d', now(), "
+            "now(), repeat('a', 64), '{}'::jsonb, repeat('b', 64), now(), 'legacy')"
+        )
+        await conn.executemany(
+            "INSERT INTO decomp_work_item "
+            "(run_id, concept_code, ordinal, state, attempt_count, semantic_type, "
+            "is_decomposed, is_residual, constituent_count, minted_count, "
+            "completed_at) VALUES "
+            "('historical-outcomes', $1, $2, 'complete', 1, $3, $4, $5, $6, 0, "
+            "now())",
+            [
+                ("C1", 0, "Neoplastic Process", True, False, 1),
+                ("C2", 1, "Neoplastic Process", False, True, 0),
+                ("C3", 2, None, False, False, 0),
+            ],
+        )
+    finally:
+        await conn.close()
+
+
+async def _decomposition_outcome_schema_facts(dsn: str) -> dict[str, Any]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        columns = {
+            row["column_name"]: row["data_type"]
+            for row in await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'decomp_work_item' "
+                "AND column_name IN ('outcome', 'semantic_types')"
+            )
+        }
+        constraints = [
+            row["definition"]
+            for row in await conn.fetch(
+                "SELECT pg_get_constraintdef(oid) AS definition "
+                "FROM pg_constraint "
+                "WHERE conrelid = 'decomp_work_item'::regclass AND contype = 'c'"
+            )
+        ]
+        rows = [
+            dict(row)
+            for row in await conn.fetch(
+                "SELECT concept_code, outcome, semantic_types::text AS semantic_types "
+                "FROM decomp_work_item WHERE run_id = 'historical-outcomes' "
+                "ORDER BY ordinal"
+            )
+        ]
+        invalid_rejected = False
+        transaction = conn.transaction()
+        await transaction.start()
+        try:
+            await conn.execute(
+                "UPDATE decomp_work_item SET outcome = 'semantic-excluded' "
+                "WHERE run_id = 'historical-outcomes' AND concept_code = 'C1'"
+            )
+        except asyncpg.CheckViolationError:
+            invalid_rejected = True
+        finally:
+            await transaction.rollback()
+        return {
+            "columns": columns,
+            "constraints": constraints,
+            "rows": rows,
+            "invalid_rejected": invalid_rejected,
+        }
+    finally:
+        await conn.close()
+
+
+async def _decomposition_outcome_schema_is_absent(dsn: str) -> bool:
+    conn = await asyncpg.connect(dsn)
+    try:
+        return (
+            await conn.fetchval(
+                "SELECT count(*) FROM information_schema.columns "
+                "WHERE table_name = 'decomp_work_item' "
+                "AND column_name IN ('outcome', 'semantic_types')"
+            )
+            == 0
+        )
+    finally:
+        await conn.close()
+
+
 def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["has_vector_ext"] == 1
     assert facts["tables"] == 4
@@ -392,7 +484,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0012_nested_definition_groups"
+    assert revision == "0013_decomposition_outcomes"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -556,6 +648,44 @@ def test_nested_definition_group_migration_roundtrip() -> None:
         and "decomp_definition_group" in constraint
         for constraint in facts["fact_constraints"]
     )
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_outcome_migration_backfills_unknown_and_rejects_invalid_shape() -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    try:
+        command.downgrade(cfg, "0012_nested_definition_groups")
+        absent_after_down = asyncio.run(_decomposition_outcome_schema_is_absent(dsn))
+        asyncio.run(_seed_historical_decomposition_outcomes(dsn))
+        command.upgrade(cfg, "head")
+        facts = asyncio.run(_decomposition_outcome_schema_facts(dsn))
+    finally:
+        command.upgrade(cfg, "head")
+
+    assert absent_after_down is True
+    assert facts["columns"] == {"outcome": "text", "semantic_types": "jsonb"}
+    assert facts["rows"] == [
+        {
+            "concept_code": "C1",
+            "outcome": "decomposed",
+            "semantic_types": '["Neoplastic Process"]',
+        },
+        {
+            "concept_code": "C2",
+            "outcome": "residual",
+            "semantic_types": '["Neoplastic Process"]',
+        },
+        {"concept_code": "C3", "outcome": "unknown", "semantic_types": "[]"},
+    ]
+    assert facts["invalid_rejected"] is True
+    constraints = " ".join(facts["constraints"])
+    assert "semantic-excluded" in constraints
+    assert "atomic-no-op" in constraints
+    assert "unknown" in constraints
 
 
 @pytest.mark.integration

@@ -12,6 +12,7 @@ from scripts.decompose import _source_snapshot
 from ontolib.decomposition import stated_queries as stated_queries_module
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.models import CompleteDefinition, RestrictionDefinitionFact
+from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.decomposition.scope import enumerate_scope_codes
 from ontolib.decomposition.stated_queries import (
@@ -98,6 +99,7 @@ async def _m1_walker_evidence(
     int,
     int,
     str | None,
+    dict[str, tuple[tuple[str, ...], str]],
 ]:
     root_rows = await client.select_once(
         build_genus_walk_members_query("C27262")[0],
@@ -140,6 +142,25 @@ async def _m1_walker_evidence(
         )
         == []
     )
+
+    async def unexpected_label_lookup(
+        _axis: str,
+        _label: str,
+    ) -> tuple[str, str] | None:
+        raise AssertionError(
+            "atomic and excluded controls must not invoke label lookup"
+        )
+
+    outcome_evidence: dict[str, tuple[tuple[str, ...], str]] = {}
+    for code in ("C162770", "C102883"):
+        candidate = await _decompose_one(
+            code,
+            client,
+            label=None,
+            label_lookup=unexpected_label_lookup,
+            walker_max_depth=5,
+        )
+        outcome_evidence[code] = (candidate.semantic_types, candidate.outcome)
     return (
         list(root_rows),
         role_counts,
@@ -149,6 +170,7 @@ async def _m1_walker_evidence(
         closure.total_rows,
         len(closure.expanded_codes),
         await client.version(),
+        outcome_evidence,
     )
 
 
@@ -159,6 +181,7 @@ def _assert_m1_scope_and_walker_evidence(
     c27262_complete: CompleteDefinition,
     nested_definition_codes: set[str],
     r82_resource_evidence: tuple[int, int, int, str | None],
+    outcome_evidence: dict[str, tuple[tuple[str, ...], str]],
 ) -> None:
     neoplasms = set(scope_codes["neoplasm"])
     diseases = set(scope_codes["disease"])
@@ -182,6 +205,10 @@ def _assert_m1_scope_and_walker_evidence(
     assert len(nested_definition_codes & neoplasms) == 91
     assert "C27262" in nested_definition_codes
     assert r82_resource_evidence == (11, 40, 35, "26.07d")
+    assert outcome_evidence == {
+        "C162770": (("Finding",), "semantic-excluded"),
+        "C102883": (("Neoplastic Process",), "atomic-no-op"),
+    }
     assert (
         len(
             [group for group in c27262_complete.groups if group.anchor_code == "C27262"]
@@ -221,6 +248,18 @@ def _assert_m1_sample_contract(
     assert sample.branch == "neoplasm"
     assert sample.scope_root == "C3262"
     assert set(sample.codes) <= set(scope_codes["neoplasm"])
+
+
+def _assert_certified_source_contract(
+    source_snapshots: list[NcitSourceSnapshot],
+    manifest_source_identity: str,
+    scope_codes: dict[str, tuple[str, ...]],
+) -> None:
+    assert len(source_snapshots) == 1
+    source = source_snapshots[0]
+    assert source.source_identity == manifest_source_identity
+    assert source.ontology_version == "26.07d"
+    _assert_m1_sample_contract(source, scope_codes)
 
 
 def _write_pair(root: Path, *, stated_bytes: bytes = _STATED) -> Path:
@@ -537,6 +576,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     c27262_complete_records: list[CompleteDefinition] = []
     nested_definition_codes: set[str] = set()
     r82_resource_evidence: list[tuple[int, int, int, str | None]] = []
+    outcome_evidence: dict[str, tuple[tuple[str, ...], str]] = {}
 
     async def inspect_certified_candidate(endpoint: str) -> CandidateObservation:
         source_snapshots.append(
@@ -557,6 +597,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
                 row_count,
                 expanded_count,
                 following_version,
+                certified_outcomes,
             ) = await _m1_walker_evidence(client)
             c27262_root_rows.extend(root_rows)
             canonical_role_counts.update(role_counts)
@@ -570,6 +611,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
                     following_version,
                 )
             )
+            outcome_evidence.update(certified_outcomes)
         return await observe_ncit_candidate(endpoint)
 
     observation = await runtime.observe(
@@ -578,11 +620,11 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         inspect_certified_candidate,
     )
     assert observation == manifest.observation
-    assert len(source_snapshots) == 1
-    source = source_snapshots[0]
-    assert source.source_identity == manifest.source_identity
-    assert source.ontology_version == "26.07d"
-    _assert_m1_sample_contract(source, scope_codes)
+    _assert_certified_source_contract(
+        source_snapshots,
+        manifest.source_identity,
+        scope_codes,
+    )
     _assert_m1_scope_and_walker_evidence(
         scope_codes,
         c27262_root_rows,
@@ -590,5 +632,6 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         c27262_complete_records[0],
         nested_definition_codes,
         r82_resource_evidence[0],
+        outcome_evidence,
     )
     assert sentinel.read_text() == "untouched"

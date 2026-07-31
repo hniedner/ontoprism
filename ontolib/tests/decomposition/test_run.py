@@ -289,6 +289,8 @@ def _mock_provenance() -> Any:
         "decompositions": [],
         "decomposed": 0,
         "residual": 0,
+        "semantic_excluded": 0,
+        "atomic_noop": 0,
         "minted": 0,
         "failed": None,
         "invalidated": None,
@@ -337,6 +339,8 @@ def _mock_provenance() -> Any:
         claim: UUID,
         *,
         decomposition: Decomposition | None,
+        outcome: str,
+        semantic_types: tuple[str, ...],
         minted: tuple[MintedConcept, ...],
     ) -> None:
         del claim
@@ -346,7 +350,11 @@ def _mock_provenance() -> Any:
                 state["decompositions"].append(decomposition)
             else:
                 state["residual"] += 1
-        del run_id, code
+        elif outcome == "semantic-excluded":
+            state["semantic_excluded"] += 1
+        elif outcome == "atomic-no-op":
+            state["atomic_noop"] += 1
+        del run_id, code, semantic_types
         state["minted"] += len(minted)
 
     async def outcome_counts(_run_id: str) -> RunOutcomeCounts:
@@ -355,6 +363,8 @@ def _mock_provenance() -> Any:
             total_in_scope=len(fingerprint.worklist) if fingerprint else 0,
             decomposed=state["decomposed"],
             residual=state["residual"],
+            semantic_excluded=state["semantic_excluded"],
+            atomic_noop=state["atomic_noop"],
             minted_count=state["minted"],
         )
 
@@ -522,7 +532,13 @@ async def test_run_pipeline_atomic_concept_is_not_decomposed() -> None:
     # In-scope but only one role -> below min_decomposable_axes, atomic.
     client = _FakeClient(
         pages=[["C12400"]],
-        semantic_types={"C12400": ["Neoplastic Process"]},
+        semantic_types={
+            "C12400": [
+                "Neoplastic Process",
+                "Disease or Syndrome",
+                "Neoplastic Process",
+            ]
+        },
         roles={"C12400": []},
     )
     provenance = _mock_provenance()
@@ -530,7 +546,34 @@ async def test_run_pipeline_atomic_concept_is_not_decomposed() -> None:
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 0
-    assert provenance.complete_work_item.await_args.kwargs["decomposition"] is None
+    completed = provenance.complete_work_item.await_args.kwargs
+    assert completed["decomposition"] is None
+    assert completed["outcome"] == "atomic-no-op"
+    assert completed["semantic_types"] == (
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    )
+    assert metrics.atomic_noop == 1
+    assert metrics.semantic_excluded == 0
+
+
+@pytest.mark.unit
+async def test_run_pipeline_persists_semantic_exclusion_as_a_distinct_outcome() -> None:
+    client = _FakeClient(
+        pages=[["C162770"]],
+        semantic_types={"C162770": ["Finding"]},
+        roles={"C162770": []},
+    )
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    completed = provenance.complete_work_item.await_args.kwargs
+    assert completed["decomposition"] is None
+    assert completed["outcome"] == "semantic-excluded"
+    assert completed["semantic_types"] == ("Finding",)
+    assert metrics.total_in_scope == 1
+    assert metrics.decomposed == 0
 
 
 @pytest.mark.unit
@@ -899,6 +942,8 @@ async def test_run_pipeline_out_of_scope_semantic_type_is_skipped() -> None:
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 0
     assert metrics.residual == 0  # never a precoordination candidate to begin with
+    assert metrics.semantic_excluded == 1
+    assert metrics.atomic_noop == 0
 
 
 @pytest.mark.unit
@@ -1234,6 +1279,9 @@ async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
         "total_in_scope",
         "decomposed",
         "residual",
+        "semantic_excluded",
+        "atomic_noop",
+        "unknown_outcome",
         "residual_precoordinated_count",
         "residual_precoordination",
         "minted_count",
@@ -1308,14 +1356,22 @@ def test_candidate_result_rejects_minted_without_a_decomposition() -> None:
     with pytest.raises(ValueError, match="minted"):
         _CandidateResult(
             decomposition=None,
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
             minted=[MintedConcept(axis="op:Laterality", label="Left")],
         )
 
 
 @pytest.mark.unit
-def test_candidate_result_allows_none_with_no_minted() -> None:
-    result = _CandidateResult(decomposition=None)
+def test_candidate_result_preserves_typed_atomic_no_op() -> None:
+    result = _CandidateResult(
+        decomposition=None,
+        outcome="atomic-no-op",
+        semantic_types=("Neoplastic Process",),
+    )
     assert result.decomposition is None
+    assert result.outcome == "atomic-no-op"
+    assert result.semantic_types == ("Neoplastic Process",)
     assert result.minted == []
 
 

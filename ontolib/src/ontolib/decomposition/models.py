@@ -15,6 +15,13 @@ from typing import Literal
 
 # How an axis/constituent was recovered — the ``op:axisSource`` provenance value.
 AxisSource = Literal["role", "nlp", "parent"]
+ConceptOutcome = Literal[
+    "decomposed",
+    "residual",
+    "semantic-excluded",
+    "atomic-no-op",
+    "unknown",
+]
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")

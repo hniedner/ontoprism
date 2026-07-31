@@ -554,7 +554,9 @@ def test_main_prints_metrics_and_forwards_resume_options(
         return decompose.RunMetrics(
             total_in_scope=4,
             decomposed=2,
-            residual=2,
+            residual=0,
+            semantic_excluded=1,
+            atomic_noop=1,
             minted_count=1,
             residual_precoordinated_count=1,
         )
@@ -585,7 +587,8 @@ def test_main_prints_metrics_and_forwards_resume_options(
         None,
     )
     assert capsys.readouterr().out == (
-        "in_scope=4 decomposed=2 residual=2 minted=1 coverage=50.00% "
+        "in_scope=4 decomposed=2 residual=0 semantic_excluded=1 atomic_noop=1 "
+        "unknown=0 minted=1 coverage=50.00% "
         "residual_precoordination=50.00% (1/2)\n"
     )
 

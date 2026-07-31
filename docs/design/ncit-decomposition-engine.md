@@ -146,7 +146,7 @@ the additive constituent view or future post-coordination grammar; it prevents e
 curated view or an unvalidated structural capture from being misrepresented as an exact
 definition.
 
-### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`, `0009`, and `0010`)
+### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`–`0013`)
 
 The graph is the queryable artifact; Postgres holds an exact, source-bound run manifest,
 the materialized worklist, transactional results, metrics, and the minted-concept
@@ -173,7 +173,10 @@ decomp_work_item
   state         text NOT NULL CHECK (...) -- pending | running | failed | complete
   attempt_count integer NOT NULL
   claim_token   uuid                     -- fences stale workers
-  outcome/error/timestamps               -- state-shape constrained
+  outcome       text                     -- closed D56 classification; historical unknown
+  semantic_type text                     -- compatibility projection of source P106
+  semantic_types jsonb                   -- complete canonical source P106 value set
+  flags/counts/error/timestamps           -- state/outcome-shape constrained
 
 decomp_constituent
   run_id        text NOT NULL REFERENCES decomp_run(id)
@@ -666,6 +669,7 @@ and candidate observation. Version or identity mismatch fails closed.
 | Metric | Status | Definition |
 |---|---|---|
 | `pct_decomposed` | stored in `decomp_run.metrics` | cumulative decomposed concepts / exact persisted worklist size; identical after fresh or resumed completion |
+| `decomposed`, `residual`, `semantic_excluded`, `atomic_noop`, `unknown_outcome` | stored in `decomp_run.metrics` | closed D56 work-item classifications; a completed current run reconciles these exactly to `total_in_scope`, while `unknown_outcome` identifies migrated history whose original reason cannot be recovered |
 | `residual_precoordination`, `residual_precoordinated_count` | stored together in `decomp_run.metrics` | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37); storing numerator and rate gives fresh, resumed, CLI, and API reads one schema |
 | `minted_count` | stored in `decomp_run.metrics` | size of the mint tail (governance signal — should stay low hundreds) |
 | `roundtrip_fidelity` | unavailable (`null`) for new runs | a future proof/validation step may measure this only from D50's complete representation, never from the curated projection; historical numeric values remain readable |

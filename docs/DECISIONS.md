@@ -2,6 +2,34 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-07-30 — every completed work item has an explicit classification
+
+### D56. Persist typed non-decomposition outcomes and all observed semantic types
+
+The certified M1 SME-review run exposed an ambiguity that aggregate coverage could not
+explain. `C162770` was correctly excluded because its NCIt P106 type is `Finding`;
+`C102883` was an applicable `Neoplastic Process` that was correctly atomic. Both had
+previously been persisted as the same all-null/false, zero-count work-item shape.
+
+**Decision:** every completed work item stores one closed outcome:
+`decomposed`, `residual`, `semantic-excluded`, or `atomic-no-op`. Historical completed
+rows whose reason cannot be recovered are backfilled as `unknown`, never guessed. The
+row also stores the complete canonical set of observed source semantic types; the
+single `semantic_type` column remains a compatibility projection. Database constraints
+bind each outcome to its decomposed/residual flags, and incomplete items cannot carry a
+completion outcome.
+
+Run metrics and API summaries report each outcome count, while the ordered run-outcomes
+API exposes the per-concept classification and source types. For a completed current
+run, `total_in_scope` must reconcile exactly with decomposed + residual +
+semantic-excluded + atomic-no-op; `unknown` is expected only for migrated history.
+
+**Why:** the hierarchy worklist is broader than the algorithm applicability gate.
+Coverage alone must not conflate “not handled by this algorithm” with “handled and
+already atomic,” and a later reader must not reconstruct either fact from nulls. This
+keeps sample review and full-corpus interpretation evidence-bearing across fresh,
+resumed, and historical runs.
+
 ## 2026-07-30 — R82 closure bounds include real definition-filler cones
 
 ### D54. Calibrate inherited-superclass depth to the certified C27262 sample

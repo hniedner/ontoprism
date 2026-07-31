@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 from ontolib.decomposition.models import (
     CompleteDefinition,
+    ConceptOutcome,
     Constituent,
     Decomposition,
     DefinitionGroup,
@@ -41,6 +42,7 @@ from ontolib.decomposition.provenance_models import (
     RunOutcomeCounts,
     RunResumeIdentity,
     RunSummary,
+    WorkItemOutcome,
 )
 
 _logger = logging.getLogger(__name__)
@@ -172,6 +174,70 @@ def _completion_outcome(
         constituents,
         has_decomposition and bool(constituents),
         has_decomposition and not constituents,
+    )
+
+
+def _expected_completion_outcome(
+    decomposition: Decomposition | None,
+    outcome: ConceptOutcome | None,
+    *,
+    is_decomposed: bool,
+    is_residual: bool,
+) -> ConceptOutcome:
+    if is_decomposed:
+        return "decomposed"
+    if is_residual:
+        return "residual"
+    if decomposition is None:
+        if outcome in {"semantic-excluded", "atomic-no-op"}:
+            return outcome
+        raise RunStateError(
+            "non-decomposition completion requires an explicit typed outcome"
+        )
+    raise RunStateError("completion outcome does not match decomposition result")
+
+
+def _canonical_completion_semantic_types(
+    decomposition: Decomposition | None,
+    semantic_types: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if semantic_types is None:
+        if decomposition is None:
+            raise RunStateError(
+                "non-decomposition completion requires explicit semantic types"
+            )
+        semantic_types = (
+            (decomposition.semantic_type,)
+            if decomposition.semantic_type is not None
+            else ()
+        )
+    canonical = tuple(sorted(set(semantic_types)))
+    if any(not value for value in canonical):
+        raise RunStateError("completion semantic types must be non-empty strings")
+    return canonical
+
+
+def _validated_completion_metadata(
+    decomposition: Decomposition | None,
+    outcome: ConceptOutcome | None,
+    semantic_types: tuple[str, ...] | None,
+    *,
+    is_decomposed: bool,
+    is_residual: bool,
+) -> tuple[ConceptOutcome, tuple[str, ...], CompleteDefinition | None]:
+    expected = _expected_completion_outcome(
+        decomposition,
+        outcome,
+        is_decomposed=is_decomposed,
+        is_residual=is_residual,
+    )
+    resolved = expected if outcome is None else outcome
+    if resolved == "unknown" or resolved != expected:
+        raise RunStateError("completion outcome does not match decomposition result")
+    return (
+        resolved,
+        _canonical_completion_semantic_types(decomposition, semantic_types),
+        decomposition.complete_definition if decomposition is not None else None,
     )
 
 
@@ -420,6 +486,8 @@ async def _mark_work_item_complete(
     concept_code: str,
     claim_token: UUID,
     decomposition: Decomposition | None,
+    outcome: ConceptOutcome,
+    semantic_types: tuple[str, ...],
     constituents: list[Constituent],
     minted: tuple[MintedProposal, ...],
     *,
@@ -430,6 +498,7 @@ async def _mark_work_item_complete(
         text(
             "UPDATE decomp_work_item SET state = 'complete', "
             "claim_token = NULL, claimed_at = NULL, semantic_type = :semantic_type, "
+            "semantic_types = CAST(:semantic_types AS jsonb), outcome = :outcome, "
             "is_decomposed = :is_decomposed, is_residual = :is_residual, "
             "constituent_count = :constituent_count, minted_count = :minted_count, "
             "completed_at = :completed_at "
@@ -441,8 +510,12 @@ async def _mark_work_item_complete(
             "concept_code": concept_code,
             "claim_token": claim_token,
             "semantic_type": (
-                decomposition.semantic_type if decomposition is not None else None
+                decomposition.semantic_type
+                if decomposition is not None
+                else (semantic_types[0] if semantic_types else None)
             ),
+            "semantic_types": _json.dumps(semantic_types),
+            "outcome": outcome,
             "is_decomposed": is_decomposed,
             "is_residual": is_residual,
             "constituent_count": len(constituents),
@@ -854,13 +927,21 @@ class ProvenanceStore:
         *,
         decomposition: Decomposition | None,
         minted: tuple[MintedProposal, ...],
+        outcome: ConceptOutcome | None = None,
+        semantic_types: tuple[str, ...] | None = None,
     ) -> None:
         """Replace one concept's rows and mark it complete in one transaction."""
         constituents, is_decomposed, is_residual = _completion_outcome(
             concept_code, decomposition, minted
         )
-        complete_definition = (
-            decomposition.complete_definition if decomposition is not None else None
+        outcome, canonical_semantic_types, complete_definition = (
+            _validated_completion_metadata(
+                decomposition,
+                outcome,
+                semantic_types,
+                is_decomposed=is_decomposed,
+                is_residual=is_residual,
+            )
         )
         async with self._sf() as session, session.begin():
             locked = await session.execute(
@@ -889,6 +970,8 @@ class ProvenanceStore:
                 concept_code,
                 claim_token,
                 decomposition,
+                outcome,
+                canonical_semantic_types,
                 constituents,
                 minted,
                 is_decomposed=is_decomposed,
@@ -1013,6 +1096,7 @@ class ProvenanceStore:
                 text(
                     "UPDATE decomp_work_item SET state = 'failed', "
                     "claim_token = NULL, claimed_at = NULL, semantic_type = NULL, "
+                    "semantic_types = NULL, outcome = NULL, "
                     "is_decomposed = NULL, is_residual = NULL, "
                     "constituent_count = NULL, minted_count = NULL, "
                     "error_type = :error_type, error_message = :error_message, "
@@ -1081,6 +1165,12 @@ class ProvenanceStore:
                     "SELECT count(*) AS total_in_scope, "
                     "count(*) FILTER (WHERE is_decomposed) AS decomposed, "
                     "count(*) FILTER (WHERE is_residual) AS residual, "
+                    "count(*) FILTER (WHERE outcome = 'semantic-excluded') "
+                    "AS semantic_excluded, "
+                    "count(*) FILTER (WHERE outcome = 'atomic-no-op') "
+                    "AS atomic_noop, "
+                    "count(*) FILTER (WHERE outcome = 'unknown') "
+                    "AS unknown_outcome, "
                     "COALESCE(sum(minted_count), 0) AS minted_count "
                     "FROM decomp_work_item WHERE run_id = :run_id"
                 ),
@@ -1088,6 +1178,26 @@ class ProvenanceStore:
             )
             row = result.mappings().one()
             return RunOutcomeCounts.model_validate(dict(row))
+
+    async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
+        """Return the exact ordered per-concept outcomes for a run."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT run_id, concept_code, ordinal, state, outcome, "
+                    "semantic_type, semantic_types, is_decomposed, is_residual, "
+                    "constituent_count, minted_count "
+                    "FROM decomp_work_item WHERE run_id = :run_id ORDER BY ordinal"
+                ),
+                {"run_id": run_id},
+            )
+            outcomes: list[WorkItemOutcome] = []
+            for raw_row in result.mappings().all():
+                row = dict(raw_row)
+                if row["semantic_types"] is not None:
+                    row["semantic_types"] = tuple(row["semantic_types"])
+                outcomes.append(WorkItemOutcome.model_validate(row))
+            return outcomes
 
     async def begin_publication(
         self,
@@ -1290,6 +1400,9 @@ class ProvenanceStore:
             total_in_scope=m.get("total_in_scope"),
             decomposed=m.get("decomposed"),
             residual=m.get("residual"),
+            semantic_excluded=m.get("semantic_excluded"),
+            atomic_noop=m.get("atomic_noop"),
+            unknown_outcome=m.get("unknown_outcome"),
             residual_precoordinated_count=m.get("residual_precoordinated_count"),
             residual_precoordination=_residual_precoordination_metric(m),
             minted_count=m.get("minted_count"),
