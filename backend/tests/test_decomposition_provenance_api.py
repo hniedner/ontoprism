@@ -9,7 +9,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import get_provenance_store
 from backend.main import create_app
-from ontolib.decomposition.provenance_models import MintedConcept, RunSummary
+from ontolib.decomposition.provenance_models import (
+    MintedConcept,
+    RunSummary,
+    WorkItemOutcome,
+)
 
 
 class _FakeProvenanceStore:
@@ -17,9 +21,11 @@ class _FakeProvenanceStore:
         self,
         runs: list[RunSummary] | None = None,
         mints: list[MintedConcept] | None = None,
+        outcomes: list[WorkItemOutcome] | None = None,
     ) -> None:
         self._runs = runs or []
         self._mints = mints or []
+        self._outcomes = outcomes or []
 
     async def list_runs(self, limit: int = 50, offset: int = 0) -> list[RunSummary]:
         return self._runs[offset : offset + limit]
@@ -29,6 +35,9 @@ class _FakeProvenanceStore:
             if r.id == run_id:
                 return r
         return None
+
+    async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
+        return [outcome for outcome in self._outcomes if outcome.run_id == run_id]
 
     async def list_minted_concepts(
         self,
@@ -53,6 +62,11 @@ class _ErrorFakeStore:
         raise SQLAlchemyError(msg)
 
     async def get_run(self, run_id: str) -> RunSummary | None:
+        msg = "fake db error"
+        raise SQLAlchemyError(msg)
+
+    async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
+        del run_id
         msg = "fake db error"
         raise SQLAlchemyError(msg)
 
@@ -86,6 +100,9 @@ _SAMPLE_RUN = RunSummary(
     total_in_scope=5,
     decomposed=3,
     residual=2,
+    semantic_excluded=1,
+    atomic_noop=1,
+    unknown_outcome=0,
     residual_precoordinated_count=1,
     residual_precoordination=1 / 3,
     minted_count=1,
@@ -116,6 +133,20 @@ _SAMPLE_MINT = MintedConcept(
     status="proposed",
 )
 
+_SAMPLE_OUTCOME = WorkItemOutcome(
+    run_id="run-1",
+    concept_code="C162770",
+    ordinal=4,
+    state="complete",
+    outcome="semantic-excluded",
+    semantic_type="Finding",
+    semantic_types=("Finding",),
+    is_decomposed=False,
+    is_residual=False,
+    constituent_count=0,
+    minted_count=0,
+)
+
 
 def _client(
     fake: _FakeProvenanceStore | _ErrorFakeStore,
@@ -138,6 +169,9 @@ def test_list_runs_returns_summaries() -> None:
     assert complete["total_in_scope"] == 5
     assert complete["decomposed"] == 3
     assert complete["residual"] == 2
+    assert complete["semantic_excluded"] == 1
+    assert complete["atomic_noop"] == 1
+    assert complete["unknown_outcome"] == 0
     assert complete["residual_precoordinated_count"] == 1
     assert complete["residual_precoordination"] == pytest.approx(1 / 3)
     assert complete["minted_count"] == 1
@@ -183,6 +217,31 @@ def test_get_run_found() -> None:
     resp = client.get("/api/v1/decomposition/runs/run-1")
     assert resp.status_code == 200
     assert resp.json()["id"] == "run-1"
+
+
+@pytest.mark.api
+def test_list_run_outcomes_explains_each_completed_work_item() -> None:
+    fake = _FakeProvenanceStore(outcomes=[_SAMPLE_OUTCOME])
+    client = next(_client(fake))
+
+    resp = client.get("/api/v1/decomposition/runs/run-1/outcomes")
+
+    assert resp.status_code == 200
+    assert resp.json() == [
+        {
+            "run_id": "run-1",
+            "concept_code": "C162770",
+            "ordinal": 4,
+            "state": "complete",
+            "outcome": "semantic-excluded",
+            "semantic_type": "Finding",
+            "semantic_types": ["Finding"],
+            "is_decomposed": False,
+            "is_residual": False,
+            "constituent_count": 0,
+            "minted_count": 0,
+        }
+    ]
 
 
 @pytest.mark.api
@@ -301,6 +360,13 @@ def test_list_runs_503_on_db_error() -> None:
 def test_get_run_503_on_db_error() -> None:
     client = next(_client(_ErrorFakeStore()))
     resp = client.get("/api/v1/decomposition/runs/run-1")
+    assert resp.status_code == 503
+
+
+@pytest.mark.api
+def test_list_run_outcomes_503_on_db_error() -> None:
+    client = next(_client(_ErrorFakeStore()))
+    resp = client.get("/api/v1/decomposition/runs/run-1/outcomes")
     assert resp.status_code == 503
 
 

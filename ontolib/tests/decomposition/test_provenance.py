@@ -22,7 +22,7 @@ from ontolib.decomposition.provenance import (
     RunIdentityMismatchError,
     RunStateError,
 )
-from ontolib.decomposition.provenance_models import RunFingerprint
+from ontolib.decomposition.provenance_models import RunFingerprint, WorkItemOutcome
 
 
 def _make_mock_sf(*, rowcount: int = 1) -> MagicMock:
@@ -37,6 +37,53 @@ def _make_mock_sf(*, rowcount: int = 1) -> MagicMock:
     result_mock = MagicMock(rowcount=rowcount)
     mock_session.execute.return_value = result_mock
     return MagicMock(return_value=mock_session)
+
+
+@pytest.mark.unit
+def test_work_item_read_model_rejects_outcome_flag_disagreement() -> None:
+    with pytest.raises(ValueError, match="outcome flags"):
+        WorkItemOutcome(
+            run_id="run-1",
+            concept_code="C1",
+            ordinal=0,
+            state="complete",
+            outcome="semantic-excluded",
+            semantic_types=("Finding",),
+            is_decomposed=True,
+            is_residual=False,
+            constituent_count=0,
+            minted_count=0,
+        )
+
+
+@pytest.mark.unit
+def test_work_item_read_model_rejects_completion_data_on_failed_item() -> None:
+    with pytest.raises(ValueError, match="non-complete"):
+        WorkItemOutcome(
+            run_id="run-1",
+            concept_code="C1",
+            ordinal=0,
+            state="failed",
+            semantic_type="Finding",
+        )
+
+
+@pytest.mark.unit
+def test_work_item_read_model_rejects_representative_outside_source_types() -> None:
+    with pytest.raises(ValueError, match="representative"):
+        WorkItemOutcome(
+            run_id="run-1",
+            concept_code="C1",
+            ordinal=0,
+            state="complete",
+            outcome="atomic-no-op",
+            semantic_type="Neoplastic Process",
+            semantic_types=("Disease or Syndrome",),
+            is_decomposed=False,
+            is_residual=False,
+            constituent_count=0,
+            minted_count=0,
+        )
 
 
 @pytest.mark.unit
@@ -257,6 +304,7 @@ async def test_list_runs_returns_summaries_with_parsed_metrics() -> None:
             "started_at": datetime.datetime(2026, 7, 12, 0, 0, tzinfo=datetime.UTC),
             "finished_at": datetime.datetime(2026, 7, 12, 1, 0, tzinfo=datetime.UTC),
             "metrics": '{"total_in_scope":5,"decomposed":3,"residual":2,'
+            '"semantic_excluded":0,"atomic_noop":0,"unknown_outcome":0,'
             '"residual_precoordinated_count":1,'
             '"minted_count":1,"complete_definition_count":3,'
             '"complete_fact_count":12,"projected_fact_count":9,'
@@ -275,6 +323,9 @@ async def test_list_runs_returns_summaries_with_parsed_metrics() -> None:
     assert r.total_in_scope == 5
     assert r.decomposed == 3
     assert r.residual == 2
+    assert r.semantic_excluded == 0
+    assert r.atomic_noop == 0
+    assert r.unknown_outcome == 0
     assert r.residual_precoordinated_count == 1
     assert r.residual_precoordination == pytest.approx(1 / 3)
     assert r.minted_count == 1
@@ -373,6 +424,8 @@ async def test_completion_detects_claim_change_after_locked_validation() -> None
             claim,
             decomposition=None,
             minted=(),
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
         )
 
 

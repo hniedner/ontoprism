@@ -126,6 +126,11 @@ tests = ["test_nested_definition_group_migration_roundtrip"]
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_outcome_migration_backfills_unknown_and_rejects_invalid_shape"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_provenance_integration.py"
 fixtures = ["isolated_postgres_settings"]
 

@@ -39,6 +39,7 @@ from uuid import uuid4
 
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import (
+    axes,
     complete_definition,
     constituent_index,
     detector,
@@ -59,7 +60,11 @@ from ontolib.decomposition.branches import (
     parse_branch,
 )
 from ontolib.decomposition.legacy_writer import write_ttl
-from ontolib.decomposition.models import CompleteDefinition, Decomposition
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    ConceptOutcome,
+    Decomposition,
+)
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
     NcitSourceSnapshot,
@@ -250,6 +255,9 @@ class RunMetrics:
     total_in_scope: int = 0
     decomposed: int = 0
     residual: int = 0
+    semantic_excluded: int = 0
+    atomic_noop: int = 0
+    unknown_outcome: int = 0
     residual_precoordinated_count: int = 0
     minted_count: int = 0
     complete_definition_count: int = 0
@@ -279,18 +287,42 @@ class RunMetrics:
         return self.residual_precoordinated_count / self.decomposed
 
 
+def _require_candidate_outcome_shape(
+    decomposition: Decomposition | None,
+    outcome: ConceptOutcome,
+) -> None:
+    if outcome in {"decomposed", "residual"} and decomposition is None:
+        raise ValueError(
+            "_CandidateResult: decomposed/residual outcomes require a decomposition"
+        )
+    if outcome not in {"decomposed", "residual"} and decomposition is not None:
+        raise ValueError(
+            "_CandidateResult: non-decomposition outcomes cannot carry a decomposition"
+        )
+
+
+def _require_candidate_mint_shape(
+    decomposition: Decomposition | None,
+    minted: list[MintedConcept],
+) -> None:
+    if decomposition is None and minted:
+        raise ValueError(
+            "_CandidateResult: minted concepts without a decomposition is not "
+            "a valid state — minting only happens while building constituents "
+            "for an actual candidate"
+        )
+
+
 @dataclass
 class _CandidateResult:
     decomposition: Decomposition | None
+    outcome: ConceptOutcome
+    semantic_types: tuple[str, ...]
     minted: list[MintedConcept] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if self.decomposition is None and self.minted:
-            raise ValueError(
-                "_CandidateResult: minted concepts without a decomposition is not "
-                "a valid state — minting only happens while building constituents "
-                "for an actual candidate"
-            )
+        _require_candidate_outcome_shape(self.decomposition, self.outcome)
+        _require_candidate_mint_shape(self.decomposition, self.minted)
 
 
 def _new_run_id(branch: DecompositionBranch | str) -> str:
@@ -316,6 +348,7 @@ async def _detect_concept(
     list[RoleRestriction],
     str | None,
     CompleteDefinition,
+    tuple[str, ...],
 ]:
     """Run the detector on *code*: semantic types, genus-chain roles, and morphology.
 
@@ -325,10 +358,16 @@ async def _detect_concept(
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
     constituent is judged by the *same* detector as the concept it came from.
     """
-    semantic_types = extract.semantic_types_from_rows(
-        await client.select(
-            stated_queries.build_semantic_type_query(code),
-            required_variables={"semanticType"},
+    semantic_types = tuple(
+        sorted(
+            set(
+                extract.semantic_types_from_rows(
+                    await client.select(
+                        stated_queries.build_semantic_type_query(code),
+                        required_variables={"semanticType"},
+                    )
+                )
+            )
         )
     )
     definition, roles = await stated_queries.read_complete_genus_chain(
@@ -344,7 +383,15 @@ async def _detect_concept(
         has_parent_morphology=morphology_filler is not None,
         label=label,
     )
-    return result, roles, morphology_filler, definition
+    return result, roles, morphology_filler, definition, semantic_types
+
+
+def _non_candidate_outcome(
+    semantic_types: tuple[str, ...],
+) -> ConceptOutcome:
+    if any(axes.is_in_scope(value) for value in semantic_types):
+        return "atomic-no-op"
+    return "semantic-excluded"
 
 
 async def _decompose_one(
@@ -361,7 +408,13 @@ async def _decompose_one(
     # Phase 1: detect (semantic types + genus-chain roles + morphology-from-parent).
     # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
     # which is correct — nothing to decompose.
-    result, roles, morphology_filler, definition = await _detect_concept(
+    (
+        result,
+        roles,
+        morphology_filler,
+        definition,
+        semantic_types,
+    ) = await _detect_concept(
         code, client, label=label, walker_max_depth=walker_max_depth
     )
 
@@ -379,7 +432,11 @@ async def _decompose_one(
         semantic_type_of = extract.semantic_type_of_from_rows(rows)
 
     if not result.is_precoordinated:
-        return _CandidateResult(decomposition=None)
+        return _CandidateResult(
+            decomposition=None,
+            outcome=_non_candidate_outcome(semantic_types),
+            semantic_types=semantic_types,
+        )
 
     ancestor_pairs = extract.ancestor_pairs_from_rows(
         await client.select(
@@ -424,7 +481,12 @@ async def _decompose_one(
         constituents=curated,
         complete_definition=definition,
     )
-    return _CandidateResult(decomposition=decomposition, minted=minted)
+    return _CandidateResult(
+        decomposition=decomposition,
+        outcome="decomposed" if decomposition.constituents else "residual",
+        semantic_types=semantic_types,
+        minted=minted,
+    )
 
 
 def _residual_count(
@@ -486,7 +548,13 @@ async def _precoordinated_fillers(
     precoordinated: set[str] = set()
     for filler in fillers:
         try:
-            result, _roles, _morph, _definition = await _detect_concept(
+            (
+                result,
+                _roles,
+                _morph,
+                _definition,
+                _semantic_types,
+            ) = await _detect_concept(
                 filler,
                 client,
                 label=labels.get(filler),
@@ -775,6 +843,8 @@ async def _process_work_item(
             code,
             claim,
             decomposition=result.decomposition,
+            outcome=result.outcome,
+            semantic_types=result.semantic_types,
             minted=tuple(result.minted),
         )
     except BaseException as exc:
@@ -826,6 +896,9 @@ async def _reconstructed_metrics(
         total_in_scope=counts.total_in_scope,
         decomposed=counts.decomposed,
         residual=counts.residual,
+        semantic_excluded=counts.semantic_excluded,
+        atomic_noop=counts.atomic_noop,
+        unknown_outcome=counts.unknown_outcome,
         minted_count=counts.minted_count,
     )
     metrics.complete_definition_count = sum(

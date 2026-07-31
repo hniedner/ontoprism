@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 from pydantic import (
     AwareDatetime,
@@ -17,6 +17,7 @@ from pydantic import (
 
 # Pydantic resolves these aliases while constructing the runtime model schema.
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion  # noqa: TC001
+from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
 
 _STANDARD_RUN_SCHEMA = 2
 _SAMPLE_RUN_SCHEMA = 3
@@ -178,7 +179,129 @@ class RunOutcomeCounts(BaseModel):
     total_in_scope: int = Field(ge=0)
     decomposed: int = Field(ge=0)
     residual: int = Field(ge=0)
+    semantic_excluded: int = Field(default=0, ge=0)
+    atomic_noop: int = Field(default=0, ge=0)
+    unknown_outcome: int = Field(default=0, ge=0)
     minted_count: int = Field(ge=0)
+
+
+_OUTCOME_FLAGS: dict[ConceptOutcome, tuple[bool, bool]] = {
+    "decomposed": (True, False),
+    "residual": (False, True),
+    "semantic-excluded": (False, False),
+    "atomic-no-op": (False, False),
+    "unknown": (False, False),
+}
+
+
+def _require_complete_outcome_fields(
+    outcome: ConceptOutcome | None,
+    semantic_types: tuple[str, ...] | None,
+    is_decomposed: bool | None,
+    is_residual: bool | None,
+    constituent_count: int | None,
+    minted_count: int | None,
+) -> tuple[ConceptOutcome, tuple[str, ...], bool, bool, int, int]:
+    values = (
+        outcome,
+        semantic_types,
+        is_decomposed,
+        is_residual,
+        constituent_count,
+        minted_count,
+    )
+    if any(value is None for value in values):
+        raise ValueError("complete work item requires a typed outcome")
+    return cast(
+        "tuple[ConceptOutcome, tuple[str, ...], bool, bool, int, int]",
+        values,
+    )
+
+
+def _validate_source_semantic_types(
+    semantic_type: str | None,
+    semantic_types: tuple[str, ...],
+) -> None:
+    if semantic_types != tuple(sorted(set(semantic_types))):
+        raise ValueError("semantic_types must be sorted and unique")
+    if semantic_type is not None and semantic_type not in semantic_types:
+        raise ValueError("representative semantic type must occur in semantic_types")
+
+
+def _validate_typed_outcome_shape(
+    outcome: ConceptOutcome,
+    is_decomposed: bool,
+    is_residual: bool,
+    constituent_count: int,
+    minted_count: int,
+) -> None:
+    if (is_decomposed, is_residual) != _OUTCOME_FLAGS[outcome]:
+        raise ValueError("outcome flags do not match typed outcome")
+    if outcome == "decomposed" and constituent_count == 0:
+        raise ValueError("decomposed outcome requires at least one constituent")
+    if outcome != "decomposed" and (constituent_count != 0 or minted_count != 0):
+        raise ValueError("non-decomposed outcome cannot carry constituents or mints")
+
+
+def _require_no_incomplete_outcome_data(*values: object | None) -> None:
+    if any(value is not None for value in values):
+        raise ValueError("non-complete work item cannot expose a completion outcome")
+
+
+class WorkItemOutcome(BaseModel):
+    """Observable classification and source types for one exact run work item."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str = Field(min_length=1)
+    concept_code: str = Field(pattern=r"^C[0-9]+$")
+    ordinal: int = Field(ge=0)
+    state: Literal["pending", "running", "failed", "complete"]
+    outcome: ConceptOutcome | None = None
+    semantic_type: str | None = None
+    semantic_types: tuple[str, ...] | None = None
+    is_decomposed: bool | None = None
+    is_residual: bool | None = None
+    constituent_count: int | None = Field(default=None, ge=0)
+    minted_count: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _completion_shape_is_closed(self) -> Self:
+        if self.state == "complete":
+            (
+                outcome,
+                semantic_types,
+                is_decomposed,
+                is_residual,
+                constituent_count,
+                minted_count,
+            ) = _require_complete_outcome_fields(
+                self.outcome,
+                self.semantic_types,
+                self.is_decomposed,
+                self.is_residual,
+                self.constituent_count,
+                self.minted_count,
+            )
+            _validate_source_semantic_types(self.semantic_type, semantic_types)
+            _validate_typed_outcome_shape(
+                outcome,
+                is_decomposed,
+                is_residual,
+                constituent_count,
+                minted_count,
+            )
+        else:
+            _require_no_incomplete_outcome_data(
+                self.outcome,
+                self.semantic_type,
+                self.semantic_types,
+                self.is_decomposed,
+                self.is_residual,
+                self.constituent_count,
+                self.minted_count,
+            )
+        return self
 
 
 class RunSummary(BaseModel):
@@ -214,6 +337,9 @@ class RunSummary(BaseModel):
     total_in_scope: int | None = None
     decomposed: int | None = None
     residual: int | None = None
+    semantic_excluded: int | None = None
+    atomic_noop: int | None = None
+    unknown_outcome: int | None = None
     residual_precoordinated_count: int | None = None
     residual_precoordination: float | None = None
     minted_count: int | None = None

@@ -169,6 +169,135 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
 
 
 @pytest.mark.integration
+async def test_non_decomposition_outcomes_round_trip_as_distinct_database_states() -> (
+    None
+):
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await _cleanup(dsn)
+        await store.create_run(
+            _RUN_ID,
+            "26.07d",
+            _fingerprint(("C162770", "C999")),
+        )
+        await store.create_run(
+            _RERUN_ID,
+            "26.07d",
+            _fingerprint(("C102883",)),
+        )
+
+        excluded_claim = await store.claim_work_item(_RUN_ID, "C162770")
+        atomic_claim = await store.claim_work_item(_RERUN_ID, "C102883")
+        assert excluded_claim is not None
+        assert atomic_claim is not None
+
+        await store.complete_work_item(
+            _RUN_ID,
+            "C162770",
+            excluded_claim,
+            decomposition=None,
+            outcome="semantic-excluded",
+            semantic_types=("Finding",),
+            minted=(),
+        )
+        await store.complete_work_item(
+            _RERUN_ID,
+            "C102883",
+            atomic_claim,
+            decomposition=None,
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
+            minted=(),
+        )
+
+        conn = await asyncpg.connect(dsn)
+        try:
+            rows = await conn.fetch(
+                "SELECT concept_code, outcome, semantic_type, "
+                "semantic_types::text AS semantic_types "
+                "FROM decomp_work_item WHERE run_id = ANY($1) "
+                "AND state = 'complete' "
+                "ORDER BY concept_code",
+                [_RUN_ID, _RERUN_ID],
+            )
+        finally:
+            await conn.close()
+
+        assert [dict(row) for row in rows] == [
+            {
+                "concept_code": "C102883",
+                "outcome": "atomic-no-op",
+                "semantic_type": "Neoplastic Process",
+                "semantic_types": '["Neoplastic Process"]',
+            },
+            {
+                "concept_code": "C162770",
+                "outcome": "semantic-excluded",
+                "semantic_type": "Finding",
+                "semantic_types": '["Finding"]',
+            },
+        ]
+        excluded_counts = await store.outcome_counts(_RUN_ID)
+        assert excluded_counts.total_in_scope == 2
+        assert excluded_counts.semantic_excluded == 1
+        assert excluded_counts.atomic_noop == 0
+        atomic_counts = await store.outcome_counts(_RERUN_ID)
+        assert atomic_counts.total_in_scope == 1
+        assert atomic_counts.semantic_excluded == 0
+        assert atomic_counts.atomic_noop == 1
+
+        pending_claim = await store.claim_work_item(_RUN_ID, "C999")
+        assert pending_claim is not None
+        await store.fail_work_item(
+            _RUN_ID,
+            "C999",
+            pending_claim,
+            RuntimeError("transient failure"),
+        )
+        await store.resume_run(
+            _RUN_ID,
+            RunResumeIdentity.from_fingerprint(_fingerprint(("C162770", "C999"))),
+        )
+        resumed_outcomes = await store.work_item_outcomes(_RUN_ID)
+        assert resumed_outcomes[0].model_dump() == {
+            "run_id": _RUN_ID,
+            "concept_code": "C162770",
+            "ordinal": 0,
+            "state": "complete",
+            "outcome": "semantic-excluded",
+            "semantic_type": "Finding",
+            "semantic_types": ("Finding",),
+            "is_decomposed": False,
+            "is_residual": False,
+            "constituent_count": 0,
+            "minted_count": 0,
+        }
+        assert resumed_outcomes[1].state == "failed"
+        assert resumed_outcomes[1].outcome is None
+
+        retry_claim = await store.claim_work_item(_RUN_ID, "C999")
+        assert retry_claim is not None
+        await store.complete_work_item(
+            _RUN_ID,
+            "C999",
+            retry_claim,
+            decomposition=None,
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
+            minted=(),
+        )
+        resumed_counts = await store.outcome_counts(_RUN_ID)
+        assert resumed_counts.total_in_scope == 2
+        assert resumed_counts.semantic_excluded == 1
+        assert resumed_counts.atomic_noop == 1
+    finally:
+        await _cleanup(dsn)
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
 async def test_publication_state_is_retryable_separate_and_completion_gated(
     tmp_path: Path,
 ) -> None:

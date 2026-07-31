@@ -143,7 +143,9 @@ class _InterruptedDecomposer:
                         axis_source="role",
                     )
                 ],
-            )
+            ),
+            outcome="decomposed",
+            semantic_types=("Neoplastic Process",),
         )
 
 
@@ -197,6 +199,8 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
             zero_claim,
             decomposition=None,
             minted=(),
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
         )
         assert await store.pending_codes(run_id) == ["C1"]
 
@@ -452,6 +456,8 @@ async def test_invalid_completion_inputs_and_stale_claims_fail_closed() -> None:
                 claim,
                 decomposition=None,
                 minted=(MintedConcept(axis="op:Laterality", label="Left"),),
+                outcome="atomic-no-op",
+                semantic_types=("Neoplastic Process",),
             )
         stale_claim = claim.__class__(int=claim.int + 1)
         with pytest.raises(RunStateError, match="not owned"):
@@ -461,6 +467,8 @@ async def test_invalid_completion_inputs_and_stale_claims_fail_closed() -> None:
                 stale_claim,
                 decomposition=None,
                 minted=(),
+                outcome="atomic-no-op",
+                semantic_types=("Neoplastic Process",),
             )
         with pytest.raises(RunStateError, match="claim changed"):
             await store.fail_work_item(
@@ -526,6 +534,8 @@ async def test_completion_rowcount_guard_matches_real_asyncpg_behavior() -> None
                 claim,
                 decomposition=None,
                 minted=(),
+                outcome="atomic-no-op",
+                semantic_types=("Neoplastic Process",),
             )
 
         persisted = await conn.fetchrow(
@@ -743,7 +753,13 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
             retry = await store.claim_work_item(run_id, code)
             assert retry is not None
             await store.complete_work_item(
-                run_id, code, retry, decomposition=None, minted=()
+                run_id,
+                code,
+                retry,
+                decomposition=None,
+                minted=(),
+                outcome="atomic-no-op",
+                semantic_types=("Neoplastic Process",),
             )
         await store.finish_run(run_id, source_identity="a" * 64, metrics={})
 
@@ -822,6 +838,8 @@ async def test_non_running_run_rejects_claims_and_completions() -> None:
                 claim,
                 decomposition=None,
                 minted=(),
+                outcome="atomic-no-op",
+                semantic_types=("Neoplastic Process",),
             )
 
         assert (
@@ -987,7 +1005,13 @@ async def test_fail_run_reports_whether_the_failure_is_recorded() -> None:
             done = await store.claim_work_item(complete_id, code)
             assert done is not None
             await store.complete_work_item(
-                complete_id, code, done, decomposition=None, minted=()
+                complete_id,
+                code,
+                done,
+                decomposition=None,
+                minted=(),
+                outcome="atomic-no-op",
+                semantic_types=("Neoplastic Process",),
             )
         await store.finish_run(complete_id, source_identity="a" * 64, metrics={})
         assert await store.fail_run(complete_id, RuntimeError("too late")) is False
@@ -1095,6 +1119,9 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
             "total_in_scope",
             "decomposed",
             "residual",
+            "semantic_excluded",
+            "atomic_noop",
+            "unknown_outcome",
             "residual_precoordinated_count",
             "residual_precoordination",
             "minted_count",
