@@ -15,6 +15,7 @@ from scripts.research.differentia_extractor import (
 from scripts.research.differentia_extractor import (
     main as differentia_main,
 )
+from scripts.research.golden_review import GoldenSetValidationError
 
 from ontolib.decomposition.walker import Level, Role
 
@@ -157,10 +158,52 @@ class TestLoadGolden:
     @pytest.mark.unit
     def test_loads_golden_file(self, tmp_path: Any) -> None:
         path = tmp_path / "golden.json"
-        data = {"concepts": {"C6135": {"constituents": [["R88", "C27970"]]}}}
+        data = {
+            "_meta": {
+                "schema_version": 1,
+                "status": "SME-ADJUDICATED",
+                "ncit_version": "26.07d",
+                "source_identity": "a" * 64,
+            },
+            "concepts": {
+                "C6135": {
+                    "label": "Reviewed concept",
+                    "constituents": [["op:StageValue", "C27970"]],
+                    "adjudication": {
+                        "status": "accepted",
+                        "reviewer": "Example SME",
+                        "reviewed_at": "2026-07-30",
+                        "rationale": "Reviewed against the stated definition.",
+                    },
+                }
+            },
+        }
         path.write_text(json.dumps(data))
         result = _load_golden(str(path))
-        assert result == data["concepts"]
+        assert result == {"C6135": {("op:StageValue", "C27970")}}
+
+    @pytest.mark.unit
+    def test_rejects_auto_draft_instead_of_reporting_oracle_metrics(
+        self,
+        tmp_path: Any,
+    ) -> None:
+        path = tmp_path / "draft.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "_meta": {
+                        "schema_version": 1,
+                        "status": "AUTO-DRAFT",
+                        "ncit_version": "26.07d",
+                        "source_identity": "a" * 64,
+                    },
+                    "concepts": {},
+                }
+            )
+        )
+
+        with pytest.raises(GoldenSetValidationError, match="not SME-adjudicated"):
+            _load_golden(str(path))
 
 
 class TestExtract:
@@ -280,7 +323,7 @@ class TestMain:
             )
             mp.setattr(
                 "scripts.research.differentia_extractor._load_golden",
-                lambda p: {"C6135": {"constituents": [["R88", "C27970"]]}},
+                lambda p: {"C6135": {("op:StageValue", "C27970")}},
             )
             await differentia_main()
         captured = capsys.readouterr()

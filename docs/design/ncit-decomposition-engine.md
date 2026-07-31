@@ -110,9 +110,12 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#
 | `op:genus`, `op:isDefined`, `op:role`, `op:filler` | typed genus/restriction fact payload |
 | `op:completeDefinitionIdentity`, `op:completeFactCount`, `op:projectedFactCount`, `op:projectionLossCount` | stable complete-record identity and projection-loss evidence |
 
-Example (`C6135`, matching assessment §5). **Superseded in detail by D15/D19/D20** — the
-authoritative constituent set is now `ontolib/tests/decomposition/golden/neoplasm.json`
-(`R105→C36825` per D15; `R101`'s raw candidates split across `R101`/`op:AssociatedLineageClassification`/`op:AssociatedRegion` per D20, with co-equal non-nested fillers carrying `op:group` per D19). The shape below still illustrates the predicate vocabulary:
+Example (`C6135`, matching assessment §5). **Superseded in detail by D15/D19/D20** —
+`ontolib/tests/decomposition/golden/neoplasm.json` is currently an `AUTO-DRAFT` for #57,
+not an authoritative SME oracle. Its questions include the D15 cell-type choice and
+D20's split of raw R101 candidates across primary-site, lineage, and region senses, with
+co-equal non-nested fillers carrying groups per D19. The shape below illustrates the
+predicate vocabulary but does not assert the pending adjudication:
 
 ```turtle
 ncit:C6135 op:representationStatus "legacy-precoordinated" ;

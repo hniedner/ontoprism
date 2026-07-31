@@ -5,7 +5,8 @@ Correct extraction of stated pre-coordination is curation-heavy (engine design �
 genus-chain walk over-collects and most-specific can pick the wrong filler. This is the
 iteration harness for that research, NOT a production extractor. It walks the stated
 equivalentClass/intersectionOf genus chain, keeps positive defining roles, and scores
-precision/recall against ontolib/tests/decomposition/golden/neoplasm.json.
+precision/recall against ontolib/tests/decomposition/golden/neoplasm.json only after
+that artifact carries provenance-bearing SME adjudication. Automated drafts fail closed.
 
 Needs the stated NCIt graph loaded (docs/DATA_SETUP.md). Manual/offline; not in CI.
 
@@ -15,8 +16,9 @@ Needs the stated NCIt graph loaded (docs/DATA_SETUP.md). Manual/offline; not in 
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
+
+from scripts.research.golden_review import load_scorable_golden
 
 from backend.config import get_settings
 from ontolib.decomposition.axes import is_defining_role
@@ -34,6 +36,13 @@ _GOLDEN = Path(__file__).resolve().parents[1] / (
 _NON_DEFINING = ("May_", "Mapped_")
 _Pair = tuple[str, str]
 _EXTRA_PREVIEW = 10  # cap the over-collection list printed per concept
+
+
+def _load_golden_expectations(
+    path: str | Path,
+) -> dict[str, frozenset[tuple[str, str]]]:
+    """Load only provenance-bearing SME-accepted expectations."""
+    return load_scorable_golden(path).expected
 
 
 def _level_query(code: str) -> str:
@@ -94,19 +103,19 @@ async def _extract(
 
 
 async def main() -> None:
-    golden = json.loads(_GOLDEN.read_text())["concepts"]
+    golden = load_scorable_golden(_GOLDEN)
     settings = get_settings()
     async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
         agg_tp = agg_exp = agg_act = 0
-        for code, entry in golden.items():
-            expected = {(a, f) for a, f in entry["constituents"]}
+        for code, expected_pairs in golden.expected.items():
+            expected = set(expected_pairs)
             actual = await _extract(client, code)
             s = score(expected, actual)
             agg_tp += s.true_positive
             agg_exp += s.expected
             agg_act += s.actual
             extra = sorted(s.extra)
-            print(f"\n{code} — {entry.get('label', '')}")
+            print(f"\n{code} — {golden.labels[code]}")
             print(f"  precision={s.precision:.2f} recall={s.recall:.2f} f1={s.f1:.2f}")
             print(f"  missing: {sorted(s.missing)}")
             tail = " …" if len(extra) > _EXTRA_PREVIEW else ""

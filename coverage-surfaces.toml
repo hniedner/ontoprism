@@ -362,7 +362,7 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/research/differentia_extractor.py"
-line = 102
+line = 103
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "This research-only module guard delegates directly to the tested async main function."

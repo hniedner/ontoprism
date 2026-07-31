@@ -17,8 +17,9 @@ here.
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
+
+from scripts.research.golden_review import load_scorable_golden
 
 from ontolib.decomposition.score import score
 from ontolib.decomposition.walker import Role, walk_chain
@@ -31,10 +32,10 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 _DEFINING_AXES = {"R88", "R101", "R105"}
 
 # A stage-VALUE filler ("Stage III") and a stage-SYSTEM filler ("AJCC v7 Stage") both
-# use role R88 in the raw graph; the golden set distinguishes them by relabelling the
-# system one as `op:StageSystem` (design §4.2's "else an op: axis"). Detected here by
-# a simple label heuristic — a genuine axis-naming judgment call (#44 SME task), not a
-# mechanical fact, so it's isolated in one place.
+# use role R88 in the raw graph; the AUTO-DRAFT proposes relabelling the system one as
+# `op:StageSystem` (design §4.2's "else an op: axis"). Detected here by a simple label
+# heuristic — a genuine axis-naming judgment call (#57 SME task), not a mechanical fact,
+# so it is isolated in one place and cannot be scored until adjudication.
 _STAGE_SYSTEM_MARKERS = ("AJCC", "UICC", "Stage System")
 
 
@@ -73,9 +74,9 @@ def ambiguous_axes(pairs: set[tuple[str, str]]) -> dict[str, set[str]]:
     return {axis: fillers for axis, fillers in by_axis.items() if len(fillers) > 1}
 
 
-def _load_golden(path: str) -> dict:
-    with open(path) as f:
-        return json.loads(f.read())["concepts"]
+def _load_golden(path: str) -> dict[str, frozenset[tuple[str, str]]]:
+    """Return only provenance-bearing SME-accepted expectations."""
+    return load_scorable_golden(path).expected
 
 
 async def main() -> None:
@@ -91,7 +92,7 @@ async def main() -> None:
             if ambiguous:
                 print(f"  needs_review (multiple fillers for one axis): {ambiguous}")
             if code in golden:
-                expected = {tuple(p) for p in golden[code]["constituents"]}
+                expected = set(golden[code])
                 s = score(expected, actual)
                 print(
                     f"  vs golden: precision={s.precision:.2f} recall={s.recall:.2f} "
