@@ -608,7 +608,7 @@ def _reviewer_from_workbook(workbook: Workbook) -> Reviewer:
     reviewer_ws = workbook["Reviewer & Attestation"]
     hidden = [
         row
-        for row in range(5, 10)
+        for row in range(1, reviewer_ws.max_row + 1)
         if reviewer_ws.row_dimensions[row].hidden and _row_has_data(reviewer_ws, row)
     ]
     if hidden:
@@ -658,6 +658,7 @@ def _concept_headers(ws: Worksheet) -> dict[str, int]:
         "Concept Code",
         "Source Label",
         "Source Semantic Types",
+        "Expected Semantic Types",
         "SME Decision Status",
         "Expected Outcome",
         "Rationale / Required Follow-up",
@@ -705,11 +706,13 @@ def _expectation_from_row(
     outcome = _cell_text(
         ws, row, headers["Expected Outcome"], f"{code} expected outcome"
     )
-    semantic_header = headers.get(
-        "Expected Semantic Types", headers["Source Semantic Types"]
-    )
     semantic_types = _parse_semantic_types(
-        _cell_text(ws, row, semantic_header, f"{code} semantic types"),
+        _cell_text(
+            ws,
+            row,
+            headers["Expected Semantic Types"],
+            f"{code} semantic types",
+        ),
         f"{code} semantic types",
     )
     return GoldenExpectation(

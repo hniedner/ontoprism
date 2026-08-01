@@ -7,7 +7,7 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
-from scripts.decomposition_spike import _load_golden_expectations
+from scripts.decomposition_spike import _load_golden_expectations, _metric
 from scripts.research.golden_review import GoldenSetValidationError
 
 if TYPE_CHECKING:
@@ -104,3 +104,9 @@ def test_decomposition_spike_direct_entry_point_resolves_imports() -> None:
 
     assert "ModuleNotFoundError" not in result.stderr
     assert "not SME-adjudicated" in result.stderr
+
+
+@pytest.mark.unit
+def test_decomposition_spike_metrics_are_undefined_without_denominators() -> None:
+    assert _metric(1.0, 0) == "undefined"
+    assert _metric(0.5, 2) == "0.50"

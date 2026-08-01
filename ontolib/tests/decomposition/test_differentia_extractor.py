@@ -12,6 +12,7 @@ import pytest
 from scripts.research.differentia_extractor import (
     _is_stage_system_filler,
     _load_golden,
+    _metric,
     ambiguous_axes,
     extract,
     extract_defining_axes,
@@ -388,3 +389,8 @@ class TestMain:
 
         assert "ModuleNotFoundError" not in result.stderr
         assert "not SME-adjudicated" in result.stderr
+
+    @pytest.mark.unit
+    def test_metrics_are_undefined_without_denominators(self) -> None:
+        assert _metric(1.0, 0) == "undefined"
+        assert _metric(0.5, 2) == "0.50"

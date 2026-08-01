@@ -41,6 +41,10 @@ _Pair = tuple[str, str]
 _EXTRA_PREVIEW = 10  # cap the over-collection list printed per concept
 
 
+def _metric(value: float, denominator: int) -> str:
+    return f"{value:.2f}" if denominator else "undefined"
+
+
 def _load_golden_expectations(
     path: str | Path,
 ) -> dict[str, frozenset[tuple[str, str]]]:
@@ -125,7 +129,10 @@ async def main() -> None:
             agg_act += s.actual
             extra = sorted(s.extra)
             print(f"\n{code} — {golden.labels[code]}")
-            print(f"  precision={s.precision:.2f} recall={s.recall:.2f} f1={s.f1:.2f}")
+            precision = _metric(s.precision, s.actual)
+            recall = _metric(s.recall, s.expected)
+            f1 = _metric(s.f1, min(s.actual, s.expected))
+            print(f"  precision={precision} recall={recall} f1={f1}")
             print(f"  missing: {sorted(s.missing)}")
             tail = " …" if len(extra) > _EXTRA_PREVIEW else ""
             print(f"  extra ({len(extra)}): {extra[:_EXTRA_PREVIEW]}{tail}")

@@ -524,6 +524,17 @@ def test_workbook_import_fails_closed_on_unresolved_or_computed_input(
             "reviewer input sheet must be visible",
         ),
         (
+            lambda wb: (
+                setattr(wb["Reviewer & Attestation"]["A16"], "value", "Hidden note"),
+                setattr(
+                    wb["Reviewer & Attestation"].row_dimensions[16],
+                    "hidden",
+                    True,
+                ),
+            ),
+            "hidden reviewer rows",
+        ),
+        (
             lambda wb: setattr(
                 wb["Constituent Decisions"].row_dimensions[5], "hidden", True
             ),
@@ -568,6 +579,20 @@ def test_workbook_import_rejects_hidden_duplicate_or_orphaned_truth(
     workbook.save(workbook_path)
 
     with pytest.raises(GoldenSetValidationError, match=message):
+        import_adjudication_workbook(workbook_path)
+
+
+@pytest.mark.unit
+def test_workbook_import_requires_reviewer_authored_expected_semantic_types(
+    tmp_path: Path,
+) -> None:
+    workbook_path = tmp_path / "missing-expected-types.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    workbook["Concept Decisions"].delete_cols(5)
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match="Expected Semantic Types"):
         import_adjudication_workbook(workbook_path)
 
 

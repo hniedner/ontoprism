@@ -42,6 +42,10 @@ _DEFINING_AXES = {"R88", "R101", "R105"}
 _STAGE_SYSTEM_MARKERS = ("AJCC", "UICC", "Stage System")
 
 
+def _metric(value: float, denominator: int) -> str:
+    return f"{value:.2f}" if denominator else "undefined"
+
+
 def _is_stage_system_filler(label: str | None) -> bool:
     return bool(label) and any(m in label for m in _STAGE_SYSTEM_MARKERS)
 
@@ -103,8 +107,10 @@ async def main() -> None:
                         golden.review_exclusions.get(code, frozenset())
                     ),
                 )
+                precision = _metric(s.precision, s.actual)
+                recall = _metric(s.recall, s.expected)
                 print(
-                    f"  vs golden: precision={s.precision:.2f} recall={s.recall:.2f} "
+                    f"  vs golden: precision={precision} recall={recall} "
                     f"missing={sorted(s.missing)} extra={sorted(s.extra)}"
                 )
 
