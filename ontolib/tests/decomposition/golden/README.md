@@ -26,7 +26,7 @@ The final artifact requires:
 - `_meta.schema_version = 2`, `_meta.status = "SME-ADJUDICATED"`, reviewer identity,
   qualification/date, NCIt version, and lowercase SHA-256 source, sample, run,
   engine-artifact, and workbook identities;
-- a non-empty label and an `expected` object per concept containing one typed outcome
+- a non-empty label and an `expected` object per accepted concept containing one typed outcome
   (`decomposed`, `residual`, `semantic-excluded`, or `atomic-no-op`), the complete
   semantic-type list, and unique constituent objects;
 - an explicit relationship group (string or `null`) and `needs_review` boolean on every

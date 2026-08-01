@@ -178,6 +178,8 @@ class TestLoadGolden:
                 "run_id": "review-run",
                 "run_fingerprint_identity": "c" * 64,
                 "engine_artifact_identity": "d" * 64,
+                "engine_evidence_identity": "f" * 64,
+                "detector_identity": "6" * 64,
                 "workbook_identity": "e" * 64,
                 "reviewer": {
                     "name": "Example SME",

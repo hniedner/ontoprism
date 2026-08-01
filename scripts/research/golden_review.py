@@ -93,6 +93,8 @@ class AdjudicationMetadata(_StrictModel):
     run_id: str
     run_fingerprint_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     engine_artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    engine_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    detector_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     workbook_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     reviewer: Reviewer
 
@@ -239,6 +241,7 @@ class EngineEvidence(_StrictModel):
     run_id: str
     run_fingerprint_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     engine_artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    detector_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     concepts: tuple[EngineConcept, ...]
     residual_precoordinated_codes: tuple[str, ...]
@@ -274,6 +277,7 @@ class ResidualComparisonInput(_StrictModel):
     run_id: str
     run_fingerprint_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     engine_artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    detector_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     denominator_codes: tuple[str, ...]
     residual_codes: tuple[str, ...]
@@ -473,6 +477,12 @@ def _evidence_values(workbook: Workbook) -> dict[str, str]:
     return result
 
 
+def _row_has_data(ws: Worksheet, row: int) -> bool:
+    return any(
+        ws.cell(row, column).value is not None for column in range(1, ws.max_column + 1)
+    )
+
+
 def _parse_semantic_types(value: str, field: str) -> tuple[str, ...]:
     items = tuple(value.split("; "))
     for item in items:
@@ -533,6 +543,10 @@ def _workbook_constituents(
     for row in range(5, ws.max_row + 1):
         code = ws.cell(row, headers["Concept Code"]).value
         if code is None:
+            if _row_has_data(ws, row):
+                raise GoldenSetValidationError(
+                    f"populated constituent row has blank concept code: {row}"
+                )
             continue
         code, row_type, action = _constituent_row_identity(ws, row, headers)
         complete = _cell_text(
@@ -574,12 +588,7 @@ def _load_review_workbook(path: Path) -> Workbook:
         raise GoldenSetValidationError(
             "workbook sheets do not match the review contract"
         )
-    for sheet_name in (
-        "Reviewer & Attestation",
-        "Concept Decisions",
-        "Constituent Decisions",
-        "Source & Run Evidence",
-    ):
+    for sheet_name in _EXPECTED_SHEETS:
         if workbook[sheet_name].sheet_state != "visible":
             raise GoldenSetValidationError(
                 f"reviewer input sheet must be visible: {sheet_name}"
@@ -615,6 +624,8 @@ def _required_evidence(workbook: Workbook) -> dict[str, str]:
         "Engine run",
         "Run fingerprint identity",
         "Artifact SHA-256",
+        "Engine evidence identity",
+        "Detector identity",
     }
     if missing := required_evidence - evidence.keys():
         raise GoldenSetValidationError(
@@ -698,6 +709,10 @@ def _concept_from_row(
 ) -> AdjudicatedConcept | None:
     code_value = ws.cell(row, headers["Concept Code"]).value
     if code_value is None:
+        if _row_has_data(ws, row):
+            raise GoldenSetValidationError(
+                f"populated concept row has blank concept code: {row}"
+            )
         return None
     if not isinstance(code_value, str):
         raise GoldenSetValidationError("concept code must be text")
@@ -726,7 +741,6 @@ def _concept_from_row(
 
 
 def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
-    expected_constituents = _workbook_constituents(workbook)
     ws = workbook["Concept Decisions"]
     headers = _concept_headers(ws)
     hidden = [
@@ -740,6 +754,18 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
             "hidden concept rows are not permitted: "
             + ", ".join(str(row) for row in hidden)
         )
+    blank = [
+        row
+        for row in range(5, ws.max_row + 1)
+        if ws.cell(row, headers["Concept Code"]).value is None
+        and _row_has_data(ws, row)
+    ]
+    if blank:
+        raise GoldenSetValidationError(
+            "populated concept row has blank concept code: "
+            + ", ".join(str(row) for row in blank)
+        )
+    expected_constituents = _workbook_constituents(workbook)
     declared_codes = {
         code
         for row in range(5, ws.max_row + 1)
@@ -778,6 +804,8 @@ def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
                 run_id=evidence["Engine run"],
                 run_fingerprint_identity=evidence["Run fingerprint identity"],
                 engine_artifact_identity=evidence["Artifact SHA-256"],
+                engine_evidence_identity=evidence["Engine evidence identity"],
+                detector_identity=evidence["Detector identity"],
                 workbook_identity=hashlib.sha256(
                     workbook_path.read_bytes()
                 ).hexdigest(),
@@ -865,6 +893,16 @@ def _require_engine_identity(
             artifact.meta.engine_artifact_identity,
             engine.engine_artifact_identity,
         ),
+        (
+            "engine evidence identity",
+            artifact.meta.engine_evidence_identity,
+            engine.evidence_identity,
+        ),
+        (
+            "detector identity",
+            artifact.meta.detector_identity,
+            engine.detector_identity,
+        ),
     )
     for name, expected, actual in checks:
         if expected != actual:
@@ -923,6 +961,7 @@ def _residual_dict(value: ResidualComparisonInput) -> dict[str, object]:
         "run_id": value.run_id,
         "run_fingerprint_identity": value.run_fingerprint_identity,
         "engine_artifact_identity": value.engine_artifact_identity,
+        "detector_identity": value.detector_identity,
         "evidence_identity": value.evidence_identity,
         "denominator_codes": list(value.denominator_codes),
         "residual_codes": list(value.residual_codes),
@@ -947,6 +986,10 @@ def evaluate_adjudication(
     if corpus.source_identity != artifact.meta.source_identity:
         raise GoldenSetValidationError(
             "corpus source identity does not match adjudication"
+        )
+    if corpus.detector_identity != artifact.meta.detector_identity:
+        raise GoldenSetValidationError(
+            "corpus detector identity does not match adjudication"
         )
     engine_by_code = {concept.code: concept for concept in engine.concepts}
     concept_reports: list[dict[str, object]] = []
@@ -1008,6 +1051,7 @@ def evaluate_adjudication(
         "run_id": artifact.meta.run_id,
         "run_fingerprint_identity": artifact.meta.run_fingerprint_identity,
         "engine_artifact_identity": artifact.meta.engine_artifact_identity,
+        "detector_identity": artifact.meta.detector_identity,
         "denominator_codes": tuple(actual_decomposed),
         "residual_codes": tuple(
             code
@@ -1032,8 +1076,12 @@ def evaluate_adjudication(
             "expected": aggregate_expected,
             "actual": aggregate_actual,
             "true_positive": aggregate_tp,
-            "precision": aggregate_tp / aggregate_actual if aggregate_actual else 1.0,
-            "recall": aggregate_tp / aggregate_expected if aggregate_expected else 1.0,
+            "precision": (
+                aggregate_tp / aggregate_actual if aggregate_actual else None
+            ),
+            "recall": (
+                aggregate_tp / aggregate_expected if aggregate_expected else None
+            ),
         },
         "concepts": concept_reports,
         "residual_comparison": {

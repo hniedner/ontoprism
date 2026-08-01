@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 _DIGEST_A = "a" * 64
 _DIGEST_B = "b" * 64
 _DIGEST_C = "c" * 64
+_DETECTOR_IDENTITY = "6" * 64
 _REQUIRED_SEEDS = ("C4791", "C35756", "C89995")
 
 
@@ -68,7 +69,11 @@ def _accepted(
     }
 
 
-def _artifact(concepts: list[dict[str, object]]) -> dict[str, object]:
+def _artifact(
+    concepts: list[dict[str, object]],
+    *,
+    engine_evidence_identity: str | None = None,
+) -> dict[str, object]:
     payload = {
         "_meta": {
             "schema_version": 2,
@@ -79,6 +84,11 @@ def _artifact(concepts: list[dict[str, object]]) -> dict[str, object]:
             "run_id": "neoplasm-run-1",
             "run_fingerprint_identity": _DIGEST_C,
             "engine_artifact_identity": "d" * 64,
+            "engine_evidence_identity": (
+                engine_evidence_identity
+                or cast("str", _engine_evidence()["evidence_identity"])
+            ),
+            "detector_identity": _DETECTOR_IDENTITY,
             "workbook_identity": "e" * 64,
             "reviewer": {
                 "name": "Example Reviewer",
@@ -115,6 +125,15 @@ def _resign_artifact(value: dict[str, object]) -> dict[str, object]:
     return value
 
 
+def _bind_artifact_to_engine(
+    concepts: list[dict[str, object]], engine: dict[str, object]
+) -> dict[str, object]:
+    return _artifact(
+        concepts,
+        engine_evidence_identity=cast("str", engine["evidence_identity"]),
+    )
+
+
 def _corpus_evidence(
     *, denominator: list[str] | None = None, residual: list[str] | None = None
 ) -> dict[str, object]:
@@ -126,6 +145,7 @@ def _corpus_evidence(
             "run_id": "sample",
             "run_fingerprint_identity": "8" * 64,
             "engine_artifact_identity": "7" * 64,
+            "detector_identity": _DETECTOR_IDENTITY,
             "denominator_codes": denominator or ["C1"],
             "residual_codes": residual or [],
         }
@@ -413,6 +433,8 @@ def _create_workbook(
         ("Engine run", "neoplasm-run-1"),
         ("Run fingerprint identity", _DIGEST_C),
         ("Artifact SHA-256", "d" * 64),
+        ("Engine evidence identity", _engine_evidence()["evidence_identity"]),
+        ("Detector identity", _DETECTOR_IDENTITY),
     ]
     for row, (key, value) in enumerate(rows, start=5):
         evidence.cell(row, 1, key)
@@ -488,6 +510,10 @@ def test_workbook_import_fails_closed_on_unresolved_or_computed_input(
             "hidden concept rows",
         ),
         (
+            lambda wb: setattr(wb["Worked Examples"], "sheet_state", "hidden"),
+            "reviewer input sheet must be visible",
+        ),
+        (
             lambda wb: setattr(
                 wb["Constituent Decisions"].row_dimensions[5], "hidden", True
             ),
@@ -502,6 +528,14 @@ def test_workbook_import_fails_closed_on_unresolved_or_computed_input(
         (
             lambda wb: setattr(wb["Constituent Decisions"]["B5"], "value", "C999999"),
             "unknown concepts",
+        ),
+        (
+            lambda wb: setattr(wb["Concept Decisions"]["B5"], "value", None),
+            "populated concept row has blank concept code",
+        ),
+        (
+            lambda wb: setattr(wb["Constituent Decisions"]["B5"], "value", None),
+            "populated constituent row has blank concept code",
         ),
         (
             lambda wb: (
@@ -540,6 +574,7 @@ def _engine_evidence(
             "run_id": "neoplasm-run-1",
             "run_fingerprint_identity": ("f" * 64 if wrong_identity else _DIGEST_C),
             "engine_artifact_identity": "d" * 64,
+            "detector_identity": _DETECTOR_IDENTITY,
             "concepts": [
                 {
                     "code": code,
@@ -577,13 +612,13 @@ def test_evaluation_reports_outcomes_groups_and_d21_exclusions(tmp_path: Path) -
             ),
         ],
     )
-    artifact_path = tmp_path / "artifact.json"
-    _write_json(artifact_path, _artifact(concepts))
     engine = _engine_evidence()
     engine["concepts"][0]["constituents"].append(
         _constituent("op:AssociatedRegion", "C12418")
     )
     _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
     corpus = _corpus_evidence(denominator=["C10", "C11"], residual=["C10"])
 
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
@@ -610,14 +645,14 @@ def test_group_comparison_ignores_group_names_but_not_membership(
             _constituent("op:StageValue", "C27971", group="expected-name"),
         ],
     )
-    artifact_path = tmp_path / "artifact.json"
-    _write_json(artifact_path, _artifact(concepts))
     engine = _engine_evidence()
     engine["concepts"][0]["constituents"] = [
         _constituent(group="different-name"),
         _constituent("op:StageValue", "C27971", group="different-name"),
     ]
     _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
     corpus = _corpus_evidence()
 
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
@@ -673,8 +708,6 @@ def test_residual_denominator_uses_actual_decomposed_and_types_are_sets(
         "C0",
         semantic_types=["Neoplastic Process", "Disease or Syndrome"],
     )
-    artifact_path = tmp_path / "artifact.json"
-    _write_json(artifact_path, _artifact(concepts))
     engine = _engine_evidence()
     engine["concepts"][0]["semantic_types"] = [
         "Disease or Syndrome",
@@ -684,6 +717,8 @@ def test_residual_denominator_uses_actual_decomposed_and_types_are_sets(
     engine["concepts"][1]["constituents"] = []
     engine["residual_precoordinated_codes"].remove("C1")
     _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
 
     report = evaluate_adjudication(
         load_adjudication(artifact_path), engine, _corpus_evidence()
@@ -691,6 +726,44 @@ def test_residual_denominator_uses_actual_decomposed_and_types_are_sets(
 
     assert report["concepts"][0]["semantic_types_match"] is True
     assert report["residual_comparison"]["adjudication"]["denominator"] == 19
+
+
+@pytest.mark.unit
+def test_zero_pair_metrics_are_undefined_and_detector_drift_is_rejected(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted("C0", outcome="atomic-no-op", constituents=[])
+    for index in range(1, len(concepts)):
+        code = concepts[index]["code"]
+        concepts[index] = {
+            "code": code,
+            "label": f"Rejected {code}",
+            "adjudication": {
+                "status": "rejected",
+                "rationale": "Unsuitable for this oracle.",
+            },
+            "expected": None,
+        }
+    engine = _engine_evidence()
+    engine["concepts"][0]["outcome"] = "atomic-no-op"
+    engine["concepts"][0]["constituents"] = []
+    engine["residual_precoordinated_codes"].remove("C0")
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    assert report["pair_micro"]["precision"] is None
+    assert report["pair_micro"]["recall"] is None
+    drifted_corpus = _corpus_evidence()
+    drifted_corpus["detector_identity"] = "5" * 64
+    _sign(drifted_corpus)
+    with pytest.raises(GoldenSetValidationError, match="detector identity"):
+        evaluate_adjudication(load_adjudication(artifact_path), engine, drifted_corpus)
 
 
 @pytest.mark.unit
