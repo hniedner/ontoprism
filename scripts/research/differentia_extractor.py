@@ -19,7 +19,10 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from scripts.research.golden_review import load_scorable_golden
+try:
+    from scripts.research.golden_review import load_scorable_golden
+except ModuleNotFoundError:  # direct `python scripts/research/differentia_extractor.py`
+    from golden_review import load_scorable_golden
 
 from ontolib.decomposition.score import score
 from ontolib.decomposition.walker import Role, walk_chain

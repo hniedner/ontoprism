@@ -18,7 +18,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from scripts.research.golden_review import load_scorable_golden
+try:
+    from scripts.research.golden_review import load_scorable_golden
+except ModuleNotFoundError:  # direct `python scripts/decomposition_spike.py`
+    from research.golden_review import load_scorable_golden
 
 from backend.config import get_settings
 from ontolib.decomposition.axes import is_defining_role

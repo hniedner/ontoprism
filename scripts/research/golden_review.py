@@ -54,6 +54,16 @@ def _canonical_text(value: str, field: str) -> str:
     return value
 
 
+def _payload_identity(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
@@ -166,6 +176,7 @@ class AdjudicatedConcept(_StrictModel):
 class AdjudicationArtifact(_StrictModel):
     meta: Annotated[AdjudicationMetadata, Field(alias="_meta")]
     concepts: tuple[AdjudicatedConcept, ...]
+    artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _validate_m1_cohort(self) -> Self:
@@ -179,17 +190,25 @@ class AdjudicationArtifact(_StrictModel):
             raise ValueError(
                 "M1 golden set is missing named seeds: " + ", ".join(missing)
             )
+        if not any(
+            concept.adjudication.status == "accepted" for concept in self.concepts
+        ):
+            raise ValueError("M1 golden set must contain at least one accepted concept")
+        if self.artifact_identity != _payload_identity(
+            self.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude={"artifact_identity"},
+            )
+        ):
+            raise ValueError(
+                "adjudication artifact identity does not match its payload"
+            )
         return self
 
     @property
     def identity(self) -> str:
-        encoded = json.dumps(
-            self.model_dump(mode="json", by_alias=True),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode()
-        return hashlib.sha256(encoded).hexdigest()
+        return self.artifact_identity
 
 
 class EngineConcept(_StrictModel):
@@ -220,6 +239,7 @@ class EngineEvidence(_StrictModel):
     run_id: str
     run_fingerprint_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     engine_artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     concepts: tuple[EngineConcept, ...]
     residual_precoordinated_codes: tuple[str, ...]
 
@@ -234,6 +254,16 @@ class EngineEvidence(_StrictModel):
             raise ValueError("residual_precoordinated_codes must be unique")
         if not set(self.residual_precoordinated_codes) <= set(codes):
             raise ValueError("engine residual codes must be a subset of concept codes")
+        outcomes = {item.code: item.outcome for item in self.concepts}
+        if any(
+            outcomes[code] != "decomposed"
+            for code in self.residual_precoordinated_codes
+        ):
+            raise ValueError("engine residual codes require decomposed outcomes")
+        if self.evidence_identity != _payload_identity(
+            self.model_dump(mode="json", exclude={"evidence_identity"})
+        ):
+            raise ValueError("engine evidence identity does not match its payload")
         return self
 
 
@@ -244,6 +274,7 @@ class ResidualComparisonInput(_StrictModel):
     run_id: str
     run_fingerprint_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     engine_artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     denominator_codes: tuple[str, ...]
     residual_codes: tuple[str, ...]
 
@@ -255,6 +286,10 @@ class ResidualComparisonInput(_StrictModel):
             raise ValueError("residual codes must be unique")
         if not set(self.residual_codes) <= set(self.denominator_codes):
             raise ValueError("residual codes must be a subset of denominator codes")
+        if self.evidence_identity != _payload_identity(
+            self.model_dump(mode="json", exclude={"evidence_identity"})
+        ):
+            raise ValueError("residual evidence identity does not match its payload")
         return self
 
 
@@ -322,6 +357,19 @@ def _read_adjudication_json(path: str | Path) -> dict[str, object]:
     if not isinstance(raw, dict):
         raise GoldenSetValidationError("golden set must be a JSON object")
     return raw
+
+
+def read_json_without_duplicates(path: str | Path) -> object:
+    """Read JSON while rejecting duplicate keys at every object level."""
+    try:
+        return json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+    except GoldenSetValidationError:
+        raise
+    except (OSError, json.JSONDecodeError) as error:
+        raise GoldenSetValidationError(f"cannot read JSON evidence: {error}") from error
 
 
 def _normalize_adjudication_lists(raw: dict[str, object]) -> None:
@@ -417,6 +465,10 @@ def _evidence_values(workbook: Workbook) -> dict[str, str]:
         key = ws.cell(row, 1).value
         value = ws.cell(row, 2).value
         if isinstance(key, str) and isinstance(value, str):
+            if key in result:
+                raise GoldenSetValidationError(
+                    f"duplicate Source & Run Evidence key: {key}"
+                )
             result[key] = value
     return result
 
@@ -439,6 +491,23 @@ def _parse_review_bool(value: object, field: str) -> bool:
     if value == "FALSE":
         return False
     raise GoldenSetValidationError(f"{field} must be TRUE or FALSE")
+
+
+def _constituent_row_identity(
+    ws: Worksheet, row: int, headers: dict[str, int]
+) -> tuple[str, str, str]:
+    code = ws.cell(row, headers["Concept Code"]).value
+    if not isinstance(code, str):
+        raise GoldenSetValidationError("constituent concept code must be text")
+    if ws.row_dimensions[row].hidden:
+        raise GoldenSetValidationError(
+            f"hidden constituent rows are not permitted: {row}"
+        )
+    row_type = _cell_text(ws, row, headers["Row Type"], f"{code} row type")
+    if row_type not in {"ENGINE SUGGESTION", "ADD IF MISSING"}:
+        raise GoldenSetValidationError(f"{code} has invalid row type: {row_type}")
+    action = _cell_text(ws, row, headers["SME Action"], f"{code} SME action")
+    return code, row_type, action
 
 
 def _workbook_constituents(
@@ -465,16 +534,13 @@ def _workbook_constituents(
         code = ws.cell(row, headers["Concept Code"]).value
         if code is None:
             continue
-        if not isinstance(code, str):
-            raise GoldenSetValidationError("constituent concept code must be text")
-        row_type = _cell_text(ws, row, headers["Row Type"], f"{code} row type")
-        action = _cell_text(ws, row, headers["SME Action"], f"{code} SME action")
+        code, row_type, action = _constituent_row_identity(ws, row, headers)
         complete = _cell_text(
             ws, row, headers["Row Complete?"], f"{code} constituent completeness"
         )
         if row_type == "ENGINE SUGGESTION" and action == "PENDING":
             raise GoldenSetValidationError(f"{code} has pending constituent action")
-        if row_type == "ENGINE SUGGESTION" and complete != "YES":
+        if action != "not-needed" and complete != "YES":
             raise GoldenSetValidationError(f"{code} has incomplete constituent row")
         if action in {"exclude", "not-needed"}:
             continue
@@ -508,6 +574,16 @@ def _load_review_workbook(path: Path) -> Workbook:
         raise GoldenSetValidationError(
             "workbook sheets do not match the review contract"
         )
+    for sheet_name in (
+        "Reviewer & Attestation",
+        "Concept Decisions",
+        "Constituent Decisions",
+        "Source & Run Evidence",
+    ):
+        if workbook[sheet_name].sheet_state != "visible":
+            raise GoldenSetValidationError(
+                f"reviewer input sheet must be visible: {sheet_name}"
+            )
     _reject_reviewer_formulas(workbook)
     return workbook
 
@@ -653,11 +729,36 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
     expected_constituents = _workbook_constituents(workbook)
     ws = workbook["Concept Decisions"]
     headers = _concept_headers(ws)
-    return tuple(
+    hidden = [
+        row
+        for row in range(5, ws.max_row + 1)
+        if ws.row_dimensions[row].hidden
+        and ws.cell(row, headers["Concept Code"]).value is not None
+    ]
+    if hidden:
+        raise GoldenSetValidationError(
+            "hidden concept rows are not permitted: "
+            + ", ".join(str(row) for row in hidden)
+        )
+    declared_codes = {
+        code
+        for row in range(5, ws.max_row + 1)
+        if isinstance(
+            (code := ws.cell(row, headers["Concept Code"]).value),
+            str,
+        )
+    }
+    orphaned = sorted(set(expected_constituents) - declared_codes)
+    if orphaned:
+        raise GoldenSetValidationError(
+            "constituent rows reference unknown concepts: " + ", ".join(orphaned)
+        )
+    concepts = tuple(
         concept
         for row in range(5, ws.max_row + 1)
         if (concept := _concept_from_row(ws, row, headers, expected_constituents))
     )
+    return concepts
 
 
 def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
@@ -667,23 +768,35 @@ def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
     reviewer = _reviewer_from_workbook(workbook)
     evidence = _required_evidence(workbook)
     try:
+        payload = {
+            "_meta": AdjudicationMetadata(
+                schema_version=_SCHEMA_VERSION,
+                status=_ADJUDICATED_STATUS,
+                ncit_version=evidence["NCIt release"],
+                source_identity=evidence["Source identity"],
+                sample_manifest_identity=evidence["Sample identity"],
+                run_id=evidence["Engine run"],
+                run_fingerprint_identity=evidence["Run fingerprint identity"],
+                engine_artifact_identity=evidence["Artifact SHA-256"],
+                workbook_identity=hashlib.sha256(
+                    workbook_path.read_bytes()
+                ).hexdigest(),
+                reviewer=reviewer,
+            ),
+            "concepts": _workbook_concepts(workbook),
+        }
         return AdjudicationArtifact.model_validate(
             {
-                "_meta": AdjudicationMetadata(
-                    schema_version=_SCHEMA_VERSION,
-                    status=_ADJUDICATED_STATUS,
-                    ncit_version=evidence["NCIt release"],
-                    source_identity=evidence["Source identity"],
-                    sample_manifest_identity=evidence["Sample identity"],
-                    run_id=evidence["Engine run"],
-                    run_fingerprint_identity=evidence["Run fingerprint identity"],
-                    engine_artifact_identity=evidence["Artifact SHA-256"],
-                    workbook_identity=hashlib.sha256(
-                        workbook_path.read_bytes()
-                    ).hexdigest(),
-                    reviewer=reviewer,
+                **payload,
+                "artifact_identity": _payload_identity(
+                    {
+                        "_meta": payload["_meta"].model_dump(mode="json"),
+                        "concepts": [
+                            concept.model_dump(mode="json")
+                            for concept in payload["concepts"]
+                        ],
+                    }
                 ),
-                "concepts": _workbook_concepts(workbook),
             }
         )
     except (ValidationError, ValueError) as error:
@@ -810,11 +923,12 @@ def _residual_dict(value: ResidualComparisonInput) -> dict[str, object]:
         "run_id": value.run_id,
         "run_fingerprint_identity": value.run_fingerprint_identity,
         "engine_artifact_identity": value.engine_artifact_identity,
+        "evidence_identity": value.evidence_identity,
         "denominator_codes": list(value.denominator_codes),
         "residual_codes": list(value.residual_codes),
         "count": count,
         "denominator": denominator,
-        "rate": count / denominator if denominator else 0.0,
+        "rate": count / denominator if denominator else None,
     }
 
 
@@ -837,7 +951,7 @@ def evaluate_adjudication(
     engine_by_code = {concept.code: concept for concept in engine.concepts}
     concept_reports: list[dict[str, object]] = []
     aggregate_expected = aggregate_actual = aggregate_tp = 0
-    accepted_decomposed: list[str] = []
+    actual_decomposed: list[str] = []
     for concept in artifact.concepts:
         if concept.adjudication.status != "accepted":
             continue
@@ -863,18 +977,18 @@ def evaluate_adjudication(
         exclusions = expected_exclusions | actual_exclusions
         expected_groups = _group_partition(expected.constituents, exclusions)
         actual_groups = _group_partition(actual.constituents, exclusions)
-        if expected.outcome == "decomposed":
-            accepted_decomposed.append(concept.code)
+        if actual.outcome == "decomposed":
+            actual_decomposed.append(concept.code)
         concept_reports.append(
             {
                 "code": concept.code,
                 "expected_outcome": expected.outcome,
                 "actual_outcome": actual.outcome,
                 "outcome_match": expected.outcome == actual.outcome,
-                "expected_semantic_types": list(expected.semantic_types),
-                "actual_semantic_types": list(actual.semantic_types),
-                "semantic_types_match": expected.semantic_types
-                == actual.semantic_types,
+                "expected_semantic_types": sorted(expected.semantic_types),
+                "actual_semantic_types": sorted(actual.semantic_types),
+                "semantic_types_match": set(expected.semantic_types)
+                == set(actual.semantic_types),
                 "expected_review_exclusions": sorted(
                     [list(pair) for pair in expected_exclusions]
                 ),
@@ -887,19 +1001,23 @@ def evaluate_adjudication(
                 "group_match": expected_groups == actual_groups,
             }
         )
-    adjudication_residual = ResidualComparisonInput(
-        name="accepted-adjudication",
-        source_identity=artifact.meta.source_identity,
-        sample_manifest_identity=artifact.meta.sample_manifest_identity,
-        run_id=artifact.meta.run_id,
-        run_fingerprint_identity=artifact.meta.run_fingerprint_identity,
-        engine_artifact_identity=artifact.meta.engine_artifact_identity,
-        denominator_codes=tuple(accepted_decomposed),
-        residual_codes=tuple(
+    residual_payload = {
+        "name": "accepted-adjudication",
+        "source_identity": artifact.meta.source_identity,
+        "sample_manifest_identity": artifact.meta.sample_manifest_identity,
+        "run_id": artifact.meta.run_id,
+        "run_fingerprint_identity": artifact.meta.run_fingerprint_identity,
+        "engine_artifact_identity": artifact.meta.engine_artifact_identity,
+        "denominator_codes": tuple(actual_decomposed),
+        "residual_codes": tuple(
             code
-            for code in accepted_decomposed
+            for code in actual_decomposed
             if code in set(engine.residual_precoordinated_codes)
         ),
+    }
+    adjudication_residual = ResidualComparisonInput(
+        **residual_payload,
+        evidence_identity=_payload_identity(residual_payload),
     )
     adjudication_residual_dict = _residual_dict(adjudication_residual)
     corpus_dict = _residual_dict(corpus)
@@ -922,9 +1040,14 @@ def evaluate_adjudication(
             "metric": "D37 detector-relative residual_precoordination",
             "adjudication": adjudication_residual_dict,
             "corpus_sample": corpus_dict,
-            "absolute_rate_delta": abs(
-                cast("float", adjudication_residual_dict["rate"])
-                - cast("float", corpus_dict["rate"])
+            "absolute_rate_delta": (
+                abs(
+                    cast("float", adjudication_residual_dict["rate"])
+                    - cast("float", corpus_dict["rate"])
+                )
+                if adjudication_residual_dict["rate"] is not None
+                and corpus_dict["rate"] is not None
+                else None
             ),
             "rates_averaged": False,
         },

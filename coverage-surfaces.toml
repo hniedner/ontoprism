@@ -362,7 +362,7 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/adjudication.py"
-line = 81
+line = 83
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "The PDM script calls the module guard; CLI import and evaluation behavior are tested through main()."
@@ -372,7 +372,7 @@ review_after = "2027-07-31"
 
 [[exemption]]
 path = "scripts/research/differentia_extractor.py"
-line = 109
+line = 112
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "This research-only module guard delegates directly to the tested async main function."

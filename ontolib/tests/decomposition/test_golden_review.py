@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ from scripts.research.golden_review import (
     import_adjudication_workbook,
     load_adjudication,
     load_scorable_golden,
+    read_json_without_duplicates,
     write_evaluation_report,
 )
 
@@ -67,7 +69,7 @@ def _accepted(
 
 
 def _artifact(concepts: list[dict[str, object]]) -> dict[str, object]:
-    return {
+    payload = {
         "_meta": {
             "schema_version": 2,
             "status": "SME-ADJUDICATED",
@@ -86,6 +88,48 @@ def _artifact(concepts: list[dict[str, object]]) -> dict[str, object]:
         },
         "concepts": concepts,
     }
+    payload["artifact_identity"] = _identity(payload)
+    return payload
+
+
+def _identity(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode()
+    ).hexdigest()
+
+
+def _sign(value: dict[str, object]) -> dict[str, object]:
+    value.pop("evidence_identity", None)
+    value["evidence_identity"] = _identity(value)
+    return value
+
+
+def _resign_artifact(value: dict[str, object]) -> dict[str, object]:
+    value.pop("artifact_identity", None)
+    value["artifact_identity"] = _identity(value)
+    return value
+
+
+def _corpus_evidence(
+    *, denominator: list[str] | None = None, residual: list[str] | None = None
+) -> dict[str, object]:
+    return _sign(
+        {
+            "name": "issue-154-corpus-sample",
+            "source_identity": _DIGEST_A,
+            "sample_manifest_identity": "9" * 64,
+            "run_id": "sample",
+            "run_fingerprint_identity": "8" * 64,
+            "engine_artifact_identity": "7" * 64,
+            "denominator_codes": denominator or ["C1"],
+            "residual_codes": residual or [],
+        }
+    )
 
 
 def _m1_concepts() -> list[dict[str, object]]:
@@ -117,6 +161,35 @@ def test_adjudication_rejects_draft_duplicate_keys_and_duplicate_concepts(
     _write_json(duplicate_concept, _artifact(concepts))
     with pytest.raises(GoldenSetValidationError, match="concept codes must be unique"):
         load_adjudication(duplicate_concept)
+
+
+@pytest.mark.unit
+def test_adjudication_rejects_tampered_payload_and_empty_accepted_cohort(
+    tmp_path: Path,
+) -> None:
+    tampered = _artifact(_m1_concepts())
+    tampered["concepts"][0]["label"] = "Tampered after signature"
+    path = tmp_path / "tampered.json"
+    _write_json(path, tampered)
+    with pytest.raises(GoldenSetValidationError, match="identity does not match"):
+        load_adjudication(path)
+
+    concepts = [
+        {
+            "code": concept["code"],
+            "label": concept["label"],
+            "adjudication": {
+                "status": "rejected",
+                "rationale": "Unsuitable for this oracle.",
+            },
+            "expected": None,
+        }
+        for concept in _m1_concepts()
+    ]
+    path = tmp_path / "no-accepted.json"
+    _write_json(path, _artifact(concepts))
+    with pytest.raises(GoldenSetValidationError, match="at least one accepted"):
+        load_adjudication(path)
 
 
 @pytest.mark.unit
@@ -155,6 +228,7 @@ def test_adjudication_schema_rejects_untrusted_shapes(
 ) -> None:
     payload = _artifact(_m1_concepts())
     mutate(payload)  # type: ignore[operator]
+    _resign_artifact(payload)
     path = tmp_path / "invalid.json"
     _write_json(path, payload)
 
@@ -403,38 +477,90 @@ def test_workbook_import_fails_closed_on_unresolved_or_computed_input(
         import_adjudication_workbook(workbook)
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            lambda wb: setattr(
+                wb["Concept Decisions"].row_dimensions[5], "hidden", True
+            ),
+            "hidden concept rows",
+        ),
+        (
+            lambda wb: setattr(
+                wb["Constituent Decisions"].row_dimensions[5], "hidden", True
+            ),
+            "hidden constituent rows",
+        ),
+        (
+            lambda wb: setattr(
+                wb["Constituent Decisions"]["D5"], "value", "UNRECOGNIZED"
+            ),
+            "invalid row type",
+        ),
+        (
+            lambda wb: setattr(wb["Constituent Decisions"]["B5"], "value", "C999999"),
+            "unknown concepts",
+        ),
+        (
+            lambda wb: (
+                setattr(wb["Source & Run Evidence"]["A11"], "value", "Source identity"),
+                setattr(wb["Source & Run Evidence"]["B11"], "value", _DIGEST_A),
+            ),
+            "duplicate Source & Run Evidence key",
+        ),
+    ],
+)
+def test_workbook_import_rejects_hidden_duplicate_or_orphaned_truth(
+    tmp_path: Path,
+    mutation: object,
+    message: str,
+) -> None:
+    workbook_path = tmp_path / "invalid-structure.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    mutation(workbook)  # type: ignore[operator]
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match=message):
+        import_adjudication_workbook(workbook_path)
+
+
 def _engine_evidence(
     *, wrong_group: bool = False, wrong_identity: bool = False
 ) -> dict:
     codes = [f"C{index}" for index in range(17)] + list(_REQUIRED_SEEDS)
-    return {
-        "schema_version": 1,
-        "ncit_version": "26.07d",
-        "source_identity": _DIGEST_A,
-        "sample_manifest_identity": _DIGEST_B,
-        "run_id": "neoplasm-run-1",
-        "run_fingerprint_identity": ("f" * 64 if wrong_identity else _DIGEST_C),
-        "engine_artifact_identity": "d" * 64,
-        "concepts": [
-            {
-                "code": code,
-                "outcome": "decomposed",
-                "semantic_types": ["Neoplastic Process"],
-                "constituents": [
-                    {
-                        "axis": "op:StageValue",
-                        "filler": "C27970",
-                        "relationship_group": (
-                            "actual" if wrong_group and code == "C0" else None
-                        ),
-                        "needs_review": False,
-                    }
-                ],
-            }
-            for code in codes
-        ],
-        "residual_precoordinated_codes": codes,
-    }
+    return _sign(
+        {
+            "schema_version": 1,
+            "ncit_version": "26.07d",
+            "source_identity": _DIGEST_A,
+            "sample_manifest_identity": _DIGEST_B,
+            "run_id": "neoplasm-run-1",
+            "run_fingerprint_identity": ("f" * 64 if wrong_identity else _DIGEST_C),
+            "engine_artifact_identity": "d" * 64,
+            "concepts": [
+                {
+                    "code": code,
+                    "outcome": "decomposed",
+                    "semantic_types": ["Neoplastic Process"],
+                    "constituents": [
+                        {
+                            "axis": "op:StageValue",
+                            "filler": "C27970",
+                            "relationship_group": (
+                                "actual" if wrong_group and code == "C0" else None
+                            ),
+                            "needs_review": False,
+                        }
+                    ],
+                }
+                for code in codes
+            ],
+            "residual_precoordinated_codes": codes,
+        }
+    )
 
 
 @pytest.mark.unit
@@ -457,16 +583,8 @@ def test_evaluation_reports_outcomes_groups_and_d21_exclusions(tmp_path: Path) -
     engine["concepts"][0]["constituents"].append(
         _constituent("op:AssociatedRegion", "C12418")
     )
-    corpus = {
-        "name": "issue-154-corpus-sample",
-        "source_identity": _DIGEST_A,
-        "sample_manifest_identity": "9" * 64,
-        "run_id": "neoplasm-sample-run",
-        "run_fingerprint_identity": "8" * 64,
-        "engine_artifact_identity": "7" * 64,
-        "denominator_codes": ["C10", "C11"],
-        "residual_codes": ["C10"],
-    }
+    _sign(engine)
+    corpus = _corpus_evidence(denominator=["C10", "C11"], residual=["C10"])
 
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
 
@@ -499,16 +617,8 @@ def test_group_comparison_ignores_group_names_but_not_membership(
         _constituent(group="different-name"),
         _constituent("op:StageValue", "C27971", group="different-name"),
     ]
-    corpus = {
-        "name": "issue-154-corpus-sample",
-        "source_identity": _DIGEST_A,
-        "sample_manifest_identity": "9" * 64,
-        "run_id": "sample",
-        "run_fingerprint_identity": "8" * 64,
-        "engine_artifact_identity": "7" * 64,
-        "denominator_codes": ["C1"],
-        "residual_codes": [],
-    }
+    _sign(engine)
+    corpus = _corpus_evidence()
 
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
 
@@ -522,16 +632,7 @@ def test_evaluation_rejects_identity_drift_and_invalid_residual_subset(
     artifact_path = tmp_path / "artifact.json"
     _write_json(artifact_path, _artifact(_m1_concepts()))
     artifact = load_adjudication(artifact_path)
-    corpus = {
-        "name": "issue-154-corpus-sample",
-        "source_identity": _DIGEST_A,
-        "sample_manifest_identity": "9" * 64,
-        "run_id": "sample",
-        "run_fingerprint_identity": "8" * 64,
-        "engine_artifact_identity": "7" * 64,
-        "denominator_codes": ["C1"],
-        "residual_codes": ["C2"],
-    }
+    corpus = _corpus_evidence(denominator=["C1"], residual=["C2"])
 
     with pytest.raises(GoldenSetValidationError, match="run fingerprint identity"):
         evaluate_adjudication(artifact, _engine_evidence(wrong_identity=True), corpus)
@@ -542,20 +643,62 @@ def test_evaluation_rejects_identity_drift_and_invalid_residual_subset(
 
 
 @pytest.mark.unit
+def test_evaluation_rejects_tampered_or_non_decomposed_residual_evidence(
+    tmp_path: Path,
+) -> None:
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _artifact(_m1_concepts()))
+    artifact = load_adjudication(artifact_path)
+    engine = _engine_evidence()
+    engine["concepts"][0]["semantic_types"] = ["Finding"]
+    with pytest.raises(GoldenSetValidationError, match="identity does not match"):
+        evaluate_adjudication(artifact, engine, _corpus_evidence())
+
+    engine = _engine_evidence()
+    engine["concepts"][0]["outcome"] = "atomic-no-op"
+    engine["concepts"][0]["constituents"] = []
+    _sign(engine)
+    with pytest.raises(
+        GoldenSetValidationError, match="residual codes require decomposed outcomes"
+    ):
+        evaluate_adjudication(artifact, engine, _corpus_evidence())
+
+
+@pytest.mark.unit
+def test_residual_denominator_uses_actual_decomposed_and_types_are_sets(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        semantic_types=["Neoplastic Process", "Disease or Syndrome"],
+    )
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _artifact(concepts))
+    engine = _engine_evidence()
+    engine["concepts"][0]["semantic_types"] = [
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    ]
+    engine["concepts"][1]["outcome"] = "atomic-no-op"
+    engine["concepts"][1]["constituents"] = []
+    engine["residual_precoordinated_codes"].remove("C1")
+    _sign(engine)
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    assert report["concepts"][0]["semantic_types_match"] is True
+    assert report["residual_comparison"]["adjudication"]["denominator"] == 19
+
+
+@pytest.mark.unit
 def test_evaluation_report_is_byte_reproducible(tmp_path: Path) -> None:
     artifact_path = tmp_path / "artifact.json"
     _write_json(artifact_path, _artifact(_m1_concepts()))
     artifact = load_adjudication(artifact_path)
-    corpus = {
-        "name": "issue-154-corpus-sample",
-        "source_identity": _DIGEST_A,
-        "sample_manifest_identity": "9" * 64,
-        "run_id": "sample",
-        "run_fingerprint_identity": "8" * 64,
-        "engine_artifact_identity": "7" * 64,
-        "denominator_codes": ["C1"],
-        "residual_codes": ["C1"],
-    }
+    corpus = _corpus_evidence(residual=["C1"])
     report = evaluate_adjudication(artifact, _engine_evidence(), corpus)
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
@@ -564,6 +707,15 @@ def test_evaluation_report_is_byte_reproducible(tmp_path: Path) -> None:
     write_evaluation_report(report, second)
 
     assert first.read_bytes() == second.read_bytes()
+
+
+@pytest.mark.unit
+def test_evidence_json_reader_rejects_duplicate_provenance_keys(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate.json"
+    path.write_text('{"run_id":"first","run_id":"second"}', encoding="utf-8")
+
+    with pytest.raises(GoldenSetValidationError, match="duplicate JSON key: run_id"):
+        read_json_without_duplicates(path)
 
 
 @pytest.mark.unit
@@ -579,16 +731,7 @@ def test_adjudication_cli_imports_workbook_and_evaluates_report(
     _write_json(engine_path, _engine_evidence())
     _write_json(
         corpus_path,
-        {
-            "name": "issue-154-corpus-sample",
-            "source_identity": _DIGEST_A,
-            "sample_manifest_identity": "9" * 64,
-            "run_id": "sample",
-            "run_fingerprint_identity": "8" * 64,
-            "engine_artifact_identity": "7" * 64,
-            "denominator_codes": ["C1"],
-            "residual_codes": ["C1"],
-        },
+        _corpus_evidence(residual=["C1"]),
     )
 
     adjudication_main(["import-workbook", str(workbook), str(artifact_path)])

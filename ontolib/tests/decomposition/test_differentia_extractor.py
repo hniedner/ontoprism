@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -206,6 +209,11 @@ class TestLoadGolden:
                 for code in codes
             ],
         }
+        data["artifact_identity"] = hashlib.sha256(
+            json.dumps(
+                data, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            ).encode()
+        ).hexdigest()
         path.write_text(json.dumps(data))
         result = _load_golden(str(path))
         assert len(result.expected) == 20
@@ -362,3 +370,18 @@ class TestMain:
         captured = capsys.readouterr()
         assert "C6135" in captured.out
         assert "vs golden" in captured.out
+
+    @pytest.mark.unit
+    def test_direct_entry_point_resolves_imports(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/research/differentia_extractor.py",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert "ModuleNotFoundError" not in result.stderr
+        assert "not SME-adjudicated" in result.stderr

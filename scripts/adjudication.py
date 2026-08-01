@@ -13,6 +13,7 @@ try:
         evaluate_adjudication,
         import_adjudication_workbook,
         load_adjudication,
+        read_json_without_duplicates,
         write_evaluation_report,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
@@ -20,6 +21,7 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
         evaluate_adjudication,
         import_adjudication_workbook,
         load_adjudication,
+        read_json_without_duplicates,
         write_evaluation_report,
     )
 
@@ -39,8 +41,8 @@ def _evaluate(
     corpus_comparison: Path,
     output: Path,
 ) -> None:
-    engine = json.loads(engine_evidence.read_text(encoding="utf-8"))
-    corpus = json.loads(corpus_comparison.read_text(encoding="utf-8"))
+    engine = read_json_without_duplicates(engine_evidence)
+    corpus = read_json_without_duplicates(corpus_comparison)
     report = evaluate_adjudication(
         load_adjudication(adjudication),
         engine,
