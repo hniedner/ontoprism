@@ -129,10 +129,10 @@ async def main() -> None:
             print(f"  missing: {sorted(s.missing)}")
             tail = " …" if len(extra) > _EXTRA_PREVIEW else ""
             print(f"  extra ({len(extra)}): {extra[:_EXTRA_PREVIEW]}{tail}")
-        micro_p = agg_tp / agg_act if agg_act else 1.0
-        micro_r = agg_tp / agg_exp if agg_exp else 1.0
+        micro_p = f"{agg_tp / agg_act:.2f}" if agg_act else "undefined"
+        micro_r = f"{agg_tp / agg_exp:.2f}" if agg_exp else "undefined"
         print(
-            f"\nAGGREGATE micro precision={micro_p:.2f} recall={micro_r:.2f} "
+            f"\nAGGREGATE micro precision={micro_p} recall={micro_r} "
             f"(tp={agg_tp} expected={agg_exp} actual={agg_act})"
         )
 

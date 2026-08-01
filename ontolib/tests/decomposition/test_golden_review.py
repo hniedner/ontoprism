@@ -73,6 +73,7 @@ def _artifact(
     concepts: list[dict[str, object]],
     *,
     engine_evidence_identity: str | None = None,
+    corpus_evidence_identity: str | None = None,
 ) -> dict[str, object]:
     payload = {
         "_meta": {
@@ -87,6 +88,10 @@ def _artifact(
             "engine_evidence_identity": (
                 engine_evidence_identity
                 or cast("str", _engine_evidence()["evidence_identity"])
+            ),
+            "corpus_evidence_identity": (
+                corpus_evidence_identity
+                or cast("str", _corpus_evidence()["evidence_identity"])
             ),
             "detector_identity": _DETECTOR_IDENTITY,
             "workbook_identity": "e" * 64,
@@ -126,11 +131,15 @@ def _resign_artifact(value: dict[str, object]) -> dict[str, object]:
 
 
 def _bind_artifact_to_engine(
-    concepts: list[dict[str, object]], engine: dict[str, object]
+    concepts: list[dict[str, object]],
+    engine: dict[str, object],
+    corpus: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    bound_corpus = corpus or _corpus_evidence()
     return _artifact(
         concepts,
         engine_evidence_identity=cast("str", engine["evidence_identity"]),
+        corpus_evidence_identity=cast("str", bound_corpus["evidence_identity"]),
     )
 
 
@@ -434,6 +443,7 @@ def _create_workbook(
         ("Run fingerprint identity", _DIGEST_C),
         ("Artifact SHA-256", "d" * 64),
         ("Engine evidence identity", _engine_evidence()["evidence_identity"]),
+        ("Corpus evidence identity", _corpus_evidence()["evidence_identity"]),
         ("Detector identity", _DETECTOR_IDENTITY),
     ]
     for row, (key, value) in enumerate(rows, start=5):
@@ -617,9 +627,9 @@ def test_evaluation_reports_outcomes_groups_and_d21_exclusions(tmp_path: Path) -
         _constituent("op:AssociatedRegion", "C12418")
     )
     _sign(engine)
-    artifact_path = tmp_path / "artifact.json"
-    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
     corpus = _corpus_evidence(denominator=["C10", "C11"], residual=["C10"])
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine, corpus))
 
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
 
@@ -651,9 +661,9 @@ def test_group_comparison_ignores_group_names_but_not_membership(
         _constituent("op:StageValue", "C27971", group="different-name"),
     ]
     _sign(engine)
-    artifact_path = tmp_path / "artifact.json"
-    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
     corpus = _corpus_evidence()
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine, corpus))
 
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
 
@@ -768,10 +778,16 @@ def test_zero_pair_metrics_are_undefined_and_detector_drift_is_rejected(
 
 @pytest.mark.unit
 def test_evaluation_report_is_byte_reproducible(tmp_path: Path) -> None:
-    artifact_path = tmp_path / "artifact.json"
-    _write_json(artifact_path, _artifact(_m1_concepts()))
-    artifact = load_adjudication(artifact_path)
     corpus = _corpus_evidence(residual=["C1"])
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(
+        artifact_path,
+        _artifact(
+            _m1_concepts(),
+            corpus_evidence_identity=cast("str", corpus["evidence_identity"]),
+        ),
+    )
+    artifact = load_adjudication(artifact_path)
     report = evaluate_adjudication(artifact, _engine_evidence(), corpus)
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
@@ -800,11 +816,19 @@ def test_adjudication_cli_imports_workbook_and_evaluates_report(
     engine_path = tmp_path / "engine.json"
     corpus_path = tmp_path / "corpus.json"
     report_path = tmp_path / "report.json"
+    engine = _engine_evidence()
+    corpus = _corpus_evidence(residual=["C1"])
     _create_workbook(workbook)
-    _write_json(engine_path, _engine_evidence())
+    review = load_workbook(workbook)
+    evidence = review["Source & Run Evidence"]
+    for row in range(5, evidence.max_row + 1):
+        if evidence.cell(row, 1).value == "Corpus evidence identity":
+            evidence.cell(row, 2, corpus["evidence_identity"])
+    review.save(workbook)
+    _write_json(engine_path, engine)
     _write_json(
         corpus_path,
-        _corpus_evidence(residual=["C1"]),
+        corpus,
     )
 
     adjudication_main(["import-workbook", str(workbook), str(artifact_path)])

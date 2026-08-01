@@ -94,6 +94,7 @@ class AdjudicationMetadata(_StrictModel):
     run_fingerprint_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     engine_artifact_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     engine_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    corpus_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     detector_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     workbook_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     reviewer: Reviewer
@@ -466,6 +467,10 @@ def _evidence_values(workbook: Workbook) -> dict[str, str]:
     ws = workbook["Source & Run Evidence"]
     result: dict[str, str] = {}
     for row in range(5, ws.max_row + 1):
+        if ws.row_dimensions[row].hidden and _row_has_data(ws, row):
+            raise GoldenSetValidationError(
+                f"hidden source evidence rows are not permitted: {row}"
+            )
         key = ws.cell(row, 1).value
         value = ws.cell(row, 2).value
         if isinstance(key, str) and isinstance(value, str):
@@ -522,7 +527,7 @@ def _constituent_row_identity(
 
 def _workbook_constituents(
     workbook: Workbook,
-) -> dict[str, list[GoldenConstituent]]:
+) -> tuple[dict[str, list[GoldenConstituent]], set[str]]:
     ws = workbook["Constituent Decisions"]
     headers = _headers(ws, 4)
     required = {
@@ -540,6 +545,7 @@ def _workbook_constituents(
             "Constituent Decisions is missing headers: " + ", ".join(sorted(missing))
         )
     result: dict[str, list[GoldenConstituent]] = {}
+    row_codes: set[str] = set()
     for row in range(5, ws.max_row + 1):
         code = ws.cell(row, headers["Concept Code"]).value
         if code is None:
@@ -549,6 +555,7 @@ def _workbook_constituents(
                 )
             continue
         code, row_type, action = _constituent_row_identity(ws, row, headers)
+        row_codes.add(code)
         complete = _cell_text(
             ws, row, headers["Row Complete?"], f"{code} constituent completeness"
         )
@@ -574,7 +581,7 @@ def _workbook_constituents(
             ),
         )
         result.setdefault(code, []).append(expected)
-    return result
+    return result, row_codes
 
 
 def _load_review_workbook(path: Path) -> Workbook:
@@ -599,6 +606,16 @@ def _load_review_workbook(path: Path) -> Workbook:
 
 def _reviewer_from_workbook(workbook: Workbook) -> Reviewer:
     reviewer_ws = workbook["Reviewer & Attestation"]
+    hidden = [
+        row
+        for row in range(5, 10)
+        if reviewer_ws.row_dimensions[row].hidden and _row_has_data(reviewer_ws, row)
+    ]
+    if hidden:
+        raise GoldenSetValidationError(
+            "hidden reviewer rows are not permitted: "
+            + ", ".join(str(row) for row in hidden)
+        )
     reviewed_at_value = reviewer_ws["B7"].value
     if isinstance(reviewed_at_value, datetime):
         reviewed_at = reviewed_at_value.date().isoformat()
@@ -625,6 +642,7 @@ def _required_evidence(workbook: Workbook) -> dict[str, str]:
         "Run fingerprint identity",
         "Artifact SHA-256",
         "Engine evidence identity",
+        "Corpus evidence identity",
         "Detector identity",
     }
     if missing := required_evidence - evidence.keys():
@@ -765,7 +783,7 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
             "populated concept row has blank concept code: "
             + ", ".join(str(row) for row in blank)
         )
-    expected_constituents = _workbook_constituents(workbook)
+    expected_constituents, constituent_codes = _workbook_constituents(workbook)
     declared_codes = {
         code
         for row in range(5, ws.max_row + 1)
@@ -774,7 +792,7 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
             str,
         )
     }
-    orphaned = sorted(set(expected_constituents) - declared_codes)
+    orphaned = sorted(constituent_codes - declared_codes)
     if orphaned:
         raise GoldenSetValidationError(
             "constituent rows reference unknown concepts: " + ", ".join(orphaned)
@@ -805,6 +823,7 @@ def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
                 run_fingerprint_identity=evidence["Run fingerprint identity"],
                 engine_artifact_identity=evidence["Artifact SHA-256"],
                 engine_evidence_identity=evidence["Engine evidence identity"],
+                corpus_evidence_identity=evidence["Corpus evidence identity"],
                 detector_identity=evidence["Detector identity"],
                 workbook_identity=hashlib.sha256(
                     workbook_path.read_bytes()
@@ -938,13 +957,16 @@ def _group_partition(
 
 
 def _score_dict(result: ExtractionScore) -> dict[str, object]:
+    precision = result.precision if result.actual else None
+    recall = result.recall if result.expected else None
+    f1 = result.f1 if precision is not None and recall is not None else None
     return {
         "expected": result.expected,
         "actual": result.actual,
         "true_positive": result.true_positive,
-        "precision": result.precision,
-        "recall": result.recall,
-        "f1": result.f1,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
         "missing": sorted([list(pair) for pair in result.missing]),
         "extra": sorted([list(pair) for pair in result.extra]),
         "deferred": sorted([list(pair) for pair in result.deferred]),
@@ -990,6 +1012,10 @@ def evaluate_adjudication(
     if corpus.detector_identity != artifact.meta.detector_identity:
         raise GoldenSetValidationError(
             "corpus detector identity does not match adjudication"
+        )
+    if corpus.evidence_identity != artifact.meta.corpus_evidence_identity:
+        raise GoldenSetValidationError(
+            "corpus evidence identity does not match adjudication"
         )
     engine_by_code = {concept.code: concept for concept in engine.concepts}
     concept_reports: list[dict[str, object]] = []
