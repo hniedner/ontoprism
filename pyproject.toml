@@ -115,6 +115,7 @@ data-build = "python scripts/data_build.py"
 decompose-spike = "python scripts/decomposition_spike.py"
 # Decomposition engine CLI (design §9 / §12 PR 5b): run the pipeline for a branch.
 decompose = "python scripts/decompose.py"
+adjudication = "python scripts/adjudication.py"
 # --- Dev process management (backend :8011 + frontend :5175), fairdata-style ---
 up = "docker compose up -d"
 down = "docker compose down"

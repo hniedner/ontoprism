@@ -16,6 +16,9 @@ from ontolib.decomposition.sampling import (
 _CANONICAL_SAMPLE = (
     Path(__file__).resolve().parents[3] / "samples" / "ncit-26.07d-m1-review.json"
 )
+_SME_SAMPLE = (
+    Path(__file__).resolve().parents[3] / "samples" / "ncit-26.07d-m1-sme-review.json"
+)
 
 
 def _concept(
@@ -199,4 +202,22 @@ def test_tracked_m1_sample_is_source_bound_and_covers_every_review_stratum() -> 
         "C100054",
         "C100051",
         "C6135",
+    )
+
+
+@pytest.mark.unit
+def test_tracked_sme_sample_extends_m1_sample_with_required_review_seeds() -> None:
+    comparison = load_sample_manifest(_CANONICAL_SAMPLE)
+    adjudication = load_sample_manifest(_SME_SAMPLE)
+
+    assert adjudication.codes[: len(comparison.codes)] == comparison.codes
+    assert adjudication.codes[-5:] == (
+        "C4791",
+        "C35756",
+        "C89995",
+        "C27787",
+        "C115118",
+    )
+    assert adjudication.identity == (
+        "9c32b36c482879f030aca0ec8f2bd84542a3f53fe541c9a4372cfe050b94b87c"
     )
