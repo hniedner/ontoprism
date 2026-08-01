@@ -1,191 +1,608 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import TYPE_CHECKING
 
 import pytest
+from openpyxl import Workbook, load_workbook
+from scripts.adjudication import main as adjudication_main
 from scripts.research.golden_review import (
     GoldenSetValidationError,
+    evaluate_adjudication,
+    import_adjudication_workbook,
+    load_adjudication,
     load_scorable_golden,
-    validate_m1_cohort,
+    write_evaluation_report,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-_SOURCE_IDENTITY = "a" * 64
+_DIGEST_A = "a" * 64
+_DIGEST_B = "b" * 64
+_DIGEST_C = "c" * 64
+_REQUIRED_SEEDS = ("C4791", "C35756", "C89995")
 
 
-def _decision(
-    status: str,
+def _constituent(
+    axis: str = "op:StageValue",
+    filler: str = "C27970",
     *,
-    reviewer: str = "Example SME",
-    reviewed_at: str = "2026-07-30",
-    rationale: str = "Reviewed against the stated NCIt definition.",
-) -> dict[str, str]:
+    group: str | None = None,
+    needs_review: bool = False,
+) -> dict[str, object]:
     return {
-        "status": status,
-        "reviewer": reviewer,
-        "reviewed_at": reviewed_at,
-        "rationale": rationale,
+        "axis": axis,
+        "filler": filler,
+        "relationship_group": group,
+        "needs_review": needs_review,
     }
 
 
-def _artifact(
-    concepts: dict[str, object],
+def _accepted(
+    code: str,
     *,
-    status: str = "SME-ADJUDICATED",
+    outcome: str = "decomposed",
+    constituents: list[dict[str, object]] | None = None,
+    semantic_types: list[str] | None = None,
 ) -> dict[str, object]:
     return {
+        "code": code,
+        "label": f"Reviewed {code}",
+        "adjudication": {
+            "status": "accepted",
+            "rationale": "Reviewed against the stated NCIt definition.",
+        },
+        "expected": {
+            "outcome": outcome,
+            "semantic_types": semantic_types or ["Neoplastic Process"],
+            "constituents": (
+                constituents
+                if constituents is not None
+                else ([] if outcome != "decomposed" else [_constituent()])
+            ),
+        },
+    }
+
+
+def _artifact(concepts: list[dict[str, object]]) -> dict[str, object]:
+    return {
         "_meta": {
-            "schema_version": 1,
-            "status": status,
+            "schema_version": 2,
+            "status": "SME-ADJUDICATED",
             "ncit_version": "26.07d",
-            "source_identity": _SOURCE_IDENTITY,
+            "source_identity": _DIGEST_A,
+            "sample_manifest_identity": _DIGEST_B,
+            "run_id": "neoplasm-run-1",
+            "run_fingerprint_identity": _DIGEST_C,
+            "engine_artifact_identity": "d" * 64,
+            "workbook_identity": "e" * 64,
+            "reviewer": {
+                "name": "Example Reviewer",
+                "qualification_or_role": "NCIt ontology curator",
+                "reviewed_at": "2026-07-30",
+            },
         },
         "concepts": concepts,
     }
 
 
-def _write(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload), encoding="utf-8")
+def _m1_concepts() -> list[dict[str, object]]:
+    codes = [f"C{index}" for index in range(17)] + list(_REQUIRED_SEEDS)
+    return [_accepted(code) for code in codes]
+
+
+def _write_json(path: Path, value: object) -> None:
+    path.write_text(json.dumps(value), encoding="utf-8")
 
 
 @pytest.mark.unit
-def test_scorer_refuses_an_automated_draft_before_returning_expected_pairs(
+def test_adjudication_rejects_draft_duplicate_keys_and_duplicate_concepts(
     tmp_path: Path,
 ) -> None:
-    path = tmp_path / "draft.json"
-    _write(
-        path,
-        _artifact(
-            {
-                "C6135": {
-                    "label": "Stage III Thyroid Gland Medullary Carcinoma AJCC v7",
-                    "constituents": [["op:StageValue", "C27970"]],
-                }
-            },
-            status="AUTO-DRAFT",
-        ),
-    )
+    draft = tmp_path / "draft.json"
+    _write_json(draft, {"_meta": {"status": "AUTO-DRAFT"}, "concepts": []})
+    with pytest.raises(GoldenSetValidationError, match="not SME-adjudicated"):
+        load_adjudication(draft)
 
-    with pytest.raises(
-        GoldenSetValidationError,
-        match="not SME-adjudicated",
-    ):
-        load_scorable_golden(path)
+    duplicate_key = tmp_path / "duplicate-key.json"
+    duplicate_key.write_text('{"_meta": {}, "_meta": {}, "concepts": []}')
+    with pytest.raises(GoldenSetValidationError, match="duplicate JSON key: _meta"):
+        load_adjudication(duplicate_key)
 
-
-@pytest.mark.unit
-def test_scorer_uses_only_accepted_decisions_and_retains_all_decision_states(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "adjudicated.json"
-    _write(
-        path,
-        _artifact(
-            {
-                "C6135": {
-                    "label": "Accepted",
-                    "constituents": [
-                        ["op:StageValue", "C27970"],
-                        ["op:PrimarySite", "C12400"],
-                    ],
-                    "adjudication": _decision("accepted"),
-                },
-                "C35756": {
-                    "label": "Rejected",
-                    "constituents": [["op:StageValue", "C27971"]],
-                    "adjudication": _decision(
-                        "rejected",
-                        rationale="The candidate is unsuitable for this oracle.",
-                    ),
-                },
-                "C89995": {
-                    "label": "Needs revision",
-                    "constituents": [["op:StageValue", "C27972"]],
-                    "adjudication": _decision(
-                        "revision-needed",
-                        rationale="The expected primary-site filler must be revised.",
-                    ),
-                },
-            }
-        ),
-    )
-
-    golden = load_scorable_golden(path)
-
-    assert golden.ncit_version == "26.07d"
-    assert golden.source_identity == _SOURCE_IDENTITY
-    assert golden.expected == {
-        "C6135": frozenset(
-            {
-                ("op:StageValue", "C27970"),
-                ("op:PrimarySite", "C12400"),
-            }
-        )
-    }
-    assert golden.decision_counts == {
-        "accepted": 1,
-        "rejected": 1,
-        "revision-needed": 1,
-    }
+    duplicate_concept = tmp_path / "duplicate-concept.json"
+    concepts = _m1_concepts()
+    concepts[-1] = concepts[0]
+    _write_json(duplicate_concept, _artifact(concepts))
+    with pytest.raises(GoldenSetValidationError, match="concept codes must be unique"):
+        load_adjudication(duplicate_concept)
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("field", "value", "message"),
+    ("mutate", "message"),
     [
-        ("reviewer", "", "reviewer"),
-        ("reviewed_at", "", "reviewed_at"),
-        ("rationale", "", "rationale"),
-        ("status", "pending", "decision status"),
+        (lambda value: value["_meta"].update({"unknown": "x"}), "extra"),
+        (
+            lambda value: value["_meta"]["reviewer"].update(
+                {"qualification_or_role": ""}
+            ),
+            "qualification",
+        ),
+        (
+            lambda value: value["concepts"][0].update({"unexpected": "x"}),
+            "extra",
+        ),
+        (
+            lambda value: value["concepts"][0]["expected"]["constituents"].append(
+                _constituent(group="another-group")
+            ),
+            "axis/filler pairs must be unique",
+        ),
+        (
+            lambda value: value["concepts"][0]["expected"].update(
+                {"outcome": "residual"}
+            ),
+            "non-decomposed expectation",
+        ),
     ],
 )
-def test_final_artifact_rejects_incomplete_or_pending_adjudication(
+def test_adjudication_schema_rejects_untrusted_shapes(
     tmp_path: Path,
-    field: str,
-    value: str,
+    mutate: object,
     message: str,
 ) -> None:
+    payload = _artifact(_m1_concepts())
+    mutate(payload)  # type: ignore[operator]
     path = tmp_path / "invalid.json"
-    adjudication = _decision("accepted")
-    adjudication[field] = value
-    _write(
-        path,
-        _artifact(
-            {
-                "C6135": {
-                    "label": "Candidate",
-                    "constituents": [],
-                    "adjudication": adjudication,
-                }
-            }
-        ),
-    )
+    _write_json(path, payload)
 
     with pytest.raises(GoldenSetValidationError, match=message):
-        load_scorable_golden(path)
+        load_adjudication(path)
 
 
 @pytest.mark.unit
-def test_m1_cohort_requires_twenty_to_fifty_decisions_and_named_seeds() -> None:
-    too_small = {f"C{i}": _decision("accepted") for i in range(19)}
+def test_nonaccepted_decisions_require_rationale_and_cannot_claim_expectations(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = {
+        "code": "C0",
+        "label": "Unsuitable",
+        "adjudication": {"status": "rejected", "rationale": ""},
+        "expected": None,
+    }
+    path = tmp_path / "missing-rationale.json"
+    _write_json(path, _artifact(concepts))
+    with pytest.raises(GoldenSetValidationError, match="rationale"):
+        load_adjudication(path)
 
+    concepts[0]["adjudication"]["rationale"] = "Unsuitable source case."
+    concepts[0]["expected"] = _accepted("C0")["expected"]
+    _write_json(path, _artifact(concepts))
+    with pytest.raises(GoldenSetValidationError, match="must not define expected"):
+        load_adjudication(path)
+
+
+@pytest.mark.unit
+def test_m1_cohort_validation_is_mandatory(tmp_path: Path) -> None:
+    too_small = tmp_path / "small.json"
+    _write_json(too_small, _artifact(_m1_concepts()[:19]))
     with pytest.raises(GoldenSetValidationError, match="20 to 50"):
-        validate_m1_cohort(too_small)
+        load_adjudication(too_small)
 
-    missing_seed = {f"C{i}": _decision("accepted") for i in range(20)}
+    missing_seed = tmp_path / "missing-seed.json"
+    _write_json(
+        missing_seed,
+        _artifact([_accepted(f"C{index}") for index in range(20)]),
+    )
     with pytest.raises(GoldenSetValidationError, match="C35756, C4791, C89995"):
-        validate_m1_cohort(missing_seed)
+        load_adjudication(missing_seed)
 
-    complete = {f"C{i}": _decision("accepted") for i in range(17)}
-    complete.update(
+
+@pytest.mark.unit
+def test_scorable_view_uses_accepted_decisions_and_retains_review_exclusions(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent(),
+            _constituent(
+                "op:AssociatedRegion",
+                "C12418",
+                needs_review=True,
+            ),
+        ],
+    )
+    concepts[1] = {
+        "code": "C1",
+        "label": "Rejected",
+        "adjudication": {
+            "status": "rejected",
+            "rationale": "Unsuitable for this oracle.",
+        },
+        "expected": None,
+    }
+    path = tmp_path / "adjudicated.json"
+    _write_json(path, _artifact(concepts))
+
+    golden = load_scorable_golden(path)
+
+    assert "C1" not in golden.expected
+    assert golden.expected["C0"] == frozenset({("op:StageValue", "C27970")})
+    assert golden.review_exclusions["C0"] == frozenset(
+        {("op:AssociatedRegion", "C12418")}
+    )
+    assert golden.reviewer_qualification == "NCIt ontology curator"
+
+
+def _create_workbook(
+    path: Path, *, pending: bool = False, formula: bool = False
+) -> None:
+    wb = Workbook()
+    start = wb.active
+    start.title = "START HERE"
+    reviewer = wb.create_sheet("Reviewer & Attestation")
+    reviewer["B5"] = "Example Reviewer"
+    reviewer["B6"] = "NCIt ontology curator"
+    reviewer["B7"] = date(2026, 7, 30)
+    reviewer["B8"] = "NCIt 26.07d"
+    reviewer["B9"] = "ATTESTED"
+    concepts = wb.create_sheet("Concept Decisions")
+    concept_headers = [
+        "Order",
+        "Concept Code",
+        "Source Label",
+        "Source Semantic Types",
+        "Expected Semantic Types",
+        "Engine Suggested Outcome",
+        "SME Decision Status",
+        "Expected Outcome",
+        "Rationale / Required Follow-up",
+        "Source Reviewed?",
+        "Concept Complete?",
+    ]
+    for column, header in enumerate(concept_headers, start=1):
+        concepts.cell(4, column, header)
+    codes = [f"C{index}" for index in range(17)] + list(_REQUIRED_SEEDS)
+    for order, code in enumerate(codes, start=1):
+        row = order + 4
+        values = [
+            order,
+            code,
+            f"Reviewed {code}",
+            "Neoplastic Process",
+            "Neoplastic Process",
+            "decomposed",
+            "PENDING" if pending and order == 1 else "accepted",
+            "decomposed",
+            "Reviewed against the stated source.",
+            "YES",
+            "YES",
+        ]
+        for column, value in enumerate(values, start=1):
+            concepts.cell(row, column, value)
+    constituents = wb.create_sheet("Constituent Decisions")
+    constituent_headers = [
+        "Concept Order",
+        "Concept Code",
+        "Source Label",
+        "Row Type",
+        "Engine Axis",
+        "Engine Filler",
+        "Engine Filler Label",
+        "Engine Group",
+        "Engine needs_review",
+        "SME Action",
+        "Expected Axis",
+        "Expected Filler",
+        "Expected Group",
+        "Expected needs_review",
+        "SME Notes",
+        "Row Complete?",
+    ]
+    for column, header in enumerate(constituent_headers, start=1):
+        constituents.cell(4, column, header)
+    for order, code in enumerate(codes, start=1):
+        row = order + 4
+        values = [
+            order,
+            code,
+            f"Reviewed {code}",
+            "ENGINE SUGGESTION",
+            "op:StageValue",
+            "C27970",
+            "Stage III",
+            None,
+            "FALSE",
+            "include",
+            "op:StageValue",
+            "C27970",
+            None,
+            "FALSE",
+            "",
+            "YES",
+        ]
+        for column, value in enumerate(values, start=1):
+            constituents.cell(row, column, value)
+    wb.create_sheet("Validation Summary")
+    wb.create_sheet("Worked Examples")
+    wb.create_sheet("Prior SME Evidence")
+    evidence = wb.create_sheet("Source & Run Evidence")
+    rows = [
+        ("NCIt release", "26.07d"),
+        ("Source identity", _DIGEST_A),
+        ("Sample identity", _DIGEST_B),
+        ("Engine run", "neoplasm-run-1"),
+        ("Run fingerprint identity", _DIGEST_C),
+        ("Artifact SHA-256", "d" * 64),
+    ]
+    for row, (key, value) in enumerate(rows, start=5):
+        evidence.cell(row, 1, key)
+        evidence.cell(row, 2, value)
+    if formula:
+        concepts["I5"] = '=CONCAT("not", " authored")'
+    wb.save(path)
+
+
+@pytest.mark.unit
+def test_openpyxl_contract_preserves_formula_and_boolean_cell_types(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "contract.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "=1+1"
+    ws["A2"] = True
+    wb.save(path)
+
+    loaded = load_workbook(path, data_only=False)
+
+    assert loaded.active["A1"].data_type == "f"
+    assert loaded.active["A2"].data_type == "b"
+
+
+@pytest.mark.unit
+def test_workbook_import_preserves_reviewer_values_and_provenance(
+    tmp_path: Path,
+) -> None:
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+
+    artifact = import_adjudication_workbook(workbook)
+
+    assert artifact.meta.reviewer.name == "Example Reviewer"
+    assert artifact.meta.reviewer.qualification_or_role == "NCIt ontology curator"
+    assert artifact.meta.workbook_identity != _DIGEST_A
+    assert artifact.meta.run_fingerprint_identity == _DIGEST_C
+    assert artifact.concepts[0].expected is not None
+    assert artifact.concepts[0].expected.constituents[0].needs_review is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("pending", "formula", "message"),
+    [
+        (True, False, "pending adjudication"),
+        (False, True, "formula cells are not permitted"),
+    ],
+)
+def test_workbook_import_fails_closed_on_unresolved_or_computed_input(
+    tmp_path: Path,
+    pending: bool,
+    formula: bool,
+    message: str,
+) -> None:
+    workbook = tmp_path / "invalid.xlsx"
+    _create_workbook(workbook, pending=pending, formula=formula)
+
+    with pytest.raises(GoldenSetValidationError, match=message):
+        import_adjudication_workbook(workbook)
+
+
+def _engine_evidence(
+    *, wrong_group: bool = False, wrong_identity: bool = False
+) -> dict:
+    codes = [f"C{index}" for index in range(17)] + list(_REQUIRED_SEEDS)
+    return {
+        "schema_version": 1,
+        "ncit_version": "26.07d",
+        "source_identity": _DIGEST_A,
+        "sample_manifest_identity": _DIGEST_B,
+        "run_id": "neoplasm-run-1",
+        "run_fingerprint_identity": ("f" * 64 if wrong_identity else _DIGEST_C),
+        "engine_artifact_identity": "d" * 64,
+        "concepts": [
+            {
+                "code": code,
+                "outcome": "decomposed",
+                "semantic_types": ["Neoplastic Process"],
+                "constituents": [
+                    {
+                        "axis": "op:StageValue",
+                        "filler": "C27970",
+                        "relationship_group": (
+                            "actual" if wrong_group and code == "C0" else None
+                        ),
+                        "needs_review": False,
+                    }
+                ],
+            }
+            for code in codes
+        ],
+        "residual_precoordinated_codes": codes,
+    }
+
+
+@pytest.mark.unit
+def test_evaluation_reports_outcomes_groups_and_d21_exclusions(tmp_path: Path) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent(group="expected"),
+            _constituent(
+                "op:AssociatedRegion",
+                "C12418",
+                needs_review=True,
+            ),
+        ],
+    )
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _artifact(concepts))
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"].append(
+        _constituent("op:AssociatedRegion", "C12418")
+    )
+    corpus = {
+        "name": "issue-154-corpus-sample",
+        "source_identity": _DIGEST_A,
+        "sample_manifest_identity": "9" * 64,
+        "run_id": "neoplasm-sample-run",
+        "run_fingerprint_identity": "8" * 64,
+        "engine_artifact_identity": "7" * 64,
+        "denominator_codes": ["C10", "C11"],
+        "residual_codes": ["C10"],
+    }
+
+    report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
+
+    first = report["concepts"][0]
+    assert first["pair_score"]["extra"] == []
+    assert first["expected_review_exclusions"] == [["op:AssociatedRegion", "C12418"]]
+    assert first["group_match"] is False
+    assert first["outcome_match"] is True
+    assert report["residual_comparison"]["adjudication"]["count"] == 20
+    assert report["residual_comparison"]["corpus_sample"]["count"] == 1
+    assert report["residual_comparison"]["rates_averaged"] is False
+
+
+@pytest.mark.unit
+def test_group_comparison_ignores_group_names_but_not_membership(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent(group="expected-name"),
+            _constituent("op:StageValue", "C27971", group="expected-name"),
+        ],
+    )
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _artifact(concepts))
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"] = [
+        _constituent(group="different-name"),
+        _constituent("op:StageValue", "C27971", group="different-name"),
+    ]
+    corpus = {
+        "name": "issue-154-corpus-sample",
+        "source_identity": _DIGEST_A,
+        "sample_manifest_identity": "9" * 64,
+        "run_id": "sample",
+        "run_fingerprint_identity": "8" * 64,
+        "engine_artifact_identity": "7" * 64,
+        "denominator_codes": ["C1"],
+        "residual_codes": [],
+    }
+
+    report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
+
+    assert report["concepts"][0]["group_match"] is True
+
+
+@pytest.mark.unit
+def test_evaluation_rejects_identity_drift_and_invalid_residual_subset(
+    tmp_path: Path,
+) -> None:
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _artifact(_m1_concepts()))
+    artifact = load_adjudication(artifact_path)
+    corpus = {
+        "name": "issue-154-corpus-sample",
+        "source_identity": _DIGEST_A,
+        "sample_manifest_identity": "9" * 64,
+        "run_id": "sample",
+        "run_fingerprint_identity": "8" * 64,
+        "engine_artifact_identity": "7" * 64,
+        "denominator_codes": ["C1"],
+        "residual_codes": ["C2"],
+    }
+
+    with pytest.raises(GoldenSetValidationError, match="run fingerprint identity"):
+        evaluate_adjudication(artifact, _engine_evidence(wrong_identity=True), corpus)
+    with pytest.raises(
+        GoldenSetValidationError, match="residual codes must be a subset"
+    ):
+        evaluate_adjudication(artifact, _engine_evidence(), corpus)
+
+
+@pytest.mark.unit
+def test_evaluation_report_is_byte_reproducible(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _artifact(_m1_concepts()))
+    artifact = load_adjudication(artifact_path)
+    corpus = {
+        "name": "issue-154-corpus-sample",
+        "source_identity": _DIGEST_A,
+        "sample_manifest_identity": "9" * 64,
+        "run_id": "sample",
+        "run_fingerprint_identity": "8" * 64,
+        "engine_artifact_identity": "7" * 64,
+        "denominator_codes": ["C1"],
+        "residual_codes": ["C1"],
+    }
+    report = evaluate_adjudication(artifact, _engine_evidence(), corpus)
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+
+    write_evaluation_report(report, first)
+    write_evaluation_report(report, second)
+
+    assert first.read_bytes() == second.read_bytes()
+
+
+@pytest.mark.unit
+def test_adjudication_cli_imports_workbook_and_evaluates_report(
+    tmp_path: Path,
+) -> None:
+    workbook = tmp_path / "review.xlsx"
+    artifact_path = tmp_path / "artifact.json"
+    engine_path = tmp_path / "engine.json"
+    corpus_path = tmp_path / "corpus.json"
+    report_path = tmp_path / "report.json"
+    _create_workbook(workbook)
+    _write_json(engine_path, _engine_evidence())
+    _write_json(
+        corpus_path,
         {
-            "C4791": _decision("accepted"),
-            "C35756": _decision("rejected"),
-            "C89995": _decision("revision-needed"),
-        }
+            "name": "issue-154-corpus-sample",
+            "source_identity": _DIGEST_A,
+            "sample_manifest_identity": "9" * 64,
+            "run_id": "sample",
+            "run_fingerprint_identity": "8" * 64,
+            "engine_artifact_identity": "7" * 64,
+            "denominator_codes": ["C1"],
+            "residual_codes": ["C1"],
+        },
     )
 
-    validate_m1_cohort(complete)
+    adjudication_main(["import-workbook", str(workbook), str(artifact_path)])
+    adjudication_main(
+        [
+            "evaluate",
+            str(artifact_path),
+            str(engine_path),
+            str(corpus_path),
+            str(report_path),
+        ]
+    )
+
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert artifact["_meta"]["reviewer"]["name"] == "Example Reviewer"
+    assert report["accepted_concepts"] == 20

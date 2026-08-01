@@ -107,3 +107,19 @@ def test_deferred_defaults_empty_and_scoring_is_unchanged_without_review_set() -
     s = score(golden, {("R88", "C27970"), ("R108", "C1")})
     assert s.deferred == frozenset()
     assert s.precision == pytest.approx(0.5)
+
+
+@pytest.mark.unit
+def test_expected_review_pair_is_excluded_from_both_sides() -> None:
+    deferred = ("op:AssociatedRegion", "C12418")
+
+    s = score(
+        {("op:StageValue", "C27970"), deferred},
+        {("op:StageValue", "C27970"), deferred},
+        expected_needs_review={deferred},
+    )
+
+    assert s.exact
+    assert s.expected == 1
+    assert s.actual == 1
+    assert s.deferred == frozenset({deferred})

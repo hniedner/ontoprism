@@ -74,9 +74,9 @@ def ambiguous_axes(pairs: set[tuple[str, str]]) -> dict[str, set[str]]:
     return {axis: fillers for axis, fillers in by_axis.items() if len(fillers) > 1}
 
 
-def _load_golden(path: str) -> dict[str, frozenset[tuple[str, str]]]:
-    """Return only provenance-bearing SME-accepted expectations."""
-    return load_scorable_golden(path).expected
+def _load_golden(path: str):
+    """Return a fully validated provenance-bearing SME oracle."""
+    return load_scorable_golden(path)
 
 
 async def main() -> None:
@@ -91,9 +91,15 @@ async def main() -> None:
             ambiguous = ambiguous_axes(actual)
             if ambiguous:
                 print(f"  needs_review (multiple fillers for one axis): {ambiguous}")
-            if code in golden:
-                expected = set(golden[code])
-                s = score(expected, actual)
+            if code in golden.expected:
+                expected = set(golden.expected[code])
+                s = score(
+                    expected,
+                    actual,
+                    expected_needs_review=set(
+                        golden.review_exclusions.get(code, frozenset())
+                    ),
+                )
                 print(
                     f"  vs golden: precision={s.precision:.2f} recall={s.recall:.2f} "
                     f"missing={sorted(s.missing)} extra={sorted(s.extra)}"

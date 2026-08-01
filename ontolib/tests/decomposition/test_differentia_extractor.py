@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -158,29 +159,57 @@ class TestLoadGolden:
     @pytest.mark.unit
     def test_loads_golden_file(self, tmp_path: Any) -> None:
         path = tmp_path / "golden.json"
+        codes = [f"C{index}" for index in range(16)] + [
+            "C4791",
+            "C35756",
+            "C89995",
+            "C6135",
+        ]
         data = {
             "_meta": {
-                "schema_version": 1,
+                "schema_version": 2,
                 "status": "SME-ADJUDICATED",
                 "ncit_version": "26.07d",
                 "source_identity": "a" * 64,
+                "sample_manifest_identity": "b" * 64,
+                "run_id": "review-run",
+                "run_fingerprint_identity": "c" * 64,
+                "engine_artifact_identity": "d" * 64,
+                "workbook_identity": "e" * 64,
+                "reviewer": {
+                    "name": "Example SME",
+                    "qualification_or_role": "NCIt ontology curator",
+                    "reviewed_at": "2026-07-30",
+                },
             },
-            "concepts": {
-                "C6135": {
-                    "label": "Reviewed concept",
-                    "constituents": [["op:StageValue", "C27970"]],
+            "concepts": [
+                {
+                    "code": code,
+                    "label": f"Reviewed {code}",
+                    "expected": {
+                        "outcome": "decomposed",
+                        "semantic_types": ["Neoplastic Process"],
+                        "constituents": [
+                            {
+                                "axis": "op:StageValue",
+                                "filler": "C27970",
+                                "relationship_group": None,
+                                "needs_review": False,
+                            }
+                        ],
+                    },
                     "adjudication": {
                         "status": "accepted",
-                        "reviewer": "Example SME",
-                        "reviewed_at": "2026-07-30",
                         "rationale": "Reviewed against the stated definition.",
                     },
                 }
-            },
+                for code in codes
+            ],
         }
         path.write_text(json.dumps(data))
         result = _load_golden(str(path))
-        assert result == {"C6135": {("op:StageValue", "C27970")}}
+        assert len(result.expected) == 20
+        assert result.expected["C6135"] == {("op:StageValue", "C27970")}
 
     @pytest.mark.unit
     def test_rejects_auto_draft_instead_of_reporting_oracle_metrics(
@@ -192,7 +221,7 @@ class TestLoadGolden:
             json.dumps(
                 {
                     "_meta": {
-                        "schema_version": 1,
+                        "schema_version": 2,
                         "status": "AUTO-DRAFT",
                         "ncit_version": "26.07d",
                         "source_identity": "a" * 64,
@@ -300,7 +329,8 @@ class TestMain:
                 AsyncMock(return_value=[]),
             )
             mp.setattr(
-                "scripts.research.differentia_extractor._load_golden", lambda p: {}
+                "scripts.research.differentia_extractor._load_golden",
+                lambda p: SimpleNamespace(expected={}, review_exclusions={}),
             )
             await differentia_main()
 
@@ -323,7 +353,10 @@ class TestMain:
             )
             mp.setattr(
                 "scripts.research.differentia_extractor._load_golden",
-                lambda p: {"C6135": {("op:StageValue", "C27970")}},
+                lambda p: SimpleNamespace(
+                    expected={"C6135": {("op:StageValue", "C27970")}},
+                    review_exclusions={},
+                ),
             )
             await differentia_main()
         captured = capsys.readouterr()

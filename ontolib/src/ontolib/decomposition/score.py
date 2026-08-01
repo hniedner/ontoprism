@@ -51,6 +51,8 @@ def score(
     expected: set[Constituent],
     actual: set[Constituent],
     needs_review: set[Constituent] | None = None,
+    *,
+    expected_needs_review: set[Constituent] | None = None,
 ) -> ExtractionScore:
     """Score an *actual* extraction against the *expected* golden constituents.
 
@@ -64,9 +66,11 @@ def score(
     definition of done scores with those **excluded**: they are pending curation, so
     they are neither credited as true positives nor charged as precision misses, and a
     golden pair that is flagged is not charged as a recall miss either. They are
-    reported in ``deferred`` so a run can never quietly bury them.
+    reported in ``deferred`` so a run can never quietly bury them. The independent
+    *expected_needs_review* set carries SME-deferred assertions; the union is excluded
+    from both sides so an expected exclusion cannot reappear as a precision error.
     """
-    flagged = frozenset(needs_review or ())
+    flagged = frozenset(needs_review or ()) | frozenset(expected_needs_review or ())
     # Exclude from both sides: a flagged pair is a curation question, not an answer.
     scored_expected = expected - flagged
     scored_actual = actual - flagged

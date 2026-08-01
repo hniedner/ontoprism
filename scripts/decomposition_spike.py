@@ -110,7 +110,13 @@ async def main() -> None:
         for code, expected_pairs in golden.expected.items():
             expected = set(expected_pairs)
             actual = await _extract(client, code)
-            s = score(expected, actual)
+            s = score(
+                expected,
+                actual,
+                expected_needs_review=set(
+                    golden.review_exclusions.get(code, frozenset())
+                ),
+            )
             agg_tp += s.true_positive
             agg_exp += s.expected
             agg_act += s.actual
