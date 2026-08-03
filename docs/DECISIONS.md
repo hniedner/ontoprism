@@ -29,10 +29,14 @@ closed set `known`, `unknown-cup`, `undetermined`, and `not-applicable`; `known`
 and only if a `PrimarySite` filler is present. `unknown-cup` is a positive clinical state,
 not absence, and is accompanied by an explicit unknown-primary finding where supported.
 `undetermined` preserves incomplete workup or unresolved second-primary-versus-metastasis
-classification. `not-applicable` covers classes or occurrences that do not pose the site
-question. The current class projection does not store this status: it derives `known` from
-a present site, `unknown-cup` from an explicit complete-record unknown-primary assertion,
-and otherwise `not-applicable`; `undetermined` is occurrence-only.
+classification. `not-applicable` covers classes or occurrences that genuinely do not pose
+the site question. The current class projection does not store occurrence status: it
+derives a class-level summary of `known` from a present site, `unknown-cup` from an explicit
+complete-record unknown-primary assertion, and otherwise `not-applicable`. That final
+class-derived value never propagates to an occurrence. A solid-tumour occurrence from a
+site-agnostic class defaults to `undetermined` until site or CUP status is established;
+occurrence-level `not-applicable` is reserved for a disease model where primary site truly
+does not apply.
 Issue #263 tracks the occurrence schema/API and executable invariants.
 
 Occurrence individuation is upstream and out of scope. The 0..1 rule must never decide
@@ -55,6 +59,13 @@ provisionally because the formal definition is less ambiguous than `FollowsDisea
 remain in the NCIt-bound score because their fillers are NCIt 26.07d concepts; relation
 locality and filler locality are independent provenance dimensions.
 
+Provisional unaligned `op:` relations are a time-bounded exception to the project's OBO
+Foundry Principle 7 target. They may support the curated local projection only with
+machine-readable maturity, review trigger/date, evidence, and fallback; they emit no
+speculative RO parent axiom and are not represented as Principle-7-conformant. This
+exception also covers `op:AssociatedLineageClassification` until a classification-type RO
+parent is established.
+
 Routing-semantic changes use two gates. Focused tests and the adjudicated sample are the
 development/PR inner loop. Before release, the algorithm identity changes and a
 full-corpus impact report classifies every changed pair. More than one primary site,
@@ -64,6 +75,15 @@ previous primary site requires named source evidence and re-adjudication; absenc
 never classified as CUP. Every stated R101 fact must be conserved as a routed pair, a
 collapse under a named ancestor, or a named suppression. Unclassified deltas require a
 written reason; acceptance is semantic, never a percentage threshold.
+
+The depth-5 walker bound remains an identified production constraint, not an oracle
+boundary. Omissions attributable to it are explainable implementation limitations but
+still score as false negatives against the source-complete reference and lower recall.
+
+C100051's prior-disease normalization is source-bound: the NCIt 26.07d class definition,
+not R126 itself or external clinical literature, states that the renal cell carcinoma
+develops in long-term survivors of childhood neuroblastoma. Without that concept-specific
+source wording, the assertion would remain raw R126 and review-required.
 
 **Why:** a total anatomy relation would misclassify every site-agnostic morphology class as
 CUP or corrupt the anatomy range with a sentinel. A separate closed status preserves the

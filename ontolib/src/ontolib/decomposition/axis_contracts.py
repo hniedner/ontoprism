@@ -138,6 +138,14 @@ _CONTRACT_SEQUENCE = (
         "not site.",
         _ANATOMY,
         "R101",
+        governance=ProvisionalGovernance(
+            since=date(2026, 8, 3),
+            review_by=date(2027, 8, 3),
+            review_trigger="RO submission outcome or NCIt 27.x",
+            fallback_axis="R101",
+            fallback_needs_review=True,
+            evidence_count=3,
+        ),
     ),
     _contract(
         "op:NormalTissueOrigin",

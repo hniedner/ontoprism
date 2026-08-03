@@ -53,7 +53,9 @@ class projection keeps anatomy-valued `op:PrimarySite` at `0..1`; no site does n
 unknown primary. D58 defines a future occurrence-level status vocabulary (`known`,
 `unknown-cup`, `undetermined`, `not-applicable`). At class level it is derived from a
 projected site plus explicit unknown-primary evidence in the complete stated record, so
-the status does not add an expected pair or change bound/augmented scores.
+the status does not add an expected pair or change bound/augmented scores. Class-derived
+`not-applicable` is never inherited by an occurrence; a solid-tumour occurrence without
+established site evidence is `undetermined` until occurrence-level evidence resolves it.
 
 Example final entry:
 

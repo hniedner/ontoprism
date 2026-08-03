@@ -590,7 +590,10 @@ defines a separate future occurrence-level `primarySiteStatus` with values `know
 `unknown-cup`, `undetermined`, and `not-applicable`. At class level that status is derived,
 not emitted: a site means `known`, an explicit unknown-primary assertion in the complete
 record means `unknown-cup`, and otherwise no site means `not-applicable`. `undetermined`
-requires patient-level workup state and is therefore unreachable in this extractor.
+requires patient-level workup state and is therefore unreachable in this extractor. The
+class-level `not-applicable` summary MUST NOT propagate to an occurrence; a solid-tumour
+occurrence from a site-agnostic class starts `undetermined` until occurrence evidence
+establishes a site or CUP state.
 Occurrence individuation is upstream: this cardinality must never turn a possible second
 primary into a metastasis merely to satisfy the projection.
 Issue #263 owns the future occurrence/status implementation; it does not change this

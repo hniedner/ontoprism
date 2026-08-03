@@ -74,6 +74,7 @@ def test_source_role_provenance_is_invertible_for_direct_mappings() -> None:
 def test_provisional_local_relations_expose_review_and_fallback_governance() -> None:
     primary_subsite = AXIS_CONTRACTS["op:PrimarySubsite"]
     prior_disease = AXIS_CONTRACTS["op:AssociatedPriorDisease"]
+    lineage = AXIS_CONTRACTS["op:AssociatedLineageClassification"]
 
     assert primary_subsite.governance.status == "provisional"
     assert primary_subsite.ro_parent == "RO:0004026"
@@ -89,3 +90,9 @@ def test_provisional_local_relations_expose_review_and_fallback_governance() -> 
     assert prior_disease.governance.fallback_axis == "R126"
     assert prior_disease.governance.fallback_needs_review is True
     assert prior_disease.governance.evidence_count == 1
+
+    assert lineage.governance.status == "provisional"
+    assert lineage.ro_parent is None
+    assert lineage.governance.fallback_axis == "R101"
+    assert lineage.governance.fallback_needs_review is True
+    assert lineage.governance.evidence_count == 3

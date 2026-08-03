@@ -89,7 +89,9 @@ occurrence model must instead carry exactly one `primarySiteStatus` (`known`,
 is present. Patients may have any number of disease occurrences; occurrence individuation
 (second primary versus metastasis) is upstream of this constraint and must never be
 inferred from the site cardinality. The current class projection derives status from its
-site plus explicit complete-record unknown-primary evidence but does not persist it (D58).
+site plus explicit complete-record unknown-primary evidence but does not persist it. Its
+no-site/no-CUP `not-applicable` summary is class-local and never inherited by an occurrence:
+a solid-tumour occurrence without established site evidence is `undetermined` (D58).
 The future occurrence schema and API are tracked in #263.
 
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
