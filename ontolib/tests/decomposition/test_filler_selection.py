@@ -407,6 +407,114 @@ def test_semantic_type_ranking_all_organs_keeps_r101_tie() -> None:
     assert all(c.group is None for c in cons)
 
 
+@pytest.mark.unit
+def test_ratified_lung_primary_routes_bronchus_to_primary_subsite() -> None:
+    semantic_types = {
+        "C12468": "Body Part, Organ, or Organ Component",
+        "C12683": "Body Part, Organ, or Organ Component",
+    }
+    restrictions = [
+        RoleRestriction("R101", code, "Disease_Has_Primary_Anatomic_Site")
+        for code in semantic_types
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _a, _b: False,
+        parent_morphology="C4878",
+        semantic_type_of=semantic_types.get,
+    )
+
+    assert {(item.axis, item.filler_code) for item in constituents} == {
+        ("op:PrimarySite", "C12468"),
+        ("op:PrimarySubsite", "C12683"),
+        ("op:Morphology", "C4878"),
+    }
+
+
+@pytest.mark.unit
+def test_ratified_endometrial_primary_routes_cavity_to_subsite() -> None:
+    semantic_types = {
+        "C12316": "Body Part, Organ, or Organ Component",
+        "C32514": "Anatomical Structure",
+        "C12402": "Body System",
+    }
+    restrictions = [
+        RoleRestriction("R100", "C12316", "Disease_Has_Associated_Anatomic_Site"),
+        RoleRestriction("R101", "C32514", "Disease_Has_Primary_Anatomic_Site"),
+        RoleRestriction("R101", "C12402", "Disease_Has_Primary_Anatomic_Site"),
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda broader, narrower: (broader, narrower) == ("C12402", "C12316"),
+        parent_morphology="C7558",
+        semantic_type_of=semantic_types.get,
+    )
+
+    assert {(item.axis, item.filler_code) for item in constituents} == {
+        ("op:AssociatedRegion", "C12402"),
+        ("op:PrimarySite", "C12316"),
+        ("op:PrimarySubsite", "C32514"),
+        ("op:Morphology", "C7558"),
+    }
+    primary = next(item for item in constituents if item.axis == "op:PrimarySite")
+    assert primary.source_role == "R100"
+
+
+@pytest.mark.unit
+def test_routing_precedes_region_axis_collapse() -> None:
+    semantic_types = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C12418": "Anatomical Structure",
+        "C13063": "Anatomical Structure",
+    }
+    restrictions = [
+        RoleRestriction("R101", code, "Disease_Has_Primary_Anatomic_Site")
+        for code in semantic_types
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda broader, narrower: (
+            (broader, narrower) in {("C12418", "C13063"), ("C13063", "C12400")}
+        ),
+        parent_morphology="C3879",
+        semantic_type_of=semantic_types.get,
+    )
+
+    assert {(item.axis, item.filler_code) for item in constituents} == {
+        ("op:PrimarySite", "C12400"),
+        ("op:AssociatedRegion", "C13063"),
+        ("op:Morphology", "C3879"),
+    }
+
+
+@pytest.mark.unit
+def test_only_adjudicated_r126_pair_routes_to_prior_disease() -> None:
+    adjudicated = RoleRestriction(
+        "R126",
+        "C3270",
+        "Disease_Has_Associated_Disease",
+        anchoring_genus="C100051",
+    )
+    unresolved = RoleRestriction(
+        "R126",
+        "C999",
+        "Disease_Has_Associated_Disease",
+        anchoring_genus="C9999",
+    )
+
+    constituents = select_constituents([adjudicated, unresolved], lambda _a, _b: False)
+
+    assert {
+        (item.axis, item.filler_code, item.needs_review) for item in constituents
+    } == {
+        ("op:AssociatedPriorDisease", "C3270", False),
+        ("R126", "C999", True),
+    }
+
+
 # --- D23 organ lookup ---
 
 
@@ -431,7 +539,7 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
 
 
 @pytest.mark.unit
-def test_organ_lookup_preserves_co_present_regions_on_their_own_axis() -> None:
+def test_organ_lookup_collapses_nested_regions_only_within_region_axis() -> None:
     semantic_types = {
         "C12400": "Body Part, Organ, or Organ Component",
         "C12418": "Anatomical Structure",
@@ -464,15 +572,14 @@ def test_organ_lookup_preserves_co_present_regions_on_their_own_axis() -> None:
     }
 
     assert by_axis[PRIMARY_SITE_AXIS] == {"C12400"}
-    assert by_axis[ASSOCIATED_REGION_AXIS] == {"C12418", "C13063"}
+    assert by_axis[ASSOCIATED_REGION_AXIS] == {"C13063"}
     regions = [
         constituent
         for constituent in constituents
         if constituent.axis == ASSOCIATED_REGION_AXIS
     ]
     assert all(
-        constituent.group == ASSOCIATED_REGION_AXIS
-        and constituent.needs_review is False
+        constituent.group is None and constituent.needs_review is False
         for constituent in regions
     )
 

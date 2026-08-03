@@ -30,6 +30,7 @@ MORPHOLOGY_AXIS = "op:Morphology"
 STAGE_SYSTEM_AXIS = "op:StageSystem"
 STAGE_VALUE_AXIS = "op:StageValue"
 PRIMARY_SITE_AXIS = "op:PrimarySite"
+PRIMARY_SUBSITE_AXIS = "op:PrimarySubsite"
 
 # D20 refinement 1 axis: genus-sense classification (lineage) carved from R101.
 ASSOCIATED_LINEAGE_AXIS = "op:AssociatedLineageClassification"
@@ -42,6 +43,11 @@ PRIMARY_SITE_ROLE = "R101"
 # Genera whose R101 restrictions convey lineage classification rather than literal
 # primary site (D17/D20 §6.6, confirmed via C6135 analysis).
 LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset({"C3010", "C3809", "C3773"})
+
+# Source-reviewed R126 assertions that have a ratified univocal sense. Every other
+# R126 assertion remains raw and review-required; there is deliberately no generic
+# associated-disease fallback (Issue #57 adjudication Q5/Q6).
+ASSOCIATED_PRIOR_DISEASE: frozenset[tuple[str, str]] = frozenset({("C100051", "C3270")})
 
 # Semantic type for literal primary-site fillers (D20 refinement 2).
 ORGAN_SEMANTIC_TYPE = "Body Part, Organ, or Organ Component"

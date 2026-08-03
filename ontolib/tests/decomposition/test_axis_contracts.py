@@ -13,6 +13,7 @@ from ontolib.decomposition.axis_contracts import (
 def test_required_univocal_axes_have_complete_semantic_contracts() -> None:
     required = {
         "op:PrimarySite",
+        "op:PrimarySubsite",
         "op:MetastaticSite",
         "op:AssociatedSite",
         "op:AssociatedRegion",
@@ -23,6 +24,7 @@ def test_required_univocal_axes_have_complete_semantic_contracts() -> None:
         "op:StageSystem",
         "op:Laterality",
         "op:WithFinding",
+        "op:AssociatedPriorDisease",
     }
 
     assert required <= set(AXIS_CONTRACTS)
@@ -66,3 +68,24 @@ def test_source_role_provenance_is_invertible_for_direct_mappings() -> None:
         axis = normalized_axis_for_role(role)
         assert axis is not None
         assert AXIS_CONTRACTS[axis].source_roles == (role,)
+
+
+@pytest.mark.unit
+def test_provisional_local_relations_expose_review_and_fallback_governance() -> None:
+    primary_subsite = AXIS_CONTRACTS["op:PrimarySubsite"]
+    prior_disease = AXIS_CONTRACTS["op:AssociatedPriorDisease"]
+
+    assert primary_subsite.governance.status == "provisional"
+    assert primary_subsite.ro_parent == "RO:0004026"
+    assert primary_subsite.governance.fallback_axis == "op:AssociatedRegion"
+    assert (
+        primary_subsite.governance.review_trigger
+        == "RO submission outcome or NCIt 27.x"
+    )
+    assert primary_subsite.governance.evidence_count == 3
+
+    assert prior_disease.governance.status == "provisional"
+    assert prior_disease.ro_parent is None
+    assert prior_disease.governance.fallback_axis == "R126"
+    assert prior_disease.governance.fallback_needs_review is True
+    assert prior_disease.governance.evidence_count == 1

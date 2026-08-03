@@ -37,6 +37,8 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     # --- Lung ---
     "C4874": "C12468",  # Non-Small Cell Lung Carcinoma → Lung
     "C4915": "C12468",  # Small Cell Lung Carcinoma
+    "C4878": "C12468",  # Lung Carcinoma (legacy engine morphology)
+    "C4917": "C12468",  # Lung Small Cell Carcinoma
     # --- Breast ---
     "C4017": "C12971",  # Breast Carcinoma → Breast
     # --- Pancreatic ---
@@ -57,6 +59,9 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     "C5980": "C12421",  # Oral Cavity Squamous Cell Carcinoma → Oral Cavity
     # --- Uterine ---
     "C4008": "C12316",  # Uterine Carcinosarcoma → Uterus
+    "C7558": "C12316",  # Endometrial Carcinoma → Corpus Uteri
+    # --- Esophagus / GEJ composite staging site ---
+    "C3513": "C203674",  # Esophageal Carcinoma → Esophagus and GEJ
     # --- Bone ---
     "C3711": "C12366",  # Osteosarcoma → Bone
     # --- Lip ---
@@ -69,6 +74,15 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     "C3734": "C12386",  # Small Intestine Adenocarcinoma → Small Intestine
     # --- Urethral ---
     "C3834": "C12417",  # Urethral Carcinoma → Urethra
+}
+
+# Organ components/localized sites within the single primary-site umbrella. These are
+# not independent primary cancers and therefore use op:PrimarySubsite (Q3/Q4).
+MORPHOLOGY_TO_PRIMARY_SUBSITES: dict[str, frozenset[str]] = {
+    "C4878": frozenset({"C12683"}),  # Bronchus within lung-cancer umbrella
+    "C4917": frozenset({"C12683"}),
+    "C7558": frozenset({"C32514"}),  # Endometrial cavity within corpus uteri
+    "C3513": frozenset({"C12389"}),  # Esophagus within AJCC v7 composite site
 }
 
 
@@ -89,3 +103,10 @@ def organ_for_morphology(morphology_code: str | None) -> str | None:
     if morphology_code is None:
         return None
     return MORPHOLOGY_TO_ORGAN.get(morphology_code)
+
+
+def primary_subsites_for_morphology(morphology_code: str | None) -> frozenset[str]:
+    """Return reviewed primary-subsite fillers for one morphology context."""
+    if morphology_code is None:
+        return frozenset()
+    return MORPHOLOGY_TO_PRIMARY_SUBSITES.get(morphology_code, frozenset())

@@ -2,13 +2,38 @@
 
 from __future__ import annotations
 
+from datetime import date
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AxisContract(BaseModel):
-    """Human- and machine-readable contract for one normalized relation."""
-
+class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+
+class StableGovernance(_StrictModel):
+    status: Literal["stable"] = "stable"
+
+
+class ProvisionalGovernance(_StrictModel):
+    status: Literal["provisional"] = "provisional"
+    since: date
+    review_by: date
+    review_trigger: str = Field(min_length=1)
+    fallback_axis: str = Field(min_length=1)
+    fallback_needs_review: bool = False
+    evidence_count: int = Field(ge=1)
+
+
+AxisGovernance = Annotated[
+    StableGovernance | ProvisionalGovernance,
+    Field(discriminator="status"),
+]
+
+
+class AxisContract(_StrictModel):
+    """Human- and machine-readable contract for one normalized relation."""
 
     axis: str = Field(pattern=r"^op:[A-Za-z][A-Za-z0-9]*$")
     label: str = Field(min_length=1)
@@ -19,6 +44,8 @@ class AxisContract(BaseModel):
     range_label: str = Field(min_length=1)
     source_roles: tuple[str, ...] = ()
     provenance: tuple[str, ...] = Field(min_length=1)
+    ro_parent: str | None = Field(default=None, pattern=r"^RO:[0-9]{7}$")
+    governance: AxisGovernance = Field(default_factory=StableGovernance)
 
 
 _DISEASE = ("C7057", "Disease, Disorder or Finding")
@@ -40,6 +67,8 @@ def _contract(
     definition: str,
     endpoint_range: tuple[str, str],
     *source_roles: str,
+    ro_parent: str | None = None,
+    governance: AxisGovernance | None = None,
 ) -> AxisContract:
     return AxisContract(
         axis=axis,
@@ -51,6 +80,8 @@ def _contract(
         range_label=endpoint_range[1],
         source_roles=source_roles,
         provenance=_PROVENANCE,
+        ro_parent=ro_parent,
+        governance=governance or StableGovernance(),
     )
 
 
@@ -61,6 +92,23 @@ _CONTRACT_SEQUENCE = (
         "Relates a disease to the organ where its pathological process originated.",
         _ANATOMY,
         "R101",
+        ro_parent="RO:0004026",
+    ),
+    _contract(
+        "op:PrimarySubsite",
+        "primary subsite",
+        "Relates a disease to an organ component or localized site within its single "
+        "primary-site umbrella; it does not assert an independent primary cancer.",
+        _ANATOMY,
+        "R101",
+        ro_parent="RO:0004026",
+        governance=ProvisionalGovernance(
+            since=date(2026, 8, 3),
+            review_by=date(2027, 8, 3),
+            review_trigger="RO submission outcome or NCIt 27.x",
+            fallback_axis="op:AssociatedRegion",
+            evidence_count=3,
+        ),
     ),
     _contract(
         "op:MetastaticSite",
@@ -172,6 +220,22 @@ _CONTRACT_SEQUENCE = (
         "Relates a disease label to an explicitly present or absent finding qualifier.",
         _DISEASE,
     ),
+    _contract(
+        "op:AssociatedPriorDisease",
+        "associated prior disease",
+        "Relates a disease to a distinct disease previously present in the same "
+        "patient, without by itself asserting causation or material transformation.",
+        _DISEASE,
+        "R126",
+        governance=ProvisionalGovernance(
+            since=date(2026, 8, 3),
+            review_by=date(2027, 8, 3),
+            review_trigger="RO submission outcome or NCIt 27.x",
+            fallback_axis="R126",
+            fallback_needs_review=True,
+            evidence_count=1,
+        ),
+    ),
 )
 
 AXIS_CONTRACTS = {contract.axis: contract for contract in _CONTRACT_SEQUENCE}
@@ -183,6 +247,8 @@ _SOURCE_ROLE_TO_AXIS = {
     not in {
         "op:AssociatedRegion",
         "op:AssociatedLineageClassification",
+        "op:PrimarySubsite",
+        "op:AssociatedPriorDisease",
         "op:StageSystem",
     }
 }
