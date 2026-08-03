@@ -8,6 +8,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ontolib.decomposition.proposal_registry import (
+    load_proposal_registry,
+    write_submission_exports,
+)
+
 try:
     from scripts.research.golden_review import (
         evaluate_adjudication,
@@ -51,6 +56,10 @@ def _evaluate(
     write_evaluation_report(report, output)
 
 
+def _export_proposals(registry: Path, output_directory: Path) -> None:
+    write_submission_exports(load_proposal_registry(registry), output_directory)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fail-closed SME adjudication import and evaluation"
@@ -64,6 +73,9 @@ def _parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("engine_evidence", type=Path)
     evaluate_parser.add_argument("corpus_comparison", type=Path)
     evaluate_parser.add_argument("output", type=Path)
+    export_parser = subparsers.add_parser("export-proposals")
+    export_parser.add_argument("registry", type=Path)
+    export_parser.add_argument("output_directory", type=Path)
     return parser
 
 
@@ -71,6 +83,9 @@ def main(argv: list[str] | None = None) -> None:
     args: Any = _parser().parse_args(argv)
     if args.command == "import-workbook":
         _write_artifact(args.workbook, args.output)
+        return
+    if args.command == "export-proposals":
+        _export_proposals(args.registry, args.output_directory)
         return
     _evaluate(
         args.adjudication,
