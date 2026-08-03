@@ -54,6 +54,7 @@ def _write_candidate(path: Path, *, status: str) -> None:
                             "filler": "C27970",
                             "relationship_group": None,
                             "needs_review": False,
+                            "provenance_status": "ncit-26.07d",
                         }
                     ],
                 },

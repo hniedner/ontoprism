@@ -29,8 +29,8 @@ The final artifact requires:
 - a non-empty label and an `expected` object per accepted concept containing one typed outcome
   (`decomposed`, `residual`, `semantic-excluded`, or `atomic-no-op`), the complete
   semantic-type list, and unique constituent objects;
-- an explicit relationship group (string or `null`) and `needs_review` boolean on every
-  constituent; and
+- an explicit relationship group (string or `null`), `needs_review` boolean, and
+  reviewer-authored `provenance_status` on every constituent; and
 - per-concept adjudication status and rationale. Rejected/revision-needed entries must
   have `expected: null` and never enter metrics.
 
@@ -38,11 +38,22 @@ The M1 cohort contains 20–50 adjudicated concepts and includes `C4791`, `C3575
 `C89995` or a recorded unsuitable-case decision. `neoplasm.json` remains a starter seed
 until #57 records genuine SME adjudication.
 
-The loader retains the complete expectation for audit and outcome evaluation. Existing
-pair scorers receive only accepted constituents whose `needs_review` value is `false`;
-review-flagged pairs remain visible as explicit exclusions and cannot silently enter a
-metric. A `decomposed` expectation must have at least one constituent; all other typed
-outcomes must have none.
+The loader retains one complete expectation store for audit and outcome evaluation.
+Reports derive two views from each pair's provenance: `ncit_bound` contains only pairs
+stamped for the artifact's NCIt release, while `augmented` also contains locally approved,
+submitted, or later-accepted proposal pairs. Merely proposed pairs enter neither metric.
+Reviewer-flagged expected pairs remain visible as explicit exclusions and cannot silently
+enter a metric. Engine `needs_review` values are pre-adjudication diagnostics; once a human
+has resolved a pair, they do not override `Expected needs_review` or silently defer it. A
+`decomposed` expectation must have at least one constituent; all other typed outcomes must
+have none.
+
+Primary-site occurrence status is deliberately not a constituent or pair metric. The
+class projection keeps anatomy-valued `op:PrimarySite` at `0..1`; no site does not imply
+unknown primary. D58 defines a future occurrence-level status vocabulary (`known`,
+`unknown-cup`, `undetermined`, `not-applicable`). At class level it is derived from a
+projected site plus explicit unknown-primary evidence in the complete stated record, so
+the status does not add an expected pair or change bound/augmented scores.
 
 Example final entry:
 
@@ -58,7 +69,8 @@ Example final entry:
         "axis": "op:StageValue",
         "filler": "C27970",
         "relationship_group": "stage",
-        "needs_review": false
+        "needs_review": false,
+        "provenance_status": "ncit-26.07d"
       }
     ]
   },

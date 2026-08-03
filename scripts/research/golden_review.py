@@ -26,6 +26,13 @@ ExpectedOutcome = Literal[
     "atomic-no-op",
 ]
 ConstituentPair = tuple[str, str]
+PairProvenance = Literal[
+    "ncit-26.07d",
+    "locally-approved",
+    "proposed",
+    "submitted",
+    "accepted-in-ncit",
+]
 
 _ADJUDICATED_STATUS = "SME-ADJUDICATED"
 _SCHEMA_VERSION = 2
@@ -106,7 +113,7 @@ class AdjudicationMetadata(_StrictModel):
         return self
 
 
-class GoldenConstituent(_StrictModel):
+class Constituent(_StrictModel):
     axis: str
     filler: str
     relationship_group: str | None
@@ -123,6 +130,10 @@ class GoldenConstituent(_StrictModel):
     @property
     def pair(self) -> ConstituentPair:
         return (self.axis, self.filler)
+
+
+class GoldenConstituent(Constituent):
+    provenance_status: PairProvenance
 
 
 class GoldenExpectation(_StrictModel):
@@ -218,7 +229,7 @@ class EngineConcept(_StrictModel):
     code: str = Field(pattern=r"^C[0-9]+$")
     outcome: ExpectedOutcome
     semantic_types: tuple[str, ...]
-    constituents: tuple[GoldenConstituent, ...]
+    constituents: tuple[Constituent, ...]
 
     @model_validator(mode="after")
     def _validate_shape(self) -> Self:
@@ -317,6 +328,22 @@ class ScorableGoldenSet:
         self.expected = {
             code: frozenset(
                 item.pair for item in expectation.constituents if not item.needs_review
+            )
+            for code, expectation in self.expectations.items()
+        }
+        self.expected_ncit_bound = {
+            code: frozenset(
+                item.pair
+                for item in expectation.constituents
+                if not item.needs_review and item.provenance_status == "ncit-26.07d"
+            )
+            for code, expectation in self.expectations.items()
+        }
+        self.expected_augmented = {
+            code: frozenset(
+                item.pair
+                for item in expectation.constituents
+                if not item.needs_review and item.provenance_status != "proposed"
             )
             for code, expectation in self.expectations.items()
         }
@@ -538,6 +565,7 @@ def _workbook_constituents(
         "Expected Filler",
         "Expected Group",
         "Expected needs_review",
+        "Expected Provenance Status",
         "Row Complete?",
     }
     if missing := required - headers.keys():
@@ -578,6 +606,15 @@ def _workbook_constituents(
             needs_review=_parse_review_bool(
                 ws.cell(row, headers["Expected needs_review"]).value,
                 f"{code} expected needs_review",
+            ),
+            provenance_status=cast(
+                "PairProvenance",
+                _cell_text(
+                    ws,
+                    row,
+                    headers["Expected Provenance Status"],
+                    f"{code} expected provenance status",
+                ),
             ),
         )
         result.setdefault(code, []).append(expected)
@@ -938,7 +975,7 @@ def _require_engine_identity(
 
 
 def _group_partition(
-    constituents: tuple[GoldenConstituent, ...], excluded: set[ConstituentPair]
+    constituents: tuple[Constituent, ...], excluded: set[ConstituentPair]
 ) -> dict[str, object]:
     grouped: dict[str, set[ConstituentPair]] = {}
     ungrouped: set[ConstituentPair] = set()
@@ -973,6 +1010,145 @@ def _score_dict(result: ExtractionScore) -> dict[str, object]:
         "missing": sorted([list(pair) for pair in result.missing]),
         "extra": sorted([list(pair) for pair in result.extra]),
         "deferred": sorted([list(pair) for pair in result.deferred]),
+    }
+
+
+def _micro_score(expected: int, actual: int, true_positive: int) -> dict[str, object]:
+    return {
+        "expected": expected,
+        "actual": actual,
+        "true_positive": true_positive,
+        "precision": true_positive / actual if actual else None,
+        "recall": true_positive / expected if expected else None,
+    }
+
+
+def _axis_scores(
+    counts: dict[str, Counter[str]],
+) -> dict[str, dict[str, object]]:
+    return {
+        axis: _micro_score(
+            values["expected"], values["actual"], values["true_positive"]
+        )
+        for axis, values in sorted(counts.items())
+    }
+
+
+def _proposal_counts(
+    expected: GoldenExpectation, actual: EngineConcept
+) -> tuple[Counter[str], Counter[str], int, tuple[str, ...]]:
+    provenance = Counter(item.provenance_status for item in expected.constituents)
+    proposal_statuses = Counter(
+        item.provenance_status
+        for item in expected.constituents
+        if item.provenance_status != "ncit-26.07d"
+    )
+    augmented_expected = sum(
+        not item.needs_review
+        and item.provenance_status
+        in {"locally-approved", "submitted", "accepted-in-ncit"}
+        for item in expected.constituents
+    )
+    engine_ids = tuple(
+        item.filler for item in actual.constituents if item.filler.startswith("MINT-")
+    )
+    return provenance, proposal_statuses, augmented_expected, engine_ids
+
+
+def _update_axis_counts(
+    counts: dict[str, Counter[str]],
+    expected: set[ConstituentPair],
+    actual: set[ConstituentPair],
+) -> None:
+    for pair in expected | actual:
+        values = counts.setdefault(pair[0], Counter())
+        values["expected"] += pair in expected
+        values["actual"] += pair in actual
+        values["true_positive"] += pair in expected & actual
+
+
+def _score_concept_views(
+    expected: GoldenExpectation,
+    actual: EngineConcept,
+    aggregates: dict[str, dict[str, int]],
+    axis_aggregates: dict[str, dict[str, Counter[str]]],
+    deferrals: dict[str, dict[str, int]],
+) -> tuple[
+    dict[str, tuple[GoldenConstituent, ...]],
+    dict[str, ExtractionScore],
+    set[ConstituentPair],
+    set[ConstituentPair],
+]:
+    actual_pairs = {item.pair for item in actual.constituents}
+    actual_exclusions = {item.pair for item in actual.constituents if item.needs_review}
+    view_items = {
+        "ncit_bound": tuple(
+            item
+            for item in expected.constituents
+            if item.provenance_status == "ncit-26.07d"
+        ),
+        "augmented": tuple(
+            item
+            for item in expected.constituents
+            if item.provenance_status != "proposed"
+        ),
+    }
+    results: dict[str, ExtractionScore] = {}
+    augmented_exclusions: set[ConstituentPair] = set()
+    for view, items in view_items.items():
+        expected_pairs = {item.pair for item in items}
+        expected_exclusions = {item.pair for item in items if item.needs_review}
+        result = score(
+            expected_pairs,
+            actual_pairs,
+            expected_needs_review=expected_exclusions,
+        )
+        results[view] = result
+        for field in ("expected", "actual", "true_positive"):
+            aggregates[view][field] += getattr(result, field)
+        deferrals[view]["expected"] += len(items)
+        deferrals[view]["deferred"] += len(expected_exclusions)
+        deferrals[view]["engine_matches"] += len(expected_exclusions & actual_pairs)
+        exclusions = expected_exclusions
+        _update_axis_counts(
+            axis_aggregates[view],
+            expected_pairs - exclusions,
+            actual_pairs - exclusions,
+        )
+        if view == "augmented":
+            augmented_exclusions = expected_exclusions
+    return view_items, results, actual_exclusions, augmented_exclusions
+
+
+def _concept_report(
+    concept: AdjudicatedConcept,
+    expected: GoldenExpectation,
+    actual: EngineConcept,
+    view_items: dict[str, tuple[GoldenConstituent, ...]],
+    results: dict[str, ExtractionScore],
+    actual_exclusions: set[ConstituentPair],
+    expected_exclusions: set[ConstituentPair],
+) -> dict[str, object]:
+    exclusions = expected_exclusions
+    expected_groups = _group_partition(view_items["augmented"], exclusions)
+    actual_groups = _group_partition(actual.constituents, exclusions)
+    return {
+        "code": concept.code,
+        "expected_outcome": expected.outcome,
+        "actual_outcome": actual.outcome,
+        "outcome_match": expected.outcome == actual.outcome,
+        "expected_semantic_types": sorted(expected.semantic_types),
+        "actual_semantic_types": sorted(actual.semantic_types),
+        "semantic_types_match": set(expected.semantic_types)
+        == set(actual.semantic_types),
+        "expected_review_exclusions": sorted(
+            [list(pair) for pair in expected_exclusions]
+        ),
+        "actual_review_exclusions": sorted([list(pair) for pair in actual_exclusions]),
+        "pair_score": {view: _score_dict(result) for view, result in results.items()},
+        "expected_group_partition": expected_groups,
+        "actual_group_partition": actual_groups,
+        "group_match": expected_groups == actual_groups,
     }
 
 
@@ -1022,56 +1198,52 @@ def evaluate_adjudication(
         )
     engine_by_code = {concept.code: concept for concept in engine.concepts}
     concept_reports: list[dict[str, object]] = []
-    aggregate_expected = aggregate_actual = aggregate_tp = 0
+    aggregates = {
+        "ncit_bound": {"expected": 0, "actual": 0, "true_positive": 0},
+        "augmented": {"expected": 0, "actual": 0, "true_positive": 0},
+    }
+    axis_aggregates: dict[str, dict[str, Counter[str]]] = {
+        "ncit_bound": {},
+        "augmented": {},
+    }
+    deferrals = {
+        "ncit_bound": {"expected": 0, "deferred": 0, "engine_matches": 0},
+        "augmented": {"expected": 0, "deferred": 0, "engine_matches": 0},
+    }
+    provenance_counts: Counter[str] = Counter()
+    proposal_status_counts: Counter[str] = Counter()
+    augmented_proposal_expected = 0
+    engine_proposal_emissions = 0
+    engine_proposal_ids: set[str] = set()
     actual_decomposed: list[str] = []
     for concept in artifact.concepts:
         if concept.adjudication.status != "accepted":
             continue
         expected = cast("GoldenExpectation", concept.expected)
         actual = engine_by_code[concept.code]
-        expected_pairs = {item.pair for item in expected.constituents}
-        actual_pairs = {item.pair for item in actual.constituents}
-        expected_exclusions = {
-            item.pair for item in expected.constituents if item.needs_review
-        }
-        actual_exclusions = {
-            item.pair for item in actual.constituents if item.needs_review
-        }
-        result = score(
-            expected_pairs,
-            actual_pairs,
-            needs_review=actual_exclusions,
-            expected_needs_review=expected_exclusions,
+        provenance, statuses, accepted, engine_ids = _proposal_counts(expected, actual)
+        provenance_counts.update(provenance)
+        proposal_status_counts.update(statuses)
+        augmented_proposal_expected += accepted
+        engine_proposal_emissions += len(engine_ids)
+        engine_proposal_ids.update(engine_ids)
+        view_items, results, actual_exclusions, expected_exclusions = (
+            _score_concept_views(
+                expected, actual, aggregates, axis_aggregates, deferrals
+            )
         )
-        aggregate_expected += result.expected
-        aggregate_actual += result.actual
-        aggregate_tp += result.true_positive
-        exclusions = expected_exclusions | actual_exclusions
-        expected_groups = _group_partition(expected.constituents, exclusions)
-        actual_groups = _group_partition(actual.constituents, exclusions)
         if actual.outcome == "decomposed":
             actual_decomposed.append(concept.code)
         concept_reports.append(
-            {
-                "code": concept.code,
-                "expected_outcome": expected.outcome,
-                "actual_outcome": actual.outcome,
-                "outcome_match": expected.outcome == actual.outcome,
-                "expected_semantic_types": sorted(expected.semantic_types),
-                "actual_semantic_types": sorted(actual.semantic_types),
-                "semantic_types_match": set(expected.semantic_types)
-                == set(actual.semantic_types),
-                "expected_review_exclusions": sorted(
-                    [list(pair) for pair in expected_exclusions]
-                ),
-                "actual_review_exclusions": sorted(
-                    [list(pair) for pair in actual_exclusions]
-                ),
-                "pair_score": _score_dict(result),
-                "expected_group_partition": expected_groups,
-                "actual_group_partition": actual_groups,
-                "group_match": expected_groups == actual_groups,
-            }
+            _concept_report(
+                concept,
+                expected,
+                actual,
+                view_items,
+                results,
+                actual_exclusions,
+                expected_exclusions,
+            )
         )
     residual_payload = {
         "name": "accepted-adjudication",
@@ -1095,22 +1267,30 @@ def evaluate_adjudication(
     adjudication_residual_dict = _residual_dict(adjudication_residual)
     corpus_dict = _residual_dict(corpus)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "adjudication_identity": artifact.identity,
         "accepted_concepts": len(concept_reports),
         "decision_counts": dict(
             Counter(c.adjudication.status for c in artifact.concepts)
         ),
         "pair_micro": {
-            "expected": aggregate_expected,
-            "actual": aggregate_actual,
-            "true_positive": aggregate_tp,
-            "precision": (
-                aggregate_tp / aggregate_actual if aggregate_actual else None
-            ),
-            "recall": (
-                aggregate_tp / aggregate_expected if aggregate_expected else None
-            ),
+            view: _micro_score(
+                counts["expected"], counts["actual"], counts["true_positive"]
+            )
+            for view, counts in aggregates.items()
+        },
+        "pair_by_axis": {
+            view: _axis_scores(counts) for view, counts in axis_aggregates.items()
+        },
+        "expected_pair_provenance": dict(sorted(provenance_counts.items())),
+        "expected_pair_deferrals": {
+            view: dict(values) for view, values in sorted(deferrals.items())
+        },
+        "proposal_governance": {
+            "engine_emissions": engine_proposal_emissions,
+            "distinct_engine_proposals": len(engine_proposal_ids),
+            "augmented_expected": augmented_proposal_expected,
+            "expected_by_status": dict(sorted(proposal_status_counts.items())),
         },
         "concepts": concept_reports,
         "residual_comparison": {

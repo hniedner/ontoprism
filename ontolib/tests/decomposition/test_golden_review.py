@@ -34,6 +34,26 @@ def _constituent(
     *,
     group: str | None = None,
     needs_review: bool = False,
+    provenance_status: str | None = None,
+) -> dict[str, object]:
+    return {
+        "axis": axis,
+        "filler": filler,
+        "relationship_group": group,
+        "needs_review": needs_review,
+        "provenance_status": (
+            provenance_status
+            or ("locally-approved" if filler.startswith("MINT-") else "ncit-26.07d")
+        ),
+    }
+
+
+def _engine_constituent(
+    axis: str = "op:StageValue",
+    filler: str = "C27970",
+    *,
+    group: str | None = None,
+    needs_review: bool = False,
 ) -> dict[str, object]:
     return {
         "axis": axis,
@@ -340,6 +360,9 @@ def test_scorable_view_uses_accepted_decisions_and_retains_review_exclusions(
         {("op:AssociatedRegion", "C12418")}
     )
     assert golden.reviewer_qualification == "NCIt ontology curator"
+    assert golden.expectations["C0"].constituents[0].provenance_status == (
+        "ncit-26.07d"
+    )
 
 
 def _create_workbook(
@@ -404,6 +427,7 @@ def _create_workbook(
         "Expected Filler",
         "Expected Group",
         "Expected needs_review",
+        "Expected Provenance Status",
         "SME Notes",
         "Row Complete?",
     ]
@@ -426,6 +450,7 @@ def _create_workbook(
             "C27970",
             None,
             "FALSE",
+            "ncit-26.07d",
             "",
             "YES",
         ]
@@ -649,7 +674,7 @@ def test_evaluation_reports_outcomes_groups_and_d21_exclusions(tmp_path: Path) -
     )
     engine = _engine_evidence()
     engine["concepts"][0]["constituents"].append(
-        _constituent("op:AssociatedRegion", "C12418")
+        _engine_constituent("op:AssociatedRegion", "C12418")
     )
     _sign(engine)
     corpus = _corpus_evidence(denominator=["C10", "C11"], residual=["C10"])
@@ -659,13 +684,155 @@ def test_evaluation_reports_outcomes_groups_and_d21_exclusions(tmp_path: Path) -
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
 
     first = report["concepts"][0]
-    assert first["pair_score"]["extra"] == []
+    assert first["pair_score"]["ncit_bound"]["extra"] == []
+    assert first["pair_score"]["augmented"]["extra"] == []
     assert first["expected_review_exclusions"] == [["op:AssociatedRegion", "C12418"]]
     assert first["group_match"] is False
     assert first["outcome_match"] is True
     assert report["residual_comparison"]["adjudication"]["count"] == 20
     assert report["residual_comparison"]["corpus_sample"]["count"] == 1
     assert report["residual_comparison"]["rates_averaged"] is False
+
+
+@pytest.mark.unit
+def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent("op:CellType", "C36903"),
+            _constituent(
+                "op:CellType",
+                "LOCAL-APPROVED-1",
+                provenance_status="locally-approved",
+            ),
+            _constituent(
+                "op:CellType",
+                "C999999",
+                provenance_status="proposed",
+            ),
+        ],
+    )
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"] = [
+        {
+            "axis": "op:CellType",
+            "filler": "C36903",
+            "relationship_group": None,
+            "needs_review": False,
+        }
+    ]
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    assert report["pair_micro"]["ncit_bound"] == {
+        "expected": 20,
+        "actual": 20,
+        "true_positive": 20,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
+    assert report["pair_micro"]["augmented"] == {
+        "expected": 21,
+        "actual": 20,
+        "true_positive": 20,
+        "precision": 1.0,
+        "recall": 20 / 21,
+    }
+    assert report["expected_pair_provenance"] == {
+        "locally-approved": 1,
+        "ncit-26.07d": 20,
+        "proposed": 1,
+    }
+    assert report["pair_by_axis"]["ncit_bound"]["op:CellType"] == {
+        "expected": 1,
+        "actual": 1,
+        "true_positive": 1,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
+    assert report["pair_by_axis"]["augmented"]["op:CellType"] == {
+        "expected": 2,
+        "actual": 1,
+        "true_positive": 1,
+        "precision": 1.0,
+        "recall": 0.5,
+    }
+    for view in ("ncit_bound", "augmented"):
+        assert {
+            field: sum(axis[field] for axis in report["pair_by_axis"][view].values())
+            for field in ("expected", "actual", "true_positive")
+        } == {
+            field: report["pair_micro"][view][field]
+            for field in ("expected", "actual", "true_positive")
+        }
+    assert report["expected_pair_deferrals"] == {
+        "augmented": {"deferred": 0, "engine_matches": 0, "expected": 21},
+        "ncit_bound": {"deferred": 0, "engine_matches": 0, "expected": 20},
+    }
+    assert report["proposal_governance"] == {
+        "augmented_expected": 1,
+        "distinct_engine_proposals": 0,
+        "engine_emissions": 0,
+        "expected_by_status": {"locally-approved": 1, "proposed": 1},
+    }
+    first = report["concepts"][0]["pair_score"]
+    assert first["ncit_bound"]["missing"] == []
+    assert first["augmented"]["missing"] == [["op:CellType", "LOCAL-APPROVED-1"]]
+
+
+@pytest.mark.unit
+def test_local_relation_with_ncit_filler_remains_in_ncit_bound_view(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[_constituent("op:AssociatedPriorDisease", "C3270")],
+    )
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"] = [
+        _engine_constituent("op:AssociatedPriorDisease", "C3270")
+    ]
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    assert report["concepts"][0]["pair_score"]["ncit_bound"]["true_positive"] == 1
+
+
+@pytest.mark.unit
+def test_reviewer_resolution_scores_an_engine_flagged_pair(tmp_path: Path) -> None:
+    concepts = _m1_concepts()
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"][0]["needs_review"] = True
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    first = report["concepts"][0]
+    assert first["actual_review_exclusions"] == [["op:StageValue", "C27970"]]
+    assert first["pair_score"]["ncit_bound"]["true_positive"] == 1
+    assert report["expected_pair_deferrals"]["ncit_bound"] == {
+        "deferred": 0,
+        "engine_matches": 0,
+        "expected": 20,
+    }
 
 
 @pytest.mark.unit
@@ -682,8 +849,8 @@ def test_group_comparison_ignores_group_names_but_not_membership(
     )
     engine = _engine_evidence()
     engine["concepts"][0]["constituents"] = [
-        _constituent(group="different-name"),
-        _constituent("op:StageValue", "C27971", group="different-name"),
+        _engine_constituent(group="different-name"),
+        _engine_constituent("op:StageValue", "C27971", group="different-name"),
     ]
     _sign(engine)
     corpus = _corpus_evidence()
@@ -792,8 +959,10 @@ def test_zero_pair_metrics_are_undefined_and_detector_drift_is_rejected(
         load_adjudication(artifact_path), engine, _corpus_evidence()
     )
 
-    assert report["pair_micro"]["precision"] is None
-    assert report["pair_micro"]["recall"] is None
+    assert report["pair_micro"]["ncit_bound"]["precision"] is None
+    assert report["pair_micro"]["ncit_bound"]["recall"] is None
+    assert report["pair_micro"]["augmented"]["precision"] is None
+    assert report["pair_micro"]["augmented"]["recall"] is None
     drifted_corpus = _corpus_evidence()
     drifted_corpus["detector_identity"] = "5" * 64
     _sign(drifted_corpus)
