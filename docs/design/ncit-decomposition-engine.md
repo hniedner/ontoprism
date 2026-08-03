@@ -582,6 +582,19 @@ The D23 morphology-to-organ lookup selects the primary organ but does not bypass
 split: region/tissue fillers are taken from the pre-collapse R101 set and routed to
 `op:AssociatedRegion`, so an R82 whole/part comparison never deletes a fact merely
 because it belongs on a different normalized axis (#156).
+
+The resulting class projection has `op:PrimarySite 0..1`; this is not a total relation.
+No-site classes are not thereby cancers of unknown primary, and neither a Finding such as
+`C48322` nor a minted "unknown anatomy" sentinel may enter the anatomy-valued axis. D58
+defines a separate future occurrence-level `primarySiteStatus` with values `known`,
+`unknown-cup`, `undetermined`, and `not-applicable`. At class level that status is derived,
+not emitted: a site means `known`, an explicit unknown-primary assertion in the complete
+record means `unknown-cup`, and otherwise no site means `not-applicable`. `undetermined`
+requires patient-level workup state and is therefore unreachable in this extractor.
+Occurrence individuation is upstream: this cardinality must never turn a possible second
+primary into a metastasis merely to satisfy the projection.
+Issue #263 owns the future occurrence/status implementation; it does not change this
+class extractor or the issue #57 class-level pair oracle.
 Validate via the D14/D15/D17 golden-set methodology.
 
 Full narrative and the confirmed-shared-ancestor evidence: this §6 and DECISIONS D17.

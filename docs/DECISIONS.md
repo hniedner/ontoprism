@@ -2,6 +2,112 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-03 — cardinality, local-relation maturity, and routing release gates
+
+### D58. Primary-site semantics, provisional relations, and routing gates are explicit
+
+The M1 adjudication needed to distinguish three cases without introducing another
+pre-coordinated disease class: a patient with one cancer, a patient with concurrent
+independent primary malignancies, and one cancer with metastatic lesions at additional
+locations. It also introduced two local relation terms whose fillers are ordinary NCIt
+26.07d concepts, unlike a locally minted filler that the source-bound engine cannot emit.
+
+**Decision:** primary-site semantics have three explicit levels:
+
+1. An NCIt disease-class projection has `op:PrimarySite 0..1`. Absence usually means that
+   primary site is not a defining dimension of the class; it does not imply unknown
+   primary.
+2. A cancer-disease occurrence (one neoplastic process in one patient) also has
+   `op:PrimarySite 0..1`. The future occurrence model enforces this same invariant.
+3. A patient has `0..*` disease occurrences and therefore no patient-level maximum on
+   primary malignancies. Synchronous multiple primary malignancies are separate
+   occurrences, each with its own primary-site state.
+
+`op:PrimarySite` remains anatomy-valued and never receives an unknown sentinel. Every
+disease occurrence instead carries exactly one conceptual `primarySiteStatus` from the
+closed set `known`, `unknown-cup`, `undetermined`, and `not-applicable`; `known` holds if
+and only if a `PrimarySite` filler is present. `unknown-cup` is a positive clinical state,
+not absence, and is accompanied by an explicit unknown-primary finding where supported.
+`undetermined` preserves incomplete workup or unresolved second-primary-versus-metastasis
+classification. `not-applicable` covers classes or occurrences that do not pose the site
+question. The current class projection does not store this status: it derives `known` from
+a present site, `unknown-cup` from an explicit complete-record unknown-primary assertion,
+and otherwise `not-applicable`; `undetermined` is occurrence-only.
+Issue #263 tracks the occurrence schema/API and executable invariants.
+
+Occurrence individuation is upstream and out of scope. The 0..1 rule must never decide
+whether two involved sites are two primaries or one primary with metastasis. A future
+instance model must preserve an unresolved site role rather than coercing it to
+`MetastaticSite`. The same occurrence may have `0..* op:MetastaticSite` values once that
+relationship is established. `op:PrimarySubsite` refines anatomy within one primary-site
+umbrella and never denotes another primary. Predisposition syndromes attach to occurrences
+through the R126 relation family; they do not relax primary-site cardinality.
+
+`op:PrimarySubsite` and `op:AssociatedPriorDisease` are provisional local relations with
+stable IRIs, machine-readable effective/review dates, a named review trigger, evidence
+counts, and fallback encodings. `op:PrimarySubsite` is declared under verified
+`RO:0004026` and falls back to `op:AssociatedRegion`; `op:AssociatedPriorDisease` remains
+explicitly unaligned and falls back to raw `R126` with `needs_review=true`. The former has
+three cohort examples and low migration risk; the latter has one and must not silently
+generalize to treatment causation or shared susceptibility. Its current name is retained
+provisionally because the formal definition is less ambiguous than `FollowsDisease` or
+`AfterDisease`; the same review trigger covers both name and definition. Both relations
+remain in the NCIt-bound score because their fillers are NCIt 26.07d concepts; relation
+locality and filler locality are independent provenance dimensions.
+
+Routing-semantic changes use two gates. Focused tests and the adjudicated sample are the
+development/PR inner loop. Before release, the algorithm identity changes and a
+full-corpus impact report classifies every changed pair. More than one primary site,
+contradiction between a projected site and derived class status, contract/group
+violations, or an unadjudicated change to the golden cohort blocks release. Loss of a
+previous primary site requires named source evidence and re-adjudication; absence alone is
+never classified as CUP. Every stated R101 fact must be conserved as a routed pair, a
+collapse under a named ancestor, or a named suppression. Unclassified deltas require a
+written reason; acceptance is semantic, never a percentage threshold.
+
+**Why:** a total anatomy relation would misclassify every site-agnostic morphology class as
+CUP or corrupt the anatomy range with a sentinel. A separate closed status preserves the
+FHIR/ISO-style null-flavour distinction between unknown, undetermined, and not applicable
+without weakening `PrimarySite 0..1`. Patient-level multiplicity and occurrence-level site
+cardinality are compatible once diagnoses are post-coordinated occurrences rather than one
+combined disease concept. Keeping local relations in the bound score prevents the metric
+from becoming blind to the hardest adjudicated distinctions. Routing failures are silent
+and clinically plausible, so only versioned corpus-wide conservation and invariant checks
+can expose systematic loss outside the small golden cohort.
+
+## 2026-08-02 — missing concepts and relations remain typed proposals
+
+### D57. Proposal governance is source-bound, duplicate-checked, and non-promoting
+
+Issue #57 exposed two separate gaps that the former qualifier-only mint record could not
+represent safely: a missing atomic NCIt concept and an overloaded NCIt source role that
+may require several univocal relations. The old `MintedConcept` payload stores only axis,
+label, source signal, and status. It cannot carry a formal definition, parentage,
+domain/range, duplicate-search evidence, external-review target, or source examples, and
+therefore cannot support a defensible NCIt or Relation Ontology submission.
+
+**Decision:** proposal review uses a strict versioned registry with two discriminated
+types: concept proposals and relation proposals. Both carry an identified NCIt source,
+formal definition, source roles, rationale, one or more versioned duplicate checks, a
+submission target, and an explicit `proposed`/`approved`/`rejected` state. Concept
+proposals additionally carry their projection axis, parent concepts, semantic types,
+synonyms, and source concepts. Relation proposals carry domain, range, and representative
+source pairs. IDs are deterministic from the concept axis/name or relation name; duplicate
+IDs and duplicate-check resources fail closed. JSON loading rejects duplicate keys and
+verifies a canonical SHA-256 registry identity.
+
+Only `proposed` records enter deterministic flat submission exports. Registry records do
+not enter `AXIS_CONTRACTS`, the decomposed graph, or the global runtime mint queue, and no
+proposal is approved merely because an export exists. `pdm run adjudication
+export-proposals REGISTRY OUTPUT_DIR` validates the registry before writing NCIt concept,
+relation, and manifest artifacts.
+
+**Why:** a missing class and a missing relation are different ontology changes, and an
+overloaded relation must not be "fixed" by inventing a class. Source-bound duplicate
+evidence prevents proposals for concepts already present under another label or semantic
+type; the explicit non-promoting boundary keeps research candidates filterable and
+submission-ready without laundering them into accepted ontology content.
+
 ## 2026-07-30 — every completed work item has an explicit classification
 
 ### D56. Persist typed non-decomposition outcomes and all observed semantic types
@@ -1117,6 +1223,13 @@ complete default product without any licensed dependency.
 ## 2026-07-11 — SME review: organ-level R101 principle, op: namespace approval, and minted concepts
 
 ### D23. R101 resolution = the named organ (SME-approved principle); `op:StageSystem`, `op:MolecularAbnormality`, `op:MetastaticSite` are first-class axes; minted concepts for missing NCIt terms are tracked in git
+
+**Current-status correction (D57):** the original `MINT-3a7f2c8e901d` identifier and
+parent `C12917` were authored outside the deterministic mint contract and before the
+source-bound duplicate audit found `C54110 Malignant Germ Cell`. The proposal is now
+`MINT-781c8c8c6096` with parent `C54110`. D57/D58 later advanced it to
+`locally-approved` for the filterable augmented view; it is still not NCIt-authored or
+accepted by NCI.
 SME review of the draft golden set (30 neoplasm concepts) produced a single governing rule that supersedes the per-cancer tie-resolution table in prior drafts, ratified the `op:` namespace for decomposition axes, identified two structural bugs, and required minted concepts for NCIt gaps. Recording all SME decisions as load-bearing.
 
 **The organ-level principle (from C134930 note):**

@@ -81,6 +81,17 @@ closed and new runs record no round-trip-fidelity value until a separate proof/v
 step establishes exact semantics (D43/D50). Most-specific collapse applies only to the
 projection and never changes the complete record.
 
+`op:PrimarySite` is anatomy-valued and cardinality `0..1` on both a disease-class
+projection and a future cancer-disease occurrence. Absence in the class projection is not
+CUP: site-agnostic morphology classes simply do not pose the question. The future
+occurrence model must instead carry exactly one `primarySiteStatus` (`known`,
+`unknown-cup`, `undetermined`, or `not-applicable`), with `known` iff a primary-site filler
+is present. Patients may have any number of disease occurrences; occurrence individuation
+(second primary versus metastasis) is upstream of this constraint and must never be
+inferred from the site cardinality. The current class projection derives status from its
+site plus explicit complete-record unknown-primary evidence but does not persist it (D58).
+The future occurrence schema and API are tracked in #263.
+
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
 (the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)
 (the *how*) — for the full rationale.
