@@ -860,6 +860,27 @@ def test_group_comparison_ignores_group_names_but_not_membership(
     report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
 
     assert report["concepts"][0]["group_match"] is True
+    assert report["group_partition_agreement"] == {
+        "concepts_agree": 20,
+        "concepts_disagree": 0,
+    }
+
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"] = [
+        _engine_constituent(group="first"),
+        _engine_constituent("op:StageValue", "C27971", group="second"),
+    ]
+    _sign(engine)
+    artifact_path = tmp_path / "different-partition.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine, corpus))
+
+    report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
+
+    assert report["concepts"][0]["group_match"] is False
+    assert report["group_partition_agreement"] == {
+        "concepts_agree": 19,
+        "concepts_disagree": 1,
+    }
 
 
 @pytest.mark.unit

@@ -2,6 +2,51 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-04 — the M1 oracle covers audited R103/R108 without laundering held axes
+
+### D59. Contracted-role source audit governs projection scope and relation-specific collapse
+
+The final #57 review found that the golden oracle and the production walker shared the
+same omission: inherited R103/R108 facts were filtered before curation, while R104/R107
+contracts existed in code but had never received axis-level SME sanctioning. A certified
+NCIt 26.07d complete-definition pass over all 20 concepts found 304 contracted-role facts.
+After same-axis specificity and reviewed generic suppression, v10 still omitted 13 R103,
+25 R108, 10 R104, and one R107 pair. The old 0.6807 recall therefore measured an
+engine-shaped oracle, not all ratified M1 content.
+
+**Decision:** M1 includes every source-supported R103 and range-valid R108 survivor after
+same-axis collapse and the versioned `contracted-role-generic-v1` list. R104 CellOrigin
+and R107 CytogeneticAbnormality remain explicit named scope omissions until their
+cardinality, grouping, RO alignment, and suppression policy are adjudicated; they are not
+silently called non-core or mixed into current metrics. The walker projects inherited
+R103/R108 and continues to hold inherited R104/R107. The complete record retains all
+source facts regardless of projection suppression.
+
+The generic list is role-specific: R103 C45714; R104 C12578; R105 C12917, C12922,
+C36779; and R108 C36115, C36122, C53596, C54172. Changes require a new list version and
+the full-corpus routing impact gate from D58. Stage system/value routing likewise uses the
+versioned `ncit-26.07d-stage-kind-v1` code/definition classification; semantic type alone
+is insufficient because NCIt uses `Classification` for both values and frameworks.
+
+`rdfs:subClassOf` licenses most-specific collapse on every axis. R82 part-of licenses
+collapse only on location axes under RO:0004026; it is not subsumption for morphology,
+cell, tissue, finding, or classification axes. Consequently C35756's C12704/C12705
+lineage classifiers remain separate and ungrouped. Relationship groups reflect source
+co-assertion partitions, not shared axis membership or genus-walk path bookkeeping.
+
+The three PrimarySubsite mappings and C206219's R100-to-PrimarySite override remain
+scoreable provisional human-curated morphology-context mappings. They preserve original
+source roles and have source-role-faithful fallbacks; they are not claimed as OWL-derived
+partonomy. C132677 includes R108 C48322 as a ClinicalFinding while deriving the separate
+non-constituent `unknown-cup` status. C198031 retains C3168 alone because C4005 is its
+broader stated defining ancestor.
+
+**Why:** rules and conserved source dispositions make the oracle reproducible and expose
+production blind spots without importing unadjudicated axes. The corrected v11 bound
+result is TP 81, FP 25, FN 76 (precision 0.7642, recall 0.5159); augmented adds one FN.
+The unchanged precision and lower recall are the expected scientific result of recovering
+true source content the engine does not yet emit.
+
 ## 2026-08-03 — cardinality, local-relation maturity, and routing release gates
 
 ### D58. Primary-site semantics, provisional relations, and routing gates are explicit

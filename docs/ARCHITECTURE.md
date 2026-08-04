@@ -94,6 +94,14 @@ no-site/no-CUP `not-applicable` summary is class-local and never inherited by an
 a solid-tumour occurrence without established site evidence is `undetermined` (D58).
 The future occurrence schema and API are tracked in #263.
 
+The M1 curated projection is source-complete for adjudicated R103 normal-tissue-origin and
+R108 clinical-finding facts after same-axis specificity and the versioned
+`contracted-role-generic-v1` suppression list. R104 CellOrigin and R107
+CytogeneticAbnormality remain named scope omissions pending axis-level adjudication; their
+complete-definition facts are still preserved. Is-a may collapse a broader filler on any
+axis, while R82 part-of may collapse only location-axis fillers. Independent lineage
+classifiers therefore remain ungrouped and uncollapsed (D59).
+
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
 (the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)
 (the *how*) — for the full rationale.

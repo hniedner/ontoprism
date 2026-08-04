@@ -1216,6 +1216,7 @@ def evaluate_adjudication(
     engine_proposal_emissions = 0
     engine_proposal_ids: set[str] = set()
     actual_decomposed: list[str] = []
+    group_matches: list[bool] = []
     for concept in artifact.concepts:
         if concept.adjudication.status != "accepted":
             continue
@@ -1234,17 +1235,17 @@ def evaluate_adjudication(
         )
         if actual.outcome == "decomposed":
             actual_decomposed.append(concept.code)
-        concept_reports.append(
-            _concept_report(
-                concept,
-                expected,
-                actual,
-                view_items,
-                results,
-                actual_exclusions,
-                expected_exclusions,
-            )
+        concept_report = _concept_report(
+            concept,
+            expected,
+            actual,
+            view_items,
+            results,
+            actual_exclusions,
+            expected_exclusions,
         )
+        group_matches.append(cast("bool", concept_report["group_match"]))
+        concept_reports.append(concept_report)
     residual_payload = {
         "name": "accepted-adjudication",
         "source_identity": artifact.meta.source_identity,
@@ -1291,6 +1292,10 @@ def evaluate_adjudication(
             "distinct_engine_proposals": len(engine_proposal_ids),
             "augmented_expected": augmented_proposal_expected,
             "expected_by_status": dict(sorted(proposal_status_counts.items())),
+        },
+        "group_partition_agreement": {
+            "concepts_agree": sum(group_matches),
+            "concepts_disagree": len(group_matches) - sum(group_matches),
         },
         "concepts": concept_reports,
         "residual_comparison": {
