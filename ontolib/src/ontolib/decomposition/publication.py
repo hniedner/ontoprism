@@ -90,7 +90,7 @@ class PublicationPreflightError(PublicationValidationError):
 
 
 class PublicationFinalizationError(RuntimeError):
-    """Publication completed, but releasing its process-wide lock failed."""
+    """Publication completed, but releasing its PostgreSQL advisory lock failed."""
 
 
 class PublicationMarker(BaseModel):

@@ -1128,8 +1128,8 @@ async def run_pipeline(
             get_labels=get_labels,
         )
     except (RunPublicationError, PublicationFinalizationError):
-        # Publication has already journaled the retryable failure; fail_run would
-        # conflate publication state with decomposition execution state.
+        # Retryable failures are already journaled; finalization failures occur after
+        # completion. Neither may demote the decomposition run via fail_run.
         raise
     except BaseException as exc:
         try:

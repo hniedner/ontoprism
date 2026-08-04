@@ -107,6 +107,19 @@ def _invalid_fingerprint_detail(raw: object, persisted_identity: str) -> str:
     return "is corrupt or was modified outside the pipeline"
 
 
+async def _invalidate_without_masking(
+    connection: AsyncConnection,
+    original: BaseException,
+) -> None:
+    try:
+        await connection.invalidate()
+    except BaseException as invalidation_error:
+        original.add_note(
+            "Invalidating the publication-lock connection also failed: "
+            f"{type(invalidation_error).__name__}: {invalidation_error}"
+        )
+
+
 async def _acquire_publication_lock(connection: AsyncConnection) -> None:
     task = asyncio.create_task(
         connection.execute(
@@ -125,7 +138,7 @@ async def _acquire_publication_lock(connection: AsyncConnection) -> None:
                 "Failed to release decomposition publication lock after "
                 f"cancellation: {unlock_error}"
             )
-            await connection.invalidate()
+            await _invalidate_without_masking(connection, cancelled)
         raise
 
 
@@ -719,13 +732,13 @@ class ProvenanceStore:
                             "Failed to release decomposition publication lock: "
                             f"{unlock_error}"
                         )
-                        await connection.invalidate()
+                        await _invalidate_without_masking(connection, original)
                 raise
             else:
                 try:
                     await _release_publication_lock(connection)
-                except BaseException:
-                    await connection.invalidate()
+                except BaseException as unlock_error:
+                    await _invalidate_without_masking(connection, unlock_error)
                     raise
 
     async def create_run(

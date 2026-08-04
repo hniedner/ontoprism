@@ -170,9 +170,10 @@ drift before publication fails closed and invalidates every persisted result row
 `--out` TTL is staged, flushed, validated, and source-checked before publication. With
 `--load`, the CLI loads a unique staging graph and transactionally replaces the additive
 `ncit_decomposed` graph together with its publication marker. It then atomically replaces
-and directory-syncs the file before marking the run complete. Publication failures
-remain separately visible and resumable; matching marker-ahead retries reconcile without
-replaying a committed graph update (D53).
+and directory-syncs the file before marking the run complete. Failures after publication
+intent is journaled remain separately visible and resumable; matching marker-ahead retries
+reconcile without replaying a committed graph update. Preflight failures fail the run,
+while post-completion lock-release failures surface without demoting it (D53).
 
 Every manifest records source version/hash, immutable model revision, vector dimension,
 expected unique-row count, code commit, build ID, sentinels, state, and timestamps;

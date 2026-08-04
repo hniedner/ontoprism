@@ -669,8 +669,10 @@ invalidates every persisted result row. The `--out` TTL is rendered to a durable
 sibling and validated against the exact run. With `--load`, a unique staging graph is
 transactionally promoted with its source/representation marker; the file is then
 atomically replaced and directory-synced. Only after both requested publications succeed
-is the run complete. Publication failures are journaled separately and a matching
-marker-ahead retry is idempotent (D53).
+is the run complete. Failures after publication intent is journaled remain separately
+visible and retryable; a matching marker-ahead retry is idempotent. Preflight failures
+fail the run, while post-completion lock-release failures only surface cleanup failure
+(D53).
 
 `--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
 before configuration loads or clients are constructed.

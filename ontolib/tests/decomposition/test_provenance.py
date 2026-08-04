@@ -150,8 +150,11 @@ async def test_cancelled_lock_acquisition_invalidates_when_cleanup_fails(
     async def fail_unlock(_connection: object) -> None:
         raise RuntimeError("unlock transport unavailable")
 
+    async def fail_invalidate() -> None:
+        raise RuntimeError("invalidation unavailable")
+
     connection.execute = AsyncMock(side_effect=blocked_execute)
-    connection.invalidate = AsyncMock()
+    connection.invalidate = AsyncMock(side_effect=fail_invalidate)
     monkeypatch.setattr(
         provenance_module,
         "_release_publication_lock",
@@ -169,7 +172,21 @@ async def test_cancelled_lock_acquisition_invalidates_when_cleanup_fails(
     assert any(
         "unlock transport unavailable" in note for note in exc_info.value.__notes__
     )
+    assert any("invalidation unavailable" in note for note in exc_info.value.__notes__)
     connection.invalidate.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_connection_invalidation_failure_does_not_mask_unlock_error() -> None:
+    connection = MagicMock()
+    connection.invalidate = AsyncMock(
+        side_effect=RuntimeError("invalidation unavailable")
+    )
+    unlock_error = RuntimeError("unlock unavailable")
+
+    await provenance_module._invalidate_without_masking(connection, unlock_error)
+
+    assert any("invalidation unavailable" in note for note in unlock_error.__notes__)
 
 
 @pytest.mark.unit
