@@ -417,7 +417,7 @@ conflicts, or store failure. It never reconstructs from inferred
 
 The existing constituent view remains useful, but is now an explicit projection whose
 role- and parent-derived members link back to source definition-fact IDs; NLP fallback
-members retain separate proposal provenance. Complete/projected/lost fact
+members that mint retain separate proposal provenance. Complete/projected/lost fact
 counts are run metrics. PostgreSQL migrations `0009_complete_definition` and
 `0012_nested_definition_groups` store the typed facts, canonical groups/edges, and
 source links atomically with each fenced work item; invalidation removes them in the

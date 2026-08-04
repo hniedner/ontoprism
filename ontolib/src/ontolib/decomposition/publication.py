@@ -86,7 +86,11 @@ class PublicationValidationError(RuntimeError):
 
 
 class PublicationPreflightError(PublicationValidationError):
-    """The staged artifact failed validation before publication was journaled."""
+    """Publication failed before its retryable intent was journaled."""
+
+
+class PublicationFinalizationError(RuntimeError):
+    """Publication completed, but releasing its process-wide lock failed."""
 
 
 class PublicationMarker(BaseModel):
@@ -429,6 +433,35 @@ async def _publish_started_artifact(
         raise
 
 
+async def _begin_publication(
+    *,
+    run_id: str,
+    source_identity: str,
+    representation_identity: str,
+    destination: Path,
+    provenance: PublicationProvenance,
+) -> tuple[PublicationMarker, bool]:
+    try:
+        summary = await provenance.get_run(run_id)
+        if summary is None:
+            raise RunStateError(f"decomposition run {run_id!r} does not exist")
+        marker, retrying = _marker_for_run(
+            summary,
+            run_id=run_id,
+            source_identity=source_identity,
+            representation_identity=representation_identity,
+        )
+        await provenance.begin_publication(
+            run_id,
+            representation_identity=representation_identity,
+            artifact_path=str(destination),
+            built_at=marker.built_at,
+        )
+        return marker, retrying
+    except Exception as exc:
+        raise PublicationPreflightError(str(exc)) from exc
+
+
 async def publish_artifact(
     *,
     run_id: str,
@@ -450,33 +483,35 @@ async def publish_artifact(
         )
     except PublicationValidationError as exc:
         raise PublicationPreflightError(str(exc)) from exc
-    async with provenance.publication_lock():
-        try:
-            summary = await provenance.get_run(run_id)
-            if summary is None:
-                raise RunStateError(f"decomposition run {run_id!r} does not exist")
-            marker, retrying = _marker_for_run(
-                summary,
+    journaled = False
+    completed = False
+    try:
+        async with provenance.publication_lock():
+            marker, retrying = await _begin_publication(
                 run_id=run_id,
                 source_identity=source_identity,
                 representation_identity=representation_identity,
+                destination=destination,
+                provenance=provenance,
             )
-            await provenance.begin_publication(
-                run_id,
-                representation_identity=representation_identity,
-                artifact_path=str(destination),
-                built_at=marker.built_at,
+            journaled = True
+            await _publish_started_artifact(
+                marker=marker,
+                artifact=artifact,
+                destination=destination,
+                metrics=metrics,
+                load_to_store=load_to_store,
+                retrying=retrying,
+                client=client,
+                provenance=provenance,
             )
-        except Exception as exc:
+            completed = True
+    except Exception as exc:
+        if completed:
+            raise PublicationFinalizationError(
+                "publication completed but lock release failed"
+            ) from exc
+        if not journaled and not isinstance(exc, PublicationPreflightError):
             raise PublicationPreflightError(str(exc)) from exc
-        await _publish_started_artifact(
-            marker=marker,
-            artifact=artifact,
-            destination=destination,
-            metrics=metrics,
-            load_to_store=load_to_store,
-            retrying=retrying,
-            client=client,
-            provenance=provenance,
-        )
-        return marker
+        raise
+    return marker

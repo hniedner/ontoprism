@@ -98,13 +98,13 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#
 | `op:decomposedOn` | xsd:date of the run that produced the decomposition |
 | `op:decomposedBy` | literal run id (joins to `decomp_run.id`) |
 | `op:hasConstituent` | source concept → a constituent node (blank node) |
-| `op:axis` | constituent node → the axis IRI (reuse the NCIt role IRI where one exists, else an `op:` axis like `op:Morphology`, `op:Laterality`, `op:AssociatedLineageClassification`, `op:AssociatedRegion` — the last two carry `R101` senses split off per D20/§6.6) |
+| `op:axis` | constituent node → the normalized `op:` axis IRI; only unknown roles retain their raw NCIt role code |
 | `op:group` | constituent node → a relationship-group id (D19), persisted and read back unchanged |
 | `op:filler` | constituent node → the filler concept IRI (existing NCIt concept or minted `op:` concept) |
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
 | `op:mostSpecific` | boolean — filler was chosen over an is-a ancestor (audit aid; R82-only collapse is not encoded by this flag) |
 | `op:needsReview` | boolean — unresolved ordinary-axis ambiguity requiring curation |
-| `op:sourceDefinitionFact` | role-/parent-derived constituent node → one or more deterministic complete-definition fact IRIs; NLP fallback uses proposal provenance instead |
+| `op:sourceDefinitionFact` | role-/parent-derived constituent node → one or more deterministic complete-definition fact IRIs; minted NLP fallback uses proposal provenance instead |
 | `op:hasDefinitionFact` | source concept → a typed complete-definition fact |
 | `op:factKind`, `op:anchor`, `op:definitionGroup`, `op:definitionDepth` | fact type, anchoring genus, source-expression group, and DAG depth |
 | `op:genus`, `op:isDefined`, `op:role`, `op:filler` | typed genus/restriction fact payload |
@@ -218,7 +218,7 @@ Creating a run and its ordered worklist is one transaction. A claim-token-fenced
 per-concept transaction replaces its constituents/proposals and marks it complete;
 failures roll back before bounded failure evidence is recorded. Resume accepts only a
 matching running/failed fingerprint and processes exactly non-complete items. If the
-source changes before completion, all partial result rows are invalidated before a retry.
+source changes before publication, all partial result rows are invalidated before a retry.
 Only successful run completion promotes run-scoped proposals into `minted_concept`, whose
 status is the governance hook: minting never silently creates a clinical entity.
 
@@ -246,16 +246,17 @@ The core engineering. For each defining axis of a candidate, choose the intended
 filler or preserve unresolved co-equal fillers without silently discarding them.
 
 - **Working from the stated graph eliminates most ancestor bleed** — the stated form asserts only the intended filler, not the closure. This is why §2 mandates the stated input.
-- **Defense-in-depth most-specific selection:** on hierarchy-comparable, non-lineage
-  axes, use NCIt's stated `rdfs:subClassOf` hierarchy plus bounded transitive `R82`
-  containment. A filler is dropped only when it is strictly broader than another
+- **Defense-in-depth most-specific selection:** use NCIt's stated `rdfs:subClassOf`
+  hierarchy on every non-lineage axis and bounded transitive `R82` containment only on
+  location axes. A filler is dropped only when it is strictly broader than another
   returned filler; unrelated or mutually broader fillers remain.
 - **Non-defining filter:** `Excludes_*` negative axioms and optional
   R89/R111–R116 `May_Have_*` roles are removed before selection (§5).
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
-- **Anatomy validation:** specificity uses NCIt's own is-a + bounded transitive `R82`
-  part-of hierarchy. Unresolved ordinary axes receive `needs_review`; ambiguous routed
-  region, lineage, and stage-system values are retained as grouped, review-exempt facts.
+- **Anatomy validation:** location specificity uses NCIt's own is-a plus bounded
+  transitive `R82` part-of hierarchy. Unresolved ordinary axes receive `needs_review`;
+  ambiguous routed region and stage-system values are retained as grouped,
+  review-exempt facts, while lineage classifiers remain ungrouped.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.

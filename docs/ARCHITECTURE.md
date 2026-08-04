@@ -75,7 +75,7 @@ only for validation/closure.
 The human-facing view is a deliberately **lossy curated projection**. The representation
 of record separately preserves the complete stated multi-parent definition DAG, every
 genus/restriction group, and stable trace links from role- and parent-derived projected
-constituents; NLP fallback retains separate proposal provenance (D50).
+constituents; minted NLP fallback retains separate proposal provenance (D50).
 PostgreSQL and the additive RDF artifact both round-trip groups, review flags, and those
 facts. The graph still never emits `owl:equivalentClass`; requests for equivalence fail
 closed and new runs record no round-trip-fidelity value until a separate proof/validation

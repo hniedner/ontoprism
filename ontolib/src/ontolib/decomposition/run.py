@@ -72,6 +72,7 @@ from ontolib.decomposition.provenance_models import (
     RunResumeIdentity,
 )
 from ontolib.decomposition.publication import (
+    PublicationFinalizationError,
     PublicationGraphClient,
     PublicationPreflightError,
     publish_artifact,
@@ -1024,7 +1025,10 @@ async def _publish_or_complete_run(
                 provenance=provenance,
             )
         except BaseException as publish_error:
-            if isinstance(publish_error, PublicationPreflightError):
+            if isinstance(
+                publish_error,
+                PublicationPreflightError | PublicationFinalizationError,
+            ):
                 raise
             raise RunPublicationError(
                 f"Run {setup.run_id!r} publication failed and remains retryable"
@@ -1123,7 +1127,7 @@ async def run_pipeline(
             get_source_snapshot=get_source_snapshot,
             get_labels=get_labels,
         )
-    except RunPublicationError:
+    except (RunPublicationError, PublicationFinalizationError):
         # Publication has already journaled the retryable failure; fail_run would
         # conflate publication state with decomposition execution state.
         raise

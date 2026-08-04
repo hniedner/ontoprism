@@ -23,8 +23,8 @@ from ontolib.decomposition.site_resolution import (
     primary_subsites_for_morphology,
 )
 
-# ``is_ancestor(a, b)`` is the broader-for-selection relation: *a* is either a
-# proper superclass of *b* or an R82 whole that transitively contains *b*.
+# ``is_ancestor(a, b)`` means *a* is a proper superclass of *b*.
+# R82 containment is supplied independently through ``IsPartOf``.
 IsAncestor = Callable[[str, str], bool]
 IsPartOf = Callable[[str, str], bool]
 

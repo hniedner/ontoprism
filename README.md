@@ -122,8 +122,8 @@ built as stated.
 **1 · Decompose.** Every pre-coordinated NCIt concept gets an additive constituent view.
 The human-facing view is a deliberately lossy curated projection, but its representation
 of record now preserves the complete stated multi-parent, grouped definition and traces
-role- and parent-derived projected constituents back to source facts; NLP fallback
-constituents retain their separate proposal provenance (D50). It still does not assert
+role- and parent-derived projected constituents back to source facts; minted NLP fallback
+constituents retain separate proposal provenance (D50). It still does not assert
 `owl:equivalentClass`, and `roundtrip_fidelity` remains unavailable until a separate
 proof/validation step establishes exact reversibility (D19/D21/D43/D50).
 

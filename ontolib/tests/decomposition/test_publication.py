@@ -16,6 +16,7 @@ from ontolib.decomposition import vocab
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.publication import (
+    PublicationFinalizationError,
     PublicationMarker,
     PublicationPreflightError,
     PublicationValidationError,
@@ -137,6 +138,8 @@ class _PublicationStore:
         missing: bool = False,
         begin_error: BaseException | None = None,
         record_error: BaseException | None = None,
+        lock_error: BaseException | None = None,
+        unlock_error: BaseException | None = None,
     ) -> None:
         self.destination = destination
         self.persisted_built_at = persisted_built_at
@@ -144,17 +147,23 @@ class _PublicationStore:
         self.missing = missing
         self.begin_error = begin_error
         self.record_error = record_error
+        self.lock_error = lock_error
+        self.unlock_error = unlock_error
         self.events: list[str] = []
         self.failures: list[BaseException] = []
         self.finished_identity: str | None = None
 
     @asynccontextmanager
     async def publication_lock(self) -> AsyncIterator[None]:
+        if self.lock_error is not None:
+            raise self.lock_error
         self.events.append("lock")
         try:
             yield
         finally:
             self.events.append("unlock")
+            if self.unlock_error is not None:
+                raise self.unlock_error
 
     async def get_run(self, _run_id: str) -> Any:
         if self.missing:
@@ -806,3 +815,50 @@ async def test_begin_and_failure_record_errors_do_not_corrupt_error_identity(
         "Recording the publication failure also failed" in note
         for note in record_info.value.__notes__
     )
+
+
+@pytest.mark.unit
+async def test_lock_lifecycle_errors_preserve_publication_phase(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+
+    acquisition = RuntimeError("lock unavailable")
+    with pytest.raises(
+        PublicationPreflightError, match="lock unavailable"
+    ) as preflight:
+        await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=False,
+            client=_GraphClient(),
+            provenance=_PublicationStore(
+                destination=destination, lock_error=acquisition
+            ),
+        )
+    assert preflight.value.__cause__ is acquisition
+
+    release = RuntimeError("unlock unavailable")
+    release_store = _PublicationStore(destination=destination, unlock_error=release)
+    with pytest.raises(
+        PublicationFinalizationError, match="lock release"
+    ) as finalization:
+        await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=False,
+            client=_GraphClient(),
+            provenance=release_store,
+        )
+    assert finalization.value.__cause__ is release
+    assert release_store.finished_identity is not None
