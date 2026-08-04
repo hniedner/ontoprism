@@ -188,7 +188,10 @@ def main(
     load: Annotated[
         bool,
         typer.Option(
-            "--load", help="Load --out into the decomposed named graph after writing."
+            "--load",
+            help=(
+                "Publish staged TTL to the decomposed graph before finalizing --out."
+            ),
         ),
     ] = False,
     emit_equivalence: Annotated[

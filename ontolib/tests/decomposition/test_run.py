@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 from datetime import UTC, datetime
@@ -2064,6 +2065,39 @@ async def test_artifact_validation_failure_fails_the_run(
 
     provenance.fail_run.assert_awaited_once()
     provenance.record_publication_failure.assert_not_awaited()
+    assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_publication_cancellation_is_not_wrapped_as_retryable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "decomposed.ttl"
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    monkeypatch.setattr(
+        run_module,
+        "publish_artifact",
+        AsyncMock(side_effect=asyncio.CancelledError()),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            _FakeClient(pages=[[]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    provenance.fail_run.assert_awaited_once()
     assert not out.exists()
 
 

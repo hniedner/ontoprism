@@ -20,8 +20,8 @@ Scope of this orchestrator (documented boundaries, not oversights):
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.
   A complete artifact is rendered and validated first, the graph is replaced through
   a run-scoped staging graph and one transactional update, the file is atomically
-  replaced, and only then is the run marked complete. Publication failures remain
-  separately journaled and resumable.
+  replaced, and only then is the run marked complete. Failures after intent journaling
+  but before completion remain separately recorded and resumable.
 - ``--resume`` consumes the immutable materialized worklist for a matching
   running/failed run. Every concept has an explicit state, including concepts producing
   no constituents. Per-concept replacement and completion are one fenced transaction.
@@ -1024,7 +1024,7 @@ async def _publish_or_complete_run(
                 client=client,
                 provenance=provenance,
             )
-        except BaseException as publish_error:
+        except Exception as publish_error:
             if isinstance(
                 publish_error,
                 PublicationPreflightError | PublicationFinalizationError,
