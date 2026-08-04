@@ -645,19 +645,19 @@ def build_in_scope_concepts_query(
 # valid axes are validated against the golden oracle.
 #
 # Labels below are the live NCIt rdfs:label values (verified against the stated
-# build, 2026-07). NOTE: R106 (molecular) and R135 (an Excludes_* negative axiom)
-# are collected here but are arguably out of scope for label decomposition — R135
-# is dropped downstream by filter_excluded; R106 surfaces molecular findings (e.g.
-# gene mutations). Their membership is a scope question flagged for review, not a
-# validated inclusion.
+# build, 2026-07). R135 is dropped downstream by filter_excluded. R104/R107 remain
+# held from inherited projection pending axis adjudication; R103/R108 are
+# source-complete M1 axes with explicit generic suppression downstream.
 _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
     {
         "R88",  # Disease_Is_Stage
         "R101",  # Disease_Has_Primary_Anatomic_Site
         "R100",  # Disease_Has_Associated_Anatomic_Site
         "R102",  # Disease_Has_Metastatic_Anatomic_Site
+        "R103",  # Disease_Has_Normal_Tissue_Origin
         "R105",  # Disease_Has_Abnormal_Cell
         "R106",  # Disease_Has_Molecular_Abnormality (see scope note above)
+        "R108",  # Disease_Has_Finding
         "R135",  # Disease_Excludes_Primary_Anatomic_Site (see scope note above)
     }
 )

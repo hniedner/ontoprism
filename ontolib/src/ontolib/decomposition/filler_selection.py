@@ -26,6 +26,7 @@ from ontolib.decomposition.site_resolution import (
 # ``is_ancestor(a, b)`` is the broader-for-selection relation: *a* is either a
 # proper superclass of *b* or an R82 whole that transitively contains *b*.
 IsAncestor = Callable[[str, str], bool]
+IsPartOf = Callable[[str, str], bool]
 
 
 def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -> bool:
@@ -38,7 +39,12 @@ def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -
 
 def filter_excluded(restrictions: Iterable[RoleRestriction]) -> list[RoleRestriction]:
     """Drop ``Excludes_*`` and probabilistic ``May_Have_*`` restrictions."""
-    return [r for r in restrictions if axes.is_defining_role(r)]
+    return [
+        restriction
+        for restriction in restrictions
+        if axes.is_defining_role(restriction)
+        and not axes.is_generic_filler(restriction.role_code, restriction.filler_code)
+    ]
 
 
 def most_specific(fillers: set[str], is_ancestor: IsAncestor) -> set[str]:
@@ -52,6 +58,13 @@ def most_specific(fillers: set[str], is_ancestor: IsAncestor) -> set[str]:
         for f in fillers
         if not any(_is_strictly_broader(f, other, is_ancestor) for other in fillers)
     }
+
+
+def _location_broader(is_ancestor: IsAncestor, is_part_of: IsPartOf) -> IsAncestor:
+    def broader(ancestor: str, descendant: str) -> bool:
+        return is_ancestor(ancestor, descendant) or is_part_of(descendant, ancestor)
+
+    return broader
 
 
 def _r101_axis(r: RoleRestriction, parent_morphology: str | None) -> str | None:
@@ -92,7 +105,7 @@ def route_axis(r: RoleRestriction, parent_morphology: str | None = None) -> str:
         return contextual
     if reviewed := _reviewed_source_axis(r, parent_morphology):
         return reviewed
-    if r.role_code == "R88" and r.filler_code in _STAGE_SYSTEM_CODES:
+    if r.role_code == "R88" and r.filler_code in STAGE_SYSTEM_CODES:
         return axes.STAGE_SYSTEM_AXIS
     return normalized_axis_for_role(r.role_code) or r.role_code
 
@@ -109,13 +122,18 @@ _REVIEW_EXEMPT_AXES: frozenset[str] = frozenset(
 # ``op:StageSystem`` (design §4.2, SME-approved). These are the staging
 # manual/version codes (AJCC v6-v9, FIGO, Toronto) vs. stage VALUES
 # (Stage I-IV). Known codes extracted from the golden set.
-_STAGE_SYSTEM_CODES: frozenset[str] = frozenset(
+STAGE_CLASSIFICATION_VERSION = "ncit-26.07d-stage-kind-v1"
+STAGE_SYSTEM_CODES: frozenset[str] = frozenset(
     {
         "C132248",  # AJCC v8 Stage
+        "C140961",  # Differentiated thyroid carcinoma under-45 AJCC v7 framework
+        "C141685",  # VALG Clinical Classification
         "C180901",  # AJCC v9 Stage
         "C186617",  # FIGO 2018 Stage
         "C186618",  # FIGO 2009 Stage
+        "C198023",  # Toronto Classification v2 Stage, Tier 1
         "C198024",  # Toronto Classification v2 Stage, Tier 2
+        "C206211",  # FIGO 2023 Stage framework
         "C90529",  # AJCC v6 Stage
         "C90530",  # AJCC v7 Stage
     }
@@ -142,6 +160,7 @@ def _is_r101_semantic_split(
 def _r101_semantic_type_constituents(
     fillers: set[str],
     is_ancestor: IsAncestor,
+    is_part_of: IsPartOf,
     semantic_type_of: Callable[[str], str | None],
 ) -> list[Constituent]:
     organ_fillers = {
@@ -151,7 +170,8 @@ def _r101_semantic_type_constituents(
     }
     region_fillers = fillers - organ_fillers
     organ = most_specific(organ_fillers, is_ancestor) or organ_fillers
-    region = most_specific(region_fillers, is_ancestor) or region_fillers
+    location_broader = _location_broader(is_ancestor, is_part_of)
+    region = most_specific(region_fillers, location_broader) or region_fillers
 
     organ_ambiguous = len(organ) > 1
     organ_constituents = [
@@ -228,6 +248,7 @@ def _standard_constituents(
 ) -> list[Constituent]:
     ambiguous = len(leaves) > 1
     is_routed = axis_name in _REVIEW_EXEMPT_AXES
+    synthetic_group = is_routed and axis_name != axes.ASSOCIATED_LINEAGE_AXIS
     return [
         Constituent(
             axis=axis_name,
@@ -238,7 +259,7 @@ def _standard_constituents(
             ),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=_requires_review(axis_name, ambiguous=ambiguous),
-            group=axis_name if is_routed and ambiguous else None,
+            group=axis_name if synthetic_group and ambiguous else None,
         )
         for filler in leaves
     ]
@@ -292,6 +313,7 @@ def _resolve_r101_with_organ_lookup(
     parent_morphology: str | None,
     semantic_type_of: Callable[[str], str | None] | None,
     source_roles: dict[tuple[str, str], str],
+    is_part_of: IsPartOf,
     axis_name: str = "",
 ) -> list[Constituent] | None:
     """Prefer the known D23 organ while preserving distinct D20 region facts."""
@@ -316,7 +338,8 @@ def _resolve_r101_with_organ_lookup(
         for filler in fillers - {organ} - subsites
         if semantic_type_of(filler) != axes.ORGAN_SEMANTIC_TYPE
     }
-    region_leaves = most_specific(regions, is_ancestor) or regions
+    location_broader = _location_broader(is_ancestor, is_part_of)
+    region_leaves = most_specific(regions, location_broader) or regions
     return [
         primary,
         *_primary_subsite_constituents(subsites, fillers, is_ancestor),
@@ -330,7 +353,9 @@ def _iter_axis_constituents(
     is_ancestor: IsAncestor,
     semantic_type_of: Callable[[str], str | None] | None,
     parent_morphology: str | None = None,
+    is_part_of: IsPartOf | None = None,
 ) -> list[Constituent]:
+    part_of = is_part_of or (lambda _part, _whole: False)
     result: list[Constituent] = []
     for axis_name, fillers in by_axis.items():
         result.extend(
@@ -341,6 +366,7 @@ def _iter_axis_constituents(
                 semantic_type_of,
                 parent_morphology,
                 source_roles,
+                part_of,
             )
         )
     return result
@@ -353,8 +379,9 @@ def _constituents_for_axis(
     semantic_type_of: Callable[[str], str | None] | None,
     parent_morphology: str | None,
     source_roles: dict[tuple[str, str], str],
+    is_part_of: IsPartOf,
 ) -> list[Constituent]:
-    leaves = _resolved_leaves(axis_name, fillers, is_ancestor)
+    leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
 
     resolved = _resolve_r101_with_organ_lookup(
         leaves,
@@ -363,6 +390,7 @@ def _constituents_for_axis(
         parent_morphology,
         semantic_type_of,
         source_roles,
+        is_part_of,
         axis_name,
     )
     if resolved is not None:
@@ -370,7 +398,9 @@ def _constituents_for_axis(
 
     if _is_r101_semantic_split(axis_name, leaves, semantic_type_of):
         narrowed = cast("Callable[[str], str | None]", semantic_type_of)
-        split = _r101_semantic_type_constituents(fillers, is_ancestor, narrowed)
+        split = _r101_semantic_type_constituents(
+            fillers, is_ancestor, is_part_of, narrowed
+        )
         if split:
             return split
 
@@ -378,10 +408,22 @@ def _constituents_for_axis(
 
 
 def _resolved_leaves(
-    axis_name: str, fillers: set[str], is_ancestor: IsAncestor
+    axis_name: str,
+    fillers: set[str],
+    is_ancestor: IsAncestor,
+    is_part_of: IsPartOf,
 ) -> set[str]:
     if axis_name == axes.ASSOCIATED_LINEAGE_AXIS:
         return set(fillers)
+    if axis_name in {
+        axes.PRIMARY_SITE_AXIS,
+        axes.PRIMARY_SUBSITE_AXIS,
+        axes.ASSOCIATED_REGION_AXIS,
+        "op:AssociatedSite",
+        "op:MetastaticSite",
+    }:
+        broader = _location_broader(is_ancestor, is_part_of)
+        return most_specific(fillers, broader) or set(fillers)
     return most_specific(fillers, is_ancestor) or set(fillers)
 
 
@@ -404,6 +446,7 @@ def select_constituents(
     *,
     parent_morphology: str | None = None,
     semantic_type_of: Callable[[str], str | None] | None = None,
+    is_part_of: IsPartOf | None = None,
 ) -> list[Constituent]:
     """Turn a concept's stated role restrictions into its selected constituents.
 
@@ -417,7 +460,12 @@ def select_constituents(
     """
     by_axis, source_roles = _group_by_routed_axis(restrictions, parent_morphology)
     constituents = _iter_axis_constituents(
-        by_axis, source_roles, is_ancestor, semantic_type_of, parent_morphology
+        by_axis,
+        source_roles,
+        is_ancestor,
+        semantic_type_of,
+        parent_morphology,
+        is_part_of,
     )
     _append_morphology(constituents, parent_morphology)
     return sorted(constituents, key=lambda c: (c.axis, c.filler_code))

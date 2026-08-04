@@ -448,10 +448,7 @@ async def _decompose_one(
     part_of_pairs = await stated_queries.resolve_part_of_pairs(
         client, fs.comparison_filler_codes(roles)
     )
-    ancestor_pairs.update(
-        extract.AncestorPair(ancestor=pair.whole, descendant=pair.part)
-        for pair in part_of_pairs
-    )
+    part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
 
     # Wrap semantic_type_of dict into a callable (prefer the first type if
     # multiple; NCIt rarely assigns more than one).
@@ -464,6 +461,7 @@ async def _decompose_one(
         extract.make_is_ancestor(ancestor_pairs),
         parent_morphology=morphology_filler,
         semantic_type_of=_semantic_type_of,
+        is_part_of=lambda part, whole: (part, whole) in part_of,
     )
 
     aspects = nlp_fallback.parse_label_aspects(label)

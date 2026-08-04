@@ -583,6 +583,36 @@ async def test_walk_genus_chain_populates_anchoring_genus() -> None:
 
 
 @pytest.mark.unit
+async def test_walk_genus_chain_projects_adjudicated_inherited_roles_only() -> None:
+    rows_by_code = {
+        "C1": _definition_rows("_:root", (_iri("C2"), None, None, True)),
+        "C2": _definition_rows(
+            "_:genus",
+            ("_:r103", _iri("R103"), _iri("C103"), False),
+            ("_:r104", _iri("R104"), _iri("C104"), False),
+            ("_:r107", _iri("R107"), _iri("C107"), False),
+            ("_:r108", _iri("R108"), _iri("C108"), False),
+        ),
+    }
+    select = _walker_select_double(
+        rows_by_code,
+        role_labels={
+            "R103": "Disease_Has_Normal_Tissue_Origin",
+            "R104": "Disease_Has_Normal_Cell_Origin",
+            "R107": "Disease_Has_Cytogenetic_Abnormality",
+            "R108": "Disease_Has_Finding",
+        },
+    )
+
+    roles = await walk_genus_chain(select, "C1", max_depth=3)
+
+    assert {(role.role_code, role.filler_code) for role in roles} == {
+        ("R103", "C103"),
+        ("R108", "C108"),
+    }
+
+
+@pytest.mark.unit
 async def test_walk_genus_chain_anchors_depth0_roles_on_the_start_concept() -> None:
     """A restriction found directly on the starting concept is anchored on that
     concept's own code (depth 0), not left ``None``."""

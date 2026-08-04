@@ -12,6 +12,8 @@ from ontolib.decomposition.axes import (
     STAGE_VALUE_AXIS,
 )
 from ontolib.decomposition.filler_selection import (
+    STAGE_CLASSIFICATION_VERSION,
+    STAGE_SYSTEM_CODES,
     comparison_filler_codes,
     filter_excluded,
     most_specific,
@@ -49,6 +51,31 @@ def test_filter_excluded_drops_negative_axioms() -> None:
     )
     kept = filter_excluded(restrictions)
     assert [r.role_code for r in kept] == ["R101"]
+
+
+@pytest.mark.unit
+def test_filter_excluded_drops_approved_generic_role_fillers() -> None:
+    restrictions = _roles(
+        ("R103", "C45714", "Disease_Has_Normal_Tissue_Origin"),
+        ("R103", "C49276", "Disease_Has_Normal_Tissue_Origin"),
+        ("R108", "C36122", "Disease_Has_Finding"),
+        ("R108", "C35998", "Disease_Has_Finding"),
+    )
+
+    actual = [
+        (item.role_code, item.filler_code) for item in filter_excluded(restrictions)
+    ]
+    assert actual == [
+        ("R103", "C49276"),
+        ("R108", "C35998"),
+    ]
+
+
+@pytest.mark.unit
+def test_stage_system_classification_is_versioned_and_definition_reviewed() -> None:
+    assert STAGE_CLASSIFICATION_VERSION == "ncit-26.07d-stage-kind-v1"
+    assert {"C140961", "C141685", "C198023", "C206211"} <= STAGE_SYSTEM_CODES
+    assert {"C96244", "C28064"}.isdisjoint(STAGE_SYSTEM_CODES)
 
 
 @pytest.mark.unit
@@ -350,7 +377,7 @@ def test_single_filler_axis_has_no_group() -> None:
 
 
 @pytest.mark.unit
-def test_lineage_leaves_share_group_and_are_not_review() -> None:
+def test_lineage_leaves_are_ungrouped_without_source_group_evidence() -> None:
     r = [
         RoleRestriction(
             "R101",
@@ -367,9 +394,27 @@ def test_lineage_leaves_share_group_and_are_not_review() -> None:
     ]
     cons = select_constituents(r, lambda a, b: False)
     assert {c.axis for c in cons} == {ASSOCIATED_LINEAGE_AXIS}
-    assert all(
-        c.group == ASSOCIATED_LINEAGE_AXIS and c.needs_review is False for c in cons
+    assert all(c.group is None and c.needs_review is False for c in cons)
+
+
+@pytest.mark.unit
+def test_r82_partonomy_does_not_collapse_or_group_lineage_classifiers() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12704", anchoring_genus="C3809"),
+        RoleRestriction("R101", "C12705", anchoring_genus="C215715"),
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _broader, _narrower: False,
+        is_part_of=lambda part, whole: (part, whole) == ("C12704", "C12705"),
     )
+
+    assert {(item.axis, item.filler_code) for item in constituents} == {
+        (ASSOCIATED_LINEAGE_AXIS, "C12704"),
+        (ASSOCIATED_LINEAGE_AXIS, "C12705"),
+    }
+    assert all(item.group is None for item in constituents)
 
 
 @pytest.mark.unit

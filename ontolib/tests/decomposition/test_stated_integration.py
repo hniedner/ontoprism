@@ -33,6 +33,7 @@ from ontolib.decomposition.filler_selection import select_constituents
 from ontolib.decomposition.models import (
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    RoleRestriction,
 )
 from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.stated_queries import (
@@ -749,7 +750,7 @@ async def test_c6135_genus_walk_finds_roles() -> None:
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url) as client:
+    async with OxigraphHttpClient(url, query_timeout=180.0) as client:
         roles = await walk_genus_chain(client.select, "C6135", max_depth=6)
 
     # The walker should find at minimum these core roles from the genus chain:
@@ -761,11 +762,38 @@ async def test_c6135_genus_walk_finds_roles() -> None:
     assert "C13063" in filler_codes  # R101 — Neck (from C6077)
     assert "C12418" in filler_codes  # R101 — Head and Neck (from C35850)
 
-    # Core-role filter must have excluded generic neoplasm roles like R103/R108
-    # that originate at the C3879 (Neoplasm by Site) level:
-    role_codes = {r.role_code for r in roles}
-    assert "R88" in role_codes
-    assert "R101" in role_codes
+    role_pairs = {(role.role_code, role.filler_code) for role in roles}
+    assert ("R88", "C27970") in role_pairs
+    assert ("R101", "C12400") in role_pairs
+    assert ("R103", "C33782") in role_pairs
+    assert ("R108", "C47804") in role_pairs
+    assert ("R108", "C47807") in role_pairs
+    assert all(role_code not in {"R104", "R107"} for role_code, _ in role_pairs)
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    async with OxigraphHttpClient(url) as client:
+        assert await client.version() == "26.07d"
+        closure = await stated_queries.resolve_part_of_pairs(
+            client, ["C12704", "C12705"]
+        )
+    assert closure == [PartOfPair(part="C12704", whole="C12705")]
+
+    constituents = select_constituents(
+        [
+            RoleRestriction("R101", "C12704", anchoring_genus="C3809"),
+            RoleRestriction("R101", "C12705", anchoring_genus="C215715"),
+        ],
+        lambda _ancestor, _descendant: False,
+        is_part_of=lambda part, whole: (part, whole) == ("C12704", "C12705"),
+    )
+    assert {item.filler_code for item in constituents} == {"C12704", "C12705"}
+    assert all(item.group is None for item in constituents)
 
 
 @pytest.mark.integration

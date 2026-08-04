@@ -42,7 +42,17 @@ PRIMARY_SITE_ROLE = "R101"
 
 # Genera whose R101 restrictions convey lineage classification rather than literal
 # primary site (D17/D20 §6.6, confirmed via C6135 analysis).
-LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset({"C3010", "C3809", "C3773"})
+LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset(
+    {"C3010", "C3809", "C3773", "C215715"}
+)
+
+GENERIC_SUPPRESSION_VERSION = "contracted-role-generic-v1"
+GENERIC_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
+    "R103": frozenset({"C45714"}),
+    "R104": frozenset({"C12578"}),
+    "R105": frozenset({"C12917", "C12922", "C36779"}),
+    "R108": frozenset({"C36115", "C36122", "C53596", "C54172"}),
+}
 
 # Source-reviewed R126 assertions that have a ratified univocal sense. Every other
 # R126 assertion remains raw and review-required; there is deliberately no generic
@@ -72,6 +82,11 @@ def is_lineage_generic(genus_code: str | None) -> bool:
     """True when *genus_code* is one of the lineage-generic genera whose R101
     restrictions should route to ``ASSOCIATED_LINEAGE_AXIS``."""
     return genus_code in LINEAGE_GENERIC_GENERA
+
+
+def is_generic_filler(role_code: str, filler_code: str) -> bool:
+    """True when a reviewed source-role filler is non-discriminating in projection."""
+    return filler_code in GENERIC_FILLERS_BY_ROLE.get(role_code, ())
 
 
 # NCIt 26.07d's probabilistic ``May_Have_*`` roles are non-defining and excluded
