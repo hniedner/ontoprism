@@ -73,6 +73,7 @@ from ontolib.decomposition.provenance_models import (
 )
 from ontolib.decomposition.publication import (
     PublicationGraphClient,
+    PublicationPreflightError,
     publish_artifact,
 )
 
@@ -446,7 +447,7 @@ async def _decompose_one(
     )
     # Treat an R82 whole as broader than its part for specificity selection (D16).
     part_of_pairs = await stated_queries.resolve_part_of_pairs(
-        client, fs.comparison_filler_codes(roles)
+        client, fs.comparison_filler_codes(roles, concept_code=code)
     )
     part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
 
@@ -462,6 +463,7 @@ async def _decompose_one(
         parent_morphology=morphology_filler,
         semantic_type_of=_semantic_type_of,
         is_part_of=lambda part, whole: (part, whole) in part_of,
+        concept_code=code,
     )
 
     aspects = nlp_fallback.parse_label_aspects(label)
@@ -1022,6 +1024,8 @@ async def _publish_or_complete_run(
                 provenance=provenance,
             )
         except BaseException as publish_error:
+            if isinstance(publish_error, PublicationPreflightError):
+                raise
             raise RunPublicationError(
                 f"Run {setup.run_id!r} publication failed and remains retryable"
             ) from publish_error
@@ -1120,8 +1124,8 @@ async def run_pipeline(
             get_labels=get_labels,
         )
     except RunPublicationError:
-        # The run is recorded complete; there is no run failure to record, and
-        # calling fail_run here would append a spurious "not recorded" note.
+        # Publication has already journaled the retryable failure; fail_run would
+        # conflate publication state with decomposition execution state.
         raise
     except BaseException as exc:
         try:

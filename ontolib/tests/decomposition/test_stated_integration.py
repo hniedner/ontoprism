@@ -104,6 +104,26 @@ def _stated_loaded(url: str) -> bool:
     return parse_ask_result(resp.json())
 
 
+@pytest.mark.unit
+def test_stated_store_url_prefers_dedicated_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NCIT_SPARQL_URL", "http://inferred.example")
+    monkeypatch.setenv("NCIT_STATED_SPARQL_URL", "http://stated.example")
+
+    assert _url() == "http://stated.example"
+
+
+@pytest.mark.unit
+def test_stated_store_url_falls_back_to_general_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NCIT_SPARQL_URL", "http://general.example")
+    monkeypatch.delenv("NCIT_STATED_SPARQL_URL", raising=False)
+
+    assert _url() == "http://general.example"
+
+
 def _fixture_expansions() -> dict[str, list[tuple[str, str]]]:
     return {
         "C20003": [("whole", "C99206")],
@@ -825,6 +845,109 @@ async def test_2607d_only_r103_role_annotation_declares_non_defining() -> None:
             ),
         }
     ]
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+@pytest.mark.parametrize("concept_code", ["C102870", "C27787"])
+async def test_2607d_unsupported_r103_fact_is_conserved_but_not_projected(
+    concept_code: str,
+) -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            concept_code,
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    source_pairs = {
+        (fact.role_code, fact.filler_code)
+        for fact in decomposition.complete_definition.facts
+        if isinstance(fact, RestrictionDefinitionFact)
+    }
+    projected_pairs = {
+        (constituent.source_role, constituent.filler_code)
+        for constituent in decomposition.constituents
+    }
+    assert ("R103", "C54105") in source_pairs
+    assert ("R103", "C54105") not in projected_pairs
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_2607d_m1_complete_role_audit_remains_source_complete() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    concept_codes = (
+        "C27262",
+        "C102870",
+        "C162770",
+        "C102883",
+        "C115057",
+        "C101539",
+        "C132677",
+        "C181564",
+        "C186620",
+        "C162226",
+        "C206219",
+        "C198031",
+        "C100054",
+        "C100051",
+        "C6135",
+        "C4791",
+        "C35756",
+        "C89995",
+        "C27787",
+        "C115118",
+    )
+    expected = Counter(
+        {
+            "R88": 32,
+            "R100": 6,
+            "R101": 57,
+            "R102": 1,
+            "R103": 28,
+            "R104": 26,
+            "R105": 73,
+            "R106": 1,
+            "R107": 2,
+            "R108": 77,
+            "R110": 0,
+            "R126": 1,
+        }
+    )
+    actual: Counter[str] = Counter()
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        for concept_code in concept_codes:
+            complete, _roles = await stated_queries.read_complete_genus_chain(
+                client.select, concept_code, max_depth=6
+            )
+            actual.update(
+                fact.role_code
+                for fact in complete.facts
+                if isinstance(fact, RestrictionDefinitionFact)
+                and fact.role_code in expected
+            )
+
+    assert actual == expected
+    assert actual.total() == 304
 
 
 @pytest.mark.integration

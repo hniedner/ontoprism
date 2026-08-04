@@ -41,8 +41,9 @@ is insufficient because NCIt uses `Classification` for both values and framework
 `rdfs:subClassOf` licenses most-specific collapse on every axis. R82 part-of licenses
 collapse only on location axes under RO:0004026; it is not subsumption for morphology,
 cell, tissue, finding, or classification axes. Consequently C35756's C12704/C12705
-lineage classifiers remain separate and ungrouped. Relationship groups reflect source
-co-assertion partitions, not shared axis membership or genus-walk path bookkeeping.
+lineage classifiers remain separate and ungrouped. Complete-definition groups preserve
+source co-assertion partitions; curated projection groups may additionally identify
+multiple co-equal values retained on one routed axis, but never genus-walk path bookkeeping.
 
 The three PrimarySubsite mappings and C206219's R100-to-PrimarySite override remain
 scoreable provisional human-curated morphology-context mappings. They preserve original

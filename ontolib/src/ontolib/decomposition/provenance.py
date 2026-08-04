@@ -168,7 +168,7 @@ def _completion_outcome(
 ) -> tuple[list[Constituent], bool, bool]:
     _require_matching_decomposition(concept_code, decomposition)
     _require_decomposition_for_mints(decomposition, minted)
-    constituents = decomposition.constituents if decomposition is not None else []
+    constituents = list(decomposition.constituents) if decomposition is not None else []
     has_decomposition = decomposition is not None
     return (
         constituents,
@@ -1080,18 +1080,14 @@ class ProvenanceStore:
             )
             if locked.scalar() != "running":
                 return False
-            await session.execute(
-                text("DELETE FROM decomp_definition_fact WHERE run_id = :run_id"),
-                {"run_id": run_id},
-            )
-            await session.execute(
-                text("DELETE FROM decomp_constituent WHERE run_id = :run_id"),
-                {"run_id": run_id},
-            )
-            await session.execute(
-                text("DELETE FROM decomp_minted_proposal WHERE run_id = :run_id"),
-                {"run_id": run_id},
-            )
+            for statement in (
+                "DELETE FROM decomp_definition_fact WHERE run_id = :run_id",
+                "DELETE FROM decomp_definition_group_edge WHERE run_id = :run_id",
+                "DELETE FROM decomp_definition_group WHERE run_id = :run_id",
+                "DELETE FROM decomp_constituent WHERE run_id = :run_id",
+                "DELETE FROM decomp_minted_proposal WHERE run_id = :run_id",
+            ):
+                await session.execute(text(statement), {"run_id": run_id})
             await session.execute(
                 text(
                     "UPDATE decomp_work_item SET state = 'failed', "
@@ -1146,7 +1142,7 @@ class ProvenanceStore:
             Decomposition(
                 code=row["concept_code"],
                 semantic_type=row["semantic_type"],
-                constituents=constituents_by_code.get(row["concept_code"], []),
+                constituents=tuple(constituents_by_code.get(row["concept_code"], [])),
                 complete_definition=_complete_definition_for_code(
                     row["concept_code"],
                     facts_by_code,

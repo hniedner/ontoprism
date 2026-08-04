@@ -68,8 +68,9 @@ GENERIC_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
 }
 
 UNSUPPORTED_FILLER_VERSION = "ncit-26.07d-unsupported-filler-v1"
-UNSUPPORTED_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
-    "R103": frozenset({"C54105"}),
+UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE: dict[tuple[str, str], frozenset[str]] = {
+    ("C102870", "R103"): frozenset({"C54105"}),
+    ("C27787", "R103"): frozenset({"C54105"}),
 }
 
 # Source-reviewed R126 assertions that have a ratified univocal sense. Every other
@@ -107,9 +108,15 @@ def is_generic_filler(role_code: str, filler_code: str) -> bool:
     return filler_code in GENERIC_FILLERS_BY_ROLE.get(role_code, ())
 
 
-def is_unsupported_filler(role_code: str, filler_code: str) -> bool:
+def is_unsupported_filler(
+    concept_code: str | None, role_code: str, filler_code: str
+) -> bool:
     """True when source role/filler meaning conflicts with the concept definition."""
-    return filler_code in UNSUPPORTED_FILLERS_BY_ROLE.get(role_code, ())
+    if concept_code is None:
+        return False
+    return filler_code in UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE.get(
+        (concept_code, role_code), ()
+    )
 
 
 # NCIt 26.07d's probabilistic ``May_Have_*`` roles are non-defining and excluded

@@ -54,6 +54,11 @@ async def list_run_outcomes(
 ) -> list[WorkItemOutcome]:
     """Return ordered, typed per-concept outcomes and observed source types."""
     try:
+        run = await store.get_run(run_id)
+        if run is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"No decomposition run {run_id}"
+            )
         return await store.work_item_outcomes(run_id)
     except SQLAlchemyError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc

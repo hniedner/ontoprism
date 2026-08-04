@@ -34,6 +34,36 @@ def test_models_are_frozen() -> None:
 
 
 @pytest.mark.unit
+def test_decomposition_canonicalizes_constituents_to_an_immutable_tuple() -> None:
+    source = [Constituent(axis="R101", filler_code="C12400", axis_source="role")]
+    decomposition = Decomposition(
+        code="C1", semantic_type="Neoplastic Process", constituents=source
+    )
+
+    source.clear()
+
+    assert isinstance(decomposition.constituents, tuple)
+    assert [item.filler_code for item in decomposition.constituents] == ["C12400"]
+
+
+@pytest.mark.unit
+def test_decomposition_rejects_multiple_primary_sites() -> None:
+    with pytest.raises(ValueError, match="PrimarySite cardinality"):
+        Decomposition(
+            code="C1",
+            semantic_type="Neoplastic Process",
+            constituents=(
+                Constituent(
+                    axis="op:PrimarySite", filler_code="C12400", axis_source="role"
+                ),
+                Constituent(
+                    axis="op:PrimarySite", filler_code="C12401", axis_source="role"
+                ),
+            ),
+        )
+
+
+@pytest.mark.unit
 def test_decomposition_axes_are_the_distinct_constituent_axes() -> None:
     decomp = Decomposition(
         code="C6135",

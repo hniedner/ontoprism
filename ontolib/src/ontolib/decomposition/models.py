@@ -10,8 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # How an axis/constituent was recovered — the ``op:axisSource`` provenance value.
 AxisSource = Literal["role", "nlp", "parent"]
@@ -330,7 +333,7 @@ class DetectionResult:
     label_multi_aspect: bool = False
 
 
-def _referenced_source_ids(constituents: list[Constituent]) -> set[str]:
+def _referenced_source_ids(constituents: Sequence[Constituent]) -> set[str]:
     return {
         source_id
         for constituent in constituents
@@ -338,24 +341,66 @@ def _referenced_source_ids(constituents: list[Constituent]) -> set[str]:
     }
 
 
+def _validate_referenced_fact(constituent: Constituent, fact: DefinitionFact) -> None:
+    if constituent.axis_source == "nlp":
+        raise ValueError("NLP constituents cannot reference definition facts")
+    if constituent.axis_source == "parent":
+        _validate_parent_fact(constituent, fact)
+        return
+    _validate_role_fact(constituent, fact)
+
+
+def _validate_parent_fact(constituent: Constituent, fact: DefinitionFact) -> None:
+    if not isinstance(fact, GenusDefinitionFact) or (
+        fact.genus_code != constituent.filler_code
+    ):
+        raise ValueError("parent constituent references an unrelated genus fact")
+
+
+def _validate_role_fact(constituent: Constituent, fact: DefinitionFact) -> None:
+    if not isinstance(fact, RestrictionDefinitionFact) or (
+        fact.filler_code != constituent.filler_code
+    ):
+        raise ValueError("role constituent references an unrelated restriction")
+    if (
+        constituent.source_role is not None
+        and fact.role_code != constituent.source_role
+    ):
+        raise ValueError("role constituent references a different source role")
+
+
+def _require_no_definition_references(constituents: Sequence[Constituent]) -> None:
+    if _referenced_source_ids(constituents):
+        raise ValueError(
+            "constituent source-definition references require a complete definition"
+        )
+
+
 def _validate_definition_link(
     code: str,
-    constituents: list[Constituent],
+    constituents: Sequence[Constituent],
     complete_definition: CompleteDefinition | None,
 ) -> None:
-    referenced = _referenced_source_ids(constituents)
     if complete_definition is None:
-        if referenced:
-            raise ValueError(
-                "constituent source-definition references require a complete definition"
-            )
+        _require_no_definition_references(constituents)
         return
     if complete_definition.root_code != code:
         raise ValueError("complete-definition root does not match decomposition code")
-    known = {fact.fact_id for fact in complete_definition.facts}
-    unknown = referenced - known
+    known = {fact.fact_id: fact for fact in complete_definition.facts}
+    unknown = _referenced_source_ids(constituents) - known.keys()
     if unknown:
         raise ValueError(f"unknown complete-definition fact referenced: {min(unknown)}")
+    for constituent in constituents:
+        for source_id in constituent.source_definition_ids:
+            _validate_referenced_fact(constituent, known[source_id])
+
+
+def _validate_axis_cardinality(constituents: Sequence[Constituent]) -> None:
+    primary_sites = sum(
+        item.axis == "op:PrimarySite" and not item.needs_review for item in constituents
+    )
+    if primary_sites > 1:
+        raise ValueError("resolved op:PrimarySite cardinality is 0..1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,10 +409,12 @@ class Decomposition:
 
     code: str
     semantic_type: str | None
-    constituents: list[Constituent] = field(default_factory=list)
+    constituents: Sequence[Constituent] = ()
     complete_definition: CompleteDefinition | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "constituents", tuple(self.constituents))
+        _validate_axis_cardinality(self.constituents)
         _validate_definition_link(
             self.code,
             self.constituents,

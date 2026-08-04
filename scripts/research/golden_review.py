@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 from openpyxl import load_workbook
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.score import ExtractionScore, score
 
 if TYPE_CHECKING:
@@ -1067,6 +1068,15 @@ def _update_axis_counts(
         values["true_positive"] += pair in expected & actual
 
 
+def _pair_modality(pair: ConstituentPair) -> str:
+    contract = AXIS_CONTRACTS.get(pair[0])
+    return contract.modality if contract is not None else "asserted"
+
+
+def _is_non_defining(pair: ConstituentPair) -> bool:
+    return _pair_modality(pair) == "non-defining"
+
+
 def _score_concept_views(
     expected: GoldenExpectation,
     actual: EngineConcept,
@@ -1092,15 +1102,33 @@ def _score_concept_views(
             for item in expected.constituents
             if item.provenance_status != "proposed"
         ),
+        "defining_only": tuple(
+            item
+            for item in expected.constituents
+            if item.provenance_status == "ncit-26.07d"
+            and not _is_non_defining(item.pair)
+        ),
+        "non_defining": tuple(
+            item
+            for item in expected.constituents
+            if item.provenance_status == "ncit-26.07d" and _is_non_defining(item.pair)
+        ),
     }
     results: dict[str, ExtractionScore] = {}
     augmented_exclusions: set[ConstituentPair] = set()
     for view, items in view_items.items():
+        view_actual_pairs = (
+            {pair for pair in actual_pairs if not _is_non_defining(pair)}
+            if view == "defining_only"
+            else {pair for pair in actual_pairs if _is_non_defining(pair)}
+            if view == "non_defining"
+            else actual_pairs
+        )
         expected_pairs = {item.pair for item in items}
         expected_exclusions = {item.pair for item in items if item.needs_review}
         result = score(
             expected_pairs,
-            actual_pairs,
+            view_actual_pairs,
             expected_needs_review=expected_exclusions,
         )
         results[view] = result
@@ -1108,12 +1136,14 @@ def _score_concept_views(
             aggregates[view][field] += getattr(result, field)
         deferrals[view]["expected"] += len(items)
         deferrals[view]["deferred"] += len(expected_exclusions)
-        deferrals[view]["engine_matches"] += len(expected_exclusions & actual_pairs)
+        deferrals[view]["engine_matches"] += len(
+            expected_exclusions & view_actual_pairs
+        )
         exclusions = expected_exclusions
         _update_axis_counts(
             axis_aggregates[view],
             expected_pairs - exclusions,
-            actual_pairs - exclusions,
+            view_actual_pairs - exclusions,
         )
         if view == "augmented":
             augmented_exclusions = expected_exclusions
@@ -1145,6 +1175,14 @@ def _concept_report(
             [list(pair) for pair in expected_exclusions]
         ),
         "actual_review_exclusions": sorted([list(pair) for pair in actual_exclusions]),
+        "expected_pair_modality": [
+            {
+                "axis": item.axis,
+                "filler": item.filler,
+                "modality": _pair_modality(item.pair),
+            }
+            for item in sorted(view_items["augmented"], key=lambda value: value.pair)
+        ],
         "pair_score": {view: _score_dict(result) for view, result in results.items()},
         "expected_group_partition": expected_groups,
         "actual_group_partition": actual_groups,
@@ -1201,14 +1239,20 @@ def evaluate_adjudication(
     aggregates = {
         "ncit_bound": {"expected": 0, "actual": 0, "true_positive": 0},
         "augmented": {"expected": 0, "actual": 0, "true_positive": 0},
+        "defining_only": {"expected": 0, "actual": 0, "true_positive": 0},
+        "non_defining": {"expected": 0, "actual": 0, "true_positive": 0},
     }
     axis_aggregates: dict[str, dict[str, Counter[str]]] = {
         "ncit_bound": {},
         "augmented": {},
+        "defining_only": {},
+        "non_defining": {},
     }
     deferrals = {
         "ncit_bound": {"expected": 0, "deferred": 0, "engine_matches": 0},
         "augmented": {"expected": 0, "deferred": 0, "engine_matches": 0},
+        "defining_only": {"expected": 0, "deferred": 0, "engine_matches": 0},
+        "non_defining": {"expected": 0, "deferred": 0, "engine_matches": 0},
     }
     provenance_counts: Counter[str] = Counter()
     proposal_status_counts: Counter[str] = Counter()

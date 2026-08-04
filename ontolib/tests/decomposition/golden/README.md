@@ -10,9 +10,9 @@ The review loop is:
 1. **Review** each automated suggestion against the source definition.
 2. **Adjudicate** it as accepted, rejected, or revision-needed with SME identity,
    qualification, date, rationale, NCIt release, and certified source/run identity.
-3. Only after the artifact declares `SME-ADJUDICATED`, **run** a candidate extractor
-   against the same source.
-4. **Score** accepted entries only; retain rejected/revision decisions in the review
+3. **Run** the candidate extractor against the certified source and bind its immutable
+   run, detector, artifact, and evidence identities into the review packet.
+4. After the artifact declares `SME-ADJUDICATED`, **score** accepted entries only; retain rejected/revision decisions in the review
    record and exclude `needs_review` pairs under D21.
 5. **Iterate** without changing the oracle merely to match the engine.
 
@@ -24,8 +24,8 @@ presented as human truth.
 The final artifact requires:
 
 - `_meta.schema_version = 2`, `_meta.status = "SME-ADJUDICATED"`, reviewer identity,
-  qualification/date, NCIt version, and lowercase SHA-256 source, sample, run,
-  engine-artifact, and workbook identities;
+  qualification/date, NCIt version, and lowercase SHA-256 source, sample, run fingerprint,
+  detector, engine-artifact, engine-evidence, corpus-evidence, and workbook identities;
 - a non-empty label and an `expected` object per accepted concept containing one typed outcome
   (`decomposed`, `residual`, `semantic-excluded`, or `atomic-no-op`), the complete
   semantic-type list, and unique constituent objects;
@@ -39,9 +39,10 @@ The M1 cohort contains 20–50 adjudicated concepts and includes `C4791`, `C3575
 until #57 records genuine SME adjudication.
 
 The loader retains one complete expectation store for audit and outcome evaluation.
-Reports derive two views from each pair's provenance: `ncit_bound` contains only pairs
+Reports derive provenance and modality views from each pair. `ncit_bound` contains only pairs
 stamped for the artifact's NCIt release, while `augmented` also contains locally approved,
-submitted, or later-accepted proposal pairs. Merely proposed pairs enter neither metric.
+submitted, or later-accepted proposal pairs. `defining_only` and `non_defining` stratify
+the NCIt-bound view from the versioned axis contracts. Merely proposed pairs enter neither metric.
 Reviewer-flagged expected pairs remain visible as explicit exclusions and cannot silently
 enter a metric. Engine `needs_review` values are pre-adjudication diagnostics; once a human
 has resolved a pair, they do not override `Expected needs_review` or silently defer it. A

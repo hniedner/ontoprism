@@ -93,16 +93,27 @@ def test_benign_cellular_infiltrate_survives_as_a_positive_finding() -> None:
 
 
 @pytest.mark.unit
-def test_unsupported_germinal_layer_tissue_origin_is_excluded() -> None:
+@pytest.mark.parametrize("concept_code", ["C102870", "C27787"])
+def test_unsupported_germinal_layer_tissue_origin_is_excluded(
+    concept_code: str,
+) -> None:
     restrictions = _roles(
         ("R103", "C54105", "Disease_Has_Normal_Tissue_Origin"),
         ("R104", "C12597", "Disease_Has_Normal_Cell_Origin"),
     )
 
     actual = [
-        (item.role_code, item.filler_code) for item in filter_excluded(restrictions)
+        (item.role_code, item.filler_code)
+        for item in filter_excluded(restrictions, concept_code=concept_code)
     ]
     assert actual == [("R104", "C12597")]
+
+
+@pytest.mark.unit
+def test_germinal_layer_tissue_origin_is_retained_for_other_concepts() -> None:
+    restriction = _roles(("R103", "C54105", "Disease_Has_Normal_Tissue_Origin"))
+
+    assert filter_excluded(restriction, concept_code="C999999") == restriction
 
 
 @pytest.mark.unit

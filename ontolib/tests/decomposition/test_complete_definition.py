@@ -747,6 +747,20 @@ def test_complete_definition_identity_and_projection_loss_are_deterministic() ->
             ],
             complete_definition=complete,
         )
+    with pytest.raises(ValueError, match="unrelated restriction"):
+        Decomposition(
+            code="C1",
+            semantic_type=None,
+            constituents=[replace(constituents[0], filler_code="C999")],
+            complete_definition=complete,
+        )
+    with pytest.raises(ValueError, match="different source role"):
+        Decomposition(
+            code="C1",
+            semantic_type=None,
+            constituents=[replace(constituents[0], source_role="R105")],
+            complete_definition=complete,
+        )
 
 
 @pytest.mark.unit

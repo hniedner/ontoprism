@@ -178,6 +178,10 @@ def test_registry_requires_duplicate_evidence_and_unique_proposal_ids() -> None:
 def test_duplicate_check_requires_candidates_when_an_equivalent_exists() -> None:
     with pytest.raises(ValidationError, match="requires at least one candidate"):
         _duplicate_check(result="equivalent-found")
+    with pytest.raises(ValidationError, match="possible-match requires"):
+        _duplicate_check(result="possible-match")
+    with pytest.raises(ValidationError, match="must not carry candidates"):
+        _duplicate_check(result="no-equivalent", candidates=("C1",))
 
 
 @pytest.mark.unit

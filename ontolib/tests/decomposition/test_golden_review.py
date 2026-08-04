@@ -746,6 +746,20 @@ def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
         "precision": 1.0,
         "recall": 20 / 21,
     }
+    assert report["pair_micro"]["defining_only"] == {
+        "expected": 20,
+        "actual": 20,
+        "true_positive": 20,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
+    assert report["pair_micro"]["non_defining"] == {
+        "expected": 0,
+        "actual": 0,
+        "true_positive": 0,
+        "precision": None,
+        "recall": None,
+    }
     assert report["expected_pair_provenance"] == {
         "locally-approved": 1,
         "ncit-26.07d": 20,
@@ -765,7 +779,7 @@ def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
         "precision": 1.0,
         "recall": 0.5,
     }
-    for view in ("ncit_bound", "augmented"):
+    for view in ("ncit_bound", "augmented", "defining_only", "non_defining"):
         assert {
             field: sum(axis[field] for axis in report["pair_by_axis"][view].values())
             for field in ("expected", "actual", "true_positive")
@@ -775,7 +789,9 @@ def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
         }
     assert report["expected_pair_deferrals"] == {
         "augmented": {"deferred": 0, "engine_matches": 0, "expected": 21},
+        "defining_only": {"deferred": 0, "engine_matches": 0, "expected": 20},
         "ncit_bound": {"deferred": 0, "engine_matches": 0, "expected": 20},
+        "non_defining": {"deferred": 0, "engine_matches": 0, "expected": 0},
     }
     assert report["proposal_governance"] == {
         "augmented_expected": 1,
@@ -786,6 +802,58 @@ def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
     first = report["concepts"][0]["pair_score"]
     assert first["ncit_bound"]["missing"] == []
     assert first["augmented"]["missing"] == [["op:CellType", "LOCAL-APPROVED-1"]]
+
+
+@pytest.mark.unit
+def test_evaluation_derives_non_defining_stratum_from_axis_contract(
+    tmp_path: Path,
+) -> None:
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent("op:CellType", "C36903"),
+            _constituent("op:NormalTissueOrigin", "C12345"),
+        ],
+    )
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"] = [
+        _engine_constituent("op:CellType", "C36903"),
+        _engine_constituent("op:NormalTissueOrigin", "C12345"),
+    ]
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    assert report["pair_micro"]["defining_only"] == {
+        "expected": 20,
+        "actual": 20,
+        "true_positive": 20,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
+    assert report["pair_micro"]["non_defining"] == {
+        "expected": 1,
+        "actual": 1,
+        "true_positive": 1,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
+    first = report["concepts"][0]["pair_score"]
+    assert first["defining_only"]["expected"] == 1
+    assert first["non_defining"]["expected"] == 1
+    assert report["concepts"][0]["expected_pair_modality"] == [
+        {"axis": "op:CellType", "filler": "C36903", "modality": "asserted"},
+        {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C12345",
+            "modality": "non-defining",
+        },
+    ]
 
 
 @pytest.mark.unit

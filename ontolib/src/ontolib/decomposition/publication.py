@@ -85,6 +85,10 @@ class PublicationValidationError(RuntimeError):
     """A rendered artifact or persisted marker cannot be trusted for publication."""
 
 
+class PublicationPreflightError(PublicationValidationError):
+    """The staged artifact failed validation before publication was journaled."""
+
+
 class PublicationMarker(BaseModel):
     """Identity committed inside the public named graph."""
 
@@ -345,10 +349,18 @@ async def _replace_graph(
         )
     try:
         await client.update(build_replacement_update(marker, staging_graph))
-    except BaseException:
+    except BaseException as original:
         # A transport failure is ambiguous: Oxigraph may have committed before the
         # connection failed. Reconcile the marker before deciding that it failed.
-        if await read_publication_marker(client) == marker:
+        try:
+            reconciled = await read_publication_marker(client)
+        except BaseException as reconciliation_error:
+            original.add_note(
+                "Reading the publication marker during reconciliation also failed: "
+                f"{type(reconciliation_error).__name__}: {reconciliation_error}"
+            )
+            raise original from reconciliation_error
+        if reconciled == marker:
             return
         raise
 
@@ -430,11 +442,14 @@ async def publish_artifact(
     provenance: PublicationProvenance,
 ) -> PublicationMarker:
     """Publish a complete file/graph and only then complete its run journal."""
-    representation_identity = validate_artifact(
-        artifact,
-        expected_codes=expected_codes,
-        run_id=run_id,
-    )
+    try:
+        representation_identity = validate_artifact(
+            artifact,
+            expected_codes=expected_codes,
+            run_id=run_id,
+        )
+    except PublicationValidationError as exc:
+        raise PublicationPreflightError(str(exc)) from exc
     async with provenance.publication_lock():
         summary = await provenance.get_run(run_id)
         if summary is None:

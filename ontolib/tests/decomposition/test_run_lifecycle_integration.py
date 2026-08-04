@@ -628,6 +628,32 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
 
         assert invalidated is True
         assert await store.decompositions_for_run(run_id) == []
+        conn = await asyncpg.connect(_dsn())
+        try:
+            assert (
+                await conn.fetchval(
+                    "SELECT count(*) FROM decomp_definition_fact WHERE run_id = $1",
+                    run_id,
+                )
+                == 0
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT count(*) FROM decomp_definition_group_edge "
+                    "WHERE run_id = $1",
+                    run_id,
+                )
+                == 0
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT count(*) FROM decomp_definition_group WHERE run_id = $1",
+                    run_id,
+                )
+                == 0
+            )
+        finally:
+            await conn.close()
         assert await store.pending_codes(run_id) == ["C0", "C1"]
         await store.resume_run(
             run_id,

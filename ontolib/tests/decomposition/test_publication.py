@@ -72,10 +72,12 @@ class _GraphClient:
         *,
         update_error: BaseException | None = None,
         marker_on_update_error: PublicationMarker | None = None,
+        marker_read_error_after_update: BaseException | None = None,
     ) -> None:
         self.marker_rows = marker_rows or []
         self.update_error = update_error
         self.marker_on_update_error = marker_on_update_error
+        self.marker_read_error_after_update = marker_read_error_after_update
         self.events: list[str] = []
         self.loaded_payload: bytes | None = None
         self.loaded_graph: str | None = None
@@ -88,6 +90,8 @@ class _GraphClient:
     ) -> Sequence[Mapping[str, str | None]]:
         assert set(required_variables) == {"predicate", "value"}
         self.events.append("read-marker")
+        if self.marker_read_error_after_update is not None and "replace" in self.events:
+            raise self.marker_read_error_after_update
         return self.marker_rows
 
     async def load(
@@ -560,6 +564,38 @@ async def test_ambiguous_update_error_reconciles_committed_marker(
     assert graph.events == ["read-marker", "stage", "replace", "read-marker"]
     assert store.failures == []
     assert store.finished_identity == identity
+
+
+@pytest.mark.unit
+async def test_failed_reconciliation_preserves_original_update_error(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    original = RuntimeError("connection closed after commit")
+    graph = _GraphClient(
+        update_error=original,
+        marker_read_error_after_update=OSError("marker read unavailable"),
+    )
+    store = _PublicationStore(destination=destination)
+
+    with pytest.raises(RuntimeError, match="connection closed") as exc_info:
+        await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=True,
+            client=graph,
+            provenance=store,
+        )
+
+    assert exc_info.value is original
+    assert any("marker read" in note for note in original.__notes__)
+    assert store.failures == [original]
 
 
 @pytest.mark.unit

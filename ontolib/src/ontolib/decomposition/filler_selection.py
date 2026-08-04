@@ -37,15 +37,17 @@ def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -
     )
 
 
-def filter_excluded(restrictions: Iterable[RoleRestriction]) -> list[RoleRestriction]:
-    """Drop ``Excludes_*`` and probabilistic ``May_Have_*`` restrictions."""
+def filter_excluded(
+    restrictions: Iterable[RoleRestriction], *, concept_code: str | None = None
+) -> list[RoleRestriction]:
+    """Drop non-defining, generic, and concept-specific unsupported restrictions."""
     return [
         restriction
         for restriction in restrictions
         if axes.is_defining_role(restriction)
         and not axes.is_generic_filler(restriction.role_code, restriction.filler_code)
         and not axes.is_unsupported_filler(
-            restriction.role_code, restriction.filler_code
+            concept_code, restriction.role_code, restriction.filler_code
         )
     ]
 
@@ -271,22 +273,27 @@ def _standard_constituents(
 def _group_by_routed_axis(
     restrictions: Iterable[RoleRestriction],
     parent_morphology: str | None = None,
+    concept_code: str | None = None,
 ) -> tuple[dict[str, set[str]], dict[tuple[str, str], str]]:
     by_axis: dict[str, set[str]] = defaultdict(set)
     source_roles: dict[tuple[str, str], str] = {}
-    for r in filter_excluded(restrictions):
+    for r in filter_excluded(restrictions, concept_code=concept_code):
         axis_name = route_axis(r, parent_morphology)
         by_axis[axis_name].add(r.filler_code)
         source_roles[(axis_name, r.filler_code)] = r.role_code
     return by_axis, source_roles
 
 
-def comparison_filler_codes(restrictions: Iterable[RoleRestriction]) -> list[str]:
+def comparison_filler_codes(
+    restrictions: Iterable[RoleRestriction], *, concept_code: str | None = None
+) -> list[str]:
     """Return fillers from routed-axis groups that use specificity comparison."""
     return sorted(
         {
             filler
-            for axis_name, fillers in _group_by_routed_axis(restrictions)[0].items()
+            for axis_name, fillers in _group_by_routed_axis(
+                restrictions, concept_code=concept_code
+            )[0].items()
             if axis_name != axes.ASSOCIATED_LINEAGE_AXIS and len(fillers) > 1
             for filler in fillers
         }
@@ -450,6 +457,7 @@ def select_constituents(
     parent_morphology: str | None = None,
     semantic_type_of: Callable[[str], str | None] | None = None,
     is_part_of: IsPartOf | None = None,
+    concept_code: str | None = None,
 ) -> list[Constituent]:
     """Turn a concept's stated role restrictions into its selected constituents.
 
@@ -461,7 +469,9 @@ def select_constituents(
     assigns D19 relationship-group ids to ambiguous routed-axis values. Output is sorted
     (axis, filler) for deterministic, diffable results.
     """
-    by_axis, source_roles = _group_by_routed_axis(restrictions, parent_morphology)
+    by_axis, source_roles = _group_by_routed_axis(
+        restrictions, parent_morphology, concept_code
+    )
     constituents = _iter_axis_constituents(
         by_axis,
         source_roles,

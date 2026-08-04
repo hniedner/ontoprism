@@ -221,7 +221,7 @@ def test_get_run_found() -> None:
 
 @pytest.mark.api
 def test_list_run_outcomes_explains_each_completed_work_item() -> None:
-    fake = _FakeProvenanceStore(outcomes=[_SAMPLE_OUTCOME])
+    fake = _FakeProvenanceStore(runs=[_SAMPLE_RUN], outcomes=[_SAMPLE_OUTCOME])
     client = next(_client(fake))
 
     resp = client.get("/api/v1/decomposition/runs/run-1/outcomes")
@@ -242,6 +242,15 @@ def test_list_run_outcomes_explains_each_completed_work_item() -> None:
             "minted_count": 0,
         }
     ]
+
+
+@pytest.mark.api
+def test_list_run_outcomes_returns_404_for_missing_run() -> None:
+    client = next(_client(_FakeProvenanceStore()))
+
+    resp = client.get("/api/v1/decomposition/runs/missing/outcomes")
+
+    assert resp.status_code == 404
 
 
 @pytest.mark.api

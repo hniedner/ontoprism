@@ -93,13 +93,19 @@ class DuplicateCheck(_StrictModel):
     evidence_url: str
 
     @model_validator(mode="after")
-    def _validate_evidence(self) -> Self:
+    def _validate_text_and_uniqueness(self) -> Self:
         for field in ("resource", "version", "query", "evidence_url"):
             _text(getattr(self, field), field)
         if len(self.candidates) != len(set(self.candidates)):
             raise ValueError("duplicate-check candidates must be unique")
-        if self.result == "equivalent-found" and not self.candidates:
-            raise ValueError("equivalent-found requires at least one candidate")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_result_shape(self) -> Self:
+        if self.result == "no-equivalent" and self.candidates:
+            raise ValueError("no-equivalent must not carry candidates")
+        if self.result != "no-equivalent" and not self.candidates:
+            raise ValueError(f"{self.result} requires at least one candidate")
         return self
 
 
