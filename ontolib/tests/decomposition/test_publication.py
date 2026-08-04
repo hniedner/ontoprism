@@ -644,6 +644,56 @@ async def test_cancellation_records_retryable_publication_and_preserves_file(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("cancel_during_reconciliation", [False, True])
+async def test_graph_replacement_cancellation_is_never_reconciled_as_success(
+    tmp_path: Path,
+    cancel_during_reconciliation: bool,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    destination.write_text("old artifact", encoding="utf-8")
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    identity = hashlib.sha256(staging.read_bytes()).hexdigest()
+    committed = PublicationMarker(
+        run_id="neoplasm-run-1",
+        source_identity="a" * 64,
+        representation_identity=identity,
+        built_at=datetime(2026, 7, 30, 12, 0, tzinfo=UTC),
+    )
+    graph = (
+        _GraphClient(
+            update_error=RuntimeError("connection closed"),
+            marker_read_error_after_update=asyncio.CancelledError(),
+        )
+        if cancel_during_reconciliation
+        else _GraphClient(
+            update_error=asyncio.CancelledError(),
+            marker_on_update_error=committed,
+        )
+    )
+    store = _PublicationStore(
+        destination=destination,
+        persisted_built_at=committed.built_at,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await publish_artifact(
+            run_id=committed.run_id,
+            source_identity=committed.source_identity,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=True,
+            client=graph,
+            provenance=store,
+        )
+
+    assert destination.read_text(encoding="utf-8") == "old artifact"
+    assert isinstance(store.failures[0], asyncio.CancelledError)
+
+
+@pytest.mark.unit
 async def test_partial_or_conflicting_marker_fails_closed() -> None:
     graph = _GraphClient(
         [

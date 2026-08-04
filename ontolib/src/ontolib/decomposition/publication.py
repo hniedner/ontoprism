@@ -353,20 +353,30 @@ async def _replace_graph(
         )
     try:
         await client.update(build_replacement_update(marker, staging_graph))
+    except asyncio.CancelledError:
+        raise
     except BaseException as original:
-        # A transport failure is ambiguous: Oxigraph may have committed before the
-        # connection failed. Reconcile the marker before deciding that it failed.
-        try:
-            reconciled = await read_publication_marker(client)
-        except BaseException as reconciliation_error:
-            original.add_note(
-                "Reading the publication marker during reconciliation also failed: "
-                f"{type(reconciliation_error).__name__}: {reconciliation_error}"
-            )
-            raise original from reconciliation_error
-        if reconciled == marker:
+        if await _replacement_committed(client, marker, original):
             return
         raise
+
+
+async def _replacement_committed(
+    client: PublicationGraphClient,
+    marker: PublicationMarker,
+    original: BaseException,
+) -> bool:
+    """Resolve an ambiguous transport failure without masking cancellation."""
+    try:
+        return await read_publication_marker(client) == marker
+    except asyncio.CancelledError:
+        raise
+    except BaseException as reconciliation_error:
+        original.add_note(
+            "Reading the publication marker during reconciliation also failed: "
+            f"{type(reconciliation_error).__name__}: {reconciliation_error}"
+        )
+        raise original from reconciliation_error
 
 
 def _marker_for_run(
