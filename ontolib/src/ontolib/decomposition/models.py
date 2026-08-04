@@ -297,7 +297,7 @@ class Constituent:
 
     ``axis`` is the normalized ``op:`` relation (or an unknown legacy NCIt role);
     ``source_role`` preserves the defining NCIt role independently. ``most_specific``
-    records that the filler was chosen over a strictly broader is-a/R82 candidate;
+    records that the filler was chosen over a strictly broader is-a candidate;
     ``needs_review`` flags an unresolved ordinary axis for curation. ``group`` is a D19
     relationship-group id shared by ambiguous fillers on the same routed axis.
     """

@@ -15,9 +15,9 @@ import rdflib
 from ontolib.decomposition import vocab
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
-from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.publication import (
     PublicationMarker,
+    PublicationPreflightError,
     PublicationValidationError,
     _record_failure_without_masking,
     build_replacement_update,
@@ -724,7 +724,7 @@ async def test_missing_or_corrupt_publication_journal_fails_before_side_effects(
     graph = _GraphClient()
 
     missing = _PublicationStore(destination=destination, missing=True)
-    with pytest.raises(RunStateError, match="does not exist"):
+    with pytest.raises(PublicationPreflightError, match="does not exist"):
         await publish_artifact(
             run_id="neoplasm-run-1",
             source_identity="a" * 64,
@@ -739,7 +739,7 @@ async def test_missing_or_corrupt_publication_journal_fails_before_side_effects(
     assert missing.events == ["lock", "unlock"]
 
     corrupt = _PublicationStore(destination=destination, summary_state="failed")
-    with pytest.raises(PublicationValidationError, match="no build timestamp"):
+    with pytest.raises(PublicationPreflightError, match="no build timestamp"):
         await publish_artifact(
             run_id="neoplasm-run-1",
             source_identity="a" * 64,
@@ -767,7 +767,9 @@ async def test_begin_and_failure_record_errors_do_not_corrupt_error_identity(
         begin_error=begin_error,
     )
 
-    with pytest.raises(RuntimeError, match="journal unavailable") as begin_info:
+    with pytest.raises(
+        PublicationPreflightError, match="journal unavailable"
+    ) as begin_info:
         await publish_artifact(
             run_id="neoplasm-run-1",
             source_identity="a" * 64,
@@ -779,7 +781,7 @@ async def test_begin_and_failure_record_errors_do_not_corrupt_error_identity(
             client=_GraphClient(),
             provenance=begin_store,
         )
-    assert begin_info.value is begin_error
+    assert begin_info.value.__cause__ is begin_error
     assert begin_store.failures == []
 
     graph_error = RuntimeError("graph unavailable")

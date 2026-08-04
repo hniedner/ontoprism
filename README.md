@@ -321,7 +321,7 @@ review setup: `NCIT_STATED_SPARQL_URL=http://localhost:7890 pdm run test-integra
 
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D44)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D59)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->

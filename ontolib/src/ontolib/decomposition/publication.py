@@ -451,21 +451,24 @@ async def publish_artifact(
     except PublicationValidationError as exc:
         raise PublicationPreflightError(str(exc)) from exc
     async with provenance.publication_lock():
-        summary = await provenance.get_run(run_id)
-        if summary is None:
-            raise RunStateError(f"decomposition run {run_id!r} does not exist")
-        marker, retrying = _marker_for_run(
-            summary,
-            run_id=run_id,
-            source_identity=source_identity,
-            representation_identity=representation_identity,
-        )
-        await provenance.begin_publication(
-            run_id,
-            representation_identity=representation_identity,
-            artifact_path=str(destination),
-            built_at=marker.built_at,
-        )
+        try:
+            summary = await provenance.get_run(run_id)
+            if summary is None:
+                raise RunStateError(f"decomposition run {run_id!r} does not exist")
+            marker, retrying = _marker_for_run(
+                summary,
+                run_id=run_id,
+                source_identity=source_identity,
+                representation_identity=representation_identity,
+            )
+            await provenance.begin_publication(
+                run_id,
+                representation_identity=representation_identity,
+                artifact_path=str(destination),
+                built_at=marker.built_at,
+            )
+        except Exception as exc:
+            raise PublicationPreflightError(str(exc)) from exc
         await _publish_started_artifact(
             marker=marker,
             artifact=artifact,

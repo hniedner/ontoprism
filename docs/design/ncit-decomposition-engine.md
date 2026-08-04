@@ -102,9 +102,9 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#
 | `op:group` | constituent node → a relationship-group id (D19), persisted and read back unchanged |
 | `op:filler` | constituent node → the filler concept IRI (existing NCIt concept or minted `op:` concept) |
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
-| `op:mostSpecific` | boolean — filler is the hierarchy leaf chosen over ancestors (audit aid) |
+| `op:mostSpecific` | boolean — filler was chosen over an is-a ancestor (audit aid; R82-only collapse is not encoded by this flag) |
 | `op:needsReview` | boolean — unresolved ordinary-axis ambiguity requiring curation |
-| `op:sourceDefinitionFact` | constituent node → one or more deterministic complete-definition fact IRIs |
+| `op:sourceDefinitionFact` | role-/parent-derived constituent node → one or more deterministic complete-definition fact IRIs; NLP fallback uses proposal provenance instead |
 | `op:hasDefinitionFact` | source concept → a typed complete-definition fact |
 | `op:factKind`, `op:anchor`, `op:definitionGroup`, `op:definitionDepth` | fact type, anchoring genus, source-expression group, and DAG depth |
 | `op:genus`, `op:isDefined`, `op:role`, `op:filler` | typed genus/restriction fact payload |
@@ -142,7 +142,7 @@ filesystem effects; the writer independently refuses the same request.
 
 The complete representation is now materialized independently of the projection (D50):
 a bounded stated-only DAG of typed genus/restriction facts, with deterministic identities,
-source-expression groups, anchoring genera, and projection trace links. Only this record
+source-expression groups, anchoring genera, and role-/parent-projection trace links. Only this record
 may feed future equivalence emission or measured `roundtrip_fidelity`. Its existence alone
 does not prove those semantics, so D43's quarantine remains. The quarantine does not block
 the additive constituent view or future post-coordination grammar; it prevents either the
