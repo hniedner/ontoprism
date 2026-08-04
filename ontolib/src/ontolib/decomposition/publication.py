@@ -435,6 +435,12 @@ async def _publish_started_artifact(
                 marker.run_id,
                 original,
             )
+        except asyncio.CancelledError as cancellation:
+            cancellation.add_note(
+                "Publication failed while cancellation interrupted failure journaling: "
+                f"{type(original).__name__}: {original}"
+            )
+            raise cancellation from original
         except BaseException as failure_error:
             original.add_note(
                 "Recording the publication failure also failed: "

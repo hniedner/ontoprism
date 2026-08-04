@@ -774,6 +774,50 @@ async def test_cancelled_failure_journal_waits_for_recording_to_finish() -> None
 
 
 @pytest.mark.unit
+async def test_cancellation_during_failure_journaling_is_not_swallowed(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    recording_started = asyncio.Event()
+    release_recording = asyncio.Event()
+
+    class _CancellingJournal(_PublicationStore):
+        async def record_publication_failure(
+            self, _run_id: str, error: BaseException
+        ) -> None:
+            recording_started.set()
+            await release_recording.wait()
+            self.failures.append(error)
+
+    original = RuntimeError("graph unavailable")
+    store = _CancellingJournal(destination=destination)
+    task = asyncio.create_task(
+        publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=True,
+            client=_GraphClient(update_error=original),
+            provenance=store,
+        )
+    )
+    await recording_started.wait()
+    task.cancel()
+    release_recording.set()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        await task
+
+    assert exc_info.value.__cause__ is original
+    assert destination.exists() is False
+
+
+@pytest.mark.unit
 async def test_missing_or_corrupt_publication_journal_fails_before_side_effects(
     tmp_path: Path,
 ) -> None:

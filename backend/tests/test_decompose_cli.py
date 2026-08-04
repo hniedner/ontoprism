@@ -33,8 +33,13 @@ from ontolib.terminologies.ncit.sibling_store import (
 
 
 class _RunClient:
-    def __init__(self, events: list[str]) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        cleanup_error: BaseException | None = None,
+    ) -> None:
         self.events = events
+        self.cleanup_error = cleanup_error
 
     async def __aenter__(self) -> _RunClient:
         self.events.append("client-enter")
@@ -49,6 +54,8 @@ class _RunClient:
         self.events.append(
             "client-exit-clean" if exc_type is None else "client-exit-error"
         )
+        if self.cleanup_error is not None:
+            raise self.cleanup_error
 
 
 class _RunLabelStore:
@@ -65,10 +72,11 @@ def _install_run_collaborators(
     pipeline: Any,
     *,
     cleanup_error: BaseException | None = None,
+    client_cleanup_error: BaseException | None = None,
 ) -> SimpleNamespace:
     events: list[str] = []
     engine = object()
-    client = _RunClient(events)
+    client = _RunClient(events, client_cleanup_error)
     store = _RunLabelStore()
     provenance = object()
     settings = SimpleNamespace(
@@ -296,6 +304,39 @@ async def test_pipeline_failure_propagates_after_client_and_engine_cleanup(
         "client-exit-error",
         "dispose",
     ]
+
+
+@pytest.mark.unit
+async def test_client_cleanup_failure_does_not_mask_pipeline_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = RuntimeError("pipeline unavailable")
+    cleanup = RuntimeError("client cleanup failed")
+
+    async def pipeline(*_args: object, **_kwargs: object) -> decompose.RunMetrics:
+        harness.events.append("pipeline")
+        raise primary
+
+    harness = _install_run_collaborators(
+        monkeypatch,
+        pipeline,
+        client_cleanup_error=cleanup,
+    )
+
+    with pytest.raises(RuntimeError, match="pipeline unavailable") as exc_info:
+        await decompose._run(
+            Path("candidate.json"),
+            decompose.DecompositionBranch.NEOPLASM,
+            None,
+            False,
+            False,
+            None,
+            None,
+        )
+
+    assert exc_info.value is primary
+    assert any("client cleanup failed" in note for note in primary.__notes__)
+    assert harness.events[-1] == "dispose"
 
 
 @pytest.mark.unit

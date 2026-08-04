@@ -128,20 +128,33 @@ async def _run(
     primary_error: BaseException | None = None
     try:
         try:
-            async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
-                store = NcitGraphStore(client)
-                metrics = await run_pipeline(
-                    config,
-                    client,
-                    provenance,
-                    get_source_snapshot=lambda: _source_snapshot(
-                        source_manifest,
-                        settings.ncit_sparql_url,
-                    ),
-                    get_labels=store.labels_for,
-                    label_lookup=_make_label_lookup(store),
-                    total_limit=total_limit,
-                )
+            try:
+                async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+                    store = NcitGraphStore(client)
+                    try:
+                        metrics = await run_pipeline(
+                            config,
+                            client,
+                            provenance,
+                            get_source_snapshot=lambda: _source_snapshot(
+                                source_manifest,
+                                settings.ncit_sparql_url,
+                            ),
+                            get_labels=store.labels_for,
+                            label_lookup=_make_label_lookup(store),
+                            total_limit=total_limit,
+                        )
+                    except BaseException as exc:
+                        primary_error = exc
+                        raise
+            except BaseException as exc:
+                if primary_error is not None and exc is not primary_error:
+                    primary_error.add_note(
+                        "Closing the NCIt client also failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    raise primary_error from exc
+                raise
         except Exception:
             logger.exception(
                 "decompose run failed (branch=%s resume=%s)", branch, resume
