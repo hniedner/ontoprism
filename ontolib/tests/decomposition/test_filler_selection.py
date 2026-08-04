@@ -58,7 +58,7 @@ def test_filter_excluded_drops_approved_generic_role_fillers() -> None:
     restrictions = _roles(
         ("R103", "C45714", "Disease_Has_Normal_Tissue_Origin"),
         ("R103", "C49276", "Disease_Has_Normal_Tissue_Origin"),
-        ("R108", "C36122", "Disease_Has_Finding"),
+        ("R108", "C54172", "Disease_Has_Finding"),
         ("R108", "C35998", "Disease_Has_Finding"),
     )
 
@@ -69,6 +69,27 @@ def test_filter_excluded_drops_approved_generic_role_fillers() -> None:
         ("R103", "C49276"),
         ("R108", "C35998"),
     ]
+
+
+@pytest.mark.unit
+def test_benign_cellular_infiltrate_survives_as_a_positive_finding() -> None:
+    """C36122 is discriminating on R108 and MUST NOT be suppressed (list v2).
+
+    Suppression list v1 removed it on frequency that actually came from R142
+    ``Disease_Excludes_Finding`` assertions on malignant concepts. As a positive
+    R108 finding it is asserted only on benign genera (C3677, C4776, C5111), so
+    suppressing it deleted a true constituent of C4791 Left Atrial Myxoma.
+    """
+    restrictions = _roles(
+        ("R108", "C36122", "Disease_Has_Finding"),
+        ("R108", "C36115", "Disease_Has_Finding"),
+    )
+
+    actual = [
+        (item.role_code, item.filler_code) for item in filter_excluded(restrictions)
+    ]
+
+    assert actual == [("R108", "C36122")]
 
 
 @pytest.mark.unit

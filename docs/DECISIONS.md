@@ -15,7 +15,7 @@ After same-axis specificity and reviewed generic suppression, v10 still omitted 
 engine-shaped oracle, not all ratified M1 content.
 
 **Decision:** M1 includes every source-supported R103 and range-valid R108 survivor after
-same-axis collapse and the versioned `contracted-role-generic-v1` list. R104 CellOrigin
+same-axis collapse and the versioned `contracted-role-generic-v2` list. R104 CellOrigin
 and R107 CytogeneticAbnormality remain explicit named scope omissions until their
 cardinality, grouping, RO alignment, and suppression policy are adjudicated; they are not
 silently called non-core or mixed into current metrics. The walker projects inherited
@@ -23,7 +23,12 @@ R103/R108 and continues to hold inherited R104/R107. The complete record retains
 source facts regardless of projection suppression.
 
 The generic list is role-specific: R103 C45714; R104 C12578; R105 C12917, C12922,
-C36779; and R108 C36115, C36122, C53596, C54172. Changes require a new list version and
+C36779; and R108 C36115, C53596, C54172. Membership is inherited coverage over the
+complete stated record, measured per role: v1 wrongly suppressed R108 C36122 (Benign
+Cellular Infiltrate) on frequency drawn from R142 exclusions on malignant concepts. As a
+positive R108 finding it is asserted only on the benign genera C3677, C4776 and C5111 and
+covers 5.6% of the cohort against 61-100% for every retained entry, so v2 restores it and
+C4791 Left Atrial Myxoma regains a true constituent. Changes require a new list version and
 the full-corpus routing impact gate from D58. Stage system/value routing likewise uses the
 versioned `ncit-26.07d-stage-kind-v1` code/definition classification; semantic type alone
 is insufficient because NCIt uses `Classification` for both values and frameworks.

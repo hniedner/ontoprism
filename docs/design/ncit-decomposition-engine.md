@@ -602,7 +602,7 @@ Validate via the D14/D15/D17 golden-set methodology.
 
 The certified 26.07d audit extended inherited production projection to R103 and R108.
 Their recurrent generic fillers are suppressed only through
-`contracted-role-generic-v1`; R104 and R107 stay held until axis adjudication and remain
+`contracted-role-generic-v2`; R104 and R107 stay held until axis adjudication and remain
 visible as complete-record scope omissions. Filler selection receives is-a and R82 as
 separate predicates: is-a licenses collapse everywhere, whereas R82 licenses collapse
 only for location axes. `ncit-26.07d-stage-kind-v1` routes R88 systems/frameworks by

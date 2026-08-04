@@ -46,12 +46,25 @@ LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset(
     {"C3010", "C3809", "C3773", "C215715"}
 )
 
-GENERIC_SUPPRESSION_VERSION = "contracted-role-generic-v1"
+# Fillers inherited by essentially every concept in the applicable hierarchy (policy
+# 5.1). Membership is measured as inherited coverage over the complete stated record,
+# never as raw assertion frequency and never across roles: a filler may be generic on
+# one role and discriminating on another.
+#
+# v2 removed R108 C36122 (Benign Cellular Infiltrate). It was admitted in v1 on its
+# apparent cohort frequency, but that frequency came from R142
+# (Disease_Excludes_Finding) assertions on malignant concepts. As a positive R108
+# finding it is asserted only on the benign genera C3677, C4776 and C5111, giving 5.6%
+# inherited coverage (1 of 18) in the adjudicated cohort against 61-100% for every
+# retained entry. It is discriminating for benign neoplasms, so suppressing it deleted a
+# true constituent (C4791 Left Atrial Myxoma). Full-corpus impact is confined to the
+# benign-neoplasm subtree.
+GENERIC_SUPPRESSION_VERSION = "contracted-role-generic-v2"
 GENERIC_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
     "R103": frozenset({"C45714"}),
     "R104": frozenset({"C12578"}),
     "R105": frozenset({"C12917", "C12922", "C36779"}),
-    "R108": frozenset({"C36115", "C36122", "C53596", "C54172"}),
+    "R108": frozenset({"C36115", "C53596", "C54172"}),
 }
 
 # Source-reviewed R126 assertions that have a ratified univocal sense. Every other

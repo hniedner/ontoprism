@@ -150,10 +150,10 @@ def test_lineage_generic_genera_scope_is_endocrine_only() -> None:
 
 @pytest.mark.unit
 def test_generic_suppression_is_versioned_and_role_specific() -> None:
-    assert GENERIC_SUPPRESSION_VERSION == "contracted-role-generic-v1"
+    assert GENERIC_SUPPRESSION_VERSION == "contracted-role-generic-v2"
     assert {
         "R103": frozenset({"C45714"}),
         "R104": frozenset({"C12578"}),
         "R105": frozenset({"C12917", "C12922", "C36779"}),
-        "R108": frozenset({"C36115", "C36122", "C53596", "C54172"}),
+        "R108": frozenset({"C36115", "C53596", "C54172"}),
     } == GENERIC_FILLERS_BY_ROLE

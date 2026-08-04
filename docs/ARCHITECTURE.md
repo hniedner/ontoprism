@@ -96,7 +96,7 @@ The future occurrence schema and API are tracked in #263.
 
 The M1 curated projection is source-complete for adjudicated R103 normal-tissue-origin and
 R108 clinical-finding facts after same-axis specificity and the versioned
-`contracted-role-generic-v1` suppression list. R104 CellOrigin and R107
+`contracted-role-generic-v2` suppression list. R104 CellOrigin and R107
 CytogeneticAbnormality remain named scope omissions pending axis-level adjudication; their
 complete-definition facts are still preserved. Is-a may collapse a broader filler on any
 axis, while R82 part-of may collapse only location-axis fillers. Independent lineage

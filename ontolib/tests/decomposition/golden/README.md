@@ -58,7 +58,7 @@ the status does not add an expected pair or change bound/augmented scores. Class
 established site evidence is `undetermined` until occurrence-level evidence resolves it.
 
 The M1 expected store covers audited R103 and R108 source facts after same-axis collapse
-and `contracted-role-generic-v1` suppression. R104 and R107 are named scope omissions
+and `contracted-role-generic-v2` suppression. R104 and R107 are named scope omissions
 pending axis adjudication, not silently deferred expectations. R82 partonomy contributes
 to specificity only for location axes; non-location classifiers remain independent unless
 is-a subsumption applies. Group agreement compares complete partitions over matched pairs,
