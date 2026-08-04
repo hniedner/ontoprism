@@ -314,6 +314,10 @@ pdm run test-ci            # CI gate with ≥90% coverage
 pdm run pre-commit run --all-files  # Local quality gate
 ```
 
+When the certified stated NCIt corpus is served separately from the configured inferred
+store, set `NCIT_STATED_SPARQL_URL` for the read-only full-store gate. For the M1 26.07d
+review setup: `NCIT_STATED_SPARQL_URL=http://localhost:7890 pdm run test-integration-full-store`.
+
 ### Architecture decisions
 
 Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D44)

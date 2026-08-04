@@ -93,6 +93,19 @@ def test_benign_cellular_infiltrate_survives_as_a_positive_finding() -> None:
 
 
 @pytest.mark.unit
+def test_unsupported_germinal_layer_tissue_origin_is_excluded() -> None:
+    restrictions = _roles(
+        ("R103", "C54105", "Disease_Has_Normal_Tissue_Origin"),
+        ("R104", "C12597", "Disease_Has_Normal_Cell_Origin"),
+    )
+
+    actual = [
+        (item.role_code, item.filler_code) for item in filter_excluded(restrictions)
+    ]
+    assert actual == [("R104", "C12597")]
+
+
+@pytest.mark.unit
 def test_stage_system_classification_is_versioned_and_definition_reviewed() -> None:
     assert STAGE_CLASSIFICATION_VERSION == "ncit-26.07d-stage-kind-v1"
     assert {"C140961", "C141685", "C198023", "C206211"} <= STAGE_SYSTEM_CODES

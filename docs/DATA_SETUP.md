@@ -32,6 +32,19 @@ This loopback request is an operator check against the Oxigraph service itself. 
 FastAPI application exposes no public raw-SPARQL endpoint; its supported query surface
 is the typed API (D44).
 
+The M1 26.07d review uses a separately certified stated-source store on `:7890`; it does
+not replace the application store on `:7888`. Run the combined read-only corpus contracts
+with both lanes explicit:
+
+```bash
+NCIT_SPARQL_URL=http://localhost:7888 \
+NCIT_STATED_SPARQL_URL=http://localhost:7890 \
+pdm run test-integration-full-store
+```
+
+`NCIT_STATED_SPARQL_URL` affects only stated-graph full-store contracts and falls back to
+`NCIT_SPARQL_URL` when omitted.
+
 ## 2. Embeddings (pgvector)
 
 Embeddings are published only by ontoprism's validated build. Do **not** pipe a sibling

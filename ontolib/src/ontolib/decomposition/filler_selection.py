@@ -44,6 +44,9 @@ def filter_excluded(restrictions: Iterable[RoleRestriction]) -> list[RoleRestric
         for restriction in restrictions
         if axes.is_defining_role(restriction)
         and not axes.is_generic_filler(restriction.role_code, restriction.filler_code)
+        and not axes.is_unsupported_filler(
+            restriction.role_code, restriction.filler_code
+        )
     ]
 
 

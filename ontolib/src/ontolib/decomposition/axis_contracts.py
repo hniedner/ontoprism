@@ -30,6 +30,7 @@ AxisGovernance = Annotated[
     StableGovernance | ProvisionalGovernance,
     Field(discriminator="status"),
 ]
+AxisModality = Literal["asserted", "non-defining"]
 
 
 class AxisContract(_StrictModel):
@@ -46,6 +47,7 @@ class AxisContract(_StrictModel):
     provenance: tuple[str, ...] = Field(min_length=1)
     ro_parent: str | None = Field(default=None, pattern=r"^RO:[0-9]{7}$")
     governance: AxisGovernance = Field(default_factory=StableGovernance)
+    modality: AxisModality = "asserted"
 
 
 _DISEASE = ("C7057", "Disease, Disorder or Finding")
@@ -69,6 +71,7 @@ def _contract(
     *source_roles: str,
     ro_parent: str | None = None,
     governance: AxisGovernance | None = None,
+    modality: AxisModality = "asserted",
 ) -> AxisContract:
     return AxisContract(
         axis=axis,
@@ -82,6 +85,7 @@ def _contract(
         provenance=_PROVENANCE,
         ro_parent=ro_parent,
         governance=governance or StableGovernance(),
+        modality=modality,
     )
 
 
@@ -153,6 +157,7 @@ _CONTRACT_SEQUENCE = (
         "Relates a disease to the normal tissue in which the process begins.",
         _ANATOMY,
         "R103",
+        modality="non-defining",
     ),
     _contract(
         "op:CellOrigin",

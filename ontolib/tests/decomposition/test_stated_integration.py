@@ -64,7 +64,10 @@ _EXPANSION_NODE = re.compile(rf"BIND\(<{re.escape(NCIT_NS)}(C[0-9]+)> AS \?node\
 
 
 def _url() -> str:
-    return os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL)
+    return os.environ.get(
+        "NCIT_STATED_SPARQL_URL",
+        os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL),
+    )
 
 
 def _reachable(url: str) -> bool:
@@ -669,7 +672,7 @@ async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> Non
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )
 
-    assert version_rows == [{"version": "26.06e"}]
+    assert version_rows == [{"version": "26.07d"}]
     assert rows == [
         {
             "part": f"{NCIT_NS}C32291",
@@ -697,7 +700,7 @@ async def test_part_of_closure_matches_version_pinned_full_store() -> None:
             f"?ontology a <{OWL_NS}Ontology> ; "
             f"<{OWL_NS}versionInfo> ?version . }} }}"
         )
-        assert version_rows == [{"version": "26.06e"}]
+        assert version_rows == [{"version": "26.07d"}]
         one_edge_rows = await client.select(
             build_part_of_pairs_query(part_codes=codes, whole_codes=codes),
             required_variables={"part", "whole"},
@@ -794,6 +797,34 @@ async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
     )
     assert {item.filler_code for item in constituents} == {"C12704", "C12705"}
     assert all(item.group is None for item in constituents)
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_only_r103_role_annotation_declares_non_defining() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    async with OxigraphHttpClient(url) as client:
+        assert await client.version() == "26.07d"
+        rows = await client.select(
+            f"SELECT ?role ?note WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?role <{NCIT_NS}P98> ?note . "
+            'FILTER(STRSTARTS(STR(?role), "http://ncicb.nci.nih.gov/xml/owl/EVS/'
+            'Thesaurus.owl#R")) '
+            'FILTER(CONTAINS(LCASE(STR(?note)), "non-defining role")) } }',
+            required_variables={"role", "note"},
+        )
+    assert rows == [
+        {
+            "role": f"{NCIT_NS}R103",
+            "note": (
+                "This non-defining role represents non-essential characteristics "
+                "which are true in some, but not all, cases, yet have an association "
+                "frequent enough to be of interest."
+            ),
+        }
+    ]
 
 
 @pytest.mark.integration
@@ -936,8 +967,8 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.full_store
-async def test_c6135_organ_lookup_preserves_real_associated_regions() -> None:
-    """Pin #156 to the stated C6135 organ-plus-region production shape."""
+async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
+    """Pin the D59 projection while preserving both stated region facts."""
     url = _url()
     if not _reachable(url):
         pytest.skip(f"NCIt Oxigraph not reachable at {url}")
@@ -961,7 +992,7 @@ async def test_c6135_organ_lookup_preserves_real_associated_regions() -> None:
             walker_max_depth=6,
         )
 
-    assert stated_version == [{"version": "26.06e"}]
+    assert stated_version == [{"version": "26.07d"}]
     decomposition = result.decomposition
     assert decomposition is not None
     assert decomposition.complete_definition is not None
@@ -974,14 +1005,14 @@ async def test_c6135_organ_lookup_preserves_real_associated_regions() -> None:
         for axis in ("op:PrimarySite", "op:AssociatedRegion")
     }
     assert by_axis["op:PrimarySite"] == {"C12400"}
-    assert by_axis["op:AssociatedRegion"] == {"C12418", "C13063"}
+    assert by_axis["op:AssociatedRegion"] == {"C13063"}
     regions = [
         constituent
         for constituent in decomposition.constituents
         if constituent.axis == "op:AssociatedRegion"
     ]
     assert all(
-        constituent.group == "op:AssociatedRegion"
+        constituent.group is None
         and constituent.source_role == "R101"
         and constituent.source_definition_ids
         and constituent.needs_review is False
@@ -1024,7 +1055,7 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
             f"?ontology a <{OWL_NS}Ontology> ; "
             f"<{OWL_NS}versionInfo> ?version . }} }}"
         )
-        assert stated_version == [{"version": "26.06e"}]
+        assert stated_version == [{"version": "26.07d"}]
         multi_parent = await read_complete_definition(client.select, "C3879")
         grouped_result = await _decompose_one(
             "C136775",
@@ -1070,22 +1101,29 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
         review = review_result.decomposition
         assert review is not None
         assert review.complete_definition is not None
-        review_required = [
+        retained_cell_types = [
             constituent
             for constituent in review.constituents
             if constituent.axis == "op:CellType"
             and constituent.filler_code in {"C12917", "C36903"}
         ]
-        assert {constituent.filler_code for constituent in review_required} == {
-            "C12917",
-            "C36903",
+        assert {constituent.filler_code for constituent in retained_cell_types} == {
+            "C36903"
         }, review.constituents
         assert all(
-            constituent.needs_review
+            not constituent.needs_review
             and constituent.source_role == "R105"
             and constituent.source_definition_ids
-            for constituent in review_required
+            for constituent in retained_cell_types
         )
+        complete_cell_types = {
+            fact.filler_code
+            for fact in review.complete_definition.facts
+            if isinstance(fact, RestrictionDefinitionFact)
+            and fact.role_code == "R105"
+            and fact.filler_code in {"C12917", "C36903"}
+        }
+        assert complete_cell_types == {"C12917", "C36903"}
 
 
 @pytest.mark.integration

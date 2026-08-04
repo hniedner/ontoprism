@@ -12,6 +12,8 @@ from ontolib.decomposition.axes import (
     MORPHOLOGY_AXIS,
     ORGAN_SEMANTIC_TYPE,
     PRIMARY_SITE_ROLE,
+    UNSUPPORTED_FILLER_VERSION,
+    UNSUPPORTED_FILLERS_BY_ROLE,
     is_defining_role,
     is_excluded_role,
     is_in_scope,
@@ -157,3 +159,9 @@ def test_generic_suppression_is_versioned_and_role_specific() -> None:
         "R105": frozenset({"C12917", "C12922", "C36779"}),
         "R108": frozenset({"C36115", "C53596", "C54172"}),
     } == GENERIC_FILLERS_BY_ROLE
+
+
+@pytest.mark.unit
+def test_unsupported_filler_exclusion_is_versioned_and_role_specific() -> None:
+    assert UNSUPPORTED_FILLER_VERSION == "ncit-26.07d-unsupported-filler-v1"
+    assert {"R103": frozenset({"C54105"})} == UNSUPPORTED_FILLERS_BY_ROLE

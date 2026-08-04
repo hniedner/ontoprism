@@ -14,13 +14,18 @@ After same-axis specificity and reviewed generic suppression, v10 still omitted 
 25 R108, 10 R104, and one R107 pair. The old 0.6807 recall therefore measured an
 engine-shaped oracle, not all ratified M1 content.
 
-**Decision:** M1 includes every source-supported R103 and range-valid R108 survivor after
-same-axis collapse and the versioned `contracted-role-generic-v2` list. R104 CellOrigin
-and R107 CytogeneticAbnormality remain explicit named scope omissions until their
-cardinality, grouping, RO alignment, and suppression policy are adjudicated; they are not
-silently called non-core or mixed into current metrics. The walker projects inherited
-R103/R108 and continues to hold inherited R104/R107. The complete record retains all
-source facts regardless of projection suppression.
+**Decision:** M1 includes every adjudicated source-supported R103 and range-valid R108
+survivor after same-axis collapse and the versioned `contracted-role-generic-v2` list.
+NCIt marks R103 as non-defining in P98, so its 12 expected pairs remain scored but carry
+derived `non-defining` modality and are reported as a visible stratum. The versioned
+`ncit-26.07d-unsupported-filler-v1` register excludes R103 C54105 for C102870 and C27787:
+that germinal-layer filler conflicts with both concept definitions and is not accuracy
+content. R104 CellOrigin and R107 CytogeneticAbnormality remain explicit named scope
+omissions until their cardinality, grouping, RO alignment, and suppression policy are
+adjudicated; the 10 R104 and one R107 survivors are not silently called non-core or mixed
+into current metrics. The walker projects inherited R103/R108 and continues to hold
+inherited R104/R107. The complete record retains all source facts regardless of projection
+suppression.
 
 The generic list is role-specific: R103 C45714; R104 C12578; R105 C12917, C12922,
 C36779; and R108 C36115, C53596, C54172. Membership is inherited coverage over the
@@ -47,10 +52,12 @@ non-constituent `unknown-cup` status. C198031 retains C3168 alone because C4005 
 broader stated defining ancestor.
 
 **Why:** rules and conserved source dispositions make the oracle reproducible and expose
-production blind spots without importing unadjudicated axes. The corrected v11 bound
-result is TP 81, FP 25, FN 76 (precision 0.7642, recall 0.5159); augmented adds one FN.
-The unchanged precision and lower recall are the expected scientific result of recovering
-true source content the engine does not yet emit.
+production blind spots without importing unadjudicated axes. The final v13 NCIt-bound
+result is TP 81, FP 25, FN 75 (precision 0.7642, recall 0.5192); the augmented view adds
+one locally approved expectation and therefore has FN 76 (recall 0.5159). A defining-only
+diagnostic view is TP 80, FP 25, FN 64 (recall 0.5556), while the non-defining R103 stratum
+is TP 1 and FN 11. The unchanged precision and lower recall are the expected scientific
+result of recovering true source content the engine does not yet emit.
 
 ## 2026-08-03 — cardinality, local-relation maturity, and routing release gates
 

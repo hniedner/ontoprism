@@ -67,6 +67,11 @@ GENERIC_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
     "R108": frozenset({"C36115", "C53596", "C54172"}),
 }
 
+UNSUPPORTED_FILLER_VERSION = "ncit-26.07d-unsupported-filler-v1"
+UNSUPPORTED_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
+    "R103": frozenset({"C54105"}),
+}
+
 # Source-reviewed R126 assertions that have a ratified univocal sense. Every other
 # R126 assertion remains raw and review-required; there is deliberately no generic
 # associated-disease fallback (Issue #57 adjudication Q5/Q6).
@@ -100,6 +105,11 @@ def is_lineage_generic(genus_code: str | None) -> bool:
 def is_generic_filler(role_code: str, filler_code: str) -> bool:
     """True when a reviewed source-role filler is non-discriminating in projection."""
     return filler_code in GENERIC_FILLERS_BY_ROLE.get(role_code, ())
+
+
+def is_unsupported_filler(role_code: str, filler_code: str) -> bool:
+    """True when source role/filler meaning conflicts with the concept definition."""
+    return filler_code in UNSUPPORTED_FILLERS_BY_ROLE.get(role_code, ())
 
 
 # NCIt 26.07d's probabilistic ``May_Have_*`` roles are non-defining and excluded

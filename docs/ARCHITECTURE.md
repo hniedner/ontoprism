@@ -96,11 +96,13 @@ The future occurrence schema and API are tracked in #263.
 
 The M1 curated projection is source-complete for adjudicated R103 normal-tissue-origin and
 R108 clinical-finding facts after same-axis specificity and the versioned
-`contracted-role-generic-v2` suppression list. R104 CellOrigin and R107
-CytogeneticAbnormality remain named scope omissions pending axis-level adjudication; their
-complete-definition facts are still preserved. Is-a may collapse a broader filler on any
-axis, while R82 part-of may collapse only location-axis fillers. Independent lineage
-classifiers therefore remain ungrouped and uncollapsed (D59).
+`contracted-role-generic-v2` suppression list. R103 expectations carry their source-derived
+non-defining modality; `ncit-26.07d-unsupported-filler-v1` excludes the two C54105 source
+conflicts from accuracy content. Ten R104 CellOrigin and one R107
+CytogeneticAbnormality survivor remain named scope omissions pending axis-level
+adjudication; their complete-definition facts are still preserved. Is-a may collapse a
+broader filler on any axis, while R82 part-of may collapse only location-axis fillers.
+Independent lineage classifiers therefore remain ungrouped and uncollapsed (D59).
 
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
 (the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)

@@ -96,3 +96,10 @@ def test_provisional_local_relations_expose_review_and_fallback_governance() -> 
     assert lineage.governance.fallback_axis == "R101"
     assert lineage.governance.fallback_needs_review is True
     assert lineage.governance.evidence_count == 3
+
+
+@pytest.mark.unit
+def test_r103_modality_is_derived_from_the_axis_contract() -> None:
+    assert AXIS_CONTRACTS["op:NormalTissueOrigin"].modality == "non-defining"
+    assert AXIS_CONTRACTS["op:PrimarySite"].modality == "asserted"
+    assert AXIS_CONTRACTS["op:AssociatedSite"].modality == "asserted"
