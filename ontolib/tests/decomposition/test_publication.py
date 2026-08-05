@@ -774,6 +774,41 @@ async def test_cancelled_failure_journal_waits_for_recording_to_finish() -> None
 
 
 @pytest.mark.unit
+async def test_failure_journal_error_does_not_replace_cancellation() -> None:
+    recording_started = asyncio.Event()
+    release_recording = asyncio.Event()
+    journal_error = RuntimeError("failure journal unavailable")
+
+    class _FailingFailureJournal:
+        async def record_publication_failure(
+            self,
+            _run_id: str,
+            _error: BaseException,
+        ) -> None:
+            recording_started.set()
+            await release_recording.wait()
+            raise journal_error
+
+    task = asyncio.create_task(
+        _record_failure_without_masking(
+            _FailingFailureJournal(),  # type: ignore[arg-type]
+            "neoplasm-run-1",
+            RuntimeError("graph replacement failed"),
+        )
+    )
+    await recording_started.wait()
+    task.cancel()
+    release_recording.set()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        await task
+
+    assert any(
+        "failure journal unavailable" in note for note in exc_info.value.__notes__
+    )
+
+
+@pytest.mark.unit
 async def test_cancellation_during_failure_journaling_is_not_swallowed(
     tmp_path: Path,
 ) -> None:

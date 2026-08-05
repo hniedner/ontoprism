@@ -95,7 +95,7 @@ class _StrictModel(BaseModel):
 
 
 class DuplicateCheck(_StrictModel):
-    """One version-pinned search for an already-existing equivalent."""
+    """One resource- and version-labelled search for an existing equivalent."""
 
     resource: str
     version: str
@@ -401,7 +401,7 @@ def _csv_text(rows: tuple[dict[str, str], ...], fields: tuple[str, ...]) -> str:
 
 
 def write_submission_exports(registry: ProposalRegistry, directory: str | Path) -> None:
-    """Write deterministic proposed-only NCIt and relation submission artifacts."""
+    """Write proposed submissions plus augmented and accepted-resolution artifacts."""
     root = Path(directory)
     root.mkdir(parents=True, exist_ok=True)
     concept_fields = (

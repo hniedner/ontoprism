@@ -49,21 +49,24 @@ has resolved a pair, they do not override `Expected needs_review` or silently de
 `decomposed` expectation must have at least one constituent; all other typed outcomes must
 have none.
 
-Primary-site occurrence status is deliberately not a constituent or pair metric. The
-class projection keeps anatomy-valued `op:PrimarySite` at `0..1`; no site does not imply
+Primary-site occurrence status is deliberately not a constituent or pair metric. After
+review, the class projection keeps anatomy-valued `op:PrimarySite` at `0..1`; pending
+review may retain multiple candidates rather than choose silently. No site does not imply
 unknown primary. D58 defines a future occurrence-level status vocabulary (`known`,
-`unknown-cup`, `undetermined`, `not-applicable`). At class level it is derived from a
-projected site plus explicit unknown-primary evidence in the complete stated record, so
-the status does not add an expected pair or change bound/augmented scores. Class-derived
-`not-applicable` is never inherited by an occurrence; a solid-tumour occurrence without
-established site evidence is `undetermined` until occurrence-level evidence resolves it.
+`unknown-cup`, `undetermined`, `not-applicable`) and a future class-level derivation from a
+projected site plus explicit unknown-primary evidence. Neither is currently computed or
+persisted, and status does not add an expected pair or change bound/augmented scores. A
+future class-derived `not-applicable` value must never be inherited by an occurrence; a
+solid-tumour occurrence without established site evidence is `undetermined` until
+occurrence-level evidence resolves it.
 
 The M1 expected store covers audited R103 and R108 source facts after same-axis collapse
 and `contracted-role-generic-v2` suppression. R104 and R107 are named scope omissions
 pending axis adjudication, not silently deferred expectations. R82 partonomy contributes
 to specificity only for location axes; non-location classifiers remain independent unless
-is-a subsumption applies. Group agreement compares complete partitions over matched pairs,
-not boolean grouped/ungrouped parity.
+is-a subsumption applies. Group agreement compares complete expected and actual scorable
+partitions, so a missing or extra pair also prevents a group match; it is not boolean
+grouped/ungrouped parity.
 
 Example final entry:
 

@@ -40,7 +40,7 @@ def _is_strictly_broader(broader: str, narrower: str, is_ancestor: IsAncestor) -
 def filter_excluded(
     restrictions: Iterable[RoleRestriction], *, concept_code: str | None = None
 ) -> list[RoleRestriction]:
-    """Drop non-defining, generic, and concept-specific unsupported restrictions."""
+    """Drop non-projectable, generic, and concept-specific unsupported restrictions."""
     return [
         restriction
         for restriction in restrictions

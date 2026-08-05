@@ -276,7 +276,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 |---|---|---|
 | NCIt + caDSR explorer | **Working** — search, browse, concept detail, graph explorer, CDE cross-links | |
 | Decomposition engine | **Working** — detector, extractor, writer, CLI (`pdm run decompose`); SME golden-set curation loop landed (#44) | [design docs](docs/design/) |
-| Extractor curation | **Substantive review complete** — 20-concept source-bound/augmented oracle and reporting are ready; final human attestation remains | [#57](https://github.com/hniedner/ontoprism/issues/57) · follow-ups [#261](https://github.com/hniedner/ontoprism/issues/261), [#262](https://github.com/hniedner/ontoprism/issues/262), [#263](https://github.com/hniedner/ontoprism/issues/263) |
+| Extractor curation | **Pending final attestation** — the 20-concept source-bound/augmented review packet and reporting are ready, but are not yet the scorer oracle | [#57](https://github.com/hniedner/ontoprism/issues/57) · follow-ups [#261](https://github.com/hniedner/ontoprism/issues/261), [#262](https://github.com/hniedner/ontoprism/issues/262), [#263](https://github.com/hniedner/ontoprism/issues/263) |
 | External integration (dual-canonical) | **Phase-A foundation landed** — xref store, caDSR anchors, Uberon/CL candidates, ELK/ROBOT validation (#76 golden mapping set still open); Phase B–E pending | [#70](https://github.com/hniedner/ontoprism/issues/70) |
 | Graph balancing | **Not started** — depends on trustworthy decomposition output | [#5](https://github.com/hniedner/ontoprism/issues/5) |
 | Post-coordination grammar | **Not started** — depends on graph balancing | [#6](https://github.com/hniedner/ontoprism/issues/6) |

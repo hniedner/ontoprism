@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter, defaultdict
+from datetime import date
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -295,8 +296,107 @@ def test_provenance_ledger_dispositions_exactly_304_occurrences() -> None:
 def _blank_workbook(path: Path) -> None:
     workbook = Workbook()
     cast("Worksheet", workbook.active).title = "START HERE"
-    workbook.create_sheet("Reviewer & Attestation")
+    reviewer = workbook.create_sheet("Reviewer & Attestation")
+    reviewer["B5"] = "Example Reviewer"
+    reviewer["B6"] = "NCIt ontology curator"
+    reviewer["B7"] = date(2026, 8, 4)
+    reviewer["B8"] = "NCIt 26.07d"
+    reviewer["B9"] = "ATTESTED"
+    concepts = workbook.create_sheet("Concept Decisions")
+    concept_headers = (
+        "Order",
+        "Concept Code",
+        "Source Label",
+        "Source Semantic Types",
+        "Expected Semantic Types",
+        "Engine Suggested Outcome",
+        "SME Decision Status",
+        "Expected Outcome",
+        "Rationale / Required Follow-up",
+        "Source Reviewed?",
+        "Concept Complete?",
+    )
+    for column, header in enumerate(concept_headers, start=1):
+        concepts.cell(4, column, header)
+    codes = [f"C{index}" for index in range(17)] + ["C4791", "C35756", "C89995"]
+    for order, code in enumerate(codes, start=1):
+        values = (
+            order,
+            code,
+            f"Reviewed {code}",
+            "Neoplastic Process",
+            "Neoplastic Process",
+            "decomposed",
+            "accepted",
+            "decomposed",
+            "Reviewed against the stated source.",
+            "YES",
+            "YES",
+        )
+        for column, value in enumerate(values, start=1):
+            concepts.cell(order + 4, column, value)
+    constituents = workbook.create_sheet("Constituent Decisions")
+    constituent_headers = (
+        "Concept Order",
+        "Concept Code",
+        "Source Label",
+        "Row Type",
+        "Engine Axis",
+        "Engine Filler",
+        "Engine Filler Label",
+        "Engine Group",
+        "Engine needs_review",
+        "SME Action",
+        "Expected Axis",
+        "Expected Filler",
+        "Expected Group",
+        "Expected needs_review",
+        "Expected Provenance Status",
+        "SME Notes",
+        "Row Complete?",
+    )
+    for column, header in enumerate(constituent_headers, start=1):
+        constituents.cell(4, column, header)
+    for order, code in enumerate(codes, start=1):
+        values = (
+            order,
+            code,
+            f"Reviewed {code}",
+            "ENGINE SUGGESTION",
+            "op:StageValue",
+            "C27970",
+            "Stage III",
+            None,
+            "FALSE",
+            "include",
+            "op:StageValue",
+            "C27970",
+            None,
+            "FALSE",
+            "ncit-26.07d",
+            "",
+            "YES",
+        )
+        for column, value in enumerate(values, start=1):
+            constituents.cell(order + 4, column, value)
     workbook.create_sheet("Validation Summary")
+    workbook.create_sheet("Worked Examples")
+    workbook.create_sheet("Prior SME Evidence")
+    evidence = workbook.create_sheet("Source & Run Evidence")
+    evidence_rows = (
+        ("NCIt release", "26.07d"),
+        ("Source identity", "a" * 64),
+        ("Sample identity", "b" * 64),
+        ("Engine run", "neoplasm-run-1"),
+        ("Run fingerprint identity", "c" * 64),
+        ("Artifact SHA-256", "d" * 64),
+        ("Engine evidence identity", "e" * 64),
+        ("Corpus evidence identity", "f" * 64),
+        ("Detector identity", "0" * 64),
+    )
+    for row, (key, value) in enumerate(evidence_rows, start=5):
+        evidence.cell(row, 1, key)
+        evidence.cell(row, 2, value)
     workbook.save(path)
 
 
@@ -389,10 +489,14 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     artifact = _candidate_artifact()
     write_review_workbook(base, artifact, review)
 
-    with pytest.raises(ValueError, match="not ATTESTED"):
+    workbook = load_workbook(review)
+    workbook["Reviewer & Attestation"]["B9"] = "ATTESTED"
+    workbook.save(review)
+    with pytest.raises(ValueError, match="metadata"):
         import_review_decisions(review, artifact)
 
     workbook = load_workbook(review)
+    workbook["Reviewer & Attestation"]["B9"] = "PENDING"
     sheet = workbook["Semantic Bundle Decisions"]
     sheet["B5"] = "ATTESTED"
     for row in range(9, sheet.max_row + 1):
@@ -402,7 +506,7 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
         sheet.cell(row, 11, "2026-08-04")
     workbook.save(review)
 
-    with pytest.raises(ValueError, match="reviewer attestation is not ATTESTED"):
+    with pytest.raises(ValueError, match="attestation is pending"):
         import_review_decisions(review, artifact)
 
     workbook = load_workbook(review)
@@ -411,6 +515,7 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     canonical = import_review_decisions(review, artifact)
 
     assert canonical["status"] == "ATTESTED"
+    assert len(cast("str", canonical["adjudication_artifact_identity"])) == 64
     rules = cast("list[dict[str, object]]", canonical["semantic_bundle_rules"])
     assert [item["candidate_id"] for item in rules] == [
         STAGE_BUNDLE_CANDIDATES[0].candidate_id
@@ -419,6 +524,64 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     workbook["Semantic Bundle Decisions"]["B9"] = "0" * 64
     workbook.save(review)
     with pytest.raises(ValueError, match="candidate fields changed"):
+        import_review_decisions(review, artifact)
+
+
+@pytest.mark.unit
+def test_canonical_import_requires_complete_constituent_review(tmp_path: Path) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact()
+    write_review_workbook(base, artifact, review)
+    _attest_review_workbook(review)
+    workbook = load_workbook(review)
+    workbook["Constituent Decisions"]["J5"] = "PENDING"
+    workbook.save(review)
+
+    with pytest.raises(ValueError, match="pending constituent action"):
+        import_review_decisions(review, artifact)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("hidden_target", ["sheet", "row", "column"])
+def test_canonical_import_rejects_hidden_semantic_review_content(
+    tmp_path: Path,
+    hidden_target: str,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact()
+    write_review_workbook(base, artifact, review)
+    _attest_review_workbook(review)
+    workbook = load_workbook(review)
+    sheet = workbook["Semantic Bundle Decisions"]
+    if hidden_target == "sheet":
+        sheet.sheet_state = "hidden"
+    elif hidden_target == "row":
+        sheet.row_dimensions[9].hidden = True
+    else:
+        sheet.column_dimensions["H"].hidden = True
+    workbook.save(review)
+
+    with pytest.raises(ValueError, match=r"visible|hidden"):
+        import_review_decisions(review, artifact)
+
+
+@pytest.mark.unit
+def test_canonical_import_validates_semantic_review_metadata(tmp_path: Path) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact()
+    write_review_workbook(base, artifact, review)
+    _attest_review_workbook(review)
+    workbook = load_workbook(review)
+    workbook["Semantic Bundle Decisions"]["B3"] = "stale-release"
+    workbook.save(review)
+
+    with pytest.raises(ValueError, match="metadata"):
         import_review_decisions(review, artifact)
 
 

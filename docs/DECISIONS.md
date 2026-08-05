@@ -6,10 +6,11 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 ### D59. Contracted-role source audit governs projection scope and relation-specific collapse
 
-The final #57 review found that the golden oracle and the production walker shared the
-same omission: inherited R103/R108 facts were filtered before curation, while R104/R107
-contracts existed in code but had never received axis-level SME sanctioning. A certified
-NCIt 26.07d complete-definition pass over all 20 concepts found 304 contracted-role facts.
+The latest technical #57 review found that the candidate oracle and production walker
+shared the same omission: inherited R103/R108 facts were filtered before curation, while
+R104/R107 contracts existed in code but had never received axis-level SME sanctioning. A
+certified NCIt 26.07d complete-definition pass over all 20 concepts found 304 contracted-role
+facts.
 After same-axis specificity and reviewed generic suppression, v10 still omitted 13 R103,
 25 R108, 10 R104, and one R107 pair. The old 0.6807 recall therefore measured an
 engine-shaped oracle, not all ratified M1 content.
@@ -166,19 +167,21 @@ therefore cannot support a defensible NCIt or Relation Ontology submission.
 
 **Decision:** proposal review uses a strict versioned registry with two discriminated
 types: concept proposals and relation proposals. Both carry an identified NCIt source,
-formal definition, source roles, rationale, one or more versioned duplicate checks, a
-submission target, and an explicit `proposed`/`approved`/`rejected` state. Concept
+formal definition, source roles, rationale, one or more resource- and version-labelled
+duplicate checks, a submission target, and an explicit `proposed`, `locally-approved`,
+`submitted`, `accepted`, or `rejected` state. Concept
 proposals additionally carry their projection axis, parent concepts, semantic types,
 synonyms, and source concepts. Relation proposals carry domain, range, and representative
 source pairs. IDs are deterministic from the concept axis/name or relation name; duplicate
 IDs and duplicate-check resources fail closed. JSON loading rejects duplicate keys and
 verifies a canonical SHA-256 registry identity.
 
-Only `proposed` records enter deterministic flat submission exports. Registry records do
-not enter `AXIS_CONTRACTS`, the decomposed graph, or the global runtime mint queue, and no
-proposal is approved merely because an export exists. `pdm run adjudication
-export-proposals REGISTRY OUTPUT_DIR` validates the registry before writing NCIt concept,
-relation, and manifest artifacts.
+Only `proposed` records enter deterministic flat submission exports. The same export
+command also writes locally augmented RDF and accepted replacement resolutions, but
+registry records do not enter `AXIS_CONTRACTS`, the decomposed graph, or the global runtime
+mint queue, and no proposal is approved merely because an export exists. `pdm run
+adjudication export-proposals REGISTRY OUTPUT_DIR` validates the registry before writing
+NCIt concept, relation, manifest, augmentation, and replacement artifacts.
 
 **Why:** a missing class and a missing relation are different ontology changes, and an
 overloaded relation must not be "fixed" by inventing a class. Source-bound duplicate

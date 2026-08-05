@@ -853,15 +853,10 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
     return concepts
 
 
-def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
-    """Import the issue #57 workbook without inferring any reviewer decision."""
-    workbook_path = Path(path)
-    try:
-        workbook_bytes = workbook_path.read_bytes()
-    except OSError as error:
-        raise GoldenSetValidationError(
-            f"cannot read adjudication workbook: {error}"
-        ) from error
+def import_adjudication_workbook_bytes(
+    workbook_bytes: bytes,
+) -> AdjudicationArtifact:
+    """Import and validate one immutable issue #57 workbook snapshot."""
     workbook = _load_review_workbook(workbook_bytes)
     reviewer = _reviewer_from_workbook(workbook)
     evidence = _required_evidence(workbook)
@@ -900,6 +895,18 @@ def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
         )
     except (ValidationError, ValueError) as error:
         raise _model_error(error) from error
+
+
+def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
+    """Import the issue #57 workbook without inferring any reviewer decision."""
+    workbook_path = Path(path)
+    try:
+        workbook_bytes = workbook_path.read_bytes()
+    except OSError as error:
+        raise GoldenSetValidationError(
+            f"cannot read adjudication workbook: {error}"
+        ) from error
+    return import_adjudication_workbook_bytes(workbook_bytes)
 
 
 def _normalize_engine(value: dict[str, object]) -> dict[str, object]:

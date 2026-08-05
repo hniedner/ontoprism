@@ -14,7 +14,9 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from scripts.research.golden_review import import_adjudication_workbook_bytes
 
 from ontolib.decomposition.semantic_bundles import (
     AdjudicatedSemanticContext,
@@ -1660,15 +1662,46 @@ def _review_text(value: object, field: str) -> str:
 def _validate_decision_sheet(
     sheet: Worksheet, candidate_artifact: dict[str, object]
 ) -> None:
-    if sheet["B2"].value != candidate_artifact["artifact_identity"]:
-        raise ValueError("workbook candidate artifact identity does not match")
-    if sheet["B5"].value != "ATTESTED":
-        raise ValueError("semantic bundle review is not ATTESTED")
+    expected_metadata = (
+        ("Candidate artifact identity", candidate_artifact["artifact_identity"]),
+        ("NCIt release", _NCIT_RELEASE),
+        ("Evidence registry identity", EVIDENCE_REGISTRY.identity),
+        ("Attestation status", "ATTESTED"),
+    )
+    actual_metadata = tuple(
+        (sheet.cell(row, 1).value, sheet.cell(row, 2).value) for row in range(2, 6)
+    )
+    if actual_metadata != expected_metadata:
+        raise ValueError("semantic review metadata does not match the candidate packet")
     headers = tuple(
         sheet.cell(_DECISION_HEADER_ROW, column).value for column in range(1, 12)
     )
     if headers != _DECISION_HEADERS:
         raise ValueError("semantic decision headers do not match the schema")
+
+
+def _require_visible_semantic_review(sheet: Worksheet) -> None:
+    if sheet.sheet_state != "visible":
+        raise ValueError("semantic decision sheet must be visible")
+    hidden_columns = [
+        get_column_letter(column)
+        for column in range(1, 12)
+        if sheet.column_dimensions[get_column_letter(column)].hidden
+    ]
+    if hidden_columns:
+        raise ValueError(
+            "semantic decision columns must be visible: " + ", ".join(hidden_columns)
+        )
+    hidden_rows = [
+        row
+        for row in range(1, sheet.max_row + 1)
+        if sheet.row_dimensions[row].hidden and _decision_row_has_data(sheet, row)
+    ]
+    if hidden_rows:
+        raise ValueError(
+            "hidden semantic decision rows are not permitted: "
+            + ", ".join(str(row) for row in hidden_rows)
+        )
 
 
 def _decision_row_has_data(sheet: Worksheet, row: int) -> bool:
@@ -1732,12 +1765,12 @@ def _import_review_decisions_snapshot(
     candidate_artifact: dict[str, object],
 ) -> dict[str, object]:
     _validate_artifact_identity(candidate_artifact)
+    adjudication = import_adjudication_workbook_bytes(workbook_bytes)
     workbook = load_workbook(BytesIO(workbook_bytes), data_only=False)
     if _DECISION_SHEET not in workbook.sheetnames:
         raise ValueError(f"workbook is missing {_DECISION_SHEET}")
-    if workbook["Reviewer & Attestation"]["B9"].value != "ATTESTED":
-        raise ValueError("reviewer attestation is not ATTESTED")
     sheet = workbook[_DECISION_SHEET]
+    _require_visible_semantic_review(sheet)
     _validate_decision_sheet(sheet, candidate_artifact)
 
     candidates = {
@@ -1765,6 +1798,7 @@ def _import_review_decisions_snapshot(
         "schema_version": 1,
         "status": "ATTESTED",
         "candidate_artifact_identity": candidate_artifact["artifact_identity"],
+        "adjudication_artifact_identity": adjudication.identity,
         "review_workbook": {
             "file": workbook_name,
             "sha256": _sha256_bytes(workbook_bytes),
@@ -1815,6 +1849,7 @@ _CANONICAL_RULE_KEYS = {
     "schema_version",
     "status",
     "candidate_artifact_identity",
+    "adjudication_artifact_identity",
     "review_workbook",
     "decisions",
     "semantic_bundle_rules",

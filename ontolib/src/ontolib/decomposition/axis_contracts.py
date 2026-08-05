@@ -268,5 +268,5 @@ _SOURCE_ROLE_TO_AXIS = {
 
 
 def normalized_axis_for_role(role_code: str) -> str | None:
-    """Return the direct normalized axis for a defining NCIt source role."""
+    """Return the direct normalized axis for a projectable NCIt source role."""
     return _SOURCE_ROLE_TO_AXIS.get(role_code)

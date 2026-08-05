@@ -86,7 +86,7 @@ class PublicationValidationError(RuntimeError):
 
 
 class PublicationPreflightError(PublicationValidationError):
-    """Publication failed before its retryable intent was journaled."""
+    """Publication failed before its retryable intent was confirmed journaled."""
 
 
 class PublicationFinalizationError(RuntimeError):
@@ -324,9 +324,15 @@ async def _record_failure_without_masking(
     task = asyncio.create_task(provenance.record_publication_failure(run_id, original))
     try:
         await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
-        raise
+    except asyncio.CancelledError as cancellation:
+        try:
+            await task
+        except BaseException as journal_error:
+            cancellation.add_note(
+                "Recording the publication failure during cancellation also failed: "
+                f"{type(journal_error).__name__}: {journal_error}"
+            )
+        raise cancellation
 
 
 async def _replace_graph(
