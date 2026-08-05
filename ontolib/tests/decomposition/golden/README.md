@@ -23,14 +23,17 @@ presented as human truth.
 
 The final artifact requires:
 
-- `_meta.schema_version = 2`, `_meta.status = "SME-ADJUDICATED"`, reviewer identity,
+- `_meta.schema_version = 3`, `_meta.status = "SME-ADJUDICATED"`, reviewer identity,
   qualification/date, NCIt version, and lowercase SHA-256 source, sample, run fingerprint,
-  detector, engine-artifact, engine-evidence, corpus-evidence, and workbook identities;
+  detector, engine-artifact, engine-evidence, corpus-evidence, proposal-registry, and
+  workbook identities;
 - a non-empty label and an `expected` object per accepted concept containing one typed outcome
   (`decomposed`, `residual`, `semantic-excluded`, or `atomic-no-op`), the complete
   semantic-type list, and unique constituent objects;
 - an explicit relationship group (string or `null`), `needs_review` boolean, and
-  reviewer-authored `provenance_status` on every constituent; and
+  reviewer-authored `provenance_status` on every constituent. Every non-NCIt provenance
+  status also requires a `proposal_id` whose registry status and normalized axis match;
+  NCIt-bound constituents require `proposal_id: null`; and
 - per-concept adjudication status and rationale. Rejected/revision-needed entries must
   have `expected: null` and never enter metrics.
 
@@ -83,7 +86,8 @@ Example final entry:
         "filler": "C27970",
         "relationship_group": "stage",
         "needs_review": false,
-        "provenance_status": "ncit-26.07d"
+        "provenance_status": "ncit-26.07d",
+        "proposal_id": null
       }
     ]
   },
@@ -95,9 +99,10 @@ Example final entry:
 ```
 
 The artifact stores concepts as a JSON array so duplicate concept codes can be detected.
-Use `pdm run adjudication import-workbook <workbook.xlsx> <artifact.json>` to import a
-completed workbook and `pdm run adjudication evaluate <artifact.json>
-<engine-evidence.json> <corpus-comparison.json> <report.json>` to generate the canonical
-accepted-only report. Both commands fail closed on pending review or identity drift.
+Use `pdm run adjudication import-workbook <workbook.xlsx> <proposal-registry.json>
+<artifact.json>` to import a completed workbook and `pdm run adjudication evaluate
+<artifact.json> <engine-evidence.json> <corpus-comparison.json> <proposal-registry.json>
+<report.json>` to generate the canonical accepted-only report. Both commands fail closed
+on pending review or identity drift.
 Residual comparison inputs must list the exact denominator and residual concept codes;
 historical aggregate counts alone are insufficient because they cannot prove membership.

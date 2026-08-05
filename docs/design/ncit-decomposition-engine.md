@@ -584,17 +584,18 @@ split: region/tissue fillers are taken from the pre-collapse R101 set and routed
 `op:AssociatedRegion`, so an R82 whole/part comparison never deletes a fact merely
 because it belongs on a different normalized axis (#156).
 
-The resulting class projection has `op:PrimarySite 0..1`; this is not a total relation.
+The resulting `Decomposition` model enforces `op:PrimarySite 0..1` for resolved
+constituents; this is not a total relation.
 No-site classes are not thereby cancers of unknown primary, and neither a Finding such as
 `C48322` nor a minted "unknown anatomy" sentinel may enter the anatomy-valued axis. D58
 defines a separate future occurrence-level `primarySiteStatus` with values `known`,
-`unknown-cup`, `undetermined`, and `not-applicable`. At class level that status is derived,
-not emitted: a site means `known`, an explicit unknown-primary assertion in the complete
-record means `unknown-cup`, and otherwise no site means `not-applicable`. `undetermined`
-requires patient-level workup state and is therefore unreachable in this extractor. The
-class-level `not-applicable` summary MUST NOT propagate to an occurrence; a solid-tumour
-occurrence from a site-agnostic class starts `undetermined` until occurrence evidence
-establishes a site or CUP state.
+`unknown-cup`, `undetermined`, and `not-applicable`. No current extractor field computes or
+persists that status. D58 specifies a future class-level derivation in which a site means
+`known`, explicit unknown-primary evidence means `unknown-cup`, and otherwise no site means
+`not-applicable`; `undetermined` requires patient-level workup state. A future class-level
+`not-applicable` summary MUST NOT propagate to an occurrence; a solid-tumour occurrence
+from a site-agnostic class starts `undetermined` until occurrence evidence establishes a
+site or CUP state.
 Occurrence individuation is upstream: this cardinality must never turn a possible second
 primary into a metastasis merely to satisfy the projection.
 Issue #263 owns the future occurrence/status implementation; it does not change this
@@ -628,7 +629,10 @@ Rule/pattern-based (not a model) for determinism and testability: a small typed 
 When an NLP aspect has no existing NCIt concept (e.g. an explicit *absent/excluded* qualifier, or a laterality value not modelled), emit a **deterministic** proposal:
 
 - **Stable synthetic id:** `op:MINT-{sha1(axis + '|' + normalized_label)[:12]}` — same input always yields the same id, so reruns are idempotent and diffable.
-- Written to `minted_concept` with `status='proposed'` + `source_signal`, and linked in the graph exactly like any other constituent (`op:filler op:MINT-…`).
+- Persisted first in the run-scoped `decomp_minted_proposal` table with
+  `status='proposed'` + `source_signal`, and linked in that run's additive graph exactly
+  like any other constituent (`op:filler op:MINT-…`). Only successful run completion
+  promotes it into the global `minted_concept` curator queue (D48).
 - The mint tail is expected to be **low hundreds**, concentrated in qualifier/value-set nodes, not clinical entities (assessment §3.4).
 
 `test_missing_constituent_minting` pins that an NLP-only aspect produces a proposal record — never a silent create.

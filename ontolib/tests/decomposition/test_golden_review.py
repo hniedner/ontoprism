@@ -19,6 +19,14 @@ from scripts.research.golden_review import (
     write_evaluation_report,
 )
 
+from ontolib.decomposition.proposal_registry import (
+    DuplicateCheck,
+    ProposalRegistry,
+    ProposalStatus,
+    RelationProposal,
+    relation_proposal_id,
+)
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -36,17 +44,90 @@ def _constituent(
     group: str | None = None,
     needs_review: bool = False,
     provenance_status: str | None = None,
+    proposal_id: str | None = None,
 ) -> dict[str, object]:
+    status = provenance_status or (
+        "locally-approved" if filler.startswith("MINT-") else "ncit-26.07d"
+    )
     return {
         "axis": axis,
         "filler": filler,
         "relationship_group": group,
         "needs_review": needs_review,
-        "provenance_status": (
-            provenance_status
-            or ("locally-approved" if filler.startswith("MINT-") else "ncit-26.07d")
-        ),
+        "provenance_status": status,
+        "proposal_id": proposal_id or (filler if filler.startswith("MINT-") else None),
     }
+
+
+def _proposal_registry(
+    *, status: ProposalStatus = "locally-approved"
+) -> ProposalRegistry:
+    name = "associated prior disease"
+    relation = RelationProposal(
+        id=relation_proposal_id(name),
+        axis="op:AssociatedPriorDisease",
+        preferred_name=name,
+        definition="Relates a disease to a distinct disease present earlier.",
+        domain="C7057",
+        range="C7057",
+        source_roles=("R126",),
+        source_examples=("C100051->C27262",),
+        rationale="The source role conflates several disease relationships.",
+        duplicate_checks=(
+            DuplicateCheck(
+                resource="RO",
+                version="2026-08-05",
+                query=name,
+                result="no-equivalent",
+                evidence_url="https://example.test/ro-review",
+            ),
+        ),
+        submission_target="RO",
+        status=status,
+    )
+    return ProposalRegistry(
+        source_identity=_DIGEST_A,
+        ontology_version="26.07d",
+        proposals=(relation,),
+    )
+
+
+def _metric_proposal_registry() -> ProposalRegistry:
+    approved = _proposal_registry().proposals[0]
+    name = "caused by associated disease"
+    proposed = RelationProposal(
+        id=relation_proposal_id(name),
+        axis="op:CausedByAssociatedDisease",
+        preferred_name=name,
+        definition="Relates a disease to another disease stated to cause it.",
+        domain="C7057",
+        range="C7057",
+        source_roles=("R126",),
+        source_examples=("C0->C999999",),
+        rationale="Direct causation requires a univocal relation.",
+        duplicate_checks=(
+            DuplicateCheck(
+                resource="RO",
+                version="2026-08-05",
+                query=name,
+                result="no-equivalent",
+                evidence_url="https://example.test/ro-review",
+            ),
+        ),
+        submission_target="RO",
+    )
+    return ProposalRegistry(
+        source_identity=_DIGEST_A,
+        ontology_version="26.07d",
+        proposals=(approved, proposed),
+    )
+
+
+_EMPTY_PROPOSAL_REGISTRY = ProposalRegistry(
+    source_identity=_DIGEST_A,
+    ontology_version="26.07d",
+    proposals=(),
+)
 
 
 def _engine_constituent(
@@ -95,10 +176,11 @@ def _artifact(
     *,
     engine_evidence_identity: str | None = None,
     corpus_evidence_identity: str | None = None,
+    proposal_registry: ProposalRegistry = _EMPTY_PROPOSAL_REGISTRY,
 ) -> dict[str, object]:
     payload = {
         "_meta": {
-            "schema_version": 2,
+            "schema_version": 3,
             "status": "SME-ADJUDICATED",
             "ncit_version": "26.07d",
             "source_identity": _DIGEST_A,
@@ -115,6 +197,7 @@ def _artifact(
                 or cast("str", _corpus_evidence()["evidence_identity"])
             ),
             "detector_identity": _DETECTOR_IDENTITY,
+            "proposal_registry_identity": proposal_registry.registry_identity,
             "workbook_identity": "e" * 64,
             "reviewer": {
                 "name": "Example Reviewer",
@@ -155,12 +238,14 @@ def _bind_artifact_to_engine(
     concepts: list[dict[str, object]],
     engine: dict[str, object],
     corpus: dict[str, object] | None = None,
+    proposal_registry: ProposalRegistry = _EMPTY_PROPOSAL_REGISTRY,
 ) -> dict[str, object]:
     bound_corpus = corpus or _corpus_evidence()
     return _artifact(
         concepts,
         engine_evidence_identity=cast("str", engine["evidence_identity"]),
         corpus_evidence_identity=cast("str", bound_corpus["evidence_identity"]),
+        proposal_registry=proposal_registry,
     )
 
 
@@ -366,6 +451,66 @@ def test_scorable_view_uses_accepted_decisions_and_retains_review_exclusions(
     )
 
 
+@pytest.mark.unit
+def test_augmented_expectation_is_bound_to_matching_registry_record(
+    tmp_path: Path,
+) -> None:
+    registry = _proposal_registry()
+    proposal_id = registry.proposals[0].id
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent(
+                "op:AssociatedPriorDisease",
+                "C27262",
+                provenance_status="locally-approved",
+                proposal_id=proposal_id,
+            )
+        ],
+    )
+    path = tmp_path / "adjudicated.json"
+    _write_json(path, _artifact(concepts, proposal_registry=registry))
+
+    artifact = load_adjudication(path, registry)
+
+    assert artifact.meta.proposal_registry_identity == registry.registry_identity
+    assert artifact.concepts[0].expected is not None
+    assert artifact.concepts[0].expected.constituents[0].proposal_id == proposal_id
+
+    concepts[0]["expected"]["constituents"][0]["proposal_id"] = "RELPROP-unknown"
+    _write_json(path, _artifact(concepts, proposal_registry=registry))
+    with pytest.raises(GoldenSetValidationError, match="unknown proposal"):
+        load_adjudication(path, registry)
+
+
+@pytest.mark.unit
+def test_augmented_expectation_rejects_missing_id_status_or_axis_binding(
+    tmp_path: Path,
+) -> None:
+    local_registry = _proposal_registry()
+    proposal_id = local_registry.proposals[0].id
+    base = _constituent(
+        "op:AssociatedPriorDisease",
+        "C27262",
+        provenance_status="locally-approved",
+        proposal_id=proposal_id,
+    )
+    path = tmp_path / "invalid-adjudicated.json"
+
+    for mutation, registry, message in (
+        ({"proposal_id": None}, local_registry, "proposal ID"),
+        ({}, _proposal_registry(status="submitted"), "status"),
+        ({"axis": "op:CausedByAssociatedDisease"}, local_registry, "axis"),
+    ):
+        constituent = base | mutation
+        concepts = _m1_concepts()
+        concepts[0] = _accepted("C0", constituents=[constituent])
+        _write_json(path, _artifact(concepts, proposal_registry=registry))
+        with pytest.raises(GoldenSetValidationError, match=message):
+            load_adjudication(path, registry)
+
+
 def _create_workbook(
     path: Path, *, pending: bool = False, formula: bool = False
 ) -> None:
@@ -429,6 +574,7 @@ def _create_workbook(
         "Expected Group",
         "Expected needs_review",
         "Expected Provenance Status",
+        "Expected Proposal ID",
         "SME Notes",
         "Row Complete?",
     ]
@@ -452,6 +598,7 @@ def _create_workbook(
             None,
             "FALSE",
             "ncit-26.07d",
+            None,
             "",
             "YES",
         ]
@@ -471,6 +618,7 @@ def _create_workbook(
         ("Engine evidence identity", _engine_evidence()["evidence_identity"]),
         ("Corpus evidence identity", _corpus_evidence()["evidence_identity"]),
         ("Detector identity", _DETECTOR_IDENTITY),
+        ("Proposal registry identity", _EMPTY_PROPOSAL_REGISTRY.registry_identity),
     ]
     for row, (key, value) in enumerate(rows, start=5):
         evidence.cell(row, 1, key)
@@ -512,6 +660,24 @@ def test_workbook_import_preserves_reviewer_values_and_provenance(
     assert artifact.meta.run_fingerprint_identity == _DIGEST_C
     assert artifact.concepts[0].expected is not None
     assert artifact.concepts[0].expected.constituents[0].needs_review is False
+
+
+@pytest.mark.unit
+def test_workbook_import_rejects_hidden_reviewer_schema_column(tmp_path: Path) -> None:
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    hidden = load_workbook(workbook)
+    hidden["Constituent Decisions"].column_dimensions["J"].hidden = True
+    hidden.save(workbook)
+
+    with pytest.raises(GoldenSetValidationError, match="hidden reviewer columns"):
+        import_adjudication_workbook(workbook)
+
+
+@pytest.mark.unit
+def test_metric_modality_rejects_unknown_normalized_axis() -> None:
+    with pytest.raises(GoldenSetValidationError, match="unknown normalized axis"):
+        golden_review._pair_modality(("op:NormalTissueOrgin", "C49276"))
 
 
 @pytest.mark.unit
@@ -734,20 +900,24 @@ def test_evaluation_reports_outcomes_groups_and_d21_exclusions(tmp_path: Path) -
 def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
     tmp_path: Path,
 ) -> None:
+    registry = _metric_proposal_registry()
+    approved, proposed = registry.proposals
     concepts = _m1_concepts()
     concepts[0] = _accepted(
         "C0",
         constituents=[
             _constituent("op:CellType", "C36903"),
             _constituent(
-                "op:CellType",
-                "LOCAL-APPROVED-1",
+                "op:AssociatedPriorDisease",
+                "C27262",
                 provenance_status="locally-approved",
+                proposal_id=approved.id,
             ),
             _constituent(
-                "op:CellType",
+                "op:CausedByAssociatedDisease",
                 "C999999",
                 provenance_status="proposed",
+                proposal_id=proposed.id,
             ),
         ],
     )
@@ -762,10 +932,17 @@ def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
     ]
     _sign(engine)
     artifact_path = tmp_path / "artifact.json"
-    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+    _write_json(
+        artifact_path,
+        _bind_artifact_to_engine(
+            concepts,
+            engine,
+            proposal_registry=registry,
+        ),
+    )
 
     report = evaluate_adjudication(
-        load_adjudication(artifact_path), engine, _corpus_evidence()
+        load_adjudication(artifact_path, registry), engine, _corpus_evidence()
     )
 
     assert report["pair_micro"]["ncit_bound"] == {
@@ -809,11 +986,18 @@ def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
         "recall": 1.0,
     }
     assert report["pair_by_axis"]["augmented"]["op:CellType"] == {
-        "expected": 2,
+        "expected": 1,
         "actual": 1,
         "true_positive": 1,
         "precision": 1.0,
-        "recall": 0.5,
+        "recall": 1.0,
+    }
+    assert report["pair_by_axis"]["augmented"]["op:AssociatedPriorDisease"] == {
+        "expected": 1,
+        "actual": 0,
+        "true_positive": 0,
+        "precision": None,
+        "recall": 0.0,
     }
     for view in ("ncit_bound", "augmented", "defining_only", "non_defining"):
         assert {
@@ -837,7 +1021,7 @@ def test_evaluation_derives_ncit_bound_and_augmented_views_from_provenance(
     }
     first = report["concepts"][0]["pair_score"]
     assert first["ncit_bound"]["missing"] == []
-    assert first["augmented"]["missing"] == [["op:CellType", "LOCAL-APPROVED-1"]]
+    assert first["augmented"]["missing"] == [["op:AssociatedPriorDisease", "C27262"]]
 
 
 @pytest.mark.unit
@@ -1134,6 +1318,7 @@ def test_adjudication_cli_imports_workbook_and_evaluates_report(
     artifact_path = tmp_path / "artifact.json"
     engine_path = tmp_path / "engine.json"
     corpus_path = tmp_path / "corpus.json"
+    registry_path = tmp_path / "registry.json"
     report_path = tmp_path / "report.json"
     engine = _engine_evidence()
     corpus = _corpus_evidence(residual=["C1"])
@@ -1145,18 +1330,30 @@ def test_adjudication_cli_imports_workbook_and_evaluates_report(
             evidence.cell(row, 2, corpus["evidence_identity"])
     review.save(workbook)
     _write_json(engine_path, engine)
+    registry_path.write_text(
+        _EMPTY_PROPOSAL_REGISTRY.model_dump_json(),
+        encoding="utf-8",
+    )
     _write_json(
         corpus_path,
         corpus,
     )
 
-    adjudication_main(["import-workbook", str(workbook), str(artifact_path)])
+    adjudication_main(
+        [
+            "import-workbook",
+            str(workbook),
+            str(registry_path),
+            str(artifact_path),
+        ]
+    )
     adjudication_main(
         [
             "evaluate",
             str(artifact_path),
             str(engine_path),
             str(corpus_path),
+            str(registry_path),
             str(report_path),
         ]
     )

@@ -265,6 +265,7 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
             claim,
             decomposition=decomposition,
             minted=(mint,),
+            semantic_types=("Neoplastic Process",),
         )
 
         assert await store.pending_codes(run_id) == []
@@ -291,11 +292,17 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
 
 
 @pytest.mark.parametrize(
-    "missing_table",
-    ["decomp_constituent", "decomp_minted_proposal"],
+    ("child_table", "mismatch"),
+    [
+        ("decomp_constituent", "missing"),
+        ("decomp_minted_proposal", "missing"),
+        ("decomp_constituent", "extra"),
+        ("decomp_minted_proposal", "extra"),
+    ],
 )
 async def test_persisted_completion_counts_gate_reconstruction_and_finalization(
-    missing_table: str,
+    child_table: str,
+    mismatch: str,
 ) -> None:
     run_id = _new_run_id("neoplasm")
     fingerprint = _fingerprint().model_copy(
@@ -324,18 +331,35 @@ async def test_persisted_completion_counts_gate_reconstruction_and_finalization(
                 ),
             ),
             minted=(MintedConcept(axis="op:Laterality", label="minted C0"),),
+            semantic_types=("Neoplastic Process",),
         )
-        delete_statement = {
-            "decomp_constituent": (
-                "DELETE FROM decomp_constituent "
-                "WHERE run_id = $1 AND concept_code = 'C0'"
-            ),
-            "decomp_minted_proposal": (
-                "DELETE FROM decomp_minted_proposal "
-                "WHERE run_id = $1 AND concept_code = 'C0'"
-            ),
-        }[missing_table]
-        await conn.execute(delete_statement, run_id)
+        if mismatch == "missing":
+            await conn.execute(
+                f"DELETE FROM {child_table} "  # noqa: S608 - fixed parametrization
+                "WHERE run_id = $1 AND concept_code = 'C0'",
+                run_id,
+            )
+        elif child_table == "decomp_constituent":
+            await conn.execute(
+                "INSERT INTO decomp_constituent "
+                "(run_id, concept_code, axis, filler_code, axis_source, source_role, "
+                "most_specific, needs_review, relationship_group, "
+                "source_definition_ids) SELECT run_id, concept_code, 'op:Extra', "
+                "'C999999', axis_source, source_role, most_specific, needs_review, "
+                "relationship_group, source_definition_ids FROM decomp_constituent "
+                "WHERE run_id = $1 AND concept_code = 'C0' LIMIT 1",
+                run_id,
+            )
+        else:
+            await conn.execute(
+                "INSERT INTO decomp_minted_proposal "
+                "(run_id, concept_code, proposal_id, axis, label, source_signal, "
+                "status) "
+                "SELECT run_id, concept_code, 'MINT-extra', axis, 'extra', "
+                "source_signal, status FROM decomp_minted_proposal "
+                "WHERE run_id = $1 AND concept_code = 'C0' LIMIT 1",
+                run_id,
+            )
 
         with pytest.raises(RunStateError, match="persisted completion counts"):
             await store.decompositions_for_run(run_id)
@@ -410,6 +434,7 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
                     constituents=[duplicate, duplicate],
                 ),
                 minted=(),
+                semantic_types=("Neoplastic Process",),
             )
         await store.fail_work_item(
             run_id,
@@ -457,6 +482,7 @@ async def test_failed_atomic_replace_rolls_back_then_retries_without_stale_rows(
             retry_claim,
             decomposition=replacement,
             minted=(),
+            semantic_types=("Neoplastic Process",),
         )
         assert await store.decompositions_for_run(run_id) == [replacement]
 
@@ -548,6 +574,7 @@ async def test_invalid_completion_inputs_and_stale_claims_fail_closed() -> None:
                 claim,
                 decomposition=wrong_code,
                 minted=(),
+                semantic_types=("Neoplastic Process",),
             )
         with pytest.raises(ValueError, match="require a decomposition"):
             await store.complete_work_item(
@@ -719,6 +746,7 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
                     ],
                 ),
                 minted=(),
+                semantic_types=("Neoplastic Process",),
             )
 
         invalidated = await store.invalidate_run(
@@ -801,6 +829,7 @@ async def test_mint_proposals_reach_the_curator_queue_only_on_completion() -> No
                         label=f"minted {code}",
                     ),
                 ),
+                semantic_types=("Neoplastic Process",),
             )
 
         queued = await conn.fetchval(
@@ -852,6 +881,7 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
                 ],
             ),
             minted=(MintedConcept(axis="op:Laterality", label="minted C0"),),
+            semantic_types=("Neoplastic Process",),
         )
 
         invalidated = await store.invalidate_run(run_id, RuntimeError("source changed"))
@@ -1012,6 +1042,7 @@ async def test_failed_run_cannot_be_finished_or_promote_its_proposals() -> None:
                     ],
                 ),
                 minted=(MintedConcept(axis="op:Laterality", label=f"minted {code}"),),
+                semantic_types=("Neoplastic Process",),
             )
 
         await store.fail_run(run_id, RuntimeError("operator stopped the run"))

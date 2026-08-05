@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections import Counter, defaultdict
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -13,9 +14,11 @@ from scripts.research.stage_bundle_pilot import (
     EVIDENCE_REGISTRY,
     STAGE_BUNDLE_CANDIDATES,
     ConstituentCorrection,
+    _candidate_rows,
     _engine_pairs,
     _parser,
     _payload_identity,
+    _rule,
     apply_constituent_corrections,
     build_provenance_ledger,
     build_stage_bundle_report,
@@ -25,6 +28,7 @@ from scripts.research.stage_bundle_pilot import (
     write_review_workbook,
 )
 
+from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.semantic_bundles import (
     BundleAxis,
     MemberRole,
@@ -34,11 +38,12 @@ from ontolib.decomposition.semantic_bundles import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from openpyxl.worksheet.worksheet import Worksheet
 
 _SOURCE_IDENTITY = "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+_PROPOSAL_REGISTRY = load_proposal_registry(
+    Path(__file__).with_name("golden") / "proposal-registry.json"
+)
 
 
 def _candidate_artifact() -> dict[str, object]:
@@ -98,6 +103,69 @@ def test_registry_contains_typed_review_candidates_not_accepted_rules() -> None:
     )
     assert "ajcc-official-staging-system" in ajcc_sources
     assert "figo-cervix-2018" in figo_sources
+
+
+@pytest.mark.unit
+def test_candidate_evidence_sources_are_registered_unique_and_nonempty() -> None:
+    report = _candidate_artifact()
+    sources = cast("list[dict[str, str]]", report["evidence_sources"])
+    registered = [source["evidence_id"] for source in sources]
+    referenced = {
+        evidence_id
+        for candidate in STAGE_BUNDLE_CANDIDATES
+        for evidence_id in candidate.evidence_source_ids
+    }
+
+    assert len(registered) == len(set(registered))
+    assert referenced <= set(registered)
+    assert all(all(value.strip() for value in source.values()) for source in sources)
+
+    candidate = STAGE_BUNDLE_CANDIDATES[0]
+    with pytest.raises(ValueError, match="unknown candidate reference"):
+        _rule(
+            "unregistered-evidence-candidate",
+            candidate.subject_code,
+            "Unregistered evidence candidate",
+            candidate.members[0],
+            candidate.members[1],
+            authority=candidate.classification.authority,
+            version=candidate.classification.version,
+            evidence_ids=("unregistered-source",),
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("semantic-identity", "semantic identity"),
+        ("member-axis", "stage-type role"),
+        ("unknown-source", "evidence source|unknown candidate reference"),
+        ("extra-field", "fields do not match"),
+    ],
+)
+def test_candidate_artifact_rows_require_typed_semantic_contract(
+    mutation: str,
+    message: str,
+) -> None:
+    artifact = _candidate_artifact()
+    candidates = cast("list[dict[str, object]]", artifact["semantic_bundle_candidates"])
+    candidate = candidates[0]
+    if mutation == "semantic-identity":
+        candidate["semantic_identity"] = "0" * 64
+    elif mutation == "member-axis":
+        members = cast("list[dict[str, object]]", candidate["members"])
+        members[0]["axis"] = "op:StageValue"
+    elif mutation == "unknown-source":
+        candidate["evidence_source_ids"] = ["unregistered-source"]
+    else:
+        candidate["unexpected"] = "value"
+    artifact["artifact_identity"] = _payload_identity(
+        {key: value for key, value in artifact.items() if key != "artifact_identity"}
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _candidate_rows(artifact)
 
 
 @pytest.mark.unit
@@ -352,6 +420,7 @@ def _blank_workbook(path: Path) -> None:
         "Expected Group",
         "Expected needs_review",
         "Expected Provenance Status",
+        "Expected Proposal ID",
         "SME Notes",
         "Row Complete?",
     )
@@ -374,6 +443,7 @@ def _blank_workbook(path: Path) -> None:
             None,
             "FALSE",
             "ncit-26.07d",
+            None,
             "",
             "YES",
         )
@@ -385,7 +455,7 @@ def _blank_workbook(path: Path) -> None:
     evidence = workbook.create_sheet("Source & Run Evidence")
     evidence_rows = (
         ("NCIt release", "26.07d"),
-        ("Source identity", "a" * 64),
+        ("Source identity", _SOURCE_IDENTITY),
         ("Sample identity", "b" * 64),
         ("Engine run", "neoplasm-run-1"),
         ("Run fingerprint identity", "c" * 64),
@@ -393,6 +463,7 @@ def _blank_workbook(path: Path) -> None:
         ("Engine evidence identity", "e" * 64),
         ("Corpus evidence identity", "f" * 64),
         ("Detector identity", "0" * 64),
+        ("Proposal registry identity", _PROPOSAL_REGISTRY.registry_identity),
     )
     for row, (key, value) in enumerate(evidence_rows, start=5):
         evidence.cell(row, 1, key)
@@ -480,6 +551,49 @@ def test_constituent_corrections_remove_and_add_exact_pairs() -> None:
 
 
 @pytest.mark.unit
+def test_review_workbook_binds_augmented_pair_to_proposal_registry(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    workbook = load_workbook(base)
+    sheet = workbook["Constituent Decisions"]
+    headers = {
+        sheet.cell(4, column).value: column for column in range(1, sheet.max_column + 1)
+    }
+    sheet.cell(5, headers["Expected Axis"], "op:AssociatedPriorDisease")
+    sheet.cell(5, headers["Expected Filler"], "C27262")
+    sheet.cell(5, headers["Expected Provenance Status"], "locally-approved")
+    workbook.save(base)
+    artifact = _candidate_artifact()
+
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
+
+    bound = load_workbook(review)
+    bound_sheet = bound["Constituent Decisions"]
+    bound_headers = {
+        bound_sheet.cell(4, column).value: column
+        for column in range(1, bound_sheet.max_column + 1)
+    }
+    assert bound_sheet.cell(5, bound_headers["Expected Proposal ID"]).value == (
+        "RELPROP-8637e8500dff"
+    )
+    _attest_review_workbook(review)
+    canonical = import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
+    assert canonical["proposal_registry_identity"] == (
+        _PROPOSAL_REGISTRY.registry_identity
+    )
+
+    tampered = load_workbook(review)
+    tampered_sheet = tampered["Constituent Decisions"]
+    tampered_sheet.cell(5, bound_headers["Expected Proposal ID"], "RELPROP-unknown")
+    tampered.save(review)
+    with pytest.raises(ValueError, match="unknown proposal"):
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
+
+
+@pytest.mark.unit
 def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     tmp_path: Path,
 ) -> None:
@@ -487,13 +601,13 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
     artifact = _candidate_artifact()
-    write_review_workbook(base, artifact, review)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
 
     workbook = load_workbook(review)
     workbook["Reviewer & Attestation"]["B9"] = "ATTESTED"
     workbook.save(review)
     with pytest.raises(ValueError, match="metadata"):
-        import_review_decisions(review, artifact)
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
     workbook = load_workbook(review)
     workbook["Reviewer & Attestation"]["B9"] = "PENDING"
@@ -507,12 +621,12 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     workbook.save(review)
 
     with pytest.raises(ValueError, match="attestation is pending"):
-        import_review_decisions(review, artifact)
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
     workbook = load_workbook(review)
     workbook["Reviewer & Attestation"]["B9"] = "ATTESTED"
     workbook.save(review)
-    canonical = import_review_decisions(review, artifact)
+    canonical = import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
     assert canonical["status"] == "ATTESTED"
     assert len(cast("str", canonical["adjudication_artifact_identity"])) == 64
@@ -524,7 +638,7 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     workbook["Semantic Bundle Decisions"]["B9"] = "0" * 64
     workbook.save(review)
     with pytest.raises(ValueError, match="candidate fields changed"):
-        import_review_decisions(review, artifact)
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
 
 @pytest.mark.unit
@@ -533,14 +647,14 @@ def test_canonical_import_requires_complete_constituent_review(tmp_path: Path) -
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
     artifact = _candidate_artifact()
-    write_review_workbook(base, artifact, review)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     workbook = load_workbook(review)
     workbook["Constituent Decisions"]["J5"] = "PENDING"
     workbook.save(review)
 
     with pytest.raises(ValueError, match="pending constituent action"):
-        import_review_decisions(review, artifact)
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
 
 @pytest.mark.unit
@@ -553,7 +667,7 @@ def test_canonical_import_rejects_hidden_semantic_review_content(
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
     artifact = _candidate_artifact()
-    write_review_workbook(base, artifact, review)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     workbook = load_workbook(review)
     sheet = workbook["Semantic Bundle Decisions"]
@@ -566,7 +680,7 @@ def test_canonical_import_rejects_hidden_semantic_review_content(
     workbook.save(review)
 
     with pytest.raises(ValueError, match=r"visible|hidden"):
-        import_review_decisions(review, artifact)
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
 
 @pytest.mark.unit
@@ -575,14 +689,14 @@ def test_canonical_import_validates_semantic_review_metadata(tmp_path: Path) -> 
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
     artifact = _candidate_artifact()
-    write_review_workbook(base, artifact, review)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     workbook = load_workbook(review)
     workbook["Semantic Bundle Decisions"]["B3"] = "stale-release"
     workbook.save(review)
 
     with pytest.raises(ValueError, match="metadata"):
-        import_review_decisions(review, artifact)
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
 
 @pytest.mark.unit
@@ -594,7 +708,7 @@ def test_canonical_import_hashes_the_parsed_workbook_snapshot(
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
     artifact = _candidate_artifact()
-    write_review_workbook(base, artifact, review)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     snapshot = review.read_bytes()
     real_load_workbook = stage_bundle_pilot.load_workbook
@@ -606,7 +720,7 @@ def test_canonical_import_hashes_the_parsed_workbook_snapshot(
 
     monkeypatch.setattr(stage_bundle_pilot, "load_workbook", replace_after_load)
 
-    canonical = import_review_decisions(review, artifact)
+    canonical = import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
     binding = cast("dict[str, str]", canonical["review_workbook"])
     assert binding["sha256"] == hashlib.sha256(snapshot).hexdigest()
@@ -625,9 +739,11 @@ def test_external_manifest_hash_binds_pending_candidate_and_workbook(
         json.dumps(artifact, sort_keys=True),
         encoding="utf-8",
     )
-    write_review_workbook(base, artifact, review)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
 
-    manifest = build_verification_manifest(candidate_path, review)
+    manifest = build_verification_manifest(
+        candidate_path, review, proposal_registry=_PROPOSAL_REGISTRY
+    )
 
     assert manifest["status"] == "FINAL-REVIEW-PENDING"
     files = cast("dict[str, dict[str, str]]", manifest["files"])
@@ -638,7 +754,9 @@ def test_external_manifest_hash_binds_pending_candidate_and_workbook(
     workbook["Semantic Bundle Decisions"]["B2"] = "0" * 64
     workbook.save(review)
     with pytest.raises(ValueError, match="candidate artifact identity"):
-        build_verification_manifest(candidate_path, review)
+        build_verification_manifest(
+            candidate_path, review, proposal_registry=_PROPOSAL_REGISTRY
+        )
 
 
 @pytest.mark.unit
@@ -653,7 +771,7 @@ def test_attested_manifest_validates_canonical_payload_and_review_binding(
     _blank_workbook(base)
     artifact = _candidate_artifact()
     candidate_path.write_text(json.dumps(artifact, sort_keys=True), encoding="utf-8")
-    write_review_workbook(base, artifact, review)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
 
     canonical_path.write_text(
@@ -661,9 +779,14 @@ def test_attested_manifest_validates_canonical_payload_and_review_binding(
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="canonical semantic rules"):
-        build_verification_manifest(candidate_path, review, canonical_path)
+        build_verification_manifest(
+            candidate_path,
+            review,
+            canonical_path,
+            proposal_registry=_PROPOSAL_REGISTRY,
+        )
 
-    canonical = import_review_decisions(review, artifact)
+    canonical = import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
     canonical_path.write_text(json.dumps(canonical, sort_keys=True), encoding="utf-8")
     other_review.write_bytes(review.read_bytes())
     workbook = load_workbook(other_review)
@@ -671,9 +794,19 @@ def test_attested_manifest_validates_canonical_payload_and_review_binding(
     workbook.save(other_review)
 
     with pytest.raises(ValueError, match="review workbook binding"):
-        build_verification_manifest(candidate_path, other_review, canonical_path)
+        build_verification_manifest(
+            candidate_path,
+            other_review,
+            canonical_path,
+            proposal_registry=_PROPOSAL_REGISTRY,
+        )
 
-    manifest = build_verification_manifest(candidate_path, review, canonical_path)
+    manifest = build_verification_manifest(
+        candidate_path,
+        review,
+        canonical_path,
+        proposal_registry=_PROPOSAL_REGISTRY,
+    )
     assert manifest["status"] == "ATTESTED"
 
 
@@ -691,6 +824,8 @@ def test_cli_separates_packet_preparation_from_review_finalization() -> None:
             "engine.json",
             "--contracted-disposition",
             "disposition.json",
+            "--proposal-registry",
+            "registry.json",
             "--output",
             "candidate.json",
             "--review-workbook-output",
@@ -704,6 +839,8 @@ def test_cli_separates_packet_preparation_from_review_finalization() -> None:
             "candidate.json",
             "--review-workbook",
             "reviewed.xlsx",
+            "--proposal-registry",
+            "registry.json",
             "--canonical-rules-output",
             "canonical.json",
             "--manifest-output",
@@ -724,6 +861,8 @@ def test_cli_separates_packet_preparation_from_review_finalization() -> None:
                 "candidate.json",
                 "--review-workbook",
                 "reviewed.xlsx",
+                "--proposal-registry",
+                "registry.json",
                 "--canonical-rules-output",
                 "canonical.json",
                 "--manifest-output",

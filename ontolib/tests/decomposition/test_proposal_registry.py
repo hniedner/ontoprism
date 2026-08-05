@@ -16,6 +16,7 @@ from ontolib.decomposition.proposal_registry import (
     DuplicateCheck,
     DuplicateResult,
     ProposalRegistry,
+    ProposalStatus,
     RelationProposal,
     load_proposal_registry,
     relation_proposal_id,
@@ -78,6 +79,7 @@ def _concept() -> ConceptProposal:
 def _relation() -> RelationProposal:
     return RelationProposal(
         id=relation_proposal_id("associated prior disease"),
+        axis="op:AssociatedPriorDisease",
         preferred_name="associated prior disease",
         definition=(
             "Relates a disease to a distinct disease that existed earlier and from "
@@ -124,6 +126,7 @@ def test_registry_filters_typed_proposals_and_exports_submission_packets() -> No
     assert registry.relation_submission_rows() == (
         {
             "proposal_id": relation_proposal_id("associated prior disease"),
+            "axis": "op:AssociatedPriorDisease",
             "preferred_name": "associated prior disease",
             "definition": (
                 "Relates a disease to a distinct disease that existed earlier and "
@@ -225,7 +228,7 @@ def test_submission_exports_are_deterministic_and_proposed_only(
     )
     relation_csv = (tmp_path / "relation-proposals.csv").read_text()
     assert relation_csv.startswith(
-        "proposal_id,preferred_name,definition,domain,range,source_roles,"
+        "proposal_id,axis,preferred_name,definition,domain,range,source_roles,"
         "source_examples,rationale,status,submission_target\n"
     )
     assert relation_proposal_id("associated prior disease") in relation_csv
@@ -238,6 +241,78 @@ def test_submission_exports_are_deterministic_and_proposed_only(
         "status": "proposed",
         "concept_proposals": 0,
     }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "status",
+    ["proposed", "locally-approved", "submitted", "accepted", "rejected"],
+)
+def test_concept_export_matrix_is_governed_by_status(
+    tmp_path: Path,
+    status: ProposalStatus,
+) -> None:
+    payload = _concept().model_dump()
+    payload["status"] = status
+    if status == "accepted":
+        payload["replacement_ncit_code"] = "C999999"
+    proposal = ConceptProposal.model_validate(payload)
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(proposal,),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    concept_csv = (tmp_path / "ncit-concept-proposals.csv").read_text()
+    augmented = (tmp_path / "augmented-ncit-proposals.ttl").read_text()
+    replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
+    assert (proposal.id in concept_csv) is (status == "proposed")
+    assert (proposal.id in augmented) is (
+        status in {"locally-approved", "submitted", "accepted"}
+    )
+    assert replacements == ({proposal.id: "C999999"} if status == "accepted" else {})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "status",
+    ["proposed", "locally-approved", "submitted", "accepted", "rejected"],
+)
+def test_relation_export_matrix_is_governed_by_status(
+    tmp_path: Path,
+    status: ProposalStatus,
+) -> None:
+    payload = _relation().model_dump()
+    payload["status"] = status
+    if status == "accepted":
+        payload.update(
+            replacement_relation_iri="http://purl.obolibrary.org/obo/RO_1234567",
+            replacement_relation_version="2026-08-05",
+        )
+    proposal = RelationProposal.model_validate(payload)
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(proposal,),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    relation_csv = (tmp_path / "relation-proposals.csv").read_text()
+    replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
+    assert (proposal.id in relation_csv) is (status == "proposed")
+    assert replacements == (
+        {
+            proposal.id: {
+                "identifier": "http://purl.obolibrary.org/obo/RO_1234567",
+                "version": "2026-08-05",
+            }
+        }
+        if status == "accepted"
+        else {}
+    )
 
 
 @pytest.mark.unit
@@ -328,6 +403,49 @@ def test_accepted_concept_requires_and_resolves_to_ncit_replacement() -> None:
     )
 
     assert resolve_proposal_identifier(registry, accepted.id) == "C999999"
+
+
+@pytest.mark.unit
+def test_accepted_relation_requires_and_exports_assigned_ontology_identity(
+    tmp_path: Path,
+) -> None:
+    payload = {**_relation().model_dump(), "status": "accepted"}
+
+    with pytest.raises(ValidationError, match="accepted relation requires"):
+        RelationProposal.model_validate(payload)
+
+    accepted = RelationProposal.model_validate(
+        payload
+        | {
+            "replacement_relation_iri": "http://purl.obolibrary.org/obo/RO_1234567",
+            "replacement_relation_version": "2026-08-05",
+        }
+    )
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(accepted,),
+    )
+
+    assert resolve_proposal_identifier(registry, accepted.id) == (
+        "http://purl.obolibrary.org/obo/RO_1234567"
+    )
+    write_submission_exports(registry, tmp_path)
+    replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
+    assert replacements == {
+        accepted.id: {
+            "identifier": "http://purl.obolibrary.org/obo/RO_1234567",
+            "version": "2026-08-05",
+        }
+    }
+
+
+@pytest.mark.unit
+def test_relation_proposal_requires_a_safe_normalized_axis() -> None:
+    payload = _relation().model_dump()
+
+    with pytest.raises(ValidationError, match="axis"):
+        RelationProposal.model_validate(payload | {"axis": "Associated Prior Disease"})
 
 
 @pytest.mark.unit

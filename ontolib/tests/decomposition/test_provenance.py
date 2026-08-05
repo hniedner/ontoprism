@@ -108,6 +108,26 @@ async def test_completion_rejects_representative_outside_source_types() -> None:
 
 
 @pytest.mark.unit
+async def test_completion_requires_complete_observed_semantic_types() -> None:
+    sf = _make_mock_sf()
+
+    with pytest.raises(TypeError, match="semantic_types"):
+        await ProvenanceStore(sf).complete_work_item(  # type: ignore[call-arg]
+            "run-1",
+            "C1",
+            UUID(int=1),
+            decomposition=Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=(),
+            ),
+            minted=(),
+        )
+
+    sf().execute.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_publication_lock_requires_an_engine_bound_session_factory() -> None:
     store = ProvenanceStore(_make_mock_sf())
 
@@ -321,6 +341,44 @@ async def test_finish_run_sets_complete() -> None:
         metrics={"total_in_scope": 0},
     )
     assert result is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("status", "running"),
+        ("source_identity", "b" * 64),
+        ("metrics", {"total_in_scope": 2}),
+        ("publication_state", "failed"),
+        ("representation_identity", "c" * 64),
+    ],
+)
+async def test_finish_run_commit_reconciliation_requires_exact_marker(
+    field: str,
+    value: object,
+) -> None:
+    sf = _make_mock_sf()
+    row = {
+        "status": "complete",
+        "source_identity": "a" * 64,
+        "metrics": {"total_in_scope": 1},
+        "publication_state": "not_requested",
+        "representation_identity": None,
+    }
+    row[field] = value
+    sf().execute.return_value.mappings.return_value.first.return_value = row
+
+    reconciled = await provenance_module._finish_run_committed(
+        sf,
+        "run-1",
+        source_identity="a" * 64,
+        metrics={"total_in_scope": 1},
+        representation_identity=None,
+        original=RuntimeError("commit acknowledgement lost"),
+    )
+
+    assert reconciled is False
 
 
 @pytest.mark.unit

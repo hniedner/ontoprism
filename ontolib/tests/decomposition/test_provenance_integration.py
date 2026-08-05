@@ -151,6 +151,7 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
                 ],
             ),
             minted=(),
+            semantic_types=("Neoplastic Process",),
         )
         assert await store.pending_codes(_RUN_ID) == []
         persisted = await store.decompositions_for_run(_RUN_ID)
@@ -648,6 +649,7 @@ async def test_minted_concept_status_survives_a_rerun() -> None:
                 ],
             ),
             minted=(proposal,),
+            semantic_types=("Neoplastic Process",),
         )
         assert await store.finish_run(
             _RUN_ID,
@@ -682,6 +684,7 @@ async def test_minted_concept_status_survives_a_rerun() -> None:
                 ],
             ),
             minted=(proposal,),
+            semantic_types=("Neoplastic Process",),
         )
         assert await store.finish_run(
             _RERUN_ID,

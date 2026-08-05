@@ -171,7 +171,7 @@ class TestLoadGolden:
         ]
         data = {
             "_meta": {
-                "schema_version": 2,
+                "schema_version": 3,
                 "status": "SME-ADJUDICATED",
                 "ncit_version": "26.07d",
                 "source_identity": "a" * 64,
@@ -182,6 +182,7 @@ class TestLoadGolden:
                 "engine_evidence_identity": "f" * 64,
                 "corpus_evidence_identity": "5" * 64,
                 "detector_identity": "6" * 64,
+                "proposal_registry_identity": "9" * 64,
                 "workbook_identity": "e" * 64,
                 "reviewer": {
                     "name": "Example SME",
@@ -203,6 +204,7 @@ class TestLoadGolden:
                                 "relationship_group": None,
                                 "needs_review": False,
                                 "provenance_status": "ncit-26.07d",
+                                "proposal_id": None,
                             }
                         ],
                     },

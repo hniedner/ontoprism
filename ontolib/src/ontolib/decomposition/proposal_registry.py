@@ -90,6 +90,41 @@ def _require_concept_id(axis: str, preferred_name: str, actual_id: str) -> None:
         )
 
 
+def _require_axis(axis: str) -> None:
+    _text(axis, "axis")
+    if _OP_AXIS.fullmatch(axis) is None:
+        raise ValueError("axis must be a safe op: identifier")
+
+
+def _require_relation_id(preferred_name: str, actual_id: str) -> None:
+    if actual_id != relation_proposal_id(preferred_name):
+        raise ValueError(
+            "relation proposal must use its deterministic relation proposal id"
+        )
+
+
+def _require_relation_replacement_shape(
+    status: ProposalStatus,
+    replacement_iri: str | None,
+    replacement_version: str | None,
+) -> None:
+    replacements = (replacement_iri, replacement_version)
+    if status == "accepted":
+        if any(value is None for value in replacements):
+            raise ValueError("accepted relation requires replacement IRI and version")
+    elif any(value is not None for value in replacements):
+        raise ValueError("only accepted relation may carry a replacement identity")
+
+
+def _validate_relation_replacement(
+    replacement_iri: str | None, replacement_version: str | None
+) -> None:
+    if replacement_iri is not None and _ABSOLUTE_IRI.fullmatch(replacement_iri) is None:
+        raise ValueError("replacement relation IRI must be an absolute IRI")
+    if replacement_version is not None:
+        _text(replacement_version, "replacement relation version")
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
@@ -205,9 +240,7 @@ class ConceptProposal(_Proposal):
 
     @model_validator(mode="after")
     def _validate_concept(self) -> Self:
-        _text(self.axis, "axis")
-        if _OP_AXIS.fullmatch(self.axis) is None:
-            raise ValueError("axis must be a safe op: identifier")
+        _require_axis(self.axis)
         _canonical(self.parent_concepts, "parent_concepts")
         _require_matches(self.parent_concepts, _NCIT_CODE, "parent_concepts")
         _canonical(self.semantic_types, "semantic_types")
@@ -222,24 +255,34 @@ class ConceptProposal(_Proposal):
 
 
 class RelationProposal(_Proposal):
-    """A proposed univocal relation awaiting ontology-governance review."""
+    """A versioned governance record for one normalized univocal relation."""
 
     kind: Literal["relation"] = "relation"
+    axis: str
     domain: str
     range: str
     source_examples: tuple[str, ...]
+    replacement_relation_iri: str | None = None
+    replacement_relation_version: str | None = None
 
     @model_validator(mode="after")
     def _validate_relation(self) -> Self:
+        _require_axis(self.axis)
         _text(self.domain, "domain")
         _text(self.range, "range")
         _require_matches((self.domain,), _NCIT_CODE, "domain")
         _require_matches((self.range,), _NCIT_CODE, "range")
         _canonical(self.source_examples, "source_examples")
-        if self.id != relation_proposal_id(self.preferred_name):
-            raise ValueError(
-                "relation proposal must use its deterministic relation proposal id"
-            )
+        _require_relation_id(self.preferred_name, self.id)
+        _require_relation_replacement_shape(
+            self.status,
+            self.replacement_relation_iri,
+            self.replacement_relation_version,
+        )
+        _validate_relation_replacement(
+            self.replacement_relation_iri,
+            self.replacement_relation_version,
+        )
         return self
 
 
@@ -312,6 +355,7 @@ class ProposalRegistry(_StrictModel):
         return tuple(
             {
                 "proposal_id": proposal.id,
+                "axis": proposal.axis,
                 "preferred_name": proposal.preferred_name,
                 "definition": proposal.definition,
                 "domain": proposal.domain,
@@ -335,12 +379,14 @@ def relation_proposal_id(preferred_name: str) -> str:
 
 
 def resolve_proposal_identifier(registry: ProposalRegistry, identifier: str) -> str:
-    """Resolve an accepted placeholder to its assigned NCIt code."""
+    """Resolve an accepted placeholder to its assigned ontology identifier."""
     for proposal in registry.proposals:
         if proposal.id != identifier:
             continue
         if isinstance(proposal, ConceptProposal) and proposal.replacement_ncit_code:
             return proposal.replacement_ncit_code
+        if isinstance(proposal, RelationProposal) and proposal.replacement_relation_iri:
+            return proposal.replacement_relation_iri
         return identifier
     return identifier
 
@@ -400,6 +446,17 @@ def _csv_text(rows: tuple[dict[str, str], ...], fields: tuple[str, ...]) -> str:
     return target.getvalue()
 
 
+def _accepted_replacement(proposal: Proposal) -> tuple[str, object] | None:
+    if proposal.status != "accepted":
+        return None
+    if isinstance(proposal, ConceptProposal):
+        return proposal.id, proposal.replacement_ncit_code
+    return proposal.id, {
+        "identifier": proposal.replacement_relation_iri,
+        "version": proposal.replacement_relation_version,
+    }
+
+
 def write_submission_exports(registry: ProposalRegistry, directory: str | Path) -> None:
     """Write proposed submissions plus augmented and accepted-resolution artifacts."""
     root = Path(directory)
@@ -418,6 +475,7 @@ def write_submission_exports(registry: ProposalRegistry, directory: str | Path) 
     )
     relation_fields = (
         "proposal_id",
+        "axis",
         "preferred_name",
         "definition",
         "domain",
@@ -450,13 +508,8 @@ def write_submission_exports(registry: ProposalRegistry, directory: str | Path) 
     (root / "augmented-ncit-proposals.ttl").write_text(
         _augmented_ttl(registry), encoding="utf-8"
     )
-    replacements = {
-        proposal.id: proposal.replacement_ncit_code
-        for proposal in registry.proposals
-        if isinstance(proposal, ConceptProposal)
-        and proposal.status == "accepted"
-        and proposal.replacement_ncit_code is not None
-    }
+    replacement_items = map(_accepted_replacement, registry.proposals)
+    replacements = dict(item for item in replacement_items if item is not None)
     (root / "accepted-replacements.json").write_text(
         json.dumps(replacements, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

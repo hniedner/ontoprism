@@ -18,6 +18,11 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from scripts.research.golden_review import import_adjudication_workbook_bytes
 
+from ontolib.decomposition.proposal_registry import (
+    ConceptProposal,
+    ProposalRegistry,
+    load_proposal_registry,
+)
 from ontolib.decomposition.semantic_bundles import (
     AdjudicatedSemanticContext,
     BundleAxis,
@@ -1413,6 +1418,140 @@ def _validate_artifact_identity(artifact: dict[str, object]) -> None:
         raise ValueError("candidate artifact identity does not match its payload")
 
 
+def _require_object_keys(
+    value: dict[str, object], expected: set[str], field: str
+) -> None:
+    if set(value) != expected:
+        raise ValueError(f"{field} fields do not match the schema")
+
+
+def _required_text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be non-empty text")
+    return value
+
+
+def _required_text_list(value: object, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list")
+    return tuple(_required_text(item, field) for item in value)
+
+
+def _typed_source_occurrence(raw: object) -> SourceOccurrence:
+    if not isinstance(raw, dict):
+        raise ValueError("candidate source occurrence must be an object")
+    _require_object_keys(
+        raw,
+        {
+            "source_identity",
+            "ncit_release",
+            "root_code",
+            "fact_id",
+            "role_code",
+            "filler_code",
+            "anchor_code",
+            "depth",
+            "source_group_id",
+        },
+        "candidate source occurrence",
+    )
+    depth = raw["depth"]
+    if not isinstance(depth, int) or isinstance(depth, bool):
+        raise ValueError("candidate source occurrence depth must be an integer")
+    return SourceOccurrence(
+        source_identity=_required_text(raw["source_identity"], "source identity"),
+        ncit_release=_required_text(raw["ncit_release"], "NCIt release"),
+        root_code=_required_text(raw["root_code"], "root code"),
+        fact_id=_required_text(raw["fact_id"], "fact ID"),
+        source_role=_required_text(raw["role_code"], "role code"),
+        filler_code=_required_text(raw["filler_code"], "filler code"),
+        anchor_code=_required_text(raw["anchor_code"], "anchor code"),
+        depth=depth,
+        source_group_id=_required_text(raw["source_group_id"], "source group ID"),
+    )
+
+
+def _typed_candidate_member(raw: object) -> SemanticBundleMember:
+    if not isinstance(raw, dict):
+        raise ValueError("candidate member must be an object")
+    _require_object_keys(
+        raw,
+        {
+            "role",
+            "axis",
+            "filler_code",
+            "source_occurrences",
+            "evidence_claim_ids",
+        },
+        "candidate member",
+    )
+    occurrences = raw["source_occurrences"]
+    if not isinstance(occurrences, list):
+        raise ValueError("candidate source occurrences must be a list")
+    return SemanticBundleMember(
+        role=MemberRole(_required_text(raw["role"], "member role")),
+        axis=BundleAxis(_required_text(raw["axis"], "member axis")),
+        filler_code=_required_text(raw["filler_code"], "member filler"),
+        source_occurrences=tuple(
+            _typed_source_occurrence(item) for item in occurrences
+        ),
+        evidence_claim_ids=_required_text_list(
+            raw["evidence_claim_ids"], "member evidence claim ID"
+        ),
+    )
+
+
+def _typed_candidate(raw: dict[str, object]) -> SemanticBundleCandidate:
+    _require_object_keys(
+        raw,
+        {
+            "candidate_id",
+            "semantic_identity",
+            "subject_code",
+            "kind",
+            "name",
+            "source_value_group",
+            "classification",
+            "members",
+            "evidence_claim_ids",
+            "evidence_source_ids",
+        },
+        "semantic candidate",
+    )
+    classification = raw["classification"]
+    if not isinstance(classification, dict):
+        raise ValueError("candidate classification must be an object")
+    _require_object_keys(classification, {"authority", "version"}, "classification")
+    members = raw["members"]
+    if not isinstance(members, list):
+        raise ValueError("candidate members must be a list")
+    _required_text(raw["source_value_group"], "source value group")
+    candidate = SemanticBundleCandidate(
+        candidate_id=_required_text(raw["candidate_id"], "candidate ID"),
+        subject_code=_required_text(raw["subject_code"], "candidate subject"),
+        name=_required_text(raw["name"], "candidate name"),
+        kind=BundleKind(_required_text(raw["kind"], "candidate kind")),
+        classification=StageClassification(
+            authority=_required_text(classification["authority"], "authority"),
+            version=_required_text(classification["version"], "version"),
+        ),
+        members=tuple(_typed_candidate_member(item) for item in members),
+        evidence_claim_ids=_required_text_list(
+            raw["evidence_claim_ids"], "candidate evidence claim ID"
+        ),
+        evidence_source_ids=_required_text_list(
+            raw["evidence_source_ids"], "candidate evidence source ID"
+        ),
+    )
+    if raw["semantic_identity"] != candidate.semantic_identity:
+        raise ValueError("candidate semantic identity does not match its typed payload")
+    validate_candidate_evidence(candidate, EVIDENCE_REGISTRY)
+    known_sources = {source.evidence_id for source in EVIDENCE_SOURCES}
+    if unknown := set(candidate.evidence_source_ids) - known_sources:
+        raise ValueError(f"unknown candidate reference: {min(unknown)}")
+    return candidate
+
+
 def _candidate_rows(artifact: dict[str, object]) -> list[dict[str, object]]:
     raw = artifact.get("semantic_bundle_candidates")
     if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
@@ -1421,6 +1560,8 @@ def _candidate_rows(artifact: dict[str, object]) -> list[dict[str, object]]:
     candidate_ids = [item.get("candidate_id") for item in rows]
     if len(set(candidate_ids)) != len(rows):
         raise ValueError("candidate artifact IDs must be unique")
+    for row in rows:
+        _typed_candidate(row)
     return rows
 
 
@@ -1558,6 +1699,109 @@ def apply_constituent_corrections(
             _add_expected_pair(sheet, headers, correction)
 
 
+_PROVENANCE_PROPOSAL_STATUS = {
+    "proposed": "proposed",
+    "locally-approved": "locally-approved",
+    "submitted": "submitted",
+    "accepted-in-ncit": "accepted",
+}
+
+
+def _workbook_evidence_rows(sheet: Worksheet) -> dict[str, int]:
+    rows: dict[str, int] = {}
+    for row in range(5, sheet.max_row + 1):
+        key = sheet.cell(row, 1).value
+        if not isinstance(key, str):
+            continue
+        if key in rows:
+            raise ValueError(f"duplicate Source & Run Evidence key: {key}")
+        rows[key] = row
+    return rows
+
+
+def _validate_registry_source(
+    workbook: Workbook,
+    proposal_registry: ProposalRegistry,
+) -> dict[str, int]:
+    evidence = cast("Worksheet", workbook["Source & Run Evidence"])
+    rows = _workbook_evidence_rows(evidence)
+    source_row = rows.get("Source identity")
+    version_row = rows.get("NCIt release")
+    if source_row is None or (
+        evidence.cell(source_row, 2).value != proposal_registry.source_identity
+    ):
+        raise ValueError("proposal registry source identity does not match workbook")
+    if version_row is None or (
+        evidence.cell(version_row, 2).value != proposal_registry.ontology_version
+    ):
+        raise ValueError("proposal registry ontology version does not match workbook")
+    return rows
+
+
+def _proposal_for_workbook_pair(
+    proposal_registry: ProposalRegistry,
+    provenance_status: str,
+    axis: object,
+    filler: object,
+) -> str:
+    proposal_status = _PROVENANCE_PROPOSAL_STATUS.get(provenance_status)
+    matches = []
+    for proposal in proposal_registry.proposals:
+        expected_filler = (
+            proposal.replacement_ncit_code
+            if isinstance(proposal, ConceptProposal) and proposal.status == "accepted"
+            else proposal.id
+        )
+        if (
+            proposal.status == proposal_status
+            and proposal.axis == axis
+            and (not isinstance(proposal, ConceptProposal) or expected_filler == filler)
+        ):
+            matches.append(proposal.id)
+    if len(matches) != 1:
+        raise ValueError(
+            "augmented workbook pair must match exactly one proposal registry record"
+        )
+    return matches[0]
+
+
+def _bind_workbook_proposals(
+    workbook: Workbook,
+    proposal_registry: ProposalRegistry,
+) -> None:
+    evidence = cast("Worksheet", workbook["Source & Run Evidence"])
+    evidence_rows = _validate_registry_source(workbook, proposal_registry)
+    identity_row = evidence_rows.get("Proposal registry identity")
+    if identity_row is None:
+        identity_row = evidence.max_row + 1
+        evidence.cell(identity_row, 1, "Proposal registry identity")
+    evidence.cell(identity_row, 2, proposal_registry.registry_identity)
+
+    sheet = cast("Worksheet", workbook["Constituent Decisions"])
+    headers = _sheet_headers(sheet, 4)
+    proposal_column = headers.get("Expected Proposal ID")
+    if proposal_column is None:
+        proposal_column = sheet.max_column + 1
+        sheet.cell(4, proposal_column, "Expected Proposal ID")
+        headers["Expected Proposal ID"] = proposal_column
+    for row in range(5, sheet.max_row + 1):
+        if sheet.cell(row, headers["SME Action"]).value not in {"include", "revise"}:
+            continue
+        status = sheet.cell(row, headers["Expected Provenance Status"]).value
+        if status == "ncit-26.07d":
+            sheet.cell(row, proposal_column, None)
+            continue
+        if not isinstance(status, str):
+            raise ValueError("expected provenance status must be text")
+        proposal_id = _proposal_for_workbook_pair(
+            proposal_registry,
+            status,
+            sheet.cell(row, headers["Expected Axis"]).value,
+            sheet.cell(row, headers["Expected Filler"]).value,
+        )
+        sheet.cell(row, proposal_column, proposal_id)
+
+
 def _load_review_workbook_snapshot(
     base_workbook_path: Path,
     expected_base_sha256: str | None,
@@ -1578,6 +1822,7 @@ def write_review_workbook(
     output_path: Path,
     corrections: tuple[ConstituentCorrection, ...] = (),
     *,
+    proposal_registry: ProposalRegistry,
     expected_base_sha256: str | None = None,
 ) -> None:
     """Add a reviewer-owned semantic decision sheet to a fresh workbook copy."""
@@ -1588,6 +1833,7 @@ def write_review_workbook(
     )
     if corrections:
         apply_constituent_corrections(workbook, corrections)
+    _bind_workbook_proposals(workbook, proposal_registry)
     reviewer_sheet = workbook["Reviewer & Attestation"]
     reviewer_sheet["B9"] = "PENDING"
     reviewer_sheet["C9"] = (
@@ -1749,6 +1995,7 @@ def _parse_decision_row(
 def import_review_decisions(
     workbook_path: Path,
     candidate_artifact: dict[str, object],
+    proposal_registry: ProposalRegistry,
 ) -> dict[str, object]:
     """Generate canonical rules only from a complete, attested reviewer sheet."""
     workbook_bytes = workbook_path.read_bytes()
@@ -1756,6 +2003,7 @@ def import_review_decisions(
         workbook_bytes,
         workbook_path.name,
         candidate_artifact,
+        proposal_registry,
     )
 
 
@@ -1763,9 +2011,10 @@ def _import_review_decisions_snapshot(
     workbook_bytes: bytes,
     workbook_name: str,
     candidate_artifact: dict[str, object],
+    proposal_registry: ProposalRegistry,
 ) -> dict[str, object]:
     _validate_artifact_identity(candidate_artifact)
-    adjudication = import_adjudication_workbook_bytes(workbook_bytes)
+    adjudication = import_adjudication_workbook_bytes(workbook_bytes, proposal_registry)
     workbook = load_workbook(BytesIO(workbook_bytes), data_only=False)
     if _DECISION_SHEET not in workbook.sheetnames:
         raise ValueError(f"workbook is missing {_DECISION_SHEET}")
@@ -1799,6 +2048,7 @@ def _import_review_decisions_snapshot(
         "status": "ATTESTED",
         "candidate_artifact_identity": candidate_artifact["artifact_identity"],
         "adjudication_artifact_identity": adjudication.identity,
+        "proposal_registry_identity": proposal_registry.registry_identity,
         "review_workbook": {
             "file": workbook_name,
             "sha256": _sha256_bytes(workbook_bytes),
@@ -1850,6 +2100,7 @@ _CANONICAL_RULE_KEYS = {
     "status",
     "candidate_artifact_identity",
     "adjudication_artifact_identity",
+    "proposal_registry_identity",
     "review_workbook",
     "decisions",
     "semantic_bundle_rules",
@@ -1862,6 +2113,7 @@ def _validate_canonical_rules(
     candidate_artifact: dict[str, object],
     workbook_name: str,
     workbook_sha256: str,
+    proposal_registry: ProposalRegistry,
 ) -> None:
     if not isinstance(raw, dict) or set(raw) != _CANONICAL_RULE_KEYS:
         raise ValueError("canonical semantic rules have an invalid shape")
@@ -1871,6 +2123,8 @@ def _validate_canonical_rules(
         "artifact_identity"
     ):
         raise ValueError("canonical semantic rules bind a different candidate artifact")
+    if raw.get("proposal_registry_identity") != proposal_registry.registry_identity:
+        raise ValueError("canonical semantic rules bind a different proposal registry")
     expected_workbook = {"file": workbook_name, "sha256": workbook_sha256}
     if raw.get("review_workbook") != expected_workbook:
         raise ValueError(
@@ -1886,6 +2140,8 @@ def build_verification_manifest(
     candidate_path: Path,
     review_workbook_path: Path,
     canonical_rules_path: Path | None = None,
+    *,
+    proposal_registry: ProposalRegistry,
 ) -> dict[str, object]:
     candidate_bytes = candidate_path.read_bytes()
     review_workbook_bytes = review_workbook_path.read_bytes()
@@ -1894,6 +2150,13 @@ def build_verification_manifest(
         raise ValueError("candidate artifact must be an object")
     _validate_artifact_identity(candidate)
     review_workbook = load_workbook(BytesIO(review_workbook_bytes), data_only=False)
+    evidence = cast("Worksheet", review_workbook["Source & Run Evidence"])
+    evidence_rows = _validate_registry_source(review_workbook, proposal_registry)
+    registry_row = evidence_rows.get("Proposal registry identity")
+    if registry_row is None or (
+        evidence.cell(registry_row, 2).value != proposal_registry.registry_identity
+    ):
+        raise ValueError("workbook proposal registry identity does not match")
     if _DECISION_SHEET not in review_workbook.sheetnames:
         raise ValueError(f"workbook is missing {_DECISION_SHEET}")
     if review_workbook[_DECISION_SHEET]["B2"].value != candidate["artifact_identity"]:
@@ -1918,11 +2181,13 @@ def build_verification_manifest(
             candidate,
             review_workbook_path.name,
             review_workbook_sha256,
+            proposal_registry,
         )
         expected = _import_review_decisions_snapshot(
             review_workbook_bytes,
             review_workbook_path.name,
             candidate,
+            proposal_registry,
         )
         if canonical != expected:
             raise ValueError(
@@ -1937,6 +2202,7 @@ def build_verification_manifest(
         "schema_version": 1,
         "status": status,
         "candidate_artifact_identity": candidate["artifact_identity"],
+        "proposal_registry_identity": proposal_registry.registry_identity,
         "files": files,
     }
     manifest["manifest_identity"] = _payload_identity(manifest)
@@ -1951,6 +2217,7 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--source-audit", required=True, type=Path)
     prepare.add_argument("--engine-evidence", required=True, type=Path)
     prepare.add_argument("--contracted-disposition", required=True, type=Path)
+    prepare.add_argument("--proposal-registry", required=True, type=Path)
     prepare.add_argument("--output", required=True, type=Path)
     prepare.add_argument("--review-workbook-output", required=True, type=Path)
     prepare.add_argument("--corrections", type=Path)
@@ -1961,6 +2228,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     finalize.add_argument("--candidate", required=True, type=Path)
     finalize.add_argument("--review-workbook", required=True, type=Path)
+    finalize.add_argument("--proposal-registry", required=True, type=Path)
     finalize.add_argument("--canonical-rules-output", required=True, type=Path)
     finalize.add_argument("--manifest-output", required=True, type=Path)
     return parser
@@ -1974,49 +2242,74 @@ def _write_json(path: Path, value: object) -> None:
 
 
 def _prepare(args: Any) -> None:
+    proposal_registry = load_proposal_registry(args.proposal_registry)
     report = generate_stage_bundle_artifact(
         args.workbook,
         args.source_audit,
         args.engine_evidence,
         args.contracted_disposition,
     )
+    bindings = cast("dict[str, object]", report["bindings"])
+    bindings["proposal_registry"] = {
+        "file": args.proposal_registry.name,
+        "sha256": _sha256(args.proposal_registry),
+        "registry_identity": proposal_registry.registry_identity,
+    }
     corrections: tuple[ConstituentCorrection, ...] = ()
     if args.corrections is not None:
         corrections = load_constituent_corrections(args.corrections)
-        bindings = cast("dict[str, object]", report["bindings"])
         bindings["constituent_corrections"] = {
             "file": args.corrections.name,
             "sha256": _sha256(args.corrections),
             "count": len(corrections),
         }
-        report.pop("artifact_identity")
-        report["artifact_identity"] = _payload_identity(report)
+    report.pop("artifact_identity")
+    report["artifact_identity"] = _payload_identity(report)
     _write_json(args.output, report)
     write_review_workbook(
         args.workbook,
         report,
         args.review_workbook_output,
         corrections,
+        proposal_registry=proposal_registry,
         expected_base_sha256=_WORKBOOK_SHA256,
     )
     if args.manifest_output is not None:
         manifest = build_verification_manifest(
             args.output,
             args.review_workbook_output,
+            proposal_registry=proposal_registry,
         )
         _write_json(args.manifest_output, manifest)
 
 
 def _finalize(args: Any) -> None:
+    proposal_registry = load_proposal_registry(args.proposal_registry)
     candidate = _read_json(args.candidate)
     if not isinstance(candidate, dict):
         raise ValueError("candidate artifact must be an object")
-    canonical = import_review_decisions(args.review_workbook, candidate)
+    bindings = candidate.get("bindings")
+    expected_registry_binding = {
+        "file": args.proposal_registry.name,
+        "sha256": _sha256(args.proposal_registry),
+        "registry_identity": proposal_registry.registry_identity,
+    }
+    if (
+        not isinstance(bindings, dict)
+        or bindings.get("proposal_registry") != expected_registry_binding
+    ):
+        raise ValueError("candidate artifact proposal registry binding does not match")
+    canonical = import_review_decisions(
+        args.review_workbook,
+        candidate,
+        proposal_registry,
+    )
     _write_json(args.canonical_rules_output, canonical)
     manifest = build_verification_manifest(
         args.candidate,
         args.review_workbook,
         args.canonical_rules_output,
+        proposal_registry=proposal_registry,
     )
     _write_json(args.manifest_output, manifest)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from datetime import date, datetime
 from io import BytesIO
@@ -12,9 +13,15 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
+from ontolib.decomposition.proposal_registry import (
+    ConceptProposal,
+    ProposalRegistry,
+    RelationProposal,
+)
 from ontolib.decomposition.score import ExtractionScore, score
 
 if TYPE_CHECKING:
@@ -38,7 +45,7 @@ PairProvenance = Literal[
 ]
 
 _ADJUDICATED_STATUS = "SME-ADJUDICATED"
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _M1_REQUIRED_SEEDS = frozenset({"C4791", "C35756", "C89995"})
 _M1_MIN_CONCEPTS = 20
 _M1_MAX_CONCEPTS = 50
@@ -96,7 +103,7 @@ class Reviewer(_StrictModel):
 
 
 class AdjudicationMetadata(_StrictModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     status: Literal["SME-ADJUDICATED"]
     ncit_version: str
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -107,6 +114,7 @@ class AdjudicationMetadata(_StrictModel):
     engine_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     corpus_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     detector_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    proposal_registry_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     workbook_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     reviewer: Reviewer
 
@@ -138,6 +146,18 @@ class Constituent(_StrictModel):
 
 class GoldenConstituent(Constituent):
     provenance_status: PairProvenance
+    proposal_id: str | None
+
+    @model_validator(mode="after")
+    def _validate_proposal_reference(self) -> Self:
+        if self.provenance_status == "ncit-26.07d":
+            if self.proposal_id is not None:
+                raise ValueError("NCIt constituent must not carry a proposal ID")
+        elif self.proposal_id is None:
+            raise ValueError("augmented constituent requires a proposal ID")
+        else:
+            _canonical_text(self.proposal_id, "proposal ID")
+        return self
 
 
 class GoldenExpectation(_StrictModel):
@@ -425,7 +445,87 @@ def _normalize_adjudication_lists(raw: dict[str, object]) -> None:
     raw["concepts"] = tuple(concepts)
 
 
-def load_adjudication(path: str | Path) -> AdjudicationArtifact:
+_PROVENANCE_PROPOSAL_STATUS = {
+    "proposed": "proposed",
+    "locally-approved": "locally-approved",
+    "submitted": "submitted",
+    "accepted-in-ncit": "accepted",
+}
+
+
+def _augmented_constituents(
+    artifact: AdjudicationArtifact,
+) -> list[GoldenConstituent]:
+    return [
+        item
+        for concept in artifact.concepts
+        if concept.expected is not None
+        for item in concept.expected.constituents
+        if item.provenance_status != "ncit-26.07d"
+    ]
+
+
+def _validate_constituent_proposal(
+    constituent: GoldenConstituent,
+    proposal: ConceptProposal | RelationProposal,
+) -> None:
+    expected_status = _PROVENANCE_PROPOSAL_STATUS[constituent.provenance_status]
+    if proposal.status != expected_status:
+        raise GoldenSetValidationError(
+            f"proposal status does not match expected provenance: {proposal.id}"
+        )
+    if proposal.axis != constituent.axis:
+        raise GoldenSetValidationError(
+            f"proposal axis does not match augmented expectation: {proposal.id}"
+        )
+    if not isinstance(proposal, ConceptProposal):
+        return
+    expected_filler = (
+        proposal.replacement_ncit_code if proposal.status == "accepted" else proposal.id
+    )
+    if constituent.filler != expected_filler:
+        raise GoldenSetValidationError(
+            "proposal filler does not match augmented expectation: " + proposal.id
+        )
+
+
+def _validate_proposal_registry_binding(
+    artifact: AdjudicationArtifact,
+    proposal_registry: ProposalRegistry | None,
+) -> None:
+    augmented = _augmented_constituents(artifact)
+    if proposal_registry is None:
+        if augmented:
+            raise GoldenSetValidationError(
+                "augmented adjudication requires its proposal registry"
+            )
+        return
+    if artifact.meta.proposal_registry_identity != proposal_registry.registry_identity:
+        raise GoldenSetValidationError(
+            "adjudication proposal registry identity does not match"
+        )
+    if artifact.meta.source_identity != proposal_registry.source_identity:
+        raise GoldenSetValidationError(
+            "adjudication and proposal registry source identities do not match"
+        )
+    if artifact.meta.ncit_version != proposal_registry.ontology_version:
+        raise GoldenSetValidationError(
+            "adjudication and proposal registry ontology versions do not match"
+        )
+    proposals = {proposal.id: proposal for proposal in proposal_registry.proposals}
+    for constituent in augmented:
+        proposal = proposals.get(cast("str", constituent.proposal_id))
+        if proposal is None:
+            raise GoldenSetValidationError(
+                f"unknown proposal in augmented expectation: {constituent.proposal_id}"
+            )
+        _validate_constituent_proposal(constituent, proposal)
+
+
+def load_adjudication(
+    path: str | Path,
+    proposal_registry: ProposalRegistry | None = None,
+) -> AdjudicationArtifact:
     """Load one strict, complete, provenance-bearing M1 adjudication artifact."""
     raw = _read_adjudication_json(path)
     meta = raw.get("_meta")
@@ -435,14 +535,19 @@ def load_adjudication(path: str | Path) -> AdjudicationArtifact:
         )
     _normalize_adjudication_lists(raw)
     try:
-        return AdjudicationArtifact.model_validate(raw)
+        artifact = AdjudicationArtifact.model_validate(raw)
     except (ValidationError, ValueError) as error:
         raise _model_error(error) from error
+    _validate_proposal_registry_binding(artifact, proposal_registry)
+    return artifact
 
 
-def load_scorable_golden(path: str | Path) -> ScorableGoldenSet:
+def load_scorable_golden(
+    path: str | Path,
+    proposal_registry: ProposalRegistry | None = None,
+) -> ScorableGoldenSet:
     """Load accepted expectations only after complete M1 validation."""
-    return ScorableGoldenSet(load_adjudication(path))
+    return ScorableGoldenSet(load_adjudication(path, proposal_registry))
 
 
 def _headers(ws: Worksheet, row: int) -> dict[str, int]:
@@ -492,6 +597,30 @@ def _reject_reviewer_formulas(workbook: Workbook) -> None:
                         f"formula cells are not permitted in reviewer input: "
                         f"{sheet_name}!{cell.coordinate}"
                     )
+
+
+def _reject_hidden_reviewer_columns(workbook: Workbook) -> None:
+    for sheet_name in (
+        "Reviewer & Attestation",
+        "Concept Decisions",
+        "Constituent Decisions",
+        "Source & Run Evidence",
+    ):
+        sheet = workbook[sheet_name]
+        hidden = [
+            get_column_letter(column)
+            for column in range(1, sheet.max_column + 1)
+            if sheet.column_dimensions[get_column_letter(column)].hidden
+            and any(
+                sheet.cell(row, column).value is not None
+                for row in range(1, sheet.max_row + 1)
+            )
+        ]
+        if hidden:
+            raise GoldenSetValidationError(
+                f"hidden reviewer columns are not permitted in {sheet_name}: "
+                + ", ".join(hidden)
+            )
 
 
 def _evidence_values(workbook: Workbook) -> dict[str, str]:
@@ -570,6 +699,7 @@ def _workbook_constituents(
         "Expected Group",
         "Expected needs_review",
         "Expected Provenance Status",
+        "Expected Proposal ID",
         "Row Complete?",
     }
     if missing := required - headers.keys():
@@ -620,6 +750,12 @@ def _workbook_constituents(
                     f"{code} expected provenance status",
                 ),
             ),
+            proposal_id=_optional_text(
+                ws,
+                row,
+                headers["Expected Proposal ID"],
+                f"{code} expected proposal ID",
+            ),
         )
         result.setdefault(code, []).append(expected)
     return result, row_codes
@@ -645,6 +781,7 @@ def _load_review_workbook(content: bytes) -> Workbook:
             raise GoldenSetValidationError(
                 f"reviewer input sheet must be visible: {sheet_name}"
             )
+    _reject_hidden_reviewer_columns(workbook)
     _reject_reviewer_formulas(workbook)
     return workbook
 
@@ -689,6 +826,7 @@ def _required_evidence(workbook: Workbook) -> dict[str, str]:
         "Engine evidence identity",
         "Corpus evidence identity",
         "Detector identity",
+        "Proposal registry identity",
     }
     if missing := required_evidence - evidence.keys():
         raise GoldenSetValidationError(
@@ -855,6 +993,7 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
 
 def import_adjudication_workbook_bytes(
     workbook_bytes: bytes,
+    proposal_registry: ProposalRegistry | None = None,
 ) -> AdjudicationArtifact:
     """Import and validate one immutable issue #57 workbook snapshot."""
     workbook = _load_review_workbook(workbook_bytes)
@@ -874,12 +1013,13 @@ def import_adjudication_workbook_bytes(
                 engine_evidence_identity=evidence["Engine evidence identity"],
                 corpus_evidence_identity=evidence["Corpus evidence identity"],
                 detector_identity=evidence["Detector identity"],
+                proposal_registry_identity=evidence["Proposal registry identity"],
                 workbook_identity=hashlib.sha256(workbook_bytes).hexdigest(),
                 reviewer=reviewer,
             ),
             "concepts": _workbook_concepts(workbook),
         }
-        return AdjudicationArtifact.model_validate(
+        artifact = AdjudicationArtifact.model_validate(
             {
                 **payload,
                 "artifact_identity": _payload_identity(
@@ -895,9 +1035,14 @@ def import_adjudication_workbook_bytes(
         )
     except (ValidationError, ValueError) as error:
         raise _model_error(error) from error
+    _validate_proposal_registry_binding(artifact, proposal_registry)
+    return artifact
 
 
-def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
+def import_adjudication_workbook(
+    path: str | Path,
+    proposal_registry: ProposalRegistry | None = None,
+) -> AdjudicationArtifact:
     """Import the issue #57 workbook without inferring any reviewer decision."""
     workbook_path = Path(path)
     try:
@@ -906,7 +1051,7 @@ def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
         raise GoldenSetValidationError(
             f"cannot read adjudication workbook: {error}"
         ) from error
-    return import_adjudication_workbook_bytes(workbook_bytes)
+    return import_adjudication_workbook_bytes(workbook_bytes, proposal_registry)
 
 
 def _normalize_engine(value: dict[str, object]) -> dict[str, object]:
@@ -1088,7 +1233,11 @@ def _update_axis_counts(
 
 def _pair_modality(pair: ConstituentPair) -> str:
     contract = AXIS_CONTRACTS.get(pair[0])
-    return contract.modality if contract is not None else "asserted"
+    if contract is not None:
+        return contract.modality
+    if re.fullmatch(r"R[0-9]+", pair[0]) is not None:
+        return "asserted"
+    raise GoldenSetValidationError(f"unknown normalized axis: {pair[0]}")
 
 
 def _is_non_defining(pair: ConstituentPair) -> bool:

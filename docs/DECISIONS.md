@@ -2,7 +2,7 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
-## 2026-08-04 — the M1 oracle covers audited R103/R108 without laundering held axes
+## 2026-08-04 — the candidate M1 oracle covers audited R103/R108 without laundering held axes
 
 ### D59. Contracted-role source audit governs projection scope and relation-specific collapse
 
@@ -13,10 +13,13 @@ certified NCIt 26.07d complete-definition pass over all 20 concepts found 304 co
 facts.
 After same-axis specificity and reviewed generic suppression, v10 still omitted 13 R103,
 25 R108, 10 R104, and one R107 pair. The old 0.6807 recall therefore measured an
-engine-shaped oracle, not all ratified M1 content.
+engine-shaped reference, not the source-complete content now presented for final v14
+review.
 
-**Decision:** M1 includes every adjudicated source-supported R103 and range-valid R108
-survivor after same-axis collapse and the versioned `contracted-role-generic-v2` list.
+**Decision:** the pending v14 M1 candidate includes every previously adjudicated,
+source-supported R103 and range-valid R108 survivor after same-axis collapse and the
+versioned `contracted-role-generic-v2` list. It becomes an oracle only after the corrected
+constituent workbook and semantic-bundle sheet are both completely attested.
 NCIt marks R103 as non-defining in P98, so its 12 expected pairs remain scored but carry
 derived `non-defining` modality and are reported as a visible stratum. The versioned
 `ncit-26.07d-unsupported-filler-v1` register excludes R103 C54105 for C102870 and C27787:
@@ -53,13 +56,12 @@ partonomy. C132677 includes R108 C48322 as a ClinicalFinding while deriving the 
 non-constituent `unknown-cup` status. C198031 retains C3168 alone because C4005 is its
 broader stated defining ancestor.
 
-**Why:** rules and conserved source dispositions make the oracle reproducible and expose
-production blind spots without importing unadjudicated axes. The final v13 NCIt-bound
-result is TP 81, FP 25, FN 75 (precision 0.7642, recall 0.5192); the augmented view adds
-one locally approved expectation and therefore has FN 76 (recall 0.5159). A defining-only
-diagnostic view is TP 80, FP 25, FN 64 (recall 0.5556), while the non-defining R103 stratum
-is TP 1 and FN 11. The unchanged precision and lower recall are the expected scientific
-result of recovering true source content the engine does not yet emit.
+**Why:** rules and conserved source dispositions make the candidate reproducible and
+expose production blind spots without importing unadjudicated axes. The pending v14
+descriptive NCIt-bound result is TP 80, FP 26, FN 73 (precision 0.7547, recall 0.5229);
+the augmented view adds one locally approved expectation and therefore has FN 74 (recall
+0.5195). These are packet-verification values, not authoritative performance claims, until
+both attestations are complete.
 
 ## 2026-08-03 — cardinality, local-relation maturity, and routing release gates
 
@@ -116,7 +118,10 @@ generalize to treatment causation or shared susceptibility. Its current name is 
 provisionally because the formal definition is less ambiguous than `FollowsDisease` or
 `AfterDisease`; the same review trigger covers both name and definition. Both relations
 remain in the NCIt-bound score because their fillers are NCIt 26.07d concepts; relation
-locality and filler locality are independent provenance dimensions.
+locality and filler locality are independent provenance dimensions. The artifact binds the
+whole proposal registry identity separately. Its augmented view adds endpoint proposals,
+such as the locally approved `MINT-781c8c8c6096` filler, only when the expected row names
+that proposal ID and status.
 
 Provisional unaligned `op:` relations are a time-bounded exception to the project's OBO
 Foundry Principle 7 target. They may support the curated local projection only with
@@ -169,12 +174,15 @@ therefore cannot support a defensible NCIt or Relation Ontology submission.
 types: concept proposals and relation proposals. Both carry an identified NCIt source,
 formal definition, source roles, rationale, one or more resource- and version-labelled
 duplicate checks, a submission target, and an explicit `proposed`, `locally-approved`,
-`submitted`, `accepted`, or `rejected` state. Concept
-proposals additionally carry their projection axis, parent concepts, semantic types,
-synonyms, and source concepts. Relation proposals carry domain, range, and representative
-source pairs. IDs are deterministic from the concept axis/name or relation name; duplicate
-IDs and duplicate-check resources fail closed. JSON loading rejects duplicate keys and
-verifies a canonical SHA-256 registry identity.
+`submitted`, `accepted`, or `rejected` state. Concept proposals additionally carry their
+projection axis, parent concepts, semantic types, synonyms, and source concepts. Relation
+proposals carry their normalized projection axis, domain, range, and representative source
+pairs. Accepted concepts resolve to an NCIt code; accepted relations require both an
+assigned absolute IRI and its ontology version. IDs are deterministic from the concept
+axis/name or relation name; duplicate IDs and duplicate-check resources fail closed. JSON
+loading rejects duplicate keys and verifies a canonical SHA-256 registry identity. Every
+augmented golden expectation names its proposal ID, and import verifies the registry
+identity, source, release, proposal status, axis, and concept filler where applicable.
 
 Only `proposed` records enter deterministic flat submission exports. The same export
 command also writes locally augmented RDF and accepted replacement resolutions, but

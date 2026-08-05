@@ -59,6 +59,7 @@
       "synonyms": ["Malignant Nonseminomatous Germ Cell"]
     },
     {
+      "axis": "op:AssociatedPriorDisease",
       "definition": "Relates a disease to a distinct disease that was present earlier in the same patient and provides the stated temporal context for the subject disease, without by itself asserting direct causation or material transformation.",
       "domain": "C7057",
       "duplicate_checks": [
@@ -98,6 +99,7 @@
       "submission_target": "RO"
     },
     {
+      "axis": "op:ArisesInPrecursorDisease",
       "definition": "Relates a neoplastic disease to a pre-existing disease or neoplastic lesion within which the subject neoplasm arose.",
       "domain": "C7057",
       "duplicate_checks": [
@@ -137,6 +139,7 @@
       "submission_target": "RO"
     },
     {
+      "axis": "op:CausedByAssociatedDisease",
       "definition": "Relates a disease to another disease or disorder stated to be a direct cause of the subject disease.",
       "domain": "C7057",
       "duplicate_checks": [
@@ -176,6 +179,7 @@
       "submission_target": "RO"
     },
     {
+      "axis": "op:PredisposedByDisease",
       "definition": "Relates a disease to a distinct disease or syndrome that increases the risk of developing the subject disease without making development inevitable.",
       "domain": "C7057",
       "duplicate_checks": [
@@ -215,6 +219,7 @@
       "submission_target": "Mondo/RO"
     },
     {
+      "axis": "op:HasDiseaseManifestation",
       "definition": "Relates a syndrome or composite disease to a distinct disease that is one of its characteristic manifestations or constituent disease features.",
       "domain": "C7057",
       "duplicate_checks": [
@@ -254,6 +259,7 @@
       "submission_target": "RO"
     },
     {
+      "axis": "op:CoOccursWithDisease",
       "definition": "Relates a disease to a clinically relevant distinct disease stated to coexist in the same case, without asserting temporal order, causation, or risk.",
       "domain": "C7057",
       "duplicate_checks": [
@@ -293,7 +299,7 @@
       "submission_target": "RO"
     }
   ],
-  "registry_identity": "3970efc17ea8f067cf2e0152fc0039f3e14a8ac89cfeda210e727d14c8894783",
+  "registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
   "schema_version": 1,
   "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
 }

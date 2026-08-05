@@ -331,6 +331,7 @@ async def test_concurrent_publishers_are_serialized_and_readers_see_complete_gra
                 claim,
                 decomposition=decomposition,
                 minted=(),
+                semantic_types=("Neoplastic Process",),
             )
 
         old_graph = f"""

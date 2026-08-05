@@ -212,10 +212,8 @@ def _expected_completion_outcome(
 
 def _canonical_completion_semantic_types(
     decomposition: Decomposition | None,
-    semantic_types: tuple[str, ...] | None,
+    semantic_types: tuple[str, ...],
 ) -> tuple[str, ...]:
-    if semantic_types is None:
-        semantic_types = _decomposition_semantic_types(decomposition)
     canonical = tuple(sorted(set(semantic_types)))
     if any(not value for value in canonical):
         raise RunStateError("completion semantic types must be non-empty strings")
@@ -227,22 +225,10 @@ def _canonical_completion_semantic_types(
     return canonical
 
 
-def _decomposition_semantic_types(
-    decomposition: Decomposition | None,
-) -> tuple[str, ...]:
-    if decomposition is None:
-        raise RunStateError(
-            "non-decomposition completion requires explicit semantic types"
-        )
-    if decomposition.semantic_type is None:
-        return ()
-    return (decomposition.semantic_type,)
-
-
 def _validated_completion_metadata(
     decomposition: Decomposition | None,
     outcome: ConceptOutcome | None,
-    semantic_types: tuple[str, ...] | None,
+    semantic_types: tuple[str, ...],
     *,
     is_decomposed: bool,
     is_residual: bool,
@@ -1052,8 +1038,8 @@ class ProvenanceStore:
         *,
         decomposition: Decomposition | None,
         minted: tuple[MintedProposal, ...],
+        semantic_types: tuple[str, ...],
         outcome: ConceptOutcome | None = None,
-        semantic_types: tuple[str, ...] | None = None,
     ) -> None:
         """Replace one concept's rows and mark it complete in one transaction."""
         constituents, is_decomposed, is_residual = _completion_outcome(
