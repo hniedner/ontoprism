@@ -332,6 +332,7 @@ async def test_publication_state_is_retryable_separate_and_completion_gated(
             representation_identity=identity,
             artifact_path=artifact_path,
             built_at=built_at,
+            predecessor=None,
         )
         publishing = await store.get_run(_PUBLICATION_RUN_ID)
         assert publishing is not None
@@ -362,6 +363,7 @@ async def test_publication_state_is_retryable_separate_and_completion_gated(
                 representation_identity="c" * 64,
                 artifact_path=str(tmp_path / "different.ttl"),
                 built_at=built_at,
+                predecessor=None,
             )
 
         await store.begin_publication(
@@ -369,6 +371,7 @@ async def test_publication_state_is_retryable_separate_and_completion_gated(
             representation_identity=identity,
             artifact_path=artifact_path,
             built_at=built_at,
+            predecessor=None,
         )
         retried = await store.get_run(_PUBLICATION_RUN_ID)
         assert retried is not None
@@ -410,6 +413,7 @@ async def test_publication_intent_requires_an_existing_finished_worklist(
                 representation_identity="b" * 64,
                 artifact_path=str(tmp_path / "decomposed.ttl"),
                 built_at=datetime.datetime.now(datetime.UTC),
+                predecessor=None,
             )
         assert await store.fail_run(
             _PUBLICATION_RUN_ID,
@@ -421,6 +425,7 @@ async def test_publication_intent_requires_an_existing_finished_worklist(
                 representation_identity="b" * 64,
                 artifact_path=str(tmp_path / "decomposed.ttl"),
                 built_at=datetime.datetime.now(datetime.UTC),
+                predecessor=None,
             )
         with pytest.raises(RunStateError, match="no active publication"):
             await store.record_publication_failure(
@@ -433,6 +438,7 @@ async def test_publication_intent_requires_an_existing_finished_worklist(
                 representation_identity="b" * 64,
                 artifact_path=str(tmp_path / "decomposed.ttl"),
                 built_at=datetime.datetime.now(datetime.UTC),
+                predecessor=None,
             )
 
         await store.create_run(_RUN_ID, "26.07d", _fingerprint(()))
@@ -442,6 +448,7 @@ async def test_publication_intent_requires_an_existing_finished_worklist(
                 representation_identity="b" * 64,
                 artifact_path=str(tmp_path / "decomposed.ttl"),
                 built_at=datetime.datetime.now(datetime.UTC),
+                predecessor=None,
             )
         with pytest.raises(
             RunIdentityMismatchError,

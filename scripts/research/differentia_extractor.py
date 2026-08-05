@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 
 try:
     from scripts.research.golden_review import load_scorable_golden
 except ModuleNotFoundError:  # direct `python scripts/research/differentia_extractor.py`
     from golden_review import load_scorable_golden
 
+from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.score import score
 from ontolib.decomposition.walker import Role, walk_chain
 from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
@@ -40,6 +42,11 @@ _DEFINING_AXES = {"R88", "R101", "R105"}
 # heuristic — a genuine axis-naming judgment call (#57 SME task), not a mechanical fact,
 # so it is isolated in one place and cannot be scored until adjudication.
 _STAGE_SYSTEM_MARKERS = ("AJCC", "UICC", "Stage System")
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_GOLDEN = _REPO_ROOT / "ontolib/tests/decomposition/golden/neoplasm.json"
+_PROPOSAL_REGISTRY = (
+    _REPO_ROOT / "ontolib/tests/decomposition/golden/proposal-registry.json"
+)
 
 
 def _metric(value: float, denominator: int) -> str:
@@ -83,13 +90,12 @@ def ambiguous_axes(pairs: set[tuple[str, str]]) -> dict[str, set[str]]:
 
 def _load_golden(path: str):
     """Return a fully validated provenance-bearing SME oracle."""
-    return load_scorable_golden(path)
+    return load_scorable_golden(path, load_proposal_registry(_PROPOSAL_REGISTRY))
 
 
 async def main() -> None:
     codes = sys.argv[1:] or ["C6135"]
-    golden_path = "ontolib/tests/decomposition/golden/neoplasm.json"
-    golden = _load_golden(golden_path)
+    golden = _load_golden(str(_GOLDEN))
 
     async with OxigraphHttpClient("http://localhost:7888") as client:
         for code in codes:

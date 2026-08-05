@@ -281,7 +281,14 @@ def _group_by_routed_axis(
     for r in filter_excluded(restrictions, concept_code=concept_code):
         axis_name = route_axis(r, parent_morphology)
         by_axis[axis_name].add(r.filler_code)
-        source_roles[(axis_name, r.filler_code)] = r.role_code
+        key = (axis_name, r.filler_code)
+        existing_role = source_roles.get(key)
+        if existing_role is not None and existing_role != r.role_code:
+            raise ValueError(
+                f"routed axis/filler {key!r} has multiple source roles: "
+                f"{existing_role!r}, {r.role_code!r}"
+            )
+        source_roles[key] = r.role_code
     return by_axis, source_roles
 
 

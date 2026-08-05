@@ -469,9 +469,7 @@ async def test_completed_zero_output_run_derives_an_honest_zero_residual_rate() 
 
 
 @pytest.mark.unit
-async def test_explicit_residual_rate_takes_precedence_over_historical_derivation() -> (
-    None
-):
+async def test_contradictory_explicit_residual_rate_fails_closed() -> None:
     sf = _make_mock_sf()
     result_mock = sf().execute.return_value
     result_mock.mappings.return_value.all.return_value = [
@@ -496,9 +494,36 @@ async def test_explicit_residual_rate_takes_precedence_over_historical_derivatio
         }
     ]
 
-    runs = await ProvenanceStore(sf).list_runs()
+    with pytest.raises(RunStateError, match="metrics violate"):
+        await ProvenanceStore(sf).list_runs()
 
-    assert runs[0].residual_precoordination == 0.75
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        {"total_in_scope": -1},
+        {"pct_decomposed": 1.1},
+        {"complete_fact_count": 1, "projected_fact_count": 2},
+        ["not", "an", "object"],
+    ],
+)
+async def test_invalid_persisted_metrics_fail_closed(metrics: object) -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "run-invalid-metrics",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.07d",
+            "started_at": datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC),
+            "metrics": metrics,
+        }
+    ]
+
+    with pytest.raises(RunStateError, match="metrics"):
+        await ProvenanceStore(sf).list_runs()
 
 
 @pytest.mark.unit
@@ -585,7 +610,7 @@ async def test_list_runs_metrics_none_when_null() -> None:
 
 
 @pytest.mark.unit
-async def test_list_runs_corrupt_metrics_falls_back_to_empty() -> None:
+async def test_list_runs_corrupt_metrics_fails_closed() -> None:
     sf = _make_mock_sf()
     result_mock = sf().execute.return_value
     result_mock.mappings.return_value.all.return_value = [
@@ -600,11 +625,8 @@ async def test_list_runs_corrupt_metrics_falls_back_to_empty() -> None:
         },
     ]
     store = ProvenanceStore(sf)
-    runs = await store.list_runs()
-    assert len(runs) == 1
-    r = runs[0]
-    assert r.total_in_scope is None  # corrupt → fallback to {}
-    assert r.decomposed is None
+    with pytest.raises(RunStateError, match="not valid JSON"):
+        await store.list_runs()
 
 
 @pytest.mark.unit
@@ -634,6 +656,35 @@ async def test_get_run_found() -> None:
     run = await store.get_run("run-1")
     assert run is not None
     assert run.id == "run-1"
+
+
+@pytest.mark.unit
+async def test_get_run_decodes_jsonb_publication_predecessor() -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.first.return_value = {
+        "id": "run-1",
+        "branch": "neoplasm",
+        "status": "complete",
+        "ncit_version": "26.05d",
+        "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
+        "finished_at": None,
+        "publication_predecessor": {
+            "run_id": "previous-run",
+            "source_identity": "a" * 64,
+            "representation_identity": "b" * 64,
+            "built_at": "2026-07-11T12:00:00Z",
+        },
+        "metrics": None,
+    }
+
+    run = await ProvenanceStore(sf).get_run("run-1")
+
+    assert run is not None
+    assert run.publication_predecessor is not None
+    assert run.publication_predecessor.built_at == datetime.datetime(
+        2026, 7, 11, 12, tzinfo=datetime.UTC
+    )
 
 
 @pytest.mark.unit
@@ -738,7 +789,11 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     consistent_counts.mappings.return_value.first.return_value = None
     work_items = MagicMock()
     work_items.mappings.return_value.all.return_value = [
-        {"concept_code": "C1", "semantic_type": "Neoplastic Process"}
+        {
+            "concept_code": "C1",
+            "semantic_type": "Neoplastic Process",
+            "has_complete_definition": True,
+        }
     ]
     constituents = MagicMock()
     constituents.mappings.return_value.all.return_value = [

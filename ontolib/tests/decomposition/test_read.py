@@ -151,8 +151,8 @@ def test_axis_source_defaults_to_role_when_absent() -> None:
 
 @pytest.mark.unit
 def test_group_review_flag_and_all_definition_sources_round_trip() -> None:
-    fact_a = f"{vocab.DEFINITION_FACT_NS}{'a' * 64}"
-    fact_b = f"{vocab.DEFINITION_FACT_NS}{'b' * 64}"
+    fact_a = f"{vocab.DEFINITION_FACT_NS}C6135/{'a' * 64}"
+    fact_b = f"{vocab.DEFINITION_FACT_NS}C6135/{'b' * 64}"
     common = {
         "status": vocab.LEGACY_PRECOORDINATED,
         "axis": _ncit("R101"),
@@ -182,6 +182,7 @@ def test_group_review_flag_and_all_definition_sources_round_trip() -> None:
     [
         "https://example.org/not-an-ontoprism-fact",
         f"{vocab.DEFINITION_FACT_NS}not-a-digest",
+        f"{vocab.DEFINITION_FACT_NS}C2/{'a' * 64}",
     ],
 )
 def test_invalid_projection_source_fact_fails_closed(source_iri: str) -> None:

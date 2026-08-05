@@ -153,6 +153,8 @@ class GoldenConstituent(Constituent):
         if self.provenance_status == "ncit-26.07d":
             if self.proposal_id is not None:
                 raise ValueError("NCIt constituent must not carry a proposal ID")
+            if re.fullmatch(r"C[0-9]+", self.filler) is None:
+                raise ValueError("NCIt constituent filler must be an NCIt code")
         elif self.proposal_id is None:
             raise ValueError("augmented constituent requires a proposal ID")
         else:

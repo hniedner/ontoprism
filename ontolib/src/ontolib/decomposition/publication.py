@@ -5,15 +5,20 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import tempfile
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 import rdflib
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 from rdflib import Literal, URIRef
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.provenance import RunStateError
+from ontolib.decomposition.provenance_models import (
+    PersistedRunMetrics,
+    PublicationMarkerSnapshot,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
@@ -63,6 +68,7 @@ class PublicationProvenance(Protocol):
         representation_identity: str,
         artifact_path: str,
         built_at: datetime,
+        predecessor: PublicationMarkerSnapshot | None,
     ) -> None: ...
 
     async def record_publication_failure(
@@ -93,15 +99,8 @@ class PublicationFinalizationError(RuntimeError):
     """Publication completed, but releasing its PostgreSQL advisory lock failed."""
 
 
-class PublicationMarker(BaseModel):
+class PublicationMarker(PublicationMarkerSnapshot):
     """Identity committed inside the public named graph."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-    run_id: str = Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)
-    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    built_at: AwareDatetime
 
     @property
     def built_at_lexical(self) -> str:
@@ -191,10 +190,24 @@ def validate_artifact(
     run_id: str,
 ) -> str:
     """Validate exact concept/run membership and return the byte identity."""
+    identity, _payload = _validated_artifact_payload(
+        artifact,
+        expected_codes=expected_codes,
+        run_id=run_id,
+    )
+    return identity
+
+
+def _validated_artifact_payload(
+    artifact: Path,
+    *,
+    expected_codes: Collection[str],
+    run_id: str,
+) -> tuple[str, bytes]:
     payload, graph = _read_artifact_graph(artifact)
     subjects = _validated_concept_subjects(graph, expected_codes)
     _validate_run_membership(graph, subjects, run_id)
-    return hashlib.sha256(payload).hexdigest()
+    return hashlib.sha256(payload).hexdigest(), payload
 
 
 def staging_graph_iri(run_id: str) -> str:
@@ -305,9 +318,22 @@ async def read_publication_marker(
     return _parse_marker_values(values)
 
 
-def _durable_replace(artifact: Path, destination: Path) -> None:
-    """Atomically replace the file and fsync the containing directory entry."""
-    os.replace(artifact, destination)
+def _durable_write(payload: bytes, destination: Path) -> None:
+    """Atomically publish sealed bytes and fsync the containing directory entry."""
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        dir=destination.parent,
+    )
+    temporary = destination.parent / os.path.basename(temporary_name)
+    try:
+        with os.fdopen(file_descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     directory_fd = os.open(destination.parent, flags)
     try:
@@ -337,32 +363,32 @@ async def _record_failure_without_masking(
 
 async def _replace_graph(
     client: PublicationGraphClient,
-    artifact: Path,
+    payload: bytes,
     marker: PublicationMarker,
     *,
-    retrying: bool,
+    predecessor: PublicationMarker | None,
 ) -> None:
     current = await read_publication_marker(client)
-    if current == marker:
-        return
-    if current is not None and retrying:
+    if current not in (marker, predecessor):
         raise PublicationValidationError(
-            "public decomposition marker does not match this publication intent"
+            "public decomposition marker is neither this publication intent nor "
+            "its persisted predecessor"
         )
     staging_graph = staging_graph_iri(marker.run_id)
-    with artifact.open("rb") as stream:
-        await client.load(
-            stream,
-            content_type="text/turtle",
-            graph_iri=staging_graph,
-            replace=True,
-        )
+    await client.load(
+        payload,
+        content_type="text/turtle",
+        graph_iri=staging_graph,
+        replace=True,
+    )
     try:
         await client.update(build_replacement_update(marker, staging_graph))
     except asyncio.CancelledError:
         raise
     except BaseException as original:
-        if await _replacement_committed(client, marker, original):
+        # A matching marker existed before this update, so it cannot prove a replay
+        # committed. Fail closed and let the next retry reapply the sealed graph.
+        if current != marker and await _replacement_committed(client, marker, original):
             return
         raise
 
@@ -413,17 +439,19 @@ async def _publish_started_artifact(
     *,
     marker: PublicationMarker,
     artifact: Path,
+    payload: bytes,
     destination: Path,
     metrics: dict[str, object],
     load_to_store: bool,
-    retrying: bool,
+    predecessor: PublicationMarker | None,
     client: PublicationGraphClient,
     provenance: PublicationProvenance,
 ) -> None:
     try:
         if load_to_store:
-            await _replace_graph(client, artifact, marker, retrying=retrying)
-        _durable_replace(artifact, destination)
+            await _replace_graph(client, payload, marker, predecessor=predecessor)
+        _durable_write(payload, destination)
+        artifact.unlink()
         finished = await provenance.finish_run(
             marker.run_id,
             source_identity=marker.source_identity,
@@ -455,33 +483,138 @@ async def _publish_started_artifact(
         raise
 
 
+async def _prepare_publication_intent(
+    *,
+    run_id: str,
+    source_identity: str,
+    representation_identity: str,
+    destination: Path,
+    load_to_store: bool,
+    client: PublicationGraphClient,
+    provenance: PublicationProvenance,
+) -> tuple[PublicationMarker, PublicationMarker | None]:
+    summary = await provenance.get_run(run_id)
+    if summary is None:
+        raise RunStateError(f"decomposition run {run_id!r} does not exist")
+    if summary.source_identity != source_identity:
+        raise RunStateError(
+            "publication source identity does not match the persisted run"
+        )
+    marker, retrying = _marker_for_run(
+        summary,
+        run_id=run_id,
+        source_identity=source_identity,
+        representation_identity=representation_identity,
+    )
+    if retrying:
+        if not summary.publication_predecessor_captured:
+            raise RunStateError(
+                "publication intent has no captured predecessor and cannot be retried "
+                "safely"
+            )
+        predecessor = (
+            PublicationMarker.model_validate(
+                summary.publication_predecessor.model_dump()
+            )
+            if summary.publication_predecessor is not None
+            else None
+        )
+    else:
+        predecessor = await read_publication_marker(client) if load_to_store else None
+    return marker, predecessor
+
+
+async def _begin_matches_persisted_intent(
+    *,
+    run_id: str,
+    source_identity: str,
+    representation_identity: str,
+    destination: Path,
+    marker: PublicationMarker,
+    predecessor: PublicationMarker | None,
+    provenance: PublicationProvenance,
+    original: Exception,
+) -> bool:
+    try:
+        committed = await provenance.get_run(run_id)
+    except Exception as reconciliation_error:
+        original.add_note(
+            "Reading the publication intent during begin reconciliation also "
+            f"failed: {type(reconciliation_error).__name__}: {reconciliation_error}"
+        )
+        raise PublicationPreflightError(str(original)) from original
+    predecessor_snapshot = (
+        predecessor.model_dump(mode="json") if predecessor is not None else None
+    )
+    return committed is not None and (
+        committed.status,
+        committed.source_identity,
+        committed.publication_state,
+        committed.representation_identity,
+        committed.publication_artifact_path,
+        committed.publication_built_at,
+        committed.publication_predecessor_captured,
+        (
+            committed.publication_predecessor.model_dump(mode="json")
+            if committed.publication_predecessor is not None
+            else None
+        ),
+    ) == (
+        "running",
+        source_identity,
+        "publishing",
+        representation_identity,
+        str(destination),
+        marker.built_at,
+        True,
+        predecessor_snapshot,
+    )
+
+
 async def _begin_publication(
     *,
     run_id: str,
     source_identity: str,
     representation_identity: str,
     destination: Path,
+    load_to_store: bool,
+    client: PublicationGraphClient,
     provenance: PublicationProvenance,
-) -> tuple[PublicationMarker, bool]:
+) -> tuple[PublicationMarker, PublicationMarker | None]:
     try:
-        summary = await provenance.get_run(run_id)
-        if summary is None:
-            raise RunStateError(f"decomposition run {run_id!r} does not exist")
-        marker, retrying = _marker_for_run(
-            summary,
+        marker, predecessor = await _prepare_publication_intent(
             run_id=run_id,
             source_identity=source_identity,
             representation_identity=representation_identity,
+            destination=destination,
+            load_to_store=load_to_store,
+            client=client,
+            provenance=provenance,
         )
+    except Exception as exc:
+        raise PublicationPreflightError(str(exc)) from exc
+
+    try:
         await provenance.begin_publication(
             run_id,
             representation_identity=representation_identity,
             artifact_path=str(destination),
             built_at=marker.built_at,
+            predecessor=predecessor,
         )
-        return marker, retrying
-    except Exception as exc:
-        raise PublicationPreflightError(str(exc)) from exc
+    except Exception as original:
+        if not await _begin_matches_persisted_intent(
+            run_id=run_id,
+            source_identity=source_identity,
+            representation_identity=representation_identity,
+            destination=destination,
+            marker=marker,
+            predecessor=predecessor,
+            provenance=provenance,
+            original=original,
+        ):
+            raise PublicationPreflightError(str(original)) from original
+    return marker, predecessor
 
 
 async def publish_artifact(
@@ -498,32 +631,38 @@ async def publish_artifact(
 ) -> PublicationMarker:
     """Publish a complete file/graph and only then complete its run journal."""
     try:
-        representation_identity = validate_artifact(
+        validated_metrics = PersistedRunMetrics.model_validate(metrics).model_dump(
+            exclude_unset=True
+        )
+        representation_identity, payload = _validated_artifact_payload(
             artifact,
             expected_codes=expected_codes,
             run_id=run_id,
         )
-    except PublicationValidationError as exc:
+    except (PublicationValidationError, ValidationError) as exc:
         raise PublicationPreflightError(str(exc)) from exc
     journaled = False
     completed = False
     try:
         async with provenance.publication_lock():
-            marker, retrying = await _begin_publication(
+            marker, predecessor = await _begin_publication(
                 run_id=run_id,
                 source_identity=source_identity,
                 representation_identity=representation_identity,
                 destination=destination,
+                load_to_store=load_to_store,
+                client=client,
                 provenance=provenance,
             )
             journaled = True
             await _publish_started_artifact(
                 marker=marker,
                 artifact=artifact,
+                payload=payload,
                 destination=destination,
-                metrics=metrics,
+                metrics=validated_metrics,
                 load_to_store=load_to_store,
-                retrying=retrying,
+                predecessor=predecessor,
                 client=client,
                 provenance=provenance,
             )

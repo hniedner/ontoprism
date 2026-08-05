@@ -6,8 +6,7 @@ import asyncio
 import hashlib
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 import rdflib
@@ -15,6 +14,10 @@ import rdflib
 from ontolib.decomposition import vocab
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
+from ontolib.decomposition.provenance_models import (
+    PublicationMarkerSnapshot,
+    RunSummary,
+)
 from ontolib.decomposition.publication import (
     PublicationFinalizationError,
     PublicationMarker,
@@ -31,8 +34,8 @@ from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Collection, Mapping, Sequence
-    from io import BufferedReader
     from pathlib import Path
+    from typing import BinaryIO
 
 
 def _decomposition(code: str = "C1") -> Decomposition:
@@ -85,10 +88,11 @@ class _GraphClient:
 
     async def select_once(
         self,
-        _query: str,
+        query: str,
         *,
         required_variables: Collection[str] = (),
     ) -> Sequence[Mapping[str, str | None]]:
+        del query
         assert set(required_variables) == {"predicate", "value"}
         self.events.append("read-marker")
         if self.marker_read_error_after_update is not None and "replace" in self.events:
@@ -97,7 +101,7 @@ class _GraphClient:
 
     async def load(
         self,
-        data: bytes | BufferedReader,
+        data: bytes | BinaryIO,
         *,
         content_type: str,
         graph_iri: str | None = None,
@@ -109,7 +113,8 @@ class _GraphClient:
         self.loaded_payload = data if isinstance(data, bytes) else data.read()
         self.loaded_graph = graph_iri
 
-    async def update(self, _update: str) -> None:
+    async def update(self, update: str) -> None:
+        del update
         self.events.append("replace")
         if self.update_error is not None:
             if self.marker_on_update_error is not None:
@@ -122,7 +127,8 @@ class _BlockingGraphClient(_GraphClient):
         super().__init__()
         self.update_started = asyncio.Event()
 
-    async def update(self, _update: str) -> None:
+    async def update(self, update: str) -> None:
+        del update
         self.events.append("replace")
         self.update_started.set()
         await asyncio.Event().wait()
@@ -134,21 +140,32 @@ class _PublicationStore:
         *,
         destination: Path,
         persisted_built_at: datetime | None = None,
-        summary_state: str | None = None,
+        summary_state: Literal["pending", "publishing", "failed"] | None = None,
         missing: bool = False,
         begin_error: BaseException | None = None,
         record_error: BaseException | None = None,
         lock_error: BaseException | None = None,
         unlock_error: BaseException | None = None,
+        predecessor: PublicationMarker | None = None,
+        begin_commits_before_error: bool = False,
+        source_identity: str = "a" * 64,
     ) -> None:
         self.destination = destination
         self.persisted_built_at = persisted_built_at
-        self.summary_state = summary_state
+        self.summary_state: Literal["pending", "publishing", "failed"] | None = (
+            summary_state
+        )
         self.missing = missing
         self.begin_error = begin_error
         self.record_error = record_error
         self.lock_error = lock_error
         self.unlock_error = unlock_error
+        self.predecessor = predecessor
+        self.predecessor_captured = persisted_built_at is not None
+        self.begin_commits_before_error = begin_commits_before_error
+        self.source_identity = source_identity
+        self.representation_identity: str | None = None
+        self.artifact_path: str | None = None
         self.events: list[str] = []
         self.failures: list[BaseException] = []
         self.finished_identity: str | None = None
@@ -165,27 +182,59 @@ class _PublicationStore:
             if self.unlock_error is not None:
                 raise self.unlock_error
 
-    async def get_run(self, _run_id: str) -> Any:
+    async def get_run(self, run_id: str) -> RunSummary | None:
+        del run_id
         if self.missing:
             return None
-        return SimpleNamespace(
-            publication_state=(
-                self.summary_state
-                or ("failed" if self.persisted_built_at is not None else "pending")
-            ),
+        state: Literal["pending", "publishing", "failed"] = self.summary_state or (
+            "failed" if self.persisted_built_at is not None else "pending"
+        )
+        return RunSummary(
+            id="neoplasm-run-1",
+            branch="neoplasm",
+            status="running",
+            ncit_version="26.07d",
+            started_at=datetime(2026, 7, 30, tzinfo=UTC),
+            source_identity=self.source_identity,
+            publication_state=state,
             publication_built_at=self.persisted_built_at,
+            representation_identity=self.representation_identity,
+            publication_artifact_path=self.artifact_path,
+            publication_predecessor_captured=self.predecessor_captured,
+            publication_predecessor=self.predecessor,
         )
 
-    async def begin_publication(self, _run_id: str, **_kwargs: object) -> None:
+    async def begin_publication(
+        self,
+        run_id: str,
+        *,
+        representation_identity: str,
+        artifact_path: str,
+        built_at: datetime,
+        predecessor: PublicationMarkerSnapshot | None,
+    ) -> None:
+        del run_id
         self.events.append("begin")
+        if self.begin_error is None or self.begin_commits_before_error:
+            self.summary_state = "publishing"
+            self.persisted_built_at = built_at
+            self.representation_identity = representation_identity
+            self.artifact_path = artifact_path
+            self.predecessor = (
+                PublicationMarker.model_validate(predecessor.model_dump())
+                if predecessor is not None
+                else None
+            )
+            self.predecessor_captured = True
         if self.begin_error is not None:
             raise self.begin_error
 
     async def record_publication_failure(
         self,
-        _run_id: str,
+        run_id: str,
         error: BaseException,
     ) -> None:
+        del run_id
         self.events.append("failure")
         self.failures.append(error)
         if self.record_error is not None:
@@ -193,12 +242,13 @@ class _PublicationStore:
 
     async def finish_run(
         self,
-        _run_id: str,
+        run_id: str,
         *,
         source_identity: str,
         metrics: dict[str, object],
         representation_identity: str | None = None,
     ) -> bool:
+        del run_id
         assert source_identity == "a" * 64
         assert metrics == {"decomposed": 1}
         assert self.destination.read_text(encoding="utf-8").endswith("\n")
@@ -362,7 +412,7 @@ async def test_publish_stages_replaces_file_then_completes_the_run(
     assert store.finished_identity == marker.representation_identity
     assert graph.loaded_payload == destination.read_bytes()
     assert graph.loaded_graph == staging_graph_iri(marker.run_id)
-    assert graph.events == ["read-marker", "stage", "replace"]
+    assert graph.events == ["read-marker", "read-marker", "stage", "replace"]
     assert store.events == ["lock", "begin", "finish", "unlock"]
     assert not staging.exists()
 
@@ -428,9 +478,147 @@ async def test_marker_ahead_retry_skips_graph_replacement_and_finishes_file(
     )
 
     assert marker == expected_marker
-    assert graph.events == ["read-marker"]
+    assert graph.events == ["read-marker", "stage", "replace"]
     assert store.events == ["lock", "begin", "finish", "unlock"]
     assert destination.exists()
+
+
+@pytest.mark.unit
+async def test_retry_replaces_its_exact_persisted_predecessor(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    predecessor = PublicationMarker(
+        run_id="neoplasm-run-0",
+        source_identity="9" * 64,
+        representation_identity="8" * 64,
+        built_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+    )
+    graph = _GraphClient(_marker_rows(predecessor))
+    store = _PublicationStore(
+        destination=destination,
+        persisted_built_at=datetime(2026, 7, 30, 12, 0, tzinfo=UTC),
+        predecessor=predecessor,
+    )
+
+    await publish_artifact(
+        run_id="neoplasm-run-1",
+        source_identity="a" * 64,
+        artifact=staging,
+        destination=destination,
+        expected_codes={"C1"},
+        metrics={"decomposed": 1},
+        load_to_store=True,
+        client=graph,
+        provenance=store,
+    )
+
+    assert graph.events == ["read-marker", "stage", "replace"]
+    assert destination.exists()
+
+
+@pytest.mark.unit
+async def test_lost_begin_acknowledgement_reconciles_committed_intent(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    store = _PublicationStore(
+        destination=destination,
+        begin_error=RuntimeError("connection closed after commit"),
+        begin_commits_before_error=True,
+    )
+
+    await publish_artifact(
+        run_id="neoplasm-run-1",
+        source_identity="a" * 64,
+        artifact=staging,
+        destination=destination,
+        expected_codes={"C1"},
+        metrics={"decomposed": 1},
+        load_to_store=False,
+        client=_GraphClient(),
+        provenance=store,
+    )
+
+    assert store.events == ["lock", "begin", "finish", "unlock"]
+    assert store.failures == []
+
+
+@pytest.mark.unit
+async def test_publication_uses_the_validated_bytes_if_staging_path_changes(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl(
+        [_decomposition()],
+        staging,
+        run_id="neoplasm-run-1",
+        emitted_on=datetime(2026, 7, 30, tzinfo=UTC).date(),
+    )
+    validated = staging.read_bytes()
+
+    class _MutatingStore(_PublicationStore):
+        @asynccontextmanager
+        async def publication_lock(self) -> AsyncIterator[None]:
+            await write_ttl(
+                [_decomposition()],
+                staging,
+                run_id="neoplasm-run-1",
+                emitted_on=datetime(2026, 7, 31, tzinfo=UTC).date(),
+            )
+            async with super().publication_lock():
+                yield
+
+    graph = _GraphClient()
+    store = _MutatingStore(destination=destination)
+    marker = await publish_artifact(
+        run_id="neoplasm-run-1",
+        source_identity="a" * 64,
+        artifact=staging,
+        destination=destination,
+        expected_codes={"C1"},
+        metrics={"decomposed": 1},
+        load_to_store=True,
+        client=graph,
+        provenance=store,
+    )
+
+    assert destination.read_bytes() == validated
+    assert graph.loaded_payload == validated
+    assert marker.representation_identity == hashlib.sha256(validated).hexdigest()
+
+
+@pytest.mark.unit
+async def test_source_identity_mismatch_fails_before_publication_side_effects(
+    tmp_path: Path,
+) -> None:
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    graph = _GraphClient()
+    store = _PublicationStore(destination=destination, source_identity="9" * 64)
+
+    with pytest.raises(PublicationPreflightError, match="source identity"):
+        await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=True,
+            client=graph,
+            provenance=store,
+        )
+
+    assert graph.events == []
+    assert store.events == ["lock", "unlock"]
+    assert not destination.exists()
 
 
 @pytest.mark.unit
@@ -462,7 +650,7 @@ async def test_new_run_replaces_the_prior_complete_publication(
     )
 
     assert current.run_id == "neoplasm-run-2"
-    assert graph.events == ["read-marker", "stage", "replace"]
+    assert graph.events == ["read-marker", "read-marker", "stage", "replace"]
     assert store.failures == []
 
 
@@ -516,7 +704,7 @@ async def test_retry_refuses_to_overwrite_a_different_newer_marker(
         persisted_built_at=built_at,
     )
 
-    with pytest.raises(PublicationValidationError, match="does not match"):
+    with pytest.raises(PublicationValidationError, match="neither"):
         await publish_artifact(
             run_id="neoplasm-run-1",
             source_identity="a" * 64,
@@ -570,7 +758,12 @@ async def test_ambiguous_update_error_reconciles_committed_marker(
     )
 
     assert marker == committed
-    assert graph.events == ["read-marker", "stage", "replace", "read-marker"]
+    assert graph.events == [
+        "read-marker",
+        "stage",
+        "replace",
+        "read-marker",
+    ]
     assert store.failures == []
     assert store.finished_identity == identity
 
@@ -820,8 +1013,9 @@ async def test_cancellation_during_failure_journaling_is_not_swallowed(
 
     class _CancellingJournal(_PublicationStore):
         async def record_publication_failure(
-            self, _run_id: str, error: BaseException
+            self, run_id: str, error: BaseException
         ) -> None:
+            del run_id
             recording_started.set()
             await release_recording.wait()
             self.failures.append(error)

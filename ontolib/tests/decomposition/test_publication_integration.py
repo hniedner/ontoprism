@@ -249,6 +249,12 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
             first_marker = await read_publication_marker(client)
             assert first_marker is not None
             assert first_marker.run_id == _RUN_ID
+            response = await _update(
+                isolated_oxigraph_url,
+                f"INSERT DATA {{ GRAPH <{_PUBLIC}> {{ "
+                '<urn:drift> <urn:value> "stale" } }',
+            )
+            response.raise_for_status()
 
             destination.rmdir()
             await write_ttl([], artifact, run_id=_RUN_ID)
@@ -267,6 +273,9 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
             assert second_marker == first_marker
             assert not await client.ask(
                 f"ASK {{ GRAPH <{_PUBLIC}> {{ <urn:old> ?p ?o }} }}"
+            )
+            assert not await client.ask(
+                f"ASK {{ GRAPH <{_PUBLIC}> {{ <urn:drift> ?p ?o }} }}"
             )
             assert not await client.ask(
                 f"ASK {{ GRAPH <{staging_graph_iri(_RUN_ID)}> {{ ?s ?p ?o }} }}"

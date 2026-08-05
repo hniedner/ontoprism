@@ -20,6 +20,7 @@ from ontolib.decomposition.semantic_bundles import (
     ProjectedConstituentEvidence,
     SemanticBundleCandidate,
     SemanticBundleMember,
+    SemanticMetricScore,
     SourceOccurrence,
     StageClassification,
     canonical_restriction_fact_id,
@@ -105,8 +106,69 @@ def _adjudicated(candidate: SemanticBundleCandidate) -> AdjudicatedSemanticBundl
     return AdjudicatedSemanticBundle(
         candidate=candidate,
         decision_id="decision-1",
+        decision="ACCEPT",
         rationale="The reviewer approved this exact framework/value association.",
+        reviewer="Example SME",
+        reviewed_at="2026-08-05",
     )
+
+
+@pytest.mark.unit
+def test_candidate_rejects_mixed_ncit_source_snapshots() -> None:
+    candidate = _candidate()
+    second = candidate.members[1]
+    occurrence = second.source_occurrences[0]
+    mixed_member = replace(
+        second,
+        source_occurrences=(replace(occurrence, source_identity="2" * 64),),
+    )
+
+    with pytest.raises(ValueError, match="one NCIt source snapshot"):
+        replace(candidate, members=(candidate.members[0], mixed_member))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"true_positive": -1},
+        {"true_positive": 2},
+        {"missing": frozenset()},
+        {"extra": frozenset({"same"}), "missing": frozenset({"same"})},
+    ],
+)
+def test_semantic_metric_score_rejects_inconsistent_counts_and_sets(
+    mutation: dict[str, object],
+) -> None:
+    valid: dict[str, object] = {
+        "expected": 2,
+        "actual": 1,
+        "true_positive": 1,
+        "missing": frozenset({"missing"}),
+        "extra": frozenset(),
+    }
+
+    with pytest.raises(ValueError, match="semantic metric"):
+        SemanticMetricScore(**(valid | mutation))  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ({"decision": "DEFER"}, "accepted"),
+        ({"reviewer": ""}, "reviewer"),
+        ({"reviewed_at": "August 5"}, "reviewed_at"),
+    ],
+)
+def test_adjudicated_bundle_requires_an_accepted_dated_review(
+    mutation: dict[str, object],
+    message: str,
+) -> None:
+    bundle = _adjudicated(_candidate())
+
+    with pytest.raises(ValueError, match=message):
+        replace(bundle, **mutation)
 
 
 def _structural_claim() -> EvidenceClaim:

@@ -652,6 +652,26 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("reverse", [False, True])
+def test_same_routed_pair_from_different_source_roles_fails_closed(
+    reverse: bool,
+) -> None:
+    restrictions = [
+        RoleRestriction("R100", "C12316"),
+        RoleRestriction("R101", "C12316"),
+    ]
+    if reverse:
+        restrictions.reverse()
+
+    with pytest.raises(ValueError, match="multiple source roles"):
+        select_constituents(
+            restrictions,
+            lambda _ancestor, _descendant: False,
+            parent_morphology="C7558",
+        )
+
+
+@pytest.mark.unit
 def test_organ_lookup_collapses_nested_regions_only_within_region_axis() -> None:
     semantic_types = {
         "C12400": "Body Part, Organ, or Organ Component",

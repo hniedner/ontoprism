@@ -16,20 +16,22 @@ After same-axis specificity and reviewed generic suppression, v10 still omitted 
 engine-shaped reference, not the source-complete content now presented for final v14
 review.
 
-**Decision:** the pending v14 M1 candidate includes every previously adjudicated,
-source-supported R103 and range-valid R108 survivor after same-axis collapse and the
-versioned `contracted-role-generic-v2` list. It becomes an oracle only after the corrected
-constituent workbook and semantic-bundle sheet are both completely attested.
-NCIt marks R103 as non-defining in P98, so its 12 expected pairs remain scored but carry
-derived `non-defining` modality and are reported as a visible stratum. The versioned
+**Decision:** the pending v14 M1 candidate includes the reviewed R103 and range-valid R108
+survivors after same-axis collapse and the versioned `contracted-role-generic-v2` list.
+Corrections are validated against a matching root/filler source occurrence, not a
+role-specific occurrence. The pair scorer becomes usable after the workbook's main
+attestation; `stage-bundle-pilot finalize` separately requires complete semantic-bundle
+attestation before semantic rules become `ATTESTED`. NCIt marks R103 as non-defining in
+P98, so its 12 expected pairs remain scored and reports derive their visible
+`non-defining` stratum from the axis contract. The versioned
 `ncit-26.07d-unsupported-filler-v1` register excludes R103 C54105 for C102870 and C27787:
 that germinal-layer filler conflicts with both concept definitions and is not accuracy
 content. R104 CellOrigin and R107 CytogeneticAbnormality remain explicit named scope
 omissions until their cardinality, grouping, RO alignment, and suppression policy are
 adjudicated; the 10 R104 and one R107 survivors are not silently called non-core or mixed
-into current metrics. The walker projects inherited R103/R108 and continues to hold
-inherited R104/R107. The complete record retains all source facts regardless of projection
-suppression.
+into current metrics. The walker projects inherited R103/R108 within its depth-five
+projection bound and continues to hold inherited R104/R107. The independently bounded
+complete record retains all source facts regardless of projection suppression.
 
 The generic list is role-specific: R103 C45714; R104 C12578; R105 C12917, C12922,
 C36779; and R108 C36115, C53596, C54172. Membership is inherited coverage over the
@@ -38,30 +40,35 @@ Cellular Infiltrate) on frequency drawn from R142 exclusions on malignant concep
 positive R108 finding it is asserted only on the benign genera C3677, C4776 and C5111 and
 covers 5.6% of the cohort against 61-100% for every retained entry, so v2 restores it and
 C4791 Left Atrial Myxoma regains a true constituent. Changes require a new list version and
-the full-corpus routing impact gate from D58. Stage system/value routing likewise uses the
-versioned `ncit-26.07d-stage-kind-v1` code/definition classification; semantic type alone
-is insufficient because NCIt uses `Classification` for both values and frameworks.
+the full-corpus routing impact gate from D58. Runtime stage system/value routing uses the
+versioned `ncit-26.07d-stage-kind-v1` reviewed code allowlist. Definitions informed its
+curation but are not consulted at runtime; semantic type alone is insufficient because
+NCIt uses `Classification` for both values and frameworks.
 
-`rdfs:subClassOf` licenses most-specific collapse on every axis. R82 part-of licenses
-collapse only on location axes under RO:0004026; it is not subsumption for morphology,
-cell, tissue, finding, or classification axes. Consequently C35756's C12704/C12705
-lineage classifiers remain separate and ungrouped. Complete-definition groups preserve
+`rdfs:subClassOf` licenses most-specific collapse on routed axes except
+`op:AssociatedLineageClassification`, whose fillers remain independent. R82 part-of
+licenses collapse only on location axes under RO:0004026; it is not subsumption for
+morphology, cell, tissue, finding, or classification axes. Consequently C35756's
+C12704/C12705 lineage classifiers remain separate and ungrouped. Complete-definition groups preserve
 source co-assertion partitions; curated projection groups may additionally identify
 multiple co-equal values retained on one routed axis, but never genus-walk path bookkeeping.
 
 The three PrimarySubsite mappings and C206219's R100-to-PrimarySite override remain
 scoreable provisional human-curated morphology-context mappings. They preserve original
-source roles and have source-role-faithful fallbacks; they are not claimed as OWL-derived
-partonomy. C132677 includes R108 C48322 as a ClinicalFinding while deriving the separate
-non-constituent `unknown-cup` status. C198031 retains C3168 alone because C4005 is its
-broader stated defining ancestor.
+source roles and are not claimed as OWL-derived partonomy. PrimarySubsite has an
+AssociatedRegion fallback; the R100 override has no machine-readable fallback contract.
+C132677 currently emits only R108 C48322 as a ClinicalFinding. A future class-level
+projection may derive a separate non-constituent `unknown-cup` status. C198031 retains
+C3168 alone because C4005 is its broader stated defining ancestor.
 
 **Why:** rules and conserved source dispositions make the candidate reproducible and
 expose production blind spots without importing unadjudicated axes. The pending v14
 descriptive NCIt-bound result is TP 80, FP 26, FN 73 (precision 0.7547, recall 0.5229);
 the augmented view adds one locally approved expectation and therefore has FN 74 (recall
 0.5195). These are packet-verification values, not authoritative performance claims, until
-both attestations are complete.
+both attestations are complete. `ncit_bound` filters the expected set to NCIt-stamped
+pairs; actual engine emissions have no pair-level provenance and all remain in its actual
+and false-positive denominator.
 
 ## 2026-08-03 — cardinality, local-relation maturity, and routing release gates
 
@@ -91,13 +98,13 @@ and only if a `PrimarySite` filler is present. `unknown-cup` is a positive clini
 not absence, and is accompanied by an explicit unknown-primary finding where supported.
 `undetermined` preserves incomplete workup or unresolved second-primary-versus-metastasis
 classification. `not-applicable` covers classes or occurrences that genuinely do not pose
-the site question. The current class projection does not store occurrence status: it
-derives a class-level summary of `known` from a present site, `unknown-cup` from an explicit
-complete-record unknown-primary assertion, and otherwise `not-applicable`. That final
-class-derived value never propagates to an occurrence. A solid-tumour occurrence from a
-site-agnostic class defaults to `undetermined` until site or CUP status is established;
-occurrence-level `not-applicable` is reserved for a disease model where primary site truly
-does not apply.
+the site question. A future class-level projection may derive `known` from a present site,
+`unknown-cup` from explicit complete-record unknown-primary evidence, and otherwise
+`not-applicable`; the current extractor neither computes nor persists this status. A
+future class-derived value never propagates to an occurrence. A solid-tumour occurrence
+from a site-agnostic class defaults to `undetermined` until site or CUP status is
+established; occurrence-level `not-applicable` is reserved for a disease model where
+primary site truly does not apply.
 Issue #263 tracks the occurrence schema/API and executable invariants.
 
 Occurrence individuation is upstream and out of scope. The 0..1 rule must never decide
@@ -186,8 +193,9 @@ identity, source, release, proposal status, axis, and concept filler where appli
 
 Only `proposed` records enter deterministic flat submission exports. The same export
 command also writes locally augmented RDF and accepted replacement resolutions, but
-registry records do not enter `AXIS_CONTRACTS`, the decomposed graph, or the global runtime
-mint queue, and no proposal is approved merely because an export exists. `pdm run
+export does not automatically promote registry records. A separately ratified relation
+may enter `AXIS_CONTRACTS` and production routing through an explicit code change; no
+proposal is approved merely because an export exists. `pdm run
 adjudication export-proposals REGISTRY OUTPUT_DIR` validates the registry before writing
 NCIt concept, relation, manifest, augmentation, and replacement artifacts.
 
@@ -297,7 +305,7 @@ The certified 26.07d stated artifact exposed a factual error in D23's old prose:
 `Disease_May_Have_Finding`; they are not the defining clinical-finding and cell-origin
 roles formerly assigned to them.
 
-**Decision:** the curated projection routes every supported defining NCIt role to a
+**Decision:** the curated projection routes every supported positive NCIt role to a
 single-sense `op:` relation. Each relation has an executable contract containing its
 human label and definition, NCIt-backed domain/range codes and labels, provenance, and
 source-role mapping. Direct mappings include `R88 → op:StageValue`,
@@ -393,10 +401,11 @@ After graph publication, atomically replace the file and `fsync` its directory; 
 then may PostgreSQL mark the run and publication `complete`/`published`. A crash can
 therefore leave the graph and/or file ahead of PostgreSQL, but never a partially replaced
 public graph or a completed database row ahead of requested publication. A matching
-marker-ahead retry skips graph replacement, republishes the same validated file if
-needed, and completes the journal. A journal-ahead retry with no marker restages and
-replaces the graph. A conflicting or malformed marker fails closed. Historical complete
-runs are labelled `legacy`, not retroactively certified.
+marker-ahead retry replays the sealed validated graph to repair possible drift,
+republishes the same bytes to the file, and completes the journal. A journal-ahead retry
+may replace only the exact predecessor marker captured with its immutable intent. A
+different, malformed, or uncaptured predecessor fails closed. Historical complete runs
+are labelled `legacy`, not retroactively certified.
 
 **Why:** cross-system atomicity would be a false guarantee. Native atomic replacement,
 an immutable intent, and idempotent state-based reconciliation provide the strongest
@@ -429,10 +438,11 @@ conflicts, or store failure. It never reconstructs from inferred
 The existing constituent view remains useful, but is now an explicit projection whose
 role- and parent-derived members link back to source definition-fact IDs; NLP fallback
 members that mint retain separate proposal provenance. Complete/projected/lost fact
-counts are run metrics. PostgreSQL migrations `0009_complete_definition` and
-`0012_nested_definition_groups` store the typed facts, canonical groups/edges, and
-source links atomically with each fenced work item; invalidation removes them in the
-same transaction. The additive RDF artifact carries the same facts, group graph,
+counts are run metrics. PostgreSQL migrations `0009_complete_definition`,
+`0012_nested_definition_groups`, and `0014_definition_presence` store the typed facts,
+canonical groups/edges, explicit empty-definition presence, and source links atomically
+with each fenced work item; invalidation removes them in the same transaction. The
+additive RDF artifact carries the same facts, group graph, root-scoped occurrence
 identities, counts, review flags, and trace links. The read API round-trips constituent
 `group`, `needs_review`, and all source-fact IDs.
 

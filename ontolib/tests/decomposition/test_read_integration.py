@@ -135,4 +135,4 @@ async def test_writer_projection_trace_round_trips_through_real_oxigraph(
     assert actual.constituents[0].group == "anatomy-1"
     assert actual.constituents[0].needs_review is True
     assert actual.constituents[0].source_definition_ids == (fact_id,)
-    assert fact_rows == [{"fact": f"{vocab.DEFINITION_FACT_NS}{fact_id}"}]
+    assert fact_rows == [{"fact": f"{vocab.DEFINITION_FACT_NS}C6135/{fact_id}"}]

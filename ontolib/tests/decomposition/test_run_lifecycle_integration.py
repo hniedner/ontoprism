@@ -291,6 +291,41 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
         await dispose_engine(engine)
 
 
+async def test_empty_complete_definition_survives_postgres_round_trip() -> None:
+    run_id = _new_run_id("neoplasm")
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    decomposition = Decomposition(
+        code="C0",
+        semantic_type="Neoplastic Process",
+        constituents=(
+            Constituent(
+                axis="op:Laterality",
+                filler_code="C25229",
+                axis_source="nlp",
+            ),
+        ),
+        complete_definition=CompleteDefinition(root_code="C0", facts=()),
+    )
+    try:
+        await store.create_run(run_id, "26.07d", _fingerprint())
+        claim = await store.claim_work_item(run_id, "C0")
+        assert claim is not None
+        await store.complete_work_item(
+            run_id,
+            "C0",
+            claim,
+            decomposition=decomposition,
+            minted=(),
+            semantic_types=("Neoplastic Process",),
+        )
+
+        assert await store.decompositions_for_run(run_id) == [decomposition]
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
 @pytest.mark.parametrize(
     ("child_table", "mismatch"),
     [

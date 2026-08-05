@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter, defaultdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -24,6 +24,7 @@ from scripts.research.stage_bundle_pilot import (
     build_stage_bundle_report,
     build_verification_manifest,
     import_review_decisions,
+    load_constituent_corrections,
     validate_source_audit,
     write_review_workbook,
 )
@@ -539,6 +540,8 @@ def test_constituent_corrections_remove_and_add_exact_pairs() -> None:
                 axis="op:AssociatedRegion",
                 filler_code="C3",
                 rationale="The complete source audit supports this missing pair.",
+                provenance_status="ncit-26.07d",
+                needs_review=False,
             ),
         ),
     )
@@ -547,7 +550,130 @@ def test_constituent_corrections_remove_and_add_exact_pairs() -> None:
     assert sheet["E6"].value == "include"
     assert sheet["F6"].value == "op:AssociatedRegion"
     assert sheet["G6"].value == "C3"
+    assert sheet["I6"].value == "FALSE"
+    assert sheet["J6"].value == "ncit-26.07d"
     assert sheet["M6"].value == "YES"
+
+
+@pytest.mark.unit
+def test_add_correction_requires_explicit_provenance_and_review_state() -> None:
+    with pytest.raises(ValueError, match="add correction requires"):
+        ConstituentCorrection(
+            action="add",
+            concept_code="C1",
+            axis="op:AssociatedRegion",
+            filler_code="C3",
+            rationale="The reviewer added this pair.",
+        )
+
+
+@pytest.mark.unit
+def test_correction_loader_requires_typed_add_provenance(tmp_path: Path) -> None:
+    path = tmp_path / "corrections.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "corrections": [
+                    {
+                        "action": "add",
+                        "concept_code": "C1",
+                        "axis": "op:AssociatedRegion",
+                        "filler_code": "C3",
+                        "rationale": "The source audit supports this pair.",
+                        "provenance_status": "ncit-26.07d",
+                        "needs_review": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_constituent_corrections(path)
+
+    assert loaded[0].provenance_status == "ncit-26.07d"
+    assert loaded[0].needs_review is False
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["corrections"][0]["provenance_status"] = "invented"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="provenance"):
+        load_constituent_corrections(path)
+
+
+@pytest.mark.unit
+def test_ncit_add_correction_requires_bound_source_audit_support(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+
+    with pytest.raises(ValueError, match="source audit"):
+        write_review_workbook(
+            base,
+            _candidate_artifact(),
+            review,
+            (
+                ConstituentCorrection(
+                    action="add",
+                    concept_code="C1",
+                    axis="op:AssociatedRegion",
+                    filler_code="C999999",
+                    rationale="This pair has no source occurrence.",
+                    provenance_status="ncit-26.07d",
+                    needs_review=False,
+                ),
+            ),
+            proposal_registry=_PROPOSAL_REGISTRY,
+        )
+
+
+@pytest.mark.unit
+def test_constituent_corrections_reject_duplicate_headers() -> None:
+    workbook = Workbook()
+    sheet = workbook.create_sheet("Constituent Decisions")
+    headers = (
+        "Concept Order",
+        "Concept Code",
+        "Source Label",
+        "SME Action",
+        "Expected Axis",
+        "Expected Filler",
+        "Expected Group",
+        "Expected needs_review",
+        "Expected Provenance Status",
+        "SME Notes",
+        "Row Complete?",
+        "SME Action",
+    )
+    for column, header in enumerate(headers, start=1):
+        sheet.cell(4, column, header)
+
+    with pytest.raises(ValueError, match="duplicate header"):
+        apply_constituent_corrections(workbook, ())
+
+
+@pytest.mark.unit
+def test_semantic_review_accepts_excel_date_cells(tmp_path: Path) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact()
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
+    workbook = load_workbook(review)
+    assert workbook["Semantic Bundle Decisions"]["K9"].number_format == "@"
+    workbook.save(review)
+    _attest_review_workbook(review)
+    workbook = load_workbook(review)
+    workbook["Semantic Bundle Decisions"]["K9"] = datetime(2026, 8, 4)
+    workbook.save(review)
+
+    canonical = import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
+
+    decisions = cast("list[dict[str, str]]", canonical["decisions"])
+    assert decisions[0]["reviewed_at"] == "2026-08-04"
 
 
 @pytest.mark.unit

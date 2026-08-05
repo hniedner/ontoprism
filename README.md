@@ -221,8 +221,8 @@ through caDSR; NAACCR keeps its exchange format, operational rules, and mandate.
    named-class hierarchy (direct subclass plus defined-class genus edges), then apply
    the shared axis algorithm's semantic-type and defining-axis gates. The disease
    branch contains the neoplasm branch; regimen remains reserved for its distinct
-   component-bag algorithm. Each role-filler pair is a semantic dimension that can be
-   factored out.
+   component-bag algorithm. Each supported, projectable role-filler pair can be factored
+   out; filtered source facts remain available in the complete structural record.
 
 2. **Extract** — Walk each concept's genus chain recursively (a multi-parent DAG,
    not a single lineage). For each defining role, select the most-specific filler

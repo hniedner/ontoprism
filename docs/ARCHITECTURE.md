@@ -98,15 +98,16 @@ class-local and never inherited by an occurrence:
 a solid-tumour occurrence without established site evidence is `undetermined` (D58).
 The future occurrence schema and API are tracked in #263.
 
-The M1 curated projection is source-complete for adjudicated R103 normal-tissue-origin and
-R108 clinical-finding facts after same-axis specificity and the versioned
+The pending M1 reference candidate includes audited R103 normal-tissue-origin and R108
+clinical-finding expectations after same-axis specificity and the versioned
 `contracted-role-generic-v2` suppression list. R103 expectations carry their source-derived
 non-defining modality; `ncit-26.07d-unsupported-filler-v1` excludes the two C54105 source
 conflicts from accuracy content. Ten R104 CellOrigin and one R107
 CytogeneticAbnormality survivor remain named scope omissions pending axis-level
-adjudication; their complete-definition facts are still preserved. Is-a may collapse a
-broader filler on any axis, while R82 part-of may collapse only location-axis fillers.
-Independent lineage classifiers therefore remain ungrouped and uncollapsed (D59).
+adjudication; their complete-definition facts are still preserved. Production projection
+recall remains depth-bounded. Is-a may collapse a broader filler on routed axes except
+lineage classification, while R82 part-of may collapse only location-axis fillers.
+Independent lineage classifiers remain ungrouped and uncollapsed (D59).
 
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
 (the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)

@@ -40,17 +40,27 @@ def _as_bool(value: str | None) -> bool:
     return value in ("true", "1")
 
 
-def _source_definition_id(iri: str | None) -> str | None:
+def _require_sha256(value: str) -> str:
+    if len(value) != _SHA256_LENGTH or any(
+        character not in "0123456789abcdef" for character in value
+    ):
+        raise ValueError("source definition fact does not contain a SHA-256 ID")
+    return value
+
+
+def _source_definition_id(iri: str | None, concept_code: str) -> str | None:
     if iri is None:
         return None
     if not iri.startswith(vocab.DEFINITION_FACT_NS):
         raise ValueError("source definition fact is outside the OntoPrism namespace")
-    fact_id = iri.removeprefix(vocab.DEFINITION_FACT_NS)
-    if len(fact_id) != _SHA256_LENGTH or any(
-        c not in "0123456789abcdef" for c in fact_id
-    ):
-        raise ValueError("source definition fact does not contain a SHA-256 ID")
-    return fact_id
+    occurrence = iri.removeprefix(vocab.DEFINITION_FACT_NS)
+    try:
+        root_code, fact_id = occurrence.split("/", 1)
+    except ValueError as exc:
+        raise ValueError("source definition fact is not root-scoped") from exc
+    if root_code != concept_code:
+        raise ValueError("source definition fact belongs to a different root concept")
+    return _require_sha256(fact_id)
 
 
 def _source_role(iri: str | None) -> str | None:
@@ -65,11 +75,12 @@ def _source_role(iri: str | None) -> str | None:
 
 
 def _constituent_from_row(
+    concept_code: str,
     axis_iri: str,
     filler_iri: str,
     row: Row,
 ) -> DecompositionConstituent:
-    source_id = _source_definition_id(row.get("sourceDefinitionFact"))
+    source_id = _source_definition_id(row.get("sourceDefinitionFact"), concept_code)
     return DecompositionConstituent(
         axis=_axis_code(axis_iri),
         filler=_local(filler_iri),
@@ -122,7 +133,7 @@ def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposit
         if not axis_iri or not filler_iri:
             continue
         key = (axis_iri, filler_iri)
-        candidate = _constituent_from_row(axis_iri, filler_iri, row)
+        candidate = _constituent_from_row(code, axis_iri, filler_iri, row)
         constituents[key] = _merge_constituent(
             constituents.get(key),
             candidate,

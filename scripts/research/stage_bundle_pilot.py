@@ -7,7 +7,7 @@ import hashlib
 import json
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -62,6 +62,15 @@ _STRUCTURE_CLAIM_ID = "mcode-4.0.0-cancer-stage-structure"
 _METHOD_CLAIM_ID = "mcode-4.0.0-valg-method"
 _SOURCE_OCCURRENCE_COUNT = 304
 _ANCHOR_PART_COUNT = 2
+_CORRECTION_PROVENANCE = frozenset(
+    {
+        "ncit-26.07d",
+        "proposed",
+        "locally-approved",
+        "submitted",
+        "accepted-in-ncit",
+    }
+)
 _R101_SAME_AXIS_R82_COLLAPSES = {
     ("C100051", "C12810"): "C12413",
     ("C101539", "C12418"): "C13063",
@@ -83,6 +92,15 @@ class EvidenceSource:
     supports: str
 
 
+CorrectionProvenance = Literal[
+    "ncit-26.07d",
+    "proposed",
+    "locally-approved",
+    "submitted",
+    "accepted-in-ncit",
+]
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConstituentCorrection:
     action: Literal["add", "remove"]
@@ -90,6 +108,8 @@ class ConstituentCorrection:
     axis: str
     filler_code: str
     rationale: str
+    provenance_status: CorrectionProvenance | None = None
+    needs_review: bool | None = None
 
     def __post_init__(self) -> None:
         if self.action not in {"add", "remove"}:
@@ -102,6 +122,21 @@ class ConstituentCorrection:
         ):
             if not value.strip():
                 raise ValueError(f"constituent correction {field} must not be empty")
+        if self.action == "add" and (
+            self.provenance_status is None or self.needs_review is None
+        ):
+            raise ValueError(
+                "add correction requires explicit provenance and review state"
+            )
+        if self.action == "remove" and (
+            self.provenance_status is not None or self.needs_review is not None
+        ):
+            raise ValueError("remove correction must not carry add-only fields")
+        if (
+            self.provenance_status is not None
+            and self.provenance_status not in _CORRECTION_PROVENANCE
+        ):
+            raise ValueError("constituent correction provenance status is invalid")
 
 
 EVIDENCE_SOURCES = (
@@ -1580,11 +1615,15 @@ def _member_summary(candidate: dict[str, object]) -> str:
 
 
 def _sheet_headers(sheet: Worksheet, row: int) -> dict[str, int]:
-    return {
-        cast("str", sheet.cell(row, column).value): column
-        for column in range(1, sheet.max_column + 1)
-        if isinstance(sheet.cell(row, column).value, str)
-    }
+    headers: dict[str, int] = {}
+    for column in range(1, sheet.max_column + 1):
+        value = sheet.cell(row, column).value
+        if not isinstance(value, str):
+            continue
+        if value in headers:
+            raise ValueError(f"duplicate header: {value}")
+        headers[value] = column
+    return headers
 
 
 def _concept_rows(
@@ -1649,8 +1688,8 @@ def _add_expected_pair(
         "Expected Axis": correction.axis,
         "Expected Filler": correction.filler_code,
         "Expected Group": None,
-        "Expected needs_review": "FALSE",
-        "Expected Provenance Status": "ncit-26.07d",
+        "Expected needs_review": "TRUE" if correction.needs_review else "FALSE",
+        "Expected Provenance Status": correction.provenance_status,
         "SME Notes": f"V14 CORRECTION. {correction.rationale}",
         "Row Complete?": "YES",
     }
@@ -1697,6 +1736,34 @@ def apply_constituent_corrections(
             _remove_expected_pair(sheet, headers, correction)
         else:
             _add_expected_pair(sheet, headers, correction)
+
+
+def _validate_ncit_add_corrections(
+    candidate_artifact: dict[str, object],
+    corrections: tuple[ConstituentCorrection, ...],
+) -> None:
+    additions = [
+        correction
+        for correction in corrections
+        if correction.action == "add" and correction.provenance_status == "ncit-26.07d"
+    ]
+    if not additions:
+        return
+    source_provenance = candidate_artifact.get("source_provenance")
+    if not isinstance(source_provenance, dict) or not isinstance(
+        source_provenance.get("occurrences"), list
+    ):
+        raise ValueError("candidate source audit occurrences are invalid")
+    supported = {
+        (occurrence.get("root_code"), occurrence.get("filler_code"))
+        for occurrence in source_provenance["occurrences"]
+        if isinstance(occurrence, dict)
+    }
+    for correction in additions:
+        if (correction.concept_code, correction.filler_code) not in supported:
+            raise ValueError(
+                "NCIt add correction has no matching bound source audit occurrence"
+            )
 
 
 _PROVENANCE_PROPOSAL_STATUS = {
@@ -1832,6 +1899,7 @@ def write_review_workbook(
         expected_base_sha256,
     )
     if corrections:
+        _validate_ncit_add_corrections(candidate_artifact, corrections)
         apply_constituent_corrections(workbook, corrections)
     _bind_workbook_proposals(workbook, proposal_registry)
     reviewer_sheet = workbook["Reviewer & Attestation"]
@@ -1883,6 +1951,7 @@ def write_review_workbook(
         )
         for column, value in enumerate(values, start=1):
             sheet.cell(row, column, value)
+        sheet.cell(row, 11).number_format = "@"
         for column in range(8, 12):
             sheet.cell(row, column).fill = PatternFill("solid", fgColor="FFF2CC")
     decision_validation = DataValidation(
@@ -1903,6 +1972,14 @@ def _review_text(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip() or value.startswith("="):
         raise ValueError(f"semantic decision {field} must be reviewer-entered text")
     return value.strip()
+
+
+def _review_date(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return _review_text(value, "review date")
 
 
 def _validate_decision_sheet(
@@ -1978,7 +2055,7 @@ def _parse_decision_row(
     decision = _review_text(sheet.cell(row, 8).value, "decision")
     if decision not in {"ACCEPT", "REJECT", "DEFER"}:
         raise ValueError(f"semantic decision is invalid in row {row}")
-    reviewed_at = _review_text(sheet.cell(row, 11).value, "review date")
+    reviewed_at = _review_date(sheet.cell(row, 11).value)
     try:
         date.fromisoformat(reviewed_at)
     except ValueError as error:
@@ -2073,16 +2150,29 @@ def load_constituent_corrections(path: Path) -> tuple[ConstituentCorrection, ...
         raise ValueError("constituent corrections must be a list")
     corrections: list[ConstituentCorrection] = []
     for item in items:
-        if not isinstance(item, dict) or set(item) != {
+        if not isinstance(item, dict):
+            raise ValueError("constituent correction has an invalid shape")
+        text_fields = {
             "action",
             "concept_code",
             "axis",
             "filler_code",
             "rationale",
-        }:
+        }
+        add_fields = {"provenance_status", "needs_review"}
+        expected_fields = (
+            text_fields | add_fields if item.get("action") == "add" else text_fields
+        )
+        if set(item) != expected_fields:
             raise ValueError("constituent correction has an invalid shape")
-        if not all(isinstance(value, str) for value in item.values()):
+        if not all(isinstance(item[field], str) for field in text_fields):
             raise ValueError("constituent correction values must be text")
+        provenance_status = item.get("provenance_status")
+        needs_review = item.get("needs_review")
+        if item["action"] == "add" and (
+            not isinstance(provenance_status, str) or not isinstance(needs_review, bool)
+        ):
+            raise ValueError("add correction provenance fields are invalid")
         corrections.append(
             ConstituentCorrection(
                 action=cast("Literal['add', 'remove']", item["action"]),
@@ -2090,6 +2180,11 @@ def load_constituent_corrections(path: Path) -> tuple[ConstituentCorrection, ...
                 axis=cast("str", item["axis"]),
                 filler_code=cast("str", item["filler_code"]),
                 rationale=cast("str", item["rationale"]),
+                provenance_status=cast(
+                    "CorrectionProvenance | None",
+                    provenance_status,
+                ),
+                needs_review=cast("bool | None", needs_review),
             )
         )
     return tuple(corrections)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Literal, Self, cast
 
 from pydantic import (
@@ -32,6 +33,14 @@ def _require_matching_scope_root(
         raise ValueError(f"{branch} branch requires scope root {expected}")
 
 
+def _require_matching_output_load(
+    output_mode: Literal["none", "file"],
+    load_mode: Literal["none", "named-graph"],
+) -> None:
+    if load_mode == "named-graph" and output_mode != "file":
+        raise ValueError("named-graph load requires file output")
+
+
 class NcitSourceSnapshot(BaseModel):
     """Identity returned by a revalidated #181 candidate proof."""
 
@@ -39,6 +48,17 @@ class NcitSourceSnapshot(BaseModel):
 
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     ontology_version: str = Field(min_length=1)
+
+
+class PublicationMarkerSnapshot(BaseModel):
+    """Persisted identity of the graph publication preceding one intent."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    built_at: AwareDatetime
 
 
 class RunFingerprint(BaseModel):
@@ -73,6 +93,7 @@ class RunFingerprint(BaseModel):
             self.sample_manifest_identity,
             self.total_limit,
         )
+        _require_matching_output_load(self.output_mode, self.load_mode)
         return self
 
     @field_validator("semantic_types")
@@ -136,6 +157,7 @@ class RunResumeIdentity(BaseModel):
             self.sample_manifest_identity,
             self.total_limit,
         )
+        _require_matching_output_load(self.output_mode, self.load_mode)
         return self
 
     @classmethod
@@ -183,6 +205,110 @@ class RunOutcomeCounts(BaseModel):
     atomic_noop: int = Field(default=0, ge=0)
     unknown_outcome: int = Field(default=0, ge=0)
     minted_count: int = Field(ge=0)
+
+
+class PersistedRunMetrics(BaseModel):
+    """Validated metrics stored in ``decomp_run.metrics``."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    total_in_scope: int | None = Field(default=None, ge=0)
+    decomposed: int | None = Field(default=None, ge=0)
+    residual: int | None = Field(default=None, ge=0)
+    semantic_excluded: int | None = Field(default=None, ge=0)
+    atomic_noop: int | None = Field(default=None, ge=0)
+    unknown_outcome: int | None = Field(default=None, ge=0)
+    residual_precoordinated_count: int | None = Field(default=None, ge=0)
+    residual_precoordination: float | None = Field(default=None, ge=0, le=1)
+    minted_count: int | None = Field(default=None, ge=0)
+    complete_definition_count: int | None = Field(default=None, ge=0)
+    complete_fact_count: int | None = Field(default=None, ge=0)
+    projected_fact_count: int | None = Field(default=None, ge=0)
+    projection_loss_count: int | None = Field(default=None, ge=0)
+    projection_loss_rate: float | None = Field(default=None, ge=0, le=1)
+    pct_decomposed: float | None = Field(default=None, ge=0, le=1)
+    roundtrip_fidelity: float | None = Field(default=None, ge=0, le=1)
+
+    @staticmethod
+    def _require_rate(name: str, actual: float | None, expected: float) -> None:
+        if actual is not None and not math.isclose(actual, expected, abs_tol=1e-12):
+            raise ValueError(f"{name} does not match its persisted counts")
+
+    def _validate_outcome_counts(self) -> None:
+        outcome_counts = (
+            self.decomposed,
+            self.residual,
+            self.semantic_excluded,
+            self.atomic_noop,
+            self.unknown_outcome,
+        )
+        if (
+            self.total_in_scope is not None
+            and all(count is not None for count in outcome_counts)
+            and sum(cast("tuple[int, ...]", outcome_counts)) != self.total_in_scope
+        ):
+            raise ValueError("outcome counts do not sum to total_in_scope")
+
+    def _validate_residual_metrics(self) -> None:
+        if self.residual_precoordinated_count is None or self.decomposed is None:
+            return
+        if self.residual_precoordinated_count > self.decomposed:
+            raise ValueError("residual count exceeds decomposed count")
+        expected = (
+            self.residual_precoordinated_count / self.decomposed
+            if self.decomposed
+            else 0.0
+        )
+        self._require_rate(
+            "residual_precoordination",
+            self.residual_precoordination,
+            expected,
+        )
+
+    def _validate_definition_count(self) -> None:
+        if (
+            self.complete_definition_count is not None
+            and self.decomposed is not None
+            and self.complete_definition_count > self.decomposed
+        ):
+            raise ValueError("complete-definition count exceeds decomposed count")
+
+    def _validate_fact_metrics(self) -> None:
+        if self.complete_fact_count is None or self.projected_fact_count is None:
+            return
+        if self.projected_fact_count > self.complete_fact_count:
+            raise ValueError("projected fact count exceeds complete fact count")
+        expected_loss = self.complete_fact_count - self.projected_fact_count
+        if (
+            self.projection_loss_count is not None
+            and self.projection_loss_count != expected_loss
+        ):
+            raise ValueError("projection loss count does not match fact counts")
+        expected_rate = (
+            expected_loss / self.complete_fact_count
+            if self.complete_fact_count
+            else 0.0
+        )
+        self._require_rate(
+            "projection_loss_rate", self.projection_loss_rate, expected_rate
+        )
+
+    def _validate_decomposed_rate(self) -> None:
+        if self.total_in_scope is None or self.decomposed is None:
+            return
+        expected_pct = (
+            self.decomposed / self.total_in_scope if self.total_in_scope else 0.0
+        )
+        self._require_rate("pct_decomposed", self.pct_decomposed, expected_pct)
+
+    @model_validator(mode="after")
+    def _counts_and_rates_are_consistent(self) -> Self:
+        self._validate_outcome_counts()
+        self._validate_residual_metrics()
+        self._validate_definition_count()
+        self._validate_fact_metrics()
+        self._validate_decomposed_rate()
+        return self
 
 
 _OUTCOME_FLAGS: dict[ConceptOutcome, tuple[bool, bool]] = {
@@ -334,22 +460,24 @@ class RunSummary(BaseModel):
     publication_finished_at: AwareDatetime | None = None
     publication_error_type: str | None = None
     publication_error_message: str | None = None
-    total_in_scope: int | None = None
-    decomposed: int | None = None
-    residual: int | None = None
-    semantic_excluded: int | None = None
-    atomic_noop: int | None = None
-    unknown_outcome: int | None = None
-    residual_precoordinated_count: int | None = None
-    residual_precoordination: float | None = None
-    minted_count: int | None = None
-    complete_definition_count: int | None = None
-    complete_fact_count: int | None = None
-    projected_fact_count: int | None = None
-    projection_loss_count: int | None = None
-    projection_loss_rate: float | None = None
-    pct_decomposed: float | None = None
-    roundtrip_fidelity: float | None = None
+    publication_predecessor_captured: bool = False
+    publication_predecessor: PublicationMarkerSnapshot | None = None
+    total_in_scope: int | None = Field(default=None, ge=0)
+    decomposed: int | None = Field(default=None, ge=0)
+    residual: int | None = Field(default=None, ge=0)
+    semantic_excluded: int | None = Field(default=None, ge=0)
+    atomic_noop: int | None = Field(default=None, ge=0)
+    unknown_outcome: int | None = Field(default=None, ge=0)
+    residual_precoordinated_count: int | None = Field(default=None, ge=0)
+    residual_precoordination: float | None = Field(default=None, ge=0, le=1)
+    minted_count: int | None = Field(default=None, ge=0)
+    complete_definition_count: int | None = Field(default=None, ge=0)
+    complete_fact_count: int | None = Field(default=None, ge=0)
+    projected_fact_count: int | None = Field(default=None, ge=0)
+    projection_loss_count: int | None = Field(default=None, ge=0)
+    projection_loss_rate: float | None = Field(default=None, ge=0, le=1)
+    pct_decomposed: float | None = Field(default=None, ge=0, le=1)
+    roundtrip_fidelity: float | None = Field(default=None, ge=0, le=1)
 
 
 class MintedConcept(BaseModel):

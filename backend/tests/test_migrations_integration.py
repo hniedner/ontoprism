@@ -484,7 +484,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0013_decomposition_outcomes"
+    assert revision == "0014_definition_presence"
     assert legacy_rows == 1
     assert publication_tables == 2
 

@@ -55,7 +55,15 @@ def _p(predicate_iri: str) -> str:
     return f"<{predicate_iri}>"
 
 
-def _render_constituent(subj: str, constituent: Constituent) -> str:
+def _definition_fact_iri(root_code: str, fact_id: str) -> str:
+    return f"<{vocab.DEFINITION_FACT_NS}{root_code}/{fact_id}>"
+
+
+def _definition_group_iri(root_code: str, group_id: str) -> str:
+    return f"<{vocab.DEFINITION_GROUP_NS}{root_code}/{group_id}>"
+
+
+def _render_constituent(subj: str, root_code: str, constituent: Constituent) -> str:
     filler = _filler_iri(constituent.filler_code)
     auri = _axis_uri(constituent.axis)
     rendered = (
@@ -74,7 +82,7 @@ def _render_constituent(subj: str, constituent: Constituent) -> str:
     for source_id in constituent.source_definition_ids:
         rendered += (
             f" ; {_p(vocab.SOURCE_DEFINITION_FACT)} "
-            f"<{vocab.DEFINITION_FACT_NS}{source_id}>"
+            f"{_definition_fact_iri(root_code, source_id)}"
         )
     return f"{subj} {_p(vocab.HAS_CONSTITUENT)}{rendered} ] ."
 
@@ -138,9 +146,11 @@ def _render_axis_contracts() -> list[str]:
     ]
 
 
-def _render_definition_fact(subj: str, fact: DefinitionFact) -> list[str]:
-    fact_iri = f"<{vocab.DEFINITION_FACT_NS}{fact.fact_id}>"
-    group_iri = f"<{vocab.DEFINITION_GROUP_NS}{fact.group_id}>"
+def _render_definition_fact(
+    subj: str, root_code: str, fact: DefinitionFact
+) -> list[str]:
+    fact_iri = _definition_fact_iri(root_code, fact.fact_id)
+    group_iri = _definition_group_iri(root_code, fact.group_id)
     fact_kind = "genus" if isinstance(fact, GenusDefinitionFact) else "restriction"
     lines = [
         f"{subj} {_p(vocab.HAS_DEFINITION_FACT)} {fact_iri} .",
@@ -168,11 +178,12 @@ def _render_definition_fact(subj: str, fact: DefinitionFact) -> list[str]:
 
 def _render_definition_group(
     subj: str,
+    root_code: str,
     group: DefinitionGroup,
     *,
     is_root: bool,
 ) -> list[str]:
-    group_iri = f"<{vocab.DEFINITION_GROUP_NS}{group.group_id}>"
+    group_iri = _definition_group_iri(root_code, group.group_id)
     lines = [
         f"{subj} {_p(vocab.HAS_DEFINITION_GROUP)} {group_iri} .",
         f"{group_iri} {_p(vocab.ANCHOR)} <{NCIT_NS}{group.anchor_code}> .",
@@ -182,7 +193,7 @@ def _render_definition_group(
         lines.append(f"{subj} {_p(vocab.HAS_ROOT_DEFINITION_GROUP)} {group_iri} .")
     lines.extend(
         f"{group_iri} {_p(vocab.HAS_CHILD_DEFINITION_GROUP)} "
-        f"<{vocab.DEFINITION_GROUP_NS}{child_group_id}> ."
+        f"{_definition_group_iri(root_code, child_group_id)} ."
         for child_group_id in group.child_group_ids
     )
     return lines
@@ -203,12 +214,13 @@ def _render_complete_definition(subj: str, dec: Decomposition) -> list[str]:
         lines.extend(
             _render_definition_group(
                 subj,
+                dec.code,
                 group,
                 is_root=group.group_id in root_group_ids,
             )
         )
     for fact in complete.facts:
-        lines.extend(_render_definition_fact(subj, fact))
+        lines.extend(_render_definition_fact(subj, dec.code, fact))
     return lines
 
 
@@ -233,7 +245,7 @@ def _render_one(
     if run_id:
         lines.append(f'{subj} {_p(vocab.DECOMPOSED_BY)} "{run_id}" .')
 
-    lines.extend(_render_constituent(subj, c) for c in dec.constituents)
+    lines.extend(_render_constituent(subj, dec.code, c) for c in dec.constituents)
     lines.extend(_render_complete_definition(subj, dec))
     return lines
 

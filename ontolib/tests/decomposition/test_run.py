@@ -22,6 +22,7 @@ from ontolib.decomposition.provenance_models import (
     NcitSourceSnapshot,
     RunFingerprint,
     RunOutcomeCounts,
+    RunSummary,
 )
 from ontolib.decomposition.publication import PublicationPreflightError
 from ontolib.decomposition.run import (
@@ -283,6 +284,52 @@ def _install_lifecycle_doubles(store: Any, state: dict[str, Any]) -> None:
     store.invalidate_run = AsyncMock(side_effect=invalidate_run)
 
 
+def _install_publication_doubles(store: Any, state: dict[str, Any]) -> None:
+    async def get_run(run_id: str) -> RunSummary | None:
+        if state["status"] == "missing":
+            return None
+        fingerprint = state["fingerprint"]
+        return RunSummary(
+            id=run_id,
+            branch="neoplasm",
+            status=state["status"],
+            ncit_version="26.02d",
+            started_at=datetime(2026, 7, 30, tzinfo=UTC),
+            source_identity=(
+                fingerprint.source_identity if fingerprint is not None else "a" * 64
+            ),
+            publication_state=state["publication_state"],
+            representation_identity=state["representation_identity"],
+            publication_artifact_path=state["publication_artifact_path"],
+            publication_built_at=state["publication_built_at"],
+            publication_predecessor=state["publication_predecessor"],
+            publication_predecessor_captured=state["publication_predecessor_captured"],
+        )
+
+    async def begin_publication(
+        _run_id: str,
+        *,
+        representation_identity: str,
+        artifact_path: str,
+        built_at: datetime,
+        predecessor: object,
+    ) -> None:
+        state["publication_state"] = "publishing"
+        state["representation_identity"] = representation_identity
+        state["publication_artifact_path"] = artifact_path
+        state["publication_built_at"] = built_at
+        state["publication_predecessor"] = predecessor
+        state["publication_predecessor_captured"] = True
+
+    async def record_publication_failure(_run_id: str, error: BaseException) -> None:
+        state["publication_state"] = "failed"
+        state["publication_failure"] = error
+
+    store.get_run = AsyncMock(side_effect=get_run)
+    store.begin_publication = AsyncMock(side_effect=begin_publication)
+    store.record_publication_failure = AsyncMock(side_effect=record_publication_failure)
+
+
 def _mock_provenance() -> Any:
     store = MagicMock(spec=ProvenanceStore)
     state: dict[str, Any] = {
@@ -297,9 +344,16 @@ def _mock_provenance() -> Any:
         "failed": None,
         "invalidated": None,
         "status": "running",
+        "publication_state": "pending",
+        "publication_built_at": None,
+        "representation_identity": None,
+        "publication_artifact_path": None,
+        "publication_predecessor": None,
+        "publication_predecessor_captured": False,
     }
 
     _install_lifecycle_doubles(store, state)
+    _install_publication_doubles(store, state)
 
     async def create_run(
         run_id: str,
@@ -1213,12 +1267,14 @@ async def test_precoordinated_fillers_detects_a_compound_constituent() -> None:
 
 @pytest.mark.unit
 async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A store failure during the metric post-pass must surface LOUDLY, naming the
     filler — never vanish into a quiet 0 (the #73 cardinal sin). The post-pass runs
     outside the main loop's try/except, so it logs its own context then re-raises.
     """
+
+    store_error = RuntimeError("store down")
 
     class _BoomClient:
         async def select(
@@ -1228,17 +1284,22 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
             required_variables: Collection[str] = (),
         ) -> list[dict[str, str | None]]:
             del query, required_variables
-            raise RuntimeError("store down")
+            raise store_error
 
         async def version(self) -> str | None:
             return "x"
 
     decompositions = [_decomp("C1", "C_boom")]
-    with pytest.raises(RuntimeError, match="store down"):
+    log_exception = MagicMock()
+    monkeypatch.setattr(run_module.logger, "exception", log_exception)
+    with pytest.raises(RuntimeError, match="store down") as raised:
         await _precoordinated_fillers(
             decompositions, _BoomClient(), None, walker_max_depth=5
         )
-    assert any("C_boom" in r.getMessage() for r in caplog.records)
+    assert raised.value is store_error
+    log_exception.assert_called_once_with(
+        "residual-precoordination detection failed for filler_code=%s", "C_boom"
+    )
 
 
 @pytest.mark.unit
@@ -1501,6 +1562,7 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
     provenance = _mock_provenance()
     provenance._test_state["fingerprint"] = fingerprint
     provenance._test_state["pending"] = ["C1"]
+    provenance._test_state["semantic_excluded"] = 1
     provenance.resume_run = AsyncMock(return_value=fingerprint)
 
     metrics = await run_pipeline(
@@ -2051,7 +2113,7 @@ async def test_artifact_validation_failure_fails_the_run(
     )
 
     monkeypatch.setattr(
-        "ontolib.decomposition.publication.validate_artifact",
+        "ontolib.decomposition.publication._validated_artifact_payload",
         MagicMock(side_effect=PublicationPreflightError("invalid artifact")),
     )
 

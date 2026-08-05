@@ -149,7 +149,7 @@ the additive constituent view or future post-coordination grammar; it prevents e
 curated view or an unvalidated structural capture from being misrepresented as an exact
 definition.
 
-### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`–`0013`)
+### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`–`0014`)
 
 The graph is the queryable artifact; Postgres holds an exact, source-bound run manifest,
 the materialized worklist, transactional results, metrics, and the minted-concept
@@ -259,7 +259,7 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   review-exempt facts, while lineage classifiers remain ungrouped.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
-- **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
+- **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are retained; selected routed region/stage axes may receive synthetic groups, while lineage classifiers remain ungrouped.
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 
@@ -506,7 +506,8 @@ D19)** as this project's target axis model, over either "pick one" (loses inform
 D15's most-specific rule with README goal 4: most-specific collapse is correct **only**
 within a nested (is-a/part-of) candidate set, where the coarser fact stays derivable by
 subsumption; genuinely co-equal, non-nested values (site vs. lineage, organ vs. region) are
-kept as distinct grouped facts and never collapsed. D50 materializes the complete
+kept as distinct facts and never collapsed. Selected routed region/stage axes may receive
+synthetic groups, while lineage classifiers remain ungrouped. D50 materializes the complete
 representation and makes the single-valued projection derived and traceable rather than
 a replacement (§6.6, D19).
 
@@ -609,10 +610,11 @@ propagates that modality without removing its 12 expectations from scoring;
 `ncit-26.07d-unsupported-filler-v1` excludes C54105 for the two concepts whose definitions
 contradict that filler. The 10 R104 and one R107 survivors stay held until axis
 adjudication and remain visible as complete-record scope omissions. Filler selection
-receives is-a and R82 as separate predicates: is-a licenses collapse everywhere, whereas
-R82 licenses collapse only for location axes. `ncit-26.07d-stage-kind-v1` routes R88
-systems/frameworks by reviewed code and definition because semantic type does not
-separate them from values (D59).
+receives is-a and R82 as separate predicates: is-a licenses collapse on routed axes except
+`op:AssociatedLineageClassification`, whereas R82 licenses collapse only for location
+axes. `ncit-26.07d-stage-kind-v1` routes R88 systems/frameworks through a reviewed code
+allowlist; definitions informed curation but are not consulted at runtime because semantic
+type does not separate systems from values (D59).
 
 Full narrative and the confirmed-shared-ancestor evidence: this §6 and DECISIONS D17.
 
@@ -794,8 +796,8 @@ records the call and the rationale.
 5. **Most-specific filler selection applies *across alternate DAG branches*, not just within one branch's collected candidates. Resolved 2026-07-08 — see DECISIONS D14/D15 and §6.3.**
    §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption. **Scope-corrected by decision 6 below:** this "nothing is lost" reasoning holds only for *nested* (is-a/part-of) candidate sets; non-nested co-equal values must not be collapsed.
 
-6. **The reversible representation of record is the complete lossless unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 and materialized by D50 — see DECISIONS D19/D50 and §6.5.**
-   §6.5 established that a defined concept's full `owl:equivalentClass` unfolding is exact and lossless, and that the *only* fidelity loss comes from this project's own simplifications (the defining-axis allowlist + single-valued collapse). Because README goal 4 requires round-tripping back to the original pre-coordinated concept, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG unfolding (all defining axes and source-expression groups) is the representation of record; D50 materializes it and makes the single-most-specific, allowlist-filtered output explicitly derived and traceable. Most-specific collapse (decision 5 / D15) is scoped to the projection and cannot delete a complete-record fact. Exact equivalence remains quarantined pending separate proof/validation.
+6. **The structural representation of record is the complete unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 and materialized by D50 — see DECISIONS D19/D50 and §6.5.**
+   Because README goal 4 requires eventual round-tripping, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG record contains all stated named genera and existential restrictions, including non-defining and excluded roles, with source-expression groups. D50 materializes it and makes the single-most-specific, allowlist-filtered output explicitly derived and traceable. This structural record may support a future reversibility proof, but exactness, equivalence, and round-trip fidelity remain unproven and quarantined pending separate validation.
 
 7. **`R101` primary-site disambiguation uses two independent, composable refinements. Resolved 2026-07-08 — see DECISIONS D20 and §6.6.**
    D17 left open whether the region-vs-organ ties (`Colon`/`Colorectal Region`, `Left Atrium`/`Endocardium`) need a second mechanism beyond genus-sense classification. They do. Decision: (1) genus-sense classification (D17) runs first and routes lineage-generic restrictions to `op:AssociatedLineageClassification`, then (2) filler-semantic-type ranking orders the residual non-lineage ties (organ-level "Body Part, Organ, or Organ Component" wins the `R101` site; region/tissue is routed to `op:AssociatedRegion`). Order matters — semantic type fails on the lineage case both fillers type as organs, so (1) must carve off lineage before (2). Both additive; under decision 6's groups model each tie becomes distinct grouped facts rather than a forced single value.

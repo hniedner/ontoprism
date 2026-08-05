@@ -354,6 +354,12 @@ def test_adjudication_rejects_tampered_payload_and_empty_accepted_cohort(
             ),
             "non-decomposed expectation",
         ),
+        (
+            lambda value: value["concepts"][0]["expected"]["constituents"][0].update(
+                {"filler": "not-an-ncit-code"}
+            ),
+            "NCIt constituent filler",
+        ),
     ],
 )
 def test_adjudication_schema_rejects_untrusted_shapes(

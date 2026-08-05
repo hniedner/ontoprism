@@ -4,14 +4,17 @@ import hashlib
 import json
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from scripts.decomposition_spike import _load_golden_expectations, _metric
 from scripts.research.golden_review import GoldenSetValidationError
 
-if TYPE_CHECKING:
-    from pathlib import Path
+from ontolib.decomposition.proposal_registry import load_proposal_registry
+
+_REGISTRY = load_proposal_registry(
+    Path(__file__).with_name("golden") / "proposal-registry.json"
+)
 
 
 def _write_candidate(path: Path, *, status: str) -> None:
@@ -26,7 +29,7 @@ def _write_candidate(path: Path, *, status: str) -> None:
             "schema_version": 3,
             "status": status,
             "ncit_version": "26.07d",
-            "source_identity": "a" * 64,
+            "source_identity": _REGISTRY.source_identity,
             "sample_manifest_identity": "b" * 64,
             "run_id": "review-run",
             "run_fingerprint_identity": "c" * 64,
@@ -34,7 +37,7 @@ def _write_candidate(path: Path, *, status: str) -> None:
             "engine_evidence_identity": "f" * 64,
             "corpus_evidence_identity": "5" * 64,
             "detector_identity": "6" * 64,
-            "proposal_registry_identity": "9" * 64,
+            "proposal_registry_identity": _REGISTRY.registry_identity,
             "workbook_identity": "e" * 64,
             "reviewer": {
                 "name": "Example SME",

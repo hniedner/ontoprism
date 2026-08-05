@@ -37,14 +37,16 @@ The final artifact requires:
 - per-concept adjudication status and rationale. Rejected/revision-needed entries must
   have `expected: null` and never enter metrics.
 
-The M1 cohort contains 20–50 adjudicated concepts and includes `C4791`, `C35756`, and
-`C89995` or a recorded unsuitable-case decision. `neoplasm.json` remains a starter seed
-until #57 records genuine SME adjudication.
+The final M1 artifact must contain 20–50 adjudicated concepts and include `C4791`,
+`C35756`, and `C89995` or a recorded unsuitable-case decision. `neoplasm.json` remains a
+starter seed until #57 records genuine SME adjudication.
 
 The loader retains one complete expectation store for audit and outcome evaluation.
-Reports derive provenance and modality views from each pair. `ncit_bound` contains only pairs
-stamped for the artifact's NCIt release, while `augmented` also contains locally approved,
-submitted, or later-accepted proposal pairs. `defining_only` and `non_defining` stratify
+Reports derive provenance and modality views from each pair. `ncit_bound` filters the
+expected set to pairs stamped for the artifact's NCIt release; all unprovenanced actual
+engine emissions remain in its actual/false-positive denominator. `augmented` changes the
+expected set by adding locally approved, submitted, or later-accepted proposal pairs.
+`defining_only` and `non_defining` stratify
 the NCIt-bound view from the versioned axis contracts. Merely proposed pairs enter neither metric.
 Reviewer-flagged expected pairs remain visible as explicit exclusions and cannot silently
 enter a metric. Engine `needs_review` values are pre-adjudication diagnostics; once a human
@@ -63,11 +65,11 @@ future class-derived `not-applicable` value must never be inherited by an occurr
 solid-tumour occurrence without established site evidence is `undetermined` until
 occurrence-level evidence resolves it.
 
-The M1 expected store covers audited R103 and R108 source facts after same-axis collapse
-and `contracted-role-generic-v2` suppression. R104 and R107 are named scope omissions
+The pending v14 candidate is designed to add audited R103 and R108 expectations after
+same-axis collapse and `contracted-role-generic-v2` suppression. R104 and R107 are named scope omissions
 pending axis adjudication, not silently deferred expectations. R82 partonomy contributes
-to specificity only for location axes; non-location classifiers remain independent unless
-is-a subsumption applies. Group agreement compares complete expected and actual scorable
+to specificity only for location axes; lineage classifiers remain independent even under
+is-a, while other routed axes may use is-a specificity. Group agreement compares complete expected and actual scorable
 partitions, so a missing or extra pair also prevents a group match; it is not boolean
 grouped/ungrouped parity.
 

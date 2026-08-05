@@ -7,6 +7,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from itertools import combinations
 from typing import Literal
@@ -321,6 +322,16 @@ def _validate_subject_occurrences(
         raise ValueError("source occurrence root must match the construct subject")
 
 
+def _validate_source_snapshot(members: tuple[SemanticBundleMember, ...]) -> None:
+    snapshots = {
+        (occurrence.source_identity, occurrence.ncit_release)
+        for member in members
+        for occurrence in member.source_occurrences
+    }
+    if len(snapshots) > 1:
+        raise ValueError("semantic candidate must use one NCIt source snapshot")
+
+
 def _semantic_identity(
     subject_code: str,
     kind: BundleKind,
@@ -375,6 +386,7 @@ class SemanticBundleCandidate:
             raise ValueError("candidate kind must be the ONTOPRISM cancer-stage model")
         _validate_stage_members(self.members)
         _validate_subject_occurrences(self.subject_code, self.members)
+        _validate_source_snapshot(self.members)
         claim_ids = _canonical_evidence_ids(
             self.evidence_claim_ids,
             required_message="bundle candidates require structural evidence claims",
@@ -433,11 +445,21 @@ def validate_candidate_evidence(
 class AdjudicatedSemanticBundle:
     candidate: SemanticBundleCandidate
     decision_id: str
+    decision: Literal["ACCEPT"]
     rationale: str
+    reviewer: str
+    reviewed_at: str
 
     def __post_init__(self) -> None:
         _require_nonempty(self.decision_id, "decision_id")
+        if self.decision != "ACCEPT":
+            raise ValueError("adjudicated semantic bundle must be accepted")
         _require_nonempty(self.rationale, "rationale")
+        _require_nonempty(self.reviewer, "reviewer")
+        try:
+            date.fromisoformat(self.reviewed_at)
+        except ValueError as error:
+            raise ValueError("reviewed_at must be an ISO date") from error
 
     @property
     def semantic_identity(self) -> str:
@@ -618,6 +640,18 @@ class SemanticMetricScore:
     true_positive: int
     missing: frozenset[str]
     extra: frozenset[str]
+
+    def __post_init__(self) -> None:
+        if min(self.expected, self.actual, self.true_positive) < 0:
+            raise ValueError("semantic metric counts must be non-negative")
+        if self.true_positive > min(self.expected, self.actual):
+            raise ValueError("semantic metric true positives exceed a denominator")
+        if len(self.missing) != self.expected - self.true_positive:
+            raise ValueError("semantic metric missing set does not match counts")
+        if len(self.extra) != self.actual - self.true_positive:
+            raise ValueError("semantic metric extra set does not match counts")
+        if self.missing & self.extra:
+            raise ValueError("semantic metric missing and extra sets must be disjoint")
 
     @property
     def precision(self) -> float | None:

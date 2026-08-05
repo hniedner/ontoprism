@@ -512,9 +512,9 @@ async def test_complete_definition_and_projection_trace_are_rendered(
     graph = rdflib.Graph()
     graph.parse(out, format="turtle")
     source = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135")
-    restriction = URIRef(f"{vocab.DEFINITION_FACT_NS}{restriction_id}")
-    root_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}{group_id}")
-    nested_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}{nested_group_id}")
+    restriction = URIRef(f"{vocab.DEFINITION_FACT_NS}C6135/{restriction_id}")
+    root_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}C6135/{group_id}")
+    nested_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}C6135/{nested_group_id}")
     assert (source, URIRef(vocab.HAS_DEFINITION_FACT), restriction) in graph
     assert (
         restriction,
@@ -552,3 +552,71 @@ async def test_complete_definition_and_projection_trace_are_rendered(
         URIRef(vocab.PROJECTION_LOSS_COUNT),
         Literal(1),
     ) in graph
+
+
+@pytest.mark.unit
+async def test_shared_definition_ids_are_scoped_to_each_decomposition_root(
+    tmp_path: Path,
+) -> None:
+    fact_id = "a" * 64
+    group_id = "b" * 64
+
+    def decomposition(root_code: str, depth: int) -> Decomposition:
+        return Decomposition(
+            code=root_code,
+            semantic_type="Neoplastic Process",
+            constituents=(
+                Constituent(
+                    axis="R101",
+                    filler_code="C200",
+                    axis_source="role",
+                    source_role="R101",
+                    source_definition_ids=(fact_id,),
+                ),
+            ),
+            complete_definition=CompleteDefinition(
+                root_code=root_code,
+                facts=(
+                    RestrictionDefinitionFact(
+                        fact_id=fact_id,
+                        anchor_code="C100",
+                        group_id=group_id,
+                        depth=depth,
+                        role_code="R101",
+                        filler_code="C200",
+                    ),
+                ),
+                groups=(
+                    DefinitionGroup(
+                        group_id=group_id,
+                        anchor_code="C100",
+                        depth=depth,
+                    ),
+                ),
+                root_group_ids=(group_id,),
+            ),
+        )
+
+    out = tmp_path / "out.ttl"
+    await write_ttl((decomposition("C1", 1), decomposition("C2", 2)), out)
+    graph = rdflib.Graph()
+    graph.parse(out, format="turtle")
+
+    roots = [
+        URIRef(f"http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}")
+        for code in ("C1", "C2")
+    ]
+    facts = [
+        next(graph.objects(root, URIRef(vocab.HAS_DEFINITION_FACT))) for root in roots
+    ]
+    groups = [
+        next(graph.objects(root, URIRef(vocab.HAS_DEFINITION_GROUP))) for root in roots
+    ]
+    assert len(set(facts)) == 2
+    assert len(set(groups)) == 2
+    assert [
+        set(graph.objects(fact, URIRef(vocab.DEFINITION_DEPTH))) for fact in facts
+    ] == [{Literal(1)}, {Literal(2)}]
+    for root, fact in zip(roots, facts, strict=True):
+        constituent = next(graph.objects(root, URIRef(vocab.HAS_CONSTITUENT)))
+        assert (constituent, URIRef(vocab.SOURCE_DEFINITION_FACT), fact) in graph

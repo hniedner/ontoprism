@@ -27,6 +27,7 @@ from backend.config import get_settings
 from ontolib.decomposition.axes import is_defining_role
 from ontolib.decomposition.extract import roles_from_rows
 from ontolib.decomposition.models import RoleRestriction
+from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.score import score
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -34,6 +35,9 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_
 
 _GOLDEN = Path(__file__).resolve().parents[1] / (
     "ontolib/tests/decomposition/golden/neoplasm.json"
+)
+_PROPOSAL_REGISTRY = Path(__file__).resolve().parents[1] / (
+    "ontolib/tests/decomposition/golden/proposal-registry.json"
 )
 # Non-defining role families to drop (beyond Excludes_*, which axes already drops).
 _NON_DEFINING = ("May_", "Mapped_")
@@ -49,7 +53,8 @@ def _load_golden_expectations(
     path: str | Path,
 ) -> dict[str, frozenset[tuple[str, str]]]:
     """Load only provenance-bearing SME-accepted expectations."""
-    return load_scorable_golden(path).expected
+    registry = load_proposal_registry(_PROPOSAL_REGISTRY)
+    return load_scorable_golden(path, registry).expected
 
 
 def _level_query(code: str) -> str:
@@ -110,7 +115,10 @@ async def _extract(
 
 
 async def main() -> None:
-    golden = load_scorable_golden(_GOLDEN)
+    golden = load_scorable_golden(
+        _GOLDEN,
+        load_proposal_registry(_PROPOSAL_REGISTRY),
+    )
     settings = get_settings()
     async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
         agg_tp = agg_exp = agg_act = 0

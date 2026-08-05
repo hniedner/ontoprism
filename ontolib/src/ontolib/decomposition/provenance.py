@@ -38,6 +38,8 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.provenance_models import (
     MintedConcept,
+    PersistedRunMetrics,
+    PublicationMarkerSnapshot,
     RunFingerprint,
     RunOutcomeCounts,
     RunResumeIdentity,
@@ -172,6 +174,56 @@ def _residual_precoordination_metric(
     if isinstance(count, int) and isinstance(decomposed, int):
         return count / decomposed if decomposed else 0.0
     return None
+
+
+def _validated_metrics(metrics: object) -> PersistedRunMetrics:
+    if isinstance(metrics, str):
+        try:
+            metrics = _json.loads(metrics)
+        except _json.JSONDecodeError as exc:
+            raise RunStateError("persisted run metrics are not valid JSON") from exc
+    if not isinstance(metrics, dict):
+        raise RunStateError("persisted run metrics are not a JSON object")
+    normalized = dict(metrics)
+    if normalized.get("residual_precoordination") is None:
+        derived = _residual_precoordination_metric(normalized)
+        if derived is not None:
+            normalized["residual_precoordination"] = derived
+    try:
+        validated = PersistedRunMetrics.model_validate(normalized)
+    except ValidationError as exc:
+        raise RunStateError("persisted run metrics violate their schema") from exc
+    return validated
+
+
+def _validate_publication_retry(
+    row: RowMapping,
+    *,
+    state: str,
+    requested_identity: tuple[str, str, datetime.datetime],
+    requested_predecessor: dict[str, object] | None,
+) -> None:
+    if state == "pending":
+        return
+    persisted_identity = (
+        row["representation_identity"],
+        row["publication_artifact_path"],
+        row["publication_built_at"],
+    )
+    if persisted_identity != requested_identity:
+        raise RunIdentityMismatchError(
+            "publication representation, destination, or build time "
+            "does not match the persisted intent"
+        )
+    if not row["publication_predecessor_captured"]:
+        raise RunStateError(
+            "publication intent predates predecessor capture and cannot be retried "
+            "safely"
+        )
+    if row["publication_predecessor"] != requested_predecessor:
+        raise RunIdentityMismatchError(
+            "publication predecessor does not match the persisted intent"
+        )
 
 
 def _completion_outcome(
@@ -611,6 +663,7 @@ async def _mark_work_item_complete(
             "claim_token = NULL, claimed_at = NULL, semantic_type = :semantic_type, "
             "semantic_types = CAST(:semantic_types AS jsonb), outcome = :outcome, "
             "is_decomposed = :is_decomposed, is_residual = :is_residual, "
+            "has_complete_definition = :has_complete_definition, "
             "constituent_count = :constituent_count, minted_count = :minted_count, "
             "completed_at = :completed_at "
             "WHERE run_id = :run_id AND concept_code = :concept_code "
@@ -629,6 +682,10 @@ async def _mark_work_item_complete(
             "outcome": outcome,
             "is_decomposed": is_decomposed,
             "is_residual": is_residual,
+            "has_complete_definition": (
+                decomposition is not None
+                and decomposition.complete_definition is not None
+            ),
             "constituent_count": len(constituents),
             "minted_count": len(minted),
             "completed_at": datetime.datetime.now(datetime.UTC),
@@ -650,7 +707,8 @@ async def _load_decomposition_rows(
 ]:
     work_items = await session.execute(
         text(
-            "SELECT concept_code, semantic_type FROM decomp_work_item "
+            "SELECT concept_code, semantic_type, has_complete_definition "
+            "FROM decomp_work_item "
             "WHERE run_id = :run_id AND state = 'complete' "
             "AND is_decomposed ORDER BY ordinal"
         ),
@@ -787,11 +845,12 @@ def _definition_groups_by_code(
 
 def _complete_definition_for_code(
     concept_code: str,
+    has_complete_definition: bool,
     facts_by_code: dict[str, list[GenusDefinitionFact | RestrictionDefinitionFact]],
     groups_by_code: dict[str, list[DefinitionGroup]],
     roots_by_code: dict[str, list[str]],
 ) -> CompleteDefinition | None:
-    if concept_code not in facts_by_code and concept_code not in groups_by_code:
+    if not has_complete_definition:
         return None
     return CompleteDefinition(
         root_code=concept_code,
@@ -1205,6 +1264,7 @@ class ProvenanceStore:
                     "claim_token = NULL, claimed_at = NULL, semantic_type = NULL, "
                     "semantic_types = NULL, outcome = NULL, "
                     "is_decomposed = NULL, is_residual = NULL, "
+                    "has_complete_definition = false, "
                     "constituent_count = NULL, minted_count = NULL, "
                     "error_type = :error_type, error_message = :error_message, "
                     "failed_at = :failed_at, completed_at = NULL "
@@ -1257,6 +1317,7 @@ class ProvenanceStore:
                 constituents=tuple(constituents_by_code.get(row["concept_code"], [])),
                 complete_definition=_complete_definition_for_code(
                     row["concept_code"],
+                    row["has_complete_definition"],
                     facts_by_code,
                     groups_by_code,
                     roots_by_code,
@@ -1314,6 +1375,7 @@ class ProvenanceStore:
         representation_identity: str,
         artifact_path: str,
         built_at: datetime.datetime,
+        predecessor: PublicationMarkerSnapshot | None,
     ) -> None:
         """Persist or retry one immutable publication intent.
 
@@ -1325,7 +1387,8 @@ class ProvenanceStore:
             result = await session.execute(
                 text(
                     "SELECT status, publication_state, representation_identity, "
-                    "publication_artifact_path, publication_built_at "
+                    "publication_artifact_path, publication_built_at, "
+                    "publication_predecessor_captured, publication_predecessor "
                     "FROM decomp_run WHERE id = :id FOR UPDATE"
                 ),
                 {"id": run_id},
@@ -1351,21 +1414,20 @@ class ProvenanceStore:
                 raise RunStateError(
                     f"decomposition run {run_id!r} publication is {state!r}"
                 )
-            persisted_identity = (
-                row["representation_identity"],
-                row["publication_artifact_path"],
-                row["publication_built_at"],
-            )
             requested_identity = (
                 representation_identity,
                 artifact_path,
                 built_at,
             )
-            if state != "pending" and persisted_identity != requested_identity:
-                raise RunIdentityMismatchError(
-                    "publication representation, destination, or build time "
-                    "does not match the persisted intent"
-                )
+            requested_predecessor = (
+                predecessor.model_dump(mode="json") if predecessor is not None else None
+            )
+            _validate_publication_retry(
+                row,
+                state=state,
+                requested_identity=requested_identity,
+                requested_predecessor=requested_predecessor,
+            )
             await session.execute(
                 text(
                     "UPDATE decomp_run SET publication_state = 'publishing', "
@@ -1373,6 +1435,8 @@ class ProvenanceStore:
                     "representation_identity = :representation_identity, "
                     "publication_artifact_path = :artifact_path, "
                     "publication_built_at = :built_at, "
+                    "publication_predecessor_captured = true, "
+                    "publication_predecessor = CAST(:predecessor AS jsonb), "
                     "publication_started_at = :started_at, "
                     "publication_finished_at = NULL, "
                     "publication_error_type = NULL, "
@@ -1384,6 +1448,7 @@ class ProvenanceStore:
                     "representation_identity": representation_identity,
                     "artifact_path": artifact_path,
                     "built_at": built_at,
+                    "predecessor": _json.dumps(requested_predecessor),
                     "started_at": datetime.datetime.now(datetime.UTC),
                 },
             )
@@ -1423,7 +1488,8 @@ class ProvenanceStore:
             "representation_identity, publication_artifact_path, "
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
-            "publication_error_message, metrics "
+            "publication_error_message, publication_predecessor_captured, "
+            "publication_predecessor, metrics "
             "FROM decomp_run ORDER BY started_at DESC LIMIT :limit OFFSET :offset"
         )
         async with self._sf() as s:
@@ -1438,7 +1504,8 @@ class ProvenanceStore:
             "representation_identity, publication_artifact_path, "
             "publication_built_at, publication_started_at, "
             "publication_finished_at, publication_error_type, "
-            "publication_error_message, metrics "
+            "publication_error_message, publication_predecessor_captured, "
+            "publication_predecessor, metrics "
             "FROM decomp_run WHERE id = :run_id"
         )
         async with self._sf() as s:
@@ -1473,17 +1540,20 @@ class ProvenanceStore:
 
     @staticmethod
     def _row_to_run(row: RowMapping) -> RunSummary:
-        raw = row["metrics"]
-        if isinstance(raw, str):
-            try:
-                m = _json.loads(raw)
-            except _json.JSONDecodeError:
-                _logger.warning(
-                    "Corrupt metrics JSON in decomp_run %s", row.get("id", "?")
+        metrics = _validated_metrics(row["metrics"] or {})
+        raw_predecessor = row.get("publication_predecessor")
+        try:
+            predecessor = (
+                PublicationMarkerSnapshot.model_validate_json(
+                    _json.dumps(raw_predecessor)
                 )
-                m = {}
-        else:
-            m = raw or {}
+                if raw_predecessor is not None
+                else None
+            )
+        except ValidationError as exc:
+            raise RunStateError(
+                "persisted publication predecessor violates its schema"
+            ) from exc
         return RunSummary(
             id=row["id"],
             branch=row["branch"],
@@ -1505,22 +1575,26 @@ class ProvenanceStore:
             publication_finished_at=row.get("publication_finished_at"),
             publication_error_type=row.get("publication_error_type"),
             publication_error_message=row.get("publication_error_message"),
-            total_in_scope=m.get("total_in_scope"),
-            decomposed=m.get("decomposed"),
-            residual=m.get("residual"),
-            semantic_excluded=m.get("semantic_excluded"),
-            atomic_noop=m.get("atomic_noop"),
-            unknown_outcome=m.get("unknown_outcome"),
-            residual_precoordinated_count=m.get("residual_precoordinated_count"),
-            residual_precoordination=_residual_precoordination_metric(m),
-            minted_count=m.get("minted_count"),
-            complete_definition_count=m.get("complete_definition_count"),
-            complete_fact_count=m.get("complete_fact_count"),
-            projected_fact_count=m.get("projected_fact_count"),
-            projection_loss_count=m.get("projection_loss_count"),
-            projection_loss_rate=m.get("projection_loss_rate"),
-            pct_decomposed=m.get("pct_decomposed"),
-            roundtrip_fidelity=m.get("roundtrip_fidelity"),
+            publication_predecessor_captured=row.get(
+                "publication_predecessor_captured", False
+            ),
+            publication_predecessor=predecessor,
+            total_in_scope=metrics.total_in_scope,
+            decomposed=metrics.decomposed,
+            residual=metrics.residual,
+            semantic_excluded=metrics.semantic_excluded,
+            atomic_noop=metrics.atomic_noop,
+            unknown_outcome=metrics.unknown_outcome,
+            residual_precoordinated_count=metrics.residual_precoordinated_count,
+            residual_precoordination=metrics.residual_precoordination,
+            minted_count=metrics.minted_count,
+            complete_definition_count=metrics.complete_definition_count,
+            complete_fact_count=metrics.complete_fact_count,
+            projected_fact_count=metrics.projected_fact_count,
+            projection_loss_count=metrics.projection_loss_count,
+            projection_loss_rate=metrics.projection_loss_rate,
+            pct_decomposed=metrics.pct_decomposed,
+            roundtrip_fidelity=metrics.roundtrip_fidelity,
         )
 
     async def finish_run(
@@ -1537,6 +1611,7 @@ class ProvenanceStore:
         ``minted_concept`` curator queue (D48: proposals become curator-visible only
         on success).
         """
+        metrics = _validated_metrics(metrics).model_dump(exclude_unset=True)
         updated = False
         try:
             async with self._sf() as session, session.begin():

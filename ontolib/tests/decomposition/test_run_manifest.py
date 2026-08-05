@@ -80,6 +80,18 @@ def test_sample_fingerprint_binds_manifest_identity_and_resume_contract() -> Non
 
 
 @pytest.mark.unit
+def test_named_graph_load_requires_a_file_output_for_run_and_resume() -> None:
+    with pytest.raises(ValidationError, match="named-graph load requires file output"):
+        _fingerprint(output_mode="none", load_mode="named-graph")
+
+    resume = RunResumeIdentity.from_fingerprint(_fingerprint())
+    with pytest.raises(ValidationError, match="named-graph load requires file output"):
+        RunResumeIdentity.model_validate(
+            resume.model_dump() | {"output_mode": "none", "load_mode": "named-graph"}
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "updates",
     [
