@@ -7,19 +7,39 @@ import hashlib
 import json
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
+
+from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from ontolib.decomposition.semantic_bundles import (
-    SemanticBundle,
+    AdjudicatedSemanticContext,
+    BundleAxis,
+    BundleKind,
+    EvidenceClaim,
+    EvidenceClaimKind,
+    EvidenceClaimTarget,
+    EvidenceRegistry,
+    MemberRole,
+    ProjectedConstituentEvidence,
+    SemanticBundleCandidate,
     SemanticBundleMember,
-    SemanticBundleRule,
-    SourceFactReference,
-    generate_semantic_bundles,
+    SourceOccurrence,
+    StageClassification,
+    canonical_restriction_fact_id,
+    evaluate_pair_availability,
+    validate_candidate_evidence,
 )
 
 if TYPE_CHECKING:
-    from ontolib.decomposition.score import Constituent
+    from openpyxl.cell.cell import Cell
+    from openpyxl.workbook.workbook import Workbook
+    from openpyxl.worksheet.worksheet import Worksheet
+
+    from ontolib.decomposition.semantic_bundles import ProjectionAxisSource
 
 _NCIT_RELEASE = "26.07d"
 _WORKBOOK_SHA256 = "a538de0772df786da39f0eaeb9c374e837b71e58b567d6f045f126225e759cc8"
@@ -29,6 +49,21 @@ _SOURCE_AUDIT_SHA256 = (
 _ENGINE_EVIDENCE_SHA256 = (
     "42e33238c7b18985263f780a165ad42d1230bb620a2aac8edf11748cf661f74f"
 )
+_SOURCE_IDENTITY = "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+_STRUCTURE_CLAIM_ID = "mcode-4.0.0-cancer-stage-structure"
+_METHOD_CLAIM_ID = "mcode-4.0.0-valg-method"
+_SOURCE_OCCURRENCE_COUNT = 304
+_ANCHOR_PART_COUNT = 2
+_R101_SAME_AXIS_R82_COLLAPSES = {
+    ("C100051", "C12810"): "C12413",
+    ("C101539", "C12418"): "C13063",
+    ("C162226", "C12810"): "C12402",
+    ("C181564", "C12810"): "C12402",
+    ("C186620", "C12810"): "C12402",
+    ("C206219", "C12810"): "C12402",
+    ("C4791", "C12727"): "C13004",
+    ("C6135", "C12418"): "C13063",
+}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -38,6 +73,27 @@ class EvidenceSource:
     uri: str
     access: str
     supports: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConstituentCorrection:
+    action: Literal["add", "remove"]
+    concept_code: str
+    axis: str
+    filler_code: str
+    rationale: str
+
+    def __post_init__(self) -> None:
+        if self.action not in {"add", "remove"}:
+            raise ValueError("constituent correction action is invalid")
+        for value, field in (
+            (self.concept_code, "concept_code"),
+            (self.axis, "axis"),
+            (self.filler_code, "filler_code"),
+            (self.rationale, "rationale"),
+        ):
+            if not value.strip():
+                raise ValueError(f"constituent correction {field} must not be empty")
 
 
 EVIDENCE_SOURCES = (
@@ -130,6 +186,45 @@ EVIDENCE_SOURCES = (
 )
 
 
+_STRUCTURE_ASSERTION = (
+    "ONTOPrism's stage contract maps one typed stage framework or method and one "
+    "stage value to the mCODE Cancer Stage observation structure; it does not claim "
+    "direct mCODE conformance."
+)
+_STRUCTURE_URI = (
+    "https://hl7.org/fhir/us/mcode/STU4/StructureDefinition-mcode-cancer-stage.html"
+)
+_METHOD_ASSERTION = "NCIt C141685 denotes the VALG cancer staging method."
+_METHOD_URI = (
+    "https://hl7.org/fhir/us/mcode/STU4/ValueSet-mcode-cancer-staging-method-vs.html"
+)
+EVIDENCE_REGISTRY = EvidenceRegistry(
+    claims=(
+        EvidenceClaim(
+            claim_id=_STRUCTURE_CLAIM_ID,
+            kind=EvidenceClaimKind.STRUCTURE,
+            source_id="mcode-cancer-stage",
+            source_version="4.0.0",
+            uri=_STRUCTURE_URI,
+            assertion=_STRUCTURE_ASSERTION,
+        ),
+        EvidenceClaim(
+            claim_id=_METHOD_CLAIM_ID,
+            kind=EvidenceClaimKind.MEMBER,
+            source_id="mcode-cancer-staging-method",
+            source_version="4.0.0",
+            uri=_METHOD_URI,
+            assertion=_METHOD_ASSERTION,
+            target=EvidenceClaimTarget(
+                subject_code=None,
+                role=MemberRole.STAGING_METHOD,
+                filler_code="C141685",
+            ),
+        ),
+    )
+)
+
+
 def _source_member(
     role: str,
     filler_code: str,
@@ -139,16 +234,29 @@ def _source_member(
     depth: int,
     group_id: str,
 ) -> SemanticBundleMember:
-    axis = "op:StageValue" if role == "stage-value" else "op:StageSystem"
+    typed_role = MemberRole(role)
+    axis = (
+        BundleAxis.STAGE_VALUE
+        if typed_role is MemberRole.STAGE_VALUE
+        else BundleAxis.STAGE_SYSTEM
+    )
+    fact_id = canonical_restriction_fact_id(
+        anchor_code,
+        group_id,
+        "R88",
+        filler_code,
+    )
     return SemanticBundleMember(
-        role=role,
+        role=typed_role,
         axis=axis,
         filler_code=filler_code,
-        source_facts=(
-            SourceFactReference(
+        source_occurrences=(
+            SourceOccurrence(
+                source_identity=_SOURCE_IDENTITY,
                 ncit_release=_NCIT_RELEASE,
                 root_code=root_code,
-                role_code="R88",
+                fact_id=fact_id,
+                source_role="R88",
                 filler_code=filler_code,
                 anchor_code=anchor_code,
                 depth=depth,
@@ -161,12 +269,14 @@ def _source_member(
 def _external_method(
     filler_code: str, evidence_ids: tuple[str, ...]
 ) -> SemanticBundleMember:
+    if "mcode-4.0.0-stage-method" not in evidence_ids:
+        raise ValueError("external VALG method requires mCODE method evidence")
     return SemanticBundleMember(
-        role="staging-method",
-        axis="op:StageSystem",
+        role=MemberRole.STAGING_METHOD,
+        axis=BundleAxis.STAGE_SYSTEM,
         filler_code=filler_code,
-        source_facts=(),
-        evidence_ids=evidence_ids,
+        source_occurrences=(),
+        evidence_claim_ids=(_METHOD_CLAIM_ID,),
     )
 
 
@@ -180,15 +290,18 @@ def _rule(
     authority: str,
     version: str,
     evidence_ids: tuple[str, ...],
-) -> SemanticBundleRule:
-    return SemanticBundleRule(
-        rule_id=rule_id,
+) -> SemanticBundleCandidate:
+    known_evidence_ids = {source.evidence_id for source in EVIDENCE_SOURCES}
+    if unknown := set(evidence_ids) - known_evidence_ids:
+        raise ValueError(f"unknown candidate reference: {min(unknown)}")
+    return SemanticBundleCandidate(
+        candidate_id=rule_id,
         subject_code=subject_code,
-        kind="cancer-stage-classification",
         name=name,
+        kind=BundleKind.CANCER_STAGE,
+        classification=StageClassification(authority=authority, version=version),
         members=(system, value),
-        qualifiers=(("authority", authority), ("version", version)),
-        evidence_ids=evidence_ids,
+        evidence_claim_ids=(_STRUCTURE_CLAIM_ID,),
     )
 
 
@@ -214,7 +327,7 @@ _C27787_VALUE = _source_member(
     group_id="73f53459b912b33478b591c3ac93958b7f413cb5f39cf6e11e7102eef18309ac",
 )
 
-STAGE_BUNDLE_RULES = (
+STAGE_BUNDLE_CANDIDATES = (
     _rule(
         "stage-c115057-ajcc-v6",
         "C115057",
@@ -618,37 +731,39 @@ _RULE_SOURCE_VALUE_GROUP = {
     "stage-c115118-ajcc-v7": "stage-ajcc-v7",
 }
 
-_CONTEXT_ONLY = {
-    "subject_code": "C198031",
-    "reason": (
-        "C198023 identifies classification context but no stage value is asserted."
+_CONTEXT_ONLY = AdjudicatedSemanticContext(
+    context_id="context-c198031-toronto",
+    subject_code="C198031",
+    name="Toronto classification context",
+    member=_source_member(
+        "classification-context",
+        "C198023",
+        root_code="C198031",
+        anchor_code="C198031",
+        depth=0,
+        group_id=("0d414f8ad31ecc05baa4617d99f8aa622c9c1a684f55f49120ffe79e78b594cf"),
     ),
-    "member": {
-        "role": "classification-context",
-        "axis": "op:StageSystem",
-        "filler_code": "C198023",
-        "source_facts": [
-            {
-                "ncit_release": _NCIT_RELEASE,
-                "root_code": "C198031",
-                "role_code": "R88",
-                "filler_code": "C198023",
-                "anchor_code": "C198031",
-                "depth": 0,
-                "source_group_id": (
-                    "0d414f8ad31ecc05baa4617d99f8aa622c9c1a684f55f49120ffe79e78b594cf"
-                ),
-            }
-        ],
-    },
-}
+    rationale="C198023 identifies context but no stage value is asserted.",
+)
 
 
-def _source_fact_dict(fact: SourceFactReference) -> dict[str, object]:
+def _context_dict(context: AdjudicatedSemanticContext) -> dict[str, object]:
     return {
+        "context_id": context.context_id,
+        "subject_code": context.subject_code,
+        "name": context.name,
+        "member": _member_dict(context.member),
+        "rationale": context.rationale,
+    }
+
+
+def _source_fact_dict(fact: SourceOccurrence) -> dict[str, object]:
+    return {
+        "source_identity": fact.source_identity,
         "ncit_release": fact.ncit_release,
         "root_code": fact.root_code,
-        "role_code": fact.role_code,
+        "fact_id": fact.fact_id,
+        "role_code": fact.source_role,
         "filler_code": fact.filler_code,
         "anchor_code": fact.anchor_code,
         "depth": fact.depth,
@@ -658,35 +773,40 @@ def _source_fact_dict(fact: SourceFactReference) -> dict[str, object]:
 
 def _member_dict(member: SemanticBundleMember) -> dict[str, object]:
     return {
-        "role": member.role,
-        "axis": member.axis,
+        "role": member.role.value,
+        "axis": member.axis.value,
         "filler_code": member.filler_code,
-        "source_facts": [_source_fact_dict(fact) for fact in member.source_facts],
-        "external_evidence_ids": list(member.evidence_ids),
+        "source_occurrences": [
+            _source_fact_dict(fact) for fact in member.source_occurrences
+        ],
+        "evidence_claim_ids": list(member.evidence_claim_ids),
     }
 
 
-def _rule_dict(rule: SemanticBundleRule) -> dict[str, object]:
-    bundle = SemanticBundle.from_rule(rule)
+def _rule_dict(rule: SemanticBundleCandidate) -> dict[str, object]:
     return {
-        "rule_id": rule.rule_id,
-        "semantic_identity": bundle.identity,
+        "candidate_id": rule.candidate_id,
+        "semantic_identity": rule.semantic_identity,
         "subject_code": rule.subject_code,
-        "kind": rule.kind,
+        "kind": rule.kind.value,
         "name": rule.name,
-        "source_value_group": _RULE_SOURCE_VALUE_GROUP[rule.rule_id],
-        "qualifiers": dict(rule.qualifiers),
+        "source_value_group": _RULE_SOURCE_VALUE_GROUP[rule.candidate_id],
+        "classification": {
+            "authority": rule.classification.authority,
+            "version": rule.classification.version,
+        },
         "members": [_member_dict(member) for member in rule.members],
-        "evidence_ids": list(rule.evidence_ids),
+        "evidence_claim_ids": list(rule.evidence_claim_ids),
     }
 
 
 def _source_value_groups() -> list[dict[str, object]]:
-    grouped: defaultdict[tuple[str, str], list[SemanticBundleRule]] = defaultdict(list)
-    for rule in STAGE_BUNDLE_RULES:
-        grouped[(rule.subject_code, _RULE_SOURCE_VALUE_GROUP[rule.rule_id])].append(
-            rule
-        )
+    grouped: defaultdict[tuple[str, str], list[SemanticBundleCandidate]] = defaultdict(
+        list
+    )
+    for rule in STAGE_BUNDLE_CANDIDATES:
+        group_id = _RULE_SOURCE_VALUE_GROUP[rule.candidate_id]
+        grouped[(rule.subject_code, group_id)].append(rule)
     result: list[dict[str, object]] = []
     for (subject_code, group_id), rules in grouped.items():
         members = {
@@ -699,7 +819,7 @@ def _source_value_groups() -> list[dict[str, object]]:
                 "members": [
                     _member_dict(members[key]) for key in sorted(members.keys())
                 ],
-                "semantic_rule_ids": sorted(rule.rule_id for rule in rules),
+                "semantic_candidate_ids": sorted(rule.candidate_id for rule in rules),
             }
         )
     return sorted(
@@ -731,10 +851,10 @@ def _audit_fact_key(value: object) -> tuple[str, str, str, str, int, str]:
     return cast("tuple[str, str, str, str, int, str]", fields)
 
 
-def _reference_key(fact: SourceFactReference) -> tuple[str, str, str, str, int, str]:
+def _reference_key(fact: SourceOccurrence) -> tuple[str, str, str, str, int, str]:
     return (
         fact.root_code,
-        fact.role_code,
+        fact.source_role,
         fact.filler_code,
         fact.anchor_code,
         fact.depth,
@@ -755,10 +875,11 @@ def validate_source_audit(raw_audit: object) -> None:
     audited = {_audit_fact_key(fact) for fact in raw_facts}
     referenced = {
         _reference_key(fact)
-        for rule in STAGE_BUNDLE_RULES
+        for rule in STAGE_BUNDLE_CANDIDATES
         for member in rule.members
-        for fact in member.source_facts
+        for fact in member.source_occurrences
     }
+    referenced.add(_reference_key(_CONTEXT_ONLY.member.source_occurrences[0]))
     if missing := referenced - audited:
         raise ValueError(f"missing semantic-bundle source fact: {min(missing)!r}")
 
@@ -767,56 +888,95 @@ def _not_evaluable(reason: str) -> dict[str, str]:
     return {"status": "not-evaluable", "reason": reason}
 
 
+def _projected_dict(item: ProjectedConstituentEvidence) -> dict[str, object]:
+    return {
+        "axis": item.axis.value,
+        "filler_code": item.filler_code,
+        "needs_review": item.needs_review,
+        "relationship_group": item.relationship_group,
+        "source_role": item.source_role,
+        "axis_source": item.axis_source,
+        "source_fact_ids": list(item.source_fact_ids),
+    }
+
+
+def _claim_dict(claim: EvidenceClaim) -> dict[str, object]:
+    target = claim.target
+    return {
+        "claim_id": claim.claim_id,
+        "kind": claim.kind.value,
+        "source_id": claim.source_id,
+        "source_version": claim.source_version,
+        "claim_identity": claim.claim_identity,
+        "uri": claim.uri,
+        "assertion": claim.assertion,
+        "target": (
+            {
+                "subject_code": target.subject_code,
+                "role": target.role.value,
+                "filler_code": target.filler_code,
+            }
+            if target is not None
+            else None
+        ),
+    }
+
+
 def build_stage_bundle_report(
-    engine_pairs_by_code: dict[str, set[Constituent]],
+    engine_pairs_by_code: dict[str, tuple[ProjectedConstituentEvidence, ...]],
 ) -> dict[str, object]:
     """Report availability without inventing actual bundle associations."""
-    rules_by_subject: defaultdict[str, list[SemanticBundleRule]] = defaultdict(list)
-    for rule in STAGE_BUNDLE_RULES:
-        rules_by_subject[rule.subject_code].append(rule)
-
     rule_results: list[dict[str, object]] = []
-    satisfied = 0
-    present_members = 0
-    for subject_code, rules in rules_by_subject.items():
-        pairs = engine_pairs_by_code.get(subject_code, set())
-        generated = generate_semantic_bundles(subject_code, pairs, tuple(rules))
-        complete_ids = {bundle.rule_id for bundle in generated.bundles}
-        incomplete_by_id = {item.rule_id: item for item in generated.incomplete}
-        satisfied += len(generated.bundles)
-        for rule in rules:
-            present = tuple(member for member in rule.members if member.pair in pairs)
-            present_members += len(present)
-            missing = (
-                ()
-                if rule.rule_id in complete_ids
-                else incomplete_by_id[rule.rule_id].missing_members
-            )
-            rule_results.append(
-                {
-                    "rule_id": rule.rule_id,
-                    "name": rule.name,
-                    "semantic_identity": SemanticBundle.from_rule(rule).identity,
-                    "status": "satisfied" if not missing else "incomplete",
-                    "present_members": [_member_dict(member) for member in present],
-                    "missing_members": [_member_dict(member) for member in missing],
-                }
-            )
+    status_counts = {"available": 0, "deferred": 0, "incomplete": 0}
+    member_counts = {"available": 0, "deferred": 0, "missing": 0}
+    for candidate in STAGE_BUNDLE_CANDIDATES:
+        validate_candidate_evidence(candidate, EVIDENCE_REGISTRY)
+        result = evaluate_pair_availability(
+            candidate,
+            engine_pairs_by_code.get(candidate.subject_code, ()),
+        )
+        status_counts[result.status] += 1
+        member_counts["available"] += len(result.available_members)
+        member_counts["deferred"] += len(result.deferred_members)
+        member_counts["missing"] += len(result.missing_members)
+        rule_results.append(
+            {
+                "candidate_id": candidate.candidate_id,
+                "name": candidate.name,
+                "semantic_identity": candidate.semantic_identity,
+                "status": result.status,
+                "available_members": [
+                    _member_dict(member) for member in result.available_members
+                ],
+                "deferred_members": [
+                    _member_dict(member) for member in result.deferred_members
+                ],
+                "missing_members": [
+                    _member_dict(member) for member in result.missing_members
+                ],
+                "available_engine_evidence": [
+                    _projected_dict(item) for item in result.available_evidence
+                ],
+                "deferred_engine_evidence": [
+                    _projected_dict(item) for item in result.deferred_evidence
+                ],
+            }
+        )
 
-    expected_bundles = len(STAGE_BUNDLE_RULES)
-    expected_members = sum(len(rule.members) for rule in STAGE_BUNDLE_RULES)
+    expected_bundles = len(STAGE_BUNDLE_CANDIDATES)
+    expected_members = sum(len(rule.members) for rule in STAGE_BUNDLE_CANDIDATES)
     unavailable_reason = (
         "Engine evidence contains flat axis/filler pairs but no semantic bundle or "
         "within-bundle association identity; expected rules must not be projected back "
         "into actual output."
     )
     return {
-        "schema_version": 1,
-        "status": "REVIEW-CANDIDATE-NOT-ATTESTED",
+        "schema_version": 2,
+        "status": "FINAL-REVIEW-PENDING",
         "scope": {
-            "family": "cancer-stage-classification",
+            "family": BundleKind.CANCER_STAGE.value,
             "source_value_groups": len(_source_value_groups()),
-            "semantic_bundles": expected_bundles,
+            "semantic_bundle_candidates": expected_bundles,
             "excluded_context_only_subjects": ["C198031"],
         },
         "evidence_sources": [
@@ -829,32 +989,35 @@ def build_stage_bundle_report(
             }
             for source in EVIDENCE_SOURCES
         ],
+        "evidence_claim_registry": {
+            "identity": EVIDENCE_REGISTRY.identity,
+            "claims": [_claim_dict(claim) for claim in EVIDENCE_REGISTRY.claims],
+        },
         "source_value_groups": _source_value_groups(),
-        "semantic_bundle_rules": [_rule_dict(rule) for rule in STAGE_BUNDLE_RULES],
-        "excluded_context_only_constructs": [_CONTEXT_ONLY],
-        "engine_rule_satisfaction": {
+        "semantic_bundle_candidates": [
+            _rule_dict(rule) for rule in STAGE_BUNDLE_CANDIDATES
+        ],
+        "excluded_context_only_constructs": [_context_dict(_CONTEXT_ONLY)],
+        "engine_pair_availability": {
             "interpretation": (
-                "Recall-only diagnostic: all rule member pairs occur in flat engine "
-                "output. It is not evidence that the engine associated those members."
+                "Flat engine pairs are partitioned into available, deferred, and "
+                "missing "
+                "members. None is evidence that the engine associated those members."
             ),
-            "bundles": {
+            "candidate_counts": {
                 "expected": expected_bundles,
-                "satisfied": satisfied,
-                "incomplete": expected_bundles - satisfied,
-                "recall": satisfied / expected_bundles,
+                **status_counts,
             },
             "member_occurrences": {
                 "expected": expected_members,
-                "present": present_members,
-                "missing": expected_members - present_members,
-                "recall": present_members / expected_members,
+                **member_counts,
             },
             "semantic_scores": {
                 "exact_bundle": _not_evaluable(unavailable_reason),
                 "contextual_member": _not_evaluable(unavailable_reason),
                 "association": _not_evaluable(unavailable_reason),
             },
-            "rules": rule_results,
+            "candidates": rule_results,
         },
     }
 
@@ -886,24 +1049,66 @@ def _read_json(path: Path) -> object:
     )
 
 
-def _constituent_pairs(code: str, raw_constituents: object) -> set[Constituent]:
+def _optional_engine_text(code: str, field: str, value: object) -> str | None:
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"{code} engine {field} must be text or null")
+    return cast("str | None", value)
+
+
+def _engine_fact_ids(code: str, value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{code} engine source_fact_ids must be a text list")
+    return tuple(cast("list[str]", value))
+
+
+def _projected_constituent(
+    code: str, raw: object
+) -> ProjectedConstituentEvidence | None:
+    if not isinstance(raw, dict):
+        raise ValueError(f"{code} engine constituent has an invalid shape")
+    axis, filler = raw.get("axis"), raw.get("filler")
+    if not isinstance(axis, str) or not isinstance(filler, str):
+        raise ValueError(f"{code} engine constituent has an invalid pair")
+    if axis not in {item.value for item in BundleAxis} or not filler.startswith("C"):
+        return None
+    needs_review = raw.get("needs_review")
+    if not isinstance(needs_review, bool):
+        raise ValueError(f"{code} engine needs_review must be boolean")
+    relationship_group = _optional_engine_text(
+        code, "relationship_group", raw.get("relationship_group")
+    )
+    source_role = _optional_engine_text(code, "source_role", raw.get("source_role"))
+    axis_source = _optional_engine_text(code, "axis_source", raw.get("axis_source"))
+    return ProjectedConstituentEvidence(
+        axis=BundleAxis(axis),
+        filler_code=filler,
+        needs_review=needs_review,
+        relationship_group=relationship_group,
+        source_role=source_role,
+        axis_source=cast("ProjectionAxisSource | None", axis_source),
+        source_fact_ids=_engine_fact_ids(code, raw.get("source_fact_ids", [])),
+    )
+
+
+def _constituent_pairs(
+    code: str, raw_constituents: object
+) -> tuple[ProjectedConstituentEvidence, ...]:
     if not isinstance(raw_constituents, list):
         raise ValueError(f"{code} engine constituents must be a list")
-    pairs: set[Constituent] = set()
-    for constituent in raw_constituents:
-        if not isinstance(constituent, dict):
-            raise ValueError(f"{code} engine constituent has an invalid shape")
-        axis, filler = constituent.get("axis"), constituent.get("filler")
-        if not isinstance(axis, str) or not isinstance(filler, str):
-            raise ValueError(f"{code} engine constituent has an invalid pair")
-        pair = (axis, filler)
-        if pair in pairs:
-            raise ValueError(f"{code} engine constituent pairs must be unique")
-        pairs.add(pair)
-    return pairs
+    result = tuple(
+        item
+        for raw in raw_constituents
+        if (item := _projected_constituent(code, raw)) is not None
+    )
+    pairs = [item.pair for item in result]
+    if len(set(pairs)) != len(pairs):
+        raise ValueError(f"{code} engine constituent pairs must be unique")
+    return result
 
 
-def _engine_pairs(raw_engine: object) -> dict[str, set[Constituent]]:
+def _engine_pairs(
+    raw_engine: object,
+) -> dict[str, tuple[ProjectedConstituentEvidence, ...]]:
     if not isinstance(raw_engine, dict) or raw_engine.get("schema_version") != 1:
         raise ValueError("engine evidence schema version must be 1")
     if raw_engine.get("ncit_version") != _NCIT_RELEASE:
@@ -911,7 +1116,7 @@ def _engine_pairs(raw_engine: object) -> dict[str, set[Constituent]]:
     concepts = raw_engine.get("concepts")
     if not isinstance(concepts, list):
         raise ValueError("engine evidence concepts must be a list")
-    result: dict[str, set[Constituent]] = {}
+    result: dict[str, tuple[ProjectedConstituentEvidence, ...]] = {}
     for concept in concepts:
         if not isinstance(concept, dict) or not isinstance(concept.get("code"), str):
             raise ValueError("engine evidence concept has an invalid shape")
@@ -922,15 +1127,206 @@ def _engine_pairs(raw_engine: object) -> dict[str, set[Constituent]]:
     return result
 
 
+def _engine_outcomes(raw_engine: object) -> dict[str, str]:
+    if not isinstance(raw_engine, dict) or not isinstance(
+        raw_engine.get("concepts"), list
+    ):
+        raise ValueError("engine evidence concepts must be a list")
+    outcomes: dict[str, str] = {}
+    for concept in raw_engine["concepts"]:
+        if not isinstance(concept, dict):
+            raise ValueError("engine evidence concept has an invalid shape")
+        code, outcome = concept.get("code"), concept.get("outcome")
+        if not isinstance(code, str) or not isinstance(outcome, str):
+            raise ValueError("engine evidence concept outcome is invalid")
+        if code in outcomes:
+            raise ValueError(f"duplicate engine concept: {code}")
+        outcomes[code] = outcome
+    return outcomes
+
+
 def _payload_identity(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _audit_fact_dict(value: object) -> dict[str, object]:
+    root, role, filler, anchor, depth, group_id = _audit_fact_key(value)
+    fact_id = canonical_restriction_fact_id(anchor, group_id, role, filler)
+    return {
+        "root_code": root,
+        "role_code": role,
+        "filler_code": filler,
+        "anchor_code": anchor,
+        "depth": depth,
+        "source_group_id": group_id,
+        "fact_id": fact_id,
+    }
+
+
+type ContractedKey = tuple[str, str, str, str, int]
+
+
+def _contracted_row_entries(row: object) -> tuple[tuple[ContractedKey, str], ...]:
+    if not isinstance(row, dict):
+        raise ValueError("contracted disposition row must be an object")
+    root = row.get("root_code")
+    role = row.get("role_code")
+    filler = row.get("filler_code")
+    disposition = row.get("disposition")
+    anchors = row.get("anchors")
+    if not all(isinstance(item, str) for item in (root, role, filler, disposition)):
+        raise ValueError("contracted disposition row text is invalid")
+    if not isinstance(anchors, list):
+        raise ValueError("contracted disposition anchors must be a list")
+    entries: list[tuple[ContractedKey, str]] = []
+    for anchor in anchors:
+        if (
+            not isinstance(anchor, list)
+            or len(anchor) != _ANCHOR_PART_COUNT
+            or not isinstance(anchor[0], str)
+            or not isinstance(anchor[1], int)
+        ):
+            raise ValueError("contracted disposition anchor is invalid")
+        key = cast("ContractedKey", (root, role, filler, anchor[0], anchor[1]))
+        entries.append((key, cast("str", disposition)))
+    return tuple(entries)
+
+
+def _contracted_dispositions(raw: object) -> dict[ContractedKey, str]:
+    if not isinstance(raw, dict) or raw.get("source_identity") != _SOURCE_IDENTITY:
+        raise ValueError("contracted disposition source identity is invalid")
+    if raw.get("ontology_version") != _NCIT_RELEASE:
+        raise ValueError("contracted disposition NCIt release is invalid")
+    rows = raw.get("rows")
+    if not isinstance(rows, list):
+        raise ValueError("contracted disposition rows must be a list")
+    result: dict[ContractedKey, str] = {}
+    for row in rows:
+        for key, disposition in _contracted_row_entries(row):
+            if key in result:
+                raise ValueError(f"duplicate contracted disposition: {key!r}")
+            result[key] = disposition
+    return result
+
+
+def _semantic_fact_owners() -> dict[tuple[str, str], tuple[str, ...]]:
+    owners: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
+    for candidate in STAGE_BUNDLE_CANDIDATES:
+        for member in candidate.members:
+            for occurrence in member.source_occurrences:
+                owners[(occurrence.root_code, occurrence.fact_id)].append(
+                    candidate.candidate_id
+                )
+    context_occurrence = _CONTEXT_ONLY.member.source_occurrences[0]
+    owners[(context_occurrence.root_code, context_occurrence.fact_id)].append(
+        _CONTEXT_ONLY.context_id
+    )
+    return {key: tuple(sorted(value)) for key, value in owners.items()}
+
+
+def _fact_contracted_key(fact: dict[str, object]) -> ContractedKey:
+    return cast(
+        "ContractedKey",
+        (
+            fact["root_code"],
+            fact["role_code"],
+            fact["filler_code"],
+            fact["anchor_code"],
+            fact["depth"],
+        ),
+    )
+
+
+def _provenance_disposition(
+    fact: dict[str, object],
+    semantic_owners: dict[tuple[str, str], tuple[str, ...]],
+    contracted: dict[ContractedKey, str],
+    concept_outcomes: dict[str, str],
+) -> tuple[str, object, ContractedKey | None]:
+    occurrence_key = cast("tuple[str, str]", (fact["root_code"], fact["fact_id"]))
+    if owners := semantic_owners.get(occurrence_key):
+        return "semantic-review-candidate", owners, None
+    if fact["role_code"] == "R88":
+        reason = "No stage bundle or context claim consumes this occurrence."
+        return "retained-unmodeled-r88", reason, None
+    r101_key = cast("tuple[str, str]", (fact["root_code"], fact["filler_code"]))
+    if fact["role_code"] == "R101" and r101_key in _R101_SAME_AXIS_R82_COLLAPSES:
+        retained = _R101_SAME_AXIS_R82_COLLAPSES[r101_key]
+        reference = {
+            "axis": "op:AssociatedRegion",
+            "retained_filler": retained,
+            "rule": "same-axis R82 collapse on a location axis",
+        }
+        return "collapsed-same-axis-r82", reference, None
+    contracted_key = _fact_contracted_key(fact)
+    if contracted_key in contracted:
+        return "contracted-role-disposition", contracted[contracted_key], contracted_key
+    root_code = cast("str", fact["root_code"])
+    if (outcome := concept_outcomes.get(root_code)) != "decomposed":
+        if outcome is None:
+            raise ValueError(
+                f"source occurrence concept has no engine outcome: {root_code}"
+            )
+        return "nondecomposed-concept-outcome", outcome, None
+    if fact["role_code"] in {"R101", "R126"}:
+        workbook = "M1-57_SME_Adjudication_Workbook_Adjudicated_v13.xlsx"
+        return "constituent-workbook-review", workbook, None
+    raise ValueError(f"source occurrence has no disposition: {occurrence_key!r}")
+
+
+def build_provenance_ledger(
+    raw_audit: object,
+    raw_contracted_disposition: object,
+    raw_engine: object,
+) -> dict[str, object]:
+    """Disposition every exact source occurrence without flattening inherited roots."""
+    if not isinstance(raw_audit, dict) or not isinstance(raw_audit.get("facts"), list):
+        raise ValueError("source audit facts must be a list")
+    if raw_audit.get("fact_count") != _SOURCE_OCCURRENCE_COUNT:
+        raise ValueError("source audit must contain exactly 304 occurrences")
+    facts = [_audit_fact_dict(item) for item in raw_audit["facts"]]
+    if len(facts) != _SOURCE_OCCURRENCE_COUNT:
+        raise ValueError("source audit fact count does not match its occurrence list")
+    occurrence_keys = [(item["root_code"], item["fact_id"]) for item in facts]
+    if len(set(occurrence_keys)) != len(facts):
+        raise ValueError("source audit occurrence identities must be unique per root")
+
+    semantic_owners = _semantic_fact_owners()
+    contracted = _contracted_dispositions(raw_contracted_disposition)
+    concept_outcomes = _engine_outcomes(raw_engine)
+
+    rows: list[dict[str, object]] = []
+    counts: defaultdict[str, int] = defaultdict(int)
+    used_contracted: set[ContractedKey] = set()
+    for fact in facts:
+        disposition, reference, contracted_key = _provenance_disposition(
+            fact, semantic_owners, contracted, concept_outcomes
+        )
+        if contracted_key is not None:
+            used_contracted.add(contracted_key)
+        counts[disposition] += 1
+        rows.append(fact | {"disposition": disposition, "reference": reference})
+
+    if used_contracted != set(contracted):
+        missing = min(set(contracted) - used_contracted)
+        raise ValueError(
+            f"contracted disposition has no source occurrence: {missing!r}"
+        )
+    return {
+        "source_identity": _SOURCE_IDENTITY,
+        "ncit_release": _NCIT_RELEASE,
+        "occurrence_count": len(rows),
+        "counts": dict(sorted(counts.items())),
+        "occurrences": rows,
+    }
 
 
 def generate_stage_bundle_artifact(
     workbook_path: Path,
     source_audit_path: Path,
     engine_evidence_path: Path,
+    contracted_disposition_path: Path,
 ) -> dict[str, object]:
     """Generate a hash-bound report from the v13 constituent and engine evidence."""
     _require_identity(workbook_path, _WORKBOOK_SHA256)
@@ -938,8 +1334,14 @@ def generate_stage_bundle_artifact(
     _require_identity(engine_evidence_path, _ENGINE_EVIDENCE_SHA256)
     raw_audit = _read_json(source_audit_path)
     raw_engine = _read_json(engine_evidence_path)
+    raw_contracted_disposition = _read_json(contracted_disposition_path)
     validate_source_audit(raw_audit)
     report = build_stage_bundle_report(_engine_pairs(raw_engine))
+    report["source_provenance"] = build_provenance_ledger(
+        raw_audit,
+        raw_contracted_disposition,
+        raw_engine,
+    )
     report["bindings"] = {
         "ncit_release": _NCIT_RELEASE,
         "constituent_workbook": {
@@ -955,9 +1357,444 @@ def generate_stage_bundle_artifact(
             "file": engine_evidence_path.name,
             "sha256": _ENGINE_EVIDENCE_SHA256,
         },
+        "contracted_disposition": {
+            "file": contracted_disposition_path.name,
+            "sha256": _sha256(contracted_disposition_path),
+        },
     }
     report["artifact_identity"] = _payload_identity(report)
     return report
+
+
+_DECISION_SHEET = "Semantic Bundle Decisions"
+_DECISION_HEADER_ROW = 8
+_DECISION_HEADERS = (
+    "Candidate ID",
+    "Semantic Identity",
+    "Subject Code",
+    "Candidate Name",
+    "Authority",
+    "Version",
+    "Members",
+    "Decision",
+    "Rationale",
+    "Reviewer",
+    "Review Date",
+)
+
+
+def _validate_artifact_identity(artifact: dict[str, object]) -> None:
+    identity = artifact.get("artifact_identity")
+    payload = {
+        key: value for key, value in artifact.items() if key != "artifact_identity"
+    }
+    if identity != _payload_identity(payload):
+        raise ValueError("candidate artifact identity does not match its payload")
+
+
+def _candidate_rows(artifact: dict[str, object]) -> list[dict[str, object]]:
+    raw = artifact.get("semantic_bundle_candidates")
+    if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
+        raise ValueError("candidate artifact semantic bundles are invalid")
+    rows = cast("list[dict[str, object]]", raw)
+    candidate_ids = [item.get("candidate_id") for item in rows]
+    if len(set(candidate_ids)) != len(rows):
+        raise ValueError("candidate artifact IDs must be unique")
+    return rows
+
+
+def _member_summary(candidate: dict[str, object]) -> str:
+    members = candidate.get("members")
+    if not isinstance(members, list):
+        raise ValueError("candidate members must be a list")
+    parts: list[str] = []
+    for member in members:
+        if not isinstance(member, dict):
+            raise ValueError("candidate member must be an object")
+        parts.append(
+            f"{member.get('role')}|{member.get('axis')}|{member.get('filler_code')}"
+        )
+    return "; ".join(parts)
+
+
+def _sheet_headers(sheet: Worksheet, row: int) -> dict[str, int]:
+    return {
+        cast("str", sheet.cell(row, column).value): column
+        for column in range(1, sheet.max_column + 1)
+        if isinstance(sheet.cell(row, column).value, str)
+    }
+
+
+def _concept_rows(
+    sheet: Worksheet, headers: dict[str, int], concept_code: str
+) -> list[int]:
+    code_column = headers["Concept Code"]
+    return [
+        row
+        for row in range(5, sheet.max_row + 1)
+        if sheet.cell(row, code_column).value == concept_code
+    ]
+
+
+def _remove_expected_pair(
+    sheet: Worksheet,
+    headers: dict[str, int],
+    correction: ConstituentCorrection,
+) -> None:
+    matches = [
+        row
+        for row in _concept_rows(sheet, headers, correction.concept_code)
+        if sheet.cell(row, headers["SME Action"]).value in {"include", "revise"}
+        and sheet.cell(row, headers["Expected Axis"]).value == correction.axis
+        and sheet.cell(row, headers["Expected Filler"]).value == correction.filler_code
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"remove correction must match one expected pair: {correction!r}"
+        )
+    row = matches[0]
+    sheet.cell(row, headers["SME Action"], "exclude")
+    notes_column = headers["SME Notes"]
+    existing = sheet.cell(row, notes_column).value
+    prefix = f"{existing}\n\n" if isinstance(existing, str) and existing else ""
+    sheet.cell(row, notes_column, f"{prefix}V14 CORRECTION. {correction.rationale}")
+
+
+def _add_expected_pair(
+    sheet: Worksheet,
+    headers: dict[str, int],
+    correction: ConstituentCorrection,
+) -> None:
+    concept_rows = _concept_rows(sheet, headers, correction.concept_code)
+    if not concept_rows:
+        raise ValueError(f"add correction concept is absent: {correction.concept_code}")
+    duplicate = any(
+        sheet.cell(row, headers["SME Action"]).value in {"include", "revise"}
+        and sheet.cell(row, headers["Expected Axis"]).value == correction.axis
+        and sheet.cell(row, headers["Expected Filler"]).value == correction.filler_code
+        for row in concept_rows
+    )
+    if duplicate:
+        raise ValueError(f"add correction already exists: {correction!r}")
+    source_row = concept_rows[0]
+    row = sheet.max_row + 1
+    for field in ("Concept Order", "Concept Code", "Source Label"):
+        target = cast("Cell", sheet.cell(row, headers[field]))
+        target.value = sheet.cell(source_row, headers[field]).value
+    values: dict[str, str | None] = {
+        "Row Type": "ADD IF MISSING",
+        "SME Action": "include",
+        "Expected Axis": correction.axis,
+        "Expected Filler": correction.filler_code,
+        "Expected Group": None,
+        "Expected needs_review": "FALSE",
+        "Expected Provenance Status": "ncit-26.07d",
+        "SME Notes": f"V14 CORRECTION. {correction.rationale}",
+        "Row Complete?": "YES",
+    }
+    if "Expected Role Modality" in headers:
+        values["Expected Role Modality"] = "asserted"
+    for field, value in values.items():
+        sheet.cell(row, headers[field], value)
+    for column in range(headers["SME Action"], headers["Row Complete?"] + 1):
+        sheet.cell(row, column).fill = PatternFill("solid", fgColor="FFF2CC")
+
+
+def apply_constituent_corrections(
+    workbook: Workbook,
+    corrections: tuple[ConstituentCorrection, ...],
+) -> None:
+    """Apply an explicit reviewed correction set without changing engine evidence."""
+    sheet = cast("Worksheet", workbook["Constituent Decisions"])
+    headers = _sheet_headers(sheet, 4)
+    required = {
+        "Concept Order",
+        "Concept Code",
+        "Source Label",
+        "SME Action",
+        "Expected Axis",
+        "Expected Filler",
+        "Expected Group",
+        "Expected needs_review",
+        "Expected Provenance Status",
+        "SME Notes",
+        "Row Complete?",
+    }
+    if missing := required - headers.keys():
+        raise ValueError(
+            "constituent correction headers missing: " + ", ".join(missing)
+        )
+    identities = [
+        (item.action, item.concept_code, item.axis, item.filler_code)
+        for item in corrections
+    ]
+    if len(set(identities)) != len(identities):
+        raise ValueError("constituent corrections must be unique")
+    for correction in corrections:
+        if correction.action == "remove":
+            _remove_expected_pair(sheet, headers, correction)
+        else:
+            _add_expected_pair(sheet, headers, correction)
+
+
+def write_review_workbook(
+    base_workbook_path: Path,
+    candidate_artifact: dict[str, object],
+    output_path: Path,
+    corrections: tuple[ConstituentCorrection, ...] = (),
+) -> None:
+    """Add a reviewer-owned semantic decision sheet to a fresh workbook copy."""
+    _validate_artifact_identity(candidate_artifact)
+    workbook = load_workbook(base_workbook_path)
+    if corrections:
+        apply_constituent_corrections(workbook, corrections)
+    reviewer_sheet = workbook["Reviewer & Attestation"]
+    reviewer_sheet["B9"] = "PENDING"
+    reviewer_sheet["C9"] = (
+        "MUST REMAIN PENDING until the v14 constituent corrections and semantic "
+        "bundle decisions receive final review."
+    )
+    workbook["Validation Summary"]["A1"] = (
+        "Adjudication completeness checks - v14 pending final review"
+    )
+    if _DECISION_SHEET in workbook.sheetnames:
+        raise ValueError(f"workbook already contains {_DECISION_SHEET}")
+    sheet = workbook.create_sheet(_DECISION_SHEET)
+    sheet["A1"] = "M1 #57 Semantic Bundle Final Review"
+    sheet["A1"].font = Font(bold=True, size=14)
+    metadata = (
+        ("Candidate artifact identity", candidate_artifact["artifact_identity"]),
+        ("NCIt release", _NCIT_RELEASE),
+        ("Evidence registry identity", EVIDENCE_REGISTRY.identity),
+        ("Attestation status", "FINAL-REVIEW-PENDING"),
+        (
+            "Instructions",
+            "Choose ACCEPT, REJECT, or DEFER for every row and supply rationale, "
+            "reviewer, and ISO review date. Set Attestation status to ATTESTED only "
+            "after the complete sheet has been reviewed.",
+        ),
+    )
+    for row, (label, value) in enumerate(metadata, start=2):
+        sheet.cell(row, 1, label)
+        sheet.cell(row, 2, value)
+        sheet.cell(row, 1).font = Font(bold=True)
+    for column, header in enumerate(_DECISION_HEADERS, start=1):
+        cell = sheet.cell(_DECISION_HEADER_ROW, column, header)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9EAF7")
+    for row, candidate in enumerate(_candidate_rows(candidate_artifact), start=9):
+        classification = candidate.get("classification")
+        if not isinstance(classification, dict):
+            raise ValueError("candidate classification must be an object")
+        values = (
+            candidate.get("candidate_id"),
+            candidate.get("semantic_identity"),
+            candidate.get("subject_code"),
+            candidate.get("name"),
+            classification.get("authority"),
+            classification.get("version"),
+            _member_summary(candidate),
+        )
+        for column, value in enumerate(values, start=1):
+            sheet.cell(row, column, value)
+        for column in range(8, 12):
+            sheet.cell(row, column).fill = PatternFill("solid", fgColor="FFF2CC")
+    decision_validation = DataValidation(
+        type="list",
+        formula1='"ACCEPT,REJECT,DEFER"',
+        allow_blank=True,
+    )
+    sheet.add_data_validation(decision_validation)
+    decision_validation.add(f"H9:H{8 + len(_candidate_rows(candidate_artifact))}")
+    sheet.freeze_panes = "A9"
+    widths = (32, 68, 16, 58, 16, 20, 75, 14, 75, 28, 16)
+    for column, width in enumerate(widths, start=1):
+        sheet.column_dimensions[sheet.cell(8, column).column_letter].width = width
+    workbook.save(output_path)
+
+
+def _review_text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value.startswith("="):
+        raise ValueError(f"semantic decision {field} must be reviewer-entered text")
+    return value.strip()
+
+
+def _validate_decision_sheet(
+    sheet: Worksheet, candidate_artifact: dict[str, object]
+) -> None:
+    if sheet["B2"].value != candidate_artifact["artifact_identity"]:
+        raise ValueError("workbook candidate artifact identity does not match")
+    if sheet["B5"].value != "ATTESTED":
+        raise ValueError("semantic bundle review is not ATTESTED")
+    headers = tuple(
+        sheet.cell(_DECISION_HEADER_ROW, column).value for column in range(1, 12)
+    )
+    if headers != _DECISION_HEADERS:
+        raise ValueError("semantic decision headers do not match the schema")
+
+
+def _decision_row_has_data(sheet: Worksheet, row: int) -> bool:
+    return any(sheet.cell(row, column).value is not None for column in range(1, 12))
+
+
+def _parse_decision_row(
+    sheet: Worksheet,
+    row: int,
+    candidates: dict[str, dict[str, object]],
+) -> dict[str, str]:
+    candidate_id = _review_text(sheet.cell(row, 1).value, "candidate ID")
+    if candidate_id not in candidates:
+        raise ValueError(f"unknown semantic candidate: {candidate_id}")
+    candidate = candidates[candidate_id]
+    classification = cast("dict[str, object]", candidate["classification"])
+    expected = (
+        candidate["semantic_identity"],
+        candidate["subject_code"],
+        candidate["name"],
+        classification["authority"],
+        classification["version"],
+        _member_summary(candidate),
+    )
+    actual = tuple(sheet.cell(row, column).value for column in range(2, 8))
+    if actual != expected:
+        raise ValueError(f"candidate fields changed in reviewer row {row}")
+    decision = _review_text(sheet.cell(row, 8).value, "decision")
+    if decision not in {"ACCEPT", "REJECT", "DEFER"}:
+        raise ValueError(f"semantic decision is invalid in row {row}")
+    reviewed_at = _review_text(sheet.cell(row, 11).value, "review date")
+    try:
+        date.fromisoformat(reviewed_at)
+    except ValueError as error:
+        raise ValueError(f"semantic review date is invalid in row {row}") from error
+    return {
+        "candidate_id": candidate_id,
+        "decision": decision,
+        "rationale": _review_text(sheet.cell(row, 9).value, "rationale"),
+        "reviewer": _review_text(sheet.cell(row, 10).value, "reviewer"),
+        "reviewed_at": reviewed_at,
+    }
+
+
+def import_review_decisions(
+    workbook_path: Path,
+    candidate_artifact: dict[str, object],
+) -> dict[str, object]:
+    """Generate canonical rules only from a complete, attested reviewer sheet."""
+    _validate_artifact_identity(candidate_artifact)
+    workbook = load_workbook(workbook_path, data_only=False)
+    if _DECISION_SHEET not in workbook.sheetnames:
+        raise ValueError(f"workbook is missing {_DECISION_SHEET}")
+    sheet = workbook[_DECISION_SHEET]
+    _validate_decision_sheet(sheet, candidate_artifact)
+
+    candidates = {
+        cast("str", item["candidate_id"]): item
+        for item in _candidate_rows(candidate_artifact)
+    }
+    decisions: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in range(9, sheet.max_row + 1):
+        if not _decision_row_has_data(sheet, row):
+            continue
+        decision = _parse_decision_row(sheet, row, candidates)
+        candidate_id = decision["candidate_id"]
+        if candidate_id in seen:
+            raise ValueError(f"duplicate semantic candidate: {candidate_id}")
+        seen.add(candidate_id)
+        decisions.append(decision)
+    if seen != set(candidates):
+        raise ValueError("semantic decision sheet does not disposition every candidate")
+
+    accepted_ids = {
+        item["candidate_id"] for item in decisions if item["decision"] == "ACCEPT"
+    }
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "status": "ATTESTED",
+        "candidate_artifact_identity": candidate_artifact["artifact_identity"],
+        "review_workbook": {
+            "file": workbook_path.name,
+            "sha256": _sha256(workbook_path),
+        },
+        "decisions": decisions,
+        "semantic_bundle_rules": [
+            candidate
+            for candidate_id, candidate in candidates.items()
+            if candidate_id in accepted_ids
+        ],
+    }
+    result["artifact_identity"] = _payload_identity(result)
+    return result
+
+
+def load_constituent_corrections(path: Path) -> tuple[ConstituentCorrection, ...]:
+    raw = _read_json(path)
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
+        raise ValueError("constituent correction schema version must be 1")
+    items = raw.get("corrections")
+    if not isinstance(items, list):
+        raise ValueError("constituent corrections must be a list")
+    corrections: list[ConstituentCorrection] = []
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {
+            "action",
+            "concept_code",
+            "axis",
+            "filler_code",
+            "rationale",
+        }:
+            raise ValueError("constituent correction has an invalid shape")
+        if not all(isinstance(value, str) for value in item.values()):
+            raise ValueError("constituent correction values must be text")
+        corrections.append(
+            ConstituentCorrection(
+                action=cast("Literal['add', 'remove']", item["action"]),
+                concept_code=cast("str", item["concept_code"]),
+                axis=cast("str", item["axis"]),
+                filler_code=cast("str", item["filler_code"]),
+                rationale=cast("str", item["rationale"]),
+            )
+        )
+    return tuple(corrections)
+
+
+def build_verification_manifest(
+    candidate_path: Path,
+    review_workbook_path: Path,
+    canonical_rules_path: Path | None = None,
+) -> dict[str, object]:
+    candidate = _read_json(candidate_path)
+    if not isinstance(candidate, dict):
+        raise ValueError("candidate artifact must be an object")
+    _validate_artifact_identity(candidate)
+    files: dict[str, object] = {
+        "candidate_artifact": {
+            "file": candidate_path.name,
+            "sha256": _sha256(candidate_path),
+        },
+        "review_workbook": {
+            "file": review_workbook_path.name,
+            "sha256": _sha256(review_workbook_path),
+        },
+    }
+    status = "FINAL-REVIEW-PENDING"
+    if canonical_rules_path is not None:
+        canonical = _read_json(canonical_rules_path)
+        if not isinstance(canonical, dict) or canonical.get("status") != "ATTESTED":
+            raise ValueError("canonical semantic rules are not ATTESTED")
+        files["canonical_rules"] = {
+            "file": canonical_rules_path.name,
+            "sha256": _sha256(canonical_rules_path),
+        }
+        status = "ATTESTED"
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "status": status,
+        "candidate_artifact_identity": candidate["artifact_identity"],
+        "files": files,
+    }
+    manifest["manifest_identity"] = _payload_identity(manifest)
+    return manifest
 
 
 def main() -> None:
@@ -965,17 +1802,65 @@ def main() -> None:
     parser.add_argument("--workbook", required=True, type=Path)
     parser.add_argument("--source-audit", required=True, type=Path)
     parser.add_argument("--engine-evidence", required=True, type=Path)
+    parser.add_argument("--contracted-disposition", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--review-workbook-output", type=Path)
+    parser.add_argument("--corrections", type=Path)
+    parser.add_argument("--import-decisions", type=Path)
+    parser.add_argument("--canonical-rules-output", type=Path)
+    parser.add_argument("--manifest-output", type=Path)
     args = parser.parse_args()
     report = generate_stage_bundle_artifact(
         args.workbook,
         args.source_audit,
         args.engine_evidence,
+        args.contracted_disposition,
     )
+    corrections: tuple[ConstituentCorrection, ...] = ()
+    if args.corrections is not None:
+        corrections = load_constituent_corrections(args.corrections)
+        bindings = cast("dict[str, object]", report["bindings"])
+        bindings["constituent_corrections"] = {
+            "file": args.corrections.name,
+            "sha256": _sha256(args.corrections),
+            "count": len(corrections),
+        }
+        report.pop("artifact_identity")
+        report["artifact_identity"] = _payload_identity(report)
     args.output.write_text(
         json.dumps(report, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
+    if args.review_workbook_output is not None:
+        write_review_workbook(
+            args.workbook,
+            report,
+            args.review_workbook_output,
+            corrections,
+        )
+    if args.import_decisions is not None:
+        if args.canonical_rules_output is None:
+            parser.error("--import-decisions requires --canonical-rules-output")
+        canonical = import_review_decisions(args.import_decisions, report)
+        args.canonical_rules_output.write_text(
+            json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
+            encoding="utf-8",
+        )
+    if args.manifest_output is not None:
+        if args.review_workbook_output is None:
+            parser.error("--manifest-output requires --review-workbook-output")
+        canonical_path = (
+            args.canonical_rules_output if args.import_decisions is not None else None
+        )
+        manifest = build_verification_manifest(
+            args.output,
+            args.review_workbook_output,
+            canonical_path,
+        )
+        args.manifest_output.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":

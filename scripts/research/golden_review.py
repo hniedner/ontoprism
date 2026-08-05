@@ -50,6 +50,7 @@ _EXPECTED_SHEETS = {
     "Prior SME Evidence",
     "Source & Run Evidence",
 }
+_OPTIONAL_REVIEW_SHEETS = {"Semantic Bundle Decisions"}
 
 
 class GoldenSetValidationError(ValueError):
@@ -629,7 +630,11 @@ def _load_review_workbook(path: Path) -> Workbook:
         raise GoldenSetValidationError(
             f"cannot read adjudication workbook: {error}"
         ) from error
-    if set(workbook.sheetnames) != _EXPECTED_SHEETS:
+    sheet_names = set(workbook.sheetnames)
+    unexpected_sheets = sheet_names - _EXPECTED_SHEETS
+    if not sheet_names >= _EXPECTED_SHEETS or not unexpected_sheets <= (
+        _OPTIONAL_REVIEW_SHEETS
+    ):
         raise GoldenSetValidationError(
             "workbook sheets do not match the review contract"
         )

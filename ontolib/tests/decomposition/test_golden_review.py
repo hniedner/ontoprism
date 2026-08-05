@@ -514,6 +514,19 @@ def test_workbook_import_preserves_reviewer_values_and_provenance(
 
 
 @pytest.mark.unit
+def test_workbook_import_allows_semantic_bundle_decision_sheet(tmp_path: Path) -> None:
+    workbook = tmp_path / "semantic-review.xlsx"
+    _create_workbook(workbook)
+    loaded = load_workbook(workbook)
+    loaded.create_sheet("Semantic Bundle Decisions")
+    loaded.save(workbook)
+
+    artifact = import_adjudication_workbook(workbook)
+
+    assert artifact.meta.reviewer.name == "Example Reviewer"
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("pending", "formula", "message"),
     [
