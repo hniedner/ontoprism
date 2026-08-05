@@ -19,6 +19,8 @@ from ontolib.decomposition.models import (
     Constituent,
     Decomposition,
     RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
 )
 from ontolib.decomposition.read import decomposition_from_rows
 from ontolib.decomposition.read_queries import build_decomposition_query
@@ -80,8 +82,10 @@ async def test_decomposition_round_trips_through_the_decomposed_graph() -> None:
 async def test_writer_projection_trace_round_trips_through_real_oxigraph(
     tmp_path: Path,
 ) -> None:
-    fact_id = "a" * 64
-    group_id = "b" * 64
+    group_id = canonical_definition_group_id("C6135", ("restriction:R101:C12400",))
+    fact_id = canonical_definition_fact_id(
+        "C6135", group_id, "restriction", "R101", "C12400"
+    )
     expected = Decomposition(
         code="C6135",
         semantic_type="Neoplastic Process",

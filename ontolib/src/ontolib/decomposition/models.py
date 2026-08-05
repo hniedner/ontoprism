@@ -40,6 +40,28 @@ def _require_sha256(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} must be a lowercase SHA-256 value")
 
 
+def _definition_digest(*parts: str) -> str:
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def canonical_definition_fact_id(
+    anchor_code: str,
+    group_id: str,
+    kind: Literal["genus", "restriction"],
+    *values: str,
+) -> str:
+    """Return the content-derived identity for one stated definition fact."""
+    return _definition_digest(anchor_code, group_id, kind, *values)
+
+
+def canonical_definition_group_id(
+    anchor_code: str,
+    member_signatures: Sequence[str],
+) -> str:
+    """Return the content-derived identity for one stated intersection group."""
+    return _definition_digest(anchor_code, *sorted(set(member_signatures)))
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DefinitionGroup:
     """One canonical stated ``owl:intersectionOf`` expression.
@@ -132,7 +154,9 @@ class CompleteDefinition:
             child_group_ids,
         )
         _validate_definition_group_graph(group_by_id, roots)
+        _validate_definition_roots(roots, group_by_id, child_group_ids)
         _validate_definition_fact_groups(canonical, group_by_id)
+        _validate_canonical_definition_ids(canonical, groups)
         object.__setattr__(self, "facts", canonical)
         object.__setattr__(self, "groups", groups)
         object.__setattr__(self, "root_group_ids", roots)
@@ -201,11 +225,21 @@ def _canonical_definition_roots(
     child_group_ids: set[str],
 ) -> tuple[str, ...]:
     roots = tuple(sorted(set(root_group_ids)))
+    expected_roots = group_by_id.keys() - child_group_ids
     if not roots and groups:
-        roots = tuple(sorted(group_by_id.keys() - child_group_ids))
+        roots = tuple(sorted(expected_roots))
     if set(roots) - group_by_id.keys():
         raise ValueError("complete-definition root references an unknown group")
     return roots
+
+
+def _validate_definition_roots(
+    roots: tuple[str, ...],
+    group_by_id: dict[str, DefinitionGroup],
+    child_group_ids: set[str],
+) -> None:
+    if set(roots) != group_by_id.keys() - child_group_ids:
+        raise ValueError("complete-definition roots must equal the parentless groups")
 
 
 def _validate_definition_fact_groups(
@@ -220,6 +254,57 @@ def _validate_definition_fact_groups(
             raise ValueError(
                 "complete-definition fact and group anchors/depths must agree"
             )
+
+
+def _fact_member_signature(fact: DefinitionFact) -> str:
+    if isinstance(fact, GenusDefinitionFact):
+        definition_status = "defined" if fact.is_defined else "primitive"
+        return f"genus:{fact.genus_code}:{definition_status}"
+    return f"restriction:{fact.role_code}:{fact.filler_code}"
+
+
+def _expected_definition_fact_id(fact: DefinitionFact) -> str:
+    if isinstance(fact, GenusDefinitionFact):
+        return canonical_definition_fact_id(
+            fact.anchor_code,
+            fact.group_id,
+            "genus",
+            fact.genus_code,
+            "defined" if fact.is_defined else "primitive",
+        )
+    return canonical_definition_fact_id(
+        fact.anchor_code,
+        fact.group_id,
+        "restriction",
+        fact.role_code,
+        fact.filler_code,
+    )
+
+
+def _expected_definition_group_id(
+    group: DefinitionGroup,
+    facts: list[DefinitionFact],
+) -> str:
+    signatures = [_fact_member_signature(fact) for fact in facts]
+    signatures.extend(f"group:{child_id}" for child_id in group.child_group_ids)
+    return canonical_definition_group_id(group.anchor_code, signatures)
+
+
+def _validate_canonical_definition_ids(
+    facts: tuple[DefinitionFact, ...],
+    groups: tuple[DefinitionGroup, ...],
+) -> None:
+    facts_by_group: dict[str, list[DefinitionFact]] = {}
+    for fact in facts:
+        facts_by_group.setdefault(fact.group_id, []).append(fact)
+        if fact.fact_id != _expected_definition_fact_id(fact):
+            raise ValueError("complete-definition fact ID is not canonical")
+    for group in groups:
+        if group.group_id != _expected_definition_group_id(
+            group,
+            facts_by_group.get(group.group_id, []),
+        ):
+            raise ValueError("complete-definition group ID is not canonical")
 
 
 def _groups_from_facts(

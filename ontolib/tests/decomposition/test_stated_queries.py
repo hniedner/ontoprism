@@ -307,6 +307,34 @@ async def test_resolve_morphology_filler_returns_none_when_no_genus() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("ambiguous_result", ["member", "label"])
+async def test_resolve_morphology_filler_rejects_ambiguous_source_rows(
+    ambiguous_result: str,
+) -> None:
+    call_count = 0
+
+    async def fake_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        nonlocal call_count
+        del query, required_variables
+        call_count += 1
+        if ambiguous_result == "member":
+            return [
+                {"member": _iri("C3879"), "type": None},
+                {"member": _iri("C141041"), "type": None},
+            ]
+        if call_count == 1:
+            return [{"member": _iri("C3879"), "type": None}]
+        return [{"label": "Label one"}, {"label": "Label two"}]
+
+    with pytest.raises(ValueError, match="multiple"):
+        await resolve_morphology_filler(fake_select, "C6135")
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("missing_binding", ["member", "label"])
 async def test_resolve_morphology_filler_rejects_missing_required_binding(
     missing_binding: str,

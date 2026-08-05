@@ -19,6 +19,8 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
 )
 
 
@@ -451,10 +453,18 @@ async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
 async def test_complete_definition_and_projection_trace_are_rendered(
     tmp_path: Path,
 ) -> None:
-    genus_id = "a" * 64
-    restriction_id = "b" * 64
-    group_id = "c" * 64
-    nested_group_id = "d" * 64
+    nested_group_id = canonical_definition_group_id(
+        "C6135", ("restriction:R88:C27970",)
+    )
+    restriction_id = canonical_definition_fact_id(
+        "C6135", nested_group_id, "restriction", "R88", "C27970"
+    )
+    group_id = canonical_definition_group_id(
+        "C6135", ("genus:C141041:defined", f"group:{nested_group_id}")
+    )
+    genus_id = canonical_definition_fact_id(
+        "C6135", group_id, "genus", "C141041", "defined"
+    )
     decs = [
         Decomposition(
             code="C6135",
@@ -558,8 +568,10 @@ async def test_complete_definition_and_projection_trace_are_rendered(
 async def test_shared_definition_ids_are_scoped_to_each_decomposition_root(
     tmp_path: Path,
 ) -> None:
-    fact_id = "a" * 64
-    group_id = "b" * 64
+    group_id = canonical_definition_group_id("C100", ("restriction:R101:C200",))
+    fact_id = canonical_definition_fact_id(
+        "C100", group_id, "restriction", "R101", "C200"
+    )
 
     def decomposition(root_code: str, depth: int) -> Decomposition:
         return Decomposition(

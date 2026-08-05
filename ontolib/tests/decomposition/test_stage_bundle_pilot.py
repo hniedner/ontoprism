@@ -720,6 +720,32 @@ def test_review_workbook_binds_augmented_pair_to_proposal_registry(
 
 
 @pytest.mark.unit
+def test_relation_proposal_workbook_pair_requires_an_ncit_filler(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    workbook = load_workbook(base)
+    sheet = workbook["Constituent Decisions"]
+    headers = {
+        sheet.cell(4, column).value: column for column in range(1, sheet.max_column + 1)
+    }
+    sheet.cell(5, headers["Expected Axis"], "op:AssociatedPriorDisease")
+    sheet.cell(5, headers["Expected Filler"], "free text")
+    sheet.cell(5, headers["Expected Provenance Status"], "locally-approved")
+    workbook.save(base)
+
+    with pytest.raises(ValueError, match="NCIt code"):
+        write_review_workbook(
+            base,
+            _candidate_artifact(),
+            review,
+            proposal_registry=_PROPOSAL_REGISTRY,
+        )
+
+
+@pytest.mark.unit
 def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     tmp_path: Path,
 ) -> None:

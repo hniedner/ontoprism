@@ -311,6 +311,34 @@ class PersistedRunMetrics(BaseModel):
         return self
 
 
+class CompletionRunMetrics(BaseModel):
+    """Complete metric payload required when a current run becomes complete."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    total_in_scope: int = Field(ge=0)
+    decomposed: int = Field(ge=0)
+    residual: int = Field(ge=0)
+    semantic_excluded: int = Field(ge=0)
+    atomic_noop: int = Field(ge=0)
+    unknown_outcome: Literal[0]
+    residual_precoordinated_count: int = Field(ge=0)
+    residual_precoordination: float = Field(ge=0, le=1)
+    minted_count: int = Field(ge=0)
+    complete_definition_count: int = Field(ge=0)
+    complete_fact_count: int = Field(ge=0)
+    projected_fact_count: int = Field(ge=0)
+    projection_loss_count: int = Field(ge=0)
+    projection_loss_rate: float = Field(ge=0, le=1)
+    pct_decomposed: float = Field(ge=0, le=1)
+    roundtrip_fidelity: float | None = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _counts_and_rates_are_consistent(self) -> Self:
+        PersistedRunMetrics.model_validate(self.model_dump())
+        return self
+
+
 _OUTCOME_FLAGS: dict[ConceptOutcome, tuple[bool, bool]] = {
     "decomposed": (True, False),
     "residual": (False, True),

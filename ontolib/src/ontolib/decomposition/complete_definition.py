@@ -524,7 +524,7 @@ def _canonical_group_ids(
             for member, _is_defined in _ordered_members(positions)
         ]
         visiting.remove(expression)
-        canonical_id = _digest(anchor_code, *sorted(signature))
+        canonical_id = _digest(anchor_code, *sorted(set(signature)))
         group_ids[expression] = canonical_id
         return canonical_id
 

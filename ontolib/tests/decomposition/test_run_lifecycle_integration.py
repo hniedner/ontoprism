@@ -24,6 +24,8 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
 )
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
@@ -82,6 +84,35 @@ async def _cleanup(run_ids: list[str]) -> None:
         await conn.execute("DELETE FROM decomp_run WHERE id = ANY($1)", run_ids)
     finally:
         await conn.close()
+
+
+async def _completion_metrics(
+    store: ProvenanceStore,
+    run_id: str,
+) -> dict[str, object]:
+    counts = await store.outcome_counts(run_id)
+    decompositions = await store.decompositions_for_run(run_id)
+    complete_fact_count = sum(item.complete_fact_count for item in decompositions)
+    projected_fact_count = sum(item.projected_fact_count for item in decompositions)
+    projection_loss_count = complete_fact_count - projected_fact_count
+    return {
+        **counts.model_dump(),
+        "residual_precoordinated_count": 0,
+        "residual_precoordination": 0.0,
+        "complete_definition_count": sum(
+            item.complete_definition is not None for item in decompositions
+        ),
+        "complete_fact_count": complete_fact_count,
+        "projected_fact_count": projected_fact_count,
+        "projection_loss_count": projection_loss_count,
+        "projection_loss_rate": (
+            projection_loss_count / complete_fact_count if complete_fact_count else 0.0
+        ),
+        "pct_decomposed": (
+            counts.decomposed / counts.total_in_scope if counts.total_in_scope else 0.0
+        ),
+        "roundtrip_fidelity": None,
+    }
 
 
 class _LifecycleClient:
@@ -206,6 +237,23 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
         )
         assert await store.pending_codes(run_id) == ["C1"]
 
+        restriction_group_id = canonical_definition_group_id(
+            "C1", ("restriction:R101:C12400",)
+        )
+        restriction_id = canonical_definition_fact_id(
+            "C1",
+            restriction_group_id,
+            "restriction",
+            "R101",
+            "C12400",
+        )
+        root_group_id = canonical_definition_group_id(
+            "C1",
+            ("genus:C2916:defined", f"group:{restriction_group_id}"),
+        )
+        genus_id = canonical_definition_fact_id(
+            "C1", root_group_id, "genus", "C2916", "defined"
+        )
         decomposition = Decomposition(
             code="C1",
             semantic_type="Neoplastic Process",
@@ -217,24 +265,24 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
                     most_specific=True,
                     needs_review=True,
                     group="anatomy-1",
-                    source_definition_ids=("b" * 64,),
+                    source_definition_ids=(restriction_id,),
                 )
             ],
             complete_definition=CompleteDefinition(
                 root_code="C1",
                 facts=(
                     GenusDefinitionFact(
-                        fact_id="a" * 64,
+                        fact_id=genus_id,
                         anchor_code="C1",
-                        group_id="c" * 64,
+                        group_id=root_group_id,
                         depth=0,
                         genus_code="C2916",
                         is_defined=True,
                     ),
                     RestrictionDefinitionFact(
-                        fact_id="b" * 64,
+                        fact_id=restriction_id,
                         anchor_code="C1",
-                        group_id="d" * 64,
+                        group_id=restriction_group_id,
                         depth=0,
                         role_code="R101",
                         filler_code="C12400",
@@ -242,18 +290,18 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
                 ),
                 groups=(
                     DefinitionGroup(
-                        group_id="c" * 64,
+                        group_id=root_group_id,
                         anchor_code="C1",
                         depth=0,
-                        child_group_ids=("d" * 64,),
+                        child_group_ids=(restriction_group_id,),
                     ),
                     DefinitionGroup(
-                        group_id="d" * 64,
+                        group_id=restriction_group_id,
                         anchor_code="C1",
                         depth=0,
                     ),
                 ),
-                root_group_ids=("c" * 64,),
+                root_group_ids=(root_group_id,),
             ),
         )
         mint = MintedConcept(axis="op:Laterality", label="Left")
@@ -278,7 +326,7 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
         assert await store.finish_run(
             run_id,
             source_identity="a" * 64,
-            metrics={"total_in_scope": 2, "decomposed": 1},
+            metrics=await _completion_metrics(store, run_id),
         )
 
         with pytest.raises(RunStateError, match="complete"):
@@ -432,7 +480,7 @@ async def test_finish_run_reconciles_lost_commit_acknowledgement() -> None:
             assert await store.finish_run(
                 run_id,
                 source_identity=fingerprint.source_identity,
-                metrics={"total_in_scope": 0},
+                metrics=await _completion_metrics(store, run_id),
             )
         finally:
             event.remove(Session, "after_commit", lose_first_commit_ack)
@@ -876,7 +924,11 @@ async def test_mint_proposals_reach_the_curator_queue_only_on_completion() -> No
         assert queued == 0
         assert proposed == 2
 
-        await store.finish_run(run_id, source_identity="a" * 64, metrics={})
+        await store.finish_run(
+            run_id,
+            source_identity="a" * 64,
+            metrics=await _completion_metrics(store, run_id),
+        )
 
         assert (
             await conn.fetchval(
@@ -952,7 +1004,11 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
                 outcome="atomic-no-op",
                 semantic_types=("Neoplastic Process",),
             )
-        await store.finish_run(run_id, source_identity="a" * 64, metrics={})
+        await store.finish_run(
+            run_id,
+            source_identity="a" * 64,
+            metrics=await _completion_metrics(store, run_id),
+        )
 
         assert (
             await conn.fetchval(
@@ -1205,7 +1261,11 @@ async def test_fail_run_reports_whether_the_failure_is_recorded() -> None:
                 outcome="atomic-no-op",
                 semantic_types=("Neoplastic Process",),
             )
-        await store.finish_run(complete_id, source_identity="a" * 64, metrics={})
+        await store.finish_run(
+            complete_id,
+            source_identity="a" * 64,
+            metrics=await _completion_metrics(store, complete_id),
+        )
         assert await store.fail_run(complete_id, RuntimeError("too late")) is False
     finally:
         await _cleanup([running_id, already_failed_id, complete_id])

@@ -724,6 +724,7 @@ async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
             ]
         },
         semantic_type_of_rows=[
+            {"code": "C12400", "st": "Anatomical Structure"},
             {"code": "C12400", "st": "Body Part, Organ, or Organ Component"},
         ],
     )

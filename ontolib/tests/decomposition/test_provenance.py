@@ -16,6 +16,8 @@ from ontolib.decomposition.models import (
     Decomposition,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
 )
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
@@ -23,6 +25,27 @@ from ontolib.decomposition.provenance import (
     RunStateError,
 )
 from ontolib.decomposition.provenance_models import RunFingerprint, WorkItemOutcome
+
+
+def _empty_completion_metrics() -> dict[str, object]:
+    return {
+        "total_in_scope": 0,
+        "decomposed": 0,
+        "residual": 0,
+        "semantic_excluded": 0,
+        "atomic_noop": 0,
+        "unknown_outcome": 0,
+        "residual_precoordinated_count": 0,
+        "residual_precoordination": 0.0,
+        "minted_count": 0,
+        "complete_definition_count": 0,
+        "complete_fact_count": 0,
+        "projected_fact_count": 0,
+        "projection_loss_count": 0,
+        "projection_loss_rate": 0.0,
+        "pct_decomposed": 0.0,
+        "roundtrip_fidelity": None,
+    }
 
 
 def _make_mock_sf(*, rowcount: int = 1) -> MagicMock:
@@ -218,6 +241,35 @@ async def test_cancelled_lock_acquisition_invalidates_when_cleanup_fails(
 
 
 @pytest.mark.unit
+async def test_cancelled_lock_acquisition_preserves_cancellation_if_query_fails() -> (
+    None
+):
+    started = asyncio.Event()
+    finish_execute = asyncio.Event()
+    connection = MagicMock()
+
+    async def failing_execute(*_args: object, **_kwargs: object) -> None:
+        started.set()
+        await finish_execute.wait()
+        raise RuntimeError("acquisition transport failed")
+
+    connection.execute = AsyncMock(side_effect=failing_execute)
+    connection.invalidate = AsyncMock()
+    task = asyncio.create_task(provenance_module._acquire_publication_lock(connection))
+    await started.wait()
+    task.cancel()
+    finish_execute.set()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        await task
+
+    assert any(
+        "acquisition transport failed" in note for note in exc_info.value.__notes__
+    )
+    connection.invalidate.assert_awaited_once()
+
+
+@pytest.mark.unit
 async def test_connection_invalidation_failure_does_not_mask_unlock_error() -> None:
     connection = MagicMock()
     connection.invalidate = AsyncMock(
@@ -293,6 +345,31 @@ async def test_cancellation_during_unlock_waits_for_database_result() -> None:
 
 
 @pytest.mark.unit
+async def test_cancellation_during_failed_unlock_preserves_cancellation() -> None:
+    started = asyncio.Event()
+    finish_scalar = asyncio.Event()
+    connection = MagicMock()
+
+    async def failing_scalar(*_args: object, **_kwargs: object) -> bool:
+        started.set()
+        await finish_scalar.wait()
+        raise RuntimeError("unlock transport failed")
+
+    connection.scalar = AsyncMock(side_effect=failing_scalar)
+    connection.invalidate = AsyncMock()
+    task = asyncio.create_task(provenance_module._release_publication_lock(connection))
+    await started.wait()
+    task.cancel()
+    finish_scalar.set()
+
+    with pytest.raises(asyncio.CancelledError) as exc_info:
+        await task
+
+    assert any("unlock transport failed" in note for note in exc_info.value.__notes__)
+    connection.invalidate.assert_awaited_once()
+
+
+@pytest.mark.unit
 async def test_finish_run_sets_complete() -> None:
     sf = _make_mock_sf(rowcount=1)
     locked = MagicMock()
@@ -324,6 +401,16 @@ async def test_finish_run_sets_complete() -> None:
     incomplete.scalar_one.return_value = 0
     consistent_counts = MagicMock()
     consistent_counts.mappings.return_value.first.return_value = None
+    outcome_counts = MagicMock()
+    outcome_counts.mappings.return_value.one.return_value = {
+        "total_in_scope": 0,
+        "decomposed": 0,
+        "residual": 0,
+        "semantic_excluded": 0,
+        "atomic_noop": 0,
+        "unknown_outcome": 0,
+        "minted_count": 0,
+    }
     promoted = MagicMock()
     updated = MagicMock(rowcount=1)
     sf().execute.side_effect = [
@@ -331,6 +418,7 @@ async def test_finish_run_sets_complete() -> None:
         worklist,
         incomplete,
         consistent_counts,
+        outcome_counts,
         promoted,
         updated,
     ]
@@ -338,7 +426,7 @@ async def test_finish_run_sets_complete() -> None:
     result = await store.finish_run(
         "run-1",
         source_identity="a" * 64,
-        metrics={"total_in_scope": 0},
+        metrics=_empty_completion_metrics(),
     )
     assert result is True
 
@@ -784,7 +872,14 @@ async def test_list_minted_concepts_limit_offset() -> None:
 @pytest.mark.unit
 async def test_decompositions_for_run_reconstructs_complete_typed_record() -> None:
     sf = _make_mock_sf()
-    restriction_id = "b" * 64
+    group_id = canonical_definition_group_id(
+        "C1",
+        ("genus:C100:defined", "restriction:R101:C200"),
+    )
+    genus_id = canonical_definition_fact_id("C1", group_id, "genus", "C100", "defined")
+    restriction_id = canonical_definition_fact_id(
+        "C1", group_id, "restriction", "R101", "C200"
+    )
     consistent_counts = MagicMock()
     consistent_counts.mappings.return_value.first.return_value = None
     work_items = MagicMock()
@@ -813,9 +908,9 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     definitions.mappings.return_value.all.return_value = [
         {
             "concept_code": "C1",
-            "fact_id": "a" * 64,
+            "fact_id": genus_id,
             "anchor_code": "C1",
-            "group_id": "c" * 64,
+            "group_id": group_id,
             "depth": 0,
             "fact_kind": "genus",
             "genus_code": "C100",
@@ -825,9 +920,9 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
         },
         {
             "concept_code": "C1",
-            "fact_id": "b" * 64,
+            "fact_id": restriction_id,
             "anchor_code": "C1",
-            "group_id": "c" * 64,
+            "group_id": group_id,
             "depth": 0,
             "fact_kind": "restriction",
             "genus_code": None,
@@ -840,7 +935,7 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     groups.mappings.return_value.all.return_value = [
         {
             "concept_code": "C1",
-            "group_id": "c" * 64,
+            "group_id": group_id,
             "anchor_code": "C1",
             "depth": 0,
             "is_root": True,
@@ -878,17 +973,17 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
                 root_code="C1",
                 facts=(
                     GenusDefinitionFact(
-                        fact_id="a" * 64,
+                        fact_id=genus_id,
                         anchor_code="C1",
-                        group_id="c" * 64,
+                        group_id=group_id,
                         depth=0,
                         genus_code="C100",
                         is_defined=True,
                     ),
                     RestrictionDefinitionFact(
-                        fact_id="b" * 64,
+                        fact_id=restriction_id,
                         anchor_code="C1",
-                        group_id="c" * 64,
+                        group_id=group_id,
                         depth=0,
                         role_code="R101",
                         filler_code="C200",

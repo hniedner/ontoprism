@@ -177,6 +177,22 @@ def test_group_review_flag_and_all_definition_sources_round_trip() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("value", ["TRUE", "yes", "2", ""])
+def test_malformed_persisted_boolean_fails_closed(value: str) -> None:
+    with pytest.raises(ValueError, match="RDF boolean"):
+        decomposition_from_rows(
+            "C6135",
+            [
+                _row(
+                    axis=_ncit("R101"),
+                    filler=_ncit("C12400"),
+                    needsReview=value,
+                )
+            ],
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "source_iri",
     [

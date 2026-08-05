@@ -508,6 +508,7 @@ def test_augmented_expectation_rejects_missing_id_status_or_axis_binding(
         ({"proposal_id": None}, local_registry, "proposal ID"),
         ({}, _proposal_registry(status="submitted"), "status"),
         ({"axis": "op:CausedByAssociatedDisease"}, local_registry, "axis"),
+        ({"filler": "free text"}, local_registry, "NCIt code"),
     ):
         constituent = base | mutation
         concepts = _m1_concepts()

@@ -21,6 +21,8 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -843,10 +845,13 @@ def test_definition_fact_types_reject_impossible_shapes() -> None:
 
 @pytest.mark.unit
 def test_complete_definition_types_reject_invalid_identity_and_link_shapes() -> None:
+    group_id = canonical_definition_group_id("C1", ("genus:C2:primitive",))
     valid = GenusDefinitionFact(
-        fact_id="a" * 64,
+        fact_id=canonical_definition_fact_id(
+            "C1", group_id, "genus", "C2", "primitive"
+        ),
         anchor_code="C1",
-        group_id="b" * 64,
+        group_id=group_id,
         depth=0,
         genus_code="C2",
         is_defined=False,
@@ -861,6 +866,11 @@ def test_complete_definition_types_reject_invalid_identity_and_link_shapes() -> 
         replace(valid, depth=-1)
     with pytest.raises(ValueError, match="unique"):
         CompleteDefinition(root_code="C1", facts=(valid, valid))
+    with pytest.raises(ValueError, match="not canonical"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(replace(valid, fact_id="f" * 64),),
+        )
     with pytest.raises(ValueError, match="require a complete definition"):
         Decomposition(
             code="C1",
@@ -884,9 +894,13 @@ def test_complete_definition_types_reject_invalid_identity_and_link_shapes() -> 
 
 @pytest.mark.unit
 def test_complete_definition_group_model_enforces_graph_invariants() -> None:
-    root_id = "a" * 64
-    other_root_id = "b" * 64
-    child_id = "c" * 64
+    child_id = canonical_definition_group_id("C1", ())
+    root_id = canonical_definition_group_id(
+        "C1", (f"group:{child_id}", "genus:C2:primitive")
+    )
+    other_root_id = canonical_definition_group_id(
+        "C1", (f"group:{child_id}", "genus:C3:primitive")
+    )
     unknown_id = "d" * 64
     root = DefinitionGroup(
         group_id=root_id,
@@ -904,6 +918,24 @@ def test_complete_definition_group_model_enforces_graph_invariants() -> None:
         group_id=child_id,
         anchor_code="C1",
         depth=0,
+    )
+    root_fact = GenusDefinitionFact(
+        fact_id=canonical_definition_fact_id("C1", root_id, "genus", "C2", "primitive"),
+        anchor_code="C1",
+        group_id=root_id,
+        depth=0,
+        genus_code="C2",
+        is_defined=False,
+    )
+    other_root_fact = GenusDefinitionFact(
+        fact_id=canonical_definition_fact_id(
+            "C1", other_root_id, "genus", "C3", "primitive"
+        ),
+        anchor_code="C1",
+        group_id=other_root_id,
+        depth=0,
+        genus_code="C3",
+        is_defined=False,
     )
 
     with pytest.raises(ValueError, match="non-negative"):
@@ -932,18 +964,25 @@ def test_complete_definition_group_model_enforces_graph_invariants() -> None:
 
     inferred_roots = CompleteDefinition(
         root_code="C1",
-        facts=(),
+        facts=(root_fact,),
         groups=(child, root),
     )
     assert inferred_roots.root_group_ids == (root_id,)
+    with pytest.raises(ValueError, match="parentless"):
+        CompleteDefinition(
+            root_code="C1",
+            facts=(root_fact,),
+            groups=(child, root),
+            root_group_ids=(root_id, child_id),
+        )
 
     reconvergent = CompleteDefinition(
         root_code="C1",
-        facts=(),
+        facts=(root_fact, other_root_fact),
         groups=(child, other_root, root),
         root_group_ids=(root_id, other_root_id),
     )
-    assert reconvergent.root_group_ids == (root_id, other_root_id)
+    assert reconvergent.root_group_ids == tuple(sorted((root_id, other_root_id)))
 
     with pytest.raises(ValueError, match="share an anchor and DAG depth"):
         CompleteDefinition(
@@ -1075,6 +1114,20 @@ def test_definition_identity_ignores_semantically_irrelevant_intersection_order(
     assert (
         CompleteDefinition(root_code="C9", facts=reordered_duplicate).identity
         == CompleteDefinition(root_code="C9", facts=canonical).identity
+    )
+
+    repeated_member = definition_facts_from_rows(
+        "C9",
+        depth=0,
+        rows=_definition_rows("_:one", members[0], members[0]),
+    )
+    single_member = definition_facts_from_rows(
+        "C9",
+        depth=0,
+        rows=_definition_rows("_:one", members[0]),
+    )
+    assert CompleteDefinition(root_code="C9", facts=repeated_member).identity == (
+        CompleteDefinition(root_code="C9", facts=single_member).identity
     )
 
 

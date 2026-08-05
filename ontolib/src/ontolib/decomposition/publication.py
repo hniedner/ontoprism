@@ -318,6 +318,50 @@ async def read_publication_marker(
     return _parse_marker_values(values)
 
 
+def _cleanup_failed_publication_file(
+    file_descriptor: int,
+    stream: BinaryIO | None,
+    temporary: Path,
+    original: BaseException,
+) -> None:
+    try:
+        if stream is None:
+            os.close(file_descriptor)
+        elif not stream.closed:
+            stream.close()
+    except BaseException as close_error:
+        original.add_note(
+            "Closing the failed publication file also failed: "
+            f"{type(close_error).__name__}: {close_error}"
+        )
+    try:
+        if temporary.exists():
+            temporary.unlink()
+    except BaseException as cleanup_error:
+        original.add_note(
+            "Removing the failed publication file also failed: "
+            f"{type(cleanup_error).__name__}: {cleanup_error}"
+        )
+
+
+def _fsync_publication_directory(directory: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(directory, flags)
+    try:
+        os.fsync(directory_fd)
+    except BaseException as original:
+        try:
+            os.close(directory_fd)
+        except BaseException as close_error:
+            original.add_note(
+                "Closing the publication directory also failed: "
+                f"{type(close_error).__name__}: {close_error}"
+            )
+        raise
+    else:
+        os.close(directory_fd)
+
+
 def _durable_write(payload: bytes, destination: Path) -> None:
     """Atomically publish sealed bytes and fsync the containing directory entry."""
     file_descriptor, temporary_name = tempfile.mkstemp(
@@ -325,21 +369,23 @@ def _durable_write(payload: bytes, destination: Path) -> None:
         dir=destination.parent,
     )
     temporary = destination.parent / os.path.basename(temporary_name)
+    stream = None
     try:
-        with os.fdopen(file_descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
+        stream = os.fdopen(file_descriptor, "wb")
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+        stream.close()
         os.replace(temporary, destination)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    directory_fd = os.open(destination.parent, flags)
-    try:
-        os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)
+    except BaseException as original:
+        _cleanup_failed_publication_file(
+            file_descriptor,
+            stream,
+            temporary,
+            original,
+        )
+        raise
+    _fsync_publication_directory(destination.parent)
 
 
 async def _record_failure_without_masking(

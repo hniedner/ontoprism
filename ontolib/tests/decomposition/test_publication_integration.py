@@ -102,6 +102,27 @@ async def _assert_runs_published(store: ProvenanceStore) -> None:
         assert summary.publication_state == "published"
 
 
+async def _completion_metrics(
+    store: ProvenanceStore,
+    run_id: str,
+) -> dict[str, object]:
+    counts = await store.outcome_counts(run_id)
+    return {
+        **counts.model_dump(),
+        "residual_precoordinated_count": 0,
+        "residual_precoordination": 0.0,
+        "complete_definition_count": 0,
+        "complete_fact_count": 0,
+        "projected_fact_count": 0,
+        "projection_loss_count": 0,
+        "projection_loss_rate": 0.0,
+        "pct_decomposed": (
+            counts.decomposed / counts.total_in_scope if counts.total_in_scope else 0.0
+        ),
+        "roundtrip_fidelity": None,
+    }
+
+
 @pytest.mark.usefixtures("isolated_oxigraph_settings")
 async def test_oxigraph_update_is_transactional_and_empty_replacement_is_clean(
     isolated_oxigraph_url: str,
@@ -236,7 +257,7 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
                     artifact=artifact,
                     destination=destination,
                     expected_codes=set(),
-                    metrics={"decomposed": 0, "total_in_scope": 0},
+                    metrics=await _completion_metrics(store, _RUN_ID),
                     load_to_store=True,
                     client=client,
                     provenance=store,
@@ -264,7 +285,7 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
                 artifact=artifact,
                 destination=destination,
                 expected_codes=set(),
-                metrics={"decomposed": 0, "total_in_scope": 0},
+                metrics=await _completion_metrics(store, _RUN_ID),
                 load_to_store=True,
                 client=client,
                 provenance=store,
@@ -382,7 +403,9 @@ async def test_concurrent_publishers_are_serialized_and_readers_see_complete_gra
                     artifact=artifacts[index],
                     destination=destinations[index],
                     expected_codes={codes[index]},
-                    metrics={"decomposed": 1, "total_in_scope": 1},
+                    metrics=await _completion_metrics(
+                        store, _CONCURRENT_RUN_IDS[index]
+                    ),
                     load_to_store=True,
                     client=client,
                     provenance=store,

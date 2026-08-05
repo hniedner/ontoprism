@@ -37,6 +37,7 @@ from ontolib.decomposition.models import (
     RestrictionDefinitionFact,
 )
 from ontolib.decomposition.provenance_models import (
+    CompletionRunMetrics,
     MintedConcept,
     PersistedRunMetrics,
     PublicationMarkerSnapshot,
@@ -132,7 +133,15 @@ async def _acquire_publication_lock(connection: AsyncConnection) -> None:
     try:
         await asyncio.shield(task)
     except asyncio.CancelledError as cancelled:
-        await task
+        try:
+            await task
+        except BaseException as acquisition_error:
+            cancelled.add_note(
+                "Publication-lock acquisition also failed after cancellation: "
+                f"{type(acquisition_error).__name__}: {acquisition_error}"
+            )
+            await _invalidate_without_masking(connection, cancelled)
+            raise cancelled from acquisition_error
         try:
             await _release_publication_lock(connection)
         except BaseException as unlock_error:
@@ -157,8 +166,16 @@ async def _release_publication_lock(connection: AsyncConnection) -> None:
     task = asyncio.create_task(release())
     try:
         await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await task
+    except asyncio.CancelledError as cancelled:
+        try:
+            await task
+        except BaseException as release_error:
+            cancelled.add_note(
+                "Publication-lock release also failed after cancellation: "
+                f"{type(release_error).__name__}: {release_error}"
+            )
+            await _invalidate_without_masking(connection, cancelled)
+            raise cancelled from release_error
         raise
 
 
@@ -571,6 +588,55 @@ async def _require_persisted_completion_counts(
             f"(constituents={row['constituent_count']}/"
             f"{row['actual_constituent_count']}, "
             f"mints={row['minted_count']}/{row['actual_minted_count']})"
+        )
+
+
+async def _persisted_outcome_counts(
+    session: AsyncSession,
+    run_id: str,
+) -> RunOutcomeCounts:
+    result = await session.execute(
+        text(
+            "SELECT count(*) AS total_in_scope, "
+            "count(*) FILTER (WHERE is_decomposed) AS decomposed, "
+            "count(*) FILTER (WHERE is_residual) AS residual, "
+            "count(*) FILTER (WHERE outcome = 'semantic-excluded') "
+            "AS semantic_excluded, "
+            "count(*) FILTER (WHERE outcome = 'atomic-no-op') AS atomic_noop, "
+            "count(*) FILTER (WHERE outcome = 'unknown') AS unknown_outcome, "
+            "COALESCE(sum(minted_count), 0) AS minted_count "
+            "FROM decomp_work_item WHERE run_id = :run_id"
+        ),
+        {"run_id": run_id},
+    )
+    return RunOutcomeCounts.model_validate(dict(result.mappings().one()))
+
+
+def _require_matching_completion_metrics(
+    metrics: CompletionRunMetrics,
+    counts: RunOutcomeCounts,
+) -> None:
+    persisted_counts = (
+        counts.total_in_scope,
+        counts.decomposed,
+        counts.residual,
+        counts.semantic_excluded,
+        counts.atomic_noop,
+        counts.unknown_outcome,
+        counts.minted_count,
+    )
+    supplied_counts = (
+        metrics.total_in_scope,
+        metrics.decomposed,
+        metrics.residual,
+        metrics.semantic_excluded,
+        metrics.atomic_noop,
+        metrics.unknown_outcome,
+        metrics.minted_count,
+    )
+    if persisted_counts != supplied_counts:
+        raise RunStateError(
+            "completion metrics do not match persisted work-item outcomes"
         )
 
 
@@ -1329,24 +1395,7 @@ class ProvenanceStore:
     async def outcome_counts(self, run_id: str) -> RunOutcomeCounts:
         """Return cumulative counters over the materialized exact worklist."""
         async with self._sf() as session:
-            result = await session.execute(
-                text(
-                    "SELECT count(*) AS total_in_scope, "
-                    "count(*) FILTER (WHERE is_decomposed) AS decomposed, "
-                    "count(*) FILTER (WHERE is_residual) AS residual, "
-                    "count(*) FILTER (WHERE outcome = 'semantic-excluded') "
-                    "AS semantic_excluded, "
-                    "count(*) FILTER (WHERE outcome = 'atomic-no-op') "
-                    "AS atomic_noop, "
-                    "count(*) FILTER (WHERE outcome = 'unknown') "
-                    "AS unknown_outcome, "
-                    "COALESCE(sum(minted_count), 0) AS minted_count "
-                    "FROM decomp_work_item WHERE run_id = :run_id"
-                ),
-                {"run_id": run_id},
-            )
-            row = result.mappings().one()
-            return RunOutcomeCounts.model_validate(dict(row))
+            return await _persisted_outcome_counts(session, run_id)
 
     async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
         """Return the exact ordered per-concept outcomes for a run."""
@@ -1611,7 +1660,6 @@ class ProvenanceStore:
         ``minted_concept`` curator queue (D48: proposals become curator-visible only
         on success).
         """
-        metrics = _validated_metrics(metrics).model_dump(exclude_unset=True)
         updated = False
         try:
             async with self._sf() as session, session.begin():
@@ -1648,6 +1696,12 @@ class ProvenanceStore:
                     )
                 await _require_persisted_completion_counts(session, run_id)
                 _require_completion_publication(row, representation_identity, run_id)
+                completion_metrics = CompletionRunMetrics.model_validate(metrics)
+                _require_matching_completion_metrics(
+                    completion_metrics,
+                    await _persisted_outcome_counts(session, run_id),
+                )
+                metrics = completion_metrics.model_dump()
                 await session.execute(
                     text(
                         "INSERT INTO minted_concept "

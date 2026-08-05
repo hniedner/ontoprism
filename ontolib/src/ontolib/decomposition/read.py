@@ -37,7 +37,11 @@ def _axis_code(iri: str) -> str:
 
 
 def _as_bool(value: str | None) -> bool:
-    return value in ("true", "1")
+    if value is None or value in {"false", "0"}:
+        return False
+    if value in {"true", "1"}:
+        return True
+    raise ValueError(f"persisted RDF boolean is invalid: {value!r}")
 
 
 def _require_sha256(value: str) -> str:

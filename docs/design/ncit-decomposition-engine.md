@@ -59,14 +59,14 @@ New package `ontolib/decomposition/`, pure/deterministic, no FastAPI or DB coupl
 ```
 ontolib/src/ontolib/decomposition/
 ├── __init__.py
-├── axes.py             # axis catalogue: role-code → semantic axis, defining vs excluded
+├── axes.py             # axis catalogue: role-code → semantic axis; projected/defining/excluded
 ├── detector.py         # is-pre-coordinated scorer + semantic-type gate
 ├── stated_queries.py   # SPARQL against the stated named graph (no inferred closure)
-├── filler_selection.py # most-specific filler per axis; Excludes_* filter; morphology-from-parent
+├── filler_selection.py # routed-axis specificity; co-equal preservation; morphology-from-parent
 ├── nlp_fallback.py     # label/synonym parser: laterality, with/without, staging version
 ├── constituent_index.py# resolve constituents to existing concepts; flag the mint tail
 ├── minting.py          # deterministic synthetic-id proposals for missing qualifiers
-├── legacy_writer.py    # additive RDF builder → ncit_decomposed named graph / TTL
+├── legacy_writer.py    # deterministic RDF builder → ncit_decomposed named graph / TTL
 ├── models.py           # Constituent, Decomposition, DecompRun, MintedConcept, CoverageReport
 ├── provenance.py       # Postgres persistence for run manifest + constituents + minted
 └── run.py              # orchestrator + CLI (`pdm run decompose --branch neoplasm`)
@@ -80,13 +80,16 @@ The engine reads through the stated graph via a thin query layer (`stated_querie
 
 ### 4.1 Named graph output
 
-All engine output goes to a single named graph, kept separate from both the inferred default graph and the stated input graph:
+The active published representation occupies one named graph, kept separate from both
+the inferred default graph and the stated input graph:
 
 ```
 DECOMPOSED_GRAPH_IRI = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-decomposed.owl"
 ```
 
-Loaded via the existing `OxigraphHttpClient.load(..., graph_iri=DECOMPOSED_GRAPH_IRI, replace=True)`. Serialized to `data/ncit_decomposed.ttl` as the portable artifact (so #9 / CI can load it without re-running the engine).
+Publication loads sealed bytes into a run-scoped staging graph and atomically replaces
+`DECOMPOSED_GRAPH_IRI` with a marker-guarded SPARQL update. The same bytes are serialized
+to `data/ncit_decomposed.ttl` as the portable artifact.
 
 ### 4.2 Vocabulary (ontoprism namespace)
 
@@ -129,12 +132,14 @@ ncit:C6135 op:representationStatus "legacy-precoordinated" ;
 
 ### 4.3 Reversibility & caDSR preservation
 
-- **Additive:** the engine writes *only* to `DECOMPOSED_GRAPH_IRI`. The stated and inferred graphs are never targets of a write. A consumer that ignores the new graph sees today's NCIt unchanged.
+- **Source-preserving:** the engine never writes to the stated or inferred graphs. It
+  atomically replaces only `DECOMPOSED_GRAPH_IRI`, so a consumer that ignores the output
+  graph sees NCIt unchanged while consumers of that graph see one complete publication.
 - **caDSR reachability:** CDE→concept mappings key on the NCIt concept IRI (`ncit:Cxxxxx`), which is untouched — the legacy code keeps its label, definition, and all axioms and stays fully resolvable. Every constituent filler is itself an existing active NCIt IRI (100% coverage on the roles path), so a decomposed concept remains reachable from its CDEs and every constituent is a valid navigation target.
 
 ### 4.4 Complete representation and proof-bearing equivalence quarantine
 
-The current single-valued, allowlist-filtered output (§6) cannot prove that it preserves
+The current allowlist-filtered projection (§6) cannot prove that it preserves
 the source's complete multi-parent and grouped definition. It is an explicitly lossy
 curated projection and never asserts `owl:equivalentClass`. The reserved
 `--emit-equivalence` option fails closed before settings, clients, provenance, stdout, or
@@ -231,18 +236,24 @@ Deterministic scorer, config-driven thresholds. A concept is a decomposition can
 1. **Semantic-type applicability gate** — its `P106` semantic type is supported by the
    branch's algorithm (§2). Hierarchy membership is the population boundary; this gate
    rejects members the axis-qualified algorithm does not claim to decompose.
-2. **Defining-role count ≥ 2** — it carries ≥2 defining role restrictions in the *stated* graph (assessment: 55,044 concepts corpus-wide). Exactly-1-role concepts (12,818) are borderline and gated by config `min_defining_roles` (default 2); single-axis concepts are largely already atomic-adjacent.
+2. **Decomposable-axis count ≥ 2** — distinct defining stated roles, a
+   morphology-bearing parent, and a multi-aspect label each contribute axes. The default
+   threshold is 2; a one-role concept can therefore qualify when it also has morphology
+   or a label-signalled axis, while a truly single-axis concept does not.
 3. Not itself a pure qualifier/value-set node (excluded by semantic type).
 
 Output: `DetectionResult(code, is_precoordinated: bool, defining_role_count: int, semantic_type: str, label_multi_aspect: bool)`. The `label_multi_aspect` flag (from the FLAT NLP scan markers: hyphens, "of the", "with", "stage/grade", parentheses) is advisory — it routes a concept to the NLP fallback even when roles already cover it, to catch label-only axes.
 
-`Excludes_*` roles (`Disease_Excludes_Abnormal_Cell`, `Disease_Excludes_Finding` — 35,662 + 30,009 negative axioms) are **not** counted as defining roles; they're filtered in `axes.py`.
+`Excludes_*` roles (`Disease_Excludes_Abnormal_Cell`, `Disease_Excludes_Finding` — 35,662 + 30,009 negative axioms) are neither defining nor projected. Positive `R103` is
+projected but deliberately does not contribute a defining detector axis; optional
+`May_Have_*` roles are retained only in the complete structural record.
 
 ---
 
 ## 6. Filler selection — routed-axis specificity (`filler_selection.py`)
 
-The core engineering. For each defining axis of a candidate, choose the intended
+The core engineering. For each projectable positive source restriction of a candidate,
+route it to an axis and choose the intended
 filler or preserve unresolved co-equal fillers without silently discarding them.
 
 - **Working from the stated graph eliminates most ancestor bleed** — the stated form asserts only the intended filler, not the closure. This is why §2 mandates the stated input.
@@ -250,8 +261,9 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   hierarchy on every non-lineage axis and bounded transitive `R82` containment only on
   location axes. A filler is dropped only when it is strictly broader than another
   returned filler; unrelated or mutually broader fillers remain.
-- **Non-defining filter:** `Excludes_*` negative axioms and optional
-  R89/R111–R116 `May_Have_*` roles are removed before selection (§5).
+- **Projection filter:** `Excludes_*` negative axioms and optional R89/R111–R116
+  `May_Have_*` roles are removed before selection (§5). Projectable non-defining `R103`
+  is retained in the curated projection but does not help a concept pass the detector.
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
 - **Anatomy validation:** location specificity uses NCIt's own is-a plus bounded
   transitive `R82` part-of hierarchy. Unresolved ordinary axes receive `needs_review`;
@@ -281,10 +293,12 @@ C3879   owl:equivalentClass [ owl:intersectionOf ( …genus… [ …site / abnor
 
 Each level intersects a **genus** (a named class) with one or a few **restrictions**;
 the axes are distributed **up the genus chain**, not all present on `C6135`. So the
-merged 5a query (`build_role_restrictions_query`, direct `rdfs:subClassOf` only) returns
-**nothing** for `C6135` — its integration test is marked `xfail` pending this fix.
+former merged 5a query (`build_role_restrictions_query`, direct `rdfs:subClassOf` only)
+returned **nothing** for `C6135`. The implemented application-level walker now follows
+the layered stated definitions, and its C6135 integration contract is active rather than
+`xfail`.
 
-**Implication for extraction (next #4 increment):** collect restrictions by **recursively
+**Implemented extraction:** collect restrictions by **recursively
 walking the genus chain** — from the concept, follow
 `owl:equivalentClass/owl:intersectionOf/(rdf:rest*/rdf:first)` to its members; a member
 that is a **restriction** yields a role; a member that is a **defined** named class (has
@@ -318,15 +332,17 @@ filtered first. The real problem this example exposed was over-collection (the ~
 classes and their non-defining roles), not most-specific selection itself.
 
 **Conclusion.** Correct stated extraction is **not** a mechanical genus-walk + most-specific
-over the *unfiltered* result set. It needs (a) defining-role classification (keep `Has_*`/`Is_*`
-axes; drop `May_Have_*`, `Excludes_*`, `Mapped_To_Gene`), (b) a principled boundary that
+over the *unfiltered* result set. It needs (a) explicit projectable-role classification
+(including retained positive non-defining roles while dropping optional, negative, and
+unmapped roles), (b) a principled boundary that
 distinguishes a concept's *own differentia* from axes it merely *inherits* from its genus
 (per-level differentia diffing against the genus — validated in §6.3), and (c) curation of
 axes that remain genuinely ambiguous after (a)+(b) (§6.3's R101 example). This is exactly
 the **filler-selection tooling + curation** effort the assessment scoped at multiple
 person-months (§6–§7); §6.3 reports the first concrete, measured progress against it. The
-C6135 integration test stays `xfail` until issue #44's SME-validated golden set clears its
-precision/recall threshold — §6.3's numbers are the current state, not the finish line.
+The C6135 walker and extraction integration contracts now run normally. Authoritative
+precision/recall acceptance still depends on the SME-validated golden set; §6.3's numbers
+are evidence, not the finish line.
 
 ### 6.3 Resolution direction, validated against C6135 (issue #44, 2026-07-08)
 
@@ -377,8 +393,9 @@ this deployment against which defined-class-to-defined-class subsumption can be 
 `rdfs:subClassOf+` (only role-restriction flattening is materialized).
 `filler_selection.py`'s most-specific selection, which relies on `rdfs:subClassOf+`, is
 therefore blind to some genuine subsumptions between defined classes. The current curated
-projection can therefore over-report co-equal values. D19's future complete record must
-preserve uncertain pairs rather than collapse them, but it does not yet exist. This also
+projection can therefore over-report co-equal values. D50's materialized complete record
+preserves the source facts independently of whether the curated projection collapses
+them. This also
 caps precision against a single-valued oracle, and it
 means §10's `roundtrip_fidelity` **must not** use the inferred graph as its closure oracle
 (D21.3); this did not affect the C6135 result above (both `R101` and
@@ -386,8 +403,9 @@ means §10's `roundtrip_fidelity` **must not** use the inferred graph as its clo
 `rdfs:subClassOf+` edges) but is a risk for other concepts and worth keeping in mind if
 most-specific selection ever silently under-collapses an axis.
 
-Research code: `ontolib/src/ontolib/decomposition/walker.py` (the multi-parent DAG walker);
-the defining-axis-filtered extractor + scorer were prototyped in local, untracked scratch.
+Implementation: `ontolib/src/ontolib/decomposition/walker.py` and
+`stated_queries.py` provide the multi-parent DAG walk; the routed extractor and scorer
+live in the tracked decomposition package.
 Full narrative: this §6 and DECISIONS D14–D20.
 
 ### 6.4 R101 anatomy resolution — validated against 4 concepts: real improvement, not a full fix (2026-07-08)
@@ -479,9 +497,9 @@ vocabulary gap:
    (every branch, every role, nothing dropped, multi-valued axes kept multi-valued) is
    *always* achievable and *always* exact — that's definitionally what the pre-coordinated
    concept's semantics already are. **The only reason decomposition can lose fidelity is
-   that this project deliberately simplifies**: a small curated defining-axis allowlist
-   (`R88`/`R101`/`R105`, dropping `R103`/`R104`/`R106`/`R108`/etc.) plus (until now)
-   collapsing each axis to one filler. That simplification is the right trade-off for
+   that this project deliberately simplifies**: a curated projectable-role policy and
+   specificity collapse for genuinely nested candidates, while preserving unresolved
+   co-equal fillers. That simplification is the right trade-off for
    producing something a curator can read — but it is a chosen trade-off, not a discovery
    about NCIt's expressiveness.
 2. **NCIt's role vocabulary is coarser than a clean single-valued axis model needs.**
@@ -756,7 +774,8 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 - **PR 5a — detect + extract:** `axes.py`, `detector.py`, `stated_queries.py`, `filler_selection.py`, `models.py`, the golden-file spike over ~200 neoplasm concepts. Deliverable: a pure decomposition function + coverage numbers, no writes.
 - **PR 5b — write + persist + CLI:** `nlp_fallback.py`, `minting.py`, `constituent_index.py`, `legacy_writer.py`, `provenance.py`, migration `0003_decomposition`, `run.py` + CLI, additivity test, run manifest. Deliverable: `ncit_decomposed.ttl` + `decomp_run` for the neoplasm branch.
 
-#9 (M6 API/UI) starts once 5b lands the named graph.
+The #9 read surface is implemented through the concept decomposition API, frontend API
+client, and `DecompositionPanel`; it reads only the published decomposition graph.
 
 ---
 
@@ -767,7 +786,7 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 | Inferred-vs-stated confusion (ancestor bleed, `Excludes_*`) | Extract from the **stated** graph only; most-specific selection as defense-in-depth; inferred used solely as validation oracle |
 | Most-specific errors on multi-parent anatomy | NCIt-hierarchy (is-a + `R82` part-of) cross-check, validated §6.4 as a real-but-partial fix; ambiguous cases flagged `needs_review`, not silently resolved; Uberon not validated as a general fix |
 | Semantic loss on "without/excludes" | Model absence explicitly as a minted qualifier + `polarity`; never drop the negation |
-| Consumer breakage | Additive-only by construction (single output graph, no deletions), proven by `test_additive_no_deletions` |
+| Consumer breakage | Stated and inferred NCIt remain untouched (`test_additive_no_deletions`); the output graph is marker-guarded and atomically replaced as one complete publication |
 | Scope drift or semantic-type/hierarchy conflation | Rooted stated-DAG closure is fingerprinted; semantic type remains an explicit algorithm-applicability gate |
 | NCIt version bump silently changes roles | Version-pinned run manifest + guard test that fails on a build mismatch |
 | A deep filler superclass cone exhausts R82 safety bounds | Constant-subject closure permits the certified C27262 minimum of 14 inherited-superclass hops while retaining the independent 8-hop R82, 64-request, 256-code, and 4,096-row caps (D54) |

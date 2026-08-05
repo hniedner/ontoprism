@@ -717,8 +717,10 @@ async def _fetch_genus_label(
     rows = await select_fn(label_query, required_variables={"label"})
     if not rows:
         return None
-    labels = [_required_row_binding(row, "label") for row in rows]
-    return labels[0]
+    labels = {_required_row_binding(row, "label") for row in rows}
+    if len(labels) != 1:
+        raise ValueError("genus concept has multiple distinct stated labels")
+    return next(iter(labels))
 
 
 async def _get_genus_from_intersection(
@@ -734,13 +736,15 @@ async def _get_genus_from_intersection(
     if not rows:
         return None
 
-    genuses: list[str] = []
+    genuses: set[str] = set()
     for row in rows:
         genus_iri = _required_row_binding(row, "member")
         if row.get("type") == OWL_NS + "Restriction":
             continue
-        genuses.append(_genus_code_from_iri(genus_iri))
-    return genuses[0] if genuses else None
+        genuses.add(_genus_code_from_iri(genus_iri))
+    if len(genuses) > 1:
+        raise ValueError("intersection has multiple named genus members")
+    return next(iter(genuses)) if genuses else None
 
 
 async def resolve_morphology_filler(

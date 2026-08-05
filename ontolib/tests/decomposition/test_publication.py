@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import pytest
@@ -23,6 +24,7 @@ from ontolib.decomposition.publication import (
     PublicationMarker,
     PublicationPreflightError,
     PublicationValidationError,
+    _durable_write,
     _record_failure_without_masking,
     build_replacement_update,
     publish_artifact,
@@ -34,7 +36,6 @@ from ontolib.terminologies.namespaces import NCIT_NS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Collection, Mapping, Sequence
-    from pathlib import Path
     from typing import BinaryIO
 
 
@@ -591,6 +592,31 @@ async def test_publication_uses_the_validated_bytes_if_staging_path_changes(
     assert destination.read_bytes() == validated
     assert graph.loaded_payload == validated
     assert marker.representation_identity == hashlib.sha256(validated).hexdigest()
+
+
+@pytest.mark.unit
+def test_durable_write_cleanup_failure_does_not_mask_primary_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "decomposed.ttl"
+    write_error = OSError("replace failed")
+
+    def fail_replace(_source: object, _destination: object) -> None:
+        raise write_error
+
+    def fail_unlink(_path: Path, *, missing_ok: bool = False) -> None:
+        del missing_ok
+        raise OSError("cleanup failed")
+
+    monkeypatch.setattr("ontolib.decomposition.publication.os.replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+
+    with pytest.raises(OSError, match="replace failed") as raised:
+        _durable_write(b"sealed bytes", destination)
+
+    assert raised.value is write_error
+    assert any("cleanup failed" in note for note in write_error.__notes__)
 
 
 @pytest.mark.unit

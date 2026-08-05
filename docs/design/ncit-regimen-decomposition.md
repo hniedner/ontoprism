@@ -5,7 +5,12 @@
 **Parent design:** [NCIt decomposition engine](./ncit-decomposition-engine.md)
 (§14 decision 2 defers regimen to this doc)
 
-This is the design for the **second decomposition kind**. The main engine decomposes disease/neoplasm concepts along **semantic axes** (site + morphology + stage …), picking one most-specific filler per axis. A chemotherapy regimen is a fundamentally different object: it is a **mereological aggregate** — a *bag of drug components* — not an axis-qualified entity. This doc specifies how that kind plugs into the same engine without contorting the axis machinery.
+This is the design for the **second decomposition kind**. The main engine decomposes
+disease/neoplasm concepts along **semantic axes** (site + morphology + stage …), removing
+strictly broader fillers while preserving unresolved co-equal values. A chemotherapy
+regimen is a fundamentally different object: it is a **mereological aggregate** — a *bag
+of drug components* — not an axis-qualified entity. This doc specifies how that kind plugs
+into the same engine without contorting the axis machinery.
 
 ---
 

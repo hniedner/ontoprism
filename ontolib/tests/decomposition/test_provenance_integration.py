@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import asyncpg
 import pytest
+from pydantic import ValidationError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -80,6 +81,35 @@ async def _cleanup(dsn: str) -> None:
         await conn.execute("DELETE FROM decomp_run WHERE id = ANY($1)", run_ids)
     finally:
         await conn.close()
+
+
+async def _completion_metrics(
+    store: ProvenanceStore,
+    run_id: str,
+) -> dict[str, object]:
+    counts = await store.outcome_counts(run_id)
+    decompositions = await store.decompositions_for_run(run_id)
+    complete_fact_count = sum(item.complete_fact_count for item in decompositions)
+    projected_fact_count = sum(item.projected_fact_count for item in decompositions)
+    projection_loss_count = complete_fact_count - projected_fact_count
+    return {
+        **counts.model_dump(),
+        "residual_precoordinated_count": 0,
+        "residual_precoordination": 0.0,
+        "complete_definition_count": sum(
+            item.complete_definition is not None for item in decompositions
+        ),
+        "complete_fact_count": complete_fact_count,
+        "projected_fact_count": projected_fact_count,
+        "projection_loss_count": projection_loss_count,
+        "projection_loss_rate": (
+            projection_loss_count / complete_fact_count if complete_fact_count else 0.0
+        ),
+        "pct_decomposed": (
+            counts.decomposed / counts.total_in_scope if counts.total_in_scope else 0.0
+        ),
+        "roundtrip_fidelity": None,
+    }
 
 
 async def _assert_processing_and_publication_failures_remain_separate(
@@ -161,9 +191,40 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
         finished = await store.finish_run(
             _RUN_ID,
             source_identity="a" * 64,
-            metrics={"decomposed": 1, "total_in_scope": 1},
+            metrics=await _completion_metrics(store, _RUN_ID),
         )
         assert finished is True
+    finally:
+        await _cleanup(dsn)
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_finish_run_requires_complete_metrics_matching_persisted_outcomes() -> (
+    None
+):
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    try:
+        await _cleanup(dsn)
+        await store.create_run(_RUN_ID, "26.07d", _fingerprint(()))
+
+        with pytest.raises(ValidationError, match="Field required"):
+            await store.finish_run(
+                _RUN_ID,
+                source_identity="a" * 64,
+                metrics={},
+            )
+
+        mismatched = await _completion_metrics(store, _RUN_ID)
+        mismatched |= {"total_in_scope": 1, "atomic_noop": 1}
+        with pytest.raises(RunStateError, match="do not match persisted"):
+            await store.finish_run(
+                _RUN_ID,
+                source_identity="a" * 64,
+                metrics=mismatched,
+            )
     finally:
         await _cleanup(dsn)
         await dispose_engine(engine)
@@ -383,7 +444,7 @@ async def test_publication_state_is_retryable_separate_and_completion_gated(
         assert await store.finish_run(
             _PUBLICATION_RUN_ID,
             source_identity="a" * 64,
-            metrics={"decomposed": 0, "total_in_scope": 0},
+            metrics=await _completion_metrics(store, _PUBLICATION_RUN_ID),
             representation_identity=identity,
         )
         complete = await store.get_run(_PUBLICATION_RUN_ID)
@@ -661,7 +722,7 @@ async def test_minted_concept_status_survives_a_rerun() -> None:
         assert await store.finish_run(
             _RUN_ID,
             source_identity="a" * 64,
-            metrics={"decomposed": 1, "total_in_scope": 1},
+            metrics=await _completion_metrics(store, _RUN_ID),
         )
 
         conn = await asyncpg.connect(dsn)
@@ -696,7 +757,7 @@ async def test_minted_concept_status_survives_a_rerun() -> None:
         assert await store.finish_run(
             _RERUN_ID,
             source_identity="a" * 64,
-            metrics={"decomposed": 1, "total_in_scope": 1},
+            metrics=await _completion_metrics(store, _RERUN_ID),
         )
 
         conn = await asyncpg.connect(dsn)

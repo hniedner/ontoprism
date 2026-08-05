@@ -452,11 +452,13 @@ async def _decompose_one(
     )
     part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
 
-    # Wrap semantic_type_of dict into a callable (prefer the first type if
-    # multiple; NCIt rarely assigns more than one).
     def _semantic_type_of(filler_code: str) -> str | None:
         types = semantic_type_of.get(filler_code)
-        return types[0] if types else None
+        if not types:
+            return None
+        if axes.ORGAN_SEMANTIC_TYPE in types:
+            return axes.ORGAN_SEMANTIC_TYPE
+        return min(types)
 
     role_constituents = fs.select_constituents(
         roles,

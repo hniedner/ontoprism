@@ -481,6 +481,11 @@ def _validate_constituent_proposal(
             f"proposal axis does not match augmented expectation: {proposal.id}"
         )
     if not isinstance(proposal, ConceptProposal):
+        if re.fullmatch(r"C[0-9]+", constituent.filler) is None:
+            raise GoldenSetValidationError(
+                "relation proposal constituent filler must remain an NCIt code: "
+                + proposal.id
+            )
         return
     expected_filler = (
         proposal.replacement_ncit_code if proposal.status == "accepted" else proposal.id

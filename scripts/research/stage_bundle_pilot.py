@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -1812,6 +1813,16 @@ def _proposal_for_workbook_pair(
     filler: object,
 ) -> str:
     proposal_status = _PROVENANCE_PROPOSAL_STATUS.get(provenance_status)
+    relation_candidate = any(
+        not isinstance(proposal, ConceptProposal)
+        and proposal.status == proposal_status
+        and proposal.axis == axis
+        for proposal in proposal_registry.proposals
+    )
+    if relation_candidate and (
+        not isinstance(filler, str) or re.fullmatch(r"C[0-9]+", filler) is None
+    ):
+        raise ValueError("relation proposal workbook filler must be an NCIt code")
     matches = []
     for proposal in proposal_registry.proposals:
         expected_filler = (
