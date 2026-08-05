@@ -35,6 +35,7 @@
       "axis": "op:AssociatedRegion",
       "filler": "C200",
       "axis_source": "role",
+      "source_role": "R101",
       "group": "region-1",
       "needs_review": false
     },
@@ -42,6 +43,7 @@
       "axis": "R105",
       "filler": "C400",
       "axis_source": "role",
+      "source_role": "R105",
       "group": null,
       "needs_review": true
     }

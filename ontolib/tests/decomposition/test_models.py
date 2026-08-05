@@ -24,6 +24,17 @@ def test_constituent_defaults_are_conservative() -> None:
     # A constituent is not assumed most-specific or reviewed unless stated.
     assert c.most_specific is False
     assert c.needs_review is False
+    assert c.source_role == "R101"
+
+
+@pytest.mark.unit
+def test_normalized_role_constituent_requires_source_role() -> None:
+    with pytest.raises(ValueError, match="source_role"):
+        Constituent(
+            axis="op:PrimarySite",
+            filler_code="C12400",
+            axis_source="role",
+        )
 
 
 @pytest.mark.unit
@@ -54,10 +65,16 @@ def test_decomposition_rejects_multiple_primary_sites() -> None:
             semantic_type="Neoplastic Process",
             constituents=(
                 Constituent(
-                    axis="op:PrimarySite", filler_code="C12400", axis_source="role"
+                    axis="op:PrimarySite",
+                    filler_code="C12400",
+                    axis_source="role",
+                    source_role="R101",
                 ),
                 Constituent(
-                    axis="op:PrimarySite", filler_code="C12401", axis_source="role"
+                    axis="op:PrimarySite",
+                    filler_code="C12401",
+                    axis_source="role",
+                    source_role="R101",
                 ),
             ),
         )
@@ -107,6 +124,7 @@ def test_constituent_accepts_group_id() -> None:
         axis="op:AssociatedRegion",
         filler_code="C12418",
         axis_source="role",
+        source_role="R101",
         group="op:AssociatedRegion",
     )
     assert c.group == "op:AssociatedRegion"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -9,6 +11,7 @@ from pydantic import ValidationError
 from rdflib.namespace import RDFS
 from scripts.adjudication import main as adjudication_main
 
+from ontolib.decomposition import proposal_registry as proposal_registry_module
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
@@ -240,7 +243,63 @@ def test_submission_exports_are_deterministic_and_proposed_only(
         "source_identity": _SOURCE_IDENTITY,
         "status": "proposed",
         "concept_proposals": 0,
+        "files": {
+            name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
+            for name in (
+                "accepted-replacements.json",
+                "augmented-ncit-proposals.ttl",
+                "ncit-concept-proposals.csv",
+                "relation-proposals.csv",
+            )
+        },
     }
+
+
+@pytest.mark.unit
+def test_submission_manifest_is_promoted_last_and_detects_partial_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    initial = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_relation(),),
+    )
+    write_submission_exports(initial, tmp_path)
+    original_manifest = (tmp_path / "submission-manifest.json").read_bytes()
+
+    accepted_payload = _relation().model_dump()
+    accepted_payload.update(
+        status="accepted",
+        replacement_relation_iri="http://purl.obolibrary.org/obo/RO_1234567",
+        replacement_relation_version="2026-08-05",
+    )
+    replacement = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(RelationProposal.model_validate(accepted_payload),),
+    )
+    real_replace = os.replace
+
+    def fail_manifest_promotion(
+        source: str | os.PathLike[str],
+        destination: str | os.PathLike[str],
+    ) -> None:
+        if Path(destination).name == "submission-manifest.json":
+            raise OSError("manifest promotion failed")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(proposal_registry_module.os, "replace", fail_manifest_promotion)
+
+    with pytest.raises(OSError, match="manifest promotion failed"):
+        write_submission_exports(replacement, tmp_path)
+
+    assert (tmp_path / "submission-manifest.json").read_bytes() == original_manifest
+    manifest = json.loads(original_manifest)
+    assert any(
+        hashlib.sha256((tmp_path / name).read_bytes()).hexdigest() != expected
+        for name, expected in manifest["files"].items()
+    )
 
 
 @pytest.mark.unit

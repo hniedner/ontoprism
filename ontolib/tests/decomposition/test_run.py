@@ -562,7 +562,7 @@ def test_run_config_rejects_equivalence_emission() -> None:
 
 @pytest.mark.unit
 async def test_run_pipeline_skeleton_returns_metrics() -> None:
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     config = RunConfig(branch="neoplasm")
     metrics = await run_pipeline(config, client, provenance)
@@ -748,7 +748,7 @@ async def test_run_pipeline_raises_if_finish_run_finds_no_manifest_row() -> None
     # doesn't exist (e.g. run_id mismatch, concurrent delete) — must not be silently
     # ignored, or the run looks "successful" while decomp_run.status never becomes
     # 'complete'.
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     _mark_run_row_missing(provenance, provenance._test_state)
     with pytest.raises(RuntimeError, match="finish_run"):
@@ -1140,7 +1140,7 @@ async def test_run_pipeline_writes_ttl_when_out_is_set(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 async def test_run_pipeline_no_out_does_not_write_a_file(tmp_path: Path) -> None:
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
     assert list(tmp_path.iterdir()) == []
@@ -1427,6 +1427,20 @@ def test_candidate_result_rejects_minted_without_a_decomposition() -> None:
 
 
 @pytest.mark.unit
+def test_candidate_result_enforces_outcome_specific_shapes() -> None:
+    empty = Decomposition(code="C1", semantic_type="Neoplastic Process")
+    populated = _decomp("C1", "C2")
+    minted = [MintedConcept(axis="op:Laterality", label="Left")]
+
+    with pytest.raises(ValueError, match=r"decomposed.*constituent"):
+        _CandidateResult(empty, "decomposed", ("Neoplastic Process",))
+    with pytest.raises(ValueError, match=r"residual.*zero constituents"):
+        _CandidateResult(populated, "residual", ("Neoplastic Process",))
+    with pytest.raises(ValueError, match=r"minted.*decomposed"):
+        _CandidateResult(empty, "residual", ("Neoplastic Process",), minted)
+
+
+@pytest.mark.unit
 def test_candidate_result_preserves_typed_atomic_no_op() -> None:
     result = _CandidateResult(
         decomposition=None,
@@ -1589,7 +1603,7 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
 
 @pytest.mark.unit
 async def test_source_swap_after_work_leaves_run_failed_and_incomplete() -> None:
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -1651,6 +1665,7 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
                         axis="op:PrimarySite",
                         filler_code="C12345",
                         axis_source="role",
+                        source_role="R101",
                     )
                 ],
             )
@@ -1729,7 +1744,7 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
     Dropping that result would leave the operator with only a drift error and no
     indication that mixed-source constituents are still in PostgreSQL.
     """
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -1799,6 +1814,43 @@ async def test_non_positive_total_limit_is_rejected_before_a_run_exists() -> Non
             provenance,
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
             total_limit=0,
+        )
+
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_limited_run_cannot_replace_the_public_graph(tmp_path: Path) -> None:
+    provenance = _mock_provenance()
+    source = AsyncMock(side_effect=AssertionError("source was inspected"))
+
+    with pytest.raises(ValueError, match=r"total_limit.*load_to_store"):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "partial.ttl",
+                load_to_store=True,
+            ),
+            _FakeClient(pages=[["C1", "C2"]]),
+            provenance,
+            get_source_snapshot=source,
+            total_limit=1,
+        )
+
+    source.assert_not_awaited()
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_empty_standard_scope_is_rejected_before_run_creation() -> None:
+    provenance = _mock_provenance()
+
+    with pytest.raises(RuntimeError, match="scope enumeration returned no concepts"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[[]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )
 
     provenance.create_run.assert_not_awaited()
@@ -1999,7 +2051,7 @@ async def test_serialization_and_run_journal_double_fault_preserves_primary_erro
     with pytest.raises(OSError, match="serialization interrupted") as exc_info:
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
-            _FakeClient(pages=[[]]),
+            _FakeClient(pages=[["C0"]]),
             provenance,
         )
 
@@ -2019,7 +2071,7 @@ async def test_staging_cleanup_failure_never_replaces_the_drift_error(
     the drifted run's mixed-source rows would survive in PostgreSQL.
     """
     out = tmp_path / "decomposed.ttl"
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -2062,7 +2114,7 @@ async def test_publication_failure_is_recorded_as_retryable_before_completion(
 ) -> None:
     """A rename failure remains a publication retry, not a completed run."""
     out = tmp_path / "decomposed.ttl"
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -2121,7 +2173,7 @@ async def test_artifact_validation_failure_fails_the_run(
     with pytest.raises(PublicationPreflightError, match="invalid artifact"):
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
-            _FakeClient(pages=[[]]),
+            _FakeClient(pages=[["C0"]]),
             provenance,
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )
@@ -2155,7 +2207,7 @@ async def test_publication_cancellation_is_not_wrapped_as_retryable(
     with pytest.raises(asyncio.CancelledError):
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
-            _FakeClient(pages=[[]]),
+            _FakeClient(pages=[["C0"]]),
             provenance,
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )

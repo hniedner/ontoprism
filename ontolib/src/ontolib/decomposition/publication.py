@@ -205,6 +205,10 @@ def _validated_artifact_payload(
     run_id: str,
 ) -> tuple[str, bytes]:
     payload, graph = _read_artifact_graph(artifact)
+    if any(graph.triples((URIRef(vocab.PUBLICATION_MARKER), None, None))):
+        raise PublicationValidationError(
+            "decomposition artifact contains the reserved publication marker"
+        )
     subjects = _validated_concept_subjects(graph, expected_codes)
     _validate_run_membership(graph, subjects, run_id)
     return hashlib.sha256(payload).hexdigest(), payload

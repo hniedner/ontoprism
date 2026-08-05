@@ -5,7 +5,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import re
+import tempfile
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Self
@@ -458,9 +460,8 @@ def _accepted_replacement(proposal: Proposal) -> tuple[str, object] | None:
 
 
 def write_submission_exports(registry: ProposalRegistry, directory: str | Path) -> None:
-    """Write proposed submissions plus augmented and accepted-resolution artifacts."""
+    """Stage one export generation and promote its hash manifest last."""
     root = Path(directory)
-    root.mkdir(parents=True, exist_ok=True)
     concept_fields = (
         "proposal_id",
         "preferred_name",
@@ -488,12 +489,16 @@ def write_submission_exports(registry: ProposalRegistry, directory: str | Path) 
     )
     concept_rows = registry.ncit_submission_rows()
     relation_rows = registry.relation_submission_rows()
-    (root / "ncit-concept-proposals.csv").write_text(
-        _csv_text(concept_rows, concept_fields), encoding="utf-8"
-    )
-    (root / "relation-proposals.csv").write_text(
-        _csv_text(relation_rows, relation_fields), encoding="utf-8"
-    )
+    replacement_items = map(_accepted_replacement, registry.proposals)
+    replacements = dict(item for item in replacement_items if item is not None)
+    payloads = {
+        "ncit-concept-proposals.csv": _csv_text(concept_rows, concept_fields),
+        "relation-proposals.csv": _csv_text(relation_rows, relation_fields),
+        "augmented-ncit-proposals.ttl": _augmented_ttl(registry),
+        "accepted-replacements.json": (
+            json.dumps(replacements, indent=2, sort_keys=True) + "\n"
+        ),
+    }
     manifest = {
         "ontology_version": registry.ontology_version,
         "registry_identity": registry.registry_identity,
@@ -501,18 +506,31 @@ def write_submission_exports(registry: ProposalRegistry, directory: str | Path) 
         "source_identity": registry.source_identity,
         "status": "proposed",
         "concept_proposals": len(concept_rows),
+        "files": {
+            name: hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            for name, payload in payloads.items()
+        },
     }
-    (root / "submission-manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    payloads["submission-manifest.json"] = (
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     )
-    (root / "augmented-ncit-proposals.ttl").write_text(
-        _augmented_ttl(registry), encoding="utf-8"
-    )
-    replacement_items = map(_accepted_replacement, registry.proposals)
-    replacements = dict(item for item in replacement_items if item is not None)
-    (root / "accepted-replacements.json").write_text(
-        json.dumps(replacements, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+
+    root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{root.name}-staging-",
+        dir=root.parent,
+    ) as temporary:
+        staging = Path(temporary)
+        for name, payload in payloads.items():
+            (staging / name).write_text(payload, encoding="utf-8")
+        root.mkdir(parents=True, exist_ok=True)
+        for name in payloads:
+            if name != "submission-manifest.json":
+                os.replace(staging / name, root / name)
+        os.replace(
+            staging / "submission-manifest.json",
+            root / "submission-manifest.json",
+        )
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

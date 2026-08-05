@@ -612,9 +612,36 @@ async def _persisted_outcome_counts(
     return RunOutcomeCounts.model_validate(dict(result.mappings().one()))
 
 
+async def _persisted_definition_counts(
+    session: AsyncSession,
+    run_id: str,
+) -> tuple[int, int, int]:
+    result = await session.execute(
+        text(
+            "SELECT "
+            "(SELECT count(*) FROM decomp_work_item "
+            "WHERE run_id = :run_id AND has_complete_definition) "
+            "AS complete_definition_count, "
+            "(SELECT count(*) FROM decomp_definition_fact "
+            "WHERE run_id = :run_id) AS complete_fact_count, "
+            "(SELECT count(DISTINCT source_id.value) FROM decomp_constituent c "
+            "CROSS JOIN LATERAL jsonb_array_elements_text(c.source_definition_ids) "
+            "AS source_id(value) WHERE c.run_id = :run_id) AS projected_fact_count"
+        ),
+        {"run_id": run_id},
+    )
+    row = result.mappings().one()
+    return (
+        row["complete_definition_count"],
+        row["complete_fact_count"],
+        row["projected_fact_count"],
+    )
+
+
 def _require_matching_completion_metrics(
     metrics: CompletionRunMetrics,
     counts: RunOutcomeCounts,
+    definition_counts: tuple[int, int, int],
 ) -> None:
     persisted_counts = (
         counts.total_in_scope,
@@ -637,6 +664,25 @@ def _require_matching_completion_metrics(
     if persisted_counts != supplied_counts:
         raise RunStateError(
             "completion metrics do not match persisted work-item outcomes"
+        )
+    complete_definition_count, complete_fact_count, projected_fact_count = (
+        definition_counts
+    )
+    persisted_definition_metrics = (
+        complete_definition_count,
+        complete_fact_count,
+        projected_fact_count,
+        complete_fact_count - projected_fact_count,
+    )
+    supplied_definition_metrics = (
+        metrics.complete_definition_count,
+        metrics.complete_fact_count,
+        metrics.projected_fact_count,
+        metrics.projection_loss_count,
+    )
+    if persisted_definition_metrics != supplied_definition_metrics:
+        raise RunStateError(
+            "completion definition metrics do not match persisted definition rows"
         )
 
 
@@ -1589,7 +1635,8 @@ class ProvenanceStore:
 
     @staticmethod
     def _row_to_run(row: RowMapping) -> RunSummary:
-        metrics = _validated_metrics(row["metrics"] or {})
+        raw_metrics = row["metrics"]
+        metrics = _validated_metrics({} if raw_metrics is None else raw_metrics)
         raw_predecessor = row.get("publication_predecessor")
         try:
             predecessor = (
@@ -1700,6 +1747,7 @@ class ProvenanceStore:
                 _require_matching_completion_metrics(
                     completion_metrics,
                     await _persisted_outcome_counts(session, run_id),
+                    await _persisted_definition_counts(session, run_id),
                 )
                 metrics = completion_metrics.model_dump()
                 await session.execute(

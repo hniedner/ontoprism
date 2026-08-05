@@ -293,25 +293,39 @@ def _require_candidate_outcome_shape(
     decomposition: Decomposition | None,
     outcome: ConceptOutcome,
 ) -> None:
-    if outcome in {"decomposed", "residual"} and decomposition is None:
-        raise ValueError(
-            "_CandidateResult: decomposed/residual outcomes require a decomposition"
-        )
+    if outcome == "decomposed":
+        _require_decomposed_candidate(decomposition)
+        return
+    if outcome == "residual":
+        _require_residual_candidate(decomposition)
+        return
     if outcome not in {"decomposed", "residual"} and decomposition is not None:
         raise ValueError(
             "_CandidateResult: non-decomposition outcomes cannot carry a decomposition"
         )
 
 
+def _require_decomposed_candidate(decomposition: Decomposition | None) -> None:
+    if decomposition is None or not decomposition.constituents:
+        raise ValueError(
+            "_CandidateResult: decomposed outcome requires at least one constituent"
+        )
+
+
+def _require_residual_candidate(decomposition: Decomposition | None) -> None:
+    if decomposition is None or decomposition.constituents:
+        raise ValueError(
+            "_CandidateResult: residual outcome requires exactly zero constituents"
+        )
+
+
 def _require_candidate_mint_shape(
-    decomposition: Decomposition | None,
+    outcome: ConceptOutcome,
     minted: list[MintedConcept],
 ) -> None:
-    if decomposition is None and minted:
+    if outcome != "decomposed" and minted:
         raise ValueError(
-            "_CandidateResult: minted concepts without a decomposition is not "
-            "a valid state — minting only happens while building constituents "
-            "for an actual candidate"
+            "_CandidateResult: minted concepts require a decomposed outcome"
         )
 
 
@@ -324,7 +338,7 @@ class _CandidateResult:
 
     def __post_init__(self) -> None:
         _require_candidate_outcome_shape(self.decomposition, self.outcome)
-        _require_candidate_mint_shape(self.decomposition, self.minted)
+        _require_candidate_mint_shape(self.outcome, self.minted)
 
 
 def _new_run_id(branch: DecompositionBranch | str) -> str:
@@ -694,6 +708,8 @@ async def _standard_worklist(
     total_limit: int | None,
 ) -> list[str]:
     codes = await enumerate_in_scope_codes(client, config.scope_root)
+    if not codes:
+        raise RuntimeError("scope enumeration returned no concepts")
     if total_limit is not None:
         if total_limit <= 0:
             raise ValueError("total_limit must be greater than zero")
@@ -1084,6 +1100,11 @@ async def _finish_run(
     return metrics
 
 
+def _validate_run_request(config: RunConfig, total_limit: int | None) -> None:
+    if config.load_to_store and total_limit is not None:
+        raise ValueError("total_limit cannot be combined with load_to_store")
+
+
 async def run_pipeline(
     config: RunConfig,
     client: DecompositionSparqlClient,
@@ -1102,8 +1123,10 @@ async def run_pipeline(
     surface form to an existing concept code; the default never resolves (always
     mints) — the conservative choice per design §7.2. ``total_limit`` caps how many
     enumerated codes are processed — a full in-scope enumeration is tens of thousands
-    of concepts (assessment §3.3); use this for a manual/smoke run.
+    of concepts (assessment §3.3); use this for a manual/smoke run. A truncated run
+    cannot publish to the configured graph.
     """
+    _validate_run_request(config, total_limit)
     setup = await _prepare_run(
         config,
         client,

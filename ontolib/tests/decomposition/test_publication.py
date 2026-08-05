@@ -293,6 +293,26 @@ async def test_artifact_validation_binds_exact_codes_run_and_bytes(
 
 
 @pytest.mark.unit
+async def test_artifact_validation_rejects_reserved_publication_marker(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], artifact, run_id="neoplasm-run-1")
+    artifact.write_text(
+        artifact.read_text(encoding="utf-8")
+        + f'\n<{vocab.PUBLICATION_MARKER}> <urn:injected> "value" .\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PublicationValidationError, match="publication marker"):
+        validate_artifact(
+            artifact,
+            expected_codes={"C1"},
+            run_id="neoplasm-run-1",
+        )
+
+
+@pytest.mark.unit
 async def test_empty_decomposition_artifact_is_valid_and_malformed_turtle_is_not(
     tmp_path: Path,
 ) -> None:

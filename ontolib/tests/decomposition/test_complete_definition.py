@@ -342,6 +342,13 @@ async def test_linked_list_normalizes_equivalent_defined_genus_bindings() -> Non
     genus = complete.facts[0]
     assert isinstance(genus, GenusDefinitionFact)
     assert genus.is_defined is True
+    assert genus.fact_id == canonical_definition_fact_id(
+        genus.anchor_code,
+        genus.group_id,
+        "genus",
+        genus.genus_code,
+        "defined",
+    )
 
 
 @pytest.mark.unit
@@ -808,6 +815,7 @@ def test_routed_axis_trace_does_not_claim_an_unrelated_role_with_same_filler() -
                 axis="op:AssociatedRegion",
                 filler_code="C200",
                 axis_source="role",
+                source_role="R101",
             )
         ],
         complete,
@@ -1164,6 +1172,7 @@ def test_complete_record_matches_structural_golden_contract() -> None:
             axis=item["axis"],
             filler_code=item["filler"],
             axis_source=item["axis_source"],
+            source_role=item["source_role"],
             group=item["group"],
             needs_review=item["needs_review"],
         )

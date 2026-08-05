@@ -226,7 +226,12 @@ def main(
     ] = None,
     total_limit: Annotated[
         int | None,
-        typer.Option(help="Cap how many enumerated codes are processed (smoke runs)."),
+        typer.Option(
+            help=(
+                "Cap how many enumerated codes are processed (smoke runs; cannot be "
+                "combined with --load)."
+            )
+        ),
     ] = None,
     walker_max_depth: Annotated[
         int,
@@ -254,6 +259,8 @@ def main(
         )
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
+    if load and total_limit is not None:
+        raise typer.BadParameter("--load cannot be combined with --total-limit")
     if sample_manifest is not None:
         if out is None:
             raise typer.BadParameter("--sample-manifest requires --out")

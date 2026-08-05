@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -16,6 +15,8 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -133,10 +134,6 @@ def _ncit_code(value: str, *, binding: str, prefix: str) -> str:
     if not code.startswith(prefix) or not code[len(prefix) :].isdigit():
         raise CompleteDefinitionError(f"{binding} is not an NCIt {prefix} code")
     return code
-
-
-def _digest(*parts: str) -> str:
-    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 
 def _restriction_member(role: str | None, target: str | None) -> Member:
@@ -462,8 +459,13 @@ def _definition_fact(
     member: Member,
     is_defined: bool,
 ) -> DefinitionFact:
-    fact_id = _digest(anchor_code, group_id, *member)
     if member[0] == "genus":
+        fact_id = canonical_definition_fact_id(
+            anchor_code,
+            group_id,
+            "genus",
+            *member[1:],
+        )
         return GenusDefinitionFact(
             fact_id=fact_id,
             anchor_code=anchor_code,
@@ -472,6 +474,12 @@ def _definition_fact(
             genus_code=member[1],
             is_defined=is_defined,
         )
+    fact_id = canonical_definition_fact_id(
+        anchor_code,
+        group_id,
+        "restriction",
+        *member[1:],
+    )
     return RestrictionDefinitionFact(
         fact_id=fact_id,
         anchor_code=anchor_code,
@@ -524,7 +532,7 @@ def _canonical_group_ids(
             for member, _is_defined in _ordered_members(positions)
         ]
         visiting.remove(expression)
-        canonical_id = _digest(anchor_code, *sorted(set(signature)))
+        canonical_id = canonical_definition_group_id(anchor_code, signature)
         group_ids[expression] = canonical_id
         return canonical_id
 

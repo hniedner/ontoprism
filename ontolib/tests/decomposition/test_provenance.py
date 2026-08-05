@@ -411,6 +411,12 @@ async def test_finish_run_sets_complete() -> None:
         "unknown_outcome": 0,
         "minted_count": 0,
     }
+    definition_counts = MagicMock()
+    definition_counts.mappings.return_value.one.return_value = {
+        "complete_definition_count": 0,
+        "complete_fact_count": 0,
+        "projected_fact_count": 0,
+    }
     promoted = MagicMock()
     updated = MagicMock(rowcount=1)
     sf().execute.side_effect = [
@@ -419,6 +425,7 @@ async def test_finish_run_sets_complete() -> None:
         incomplete,
         consistent_counts,
         outcome_counts,
+        definition_counts,
         promoted,
         updated,
     ]
@@ -715,6 +722,27 @@ async def test_list_runs_corrupt_metrics_fails_closed() -> None:
     store = ProvenanceStore(sf)
     with pytest.raises(RunStateError, match="not valid JSON"):
         await store.list_runs()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("metrics", [[], "", False, 0])
+async def test_list_runs_rejects_falsy_non_object_metrics(metrics: object) -> None:
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.all.return_value = [
+        {
+            "id": "run-1",
+            "branch": "neoplasm",
+            "status": "complete",
+            "ncit_version": "26.05d",
+            "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
+            "finished_at": None,
+            "metrics": metrics,
+        },
+    ]
+
+    with pytest.raises(RunStateError, match="persisted run metrics"):
+        await ProvenanceStore(sf).list_runs()
 
 
 @pytest.mark.unit

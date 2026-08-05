@@ -225,6 +225,37 @@ async def test_finish_run_requires_complete_metrics_matching_persisted_outcomes(
                 source_identity="a" * 64,
                 metrics=mismatched,
             )
+
+        await _cleanup(dsn)
+        await store.create_run(_RUN_ID, "26.07d", _fingerprint(("C1",)))
+        claim = await store.claim_work_item(_RUN_ID, "C1")
+        assert claim is not None
+        await store.complete_work_item(
+            _RUN_ID,
+            "C1",
+            claim,
+            decomposition=Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=(
+                    Constituent(
+                        axis="R101",
+                        filler_code="C2",
+                        axis_source="role",
+                    ),
+                ),
+            ),
+            minted=(),
+            semantic_types=("Neoplastic Process",),
+        )
+        mismatched = await _completion_metrics(store, _RUN_ID)
+        mismatched["complete_definition_count"] = 1
+        with pytest.raises(RunStateError, match="definition metrics"):
+            await store.finish_run(
+                _RUN_ID,
+                source_identity="a" * 64,
+                metrics=mismatched,
+            )
     finally:
         await _cleanup(dsn)
         await dispose_engine(engine)

@@ -282,9 +282,11 @@ Every invocation revalidates the live D47 source, proves the manifest release an
 identity match, enumerates the complete hierarchy scope, and rejects any selected code
 outside it before creating or reopening provenance. The manifest order is the persisted
 worklist. Sample runs require a file output and reject `--load`, `--total-limit`, and
-equivalence emission, keeping review separate from publication. Their schema-v3 run
-fingerprint and resume identity bind the manifest digest; ordinary and historical runs
-remain schema v2 with their existing canonical digests. The configuration version is
+equivalence emission, keeping review separate from publication. Ordinary `--total-limit`
+smoke runs also reject `--load`: a truncated worklist may produce a diagnostic artifact,
+but it must never replace the complete public graph. Sample runs' schema-v3 run fingerprint
+and resume identity bind the manifest digest; ordinary and historical runs remain schema
+v2 with their existing canonical digests. The configuration version is
 `nested-definition-v2`, preventing pre-D50/D55 work from resuming under the complete
 nested-definition reader.
 

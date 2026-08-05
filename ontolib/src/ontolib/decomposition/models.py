@@ -40,6 +40,23 @@ def _require_sha256(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} must be a lowercase SHA-256 value")
 
 
+def _canonical_source_role(
+    axis: str,
+    axis_source: AxisSource,
+    source_role: str | None,
+) -> str | None:
+    if axis_source != "role" or source_role is not None:
+        return source_role
+    if _ROLE_CODE.fullmatch(axis):
+        return axis
+    raise ValueError("role-derived constituent requires source_role")
+
+
+def _require_source_role(value: str | None) -> None:
+    if value is not None and _ROLE_CODE.fullmatch(value) is None:
+        raise ValueError("source_role must be an NCIt role code")
+
+
 def _definition_digest(*parts: str) -> str:
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
@@ -397,10 +414,13 @@ class Constituent:
     source_definition_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.source_role is not None and (
-            not self.source_role.startswith("R") or not self.source_role[1:].isdigit()
-        ):
-            raise ValueError("source_role must be an NCIt role code")
+        source_role = _canonical_source_role(
+            self.axis,
+            self.axis_source,
+            self.source_role,
+        )
+        _require_source_role(source_role)
+        object.__setattr__(self, "source_role", source_role)
         canonical = tuple(sorted(set(self.source_definition_ids)))
         for source_id in canonical:
             _require_sha256(source_id, "source_definition_ids item")
@@ -447,10 +467,7 @@ def _validate_role_fact(constituent: Constituent, fact: DefinitionFact) -> None:
         fact.filler_code != constituent.filler_code
     ):
         raise ValueError("role constituent references an unrelated restriction")
-    if (
-        constituent.source_role is not None
-        and fact.role_code != constituent.source_role
-    ):
+    if fact.role_code != constituent.source_role:
         raise ValueError("role constituent references a different source role")
 
 
