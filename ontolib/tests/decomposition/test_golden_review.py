@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from openpyxl import Workbook, load_workbook
 from scripts.adjudication import main as adjudication_main
+from scripts.research import golden_review
 from scripts.research.golden_review import (
     GoldenSetValidationError,
     evaluate_adjudication,
@@ -511,6 +512,28 @@ def test_workbook_import_preserves_reviewer_values_and_provenance(
     assert artifact.meta.run_fingerprint_identity == _DIGEST_C
     assert artifact.concepts[0].expected is not None
     assert artifact.concepts[0].expected.constituents[0].needs_review is False
+
+
+@pytest.mark.unit
+def test_workbook_import_hashes_the_parsed_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    snapshot = workbook.read_bytes()
+    real_load_workbook = golden_review.load_workbook
+
+    def replace_after_load(source: object, **kwargs: object) -> Workbook:
+        loaded = real_load_workbook(source, **kwargs)
+        workbook.write_bytes(b"changed after the review snapshot was opened")
+        return loaded
+
+    monkeypatch.setattr(golden_review, "load_workbook", replace_after_load)
+
+    artifact = import_adjudication_workbook(workbook)
+
+    assert artifact.meta.workbook_identity == hashlib.sha256(snapshot).hexdigest()
 
 
 @pytest.mark.unit

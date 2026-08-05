@@ -8,8 +8,9 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
+from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
@@ -302,6 +303,7 @@ def _rule(
         classification=StageClassification(authority=authority, version=version),
         members=(system, value),
         evidence_claim_ids=(_STRUCTURE_CLAIM_ID,),
+        evidence_source_ids=evidence_ids,
     )
 
 
@@ -797,6 +799,7 @@ def _rule_dict(rule: SemanticBundleCandidate) -> dict[str, object]:
         },
         "members": [_member_dict(member) for member in rule.members],
         "evidence_claim_ids": list(rule.evidence_claim_ids),
+        "evidence_source_ids": list(rule.evidence_source_ids),
     }
 
 
@@ -1022,8 +1025,12 @@ def build_stage_bundle_report(
     }
 
 
+def _sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return _sha256_bytes(path.read_bytes())
 
 
 def _require_identity(path: Path, expected: str) -> None:
@@ -1034,7 +1041,7 @@ def _require_identity(path: Path, expected: str) -> None:
         )
 
 
-def _read_json(path: Path) -> object:
+def _read_json_bytes(content: bytes) -> object:
     def reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}
         for key, value in pairs:
@@ -1043,10 +1050,11 @@ def _read_json(path: Path) -> object:
             result[key] = value
         return result
 
-    return json.loads(
-        path.read_text(encoding="utf-8"),
-        object_pairs_hook=reject_duplicates,
-    )
+    return json.loads(content, object_pairs_hook=reject_duplicates)
+
+
+def _read_json(path: Path) -> object:
+    return _read_json_bytes(path.read_bytes())
 
 
 def _optional_engine_text(code: str, field: str, value: object) -> str | None:
@@ -1329,12 +1337,23 @@ def generate_stage_bundle_artifact(
     contracted_disposition_path: Path,
 ) -> dict[str, object]:
     """Generate a hash-bound report from the v13 constituent and engine evidence."""
-    _require_identity(workbook_path, _WORKBOOK_SHA256)
-    _require_identity(source_audit_path, _SOURCE_AUDIT_SHA256)
-    _require_identity(engine_evidence_path, _ENGINE_EVIDENCE_SHA256)
-    raw_audit = _read_json(source_audit_path)
-    raw_engine = _read_json(engine_evidence_path)
-    raw_contracted_disposition = _read_json(contracted_disposition_path)
+    workbook_bytes = workbook_path.read_bytes()
+    source_audit_bytes = source_audit_path.read_bytes()
+    engine_evidence_bytes = engine_evidence_path.read_bytes()
+    contracted_disposition_bytes = contracted_disposition_path.read_bytes()
+    for path, content, expected in (
+        (workbook_path, workbook_bytes, _WORKBOOK_SHA256),
+        (source_audit_path, source_audit_bytes, _SOURCE_AUDIT_SHA256),
+        (engine_evidence_path, engine_evidence_bytes, _ENGINE_EVIDENCE_SHA256),
+    ):
+        actual = _sha256_bytes(content)
+        if actual != expected:
+            raise ValueError(
+                f"{path.name} SHA-256 mismatch: expected {expected}, got {actual}"
+            )
+    raw_audit = _read_json_bytes(source_audit_bytes)
+    raw_engine = _read_json_bytes(engine_evidence_bytes)
+    raw_contracted_disposition = _read_json_bytes(contracted_disposition_bytes)
     validate_source_audit(raw_audit)
     report = build_stage_bundle_report(_engine_pairs(raw_engine))
     report["source_provenance"] = build_provenance_ledger(
@@ -1359,7 +1378,7 @@ def generate_stage_bundle_artifact(
         },
         "contracted_disposition": {
             "file": contracted_disposition_path.name,
-            "sha256": _sha256(contracted_disposition_path),
+            "sha256": _sha256_bytes(contracted_disposition_bytes),
         },
     }
     report["artifact_identity"] = _payload_identity(report)
@@ -1537,15 +1556,34 @@ def apply_constituent_corrections(
             _add_expected_pair(sheet, headers, correction)
 
 
+def _load_review_workbook_snapshot(
+    base_workbook_path: Path,
+    expected_base_sha256: str | None,
+) -> Workbook:
+    base_workbook_bytes = base_workbook_path.read_bytes()
+    actual_base_sha256 = _sha256_bytes(base_workbook_bytes)
+    if expected_base_sha256 is not None and actual_base_sha256 != expected_base_sha256:
+        raise ValueError(
+            f"{base_workbook_path.name} SHA-256 mismatch: expected "
+            f"{expected_base_sha256}, got {actual_base_sha256}"
+        )
+    return load_workbook(BytesIO(base_workbook_bytes))
+
+
 def write_review_workbook(
     base_workbook_path: Path,
     candidate_artifact: dict[str, object],
     output_path: Path,
     corrections: tuple[ConstituentCorrection, ...] = (),
+    *,
+    expected_base_sha256: str | None = None,
 ) -> None:
     """Add a reviewer-owned semantic decision sheet to a fresh workbook copy."""
     _validate_artifact_identity(candidate_artifact)
-    workbook = load_workbook(base_workbook_path)
+    workbook = _load_review_workbook_snapshot(
+        base_workbook_path,
+        expected_base_sha256,
+    )
     if corrections:
         apply_constituent_corrections(workbook, corrections)
     reviewer_sheet = workbook["Reviewer & Attestation"]
@@ -1680,10 +1718,25 @@ def import_review_decisions(
     candidate_artifact: dict[str, object],
 ) -> dict[str, object]:
     """Generate canonical rules only from a complete, attested reviewer sheet."""
+    workbook_bytes = workbook_path.read_bytes()
+    return _import_review_decisions_snapshot(
+        workbook_bytes,
+        workbook_path.name,
+        candidate_artifact,
+    )
+
+
+def _import_review_decisions_snapshot(
+    workbook_bytes: bytes,
+    workbook_name: str,
+    candidate_artifact: dict[str, object],
+) -> dict[str, object]:
     _validate_artifact_identity(candidate_artifact)
-    workbook = load_workbook(workbook_path, data_only=False)
+    workbook = load_workbook(BytesIO(workbook_bytes), data_only=False)
     if _DECISION_SHEET not in workbook.sheetnames:
         raise ValueError(f"workbook is missing {_DECISION_SHEET}")
+    if workbook["Reviewer & Attestation"]["B9"].value != "ATTESTED":
+        raise ValueError("reviewer attestation is not ATTESTED")
     sheet = workbook[_DECISION_SHEET]
     _validate_decision_sheet(sheet, candidate_artifact)
 
@@ -1713,8 +1766,8 @@ def import_review_decisions(
         "status": "ATTESTED",
         "candidate_artifact_identity": candidate_artifact["artifact_identity"],
         "review_workbook": {
-            "file": workbook_path.name,
-            "sha256": _sha256(workbook_path),
+            "file": workbook_name,
+            "sha256": _sha256_bytes(workbook_bytes),
         },
         "decisions": decisions,
         "semantic_bundle_rules": [
@@ -1758,33 +1811,91 @@ def load_constituent_corrections(path: Path) -> tuple[ConstituentCorrection, ...
     return tuple(corrections)
 
 
+_CANONICAL_RULE_KEYS = {
+    "schema_version",
+    "status",
+    "candidate_artifact_identity",
+    "review_workbook",
+    "decisions",
+    "semantic_bundle_rules",
+    "artifact_identity",
+}
+
+
+def _validate_canonical_rules(
+    raw: object,
+    candidate_artifact: dict[str, object],
+    workbook_name: str,
+    workbook_sha256: str,
+) -> None:
+    if not isinstance(raw, dict) or set(raw) != _CANONICAL_RULE_KEYS:
+        raise ValueError("canonical semantic rules have an invalid shape")
+    if raw.get("schema_version") != 1 or raw.get("status") != "ATTESTED":
+        raise ValueError("canonical semantic rules are not ATTESTED schema version 1")
+    if raw.get("candidate_artifact_identity") != candidate_artifact.get(
+        "artifact_identity"
+    ):
+        raise ValueError("canonical semantic rules bind a different candidate artifact")
+    expected_workbook = {"file": workbook_name, "sha256": workbook_sha256}
+    if raw.get("review_workbook") != expected_workbook:
+        raise ValueError(
+            "canonical semantic rules review workbook binding does not match"
+        )
+    identity = raw.get("artifact_identity")
+    payload = {key: value for key, value in raw.items() if key != "artifact_identity"}
+    if identity != _payload_identity(payload):
+        raise ValueError("canonical semantic rules identity does not match its payload")
+
+
 def build_verification_manifest(
     candidate_path: Path,
     review_workbook_path: Path,
     canonical_rules_path: Path | None = None,
 ) -> dict[str, object]:
-    candidate = _read_json(candidate_path)
+    candidate_bytes = candidate_path.read_bytes()
+    review_workbook_bytes = review_workbook_path.read_bytes()
+    candidate = _read_json_bytes(candidate_bytes)
     if not isinstance(candidate, dict):
         raise ValueError("candidate artifact must be an object")
     _validate_artifact_identity(candidate)
+    review_workbook = load_workbook(BytesIO(review_workbook_bytes), data_only=False)
+    if _DECISION_SHEET not in review_workbook.sheetnames:
+        raise ValueError(f"workbook is missing {_DECISION_SHEET}")
+    if review_workbook[_DECISION_SHEET]["B2"].value != candidate["artifact_identity"]:
+        raise ValueError("workbook candidate artifact identity does not match")
+    review_workbook_sha256 = _sha256_bytes(review_workbook_bytes)
     files: dict[str, object] = {
         "candidate_artifact": {
             "file": candidate_path.name,
-            "sha256": _sha256(candidate_path),
+            "sha256": _sha256_bytes(candidate_bytes),
         },
         "review_workbook": {
             "file": review_workbook_path.name,
-            "sha256": _sha256(review_workbook_path),
+            "sha256": review_workbook_sha256,
         },
     }
     status = "FINAL-REVIEW-PENDING"
     if canonical_rules_path is not None:
-        canonical = _read_json(canonical_rules_path)
-        if not isinstance(canonical, dict) or canonical.get("status") != "ATTESTED":
-            raise ValueError("canonical semantic rules are not ATTESTED")
+        canonical_bytes = canonical_rules_path.read_bytes()
+        canonical = _read_json_bytes(canonical_bytes)
+        _validate_canonical_rules(
+            canonical,
+            candidate,
+            review_workbook_path.name,
+            review_workbook_sha256,
+        )
+        expected = _import_review_decisions_snapshot(
+            review_workbook_bytes,
+            review_workbook_path.name,
+            candidate,
+        )
+        if canonical != expected:
+            raise ValueError(
+                "canonical semantic rules do not match the attested review workbook"
+            )
         files["canonical_rules"] = {
             "file": canonical_rules_path.name,
-            "sha256": _sha256(canonical_rules_path),
+            "sha256": _sha256_bytes(canonical_bytes),
         }
         status = "ATTESTED"
     manifest: dict[str, object] = {
@@ -1797,19 +1908,37 @@ def build_verification_manifest(
     return manifest
 
 
-def main() -> None:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workbook", required=True, type=Path)
-    parser.add_argument("--source-audit", required=True, type=Path)
-    parser.add_argument("--engine-evidence", required=True, type=Path)
-    parser.add_argument("--contracted-disposition", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--review-workbook-output", type=Path)
-    parser.add_argument("--corrections", type=Path)
-    parser.add_argument("--import-decisions", type=Path)
-    parser.add_argument("--canonical-rules-output", type=Path)
-    parser.add_argument("--manifest-output", type=Path)
-    args = parser.parse_args()
+    commands = parser.add_subparsers(dest="command", required=True)
+    prepare = commands.add_parser("prepare", help="Generate a pending review packet")
+    prepare.add_argument("--workbook", required=True, type=Path)
+    prepare.add_argument("--source-audit", required=True, type=Path)
+    prepare.add_argument("--engine-evidence", required=True, type=Path)
+    prepare.add_argument("--contracted-disposition", required=True, type=Path)
+    prepare.add_argument("--output", required=True, type=Path)
+    prepare.add_argument("--review-workbook-output", required=True, type=Path)
+    prepare.add_argument("--corrections", type=Path)
+    prepare.add_argument("--manifest-output", type=Path)
+    finalize = commands.add_parser(
+        "finalize",
+        help="Import one reviewed workbook and bind its canonical outputs",
+    )
+    finalize.add_argument("--candidate", required=True, type=Path)
+    finalize.add_argument("--review-workbook", required=True, type=Path)
+    finalize.add_argument("--canonical-rules-output", required=True, type=Path)
+    finalize.add_argument("--manifest-output", required=True, type=Path)
+    return parser
+
+
+def _write_json(path: Path, value: object) -> None:
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _prepare(args: Any) -> None:
     report = generate_stage_bundle_artifact(
         args.workbook,
         args.source_audit,
@@ -1827,40 +1956,42 @@ def main() -> None:
         }
         report.pop("artifact_identity")
         report["artifact_identity"] = _payload_identity(report)
-    args.output.write_text(
-        json.dumps(report, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
-        encoding="utf-8",
+    _write_json(args.output, report)
+    write_review_workbook(
+        args.workbook,
+        report,
+        args.review_workbook_output,
+        corrections,
+        expected_base_sha256=_WORKBOOK_SHA256,
     )
-    if args.review_workbook_output is not None:
-        write_review_workbook(
-            args.workbook,
-            report,
-            args.review_workbook_output,
-            corrections,
-        )
-    if args.import_decisions is not None:
-        if args.canonical_rules_output is None:
-            parser.error("--import-decisions requires --canonical-rules-output")
-        canonical = import_review_decisions(args.import_decisions, report)
-        args.canonical_rules_output.write_text(
-            json.dumps(canonical, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
-            encoding="utf-8",
-        )
     if args.manifest_output is not None:
-        if args.review_workbook_output is None:
-            parser.error("--manifest-output requires --review-workbook-output")
-        canonical_path = (
-            args.canonical_rules_output if args.import_decisions is not None else None
-        )
         manifest = build_verification_manifest(
             args.output,
             args.review_workbook_output,
-            canonical_path,
         )
-        args.manifest_output.write_text(
-            json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
-            encoding="utf-8",
-        )
+        _write_json(args.manifest_output, manifest)
+
+
+def _finalize(args: Any) -> None:
+    candidate = _read_json(args.candidate)
+    if not isinstance(candidate, dict):
+        raise ValueError("candidate artifact must be an object")
+    canonical = import_review_decisions(args.review_workbook, candidate)
+    _write_json(args.canonical_rules_output, canonical)
+    manifest = build_verification_manifest(
+        args.candidate,
+        args.review_workbook,
+        args.canonical_rules_output,
+    )
+    _write_json(args.manifest_output, manifest)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args: Any = _parser().parse_args(argv)
+    if args.command == "prepare":
+        _prepare(args)
+        return
+    _finalize(args)
 
 
 if __name__ == "__main__":

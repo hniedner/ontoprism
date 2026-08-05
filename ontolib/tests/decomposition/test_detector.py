@@ -88,6 +88,19 @@ def test_excludes_roles_do_not_count_toward_the_gate() -> None:
 
 
 @pytest.mark.unit
+def test_projected_nondefining_tissue_origin_does_not_trigger_detection() -> None:
+    roles = _roles(
+        ("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        ("R103", "C49276", "Disease_Has_Normal_Tissue_Origin"),
+    )
+
+    result = detect("C1", ["Neoplastic Process"], roles)
+
+    assert result.defining_role_count == 1
+    assert not result.is_precoordinated
+
+
+@pytest.mark.unit
 def test_label_signal_bumps_a_single_role_concept_over_the_gate() -> None:
     roles = _roles(("R101", "C12468", "Disease_Has_Primary_Anatomic_Site"))
     result = detect(

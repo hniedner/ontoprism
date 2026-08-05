@@ -430,6 +430,36 @@ async def test_cleanup_failure_is_metadata_on_primary_pipeline_failure(
 
 
 @pytest.mark.unit
+async def test_cleanup_cancellation_does_not_mask_primary_pipeline_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = ValueError("pipeline failed")
+
+    async def pipeline(*_args: object, **_kwargs: object) -> decompose.RunMetrics:
+        raise primary
+
+    _install_run_collaborators(
+        monkeypatch,
+        pipeline,
+        cleanup_error=asyncio.CancelledError(),
+    )
+
+    with pytest.raises(ValueError, match="pipeline failed") as exc_info:
+        await decompose._run(
+            Path("candidate.json"),
+            decompose.DecompositionBranch.NEOPLASM,
+            None,
+            False,
+            False,
+            None,
+            None,
+        )
+
+    assert exc_info.value is primary
+    assert any("CancelledError" in note for note in primary.__notes__)
+
+
+@pytest.mark.unit
 async def test_equivalence_refusal_precedes_settings_and_clients(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

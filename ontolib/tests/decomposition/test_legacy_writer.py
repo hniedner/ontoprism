@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import rdflib
 from rdflib import Literal, URIRef
-from rdflib.namespace import OWL
+from rdflib.namespace import OWL, RDFS
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.axes import MORPHOLOGY_AXIS
@@ -119,6 +119,32 @@ async def test_ttl_publishes_axis_contract_and_constituent_source_role(
     assert (primary_site, rdflib.RDFS.comment, None) in graph
     assert (primary_site, URIRef(vocab.NORMALIZED_FROM_ROLE), source_role) in graph
     assert (None, URIRef(vocab.SOURCE_ROLE), source_role) in graph
+
+    primary_subsite = URIRef(f"{vocab.ONTOPRISM_NS}PrimarySubsite")
+    normal_tissue_origin = URIRef(f"{vocab.ONTOPRISM_NS}NormalTissueOrigin")
+    assert (
+        primary_subsite,
+        RDFS.subPropertyOf,
+        URIRef("http://purl.obolibrary.org/obo/RO_0004026"),
+    ) in graph
+    assert (
+        primary_subsite,
+        URIRef(vocab.GOVERNANCE_STATUS),
+        Literal("provisional"),
+    ) in graph
+    assert (primary_subsite, URIRef(vocab.GOVERNANCE_REVIEW_BY), None) in graph
+    assert (primary_subsite, URIRef(vocab.GOVERNANCE_REVIEW_TRIGGER), None) in graph
+    assert (primary_subsite, URIRef(vocab.GOVERNANCE_FALLBACK_AXIS), None) in graph
+    assert (
+        primary_subsite,
+        URIRef(vocab.GOVERNANCE_EVIDENCE_COUNT),
+        Literal(3),
+    ) in graph
+    assert (
+        normal_tissue_origin,
+        URIRef(vocab.AXIS_MODALITY),
+        Literal("non-defining"),
+    ) in graph
 
 
 @pytest.mark.unit

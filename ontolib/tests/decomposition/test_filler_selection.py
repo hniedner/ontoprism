@@ -394,6 +394,29 @@ def test_semantic_type_ranking_splits_organ_from_region() -> None:
     assert cons["C13063"].axis == ASSOCIATED_REGION_AXIS
 
 
+@pytest.mark.unit
+def test_r101_routes_regions_before_r82_specificity_collapse() -> None:
+    semantic_types = {
+        "C12418": "Anatomical Structure",
+        "C13063": "Anatomical Structure",
+    }
+    restrictions = [
+        RoleRestriction("R101", code, "Disease_Has_Primary_Anatomic_Site")
+        for code in semantic_types
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _broader, _narrower: False,
+        semantic_type_of=semantic_types.get,
+        is_part_of=lambda part, whole: (part, whole) == ("C13063", "C12418"),
+    )
+
+    assert [(item.axis, item.filler_code) for item in constituents] == [
+        (ASSOCIATED_REGION_AXIS, "C13063")
+    ]
+
+
 # --- A5: D19 grouping ---
 
 

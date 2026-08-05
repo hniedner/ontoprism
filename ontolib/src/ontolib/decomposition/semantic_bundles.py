@@ -339,6 +339,23 @@ def _semantic_identity(
     )
 
 
+def _canonical_evidence_ids(
+    values: tuple[str, ...],
+    *,
+    required_message: str,
+    duplicate_message: str,
+    empty_message: str | None = None,
+) -> tuple[str, ...]:
+    canonical = tuple(sorted(values))
+    if not canonical:
+        raise ValueError(required_message)
+    if empty_message is not None and any(not value.strip() for value in canonical):
+        raise ValueError(empty_message)
+    if len(set(canonical)) != len(canonical):
+        raise ValueError(duplicate_message)
+    return canonical
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SemanticBundleCandidate:
     candidate_id: str
@@ -348,6 +365,7 @@ class SemanticBundleCandidate:
     classification: StageClassification
     members: tuple[SemanticBundleMember, ...]
     evidence_claim_ids: tuple[str, ...]
+    evidence_source_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
         _require_nonempty(self.candidate_id, "candidate_id")
@@ -357,12 +375,19 @@ class SemanticBundleCandidate:
             raise ValueError("candidate kind must be the ONTOPRISM cancer-stage model")
         _validate_stage_members(self.members)
         _validate_subject_occurrences(self.subject_code, self.members)
-        claim_ids = tuple(sorted(self.evidence_claim_ids))
-        if not claim_ids:
-            raise ValueError("bundle candidates require structural evidence claims")
-        if len(set(claim_ids)) != len(claim_ids):
-            raise ValueError("bundle evidence claim IDs must be unique")
+        claim_ids = _canonical_evidence_ids(
+            self.evidence_claim_ids,
+            required_message="bundle candidates require structural evidence claims",
+            duplicate_message="bundle evidence claim IDs must be unique",
+        )
         object.__setattr__(self, "evidence_claim_ids", claim_ids)
+        source_ids = _canonical_evidence_ids(
+            self.evidence_source_ids,
+            required_message="bundle candidates require evidence source references",
+            duplicate_message="bundle evidence source IDs must be unique",
+            empty_message="bundle evidence source IDs must not be empty",
+        )
+        object.__setattr__(self, "evidence_source_ids", source_ids)
 
     @property
     def semantic_identity(self) -> str:

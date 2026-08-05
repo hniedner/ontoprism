@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS, AxisContract
+from ontolib.decomposition.axis_contracts import (
+    AXIS_CONTRACTS,
+    AxisContract,
+    ProvisionalGovernance,
+)
 from ontolib.decomposition.models import GenusDefinitionFact
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -86,7 +90,16 @@ def _render_axis_contract(contract: AxisContract) -> list[str]:
         f"{axis} <{rdfs}comment> {json.dumps(contract.definition)} .",
         f"{axis} <{rdfs}domain> <{NCIT_NS}{contract.domain_code}> .",
         f"{axis} <{rdfs}range> <{NCIT_NS}{contract.range_code}> .",
+        f"{axis} {_p(vocab.AXIS_MODALITY)} {json.dumps(contract.modality)} .",
+        f"{axis} {_p(vocab.GOVERNANCE_STATUS)} "
+        f"{json.dumps(contract.governance.status)} .",
     ]
+    if contract.ro_parent is not None:
+        ro_parent = contract.ro_parent.replace(":", "_")
+        lines.append(
+            f"{axis} <{rdfs}subPropertyOf> "
+            f"<http://purl.obolibrary.org/obo/{ro_parent}> ."
+        )
     lines.extend(
         f"{axis} {_p(vocab.NORMALIZED_FROM_ROLE)} <{NCIT_NS}{role}> ."
         for role in contract.source_roles
@@ -95,6 +108,25 @@ def _render_axis_contract(contract: AxisContract) -> list[str]:
         f"{axis} {_p(vocab.CONTRACT_PROVENANCE)} {json.dumps(source)} ."
         for source in contract.provenance
     )
+    governance = contract.governance
+    if isinstance(governance, ProvisionalGovernance):
+        xsd_date = "http://www.w3.org/2001/XMLSchema#date"
+        lines.extend(
+            (
+                f'{axis} {_p(vocab.GOVERNANCE_SINCE)} "{governance.since}"'
+                f"^^<{xsd_date}> .",
+                f'{axis} {_p(vocab.GOVERNANCE_REVIEW_BY)} "{governance.review_by}"'
+                f"^^<{xsd_date}> .",
+                f"{axis} {_p(vocab.GOVERNANCE_REVIEW_TRIGGER)} "
+                f"{json.dumps(governance.review_trigger)} .",
+                f"{axis} {_p(vocab.GOVERNANCE_FALLBACK_AXIS)} "
+                f"{_axis_uri(governance.fallback_axis)} .",
+                f"{axis} {_p(vocab.GOVERNANCE_FALLBACK_NEEDS_REVIEW)} "
+                f"{str(governance.fallback_needs_review).lower()} .",
+                f"{axis} {_p(vocab.GOVERNANCE_EVIDENCE_COUNT)} "
+                f"{governance.evidence_count} .",
+            )
+        )
     return lines
 
 

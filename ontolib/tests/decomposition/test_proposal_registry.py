@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 
 import pytest
+import rdflib
 from pydantic import ValidationError
+from rdflib.namespace import RDFS
 from scripts.adjudication import main as adjudication_main
 
 from ontolib.decomposition.minting import MintedConcept
@@ -185,6 +187,26 @@ def test_duplicate_check_requires_candidates_when_an_equivalent_exists() -> None
 
 
 @pytest.mark.unit
+def test_equivalent_found_can_only_close_a_rejected_proposal() -> None:
+    equivalent = _duplicate_check(
+        result="equivalent-found",
+        candidates=("C54110",),
+    )
+    payload = {
+        **_concept().model_dump(),
+        "duplicate_checks": (equivalent,),
+    }
+
+    with pytest.raises(
+        ValidationError, match="equivalent-found proposals must be rejected"
+    ):
+        ConceptProposal.model_validate(payload)
+
+    rejected = ConceptProposal.model_validate(payload | {"status": "rejected"})
+    assert rejected.status == "rejected"
+
+
+@pytest.mark.unit
 def test_submission_exports_are_deterministic_and_proposed_only(
     tmp_path: Path,
 ) -> None:
@@ -238,6 +260,51 @@ def test_locally_approved_concept_is_augmented_and_replaceable(
     assert resolve_proposal_identifier(registry, approved.id) == approved.id
     replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
     assert replacements == {}
+
+
+@pytest.mark.unit
+def test_augmented_turtle_preserves_every_parent(tmp_path: Path) -> None:
+    approved = _concept().model_copy(
+        update={
+            "status": "locally-approved",
+            "parent_concepts": ("C12917", "C12508"),
+        }
+    )
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(approved,),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    graph = rdflib.Graph().parse(tmp_path / "augmented-ncit-proposals.ttl")
+    subject = rdflib.URIRef("https://w3id.org/ontoprism/vocab#MINT-781c8c8c6096")
+    assert set(graph.objects(subject, RDFS.subClassOf)) == {
+        rdflib.URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C12917"),
+        rdflib.URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C12508"),
+    }
+
+
+@pytest.mark.unit
+def test_proposal_rdf_terms_reject_turtle_injection() -> None:
+    with pytest.raises(ValidationError, match="mapping concept_id"):
+        CrossOntologyMapping(
+            system="Example Ontology",
+            version="1",
+            concept_id="https://example.test/value> . op:injected <https://evil.test/x",
+            label="Unsafe mapping",
+            predicate="relatedMatch",
+            evidence_url="https://example.test/evidence",
+        )
+
+    with pytest.raises(ValidationError, match="parent_concepts"):
+        ConceptProposal.model_validate(
+            {
+                **_concept().model_dump(),
+                "parent_concepts": ("C12917> ; op:injected op:value",),
+            }
+        )
 
 
 @pytest.mark.unit
@@ -304,6 +371,13 @@ def test_registry_load_rejects_duplicate_json_keys_and_tampering(
     with pytest.raises(ValidationError, match="identity does not match"):
         load_proposal_registry(path)
 
+    for required_field in ("schema_version", "registry_identity"):
+        payload = registry.model_dump(mode="json", by_alias=True)
+        payload.pop(required_field)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match=f"missing {required_field}"):
+            load_proposal_registry(path)
+
 
 @pytest.mark.unit
 def test_adjudication_cli_validates_and_exports_proposal_registry(
@@ -335,4 +409,8 @@ def test_tracked_proposal_registry_remains_valid() -> None:
         "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
     )
     assert len(registry.filter(kind="concept", status="locally-approved")) == 1
-    assert len(registry.filter(kind="relation", status="proposed")) == 6
+    assert [
+        proposal.id
+        for proposal in registry.filter(kind="relation", status="locally-approved")
+    ] == ["RELPROP-8637e8500dff"]
+    assert len(registry.filter(kind="relation", status="proposed")) == 5

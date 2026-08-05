@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter, defaultdict
 from typing import TYPE_CHECKING, cast
 
 import pytest
 from openpyxl import Workbook, load_workbook
+from scripts.research import stage_bundle_pilot
 from scripts.research.stage_bundle_pilot import (
     EVIDENCE_REGISTRY,
     STAGE_BUNDLE_CANDIDATES,
     ConstituentCorrection,
     _engine_pairs,
+    _parser,
     _payload_identity,
     apply_constituent_corrections,
     build_provenance_ledger,
@@ -76,6 +79,24 @@ def test_registry_contains_typed_review_candidates_not_accepted_rules() -> None:
     for candidate in STAGE_BUNDLE_CANDIDATES:
         validate_candidate_evidence(candidate, EVIDENCE_REGISTRY)
         assert len(candidate.members) == 2
+
+    artifact = _candidate_artifact()
+    candidates = {
+        item["candidate_id"]: item
+        for item in cast(
+            "list[dict[str, object]]", artifact["semantic_bundle_candidates"]
+        )
+    }
+    ajcc_sources = cast(
+        "list[str]",
+        candidates["stage-c115057-ajcc-v6"]["evidence_source_ids"],
+    )
+    figo_sources = cast(
+        "list[str]",
+        candidates["stage-c162226-figo-2018"]["evidence_source_ids"],
+    )
+    assert "ajcc-official-staging-system" in ajcc_sources
+    assert "figo-cervix-2018" in figo_sources
 
 
 @pytest.mark.unit
@@ -279,6 +300,19 @@ def _blank_workbook(path: Path) -> None:
     workbook.save(path)
 
 
+def _attest_review_workbook(path: Path) -> None:
+    workbook = load_workbook(path)
+    workbook["Reviewer & Attestation"]["B9"] = "ATTESTED"
+    sheet = workbook["Semantic Bundle Decisions"]
+    sheet["B5"] = "ATTESTED"
+    for row in range(9, sheet.max_row + 1):
+        sheet.cell(row, 8, "ACCEPT" if row == 9 else "REJECT")
+        sheet.cell(row, 9, "Reviewer assessed the exact proposed association.")
+        sheet.cell(row, 10, "Domain Reviewer")
+        sheet.cell(row, 11, "2026-08-04")
+    workbook.save(path)
+
+
 @pytest.mark.unit
 def test_constituent_corrections_remove_and_add_exact_pairs() -> None:
     workbook = Workbook()
@@ -368,6 +402,12 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
         sheet.cell(row, 11, "2026-08-04")
     workbook.save(review)
 
+    with pytest.raises(ValueError, match="reviewer attestation is not ATTESTED"):
+        import_review_decisions(review, artifact)
+
+    workbook = load_workbook(review)
+    workbook["Reviewer & Attestation"]["B9"] = "ATTESTED"
+    workbook.save(review)
     canonical = import_review_decisions(review, artifact)
 
     assert canonical["status"] == "ATTESTED"
@@ -380,6 +420,33 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     workbook.save(review)
     with pytest.raises(ValueError, match="candidate fields changed"):
         import_review_decisions(review, artifact)
+
+
+@pytest.mark.unit
+def test_canonical_import_hashes_the_parsed_workbook_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact()
+    write_review_workbook(base, artifact, review)
+    _attest_review_workbook(review)
+    snapshot = review.read_bytes()
+    real_load_workbook = stage_bundle_pilot.load_workbook
+
+    def replace_after_load(source: object, **kwargs: object) -> Workbook:
+        workbook = real_load_workbook(source, **kwargs)
+        review.write_bytes(b"changed after the review snapshot was opened")
+        return workbook
+
+    monkeypatch.setattr(stage_bundle_pilot, "load_workbook", replace_after_load)
+
+    canonical = import_review_decisions(review, artifact)
+
+    binding = cast("dict[str, str]", canonical["review_workbook"])
+    assert binding["sha256"] == hashlib.sha256(snapshot).hexdigest()
 
 
 @pytest.mark.unit
@@ -403,3 +470,100 @@ def test_external_manifest_hash_binds_pending_candidate_and_workbook(
     files = cast("dict[str, dict[str, str]]", manifest["files"])
     assert len(files["candidate_artifact"]["sha256"]) == 64
     assert len(files["review_workbook"]["sha256"]) == 64
+
+    workbook = load_workbook(review)
+    workbook["Semantic Bundle Decisions"]["B2"] = "0" * 64
+    workbook.save(review)
+    with pytest.raises(ValueError, match="candidate artifact identity"):
+        build_verification_manifest(candidate_path, review)
+
+
+@pytest.mark.unit
+def test_attested_manifest_validates_canonical_payload_and_review_binding(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    other_review = tmp_path / "other-review.xlsx"
+    candidate_path = tmp_path / "candidate.json"
+    canonical_path = tmp_path / "canonical.json"
+    _blank_workbook(base)
+    artifact = _candidate_artifact()
+    candidate_path.write_text(json.dumps(artifact, sort_keys=True), encoding="utf-8")
+    write_review_workbook(base, artifact, review)
+    _attest_review_workbook(review)
+
+    canonical_path.write_text(
+        json.dumps({"status": "ATTESTED"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="canonical semantic rules"):
+        build_verification_manifest(candidate_path, review, canonical_path)
+
+    canonical = import_review_decisions(review, artifact)
+    canonical_path.write_text(json.dumps(canonical, sort_keys=True), encoding="utf-8")
+    other_review.write_bytes(review.read_bytes())
+    workbook = load_workbook(other_review)
+    workbook["Semantic Bundle Decisions"]["B5"] = "FINAL-REVIEW-PENDING"
+    workbook.save(other_review)
+
+    with pytest.raises(ValueError, match="review workbook binding"):
+        build_verification_manifest(candidate_path, other_review, canonical_path)
+
+    manifest = build_verification_manifest(candidate_path, review, canonical_path)
+    assert manifest["status"] == "ATTESTED"
+
+
+@pytest.mark.unit
+def test_cli_separates_packet_preparation_from_review_finalization() -> None:
+    parser = _parser()
+    prepared = parser.parse_args(
+        [
+            "prepare",
+            "--workbook",
+            "base.xlsx",
+            "--source-audit",
+            "audit.json",
+            "--engine-evidence",
+            "engine.json",
+            "--contracted-disposition",
+            "disposition.json",
+            "--output",
+            "candidate.json",
+            "--review-workbook-output",
+            "review.xlsx",
+        ]
+    )
+    finalized = parser.parse_args(
+        [
+            "finalize",
+            "--candidate",
+            "candidate.json",
+            "--review-workbook",
+            "reviewed.xlsx",
+            "--canonical-rules-output",
+            "canonical.json",
+            "--manifest-output",
+            "manifest.json",
+        ]
+    )
+
+    assert prepared.command == "prepare"
+    assert finalized.command == "finalize"
+    assert finalized.review_workbook.name == "reviewed.xlsx"
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "finalize",
+                "--workbook",
+                "base.xlsx",
+                "--candidate",
+                "candidate.json",
+                "--review-workbook",
+                "reviewed.xlsx",
+                "--canonical-rules-output",
+                "canonical.json",
+                "--manifest-output",
+                "manifest.json",
+            ]
+        )

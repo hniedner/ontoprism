@@ -94,7 +94,7 @@
       "rationale": "NCIt R126 conflates prior-history context with causal and non-temporal associations.",
       "source_examples": ["C172130->C27262", "C4037->C3247"],
       "source_roles": ["R126"],
-      "status": "proposed",
+      "status": "locally-approved",
       "submission_target": "RO"
     },
     {
@@ -293,7 +293,7 @@
       "submission_target": "RO"
     }
   ],
-  "registry_identity": "45d40d23dc559d8fae6490bf3914b8d0eff550d3bf8e069dd133e6fd9e1a8f97",
+  "registry_identity": "3970efc17ea8f067cf2e0152fc0039f3e14a8ac89cfeda210e727d14c8894783",
   "schema_version": 1,
   "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
 }

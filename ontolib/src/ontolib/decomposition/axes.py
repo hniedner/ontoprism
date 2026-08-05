@@ -124,6 +124,7 @@ def is_unsupported_filler(
 DROPPED_ROLES: frozenset[str] = frozenset(
     {"R89", "R111", "R112", "R113", "R114", "R115", "R116"}
 )
+NON_DEFINING_PROJECTED_ROLES: frozenset[str] = frozenset({"R103"})
 
 
 def is_dropped_role(role_code: str) -> bool:
@@ -131,9 +132,16 @@ def is_dropped_role(role_code: str) -> bool:
     return role_code in DROPPED_ROLES
 
 
-def is_defining_role(restriction: RoleRestriction) -> bool:
-    """True if the restriction contributes a decomposition axis (i.e. is not a
-    negative ``Excludes_*`` axiom AND not a probabilistic/optional role per SME)."""
+def is_projectable_role(restriction: RoleRestriction) -> bool:
+    """True when the curated projection retains this positive source restriction."""
     return not is_excluded_role(restriction.role_label) and not is_dropped_role(
         restriction.role_code
+    )
+
+
+def is_defining_role(restriction: RoleRestriction) -> bool:
+    """True when a projectable restriction contributes a defining detector axis."""
+    return (
+        is_projectable_role(restriction)
+        and restriction.role_code not in NON_DEFINING_PROJECTED_ROLES
     )

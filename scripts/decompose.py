@@ -166,7 +166,7 @@ async def _run(
     finally:
         try:
             await dispose_engine(engine)
-        except Exception as cleanup_error:
+        except BaseException as cleanup_error:
             if primary_error is None:
                 raise
             primary_error.add_note(

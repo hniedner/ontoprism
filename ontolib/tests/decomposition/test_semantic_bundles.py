@@ -97,6 +97,7 @@ def _candidate(
             _member(MemberRole.STAGE_VALUE, stage_value),
         ),
         evidence_claim_ids=("mcode-stage-structure",),
+        evidence_source_ids=("mcode-4.0.0-cancer-stage",),
     )
 
 

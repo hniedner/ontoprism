@@ -324,6 +324,25 @@ async def test_linked_list_reader_accepts_bound_and_rejects_overflow() -> None:
 
 
 @pytest.mark.unit
+async def test_linked_list_normalizes_equivalent_defined_genus_bindings() -> None:
+    rows = _linked_definition_rows(1)
+    rows[0]["childExpression"] = "_:definition-a"
+    rows.append(dict(rows[0], childExpression="_:definition-b"))
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        return rows if _iri("C900") in query else []
+
+    complete = await read_complete_definition(select, "C900")
+
+    assert len(complete.facts) == 1
+    genus = complete.facts[0]
+    assert isinstance(genus, GenusDefinitionFact)
+    assert genus.is_defined is True
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [

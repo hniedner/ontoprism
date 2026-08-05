@@ -44,7 +44,7 @@ def filter_excluded(
     return [
         restriction
         for restriction in restrictions
-        if axes.is_defining_role(restriction)
+        if axes.is_projectable_role(restriction)
         and not axes.is_generic_filler(restriction.role_code, restriction.filler_code)
         and not axes.is_unsupported_filler(
             concept_code, restriction.role_code, restriction.filler_code
@@ -152,13 +152,14 @@ def _is_most_specific(filler: str, fillers: set[str], is_ancestor: IsAncestor) -
 
 def _is_r101_semantic_split(
     axis_name: str,
-    leaves: set[str],
+    fillers: set[str],
     semantic_type_of: Callable[[str], str | None] | None,
 ) -> bool:
     return (
         axis_name == axes.PRIMARY_SITE_AXIS
         and semantic_type_of is not None
-        and len(leaves) > 1
+        and len(fillers) > 1
+        and any(semantic_type_of(filler) is not None for filler in fillers)
     )
 
 
@@ -301,7 +302,6 @@ def comparison_filler_codes(
 
 
 def _known_r101_organ(
-    leaves: set[str],
     fillers: set[str],
     parent_morphology: str | None,
     axis_name: str,
@@ -313,11 +313,10 @@ def _known_r101_organ(
     ):
         return None
     organ = organ_for_morphology(parent_morphology)
-    return organ if organ in leaves else None
+    return organ if organ in fillers else None
 
 
 def _resolve_r101_with_organ_lookup(
-    leaves: set[str],
     fillers: set[str],
     is_ancestor: IsAncestor,
     parent_morphology: str | None,
@@ -327,7 +326,7 @@ def _resolve_r101_with_organ_lookup(
     axis_name: str = "",
 ) -> list[Constituent] | None:
     """Prefer the known D23 organ while preserving distinct D20 region facts."""
-    organ = _known_r101_organ(leaves, fillers, parent_morphology, axis_name)
+    organ = _known_r101_organ(fillers, parent_morphology, axis_name)
     if organ is None:
         return None
     primary = Constituent(
@@ -391,10 +390,7 @@ def _constituents_for_axis(
     source_roles: dict[tuple[str, str], str],
     is_part_of: IsPartOf,
 ) -> list[Constituent]:
-    leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
-
     resolved = _resolve_r101_with_organ_lookup(
-        leaves,
         fillers,
         is_ancestor,
         parent_morphology,
@@ -406,7 +402,7 @@ def _constituents_for_axis(
     if resolved is not None:
         return resolved
 
-    if _is_r101_semantic_split(axis_name, leaves, semantic_type_of):
+    if _is_r101_semantic_split(axis_name, fillers, semantic_type_of):
         narrowed = cast("Callable[[str], str | None]", semantic_type_of)
         split = _r101_semantic_type_constituents(
             fillers, is_ancestor, is_part_of, narrowed
@@ -414,6 +410,7 @@ def _constituents_for_axis(
         if split:
             return split
 
+    leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
     return _standard_constituents(axis_name, leaves, fillers, is_ancestor, source_roles)
 
 

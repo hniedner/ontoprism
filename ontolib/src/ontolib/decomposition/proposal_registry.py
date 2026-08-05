@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Self
@@ -31,6 +32,10 @@ MappingPredicate = Literal[
     "narrowMatch",
     "relatedMatch",
 ]
+_NCIT_CODE = re.compile(r"C[0-9]+")
+_ROLE_CODE = re.compile(r"R[0-9]+")
+_OP_AXIS = re.compile(r"op:[A-Za-z][A-Za-z0-9]*")
+_ABSOLUTE_IRI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+")
 
 
 def _identity(value: object) -> str:
@@ -59,6 +64,13 @@ def _canonical(values: tuple[str, ...], field: str) -> tuple[str, ...]:
 def _require_unique(values: Sequence[object], field: str) -> None:
     if len(values) != len(set(values)):
         raise ValueError(f"{field} must be unique")
+
+
+def _require_matches(
+    values: Sequence[str], pattern: re.Pattern[str], field: str
+) -> None:
+    if any(pattern.fullmatch(value) is None for value in values):
+        raise ValueError(f"{field} contains an invalid identifier")
 
 
 def _require_replacement_shape(
@@ -129,7 +141,28 @@ class CrossOntologyMapping(_StrictModel):
             "evidence_url",
         ):
             _text(getattr(self, field), f"mapping {field}")
+        if self.system == "SNOMED CT US":
+            valid_identifier = self.concept_id.isdigit()
+        elif self.system == "NCIt":
+            valid_identifier = _NCIT_CODE.fullmatch(self.concept_id) is not None
+        else:
+            valid_identifier = _ABSOLUTE_IRI.fullmatch(self.concept_id) is not None
+        if not valid_identifier:
+            raise ValueError("mapping concept_id is not a safe identifier or IRI")
         return self
+
+
+def _validate_duplicate_checks(
+    checks: tuple[DuplicateCheck, ...],
+    status: ProposalStatus,
+) -> None:
+    resources = [check.resource for check in checks]
+    if len(resources) != len(set(resources)):
+        raise ValueError("duplicate checks must use unique resources")
+    if any(check.result == "equivalent-found" for check in checks) and status != (
+        "rejected"
+    ):
+        raise ValueError("equivalent-found proposals must be rejected")
 
 
 class _Proposal(_StrictModel):
@@ -153,9 +186,8 @@ class _Proposal(_StrictModel):
         ):
             _text(getattr(self, field), field)
         _canonical(self.source_roles, "source_roles")
-        resources = [check.resource for check in self.duplicate_checks]
-        if len(resources) != len(set(resources)):
-            raise ValueError("duplicate checks must use unique resources")
+        _require_matches(self.source_roles, _ROLE_CODE, "source_roles")
+        _validate_duplicate_checks(self.duplicate_checks, self.status)
         return self
 
 
@@ -174,9 +206,13 @@ class ConceptProposal(_Proposal):
     @model_validator(mode="after")
     def _validate_concept(self) -> Self:
         _text(self.axis, "axis")
+        if _OP_AXIS.fullmatch(self.axis) is None:
+            raise ValueError("axis must be a safe op: identifier")
         _canonical(self.parent_concepts, "parent_concepts")
+        _require_matches(self.parent_concepts, _NCIT_CODE, "parent_concepts")
         _canonical(self.semantic_types, "semantic_types")
         _canonical(self.source_concepts, "source_concepts")
+        _require_matches(self.source_concepts, _NCIT_CODE, "source_concepts")
         _require_unique(list(self.synonyms), "synonyms")
         mapping_keys = [(item.system, item.concept_id) for item in self.mappings]
         _require_unique(mapping_keys, "cross-ontology mappings")
@@ -197,6 +233,8 @@ class RelationProposal(_Proposal):
     def _validate_relation(self) -> Self:
         _text(self.domain, "domain")
         _text(self.range, "range")
+        _require_matches((self.domain,), _NCIT_CODE, "domain")
+        _require_matches((self.range,), _NCIT_CODE, "range")
         _canonical(self.source_examples, "source_examples")
         if self.id != relation_proposal_id(self.preferred_name):
             raise ValueError(
@@ -339,7 +377,10 @@ def _augmented_ttl(registry: ProposalRegistry) -> str:
                 f"{subject} a owl:Class ;",
                 f"  rdfs:label {json.dumps(proposal.preferred_name)} ;",
                 f"  op:proposalStatus {json.dumps(proposal.status)} ;",
-                f"  rdfs:subClassOf ncit:{proposal.parent_concepts[0]} ;",
+                *(
+                    f"  rdfs:subClassOf ncit:{parent} ;"
+                    for parent in proposal.parent_concepts
+                ),
             ]
         )
         for index, mapping in enumerate(proposal.mappings):
@@ -486,4 +527,17 @@ def load_proposal_registry(path: str | Path) -> ProposalRegistry:
         Path(path).read_text(encoding="utf-8"),
         object_pairs_hook=_reject_duplicate_keys,
     )
+    if not isinstance(value, dict):
+        raise ValueError("proposal registry must be a JSON object")
+    for field in ("schema_version", "registry_identity"):
+        if field not in value:
+            raise ValueError(f"proposal registry is missing {field}")
+    registry_identity = value["registry_identity"]
+    if (
+        not isinstance(registry_identity, str)
+        or re.fullmatch(r"[0-9a-f]{64}", registry_identity) is None
+    ):
+        raise ValueError(
+            "persisted proposal registry_identity must be a SHA-256 digest"
+        )
     return ProposalRegistry.model_validate(_normalize_registry_json(value))

@@ -215,19 +215,28 @@ def _canonical_completion_semantic_types(
     semantic_types: tuple[str, ...] | None,
 ) -> tuple[str, ...]:
     if semantic_types is None:
-        if decomposition is None:
-            raise RunStateError(
-                "non-decomposition completion requires explicit semantic types"
-            )
-        semantic_types = (
-            (decomposition.semantic_type,)
-            if decomposition.semantic_type is not None
-            else ()
-        )
+        semantic_types = _decomposition_semantic_types(decomposition)
     canonical = tuple(sorted(set(semantic_types)))
     if any(not value for value in canonical):
         raise RunStateError("completion semantic types must be non-empty strings")
+    representative = decomposition.semantic_type if decomposition is not None else None
+    if representative is not None and representative not in canonical:
+        raise RunStateError(
+            "representative semantic type must occur in completion semantic types"
+        )
     return canonical
+
+
+def _decomposition_semantic_types(
+    decomposition: Decomposition | None,
+) -> tuple[str, ...]:
+    if decomposition is None:
+        raise RunStateError(
+            "non-decomposition completion requires explicit semantic types"
+        )
+    if decomposition.semantic_type is None:
+        return ()
+    return (decomposition.semantic_type,)
 
 
 def _validated_completion_metadata(
@@ -490,6 +499,109 @@ async def _persist_completion_rows(
         "VALUES (:run_id, :concept_code, :proposal_id, :axis, :label, "
         ":source_signal, :status)",
         _proposal_rows(run_id, concept_code, minted),
+    )
+
+
+async def _require_persisted_completion_counts(
+    session: AsyncSession,
+    run_id: str,
+) -> None:
+    result = await session.execute(
+        text(
+            "SELECT w.concept_code, w.constituent_count, w.minted_count, "
+            "actual_constituents.value AS actual_constituent_count, "
+            "actual_mints.value AS actual_minted_count "
+            "FROM decomp_work_item w "
+            "CROSS JOIN LATERAL (SELECT count(*)::integer AS value "
+            "FROM decomp_constituent c WHERE c.run_id = w.run_id "
+            "AND c.concept_code = w.concept_code) actual_constituents "
+            "CROSS JOIN LATERAL (SELECT count(*)::integer AS value "
+            "FROM decomp_minted_proposal m WHERE m.run_id = w.run_id "
+            "AND m.concept_code = w.concept_code) actual_mints "
+            "WHERE w.run_id = :run_id AND w.state = 'complete' AND ("
+            "w.constituent_count IS DISTINCT FROM actual_constituents.value OR "
+            "w.minted_count IS DISTINCT FROM actual_mints.value) "
+            "ORDER BY w.ordinal LIMIT 1"
+        ),
+        {"run_id": run_id},
+    )
+    row = result.mappings().first()
+    if row is not None:
+        raise RunStateError(
+            f"persisted completion counts do not match child rows for "
+            f"{run_id!r}/{row['concept_code']!r} "
+            f"(constituents={row['constituent_count']}/"
+            f"{row['actual_constituent_count']}, "
+            f"mints={row['minted_count']}/{row['actual_minted_count']})"
+        )
+
+
+async def _finish_run_committed(
+    sf: async_sessionmaker[AsyncSession],
+    run_id: str,
+    *,
+    source_identity: str,
+    metrics: dict[str, object],
+    representation_identity: str | None,
+    original: Exception,
+) -> bool:
+    try:
+        async with sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT status, source_identity, metrics, publication_state, "
+                    "representation_identity FROM decomp_run WHERE id = :id"
+                ),
+                {"id": run_id},
+            )
+            row = result.mappings().first()
+    except asyncio.CancelledError:
+        raise
+    except BaseException as reconciliation_error:
+        original.add_note(
+            "Reading the decomposition run during commit reconciliation also failed: "
+            f"{type(reconciliation_error).__name__}: {reconciliation_error}"
+        )
+        raise original from reconciliation_error
+
+    expected_metrics = _json.loads(_json.dumps(metrics))
+    expected_publication_state = (
+        "published" if representation_identity is not None else "not_requested"
+    )
+    return row is not None and (
+        row["status"],
+        row["source_identity"],
+        row["metrics"],
+        row["publication_state"],
+        row["representation_identity"],
+    ) == (
+        "complete",
+        source_identity,
+        expected_metrics,
+        expected_publication_state,
+        representation_identity,
+    )
+
+
+async def _reconcile_finish_run_error(
+    sf: async_sessionmaker[AsyncSession],
+    run_id: str,
+    *,
+    updated: bool,
+    source_identity: str,
+    metrics: dict[str, object],
+    representation_identity: str | None,
+    original: Exception,
+) -> bool:
+    if not updated:
+        return False
+    return await _finish_run_committed(
+        sf,
+        run_id,
+        source_identity=source_identity,
+        metrics=metrics,
+        representation_identity=representation_identity,
+        original=original,
     )
 
 
@@ -1137,6 +1249,7 @@ class ProvenanceStore:
     async def decompositions_for_run(self, run_id: str) -> list[Decomposition]:
         """Reconstruct the normalized artifact in persisted worklist order."""
         async with self._sf() as session:
+            await _require_persisted_completion_counts(session, run_id)
             (
                 work_item_rows,
                 constituent_rows,
@@ -1438,70 +1551,91 @@ class ProvenanceStore:
         ``minted_concept`` curator queue (D48: proposals become curator-visible only
         on success).
         """
-        async with self._sf() as session, session.begin():
-            locked = await session.execute(
-                text(
-                    "SELECT status, source_identity, fingerprint, "
-                    "fingerprint_sha256, publication_state, "
-                    "representation_identity "
-                    "FROM decomp_run "
-                    "WHERE id = :id FOR UPDATE"
-                ),
-                {"id": run_id},
-            )
-            row = locked.mappings().first()
-            if row is None:
-                return False
-            _require_completion_source(row, source_identity)
-            fingerprint = self._validated_fingerprint(
-                row["fingerprint"], row["fingerprint_sha256"]
-            )
-            await self._require_materialized_worklist(session, run_id, fingerprint)
-            if row["status"] != "running":
-                raise RunStateError(f"decomposition run {run_id!r} is not running")
-            incomplete = await session.execute(
-                text(
-                    "SELECT count(*) FROM decomp_work_item "
-                    "WHERE run_id = :id AND state <> 'complete'"
-                ),
-                {"id": run_id},
-            )
-            if incomplete.scalar_one() != 0:
-                raise RunStateError(
-                    f"decomposition run {run_id!r} has unfinished work items"
+        updated = False
+        try:
+            async with self._sf() as session, session.begin():
+                locked = await session.execute(
+                    text(
+                        "SELECT status, source_identity, fingerprint, "
+                        "fingerprint_sha256, publication_state, "
+                        "representation_identity "
+                        "FROM decomp_run "
+                        "WHERE id = :id FOR UPDATE"
+                    ),
+                    {"id": run_id},
                 )
-            _require_completion_publication(row, representation_identity, run_id)
-            await session.execute(
-                text(
-                    "INSERT INTO minted_concept "
-                    "(id, run_id, axis, label, source_signal, status) "
-                    "SELECT proposal_id, run_id, axis, label, source_signal, status "
-                    "FROM decomp_minted_proposal WHERE run_id = :id "
-                    # Insert-or-ignore, never insert-or-update: a rerun re-mints the
-                    # same deterministic proposal id with status='proposed', and
-                    # promotion must never clobber a curator's earlier approve or
-                    # reject decision (design section 7.2).
-                    "ON CONFLICT (id) DO NOTHING"
-                ),
-                {"id": run_id},
-            )
-            result = await session.execute(
-                text(
-                    "UPDATE decomp_run SET status = 'complete', "
-                    "finished_at = :finished_at, "
-                    "publication_state = CASE "
-                    "WHEN publication_state = 'publishing' THEN 'published' "
-                    "ELSE publication_state END, "
-                    "publication_finished_at = CASE "
-                    "WHEN publication_state = 'publishing' THEN :finished_at "
-                    "ELSE publication_finished_at END, "
-                    "metrics = CAST(:metrics AS jsonb) WHERE id = :id "
-                    "AND status = 'running'"
-                ),
-                {
-                    "id": run_id,
-                    "finished_at": datetime.datetime.now(datetime.UTC),
-                    "metrics": _json.dumps(metrics),
-                },
-            )
-            return bool(cast("int", result.rowcount))  # type: ignore[attr-defined]
+                row = locked.mappings().first()
+                if row is None:
+                    return False
+                _require_completion_source(row, source_identity)
+                fingerprint = self._validated_fingerprint(
+                    row["fingerprint"], row["fingerprint_sha256"]
+                )
+                await self._require_materialized_worklist(session, run_id, fingerprint)
+                if row["status"] != "running":
+                    raise RunStateError(f"decomposition run {run_id!r} is not running")
+                incomplete = await session.execute(
+                    text(
+                        "SELECT count(*) FROM decomp_work_item "
+                        "WHERE run_id = :id AND state <> 'complete'"
+                    ),
+                    {"id": run_id},
+                )
+                if incomplete.scalar_one() != 0:
+                    raise RunStateError(
+                        f"decomposition run {run_id!r} has unfinished work items"
+                    )
+                await _require_persisted_completion_counts(session, run_id)
+                _require_completion_publication(row, representation_identity, run_id)
+                await session.execute(
+                    text(
+                        "INSERT INTO minted_concept "
+                        "(id, run_id, axis, label, source_signal, status) "
+                        "SELECT proposal_id, run_id, axis, label, source_signal, "
+                        "status "
+                        "FROM decomp_minted_proposal WHERE run_id = :id "
+                        # Insert-or-ignore, never insert-or-update: a rerun re-mints the
+                        # same deterministic proposal id with status='proposed', and
+                        # promotion must never clobber a curator's earlier approve or
+                        # reject decision (design section 7.2).
+                        "ON CONFLICT (id) DO NOTHING"
+                    ),
+                    {"id": run_id},
+                )
+                result = await session.execute(
+                    text(
+                        "UPDATE decomp_run SET status = 'complete', "
+                        "finished_at = :finished_at, "
+                        "publication_state = CASE "
+                        "WHEN publication_state = 'publishing' THEN 'published' "
+                        "ELSE publication_state END, "
+                        "publication_finished_at = CASE "
+                        "WHEN publication_state = 'publishing' THEN :finished_at "
+                        "ELSE publication_finished_at END, "
+                        "metrics = CAST(:metrics AS jsonb) WHERE id = :id "
+                        "AND status = 'running'"
+                    ),
+                    {
+                        "id": run_id,
+                        "finished_at": datetime.datetime.now(datetime.UTC),
+                        "metrics": _json.dumps(metrics),
+                    },
+                )
+                updated = bool(
+                    cast("int", result.rowcount)  # type: ignore[attr-defined]
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as original:
+            if await _reconcile_finish_run_error(
+                self._sf,
+                run_id,
+                updated=updated,
+                source_identity=source_identity,
+                metrics=metrics,
+                representation_identity=representation_identity,
+                original=original,
+            ):
+                return True
+            raise
+        return updated

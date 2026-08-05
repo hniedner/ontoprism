@@ -59,28 +59,50 @@ class _DefinitionSlice:
     root_group_ids: tuple[str, ...]
 
 
+def _nested_expression_branches(concept_iri: str) -> str:
+    branches = [f"{{ <{concept_iri}> owl:equivalentClass ?expression . }}"]
+    for depth in range(1, _MAX_NESTING_DEPTH + 1):
+        lines = [f"<{concept_iri}> owl:equivalentClass ?rootExpression ."]
+        parent = "?rootExpression"
+        for level in range(1, depth + 1):
+            member = f"?pathMember{level}"
+            expression = f"?pathExpression{level}"
+            lines.extend(
+                (
+                    f"{parent} owl:intersectionOf/rdf:rest*/rdf:first {member} .",
+                    f"FILTER(isBlank({member}))",
+                    f"{member} owl:equivalentClass? {expression} .",
+                    f"{expression} owl:intersectionOf ?pathList{level} .",
+                )
+            )
+            if level == depth:
+                lines.extend(
+                    (
+                        f"BIND({parent} AS ?parentExpression)",
+                        f"BIND({expression} AS ?expression)",
+                    )
+                )
+            parent = expression
+        branches.append("{\n" + "\n".join(lines) + "\n}")
+    return "\nUNION\n".join(branches)
+
+
 def build_complete_definition_query(concept_code: str) -> str:
     """Read the anchored nested RDF-list graph for bounded validation in Python."""
     concept_iri = safe_iri(concept_code, NCIT_NS)
+    expression_branches = _nested_expression_branches(concept_iri)
     return f"""{_PREFIXES}
 SELECT ?expression ?parentExpression ?list ?cell ?next ?member ?role ?target
        ?childExpression ?nestedExpression WHERE {{
     GRAPH <{STATED_GRAPH_IRI}> {{
-        <{concept_iri}> owl:equivalentClass ?rootExpression .
-        ?rootExpression
-            (owl:intersectionOf/rdf:rest*/rdf:first)* ?expression .
+        {{
+        {expression_branches}
+        }}
         ?expression owl:intersectionOf ?list .
         ?list rdf:rest* ?cell .
         FILTER(?cell != rdf:nil)
         OPTIONAL {{ ?cell rdf:first ?member }}
         OPTIONAL {{ ?cell rdf:rest ?next }}
-        OPTIONAL {{
-            ?rootExpression
-                (owl:intersectionOf/rdf:rest*/rdf:first)* ?parentExpression .
-            ?parentExpression
-                owl:intersectionOf/rdf:rest*/rdf:first ?expression .
-            FILTER(?parentExpression != ?expression)
-        }}
         OPTIONAL {{
             ?member owl:onProperty ?role ;
                     owl:someValuesFrom ?target .
@@ -88,17 +110,8 @@ SELECT ?expression ?parentExpression ?list ?cell ?next ?member ?role ?target
         OPTIONAL {{ ?member owl:equivalentClass ?childExpression }}
         OPTIONAL {{
             FILTER(isBlank(?member))
-            {{
-                {{
-                    ?member owl:intersectionOf ?nestedList .
-                    BIND(?member AS ?nestedExpression)
-                }}
-                UNION
-                {{
-                    ?member owl:equivalentClass ?nestedExpression .
-                    ?nestedExpression owl:intersectionOf ?nestedList .
-                }}
-            }}
+            ?member owl:equivalentClass? ?nestedExpression .
+            ?nestedExpression owl:intersectionOf ?nestedList .
         }}
     }}
 }}
@@ -214,17 +227,7 @@ def _linked_group_depths(
 
 
 def _linked_cell_signature(row: Row) -> tuple[str | None, ...]:
-    return tuple(
-        row.get(binding)
-        for binding in (
-            "next",
-            "member",
-            "role",
-            "target",
-            "childExpression",
-            "nestedExpression",
-        )
-    )
+    return (row.get("next"), *_member_key(row))
 
 
 def _collect_linked_rows(

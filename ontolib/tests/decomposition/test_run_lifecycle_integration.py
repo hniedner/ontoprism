@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 
 import asyncpg
 import pytest
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -283,6 +285,104 @@ async def test_zero_output_and_decomposition_complete_as_exact_work_items() -> N
                 run_id,
                 RunResumeIdentity.from_fingerprint(_fingerprint()),
             )
+    finally:
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+@pytest.mark.parametrize(
+    "missing_table",
+    ["decomp_constituent", "decomp_minted_proposal"],
+)
+async def test_persisted_completion_counts_gate_reconstruction_and_finalization(
+    missing_table: str,
+) -> None:
+    run_id = _new_run_id("neoplasm")
+    fingerprint = _fingerprint().model_copy(
+        update={"worklist": ("C0",), "total_limit": 1}
+    )
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    conn = await asyncpg.connect(_dsn())
+    try:
+        await store.create_run(run_id, "26.07d", fingerprint)
+        claim = await store.claim_work_item(run_id, "C0")
+        assert claim is not None
+        await store.complete_work_item(
+            run_id,
+            "C0",
+            claim,
+            decomposition=Decomposition(
+                code="C0",
+                semantic_type="Neoplastic Process",
+                constituents=(
+                    Constituent(
+                        axis="op:Laterality",
+                        filler_code="MINT-C0",
+                        axis_source="nlp",
+                    ),
+                ),
+            ),
+            minted=(MintedConcept(axis="op:Laterality", label="minted C0"),),
+        )
+        delete_statement = {
+            "decomp_constituent": (
+                "DELETE FROM decomp_constituent "
+                "WHERE run_id = $1 AND concept_code = 'C0'"
+            ),
+            "decomp_minted_proposal": (
+                "DELETE FROM decomp_minted_proposal "
+                "WHERE run_id = $1 AND concept_code = 'C0'"
+            ),
+        }[missing_table]
+        await conn.execute(delete_statement, run_id)
+
+        with pytest.raises(RunStateError, match="persisted completion counts"):
+            await store.decompositions_for_run(run_id)
+        with pytest.raises(RunStateError, match="persisted completion counts"):
+            await store.finish_run(
+                run_id,
+                source_identity=fingerprint.source_identity,
+                metrics={},
+            )
+    finally:
+        await conn.close()
+        await _cleanup([run_id])
+        await dispose_engine(engine)
+
+
+async def test_finish_run_reconciles_lost_commit_acknowledgement() -> None:
+    run_id = _new_run_id("neoplasm")
+    fingerprint = _fingerprint().model_copy(
+        update={"worklist": (), "total_limit": None}
+    )
+    engine = make_engine(get_settings().database_url)
+    store = ProvenanceStore(make_sessionmaker(engine))
+    acknowledgement_lost = False
+
+    def lose_first_commit_ack(session: Session) -> None:
+        nonlocal acknowledgement_lost
+        if session.bind is engine.sync_engine and not acknowledgement_lost:
+            acknowledgement_lost = True
+            raise RuntimeError("connection closed after commit")
+
+    try:
+        await store.create_run(run_id, "26.07d", fingerprint)
+        event.listen(Session, "after_commit", lose_first_commit_ack)
+        try:
+            assert await store.finish_run(
+                run_id,
+                source_identity=fingerprint.source_identity,
+                metrics={"total_in_scope": 0},
+            )
+        finally:
+            event.remove(Session, "after_commit", lose_first_commit_ack)
+
+        assert acknowledgement_lost is True
+        completed = await store.get_run(run_id)
+        assert completed is not None
+        assert completed.status == "complete"
+        assert completed.total_in_scope == 0
     finally:
         await _cleanup([run_id])
         await dispose_engine(engine)

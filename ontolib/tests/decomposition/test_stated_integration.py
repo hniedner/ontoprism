@@ -358,18 +358,20 @@ async def test_nested_intersection_groups_and_late_members_match_real_oxigraph(
                     ncit:C99603
                     [
                         a owl:Class ;
-                        owl:intersectionOf (
-                            [
-                                a owl:Restriction ;
-                                owl:onProperty ncit:R140 ;
-                                owl:someValuesFrom ncit:C99610
-                            ]
-                            [
-                                a owl:Restriction ;
-                                owl:onProperty ncit:R141 ;
-                                owl:someValuesFrom ncit:C99611
-                            ]
-                        )
+                        owl:equivalentClass [
+                            owl:intersectionOf (
+                                [
+                                    a owl:Restriction ;
+                                    owl:onProperty ncit:R140 ;
+                                    owl:someValuesFrom ncit:C99610
+                                ]
+                                [
+                                    a owl:Restriction ;
+                                    owl:onProperty ncit:R141 ;
+                                    owl:someValuesFrom ncit:C99611
+                                ]
+                            )
+                        ]
                     ]
                     [
                         a owl:Restriction ;

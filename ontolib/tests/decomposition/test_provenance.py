@@ -87,6 +87,27 @@ def test_work_item_read_model_rejects_representative_outside_source_types() -> N
 
 
 @pytest.mark.unit
+async def test_completion_rejects_representative_outside_source_types() -> None:
+    sf = _make_mock_sf()
+
+    with pytest.raises(RunStateError, match="representative semantic type"):
+        await ProvenanceStore(sf).complete_work_item(
+            "run-1",
+            "C1",
+            UUID(int=1),
+            decomposition=Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=(),
+            ),
+            minted=(),
+            semantic_types=("Disease or Syndrome",),
+        )
+
+    sf().execute.assert_not_awaited()
+
+
+@pytest.mark.unit
 async def test_publication_lock_requires_an_engine_bound_session_factory() -> None:
     store = ProvenanceStore(_make_mock_sf())
 
@@ -281,9 +302,18 @@ async def test_finish_run_sets_complete() -> None:
     worklist.scalars.return_value.all.return_value = []
     incomplete = MagicMock()
     incomplete.scalar_one.return_value = 0
+    consistent_counts = MagicMock()
+    consistent_counts.mappings.return_value.first.return_value = None
     promoted = MagicMock()
     updated = MagicMock(rowcount=1)
-    sf().execute.side_effect = [locked, worklist, incomplete, promoted, updated]
+    sf().execute.side_effect = [
+        locked,
+        worklist,
+        incomplete,
+        consistent_counts,
+        promoted,
+        updated,
+    ]
     store = ProvenanceStore(sf)
     result = await store.finish_run(
         "run-1",
@@ -646,6 +676,8 @@ async def test_list_minted_concepts_limit_offset() -> None:
 async def test_decompositions_for_run_reconstructs_complete_typed_record() -> None:
     sf = _make_mock_sf()
     restriction_id = "b" * 64
+    consistent_counts = MagicMock()
+    consistent_counts.mappings.return_value.first.return_value = None
     work_items = MagicMock()
     work_items.mappings.return_value.all.return_value = [
         {"concept_code": "C1", "semantic_type": "Neoplastic Process"}
@@ -704,6 +736,7 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     edges = MagicMock()
     edges.mappings.return_value.all.return_value = []
     sf().execute.side_effect = [
+        consistent_counts,
         work_items,
         constituents,
         definitions,

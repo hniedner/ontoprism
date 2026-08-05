@@ -6,8 +6,10 @@ import hashlib
 import json
 from collections import Counter
 from datetime import date, datetime
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -623,10 +625,10 @@ def _workbook_constituents(
     return result, row_codes
 
 
-def _load_review_workbook(path: Path) -> Workbook:
+def _load_review_workbook(content: bytes) -> Workbook:
     try:
-        workbook = load_workbook(path, data_only=False, read_only=False)
-    except (OSError, ValueError) as error:
+        workbook = load_workbook(BytesIO(content), data_only=False, read_only=False)
+    except (BadZipFile, OSError, ValueError) as error:
         raise GoldenSetValidationError(
             f"cannot read adjudication workbook: {error}"
         ) from error
@@ -854,7 +856,13 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
 def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
     """Import the issue #57 workbook without inferring any reviewer decision."""
     workbook_path = Path(path)
-    workbook = _load_review_workbook(workbook_path)
+    try:
+        workbook_bytes = workbook_path.read_bytes()
+    except OSError as error:
+        raise GoldenSetValidationError(
+            f"cannot read adjudication workbook: {error}"
+        ) from error
+    workbook = _load_review_workbook(workbook_bytes)
     reviewer = _reviewer_from_workbook(workbook)
     evidence = _required_evidence(workbook)
     try:
@@ -871,9 +879,7 @@ def import_adjudication_workbook(path: str | Path) -> AdjudicationArtifact:
                 engine_evidence_identity=evidence["Engine evidence identity"],
                 corpus_evidence_identity=evidence["Corpus evidence identity"],
                 detector_identity=evidence["Detector identity"],
-                workbook_identity=hashlib.sha256(
-                    workbook_path.read_bytes()
-                ).hexdigest(),
+                workbook_identity=hashlib.sha256(workbook_bytes).hexdigest(),
                 reviewer=reviewer,
             ),
             "concepts": _workbook_concepts(workbook),
