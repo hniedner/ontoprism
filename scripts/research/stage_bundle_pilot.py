@@ -58,6 +58,9 @@ _SOURCE_AUDIT_SHA256 = (
 _ENGINE_EVIDENCE_SHA256 = (
     "42e33238c7b18985263f780a165ad42d1230bb620a2aac8edf11748cf661f74f"
 )
+_CONTRACTED_DISPOSITION_SHA256 = (
+    "ce0d2dc60322a8f4ea704894ac39ed4488daeca09a807423140a9fd4e2603229"
+)
 _SOURCE_IDENTITY = "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
 _STRUCTURE_CLAIM_ID = "mcode-4.0.0-cancer-stage-structure"
 _METHOD_CLAIM_ID = "mcode-4.0.0-valg-method"
@@ -1388,6 +1391,11 @@ def generate_stage_bundle_artifact(
         (workbook_path, workbook_bytes, _WORKBOOK_SHA256),
         (source_audit_path, source_audit_bytes, _SOURCE_AUDIT_SHA256),
         (engine_evidence_path, engine_evidence_bytes, _ENGINE_EVIDENCE_SHA256),
+        (
+            contracted_disposition_path,
+            contracted_disposition_bytes,
+            _CONTRACTED_DISPOSITION_SHA256,
+        ),
     ):
         actual = _sha256_bytes(content)
         if actual != expected:

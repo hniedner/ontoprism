@@ -704,6 +704,30 @@ def test_constituent_corrections_require_row_type_header() -> None:
 
 
 @pytest.mark.unit
+def test_stage_bundle_artifact_rejects_wrong_contracted_disposition_digest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = [tmp_path / name for name in ("workbook", "audit", "engine", "contracted")]
+    content = b"{}"
+    for path in paths:
+        path.write_bytes(content)
+    digest = hashlib.sha256(content).hexdigest()
+    monkeypatch.setattr(stage_bundle_pilot, "_WORKBOOK_SHA256", digest)
+    monkeypatch.setattr(stage_bundle_pilot, "_SOURCE_AUDIT_SHA256", digest)
+    monkeypatch.setattr(stage_bundle_pilot, "_ENGINE_EVIDENCE_SHA256", digest)
+    monkeypatch.setattr(
+        stage_bundle_pilot,
+        "_CONTRACTED_DISPOSITION_SHA256",
+        "0" * 64,
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="contracted SHA-256 mismatch"):
+        stage_bundle_pilot.generate_stage_bundle_artifact(*paths)
+
+
+@pytest.mark.unit
 def test_semantic_review_accepts_excel_date_cells(tmp_path: Path) -> None:
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
