@@ -5,6 +5,7 @@ from typing import cast
 
 import pytest
 
+from ontolib.decomposition.models import canonical_definition_fact_id
 from ontolib.decomposition.semantic_bundles import (
     AdjudicatedSemanticBundle,
     AdjudicatedSemanticContext,
@@ -31,6 +32,36 @@ from ontolib.decomposition.semantic_bundles import (
 
 _SOURCE_IDENTITY = "1" * 64
 _GROUP_ID = "C115057/C132736:0"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("anchor_code", "group_id", "role_code", "filler_code"),
+    [
+        ("C132736", "C115057/C132736:0", "R88", "C27966"),
+        ("", "", "", ""),
+        ("Cå", "group-β", "Rñ", "填充"),
+        ("C1\x1fC2", "group\x1f0", "R1\x1fR2", "C3\x1fC4"),
+    ],
+)
+def test_restriction_fact_id_matches_definition_fact_id(
+    anchor_code: str,
+    group_id: str,
+    role_code: str,
+    filler_code: str,
+) -> None:
+    assert canonical_restriction_fact_id(
+        anchor_code,
+        group_id,
+        role_code,
+        filler_code,
+    ) == canonical_definition_fact_id(
+        anchor_code,
+        group_id,
+        "restriction",
+        role_code,
+        filler_code,
+    )
 
 
 def _occurrence(
