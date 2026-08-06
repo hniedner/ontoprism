@@ -1264,7 +1264,9 @@ def _score_concept_views(
     set[ConstituentPair],
 ]:
     actual_pairs = {item.pair for item in actual.constituents}
-    actual_exclusions = {item.pair for item in actual.constituents if item.needs_review}
+    engine_review_flags = {
+        item.pair for item in actual.constituents if item.needs_review
+    }
     view_items = {
         "ncit_bound": tuple(
             item
@@ -1321,7 +1323,7 @@ def _score_concept_views(
         )
         if view == "augmented":
             augmented_exclusions = expected_exclusions
-    return view_items, results, actual_exclusions, augmented_exclusions
+    return view_items, results, engine_review_flags, augmented_exclusions
 
 
 def _concept_report(
@@ -1330,7 +1332,7 @@ def _concept_report(
     actual: EngineConcept,
     view_items: dict[str, tuple[GoldenConstituent, ...]],
     results: dict[str, ExtractionScore],
-    actual_exclusions: set[ConstituentPair],
+    engine_review_flags: set[ConstituentPair],
     expected_exclusions: set[ConstituentPair],
 ) -> dict[str, object]:
     exclusions = expected_exclusions
@@ -1348,7 +1350,7 @@ def _concept_report(
         "expected_review_exclusions": sorted(
             [list(pair) for pair in expected_exclusions]
         ),
-        "actual_review_exclusions": sorted([list(pair) for pair in actual_exclusions]),
+        "engine_review_flags": sorted([list(pair) for pair in engine_review_flags]),
         "expected_pair_modality": [
             {
                 "axis": item.axis,
@@ -1446,7 +1448,7 @@ def evaluate_adjudication(
         augmented_proposal_expected += accepted
         engine_proposal_emissions += len(engine_ids)
         engine_proposal_ids.update(engine_ids)
-        view_items, results, actual_exclusions, expected_exclusions = (
+        view_items, results, engine_review_flags, expected_exclusions = (
             _score_concept_views(
                 expected, actual, aggregates, axis_aggregates, deferrals
             )
@@ -1459,7 +1461,7 @@ def evaluate_adjudication(
             actual,
             view_items,
             results,
-            actual_exclusions,
+            engine_review_flags,
             expected_exclusions,
         )
         group_matches.append(cast("bool", concept_report["group_match"]))

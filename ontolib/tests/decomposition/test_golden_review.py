@@ -1121,13 +1121,33 @@ def test_reviewer_resolution_scores_an_engine_flagged_pair(tmp_path: Path) -> No
     )
 
     first = report["concepts"][0]
-    assert first["actual_review_exclusions"] == [["op:StageValue", "C27970"]]
+    assert first["engine_review_flags"] == [["op:StageValue", "C27970"]]
     assert first["pair_score"]["ncit_bound"]["true_positive"] == 1
     assert report["expected_pair_deferrals"]["ncit_bound"] == {
         "deferred": 0,
         "engine_matches": 0,
         "expected": 20,
     }
+
+
+@pytest.mark.unit
+def test_engine_flagged_sme_rejected_pair_is_a_false_positive(tmp_path: Path) -> None:
+    concepts = _m1_concepts()
+    engine = _engine_evidence()
+    engine["concepts"][0]["constituents"][0]["filler"] = "C27971"
+    engine["concepts"][0]["constituents"][0]["needs_review"] = True
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    first = report["concepts"][0]
+    assert first["engine_review_flags"] == [["op:StageValue", "C27971"]]
+    assert first["pair_score"]["ncit_bound"]["extra"] == [["op:StageValue", "C27971"]]
+    assert first["pair_score"]["ncit_bound"]["precision"] == 0.0
 
 
 @pytest.mark.unit
