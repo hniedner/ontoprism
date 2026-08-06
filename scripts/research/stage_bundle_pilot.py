@@ -1713,6 +1713,7 @@ def apply_constituent_corrections(
         "Concept Order",
         "Concept Code",
         "Source Label",
+        "Row Type",
         "SME Action",
         "Expected Axis",
         "Expected Filler",

@@ -656,6 +656,54 @@ def test_constituent_corrections_reject_duplicate_headers() -> None:
 
 
 @pytest.mark.unit
+def test_constituent_corrections_require_row_type_header() -> None:
+    workbook = Workbook()
+    sheet = workbook.create_sheet("Constituent Decisions")
+    headers = (
+        "Concept Order",
+        "Concept Code",
+        "Source Label",
+        "SME Action",
+        "Expected Axis",
+        "Expected Filler",
+        "Expected Group",
+        "Expected needs_review",
+        "Expected Provenance Status",
+        "SME Notes",
+        "Row Complete?",
+    )
+    for column, header in enumerate(headers, start=1):
+        sheet.cell(4, column, header)
+    values = (
+        1,
+        "C1",
+        "Source concept",
+        "include",
+        "op:AssociatedRegion",
+        "C2",
+        None,
+        "FALSE",
+        "ncit-26.07d",
+        "Original decision.",
+        "YES",
+    )
+    for column, value in enumerate(values, start=1):
+        sheet.cell(5, column, value)
+
+    correction = ConstituentCorrection(
+        action="add",
+        concept_code="C1",
+        axis="op:AssociatedRegion",
+        filler_code="C3",
+        rationale="The complete source audit supports this missing pair.",
+        provenance_status="ncit-26.07d",
+        needs_review=False,
+    )
+    with pytest.raises(ValueError, match="Row Type"):
+        apply_constituent_corrections(workbook, (correction,))
+
+
+@pytest.mark.unit
 def test_semantic_review_accepts_excel_date_cells(tmp_path: Path) -> None:
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
