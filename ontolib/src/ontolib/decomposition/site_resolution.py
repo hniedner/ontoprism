@@ -1,16 +1,14 @@
-"""Morphology-to-organ resolution table (D23 SME-validated).
+"""Morphology-to-organ resolution tables used by D58/D59.
 
-The SME established the governing principle: R101 = the named organ (DECISIONS D23).
-This module encodes the validated morphology→organ mapping for the concepts
-in the ``ontolib/tests/decomposition/golden/`` golden set. It is used as a
-tiebreaker when the walker returns multiple R101 candidates — the matching
-organ is preferred over generic or data-quality-issue alternatives.
+These hand-maintained tables are keyed by the resolved parent morphology emitted by
+the walker, not by the concept being decomposed. They are used as tiebreakers when the
+walker returns multiple site candidates.
 
-The durable decision and its validated lookup table are recorded in
-``docs/DECISIONS.md`` D23.
+The durable source-bound routing and scoring contracts are recorded in
+``docs/DECISIONS.md`` D58/D59.
 """
 
-# Maps morphology code → SME-validated organ code.
+# Maps resolved parent morphology code → routed organ code.
 # Keys are *parent* morphology codes that the walker resolves for each
 # concept — these are the resolved morphology at the top of the genus chain,
 # not the concept's own ``owl:intersectionOf`` morphology restriction.
@@ -58,7 +56,15 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     # --- Oral Cavity ---
     "C5980": "C12421",  # Oral Cavity Squamous Cell Carcinoma → Oral Cavity
     # --- Uterine ---
-    "C4008": "C12316",  # Uterine Carcinosarcoma → Uterus
+    # BUG (deferred to post-attestation rebuild, see D-R5 and §0b item 1): C4008 is
+    # "Recurrent Gallbladder Carcinoma", not Uterine Carcinosarcoma, and C12316 is
+    # Corpus Uteri, not Uterus. Both tokens of this comment were wrong. No concept in
+    # the M1 cohort resolves C4008 as its parent morphology, so the entry does not
+    # currently fire -- but it is not SME-validated and must not be relied on.
+    # Replacement key is undetermined: this table is keyed by resolved parent
+    # morphology, so it requires observed walker output, not a concept code.
+    # Do not "fix" the key before attestation.
+    "C4008": "C12316",
     "C7558": "C12316",  # Endometrial Carcinoma → Corpus Uteri
     # --- Esophagus / GEJ composite staging site ---
     "C3513": "C203674",  # Esophageal Carcinoma → Esophagus and GEJ
