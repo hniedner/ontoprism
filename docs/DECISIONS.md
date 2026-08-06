@@ -1449,6 +1449,16 @@ Full survey, examples, and the mitigation-vs-current-approach comparison table:
 ## 2026-07-09 — subsumption-closure completeness is a precondition of D19
 
 ### D21. NCIt's `rdfs:subClassOf+` closure omits defined-class subsumption, so "nested" is only decidable where it is materialized — accept the fail-safe direction, and do not use the inferred graph as a round-trip oracle
+
+**Current-status correction (D59):** source-bound M1 scoring supersedes decision item
+2's engine-flag exclusion. Engine `needs_review` flags are diagnostics and do not defer
+scoring; D59's strict denominator governs. The current strict view is 80/106 precision
+(0.7547) and 80/153 recall (0.5229). The former D21-style exclusion view, retained for
+reference only, is 66/85 precision (0.7765) and 66/139 recall (0.4748). Exclusion buys
+only +0.0218 precision while costing 0.0481 recall, so D21's "unreachable by
+construction" rationale does not survive measurement. The #44 ≥0.9 gate remains
+binding and unmet under both views; it is not retired, rescoped, or re-baselined.
+
 D19's central rule — collapse only *nested* (is-a/part-of) candidates, preserve co-equal
 non-nested ones — makes correctness depend on deciding nestedness, which
 `filler_selection.py` does via `rdfs:subClassOf+`. That closure is **incomplete**, and more
