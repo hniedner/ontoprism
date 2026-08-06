@@ -348,6 +348,10 @@ def _resolve_r101_with_organ_lookup(
     )
     if semantic_type_of is None:
         return [primary]
+    # Deletion deferred by D-R5: exhaustive enumeration of 144,072 closed-form
+    # inputs, 9.0M production-shaped pipeline runs, and 14,604 hermetic-suite helper
+    # executions all found this set empty. The deadness is data-contingent on the
+    # hand-maintained organ/subsite tables remaining disjoint, not structural.
     subsites = set(primary_subsites_for_morphology(parent_morphology)) & fillers
     regions = {
         filler
