@@ -371,22 +371,42 @@ only be mapped to.** An NCIt whose definitions depend on SNOMED cannot be redist
 defeat the purpose of building it. (#80 stays blocked on a written licence determination, D29.)
 
 > **Current-status correction (2026-08-06) — the licence boundary above is drawn too coarsely, and
-> the "#80 stays blocked" clause is wrong as stated.** NCI holds a licence to use SNOMED CT through
-> the NCI Metathesaurus, and the open NCIt Thesaurus already publishes 122,853 `P207` UMLS CUIs and
-> 1,252 `P334` ICD-O-3 codes. Acquisition is therefore not the gate. The boundary has three parts,
-> only the last of which is genuinely open:
+> both halves of the "may be depended on definitionally / may only be mapped to" split are wrong.**
 >
-> 1. **Acquiring and mapping** SNOMED CT / ICD-O-3 via NCIm — **not blocked.** Build and map freely.
-> 2. **Publicly serving** SCTIDs / ICD-O-3 codes to unlicensed downstream consumers — gated, and
->    already addressed by D29.3's entitlement gating on the *serving* surface.
-> 3. **Redistributing a derived ontology whose definitions depend on WHO/IHTSDO content** — the one
->    question still open, and the only one needing a written determination from NCI counsel. It is
->    materially narrower than "obtain a licence."
+> **(a) Licence is not the discriminator.** Everything in UMLS / the NCI Metathesaurus is usable.
+> NCI holds a licence to use SNOMED CT through NCIm, and the open NCIt Thesaurus already publishes
+> 122,853 `P207` UMLS CUIs and 1,252 `P334` ICD-O-3 codes. Ranking external sources by licence
+> exposure compares them on the wrong axis.
 >
-> **#80 should be re-scoped accordingly**: build unblocked, serving gated, redistribution of
-> definitional dependency pending determination. Note also that ICD-O-3 is **not** a UMLS source
-> vocabulary (195 SABs in 2026AA, none is ICD-O), so any ICD-O-3 content must come directly from
-> WHO rather than through the NCIm pivot D29/§4.1 assume.
+> **(b) Dependency is the thing to avoid — for *every* external source, open ones included.** The
+> governing principle is: *align, do not depend; learn, do not copy; corroborate, do not inherit.*
+> Take advantage of deep expert curation where it is the best available option and align as far as
+> possible, but do not make NCIt's definitions require an external artifact to resolve, do not
+> inherit an external source's limitations, and do not import its errors. An NCIt that cannot be
+> resolved without Uberon is a dependent ontology whether or not Uberon is CC-BY. So the phrase
+> "Uberon / CL / Mondo … may be depended on definitionally" is **withdrawn**.
+>
+> **(c) The benefit is bidirectional.** NCIt is *designed* to be compatible with these
+> terminologies, so alignment strengthens both sides. Where NCIt is right and an external source is
+> wrong, alignment work must surface that rather than silently defer outward. Both directions are
+> already evidenced: Uberon corrected a wrong NCIt-side comment (`C12470` is Skin, not Lip), while
+> NCIt asserts `Malignant Epithelial Cell` on `C9118 Sarcoma`, which is mesenchymal.
+>
+> **(d) What remains genuinely gated** is narrow: *acquiring and mapping* is unblocked; *publicly
+> serving* SCTIDs / ICD-O-3 codes to unlicensed consumers stays entitlement-gated per D29.3; and
+> *redistributing a derived ontology whose definitions depend on WHO/IHTSDO content* is the one
+> open question for NCI counsel — and under (b) we should not be in that position anyway, because
+> external codes are carried as **alignment annotations, not as definitional fillers**. **#80
+> re-scopes accordingly.** Note also that ICD-O-3 is not a UMLS source vocabulary (195 SABs in
+> 2026AA, none is ICD-O), so ICD-O-3 content must come directly from WHO rather than through the
+> NCIm pivot D29/§4.1 assume.
+>
+> **(e) A relation we need is not "owned" by whoever asserts it first.** `develops_from`
+> (`RO:0002202`, ~1,994 uses in Uberon alone) is a shared OBO primitive. Where NCIt lacks a
+> relation the model requires, OntoPrism asserts it in its own additive graph under normal review
+> and versioning, corroborated by external sources and proposable back to NCI — that is modelling,
+> not dependency.
+
 
 
 **3. "Balanced = equal semantic distance" → balance is a metric to improve, not an invariant to
