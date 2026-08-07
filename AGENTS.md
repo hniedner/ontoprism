@@ -197,7 +197,7 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   them by hand.
 - **Pre-PR review fix cycle (mandatory, no exceptions): after implementation and local
   gates are complete, commit all intended changes on the feature branch. The worktree must
-  be clean before review starts. Then, before the first push or PR creation, review the
+  be clean before review starts. Then, before PR creation, review the
   committed branch diff (`main...HEAD`) against current `main` with the FULL
   `pr-review-toolkit` agent set in the initial round — ALL FIVE, no cherry-picking. A
   review of staged or unstaged changes does not count toward convergence:**
@@ -232,8 +232,13 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   (anything you can confirm and act on) — then re-run the applicable local gates and commit
   those fixes before re-running **only the non-converged agents** (if that reduced set
   includes `pr-test-analyzer`, it still runs by itself, after the others). Every review round must
-  inspect a clean worktree and the committed `main...HEAD` diff. Do not push or create the
-  PR until all five agents have converged and the final local gates pass. An agent converges
+  inspect a clean worktree and the committed `main...HEAD` diff. Do not create the
+  PR until all five agents have converged and the final local gates pass. **Pushing the
+  feature branch is a separate matter and is encouraged at any point** — `ci.yml` triggers only
+  on `main` pushes and pull requests, so a branch push runs no workflows. It costs nothing, and
+  it is the only backup for work that otherwise exists on one machine. The PR is what is delayed,
+  for two reasons: a PR should present finished work rather than a moving target, and opening one
+  early triggers the full check matrix repeatedly on every subsequent push. An agent converges
   only when a
   successfully completed full-diff review
   explicitly reports no unresolved actionable verified findings. An agent that reports
