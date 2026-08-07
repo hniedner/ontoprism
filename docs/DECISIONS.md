@@ -370,6 +370,25 @@ Mondo are open and may be depended on definitionally; SNOMED CT and ICD-O-3 are 
 only be mapped to.** An NCIt whose definitions depend on SNOMED cannot be redistributed — which would
 defeat the purpose of building it. (#80 stays blocked on a written licence determination, D29.)
 
+> **Current-status correction (2026-08-06) — the licence boundary above is drawn too coarsely, and
+> the "#80 stays blocked" clause is wrong as stated.** NCI holds a licence to use SNOMED CT through
+> the NCI Metathesaurus, and the open NCIt Thesaurus already publishes 122,853 `P207` UMLS CUIs and
+> 1,252 `P334` ICD-O-3 codes. Acquisition is therefore not the gate. The boundary has three parts,
+> only the last of which is genuinely open:
+>
+> 1. **Acquiring and mapping** SNOMED CT / ICD-O-3 via NCIm — **not blocked.** Build and map freely.
+> 2. **Publicly serving** SCTIDs / ICD-O-3 codes to unlicensed downstream consumers — gated, and
+>    already addressed by D29.3's entitlement gating on the *serving* surface.
+> 3. **Redistributing a derived ontology whose definitions depend on WHO/IHTSDO content** — the one
+>    question still open, and the only one needing a written determination from NCI counsel. It is
+>    materially narrower than "obtain a licence."
+>
+> **#80 should be re-scoped accordingly**: build unblocked, serving gated, redistribution of
+> definitional dependency pending determination. Note also that ICD-O-3 is **not** a UMLS source
+> vocabulary (195 SABs in 2026AA, none is ICD-O), so any ICD-O-3 content must come directly from
+> WHO rather than through the NCIm pivot D29/§4.1 assume.
+
+
 **3. "Balanced = equal semantic distance" → balance is a metric to improve, not an invariant to
 enforce.** Concept density in a real terminology follows clinical and research need and is *supposed*
 to be uneven. Enforcing homogeneity means merging genuinely distinct concepts or minting concepts
@@ -857,7 +876,34 @@ complete default product without any licensed dependency.
 ## 2026-07-11 — SME review: organ-level R101 principle, op: namespace approval, and minted concepts
 
 ### D23. R101 resolution = the named organ (SME-approved principle); `op:StageSystem`, `op:MolecularAbnormality`, `op:MetastaticSite` are first-class axes; minted concepts for missing NCIt terms are tracked in git
+
+> **Current-status correction (2026-08-06) — the organ principle stands; its hand-maintained
+> implementation does not, and must not be rebuilt by hand.**
+>
+> Part 1 below specifies organ codes against *label-level* morphology contexts. It contains **no
+> morphology codes**. The code-level table that grew from it —
+> `ontolib/src/ontolib/decomposition/site_resolution.py::MORPHOLOGY_TO_ORGAN` — was keyed by
+> morphology codes that were never SME-validated, and an audit against the stated OWL on
+> 2026-08-06 found **25 of its 32 keys do not denote the concept their comment names**. Examples:
+> `C4912` is Bladder Carcinoma (commented "Thyroid Gland Papillary Carcinoma"), `C2851` is
+> Acquired Immunodeficiency Syndrome (commented "Gastric Adenocarcinoma"), `C4008` is Recurrent
+> Gallbladder Carcinoma (commented "Uterine Carcinosarcoma"). The covering tests were tautologies
+> asserting the dict contains what the dict contains, so no test could detect a wrong code.
+>
+> **Decision: do not rebuild that table by hand.** Anatomy is to be grounded in Uberon through the
+> existing xref/promotion layer (`ontolib/src/ontolib/repositories/xref/`), which is built,
+> reasoner-corroborated, and has never been run. **20 of the table's 22 organ codes already carry
+> a correct `oboInOwl:hasDbXref "NCIT:C…"` authored by Uberon's own editors**; Uberon independently
+> corroborates the audit (it gives `C12470 → UBERON:0002097 "skin of body"`, against a comment
+> reading "Lip"). The 2 misses — `C19184 Colon,Rectum`, `C203674 Esophagus and GEJ` — are NCIt
+> composite staging sites with no anatomical counterpart and are the correct
+> `no-upstream-equivalent` residue, to remain hand-curated and explicitly labelled as such.
+>
+> Sequencing and the per-axis plan are in `docs/design/ncit-external-integration.md` §5/§9 and its
+> 2026-08-06 status correction.
+
 SME review of the draft golden set (30 neoplasm concepts) produced a single governing rule that supersedes the per-cancer tie-resolution table in prior drafts, ratified the `op:` namespace for decomposition axes, identified two structural bugs, and required minted concepts for NCIt gaps. Recording all SME decisions as load-bearing.
+
 
 **The organ-level principle (from C134930 note):**
 > "If the emphasis is on the primary site of the tumor then **the organ is typically correct** — the tumor extent which might involve additional structures is a separate concern and **should not be conflated** — this concern is captured in the stage definition of the staging system!"
