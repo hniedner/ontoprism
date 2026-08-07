@@ -315,6 +315,7 @@ def test_stage_candidate_accepts_method_instead_of_stage_type() -> None:
                 MemberRole.STAGING_METHOD,
                 "C141685",
                 claim_ids=("mcode-valg-method", "nci-pdq-valg"),
+                provenance_status="proposed",
             ),
             _member(MemberRole.STAGE_VALUE, "C28064"),
         ),
@@ -336,6 +337,7 @@ def test_evidence_registry_validates_exact_member_claims() -> None:
                 MemberRole.STAGING_METHOD,
                 "C141685",
                 claim_ids=("mcode-valg-method",),
+                provenance_status="proposed",
             ),
             _member(MemberRole.STAGE_VALUE, "C27966"),
         ),
@@ -521,6 +523,28 @@ def test_pair_availability_reports_missing_without_inventing_association() -> No
 
     assert result.status == "incomplete"
     assert [member.filler_code for member in result.missing_members] == ["C90530"]
+
+
+@pytest.mark.unit
+def test_pair_availability_defers_a_proposed_member_without_engine_evidence() -> None:
+    candidate = replace(
+        _candidate(),
+        members=(
+            _member(
+                MemberRole.STAGING_METHOD,
+                "C141685",
+                claim_ids=("mcode-valg-method",),
+                provenance_status="proposed",
+            ),
+            _member(MemberRole.STAGE_VALUE, "C27966"),
+        ),
+    )
+
+    result = evaluate_pair_availability(candidate, (_projected(candidate, 1),))
+
+    assert result.status == "deferred"
+    assert [member.filler_code for member in result.deferred_members] == ["C141685"]
+    assert result.missing_members == ()
 
 
 @pytest.mark.unit

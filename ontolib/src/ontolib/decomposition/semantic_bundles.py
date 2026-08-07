@@ -547,6 +547,17 @@ class BundlePairAvailability:
         return "available"
 
 
+def _record_member_without_engine_evidence(
+    member: SemanticBundleMember,
+    deferred: list[SemanticBundleMember],
+    missing: list[SemanticBundleMember],
+) -> None:
+    if member.provenance_status == "proposed":
+        deferred.append(member)
+    else:
+        missing.append(member)
+
+
 def evaluate_pair_availability(
     candidate: SemanticBundleCandidate,
     constituents: tuple[ProjectedConstituentEvidence, ...],
@@ -562,7 +573,7 @@ def evaluate_pair_availability(
     for member in candidate.members:
         evidence = by_pair.get(member.pair)
         if evidence is None:
-            missing.append(member)
+            _record_member_without_engine_evidence(member, deferred, missing)
         elif evidence.needs_review:
             deferred.append(member)
             deferred_evidence.append(evidence)

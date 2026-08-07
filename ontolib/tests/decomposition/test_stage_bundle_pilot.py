@@ -181,6 +181,7 @@ def test_valg_method_claim_does_not_fabricate_an_ncit_occurrence() -> None:
     )
 
     assert method.filler_code == "C141685"
+    assert method.provenance_status == "proposed"
     assert method.source_occurrences == ()
     assert method.evidence_claim_ids == ("mcode-4.0.0-valg-method",)
 
