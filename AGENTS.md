@@ -41,6 +41,25 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   enforcement is intentionally *not* enabled yet — it needs a release-bot credential as a
   ruleset bypass actor, else it would block the `GITHUB_TOKEN` release/README pushes.
 
+## The one principle that keeps getting rediscovered (D60)
+
+**Everything OntoPrism emits is NCIt.** Not NCIt blended with other ontologies — NCIt reorganised,
+which is what makes it adoptable. A concept or role we introduce is NCIt content even when it
+exactly matches, and was derived from, something in Uberon, Cell Ontology, SNOMED CT or ICD-O-3.
+
+All of it is provisional until NCI adopts it: `proposed → locally-approved → submitted →
+accepted-in-ncit`. `locally-approved` means *our* SME accepted it, not NCI.
+
+Derivation is recorded as provenance and alignment, never as ownership — the pattern
+`AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026` is
+what it aligns to. Provenance exists so Metathesaurus integration and cross-terminology mapping
+work, not as an audit ritual.
+
+**Language rule:** never write "external content", "borrowed from" or "depends on" about anything
+we emit. Write "derived from", "aligned to", "corroborated by", or "proposed, evidenced by".
+Wording that implies another project owns part of our output has repeatedly misdirected design
+decisions — see D60 for the full statement.
+
 ## Repo layout (keep-names, 3 project packages)
 
 - `ontolib/` — shared library, import name `ontolib` (storage, NCIt/Uberon
