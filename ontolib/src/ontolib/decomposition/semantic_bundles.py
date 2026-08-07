@@ -552,7 +552,7 @@ def _record_member_without_engine_evidence(
     deferred: list[SemanticBundleMember],
     missing: list[SemanticBundleMember],
 ) -> None:
-    if member.provenance_status == "proposed":
+    if not member.source_occurrences or member.provenance_status == "proposed":
         deferred.append(member)
     else:
         missing.append(member)

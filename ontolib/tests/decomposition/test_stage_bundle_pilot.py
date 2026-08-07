@@ -48,7 +48,10 @@ _PROPOSAL_REGISTRY = load_proposal_registry(
 
 
 def _candidate_artifact() -> dict[str, object]:
-    report = build_stage_bundle_report({})
+    report = build_stage_bundle_report(
+        _engine_evidence_for_candidates(),
+        _engine_outcomes_for_candidates(),
+    )
     report["artifact_identity"] = _payload_identity(report)
     return report
 
@@ -61,6 +64,8 @@ def _engine_evidence_for_candidates() -> dict[
     ] = defaultdict(dict)
     for candidate in STAGE_BUNDLE_CANDIDATES:
         for member in candidate.members:
+            if not member.source_occurrences:
+                continue
             by_code[candidate.subject_code][member.pair] = ProjectedConstituentEvidence(
                 axis=member.axis,
                 filler_code=member.filler_code,
@@ -73,6 +78,12 @@ def _engine_evidence_for_candidates() -> dict[
                 ),
             )
     return {code: tuple(items.values()) for code, items in by_code.items()}
+
+
+def _engine_outcomes_for_candidates() -> dict[str, str]:
+    return {
+        candidate.subject_code: "decomposed" for candidate in STAGE_BUNDLE_CANDIDATES
+    }
 
 
 @pytest.mark.unit
@@ -253,19 +264,82 @@ def test_report_separates_available_deferred_missing_and_observed_scores() -> No
         for item in evidence[deferred_code]
     )
 
-    report = build_stage_bundle_report(evidence)
+    report = build_stage_bundle_report(evidence, _engine_outcomes_for_candidates())
     availability = cast("dict[str, object]", report["engine_pair_availability"])
 
     assert report["status"] == "FINAL-REVIEW-PENDING"
     assert availability["candidate_counts"] == {
         "expected": 15,
-        "available": 13,
-        "deferred": 1,
+        "available": 12,
+        "deferred": 2,
         "incomplete": 1,
     }
     semantic_scores = cast("dict[str, dict[str, str]]", availability["semantic_scores"])
     assert semantic_scores["exact_bundle"]["status"] == "not-evaluable"
     assert semantic_scores["association"]["status"] == "not-evaluable"
+
+
+@pytest.mark.unit
+def test_report_raises_when_candidate_subject_lacks_engine_outcome() -> None:
+    outcomes = _engine_outcomes_for_candidates()
+    del outcomes["C6135"]
+
+    with pytest.raises(ValueError, match=r"C6135.*no engine outcome"):
+        build_stage_bundle_report(_engine_evidence_for_candidates(), outcomes)
+
+
+@pytest.mark.unit
+def test_report_accepts_unmodified_candidate_outcome_map() -> None:
+    report = build_stage_bundle_report(
+        _engine_evidence_for_candidates(),
+        _engine_outcomes_for_candidates(),
+    )
+    availability = cast("dict[str, object]", report["engine_pair_availability"])
+
+    assert availability["candidate_counts"] == {
+        "expected": 15,
+        "available": 14,
+        "deferred": 1,
+        "incomplete": 0,
+    }
+
+
+@pytest.mark.unit
+def test_report_defers_members_for_nondecomposed_candidate() -> None:
+    outcomes = _engine_outcomes_for_candidates()
+    outcomes["C6135"] = "semantic-excluded"
+
+    report = build_stage_bundle_report(_engine_evidence_for_candidates(), outcomes)
+    availability = cast("dict[str, object]", report["engine_pair_availability"])
+    candidates = cast("list[dict[str, object]]", availability["candidates"])
+    candidate = next(
+        row for row in candidates if row["candidate_id"] == "stage-c6135-ajcc-v7"
+    )
+
+    assert candidate["status"] == "deferred"
+    assert candidate["engine_outcome"] == "semantic-excluded"
+    assert candidate["missing_members"] == []
+
+
+@pytest.mark.unit
+def test_report_defers_source_less_proposed_member() -> None:
+    report = build_stage_bundle_report(
+        _engine_evidence_for_candidates(),
+        _engine_outcomes_for_candidates(),
+    )
+    availability = cast("dict[str, object]", report["engine_pair_availability"])
+    candidates = cast("list[dict[str, object]]", availability["candidates"])
+    candidate = next(
+        row
+        for row in candidates
+        if row["candidate_id"] == "stage-c35756-valg-extensive"
+    )
+
+    assert [
+        member["filler_code"]
+        for member in cast("list[dict[str, object]]", candidate["deferred_members"])
+    ] == ["C141685"]
+    assert candidate["missing_members"] == []
 
 
 @pytest.mark.unit

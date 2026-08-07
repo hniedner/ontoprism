@@ -28,6 +28,7 @@ from ontolib.decomposition.semantic_bundles import (
     AdjudicatedSemanticContext,
     BundleAxis,
     BundleKind,
+    BundlePairAvailability,
     EvidenceClaim,
     EvidenceClaimKind,
     EvidenceClaimTarget,
@@ -958,8 +959,26 @@ def _claim_dict(claim: EvidenceClaim) -> dict[str, object]:
     }
 
 
+def _candidate_pair_availability(
+    candidate: SemanticBundleCandidate,
+    constituents: tuple[ProjectedConstituentEvidence, ...],
+    engine_outcome: str,
+) -> BundlePairAvailability:
+    if engine_outcome != "decomposed":
+        return BundlePairAvailability(
+            candidate_id=candidate.candidate_id,
+            available_members=(),
+            deferred_members=candidate.members,
+            missing_members=(),
+            available_evidence=(),
+            deferred_evidence=(),
+        )
+    return evaluate_pair_availability(candidate, constituents)
+
+
 def build_stage_bundle_report(
     engine_pairs_by_code: dict[str, tuple[ProjectedConstituentEvidence, ...]],
+    engine_outcomes_by_code: dict[str, str],
 ) -> dict[str, object]:
     """Report availability without inventing actual bundle associations."""
     rule_results: list[dict[str, object]] = []
@@ -967,9 +986,15 @@ def build_stage_bundle_report(
     member_counts = {"available": 0, "deferred": 0, "missing": 0}
     for candidate in STAGE_BUNDLE_CANDIDATES:
         validate_candidate_evidence(candidate, EVIDENCE_REGISTRY)
-        result = evaluate_pair_availability(
+        engine_outcome = engine_outcomes_by_code.get(candidate.subject_code)
+        if engine_outcome is None:
+            raise ValueError(
+                f"{candidate.subject_code} candidate subject has no engine outcome"
+            )
+        result = _candidate_pair_availability(
             candidate,
             engine_pairs_by_code.get(candidate.subject_code, ()),
+            engine_outcome,
         )
         status_counts[result.status] += 1
         member_counts["available"] += len(result.available_members)
@@ -980,6 +1005,7 @@ def build_stage_bundle_report(
                 "candidate_id": candidate.candidate_id,
                 "name": candidate.name,
                 "semantic_identity": candidate.semantic_identity,
+                "engine_outcome": engine_outcome,
                 "status": result.status,
                 "available_members": [
                     _member_dict(member) for member in result.available_members
@@ -1393,7 +1419,10 @@ def generate_stage_bundle_artifact(
     raw_engine = _read_json_bytes(engine_evidence_bytes)
     raw_contracted_disposition = _read_json_bytes(contracted_disposition_bytes)
     validate_source_audit(raw_audit)
-    report = build_stage_bundle_report(_engine_pairs(raw_engine))
+    report = build_stage_bundle_report(
+        _engine_pairs(raw_engine),
+        _engine_outcomes(raw_engine),
+    )
     report["source_provenance"] = build_provenance_ledger(
         raw_audit,
         raw_contracted_disposition,
