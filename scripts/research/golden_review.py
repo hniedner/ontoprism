@@ -23,6 +23,7 @@ from ontolib.decomposition.proposal_registry import (
     RelationProposal,
 )
 from ontolib.decomposition.score import ExtractionScore, score
+from ontolib.decomposition.semantic_bundles import PairProvenance  # noqa: TC001
 
 if TYPE_CHECKING:
     from openpyxl.workbook.workbook import Workbook
@@ -36,14 +37,6 @@ ExpectedOutcome = Literal[
     "atomic-no-op",
 ]
 ConstituentPair = tuple[str, str]
-PairProvenance = Literal[
-    "ncit-26.07d",
-    "locally-approved",
-    "proposed",
-    "submitted",
-    "accepted-in-ncit",
-]
-
 _ADJUDICATED_STATUS = "SME-ADJUDICATED"
 _SCHEMA_VERSION = 3
 _M1_REQUIRED_SEEDS = frozenset({"C4791", "C35756", "C89995"})

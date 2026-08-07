@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from itertools import combinations
-from typing import Literal
+from typing import Literal, get_args
 
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
@@ -21,6 +21,15 @@ type MemberKey = tuple[str, str, str]
 type ContextKey = tuple[str, str, str, str]
 type AvailabilityStatus = Literal["available", "deferred", "incomplete"]
 type ProjectionAxisSource = Literal["role", "nlp", "parent"]
+PairProvenance = Literal[
+    "ncit-26.07d",
+    "locally-approved",
+    "proposed",
+    "submitted",
+    "accepted-in-ncit",
+]
+
+_PAIR_PROVENANCE = frozenset(get_args(PairProvenance))
 
 
 class BundleKind(StrEnum):
@@ -250,6 +259,7 @@ class SemanticBundleMember:
     role: MemberRole
     axis: BundleAxis
     filler_code: str
+    provenance_status: PairProvenance
     source_occurrences: tuple[SourceOccurrence, ...] = ()
     evidence_claim_ids: tuple[str, ...] = ()
 
@@ -262,6 +272,8 @@ class SemanticBundleMember:
             required_axis = _required_axis(self.role)
             raise ValueError(f"{self.role.value} role requires {required_axis}")
         _require_match(self.filler_code, _CONCEPT_CODE, "filler_code")
+        if self.provenance_status not in _PAIR_PROVENANCE:
+            raise ValueError("semantic member provenance status is invalid")
         occurrences, claim_ids = _canonical_member_support(self)
         object.__setattr__(self, "source_occurrences", occurrences)
         object.__setattr__(self, "evidence_claim_ids", claim_ids)

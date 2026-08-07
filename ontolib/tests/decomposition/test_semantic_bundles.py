@@ -18,6 +18,7 @@ from ontolib.decomposition.semantic_bundles import (
     MemberRole,
     ObservedBundleMember,
     ObservedSemanticBundle,
+    PairProvenance,
     ProjectedConstituentEvidence,
     SemanticBundleCandidate,
     SemanticBundleMember,
@@ -95,6 +96,7 @@ def _member(
     filler_code: str,
     *,
     claim_ids: tuple[str, ...] = (),
+    provenance_status: PairProvenance = "ncit-26.07d",
 ) -> SemanticBundleMember:
     axis = (
         BundleAxis.STAGE_VALUE
@@ -106,6 +108,7 @@ def _member(
         role=role,
         axis=axis,
         filler_code=filler_code,
+        provenance_status=provenance_status,
         source_occurrences=occurrences,
         evidence_claim_ids=claim_ids,
     )
@@ -273,6 +276,18 @@ def test_source_occurrence_requires_canonical_r88_fact_identity() -> None:
         replace(occurrence, source_group_id=" ")
     with pytest.raises(ValueError, match="depth must be non-negative"):
         replace(occurrence, depth=-1)
+
+
+@pytest.mark.unit
+def test_semantic_bundle_member_requires_shared_provenance_status() -> None:
+    member = _member(MemberRole.STAGE_TYPE, "C90530")
+
+    assert member.provenance_status == "ncit-26.07d"
+    with pytest.raises(ValueError, match="provenance status is invalid"):
+        replace(
+            member,
+            provenance_status=cast("PairProvenance", "invented"),
+        )
 
 
 @pytest.mark.unit
@@ -645,6 +660,7 @@ def test_context_only_construct_uses_same_typed_source_occurrence() -> None:
             role=MemberRole.CLASSIFICATION_CONTEXT,
             axis=BundleAxis.STAGE_SYSTEM,
             filler_code="C198023",
+            provenance_status="ncit-26.07d",
             source_occurrences=(
                 _occurrence(
                     "C198023",

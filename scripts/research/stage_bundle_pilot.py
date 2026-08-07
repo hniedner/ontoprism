@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
@@ -33,6 +33,7 @@ from ontolib.decomposition.semantic_bundles import (
     EvidenceClaimTarget,
     EvidenceRegistry,
     MemberRole,
+    PairProvenance,
     ProjectedConstituentEvidence,
     SemanticBundleCandidate,
     SemanticBundleMember,
@@ -66,15 +67,7 @@ _STRUCTURE_CLAIM_ID = "mcode-4.0.0-cancer-stage-structure"
 _METHOD_CLAIM_ID = "mcode-4.0.0-valg-method"
 _SOURCE_OCCURRENCE_COUNT = 304
 _ANCHOR_PART_COUNT = 2
-_CORRECTION_PROVENANCE = frozenset(
-    {
-        "ncit-26.07d",
-        "proposed",
-        "locally-approved",
-        "submitted",
-        "accepted-in-ncit",
-    }
-)
+_CORRECTION_PROVENANCE = frozenset(get_args(PairProvenance))
 _R101_SAME_AXIS_R82_COLLAPSES = {
     ("C100051", "C12810"): "C12413",
     ("C101539", "C12418"): "C13063",
@@ -96,15 +89,6 @@ class EvidenceSource:
     supports: str
 
 
-CorrectionProvenance = Literal[
-    "ncit-26.07d",
-    "proposed",
-    "locally-approved",
-    "submitted",
-    "accepted-in-ncit",
-]
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConstituentCorrection:
     action: Literal["add", "remove"]
@@ -112,7 +96,7 @@ class ConstituentCorrection:
     axis: str
     filler_code: str
     rationale: str
-    provenance_status: CorrectionProvenance | None = None
+    provenance_status: PairProvenance | None = None
     needs_review: bool | None = None
 
     def __post_init__(self) -> None:
@@ -297,6 +281,7 @@ def _source_member(
         role=typed_role,
         axis=axis,
         filler_code=filler_code,
+        provenance_status="ncit-26.07d",
         source_occurrences=(
             SourceOccurrence(
                 source_identity=_SOURCE_IDENTITY,
@@ -313,15 +298,16 @@ def _source_member(
     )
 
 
-def _external_method(
+def _proposed_method(
     filler_code: str, evidence_ids: tuple[str, ...]
 ) -> SemanticBundleMember:
     if "mcode-4.0.0-stage-method" not in evidence_ids:
-        raise ValueError("external VALG method requires mCODE method evidence")
+        raise ValueError("proposed VALG method requires mCODE method evidence")
     return SemanticBundleMember(
         role=MemberRole.STAGING_METHOD,
         axis=BundleAxis.STAGE_SYSTEM,
         filler_code=filler_code,
+        provenance_status="proposed",
         source_occurrences=(),
         evidence_claim_ids=(_METHOD_CLAIM_ID,),
     )
@@ -642,7 +628,7 @@ STAGE_BUNDLE_CANDIDATES = (
         "stage-c35756-valg-extensive",
         "C35756",
         "VALG extensive-stage lung small cell carcinoma with pleural effusion",
-        _external_method(
+        _proposed_method(
             "C141685",
             ("mcode-4.0.0-stage-method", "nci-pdq-sclc"),
         ),
@@ -824,6 +810,7 @@ def _member_dict(member: SemanticBundleMember) -> dict[str, object]:
         "role": member.role.value,
         "axis": member.axis.value,
         "filler_code": member.filler_code,
+        "provenance_status": member.provenance_status,
         "source_occurrences": [
             _source_fact_dict(fact) for fact in member.source_occurrences
         ],
@@ -1524,6 +1511,7 @@ def _typed_candidate_member(raw: object) -> SemanticBundleMember:
             "role",
             "axis",
             "filler_code",
+            "provenance_status",
             "source_occurrences",
             "evidence_claim_ids",
         },
@@ -1536,6 +1524,10 @@ def _typed_candidate_member(raw: object) -> SemanticBundleMember:
         role=MemberRole(_required_text(raw["role"], "member role")),
         axis=BundleAxis(_required_text(raw["axis"], "member axis")),
         filler_code=_required_text(raw["filler_code"], "member filler"),
+        provenance_status=cast(
+            "PairProvenance",
+            _required_text(raw["provenance_status"], "member provenance status"),
+        ),
         source_occurrences=tuple(
             _typed_source_occurrence(item) for item in occurrences
         ),
@@ -2201,7 +2193,7 @@ def load_constituent_corrections(path: Path) -> tuple[ConstituentCorrection, ...
                 filler_code=cast("str", item["filler_code"]),
                 rationale=cast("str", item["rationale"]),
                 provenance_status=cast(
-                    "CorrectionProvenance | None",
+                    "PairProvenance | None",
                     provenance_status,
                 ),
                 needs_review=cast("bool | None", needs_review),
