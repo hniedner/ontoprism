@@ -705,6 +705,12 @@ class SemanticBundleScore:
     association: SemanticMetricScore
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SemanticBundleViewScores:
+    ncit_bound: SemanticBundleScore
+    augmented: SemanticBundleScore
+
+
 def _score_identities(expected: set[str], actual: set[str]) -> SemanticMetricScore:
     return SemanticMetricScore(
         expected=len(expected),
@@ -786,17 +792,12 @@ def _actual_association_ids(bundles: tuple[ObservedSemanticBundle, ...]) -> set[
     }
 
 
-def score_observed_bundles(
+def _score_observed_bundle_view(
     expected: tuple[AdjudicatedSemanticBundle, ...],
     actual: tuple[ObservedSemanticBundle, ...],
 ) -> SemanticBundleScore:
-    """Score only explicitly observed associations against adjudicated bundles."""
     expected_ids = {bundle.semantic_identity for bundle in expected}
     actual_ids = {bundle.semantic_identity for bundle in actual}
-    if len(expected_ids) != len(expected):
-        raise ValueError("adjudicated semantic bundle identities must be unique")
-    if len(actual_ids) != len(actual):
-        raise ValueError("observed semantic bundle identities must be unique")
     return SemanticBundleScore(
         exact_bundle=_score_identities(expected_ids, actual_ids),
         contextual_member=_score_identities(
@@ -807,4 +808,45 @@ def score_observed_bundles(
             _expected_association_ids(expected),
             _actual_association_ids(actual),
         ),
+    )
+
+
+def _ncit_bound_bundles(
+    bundles: tuple[AdjudicatedSemanticBundle, ...],
+) -> tuple[AdjudicatedSemanticBundle, ...]:
+    return tuple(
+        bundle
+        for bundle in bundles
+        if all(
+            member.provenance_status == "ncit-26.07d"
+            for member in bundle.candidate.members
+        )
+    )
+
+
+def _augmented_bundles(
+    bundles: tuple[AdjudicatedSemanticBundle, ...],
+) -> tuple[AdjudicatedSemanticBundle, ...]:
+    return tuple(
+        bundle
+        for bundle in bundles
+        if all(
+            member.provenance_status != "proposed"
+            for member in bundle.candidate.members
+        )
+    )
+
+
+def score_observed_bundles(
+    expected: tuple[AdjudicatedSemanticBundle, ...],
+    actual: tuple[ObservedSemanticBundle, ...],
+) -> SemanticBundleViewScores:
+    """Score observed associations in NCIt-bound and augmented views."""
+    if len({bundle.semantic_identity for bundle in expected}) != len(expected):
+        raise ValueError("adjudicated semantic bundle identities must be unique")
+    if len({bundle.semantic_identity for bundle in actual}) != len(actual):
+        raise ValueError("observed semantic bundle identities must be unique")
+    return SemanticBundleViewScores(
+        ncit_bound=_score_observed_bundle_view(_ncit_bound_bundles(expected), actual),
+        augmented=_score_observed_bundle_view(_augmented_bundles(expected), actual),
     )

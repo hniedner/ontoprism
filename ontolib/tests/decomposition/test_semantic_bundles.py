@@ -630,23 +630,62 @@ def test_observed_score_detects_crossed_associations_with_same_flat_pairs() -> N
 
     result = score_observed_bundles(expected, actual)
 
-    assert result.exact_bundle.true_positive == 0
-    assert result.association.true_positive == 0
-    assert result.contextual_member.true_positive == 2
-    assert result.contextual_member.expected == 4
-    assert result.contextual_member.actual == 4
-    assert result.exact_bundle.f1 == 0.0
-    assert result.exact_bundle.exact is False
+    assert result.augmented.exact_bundle.true_positive == 0
+    assert result.augmented.association.true_positive == 0
+    assert result.augmented.contextual_member.true_positive == 2
+    assert result.augmented.contextual_member.expected == 4
+    assert result.augmented.contextual_member.actual == 4
+    assert result.augmented.exact_bundle.f1 == 0.0
+    assert result.augmented.exact_bundle.exact is False
+
+
+@pytest.mark.unit
+def test_semantic_bundle_scores_split_ncit_bound_and_augmented_views() -> None:
+    candidate = _candidate()
+    locally_approved = replace(
+        candidate,
+        members=(
+            replace(
+                candidate.members[0],
+                provenance_status="locally-approved",
+            ),
+            candidate.members[1],
+        ),
+    )
+
+    result = score_observed_bundles(
+        (_adjudicated(locally_approved),),
+        (_observed(locally_approved),),
+    )
+
+    assert result.ncit_bound.exact_bundle.expected == 0
+    assert result.augmented.exact_bundle.true_positive == 1
+
+    proposed = replace(
+        locally_approved,
+        members=(
+            replace(
+                locally_approved.members[0],
+                provenance_status="proposed",
+            ),
+            locally_approved.members[1],
+        ),
+    )
+    proposed_result = score_observed_bundles((_adjudicated(proposed),), ())
+
+    assert proposed_result.ncit_bound.exact_bundle.expected == 0
+    assert proposed_result.augmented.exact_bundle.expected == 0
 
 
 @pytest.mark.unit
 def test_zero_denominator_semantic_metrics_are_not_defined() -> None:
     result = score_observed_bundles((), ())
 
-    assert result.exact_bundle.precision is None
-    assert result.exact_bundle.recall is None
-    assert result.exact_bundle.f1 is None
-    assert result.exact_bundle.exact is True
+    assert result.ncit_bound.exact_bundle.precision is None
+    assert result.ncit_bound.exact_bundle.recall is None
+    assert result.ncit_bound.exact_bundle.f1 is None
+    assert result.ncit_bound.exact_bundle.exact is True
+    assert result.augmented == result.ncit_bound
 
 
 @pytest.mark.unit
