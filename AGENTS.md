@@ -21,6 +21,15 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   path-gated prerequisite did not run. If any expected check is absent, or any check failed,
   was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before
   proceeding.
+  **Documented exception (confirmed 2026-08-07):** on PRs that change only dependency
+  manifests (`package.json`, `package-lock.json`) or only workflow files, CodeQL default setup
+  does not run the three `Analyze (...)` jobs and posts the aggregate `CodeQL` check as
+  `"NEUTRAL"`. That combination — Analyze jobs absent **and** aggregate `NEUTRAL` — is expected
+  for those two PR shapes and is not a reason to stop. It is *not* expected on any PR touching
+  source code, where all three Analyze jobs must be present and `"SUCCESS"`. Note also that
+  `statusCheckRollup` sometimes omits `conventional commit subject` even when it has passed;
+  confirm with the `gh run list --workflow pr-title.yml` command above rather than treating the
+  omission as an absent check.
 - **After merging any PR to `main`, watch CI and all triggered post-merge workflows to
   completion.** If any run fails, fix it before starting new work. Do not begin the next
   issue, create its branch, or open its PR while required post-merge runs are pending or
