@@ -21,8 +21,48 @@ review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 
 ## 0. Implementation status (2026-07-12)
 
+> **CURRENT-STATUS CORRECTION (2026-08-06) — read before trusting the table below.**
+>
+> The status table is an accurate map of *code that exists*. It is misleading as a statement of
+> *deliverable*, because **not one line of the Phase-A pipeline has ever processed real data**.
+> Measured against the live database on 2026-08-06:
+>
+> ```
+> xref_run     rows: 0
+> concept_xref rows: 0
+> ```
+>
+> `data/cov-baseline.json` does not exist, so the caDSR coverage-regression gate is inert. The
+> critical path is stalled at **A2 (Uberon/CL ingest, #72)** and has been for ~3½ weeks: 2 commits
+> to `ontolib/src/ontolib/repositories/xref/` since 2026-07-20 versus 42 to `decomposition/`.
+> "Phase A is complete" is true of the plumbing and false of the deliverable. D38's own text
+> ("`COV` is still ~0") is the accurate reading.
+>
+> Three further measured corrections to the plan below:
+>
+> 1. **ICD-O-3 is not a UMLS source vocabulary.** §4.1 implies an NCIm/CUI pivot to ICD-O-3.
+>    `MRCONSO.RRF` (2026AA) carries 195 source abbreviations and none is ICD-O — only `ICD10*`
+>    and `ICD9CM`. **The CUI→ICD-O-3 crosswalk does not exist.** ICD-O-3.2 must come directly
+>    from WHO, and `SNOMEDCT_US` and `NCI` *are* present for the SNOMED bridge.
+> 2. **NCIt already carries partial ICD-O-3 grounding natively.** `P334` (ICD-O-3_Code) holds
+>    **1,252 assertions across 1,161 concepts, 1,109 distinct codes**; 92.4% validate against the
+>    WHO 3.2 table. It is *not* an orthogonal-morphology subset — 1,134/1,161 share the single
+>    semantic type `Neoplastic Process`, and branch `C4741 "Neoplasm by Morphology"` mixes both
+>    forms. But **119 of those concepts carry a site token in their NCIt label while their `P334`
+>    code is the site-stripped morphology** (e.g. `C187992 "Thyroid Gland Mixed Medullary and
+>    Follicular Carcinoma" → 8346/3 "Mixed medullary-follicular carcinoma"`). NCI curators have
+>    already performed the fused→orthogonal reduction on those 119; they are worked examples, not
+>    merely annotations.
+> 3. **§5's anatomy grounding is already available and unused.** Of the 22 organ codes in the
+>    decomposition engine's hand-maintained `MORPHOLOGY_TO_ORGAN` table, **20 already carry a
+>    correct `oboInOwl:hasDbXref "NCIT:C…"` from Uberon itself**, in a store that has been running
+>    locally. The 2 misses — `C19184 Colon,Rectum` and `C203674 Esophagus and GEJ` — are NCIt
+>    composite staging sites with no anatomical counterpart, which is the correct
+>    `no-upstream-equivalent` answer. See the D23 current-status note.
+
 **Phase A is substantially implemented and TDD-tested** — the design below is now partly a record of
 built code, not only a forward plan. Verified against the tree:
+
 
 | Area | Status | Where |
 |---|---|---|
