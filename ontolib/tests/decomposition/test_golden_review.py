@@ -13,8 +13,10 @@ from scripts.research import golden_review
 from scripts.research.golden_review import (
     GoldenSetValidationError,
     evaluate_adjudication,
+    export_row_decisions,
     import_adjudication_workbook,
     load_adjudication,
+    load_row_decisions,
     load_scorable_golden,
     read_json_without_duplicates,
     write_evaluation_report,
@@ -1694,3 +1696,158 @@ def test_adjudication_cli_imports_workbook_and_evaluates_report(
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert artifact["_meta"]["reviewer"]["name"] == "Example Reviewer"
     assert report["accepted_concepts"] == 20
+
+
+_EXTRA_DECISION_ROWS = (
+    # code, row type, action, expected axis, expected filler, complete
+    ("C0", "ADD IF MISSING", "include", "op:PrimarySite", "C12345", "YES"),
+    ("C1", "ADD IF MISSING", "exclude", None, None, "YES"),
+    ("C2", "ADD IF MISSING", "not-needed", None, None, "NO"),
+    ("C3", "ENGINE SUGGESTION", "revise", "op:StageValue", "C27971", "YES"),
+    # An excluded row that still carries a stale expectation, as three rows of the
+    # attested #57 workbook do. Its pair differs from C4's kept pair, so a reader
+    # that filtered on "has an expected pair" instead of the SME action would
+    # produce a triple the oracle does not contain.
+    ("C4", "ENGINE SUGGESTION", "exclude", "op:StageValue", "C27972", "YES"),
+)
+
+
+def _append_decision_rows(path: Path) -> None:
+    """Append reviewer decision rows covering every SME action and row type."""
+    workbook = load_workbook(path)
+    sheet = workbook["Constituent Decisions"]
+    for offset, (code, row_type, action, axis, filler, complete) in enumerate(
+        _EXTRA_DECISION_ROWS
+    ):
+        row = sheet.max_row + 1 + offset
+        sheet.cell(row, 2, code)
+        sheet.cell(row, 4, row_type)
+        sheet.cell(row, 10, action)
+        sheet.cell(row, 11, axis)
+        sheet.cell(row, 12, filler)
+        sheet.cell(row, 14, "FALSE")
+        sheet.cell(row, 15, "ncit-26.07d")
+        sheet.cell(row, 18, complete)
+    workbook.save(path)
+
+
+@pytest.mark.unit
+def test_row_decision_export_keeps_every_reviewer_decision(tmp_path: Path) -> None:
+    """Rejected and not-needed rows survive the export; the importer discards them."""
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+
+    export = export_row_decisions(workbook)
+
+    assert len(export.rows) == 25
+    assert export.meta.ncit_version == "26.07d"
+    assert export.meta.source_workbook == "review.xlsx"
+    assert export.meta.reviewer.name == "Example Reviewer"
+    assert (
+        export.meta.workbook_identity
+        == hashlib.sha256(workbook.read_bytes()).hexdigest()
+    )
+    assert export.cross_tab() == {
+        "ENGINE SUGGESTION": {
+            "include": 20,
+            "revise": 1,
+            "exclude": 1,
+            "not-needed": 0,
+        },
+        "ADD IF MISSING": {
+            "include": 1,
+            "revise": 0,
+            "exclude": 1,
+            "not-needed": 1,
+        },
+    }
+
+
+@pytest.mark.unit
+def test_row_decision_export_reproduces_the_imported_expected_set(
+    tmp_path: Path,
+) -> None:
+    """`include` + `revise` rows are exactly the constituents the importer keeps.
+
+    This is the correspondence the tracked artifacts rely on. Keying on the SME
+    action matters: the excluded C4 row carries a stale expectation the importer
+    drops, so a pair-presence filter would over-collect.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+
+    export = export_row_decisions(workbook)
+    artifact = import_adjudication_workbook(workbook)
+
+    assert export.expected_pairs() == {
+        (concept.code, item.axis, item.filler)
+        for concept in artifact.concepts
+        if concept.expected is not None
+        for item in concept.expected.constituents
+    }
+    assert ("C4", "op:StageValue", "C27972") not in export.expected_pairs()
+
+
+@pytest.mark.unit
+def test_row_decision_export_fails_closed_on_a_tampered_workbook(
+    tmp_path: Path,
+) -> None:
+    """The export runs the same tamper gates as the oracle import."""
+    workbook_path = tmp_path / "hidden.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    workbook["Constituent Decisions"].row_dimensions[5].hidden = True
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match="hidden constituent rows"):
+        export_row_decisions(workbook_path)
+
+
+@pytest.mark.unit
+def test_row_decision_export_rejects_an_unrecognized_sme_action(
+    tmp_path: Path,
+) -> None:
+    """An action outside the reviewed vocabulary cannot be silently recorded."""
+    workbook_path = tmp_path / "invalid-action.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    workbook["Constituent Decisions"]["J5"] = "maybe"
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match="invalid SME action: maybe"):
+        export_row_decisions(workbook_path)
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_a_kept_row_without_an_expected_pair(
+    tmp_path: Path,
+) -> None:
+    """A hand-edited export that drops a kept row's pair cannot be loaded."""
+    workbook = tmp_path / "review.xlsx"
+    export_path = tmp_path / "rows.json"
+    _create_workbook(workbook)
+    adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    assert load_row_decisions(export_path).rows[0].sme_action == "include"
+    payload["rows"][0]["expected_filler"] = None
+    _write_json(export_path, payload)
+
+    with pytest.raises(GoldenSetValidationError, match="expected axis and filler"):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_duplicate_kept_pairs(tmp_path: Path) -> None:
+    """Two kept rows cannot claim the same concept, axis and filler."""
+    workbook = tmp_path / "review.xlsx"
+    export_path = tmp_path / "rows.json"
+    _create_workbook(workbook)
+    adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    payload["rows"][1]["code"] = payload["rows"][0]["code"]
+    _write_json(export_path, payload)
+
+    with pytest.raises(GoldenSetValidationError, match="kept rows must be unique"):
+        load_row_decisions(export_path)

@@ -3,18 +3,23 @@
 These figures are *the measurement* M1 exists to produce: the SME-adjudicated oracle
 (`neoplasm-adjudicated.json`), scored against the recorded engine run
 (`neoplasm-engine-evidence.json`) and the #154 residual subset
-(`neoplasm-corpus-comparison.json`). Everything the test reads is tracked in this
-directory, so the baseline reproduces from git alone — no live store, no network, no
-`tmp/` workbook.
+(`neoplasm-corpus-comparison.json`), plus the reviewer's row-level decisions
+(`neoplasm-row-decisions.json`), which carry the acceptance rate the oracle alone
+cannot express. Everything the test reads is tracked in this directory, so the
+baseline reproduces from git alone — no live store, no network, no `tmp/` workbook.
+
+The two provenances answer different questions and do not reconcile pair-for-pair: a
+`revise` row replaces one pair with another, so it lands in both the wrong-pair and
+the never-emitted column of the pair-level score.
 
 A change that moves any number here is not automatically a failure, but it must be
 **deliberate and stated**: say which engine or scorer change moved it, and update the
 expected value in the same commit with that reason.
 
-**Never edit the oracle, the recorded evidence, or the corpus comparison to make this
-test pass.** The golden README states the rule directly — *"Iterate without changing the
-oracle merely to match the engine."* A failure here means something upstream changed;
-that is a finding to report, not a test to repair.
+**Never edit the oracle, the recorded evidence, the row decisions, or the corpus
+comparison to make this test pass.** The golden README states the rule directly —
+*"Iterate without changing the oracle merely to match the engine."* A failure here
+means something upstream changed; that is a finding to report, not a test to repair.
 """
 
 from __future__ import annotations
@@ -26,19 +31,21 @@ import pytest
 from scripts.research.golden_review import (
     evaluate_adjudication,
     load_adjudication,
+    load_row_decisions,
     read_json_without_duplicates,
 )
 
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 
 if TYPE_CHECKING:
-    from scripts.research.golden_review import AdjudicationArtifact
+    from scripts.research.golden_review import AdjudicationArtifact, RowDecisionExport
 
 _GOLDEN = Path(__file__).with_name("golden")
 _ADJUDICATION_PATH = _GOLDEN / "neoplasm-adjudicated.json"
 _ENGINE_EVIDENCE_PATH = _GOLDEN / "neoplasm-engine-evidence.json"
 _CORPUS_COMPARISON_PATH = _GOLDEN / "neoplasm-corpus-comparison.json"
 _PROPOSAL_REGISTRY_PATH = _GOLDEN / "proposal-registry.json"
+_ROW_DECISIONS_PATH = _GOLDEN / "neoplasm-row-decisions.json"
 
 
 def _mapping(value: object, label: str) -> dict[str, Any]:
@@ -64,6 +71,12 @@ def m1_report(m1_artifact: AdjudicationArtifact) -> dict[str, object]:
         read_json_without_duplicates(_ENGINE_EVIDENCE_PATH),
         read_json_without_duplicates(_CORPUS_COMPARISON_PATH),
     )
+
+
+@pytest.fixture(scope="module")
+def m1_row_decisions() -> RowDecisionExport:
+    """Load the tracked row-level SME decisions exported from the #57 workbook."""
+    return load_row_decisions(_ROW_DECISIONS_PATH)
 
 
 @pytest.mark.unit
@@ -154,3 +167,78 @@ def test_residual_comparison_holds_the_m1_baseline(
 
     assert residual["absolute_rate_delta"] == 0.0
     assert residual["rates_averaged"] is False
+
+
+@pytest.mark.unit
+def test_row_decisions_record_every_workbook_decision_row(
+    m1_row_decisions: RowDecisionExport,
+) -> None:
+    """189 constituent rows: 106 engine suggestions and 83 SME-added candidates."""
+    assert len(m1_row_decisions.rows) == 189
+    assert (
+        sum(row.row_type == "ENGINE SUGGESTION" for row in m1_row_decisions.rows) == 106
+    )
+    assert sum(row.row_type == "ADD IF MISSING" for row in m1_row_decisions.rows) == 83
+
+
+@pytest.mark.unit
+def test_engine_suggestion_acceptance_holds_the_m1_baseline(
+    m1_row_decisions: RowDecisionExport,
+) -> None:
+    """The #57 headline: 48 of 106 engine suggestions kept unchanged (45%).
+
+    42 were revised and 16 excluded. Nothing was deferred as `not-needed` — that
+    action exists only for candidate rows the SME never had to fill in.
+    """
+    assert m1_row_decisions.cross_tab()["ENGINE SUGGESTION"] == {
+        "include": 48,
+        "revise": 42,
+        "exclude": 16,
+        "not-needed": 0,
+    }
+
+
+@pytest.mark.unit
+def test_sme_added_constituents_hold_the_m1_baseline(
+    m1_row_decisions: RowDecisionExport,
+) -> None:
+    """63 constituents the engine never proposed were added by the SME.
+
+    One further candidate row was revised, 4 excluded and 15 left `not-needed`.
+    """
+    assert m1_row_decisions.cross_tab()["ADD IF MISSING"] == {
+        "include": 63,
+        "revise": 1,
+        "exclude": 4,
+        "not-needed": 15,
+    }
+
+
+@pytest.mark.unit
+def test_row_decisions_and_the_oracle_agree_on_the_expected_set(
+    m1_row_decisions: RowDecisionExport,
+    m1_artifact: AdjudicationArtifact,
+) -> None:
+    """The kept rows *are* the oracle's expected set — exactly, not merely nearly.
+
+    The relation is a clean equality on `(code, axis, filler)`: the 111 `include`
+    plus 43 `revise` rows equal the 154 expected constituents of
+    `neoplasm-adjudicated.json`, with no triple on either side alone. It holds only
+    when keyed on the SME action — three `exclude` rows still carry the expectation
+    the reviewer withdrew, so filtering on "row has an expected pair" yields 157
+    triples, three of which the oracle does not contain.
+
+    Both artifacts also name the same workbook digest, so neither can be
+    regenerated from a different review without the other failing here.
+    """
+    expected = {
+        (concept.code, item.axis, item.filler)
+        for concept in m1_artifact.concepts
+        if concept.expected is not None
+        for item in concept.expected.constituents
+    }
+
+    assert m1_row_decisions.expected_pairs() == expected
+    assert len(expected) == 154
+    assert m1_row_decisions.meta.workbook_identity == m1_artifact.meta.workbook_identity
+    assert m1_row_decisions.meta.ncit_version == m1_artifact.meta.ncit_version

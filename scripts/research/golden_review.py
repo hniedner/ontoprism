@@ -26,6 +26,8 @@ from ontolib.decomposition.score import ExtractionScore, score
 from ontolib.decomposition.semantic_bundles import PairProvenance  # noqa: TC001
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from openpyxl.workbook.workbook import Workbook
     from openpyxl.worksheet.worksheet import Worksheet
 
@@ -36,9 +38,22 @@ ExpectedOutcome = Literal[
     "semantic-excluded",
     "atomic-no-op",
 ]
+SmeAction = Literal["include", "revise", "exclude", "not-needed"]
+ConstituentRowType = Literal["ENGINE SUGGESTION", "ADD IF MISSING"]
 ConstituentPair = tuple[str, str]
 _ADJUDICATED_STATUS = "SME-ADJUDICATED"
 _SCHEMA_VERSION = 3
+_ROW_DECISION_SCHEMA_VERSION = 1
+_SME_ACTIONS: tuple[SmeAction, ...] = ("include", "revise", "exclude", "not-needed")
+_CONSTITUENT_ROW_TYPES: tuple[ConstituentRowType, ...] = (
+    "ENGINE SUGGESTION",
+    "ADD IF MISSING",
+)
+# The two actions that put the row's expected pair into the adjudicated oracle.
+# `exclude` and `not-needed` rows are retained by the export and dropped by the
+# import; three attested `exclude` rows still carry a withdrawn expectation, so the
+# action -- not the presence of a pair -- decides what the SME kept.
+_KEPT_SME_ACTIONS = frozenset({"include", "revise"})
 _M1_REQUIRED_SEEDS = frozenset({"C4791", "C35756", "C89995"})
 _M1_MIN_CONCEPTS = 20
 _M1_MAX_CONCEPTS = 50
@@ -242,6 +257,100 @@ class AdjudicationArtifact(_StrictModel):
     @property
     def identity(self) -> str:
         return self.artifact_identity
+
+
+class ConstituentRowDecision(_StrictModel):
+    """One reviewer decision row, recorded before any expectation is inferred.
+
+    The oracle keeps only what the SME included or revised. This keeps the rejected
+    and unused rows too, because the ratio between them *is* the measurement of the
+    engine: an accepted suggestion and an excluded one are indistinguishable once
+    only the surviving pairs are stored.
+    """
+
+    code: str = Field(pattern=r"^C[0-9]+$")
+    row_type: ConstituentRowType
+    sme_action: SmeAction
+    expected_axis: str | None
+    expected_filler: str | None
+
+    @model_validator(mode="after")
+    def _validate_expectation(self) -> Self:
+        for field, value in (
+            ("expected axis", self.expected_axis),
+            ("expected filler", self.expected_filler),
+        ):
+            if value is not None:
+                _canonical_text(value, f"{self.code} {field}")
+        if self.kept and (self.expected_axis is None or self.expected_filler is None):
+            raise ValueError(
+                f"{self.code} {self.sme_action} row must record its "
+                "expected axis and filler"
+            )
+        return self
+
+    @property
+    def kept(self) -> bool:
+        """Whether this row's pair entered the adjudicated expected set."""
+        return self.sme_action in _KEPT_SME_ACTIONS
+
+
+class RowDecisionMetadata(_StrictModel):
+    schema_version: Literal[1]
+    ncit_version: str
+    source_workbook: str
+    workbook_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reviewer: Reviewer
+
+    @model_validator(mode="after")
+    def _validate_text(self) -> Self:
+        _canonical_text(self.ncit_version, "ncit_version")
+        _canonical_text(self.source_workbook, "source_workbook")
+        return self
+
+
+class RowDecisionExport(_StrictModel):
+    """Every constituent decision the reviewer recorded, verbatim."""
+
+    meta: Annotated[RowDecisionMetadata, Field(alias="_meta")]
+    rows: tuple[ConstituentRowDecision, ...]
+
+    @model_validator(mode="after")
+    def _validate_rows(self) -> Self:
+        if not self.rows:
+            raise ValueError("row decisions must not be empty")
+        pairs = [
+            (row.code, row.expected_axis, row.expected_filler)
+            for row in self.rows
+            if row.kept
+        ]
+        if len(pairs) != len(set(pairs)):
+            raise ValueError("expected pairs of kept rows must be unique")
+        return self
+
+    def expected_pairs(self) -> set[tuple[str, str, str]]:
+        """The `(code, axis, filler)` triples the SME kept.
+
+        Keyed on the SME action, never on the presence of an expected pair: an
+        excluded row may still carry the expectation the reviewer withdrew.
+        """
+        return {
+            (
+                row.code,
+                cast("str", row.expected_axis),
+                cast("str", row.expected_filler),
+            )
+            for row in self.rows
+            if row.kept
+        }
+
+    def cross_tab(self) -> dict[str, dict[str, int]]:
+        """Row type by SME action, with every action present even at zero."""
+        counts = Counter((row.row_type, row.sme_action) for row in self.rows)
+        return {
+            row_type: {action: counts[(row_type, action)] for action in _SME_ACTIONS}
+            for row_type in _CONSTITUENT_ROW_TYPES
+        }
 
 
 class EngineConcept(_StrictModel):
@@ -722,9 +831,9 @@ def _constituent_row_identity(
     return code, row_type, action
 
 
-def _workbook_constituents(
+def _constituent_decision_sheet(
     workbook: Workbook,
-) -> tuple[dict[str, list[GoldenConstituent]], set[str]]:
+) -> tuple[Worksheet, dict[str, int]]:
     ws = workbook["Constituent Decisions"]
     headers = _headers(ws, 4)
     required = {
@@ -743,58 +852,100 @@ def _workbook_constituents(
         raise GoldenSetValidationError(
             "Constituent Decisions is missing headers: " + ", ".join(sorted(missing))
         )
-    result: dict[str, list[GoldenConstituent]] = {}
-    row_codes: set[str] = set()
+    return ws, headers
+
+
+def _constituent_row_decision(
+    ws: Worksheet, row: int, headers: dict[str, int]
+) -> ConstituentRowDecision:
+    """Validate one reviewer decision row without inferring an expectation."""
+    code, row_type, action = _constituent_row_identity(ws, row, headers)
+    complete = _cell_text(
+        ws, row, headers["Row Complete?"], f"{code} constituent completeness"
+    )
+    if row_type == "ENGINE SUGGESTION" and action == "PENDING":
+        raise GoldenSetValidationError(f"{code} has pending constituent action")
+    if action != "not-needed" and complete != "YES":
+        raise GoldenSetValidationError(f"{code} has incomplete constituent row")
+    if action not in _SME_ACTIONS:
+        raise GoldenSetValidationError(f"{code} has invalid SME action: {action}")
+    axis_column, filler_column = headers["Expected Axis"], headers["Expected Filler"]
+    axis_field, filler_field = f"{code} expected axis", f"{code} expected filler"
+    read = _cell_text if action in _KEPT_SME_ACTIONS else _optional_text
+    try:
+        return ConstituentRowDecision(
+            code=code,
+            row_type=cast("ConstituentRowType", row_type),
+            sme_action=cast("SmeAction", action),
+            expected_axis=read(ws, row, axis_column, axis_field),
+            expected_filler=read(ws, row, filler_column, filler_field),
+        )
+    except (ValidationError, ValueError) as error:
+        raise _model_error(error) from error
+
+
+def _constituent_decisions(
+    ws: Worksheet, headers: dict[str, int]
+) -> Iterator[tuple[int, ConstituentRowDecision]]:
+    """Yield every populated reviewer decision row with its sheet row number."""
     for row in range(5, ws.max_row + 1):
-        code = ws.cell(row, headers["Concept Code"]).value
-        if code is None:
+        if ws.cell(row, headers["Concept Code"]).value is None:
             if _row_has_data(ws, row):
                 raise GoldenSetValidationError(
                     f"populated constituent row has blank concept code: {row}"
                 )
             continue
-        code, row_type, action = _constituent_row_identity(ws, row, headers)
-        row_codes.add(code)
-        complete = _cell_text(
-            ws, row, headers["Row Complete?"], f"{code} constituent completeness"
-        )
-        if row_type == "ENGINE SUGGESTION" and action == "PENDING":
-            raise GoldenSetValidationError(f"{code} has pending constituent action")
-        if action != "not-needed" and complete != "YES":
-            raise GoldenSetValidationError(f"{code} has incomplete constituent row")
-        if action in {"exclude", "not-needed"}:
-            continue
-        if action not in {"include", "revise"}:
-            raise GoldenSetValidationError(f"{code} has invalid SME action: {action}")
-        expected = GoldenConstituent(
-            axis=_cell_text(ws, row, headers["Expected Axis"], f"{code} expected axis"),
-            filler=_cell_text(
-                ws, row, headers["Expected Filler"], f"{code} expected filler"
-            ),
-            relationship_group=_optional_text(
-                ws, row, headers["Expected Group"], f"{code} expected group"
-            ),
-            needs_review=_parse_review_bool(
-                ws.cell(row, headers["Expected needs_review"]).value,
-                f"{code} expected needs_review",
-            ),
-            provenance_status=cast(
-                "PairProvenance",
-                _cell_text(
-                    ws,
-                    row,
-                    headers["Expected Provenance Status"],
-                    f"{code} expected provenance status",
-                ),
-            ),
-            proposal_id=_optional_text(
+        yield row, _constituent_row_decision(ws, row, headers)
+
+
+def _kept_constituent(
+    ws: Worksheet,
+    row: int,
+    headers: dict[str, int],
+    decision: ConstituentRowDecision,
+) -> GoldenConstituent:
+    """Build the expectation a kept row contributes to the oracle."""
+    code = decision.code
+    return GoldenConstituent(
+        axis=cast("str", decision.expected_axis),
+        filler=cast("str", decision.expected_filler),
+        relationship_group=_optional_text(
+            ws, row, headers["Expected Group"], f"{code} expected group"
+        ),
+        needs_review=_parse_review_bool(
+            ws.cell(row, headers["Expected needs_review"]).value,
+            f"{code} expected needs_review",
+        ),
+        provenance_status=cast(
+            "PairProvenance",
+            _cell_text(
                 ws,
                 row,
-                headers["Expected Proposal ID"],
-                f"{code} expected proposal ID",
+                headers["Expected Provenance Status"],
+                f"{code} expected provenance status",
             ),
-        )
-        result.setdefault(code, []).append(expected)
+        ),
+        proposal_id=_optional_text(
+            ws,
+            row,
+            headers["Expected Proposal ID"],
+            f"{code} expected proposal ID",
+        ),
+    )
+
+
+def _workbook_constituents(
+    workbook: Workbook,
+) -> tuple[dict[str, list[GoldenConstituent]], set[str]]:
+    ws, headers = _constituent_decision_sheet(workbook)
+    result: dict[str, list[GoldenConstituent]] = {}
+    row_codes: set[str] = set()
+    for row, decision in _constituent_decisions(ws, headers):
+        row_codes.add(decision.code)
+        if decision.kept:
+            result.setdefault(decision.code, []).append(
+                _kept_constituent(ws, row, headers, decision)
+            )
     return result, row_codes
 
 
@@ -1089,6 +1240,62 @@ def import_adjudication_workbook(
             f"cannot read adjudication workbook: {error}"
         ) from error
     return import_adjudication_workbook_bytes(workbook_bytes, proposal_registry)
+
+
+def export_row_decisions_bytes(
+    workbook_bytes: bytes, source_workbook: str
+) -> RowDecisionExport:
+    """Export every constituent decision row of one workbook snapshot.
+
+    The oracle import discards `exclude` and `not-needed` rows, which is what makes
+    the engine's acceptance rate unrecoverable from the artifact alone. This runs
+    the same tamper gates and keeps the rows instead.
+    """
+    workbook = _load_review_workbook(workbook_bytes)
+    reviewer = _reviewer_from_workbook(workbook)
+    evidence = _required_evidence(workbook)
+    ws, headers = _constituent_decision_sheet(workbook)
+    rows = tuple(decision for _, decision in _constituent_decisions(ws, headers))
+    try:
+        return RowDecisionExport.model_validate(
+            {
+                "_meta": RowDecisionMetadata(
+                    schema_version=_ROW_DECISION_SCHEMA_VERSION,
+                    ncit_version=evidence["NCIt release"],
+                    source_workbook=source_workbook,
+                    workbook_identity=hashlib.sha256(workbook_bytes).hexdigest(),
+                    reviewer=reviewer,
+                ),
+                "rows": rows,
+            }
+        )
+    except (ValidationError, ValueError) as error:
+        raise _model_error(error) from error
+
+
+def export_row_decisions(path: str | Path) -> RowDecisionExport:
+    """Export the row-level SME decisions from an attested review workbook."""
+    workbook_path = Path(path)
+    try:
+        workbook_bytes = workbook_path.read_bytes()
+    except OSError as error:
+        raise GoldenSetValidationError(
+            f"cannot read adjudication workbook: {error}"
+        ) from error
+    return export_row_decisions_bytes(workbook_bytes, workbook_path.name)
+
+
+def load_row_decisions(path: str | Path) -> RowDecisionExport:
+    """Load the tracked row-decision export, rejecting a hand edit that broke it."""
+    raw = read_json_without_duplicates(path)
+    if not isinstance(raw, dict):
+        raise GoldenSetValidationError("row decisions must be a JSON object")
+    if isinstance(raw.get("rows"), list):
+        raw["rows"] = tuple(raw["rows"])
+    try:
+        return RowDecisionExport.model_validate(raw)
+    except (ValidationError, ValueError) as error:
+        raise _model_error(error) from error
 
 
 def _normalize_engine(value: dict[str, object]) -> dict[str, object]:

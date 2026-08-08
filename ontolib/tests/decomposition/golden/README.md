@@ -5,6 +5,7 @@
 | File | What it is |
 |---|---|
 | `neoplasm-adjudicated.json` | **The M1 oracle.** `SME-ADJUDICATED`, NCIt 26.07d, 20 concepts, 154 expected pairs, reviewed by R. Hannes Niedner, MD. Produced by `import-workbook` from the attested #57 workbook. |
+| `neoplasm-row-decisions.json` | **The reviewer's row-level decisions**, 189 rows from the same workbook — what the SME did with each engine suggestion, including the rows the oracle drops. Produced by `export-row-decisions`. |
 | `neoplasm-engine-evidence.json` | The recorded engine run the oracle was scored against (`run_id` `neoplasm-3981f4d1…`). Tracked so the baseline is reproducible without a live store. |
 | `neoplasm-corpus-comparison.json` | The #154 15-code residual comparison, derived from the engine evidence restricted to `samples/ncit-26.07d-m1-review.json`. Its `evidence_identity` is computed **after** the payload, per D61. |
 | `neoplasm.json`, `neoplasm-draft.json` | `AUTO-DRAFT` review inputs. **Not** oracles. Retained as seeds. |
@@ -14,11 +15,10 @@
 ## The M1 baseline this oracle records
 
 Measured 2026-08-08 against the attested workbook and reproduced byte-identically at
-`b4aa5e2`. **Two provenances, deliberately separated** — see D61 on never presenting
-inference in the form of observation.
+`b4aa5e2`. Every figure below is asserted by `test_m1_baseline.py` and recomputable
+from the tracked files above with no store and no workbook.
 
-**Reproducible from tracked data alone.** `test_m1_baseline.py` asserts these; they are
-recomputable from the four files above with no store and no workbook:
+**Pair-level** — the oracle's expected pairs against the recorded engine run:
 
 | | |
 |---|---|
@@ -29,21 +29,23 @@ recomputable from the four files above with no store and no workbook:
 | relationship-group agreement | **2 of 20 concepts** |
 | `residual_precoordination` — adjudication / #154 subset | 18/18 and 13/13, delta 0.0 |
 
-**Workbook decision-row counts — NOT tracked, NOT reproducible from this directory.**
-These come from the SME review workbook, which lives only in gitignored `tmp/`. They are
-recorded here because they are the plainest statement of the finding, and they are
-flagged because nothing in git can currently reproduce or check them:
+**Row-level** — what the SME did with each of the 189 constituent decision rows:
 
-| | |
-|---|---|
-| engine suggestions the SME accepted unchanged | 48 of 106 rows (45%) |
-| suggestions marked `revise` / `exclude` | 42 / 16 rows |
-| constituents the SME added that the engine never proposed | 63 rows |
+| | `include` | `revise` | `exclude` | `not-needed` |
+|---|---|---|---|---|
+| `ENGINE SUGGESTION` (106 rows) | **48** (45%) | **42** | **16** | 0 |
+| `ADD IF MISSING` (83 rows) | **63** | 1 | 4 | 15 |
 
-The row counts and the pair counts measure different things and will not reconcile
-directly: a `revise` row replaces one pair with another, so it lands in both the wrong-
-pair and never-emitted columns above. Making the row-level decisions tracked and
-reproducible is #275.
+The two provenances measure different things and will not reconcile directly: a
+`revise` row replaces one pair with another, so it lands in both the wrong-pair and
+never-emitted rows above. 80/106 and 48/106 answer different questions, and #275 made
+the second one reproducible.
+
+The `include` and `revise` rows are exactly the oracle's 154 expected pairs —
+`test_m1_baseline.py` asserts that equality on `(code, axis, filler)`, and that both
+files name the same `workbook_identity`, so neither can drift from the other or be
+regenerated from a different review. The equality holds only when keyed on the SME
+action: three `exclude` rows still carry the expectation the reviewer withdrew.
 
 Those numbers are the point of #57. They are why #271 (compound fillers), #267 (routing
 order) and #274 (group partition) exist. Treat them as the baseline any engine change is
@@ -164,3 +166,18 @@ Use `pdm run adjudication import-workbook <workbook.xlsx> <proposal-registry.jso
 on pending review or identity drift.
 Residual comparison inputs must list the exact denominator and residual concept codes;
 historical aggregate counts alone are insufficient because they cannot prove membership.
+
+`import-workbook` discards the `exclude` and `not-needed` rows — necessarily, since they
+define no expectation — which is what made the acceptance rate unrecoverable from the
+oracle. `export-row-decisions` keeps every row, running the same tamper gates. The
+tracked export was produced by:
+
+```
+pdm run adjudication export-row-decisions \
+  tmp/plans/M1-57_SME_Adjudication_Workbook_FINAL-REVIEW-PENDING_v14.xlsx \
+  ontolib/tests/decomposition/golden/neoplasm-row-decisions.json
+```
+
+Re-running it against the same workbook is byte-identical. The workbook is gitignored
+and is *not* required to check the counts: `test_m1_baseline.py` recomputes them from
+the tracked export.

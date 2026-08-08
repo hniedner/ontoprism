@@ -16,6 +16,7 @@ from ontolib.decomposition.proposal_registry import (
 try:
     from scripts.research.golden_review import (
         evaluate_adjudication,
+        export_row_decisions,
         import_adjudication_workbook,
         load_adjudication,
         read_json_without_duplicates,
@@ -24,10 +25,18 @@ try:
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.golden_review import (
         evaluate_adjudication,
+        export_row_decisions,
         import_adjudication_workbook,
         load_adjudication,
         read_json_without_duplicates,
         write_evaluation_report,
+    )
+
+
+def _write_canonical_json(payload: object, output: Path) -> None:
+    output.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -36,11 +45,12 @@ def _write_artifact(workbook: Path, registry: Path, output: Path) -> None:
         workbook,
         load_proposal_registry(registry),
     )
-    rendered = artifact.model_dump(mode="json", by_alias=True)
-    output.write_text(
-        json.dumps(rendered, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_canonical_json(artifact.model_dump(mode="json", by_alias=True), output)
+
+
+def _write_row_decisions(workbook: Path, output: Path) -> None:
+    export = export_row_decisions(workbook)
+    _write_canonical_json(export.model_dump(mode="json", by_alias=True), output)
 
 
 def _evaluate(
@@ -82,6 +92,9 @@ def _parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export-proposals")
     export_parser.add_argument("registry", type=Path)
     export_parser.add_argument("output_directory", type=Path)
+    rows_parser = subparsers.add_parser("export-row-decisions")
+    rows_parser.add_argument("workbook", type=Path)
+    rows_parser.add_argument("output", type=Path)
     return parser
 
 
@@ -92,6 +105,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "export-proposals":
         _export_proposals(args.registry, args.output_directory)
+        return
+    if args.command == "export-row-decisions":
+        _write_row_decisions(args.workbook, args.output)
         return
     _evaluate(
         args.adjudication,
