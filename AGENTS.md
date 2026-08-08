@@ -41,6 +41,35 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   enforcement is intentionally *not* enabled yet — it needs a release-bot credential as a
   ruleset bypass actor, else it would block the `GITHUB_TOKEN` release/README pushes.
 
+## Verify your own handover specs before delegating (learned 2026-08-07, the hard way)
+
+When you author a brief for another session to execute blindly, **apply the same evidence standard
+to your own instructions that you apply to everyone else's output.** Three defects in one handover
+cycle all came from skipping cheap local checks in a document written for blind execution — not
+from hard judgement calls:
+
+- A task named the wrong file, because the function's location was *inferred* from a finding's
+  prose instead of grepped.
+- A task said to regenerate an artifact that has no generator, because it was *assumed* to be
+  derived from its filename and version number. One `rg` for its name returns nothing.
+- A task specified a constraint ("a proposed member is not a missing member") instead of a target
+  shape, so the executor reused an existing variant and weakened a type invariant to make it fit.
+
+Before handing over a spec, check all four:
+
+1. **Every file path and symbol in it exists.** Grep for the definition; do not infer location
+   from surrounding prose.
+2. **Every artifact you say to regenerate has a generator.** If nothing produces it, it is
+   hand-authored and must not be rebuilt.
+3. **Every type change states the target shape, not a constraint.** "Add variant `X` to union `Y`",
+   never "`A` is not a `B`" — the latter leaves the executor to invent the positive form.
+4. **Every acceptance check is sufficient, not merely necessary.** If the check can pass while the
+   work is wrong, it is not a check. This is the same gate-liveness standard the project applies to
+   its own tests, and it applies to handover briefs too.
+
+Also state which tasks interact. Two tasks that touch the same type, listed independently and
+several items apart, invite exactly the failure above.
+
 ## The one principle that keeps getting rediscovered (D60)
 
 **Everything OntoPrism emits is NCIt.** Not NCIt blended with other ontologies — NCIt reorganised,
