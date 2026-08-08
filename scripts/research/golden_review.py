@@ -1248,8 +1248,37 @@ def export_row_decisions_bytes(
     """Export every constituent decision row of one workbook snapshot.
 
     The oracle import discards `exclude` and `not-needed` rows, which is what makes
-    the engine's acceptance rate unrecoverable from the artifact alone. This runs
-    the same tamper gates and keeps the rows instead.
+    the engine's acceptance rate unrecoverable from the artifact alone. This keeps
+    the rows instead.
+
+    It runs the workbook-level tamper gates and the shared row reader, and no more.
+    Specifically it runs:
+
+    - `_load_review_workbook`: the sheet-name contract, every reviewer sheet
+      visible, no hidden reviewer column carrying data, no formula cell in reviewer
+      input.
+    - `_reviewer_from_workbook`: no hidden populated reviewer row, `ATTESTED`
+      attestation, canonical reviewer name and qualification, ISO `reviewed_at`.
+    - `_required_evidence`: no hidden populated `Source & Run Evidence` row, no
+      duplicate evidence key, all ten required evidence keys present.
+    - `_constituent_decision_sheet`: no duplicate header, all ten required
+      `Constituent Decisions` headers present.
+    - `_constituent_decisions` / `_constituent_row_decision`: no populated row with
+      a blank concept code, no hidden constituent row, textual concept code
+      matching `^C[0-9]+$`, a known row type and SME action, no `PENDING` engine
+      suggestion, `Row Complete?` `YES` on every action but `not-needed`, and
+      `Expected Axis`/`Expected Filler` canonical on every row and required on a
+      kept one.
+    - `RowDecisionExport`: a nonempty row set with unique kept `(code, axis,
+      filler)` triples.
+
+    It does **not** run `_kept_constituent`, so the `Expected Provenance Status`,
+    `Expected needs_review`, `Expected Group` and `Expected Proposal ID` gates —
+    and the whole of `GoldenConstituent` — belong to the import alone. Nor does it
+    read `Concept Decisions` or apply the M1 cohort, artifact-identity and
+    proposal-registry gates. A workbook the export accepts can therefore still be
+    rejected by `import-workbook`; the export is evidence of what the reviewer
+    recorded, never a substitute for validating the oracle.
     """
     workbook = _load_review_workbook(workbook_bytes)
     reviewer = _reviewer_from_workbook(workbook)

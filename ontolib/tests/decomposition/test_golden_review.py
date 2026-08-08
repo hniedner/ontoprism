@@ -1794,7 +1794,13 @@ def test_row_decision_export_reproduces_the_imported_expected_set(
 def test_row_decision_export_fails_closed_on_a_tampered_workbook(
     tmp_path: Path,
 ) -> None:
-    """The export runs the same tamper gates as the oracle import."""
+    """The export runs the workbook-level tamper gates the oracle import runs.
+
+    Sheet contract, hidden rows and columns, formula cells, attestation, required
+    evidence keys and the constituent row identity are shared. The gates the
+    export does *not* run are pinned by
+    `test_row_decision_export_accepts_kept_constituent_defects_the_import_rejects`.
+    """
     workbook_path = tmp_path / "hidden.xlsx"
     _create_workbook(workbook_path)
     workbook = load_workbook(workbook_path)
@@ -1803,6 +1809,38 @@ def test_row_decision_export_fails_closed_on_a_tampered_workbook(
 
     with pytest.raises(GoldenSetValidationError, match="hidden constituent rows"):
         export_row_decisions(workbook_path)
+
+
+@pytest.mark.unit
+def test_row_decision_export_accepts_kept_constituent_defects_the_import_rejects(
+    tmp_path: Path,
+) -> None:
+    """The export stops at the row identity; it never builds the expectation.
+
+    `_kept_constituent` runs only on the import path, so the `Expected Provenance
+    Status` and `Expected needs_review` gates are the import's alone. A workbook
+    corrupt in either column is a valid row-decision export and an invalid oracle.
+    The export is therefore not a substitute for `import-workbook`, and this pins
+    that boundary so the claim cannot silently widen.
+    """
+    for column, value, message in (
+        (15, "not-a-status", "provenance_status"),
+        (14, "MAYBE", "expected needs_review must be TRUE or FALSE"),
+    ):
+        workbook_path = tmp_path / f"kept-gate-{column}.xlsx"
+        _create_workbook(workbook_path)
+        workbook = load_workbook(workbook_path)
+        workbook["Constituent Decisions"].cell(5, column, value)
+        workbook.save(workbook_path)
+
+        export = export_row_decisions(workbook_path)
+
+        assert export.rows[0].code == "C0"
+        assert export.rows[0].sme_action == "include"
+        assert export.rows[0].expected_axis == "op:StageValue"
+        assert export.rows[0].expected_filler == "C27970"
+        with pytest.raises(GoldenSetValidationError, match=message):
+            import_adjudication_workbook(workbook_path)
 
 
 @pytest.mark.unit

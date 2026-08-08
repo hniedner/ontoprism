@@ -185,8 +185,15 @@ historical aggregate counts alone are insufficient because they cannot prove mem
 
 `import-workbook` discards the `exclude` and `not-needed` rows — necessarily, since they
 define no expectation — which is what made the acceptance rate unrecoverable from the
-oracle. `export-row-decisions` keeps every row, running the same tamper gates. The
-tracked export was produced by:
+oracle. `export-row-decisions` keeps every row. It runs the workbook-level tamper gates
+(sheet contract, sheet visibility, hidden reviewer rows and columns, formula cells,
+attestation, required evidence keys) and the shared constituent row reader (row identity,
+row type, SME action vocabulary, no `PENDING` engine suggestion, `Row Complete?`, and
+canonical `Expected Axis`/`Expected Filler`). It does **not** run the kept-constituent
+gates — `Expected Provenance Status`, `Expected needs_review`, `Expected Group`,
+`Expected Proposal ID` — nor any `Concept Decisions`, cohort or proposal-registry gate;
+those belong to `import-workbook`. A workbook the export accepts can still be rejected as
+an oracle, so run both. The tracked export was produced by:
 
 ```
 pdm run adjudication export-row-decisions \
