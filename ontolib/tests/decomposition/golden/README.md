@@ -14,15 +14,36 @@
 ## The M1 baseline this oracle records
 
 Measured 2026-08-08 against the attested workbook and reproduced byte-identically at
-`b4aa5e2`:
+`b4aa5e2`. **Two provenances, deliberately separated** — see D61 on never presenting
+inference in the form of observation.
+
+**Reproducible from tracked data alone.** `test_m1_baseline.py` asserts these; they are
+recomputable from the four files above with no store and no workbook:
 
 | | |
 |---|---|
 | precision / recall (`ncit_bound`, D59 strict denominator) | 0.7547 / 0.5229 |
-| engine suggestions accepted unchanged | **48 of 106 (45%)** |
-| constituents the SME added that the engine never proposed | **63** |
+| engine pairs matching an expected pair | **80 of 106** |
+| engine pairs that were wrong | **26** |
+| expected pairs the engine never emitted | **74** |
 | relationship-group agreement | **2 of 20 concepts** |
 | `residual_precoordination` — adjudication / #154 subset | 18/18 and 13/13, delta 0.0 |
+
+**Workbook decision-row counts — NOT tracked, NOT reproducible from this directory.**
+These come from the SME review workbook, which lives only in gitignored `tmp/`. They are
+recorded here because they are the plainest statement of the finding, and they are
+flagged because nothing in git can currently reproduce or check them:
+
+| | |
+|---|---|
+| engine suggestions the SME accepted unchanged | 48 of 106 rows (45%) |
+| suggestions marked `revise` / `exclude` | 42 / 16 rows |
+| constituents the SME added that the engine never proposed | 63 rows |
+
+The row counts and the pair counts measure different things and will not reconcile
+directly: a `revise` row replaces one pair with another, so it lands in both the wrong-
+pair and never-emitted columns above. Making the row-level decisions tracked and
+reproducible is #275.
 
 Those numbers are the point of #57. They are why #271 (compound fillers), #267 (routing
 order) and #274 (group partition) exist. Treat them as the baseline any engine change is
