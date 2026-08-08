@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from ontolib.decomposition.provenance_models import (
+    CompletionRunMetrics,
     PersistedRunMetrics,
     RunFingerprint,
     RunResumeIdentity,
@@ -349,3 +350,64 @@ def test_work_item_outcome_rejects_completion_data_on_a_non_complete_state() -> 
             constituent_count=0,
             minted_count=None,
         )
+
+
+def _completion_metrics(**updates: object) -> CompletionRunMetrics:
+    """The fully-populated payload `complete_run` validates on every completion."""
+    values: dict[str, object] = {
+        "total_in_scope": 10,
+        "decomposed": 5,
+        "residual": 2,
+        "semantic_excluded": 2,
+        "atomic_noop": 1,
+        "unknown_outcome": 0,
+        "residual_precoordinated_count": 2,
+        "residual_precoordination": 0.4,
+        "minted_count": 0,
+        "complete_definition_count": 5,
+        "complete_fact_count": 8,
+        "projected_fact_count": 6,
+        "projection_loss_count": 2,
+        "projection_loss_rate": 0.25,
+        "pct_decomposed": 0.5,
+        "roundtrip_fidelity": None,
+    }
+    values.update(updates)
+    return CompletionRunMetrics.model_validate(values)
+
+
+@pytest.mark.unit
+def test_completion_metrics_accept_a_partitioned_scope() -> None:
+    """Baseline, so neither guard below can be made over-broad."""
+    assert _completion_metrics().total_in_scope == 10
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"atomic_noop": 2},  # over-counts: outcomes now sum to 11
+        {"atomic_noop": 0},  # under-counts: outcomes now sum to 9
+        {"decomposed": 4, "pct_decomposed": 0.4, "complete_definition_count": 4},
+        {"total_in_scope": 11},
+    ],
+)
+def test_completion_metrics_require_the_outcomes_to_partition_the_scope(
+    updates: dict[str, object],
+) -> None:
+    """Every concept in scope must land in exactly one outcome bucket.
+
+    This is the only account-for-every-concept invariant on the completion path,
+    and `complete_run` validates this payload before persisting it — so an
+    aggregation that drops or double-counts an outcome would otherwise be
+    published with metrics that do not describe the run.
+    """
+    with pytest.raises(ValidationError, match="outcome counts do not sum"):
+        _completion_metrics(**updates)
+
+
+@pytest.mark.unit
+def test_completion_metrics_bound_residual_precoordination_by_decomposed() -> None:
+    """D37's numerator counts decomposed concepts, so it cannot exceed them."""
+    with pytest.raises(ValidationError, match="residual count exceeds decomposed"):
+        _completion_metrics(residual_precoordinated_count=6)
