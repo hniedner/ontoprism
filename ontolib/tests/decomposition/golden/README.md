@@ -197,10 +197,13 @@ an oracle, so run both. The tracked export was produced by:
 
 ```
 pdm run adjudication export-row-decisions \
-  tmp/plans/M1-57_SME_Adjudication_Workbook_FINAL-REVIEW-PENDING_v14.xlsx \
+  <attested-workbook.xlsx> \
   ontolib/tests/decomposition/golden/neoplasm-row-decisions.json
 ```
 
-Re-running it against the same workbook is byte-identical. The workbook is gitignored
-and is *not* required to check the counts: `test_m1_baseline.py` recomputes them from
-the tracked export.
+`<attested-workbook.xlsx>` is the v14 SME adjudication workbook, sha256
+`c1fbcb0d3d09c4846b519bc9…` — the same file `_meta.workbook_identity` names in both this
+export and `neoplasm-adjudicated.json`, so the right input identifies itself rather than
+depending on a path. The workbook is deliberately not tracked and is *not* required to
+check any figure here: `test_m1_baseline.py` recomputes every count from the tracked
+export alone.
