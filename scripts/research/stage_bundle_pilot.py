@@ -25,12 +25,14 @@ from ontolib.decomposition.proposal_registry import (
     load_proposal_registry,
 )
 from ontolib.decomposition.semantic_bundles import (
+    AdjudicatedSemanticBundle,
     AdjudicatedSemanticContext,
     AvailableMember,
     BundleAxis,
     BundleKind,
     BundlePairAvailability,
     DeferredMember,
+    DeferredSemanticBundle,
     EvidenceClaim,
     EvidenceClaimKind,
     EvidenceClaimTarget,
@@ -39,6 +41,8 @@ from ontolib.decomposition.semantic_bundles import (
     MemberRole,
     PairProvenance,
     ProjectedConstituentEvidence,
+    RejectedSemanticBundle,
+    ReviewedSemanticBundle,
     SemanticBundleCandidate,
     SemanticBundleMember,
     SourceOccurrence,
@@ -2090,6 +2094,41 @@ def _parse_decision_row(
     }
 
 
+def _typed_review_decision(
+    candidate: SemanticBundleCandidate,
+    raw: dict[str, str],
+) -> ReviewedSemanticBundle:
+    fields = {
+        "candidate": candidate,
+        "decision_id": raw["candidate_id"],
+        "rationale": raw["rationale"],
+        "reviewer": raw["reviewer"],
+        "reviewed_at": raw["reviewed_at"],
+    }
+    decision = raw["decision"]
+    if decision == "ACCEPT":
+        return AdjudicatedSemanticBundle(**fields)
+    if decision == "REJECT":
+        return RejectedSemanticBundle(**fields)
+    return DeferredSemanticBundle(**fields)
+
+
+def _review_decision_dict(decision: ReviewedSemanticBundle) -> dict[str, str]:
+    if isinstance(decision, AdjudicatedSemanticBundle):
+        disposition = "ACCEPT"
+    elif isinstance(decision, RejectedSemanticBundle):
+        disposition = "REJECT"
+    else:
+        disposition = "DEFER"
+    return {
+        "candidate_id": decision.candidate.candidate_id,
+        "decision": disposition,
+        "rationale": decision.rationale,
+        "reviewer": decision.reviewer,
+        "reviewed_at": decision.reviewed_at,
+    }
+
+
 def import_review_decisions(
     workbook_path: Path,
     candidate_artifact: dict[str, object],
@@ -2120,26 +2159,32 @@ def _import_review_decisions_snapshot(
     _require_visible_semantic_review(sheet)
     _validate_decision_sheet(sheet, candidate_artifact)
 
-    candidates = {
+    candidate_rows = {
         cast("str", item["candidate_id"]): item
         for item in _candidate_rows(candidate_artifact)
     }
-    decisions: list[dict[str, str]] = []
+    candidates = {
+        candidate_id: _typed_candidate(item)
+        for candidate_id, item in candidate_rows.items()
+    }
+    decisions: list[ReviewedSemanticBundle] = []
     seen: set[str] = set()
     for row in range(9, sheet.max_row + 1):
         if not _decision_row_has_data(sheet, row):
             continue
-        decision = _parse_decision_row(sheet, row, candidates)
-        candidate_id = decision["candidate_id"]
+        raw_decision = _parse_decision_row(sheet, row, candidate_rows)
+        candidate_id = raw_decision["candidate_id"]
         if candidate_id in seen:
             raise ValueError(f"duplicate semantic candidate: {candidate_id}")
         seen.add(candidate_id)
-        decisions.append(decision)
+        decisions.append(_typed_review_decision(candidates[candidate_id], raw_decision))
     if seen != set(candidates):
         raise ValueError("semantic decision sheet does not disposition every candidate")
 
     accepted_ids = {
-        item["candidate_id"] for item in decisions if item["decision"] == "ACCEPT"
+        item.candidate.candidate_id
+        for item in decisions
+        if isinstance(item, AdjudicatedSemanticBundle)
     }
     result: dict[str, object] = {
         "schema_version": 1,
@@ -2151,10 +2196,10 @@ def _import_review_decisions_snapshot(
             "file": workbook_name,
             "sha256": _sha256_bytes(workbook_bytes),
         },
-        "decisions": decisions,
+        "decisions": [_review_decision_dict(item) for item in decisions],
         "semantic_bundle_rules": [
             candidate
-            for candidate_id, candidate in candidates.items()
+            for candidate_id, candidate in candidate_rows.items()
             if candidate_id in accepted_ids
         ],
     }

@@ -14,6 +14,7 @@ from ontolib.decomposition.semantic_bundles import (
     BundleKind,
     BundlePairAvailability,
     DeferredMember,
+    DeferredSemanticBundle,
     EvidenceClaim,
     EvidenceClaimKind,
     EvidenceClaimTarget,
@@ -24,6 +25,7 @@ from ontolib.decomposition.semantic_bundles import (
     ObservedSemanticBundle,
     PairProvenance,
     ProjectedConstituentEvidence,
+    RejectedSemanticBundle,
     SemanticBundleCandidate,
     SemanticBundleMember,
     SemanticMetricScore,
@@ -144,7 +146,6 @@ def _adjudicated(candidate: SemanticBundleCandidate) -> AdjudicatedSemanticBundl
     return AdjudicatedSemanticBundle(
         candidate=candidate,
         decision_id="decision-1",
-        decision="ACCEPT",
         rationale="The reviewer approved this exact framework/value association.",
         reviewer="Example SME",
         reviewed_at="2026-08-05",
@@ -194,12 +195,11 @@ def test_semantic_metric_score_rejects_inconsistent_counts_and_sets(
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ({"decision": "DEFER"}, "accepted"),
         ({"reviewer": ""}, "reviewer"),
         ({"reviewed_at": "August 5"}, "reviewed_at"),
     ],
 )
-def test_adjudicated_bundle_requires_an_accepted_dated_review(
+def test_reviewed_bundle_requires_a_dated_reviewer(
     mutation: dict[str, object],
     message: str,
 ) -> None:
@@ -207,6 +207,21 @@ def test_adjudicated_bundle_requires_an_accepted_dated_review(
 
     with pytest.raises(ValueError, match=message):
         replace(bundle, **mutation)
+
+
+@pytest.mark.unit
+def test_review_dispositions_are_distinct_types() -> None:
+    accepted = _adjudicated(_candidate())
+    common = {
+        "candidate": accepted.candidate,
+        "decision_id": accepted.decision_id,
+        "rationale": accepted.rationale,
+        "reviewer": accepted.reviewer,
+        "reviewed_at": accepted.reviewed_at,
+    }
+
+    assert isinstance(RejectedSemanticBundle(**common), RejectedSemanticBundle)
+    assert isinstance(DeferredSemanticBundle(**common), DeferredSemanticBundle)
 
 
 def _structural_claim() -> EvidenceClaim:
@@ -240,7 +255,6 @@ def _projected(
 
 def _observed(candidate: SemanticBundleCandidate) -> ObservedSemanticBundle:
     return ObservedSemanticBundle(
-        association_id="a" * 64,
         subject_code=candidate.subject_code,
         kind=candidate.kind,
         classification=candidate.classification,
@@ -637,12 +651,21 @@ def test_projection_metadata_is_validated_and_available_pairs_remain_flat() -> N
 
 
 @pytest.mark.unit
-def test_observed_bundle_requires_explicit_association_identity() -> None:
+def test_observed_bundle_derives_association_identity_from_content() -> None:
     candidate = _candidate()
     observed = _observed(candidate)
 
-    with pytest.raises(ValueError, match="association_id"):
-        replace(observed, association_id="not-a-digest")
+    assert observed.association_id == _observed(candidate).association_id
+    assert (
+        observed.association_id
+        != replace(
+            observed,
+            members=(
+                observed.members[1],
+                replace(observed.members[0], filler_code="C90529"),
+            ),
+        ).association_id
+    )
     member = observed.members[0]
     with pytest.raises(ValueError, match="role must be typed"):
         replace(member, role=cast("MemberRole", "stage-type"))
@@ -683,16 +706,13 @@ def test_observed_score_detects_crossed_associations_with_same_flat_pairs() -> N
                 stage_system_code="C90529",
             )
         ),
-        replace(
-            _observed(
-                _candidate(
-                    "wrong-two",
-                    stage_type="C90530",
-                    stage_value="C27966",
-                    stage_system_code="C90530",
-                )
-            ),
-            association_id="b" * 64,
+        _observed(
+            _candidate(
+                "wrong-two",
+                stage_type="C90530",
+                stage_value="C27966",
+                stage_system_code="C90530",
+            )
         ),
     )
 
@@ -761,7 +781,7 @@ def test_semantic_score_rejects_duplicate_expected_and_observed_identities() -> 
     candidate = _candidate()
     expected = _adjudicated(candidate)
     observed = _observed(candidate)
-    duplicate = replace(observed, association_id="b" * 64)
+    duplicate = replace(observed)
 
     with pytest.raises(ValueError, match=r"adjudicated.*unique"):
         score_observed_bundles((expected, expected), ())

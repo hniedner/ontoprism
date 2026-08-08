@@ -466,18 +466,15 @@ def validate_candidate_evidence(
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class AdjudicatedSemanticBundle:
+class _ReviewedSemanticBundle:
     candidate: SemanticBundleCandidate
     decision_id: str
-    decision: Literal["ACCEPT"]
     rationale: str
     reviewer: str
     reviewed_at: str
 
     def __post_init__(self) -> None:
         _require_nonempty(self.decision_id, "decision_id")
-        if self.decision != "ACCEPT":
-            raise ValueError("adjudicated semantic bundle must be accepted")
         _require_nonempty(self.rationale, "rationale")
         _require_nonempty(self.reviewer, "reviewer")
         try:
@@ -488,6 +485,26 @@ class AdjudicatedSemanticBundle:
     @property
     def semantic_identity(self) -> str:
         return self.candidate.semantic_identity
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AdjudicatedSemanticBundle(_ReviewedSemanticBundle):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RejectedSemanticBundle(_ReviewedSemanticBundle):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeferredSemanticBundle(_ReviewedSemanticBundle):
+    pass
+
+
+type ReviewedSemanticBundle = (
+    AdjudicatedSemanticBundle | RejectedSemanticBundle | DeferredSemanticBundle
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -688,18 +705,23 @@ class ObservedBundleMember:
 class ObservedSemanticBundle:
     """A semantic association explicitly emitted by an engine."""
 
-    association_id: str
     subject_code: str
     kind: BundleKind
     classification: StageClassification
     members: tuple[ObservedBundleMember, ...]
 
     def __post_init__(self) -> None:
-        _require_match(self.association_id, _SHA256, "association_id")
         _require_match(self.subject_code, _CONCEPT_CODE, "subject_code")
         if self.kind is not BundleKind.CANCER_STAGE:
             raise ValueError("observed kind must be the ONTOPRISM cancer-stage model")
         _validate_stage_members(self.members)
+
+    @property
+    def association_id(self) -> str:
+        return _association_identity(
+            _observed_context(self),
+            tuple(member.semantic_key for member in self.members),
+        )
 
     @property
     def semantic_identity(self) -> str:
