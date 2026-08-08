@@ -7,7 +7,7 @@ import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -1438,6 +1438,13 @@ def test_candidate_result_enforces_outcome_specific_shapes() -> None:
         _CandidateResult(populated, "residual", ("Neoplastic Process",))
     with pytest.raises(ValueError, match=r"minted.*decomposed"):
         _CandidateResult(empty, "residual", ("Neoplastic Process",), minted)
+    # A non-decomposition outcome has, by definition, produced no decomposition;
+    # carrying one would contradict the outcome the row is about to record.
+    for outcome in ("semantic-excluded", "atomic-no-op", "unknown"):
+        with pytest.raises(
+            ValueError, match="non-decomposition outcomes cannot carry a decomposition"
+        ):
+            _CandidateResult(populated, cast("Any", outcome), ("Neoplastic Process",))
 
 
 @pytest.mark.unit

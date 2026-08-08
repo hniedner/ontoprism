@@ -977,9 +977,11 @@ def test_available_and_deferred_members_reject_a_proposed_member() -> None:
 def test_bundle_availability_rejects_a_member_reported_twice() -> None:
     """One member cannot hold two contradictory availabilities.
 
-    `evaluate_pair_availability` keys off `candidate.members`, but the public
-    constructor is reachable from a report replay, and a repeated member would
-    also double-count in the report's member tallies.
+    `evaluate_pair_availability` keys off `candidate.members`, so it cannot
+    produce this. The constructor is public, though, so any caller assembling
+    availability directly -- a future report replay, or a stored-trace
+    deserialiser -- could pass a duplicate, and a repeated member would
+    double-count in the report's member tallies.
     """
     candidate = _candidate()
     available = AvailableMember(

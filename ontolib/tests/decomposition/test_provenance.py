@@ -111,6 +111,98 @@ def test_work_item_read_model_rejects_representative_outside_source_types() -> N
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("constituents", "outcome"),
+    [
+        # A decomposition with constituents IS "decomposed"; claiming otherwise
+        # would persist an outcome contradicting is_decomposed/constituent_count.
+        (
+            (Constituent(axis="R101", filler_code="C12400", axis_source="role"),),
+            "residual",
+        ),
+        (
+            (Constituent(axis="R101", filler_code="C12400", axis_source="role"),),
+            "atomic-no-op",
+        ),
+        ((), "decomposed"),
+        ((), "semantic-excluded"),
+    ],
+)
+async def test_completion_outcome_must_agree_with_the_decomposition_shape(
+    constituents: tuple[Constituent, ...],
+    outcome: str,
+) -> None:
+    """The WRITE-side gate; `WorkItemOutcome` only guards the read side.
+
+    Nothing may be persisted before the disagreement is caught, so the session
+    must never be touched.
+    """
+    sf = _make_mock_sf()
+
+    with pytest.raises(
+        RunStateError, match="completion outcome does not match decomposition result"
+    ):
+        await ProvenanceStore(sf).complete_work_item(
+            "run-1",
+            "C1",
+            UUID(int=1),
+            decomposition=Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=constituents,
+            ),
+            minted=(),
+            semantic_types=("Neoplastic Process",),
+            outcome=cast("Any", outcome),
+        )
+
+    sf().execute.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_completion_without_a_decomposition_requires_a_typed_outcome() -> None:
+    """`outcome` defaults to None, so an omitted outcome must not be inferred.
+
+    With no decomposition there is nothing to derive the outcome from, and
+    guessing would persist a claim the pipeline never made.
+    """
+    sf = _make_mock_sf()
+
+    with pytest.raises(
+        RunStateError,
+        match="non-decomposition completion requires an explicit typed outcome",
+    ):
+        await ProvenanceStore(sf).complete_work_item(
+            "run-1",
+            "C1",
+            UUID(int=1),
+            decomposition=None,
+            minted=(),
+            semantic_types=("Neoplastic Process",),
+        )
+
+    sf().execute.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("outcome", ["semantic-excluded", "atomic-no-op"])
+async def test_completion_without_a_decomposition_accepts_a_typed_outcome(
+    outcome: str,
+) -> None:
+    """The accept direction, so the guard above cannot be over-broad."""
+    sf = _make_mock_sf()
+    resolved, types, definition = provenance_module._validated_completion_metadata(
+        None,
+        cast("Any", outcome),
+        ("Neoplastic Process",),
+        is_decomposed=False,
+        is_residual=False,
+    )
+    assert (resolved, types, definition) == (outcome, ("Neoplastic Process",), None)
+    del sf
+
+
+@pytest.mark.unit
 async def test_completion_rejects_representative_outside_source_types() -> None:
     sf = _make_mock_sf()
 
