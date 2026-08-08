@@ -559,11 +559,19 @@ def _attest_review_workbook(path: Path) -> None:
     workbook["Reviewer & Attestation"]["B9"] = "ATTESTED"
     sheet = workbook["Semantic Bundle Decisions"]
     sheet["B5"] = "ATTESTED"
+    headers = {
+        sheet.cell(8, column).value: column for column in range(1, sheet.max_column + 1)
+    }
     for row in range(9, sheet.max_row + 1):
-        sheet.cell(row, 8, "ACCEPT" if row == 9 else "REJECT")
-        sheet.cell(row, 9, "Reviewer assessed the exact proposed association.")
-        sheet.cell(row, 10, "Domain Reviewer")
-        sheet.cell(row, 11, "2026-08-04")
+        sheet.cell(row, headers["Decision"], "ACCEPT" if row == 9 else "REJECT")
+        if sheet.cell(row, headers["Rationale"]).value is None:
+            sheet.cell(
+                row,
+                headers["Rationale"],
+                "Reviewer assessed the exact proposed association.",
+            )
+        sheet.cell(row, headers["Reviewer"], "Domain Reviewer")
+        sheet.cell(row, headers["Review Date"], "2026-08-04")
     workbook.save(path)
 
 
@@ -586,6 +594,92 @@ def test_review_workbook_requires_the_artifact_bound_base_digest(
             review,
             proposal_registry=_PROPOSAL_REGISTRY,
         )
+
+
+@pytest.mark.unit
+def test_review_sheet_surfaces_member_provenance_and_context_exclusion(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact(base)
+
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
+
+    sheet = load_workbook(review)["Semantic Bundle Decisions"]
+    headers = tuple(sheet.cell(8, column).value for column in range(1, 15))
+    assert headers == (
+        "Candidate ID",
+        "Row Type",
+        "Semantic Identity",
+        "Subject Code",
+        "Candidate Name",
+        "Staging System",
+        "Staging System Version",
+        "Members",
+        "Member Provenance",
+        "Supporting Evidence",
+        "Decision",
+        "Rationale",
+        "Reviewer",
+        "Review Date",
+    )
+    by_header = {header: column for column, header in enumerate(headers, start=1)}
+    context_row = next(
+        row
+        for row in range(9, sheet.max_row + 1)
+        if sheet.cell(row, by_header["Row Type"]).value == "CONTEXT-ONLY"
+    )
+    assert sheet.cell(context_row, by_header["Subject Code"]).value == "C198031"
+    assert sheet.cell(context_row, by_header["Rationale"]).value == (
+        "C198023 identifies context but no stage value is asserted."
+    )
+    assert sheet.cell(context_row, by_header["Reviewer"]).value is None
+    assert "I agree with the exclusion" in cast("str", sheet["B6"].value)
+    proposed_row = next(
+        row
+        for row in range(9, sheet.max_row + 1)
+        if "proposed"
+        in cast("str", sheet.cell(row, by_header["Member Provenance"]).value)
+    )
+    assert (
+        sheet.cell(proposed_row, by_header["Supporting Evidence"]).value
+        == "PROPOSED-mCODE"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [("Reviewer", "reviewer"), ("Review Date", "review date")],
+)
+def test_context_exclusion_requires_reviewer_and_review_date(
+    tmp_path: Path,
+    field: str,
+    message: str,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact(base)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
+    _attest_review_workbook(review)
+    workbook = load_workbook(review)
+    sheet = workbook["Semantic Bundle Decisions"]
+    headers = {
+        sheet.cell(8, column).value: column for column in range(1, sheet.max_column + 1)
+    }
+    context_row = next(
+        row
+        for row in range(9, sheet.max_row + 1)
+        if sheet.cell(row, headers["Row Type"]).value == "CONTEXT-ONLY"
+    )
+    sheet.cell(context_row, headers[field]).value = None
+    workbook.save(review)
+
+    with pytest.raises(ValueError, match=message):
+        import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
 
 @pytest.mark.unit
@@ -838,11 +932,18 @@ def test_semantic_review_accepts_excel_date_cells(tmp_path: Path) -> None:
     artifact = _candidate_artifact(base)
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     workbook = load_workbook(review)
-    assert workbook["Semantic Bundle Decisions"]["K9"].number_format == "@"
+    sheet = workbook["Semantic Bundle Decisions"]
+    headers = {
+        sheet.cell(8, column).value: column for column in range(1, sheet.max_column + 1)
+    }
+    review_date_column = headers["Review Date"]
+    assert sheet.cell(9, review_date_column).number_format == "@"
     workbook.save(review)
     _attest_review_workbook(review)
     workbook = load_workbook(review)
-    workbook["Semantic Bundle Decisions"]["K9"] = datetime(2026, 8, 4)
+    workbook["Semantic Bundle Decisions"].cell(
+        9, review_date_column, datetime(2026, 8, 4)
+    )
     workbook.save(review)
 
     canonical = import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
@@ -940,11 +1041,19 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     workbook["Reviewer & Attestation"]["B9"] = "PENDING"
     sheet = workbook["Semantic Bundle Decisions"]
     sheet["B5"] = "ATTESTED"
+    headers = {
+        sheet.cell(8, column).value: column for column in range(1, sheet.max_column + 1)
+    }
     for row in range(9, sheet.max_row + 1):
-        sheet.cell(row, 8, "ACCEPT" if row == 9 else "REJECT")
-        sheet.cell(row, 9, "Reviewer assessed the exact proposed association.")
-        sheet.cell(row, 10, "Domain Reviewer")
-        sheet.cell(row, 11, "2026-08-04")
+        sheet.cell(row, headers["Decision"], "ACCEPT" if row == 9 else "REJECT")
+        if sheet.cell(row, headers["Rationale"]).value is None:
+            sheet.cell(
+                row,
+                headers["Rationale"],
+                "Reviewer assessed the exact proposed association.",
+            )
+        sheet.cell(row, headers["Reviewer"], "Domain Reviewer")
+        sheet.cell(row, headers["Review Date"], "2026-08-04")
     workbook.save(review)
 
     with pytest.raises(ValueError, match="attestation is pending"):
@@ -962,7 +1071,11 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
         STAGE_BUNDLE_CANDIDATES[0].candidate_id
     ]
     workbook = load_workbook(review)
-    workbook["Semantic Bundle Decisions"]["B9"] = "0" * 64
+    sheet = workbook["Semantic Bundle Decisions"]
+    headers = {
+        sheet.cell(8, column).value: column for column in range(1, sheet.max_column + 1)
+    }
+    sheet.cell(9, headers["Semantic Identity"], "0" * 64)
     workbook.save(review)
     with pytest.raises(ValueError, match="candidate fields changed"):
         import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)

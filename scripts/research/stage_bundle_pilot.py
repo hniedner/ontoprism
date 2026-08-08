@@ -1424,17 +1424,24 @@ _DECISION_SHEET = "Semantic Bundle Decisions"
 _DECISION_HEADER_ROW = 8
 _DECISION_HEADERS = (
     "Candidate ID",
+    "Row Type",
     "Semantic Identity",
     "Subject Code",
     "Candidate Name",
-    "Authority",
-    "Version",
+    "Staging System",
+    "Staging System Version",
     "Members",
+    "Member Provenance",
+    "Supporting Evidence",
     "Decision",
     "Rationale",
     "Reviewer",
     "Review Date",
 )
+_DECISION_COLUMN_COUNT = len(_DECISION_HEADERS)
+_DECISION_COLUMNS = {
+    header: column for column, header in enumerate(_DECISION_HEADERS, start=1)
+}
 
 
 def _validate_artifact_identity(artifact: dict[str, object]) -> None:
@@ -1589,6 +1596,21 @@ def _typed_candidate(raw: dict[str, object]) -> SemanticBundleCandidate:
     return candidate
 
 
+def _typed_context(raw: dict[str, object]) -> AdjudicatedSemanticContext:
+    _require_object_keys(
+        raw,
+        {"context_id", "subject_code", "name", "member", "rationale"},
+        "semantic context",
+    )
+    return AdjudicatedSemanticContext(
+        context_id=_required_text(raw["context_id"], "context ID"),
+        subject_code=_required_text(raw["subject_code"], "context subject"),
+        name=_required_text(raw["name"], "context name"),
+        member=_typed_candidate_member(raw["member"]),
+        rationale=_required_text(raw["rationale"], "context rationale"),
+    )
+
+
 def _candidate_rows(artifact: dict[str, object]) -> list[dict[str, object]]:
     raw = artifact.get("semantic_bundle_candidates")
     if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
@@ -1599,6 +1621,19 @@ def _candidate_rows(artifact: dict[str, object]) -> list[dict[str, object]]:
         raise ValueError("candidate artifact IDs must be unique")
     for row in rows:
         _typed_candidate(row)
+    return rows
+
+
+def _context_rows(artifact: dict[str, object]) -> list[dict[str, object]]:
+    raw = artifact.get("excluded_context_only_constructs")
+    if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
+        raise ValueError("candidate artifact semantic contexts are invalid")
+    rows = cast("list[dict[str, object]]", raw)
+    context_ids = [item.get("context_id") for item in rows]
+    if len(set(context_ids)) != len(rows):
+        raise ValueError("candidate artifact context IDs must be unique")
+    for row in rows:
+        _typed_context(row)
     return rows
 
 
@@ -1614,6 +1649,26 @@ def _member_summary(candidate: dict[str, object]) -> str:
             f"{member.get('role')}|{member.get('axis')}|{member.get('filler_code')}"
         )
     return "; ".join(parts)
+
+
+def _typed_member_summary(members: tuple[SemanticBundleMember, ...]) -> str:
+    return "; ".join(
+        f"{member.role.value}|{member.axis.value}|{member.filler_code}"
+        for member in members
+    )
+
+
+def _member_provenance(members: tuple[SemanticBundleMember, ...]) -> str:
+    return "; ".join(member.provenance_status for member in members)
+
+
+def _supporting_evidence(members: tuple[SemanticBundleMember, ...]) -> str:
+    statuses = {member.provenance_status for member in members}
+    if "proposed" in statuses:
+        return "PROPOSED-mCODE"
+    if "locally-approved" in statuses:
+        return "LOCALLY-APPROVED"
+    return "NCIT-ASSERTED"
 
 
 def _sheet_headers(sheet: Worksheet, row: int) -> dict[str, int]:
@@ -1911,6 +1966,66 @@ def _bound_constituent_workbook_sha256(
     return sha256
 
 
+def _write_review_decision_row(
+    sheet: Worksheet,
+    row: int,
+    values: tuple[object, ...],
+) -> None:
+    for column, value in enumerate(values, start=1):
+        sheet.cell(row, column, value)
+    sheet.cell(row, _DECISION_COLUMNS["Review Date"]).number_format = "@"
+    for column in range(_DECISION_COLUMNS["Decision"], _DECISION_COLUMN_COUNT + 1):
+        sheet.cell(row, column).fill = PatternFill("solid", fgColor="FFF2CC")
+
+
+def _write_review_decision_rows(
+    sheet: Worksheet,
+    candidate_artifact: dict[str, object],
+) -> int:
+    candidate_rows = _candidate_rows(candidate_artifact)
+    context_rows = _context_rows(candidate_artifact)
+    for row, raw_candidate in enumerate(candidate_rows, start=9):
+        candidate = _typed_candidate(raw_candidate)
+        _write_review_decision_row(
+            sheet,
+            row,
+            (
+                candidate.candidate_id,
+                "BUNDLE",
+                candidate.semantic_identity,
+                candidate.subject_code,
+                candidate.name,
+                candidate.classification.authority,
+                candidate.classification.version,
+                _typed_member_summary(candidate.members),
+                _member_provenance(candidate.members),
+                _supporting_evidence(candidate.members),
+            ),
+        )
+    first_context_row = 9 + len(candidate_rows)
+    for row, raw_context in enumerate(context_rows, start=first_context_row):
+        context = _typed_context(raw_context)
+        _write_review_decision_row(
+            sheet,
+            row,
+            (
+                context.context_id,
+                "CONTEXT-ONLY",
+                None,
+                context.subject_code,
+                context.name,
+                None,
+                None,
+                _typed_member_summary((context.member,)),
+                _member_provenance((context.member,)),
+                _supporting_evidence((context.member,)),
+                None,
+                context.rationale,
+            ),
+        )
+    return 8 + len(candidate_rows) + len(context_rows)
+
+
 def write_review_workbook(
     base_workbook_path: Path,
     candidate_artifact: dict[str, object],
@@ -1952,7 +2067,8 @@ def write_review_workbook(
             "Instructions",
             "Choose ACCEPT, REJECT, or DEFER for every row and supply rationale, "
             "reviewer, and ISO review date. Set Attestation status to ATTESTED only "
-            "after the complete sheet has been reviewed.",
+            "after the complete sheet has been reviewed. ACCEPT on a CONTEXT-ONLY "
+            'row means "I agree with the exclusion".',
         ),
     )
     for row, (label, value) in enumerate(metadata, start=2):
@@ -1963,31 +2079,17 @@ def write_review_workbook(
         cell = sheet.cell(_DECISION_HEADER_ROW, column, header)
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9EAF7")
-    for row, candidate in enumerate(_candidate_rows(candidate_artifact), start=9):
-        classification = _typed_classification(candidate.get("classification"))
-        values = (
-            candidate.get("candidate_id"),
-            candidate.get("semantic_identity"),
-            candidate.get("subject_code"),
-            candidate.get("name"),
-            classification.authority,
-            classification.version,
-            _member_summary(candidate),
-        )
-        for column, value in enumerate(values, start=1):
-            sheet.cell(row, column, value)
-        sheet.cell(row, 11).number_format = "@"
-        for column in range(8, 12):
-            sheet.cell(row, column).fill = PatternFill("solid", fgColor="FFF2CC")
+    last_decision_row = _write_review_decision_rows(sheet, candidate_artifact)
     decision_validation = DataValidation(
         type="list",
         formula1='"ACCEPT,REJECT,DEFER"',
         allow_blank=True,
     )
     sheet.add_data_validation(decision_validation)
-    decision_validation.add(f"H9:H{8 + len(_candidate_rows(candidate_artifact))}")
+    decision_column = get_column_letter(_DECISION_COLUMNS["Decision"])
+    decision_validation.add(f"{decision_column}9:{decision_column}{last_decision_row}")
     sheet.freeze_panes = "A9"
-    widths = (32, 68, 16, 58, 16, 20, 75, 14, 75, 28, 16)
+    widths = (32, 16, 68, 16, 58, 20, 24, 75, 38, 24, 14, 75, 28, 16)
     for column, width in enumerate(widths, start=1):
         sheet.column_dimensions[sheet.cell(8, column).column_letter].width = width
     workbook.save(output_path)
@@ -2022,7 +2124,8 @@ def _validate_decision_sheet(
     if actual_metadata != expected_metadata:
         raise ValueError("semantic review metadata does not match the candidate packet")
     headers = tuple(
-        sheet.cell(_DECISION_HEADER_ROW, column).value for column in range(1, 12)
+        sheet.cell(_DECISION_HEADER_ROW, column).value
+        for column in range(1, _DECISION_COLUMN_COUNT + 1)
     )
     if headers != _DECISION_HEADERS:
         raise ValueError("semantic decision headers do not match the schema")
@@ -2033,7 +2136,7 @@ def _require_visible_semantic_review(sheet: Worksheet) -> None:
         raise ValueError("semantic decision sheet must be visible")
     hidden_columns = [
         get_column_letter(column)
-        for column in range(1, 12)
+        for column in range(1, _DECISION_COLUMN_COUNT + 1)
         if sheet.column_dimensions[get_column_letter(column)].hidden
     ]
     if hidden_columns:
@@ -2053,43 +2156,84 @@ def _require_visible_semantic_review(sheet: Worksheet) -> None:
 
 
 def _decision_row_has_data(sheet: Worksheet, row: int) -> bool:
-    return any(sheet.cell(row, column).value is not None for column in range(1, 12))
+    return any(
+        sheet.cell(row, column).value is not None
+        for column in range(1, _DECISION_COLUMN_COUNT + 1)
+    )
 
 
 def _parse_decision_row(
     sheet: Worksheet,
     row: int,
     candidates: dict[str, dict[str, object]],
+    contexts: dict[str, dict[str, object]],
 ) -> dict[str, str]:
-    candidate_id = _review_text(sheet.cell(row, 1).value, "candidate ID")
-    if candidate_id not in candidates:
-        raise ValueError(f"unknown semantic candidate: {candidate_id}")
-    candidate = candidates[candidate_id]
-    classification = _typed_classification(candidate["classification"])
-    expected = (
-        candidate["semantic_identity"],
-        candidate["subject_code"],
-        candidate["name"],
-        classification.authority,
-        classification.version,
-        _member_summary(candidate),
+    candidate_id = _review_text(
+        sheet.cell(row, _DECISION_COLUMNS["Candidate ID"]).value,
+        "candidate ID",
     )
-    actual = tuple(sheet.cell(row, column).value for column in range(2, 8))
+    row_type = _review_text(
+        sheet.cell(row, _DECISION_COLUMNS["Row Type"]).value,
+        "row type",
+    )
+    if row_type == "BUNDLE" and candidate_id in candidates:
+        candidate = _typed_candidate(candidates[candidate_id])
+        expected = (
+            candidate.semantic_identity,
+            candidate.subject_code,
+            candidate.name,
+            candidate.classification.authority,
+            candidate.classification.version,
+            _typed_member_summary(candidate.members),
+            _member_provenance(candidate.members),
+            _supporting_evidence(candidate.members),
+        )
+    elif row_type == "CONTEXT-ONLY" and candidate_id in contexts:
+        context = _typed_context(contexts[candidate_id])
+        expected = (
+            None,
+            context.subject_code,
+            context.name,
+            None,
+            None,
+            _typed_member_summary((context.member,)),
+            _member_provenance((context.member,)),
+            _supporting_evidence((context.member,)),
+        )
+    else:
+        raise ValueError(f"unknown semantic candidate: {candidate_id}")
+    actual = tuple(
+        sheet.cell(row, column).value
+        for column in range(
+            _DECISION_COLUMNS["Semantic Identity"],
+            _DECISION_COLUMNS["Supporting Evidence"] + 1,
+        )
+    )
     if actual != expected:
         raise ValueError(f"candidate fields changed in reviewer row {row}")
-    decision = _review_text(sheet.cell(row, 8).value, "decision")
+    decision = _review_text(
+        sheet.cell(row, _DECISION_COLUMNS["Decision"]).value,
+        "decision",
+    )
     if decision not in {"ACCEPT", "REJECT", "DEFER"}:
         raise ValueError(f"semantic decision is invalid in row {row}")
-    reviewed_at = _review_date(sheet.cell(row, 11).value)
+    reviewed_at = _review_date(sheet.cell(row, _DECISION_COLUMNS["Review Date"]).value)
     try:
         date.fromisoformat(reviewed_at)
     except ValueError as error:
         raise ValueError(f"semantic review date is invalid in row {row}") from error
     return {
         "candidate_id": candidate_id,
+        "row_type": row_type,
         "decision": decision,
-        "rationale": _review_text(sheet.cell(row, 9).value, "rationale"),
-        "reviewer": _review_text(sheet.cell(row, 10).value, "reviewer"),
+        "rationale": _review_text(
+            sheet.cell(row, _DECISION_COLUMNS["Rationale"]).value,
+            "rationale",
+        ),
+        "reviewer": _review_text(
+            sheet.cell(row, _DECISION_COLUMNS["Reviewer"]).value,
+            "reviewer",
+        ),
         "reviewed_at": reviewed_at,
     }
 
@@ -2122,6 +2266,7 @@ def _review_decision_dict(decision: ReviewedSemanticBundle) -> dict[str, str]:
         disposition = "DEFER"
     return {
         "candidate_id": decision.candidate.candidate_id,
+        "row_type": "BUNDLE",
         "decision": disposition,
         "rationale": decision.rationale,
         "reviewer": decision.reviewer,
@@ -2167,25 +2312,37 @@ def _import_review_decisions_snapshot(
         candidate_id: _typed_candidate(item)
         for candidate_id, item in candidate_rows.items()
     }
-    decisions: list[ReviewedSemanticBundle] = []
+    context_rows = {
+        cast("str", item["context_id"]): item
+        for item in _context_rows(candidate_artifact)
+    }
+    if set(candidate_rows) & set(context_rows):
+        raise ValueError("semantic decision target IDs must be unique")
+    decisions: list[dict[str, str]] = []
+    accepted_ids: set[str] = set()
     seen: set[str] = set()
     for row in range(9, sheet.max_row + 1):
         if not _decision_row_has_data(sheet, row):
             continue
-        raw_decision = _parse_decision_row(sheet, row, candidate_rows)
+        raw_decision = _parse_decision_row(
+            sheet,
+            row,
+            candidate_rows,
+            context_rows,
+        )
         candidate_id = raw_decision["candidate_id"]
         if candidate_id in seen:
             raise ValueError(f"duplicate semantic candidate: {candidate_id}")
         seen.add(candidate_id)
-        decisions.append(_typed_review_decision(candidates[candidate_id], raw_decision))
-    if seen != set(candidates):
+        if raw_decision["row_type"] == "BUNDLE":
+            decision = _typed_review_decision(candidates[candidate_id], raw_decision)
+            decisions.append(_review_decision_dict(decision))
+            if isinstance(decision, AdjudicatedSemanticBundle):
+                accepted_ids.add(candidate_id)
+        else:
+            decisions.append(raw_decision)
+    if seen != set(candidate_rows) | set(context_rows):
         raise ValueError("semantic decision sheet does not disposition every candidate")
-
-    accepted_ids = {
-        item.candidate.candidate_id
-        for item in decisions
-        if isinstance(item, AdjudicatedSemanticBundle)
-    }
     result: dict[str, object] = {
         "schema_version": 1,
         "status": "ATTESTED",
@@ -2196,7 +2353,7 @@ def _import_review_decisions_snapshot(
             "file": workbook_name,
             "sha256": _sha256_bytes(workbook_bytes),
         },
-        "decisions": [_review_decision_dict(item) for item in decisions],
+        "decisions": decisions,
         "semantic_bundle_rules": [
             candidate
             for candidate_id, candidate in candidate_rows.items()
