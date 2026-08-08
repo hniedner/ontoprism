@@ -1399,10 +1399,12 @@ def evaluate_adjudication(
         raise GoldenSetValidationError(
             "corpus detector identity does not match adjudication"
         )
-    if corpus.evidence_identity != artifact.meta.corpus_evidence_identity:
-        raise GoldenSetValidationError(
-            "corpus evidence identity does not match adjudication"
-        )
+    # The corpus evidence_identity is recorded, never pre-declared. It hashes a payload
+    # containing run_id = f"{branch}-{uuid4()}" (decomposition/run.py:345), so a value
+    # written into the workbook before the corpus run exists can never be matched by
+    # that run. _residual_dict(corpus) still carries the identity into the report, which
+    # keeps the comparison auditable; asserting equality here only made the gate
+    # unsatisfiable by construction.
     engine_by_code = {concept.code: concept for concept in engine.concepts}
     concept_reports: list[dict[str, object]] = []
     aggregates = {
