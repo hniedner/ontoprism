@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from typing import cast
 
 import pytest
@@ -119,14 +119,14 @@ def _candidate(
     *,
     stage_type: str = "C90530",
     stage_value: str = "C27966",
-    version: str = "7",
+    stage_system_code: str | None = None,
 ) -> SemanticBundleCandidate:
     return SemanticBundleCandidate(
         candidate_id=candidate_id,
         subject_code="C115057",
         name="AJCC v7 Stage I lip and oral cavity squamous cell carcinoma",
         kind=BundleKind.CANCER_STAGE,
-        classification=StageClassification(authority="AJCC", version=version),
+        classification=StageClassification(ncit_code=stage_system_code or stage_type),
         members=(
             _member(MemberRole.STAGE_TYPE, stage_type),
             _member(MemberRole.STAGE_VALUE, stage_value),
@@ -300,10 +300,45 @@ def test_stage_candidate_enforces_typed_roles_axes_and_classification() -> None:
         replace(valid, members=(valid.members[1],))
     with pytest.raises(ValueError, match="exactly one stage value"):
         replace(valid, members=(valid.members[0],))
-    with pytest.raises(ValueError, match="authority must not be empty"):
-        replace(valid, classification=StageClassification(authority=" ", version="7"))
-    with pytest.raises(ValueError, match="version must not be empty"):
-        replace(valid, classification=StageClassification(authority="AJCC", version=""))
+
+
+@pytest.mark.unit
+def test_stage_classification_stores_only_the_reviewed_ncit_code() -> None:
+    classification = StageClassification(ncit_code="C90530")
+
+    assert [field.name for field in fields(StageClassification)] == ["ncit_code"]
+    assert classification.authority == "AJCC"
+    assert classification.version == "7"
+    with pytest.raises(ValueError, match="reviewed stage-system code"):
+        StageClassification(ncit_code="C999999")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("ncit_code", "authority", "version"),
+    [
+        ("C90529", "AJCC", "6"),
+        ("C90530", "AJCC", "7"),
+        ("C140961", "AJCC", "7"),
+        ("C132248", "AJCC", "8"),
+        ("C180901", "AJCC", "9"),
+        ("C186618", "FIGO", "2009"),
+        ("C186617", "FIGO", "2018"),
+        ("C206211", "FIGO", "2023"),
+        ("C141685", "VALG", "limited-extensive"),
+    ],
+)
+def test_stage_classification_derives_packet_authority_and_version(
+    ncit_code: str,
+    authority: str,
+    version: str,
+) -> None:
+    classification = StageClassification(ncit_code=ncit_code)
+
+    assert (classification.authority, classification.version) == (
+        authority,
+        version,
+    )
 
 
 @pytest.mark.unit
@@ -319,10 +354,7 @@ def test_stage_candidate_accepts_method_instead_of_stage_type() -> None:
             ),
             _member(MemberRole.STAGE_VALUE, "C28064"),
         ),
-        classification=StageClassification(
-            authority="VALG",
-            version="limited-extensive",
-        ),
+        classification=StageClassification(ncit_code="C141685"),
     )
 
     assert candidate.members[0].role is MemberRole.STAGING_METHOD
@@ -602,8 +634,8 @@ def test_observed_bundle_requires_explicit_association_identity() -> None:
 @pytest.mark.unit
 def test_observed_score_detects_crossed_associations_with_same_flat_pairs() -> None:
     expected_candidates = (
-        _candidate("one", stage_type="C90529", stage_value="C27966", version="6"),
-        _candidate("two", stage_type="C90530", stage_value="C27970", version="7"),
+        _candidate("one", stage_type="C90529", stage_value="C27966"),
+        _candidate("two", stage_type="C90530", stage_value="C27970"),
     )
     expected = tuple(_adjudicated(candidate) for candidate in expected_candidates)
     actual = (
@@ -612,7 +644,7 @@ def test_observed_score_detects_crossed_associations_with_same_flat_pairs() -> N
                 "wrong-one",
                 stage_type="C90529",
                 stage_value="C27970",
-                version="6",
+                stage_system_code="C90529",
             )
         ),
         replace(
@@ -621,7 +653,7 @@ def test_observed_score_detects_crossed_associations_with_same_flat_pairs() -> N
                     "wrong-two",
                     stage_type="C90530",
                     stage_value="C27966",
-                    version="7",
+                    stage_system_code="C90530",
                 )
             ),
             association_id="b" * 64,

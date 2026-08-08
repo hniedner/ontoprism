@@ -140,8 +140,6 @@ def test_candidate_evidence_sources_are_registered_unique_and_nonempty() -> None
             "Unregistered evidence candidate",
             candidate.members[0],
             candidate.members[1],
-            authority=candidate.classification.authority,
-            version=candidate.classification.version,
             evidence_ids=("unregistered-source",),
         )
 

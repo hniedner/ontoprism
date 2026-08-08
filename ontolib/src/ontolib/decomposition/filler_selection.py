@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from types import MappingProxyType
 from typing import cast
 
 from ontolib.decomposition import axes
@@ -128,21 +129,22 @@ _REVIEW_EXEMPT_AXES: frozenset[str] = frozenset(
 # manual/version codes (AJCC v6-v9, FIGO, Toronto) vs. stage VALUES
 # (Stage I-IV). Known codes extracted from the golden set.
 STAGE_CLASSIFICATION_VERSION = "ncit-26.07d-stage-kind-v1"
-STAGE_SYSTEM_CODES: frozenset[str] = frozenset(
+STAGE_SYSTEM_CLASSIFICATIONS = MappingProxyType(
     {
-        "C132248",  # AJCC v8 Stage
-        "C140961",  # Differentiated thyroid carcinoma under-45 AJCC v7 framework
-        "C141685",  # VALG Clinical Classification
-        "C180901",  # AJCC v9 Stage
-        "C186617",  # FIGO 2018 Stage
-        "C186618",  # FIGO 2009 Stage
-        "C198023",  # Toronto Classification v2 Stage, Tier 1
-        "C198024",  # Toronto Classification v2 Stage, Tier 2
-        "C206211",  # FIGO 2023 Stage framework
-        "C90529",  # AJCC v6 Stage
-        "C90530",  # AJCC v7 Stage
+        "C132248": ("AJCC", "8"),
+        "C140961": ("AJCC", "7"),
+        "C141685": ("VALG", "limited-extensive"),
+        "C180901": ("AJCC", "9"),
+        "C186617": ("FIGO", "2018"),
+        "C186618": ("FIGO", "2009"),
+        "C198023": ("Toronto", "2 Tier 1"),
+        "C198024": ("Toronto", "2 Tier 2"),
+        "C206211": ("FIGO", "2023"),
+        "C90529": ("AJCC", "6"),
+        "C90530": ("AJCC", "7"),
     }
 )
+STAGE_SYSTEM_CODES: frozenset[str] = frozenset(STAGE_SYSTEM_CLASSIFICATIONS)
 
 
 def _is_most_specific(filler: str, fillers: set[str], is_ancestor: IsAncestor) -> bool:

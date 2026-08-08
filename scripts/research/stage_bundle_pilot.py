@@ -321,8 +321,6 @@ def _rule(
     system: SemanticBundleMember,
     value: SemanticBundleMember,
     *,
-    authority: str,
-    version: str,
     evidence_ids: tuple[str, ...],
 ) -> SemanticBundleCandidate:
     known_evidence_ids = {source.evidence_id for source in EVIDENCE_SOURCES}
@@ -333,7 +331,7 @@ def _rule(
         subject_code=subject_code,
         name=name,
         kind=BundleKind.CANCER_STAGE,
-        classification=StageClassification(authority=authority, version=version),
+        classification=StageClassification(ncit_code=system.filler_code),
         members=(system, value),
         evidence_claim_ids=(_STRUCTURE_CLAIM_ID,),
         evidence_source_ids=evidence_ids,
@@ -378,8 +376,6 @@ STAGE_BUNDLE_CANDIDATES = (
             ),
         ),
         _C115057_VALUE,
-        authority="AJCC",
-        version="6",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -397,8 +393,6 @@ STAGE_BUNDLE_CANDIDATES = (
             ),
         ),
         _C115057_VALUE,
-        authority="AJCC",
-        version="7",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -425,8 +419,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "4e04d8d24287f1200e60bc5fb443fd569b06864d083e25299398e2ab6914e66c"
             ),
         ),
-        authority="AJCC",
-        version="7",
         evidence_ids=(_AUDIT, _MCODE, _AJCC),
     ),
     _rule(
@@ -453,8 +445,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "c4ba770a80dc43b78a3b9f7a66b78e3d34eacaed1f6d7ab879870a6b63be5bd5"
             ),
         ),
-        authority="AJCC",
-        version="8",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -481,8 +471,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "2295ee2a6aa7b2f09a0c61ad1feb622edf8ad54439a9459a4b4c8dcc1dd27cb8"
             ),
         ),
-        authority="AJCC",
-        version="9",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -509,8 +497,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "63391dd6710a39cd789c2bca0600a15bb9bd9bf6dd729bab957c458d95e1f29a"
             ),
         ),
-        authority="FIGO",
-        version="2009",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, "figo-cervix-2009"),
     ),
     _rule(
@@ -537,8 +523,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "5a495fb01b3c8576e7b951f2a9de8a11c8bd58d854a04ae92120fac5f11cd9a2"
             ),
         ),
-        authority="FIGO",
-        version="2018",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, "figo-cervix-2018"),
     ),
     _rule(
@@ -565,8 +549,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "558cfd1c54a0ec108027aee0739c6f50150af2fceaa017781ebe207f8244eb75"
             ),
         ),
-        authority="FIGO",
-        version="2023",
         evidence_ids=(_AUDIT, _MCODE, "figo-endometrial-2023"),
     ),
     _rule(
@@ -593,8 +575,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "71b0af99dd55fb44e10b66a6b17e6efa926455cf2b4ff7788680968fa28c5723"
             ),
         ),
-        authority="AJCC",
-        version="7",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -621,8 +601,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "dd345e6d5490e8217b1453e6549a6de96c6a41d3c3851cc67b4606f224d036dd"
             ),
         ),
-        authority="AJCC",
-        version="7",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -643,8 +621,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "5a86123986099e1e3e3223f922abfc601887daeb2f2b5046f9589d477300d6e0"
             ),
         ),
-        authority="VALG",
-        version="limited-extensive",
         evidence_ids=(
             _AUDIT,
             _MCODE,
@@ -676,8 +652,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "363cefec5569b1888778f6d9d210df0acc474b68c5038322c61119fea994ea47"
             ),
         ),
-        authority="AJCC",
-        version="7",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -695,8 +669,6 @@ STAGE_BUNDLE_CANDIDATES = (
             ),
         ),
         _C27787_VALUE,
-        authority="AJCC",
-        version="6",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -714,8 +686,6 @@ STAGE_BUNDLE_CANDIDATES = (
             ),
         ),
         _C27787_VALUE,
-        authority="AJCC",
-        version="7",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
     _rule(
@@ -742,8 +712,6 @@ STAGE_BUNDLE_CANDIDATES = (
                 "95549abf4674043e4470fd7002ab0fcdc5030b5786eb5080122a75670f5f4869"
             ),
         ),
-        authority="AJCC",
-        version="7",
         evidence_ids=(_AUDIT, _MCODE, _MCODE_TYPE, _AJCC),
     ),
 )
@@ -828,8 +796,7 @@ def _rule_dict(rule: SemanticBundleCandidate) -> dict[str, object]:
         "name": rule.name,
         "source_value_group": _RULE_SOURCE_VALUE_GROUP[rule.candidate_id],
         "classification": {
-            "authority": rule.classification.authority,
-            "version": rule.classification.version,
+            "ncit_code": rule.classification.ncit_code,
         },
         "members": [_member_dict(member) for member in rule.members],
         "evidence_claim_ids": list(rule.evidence_claim_ids),
@@ -1566,6 +1533,15 @@ def _typed_candidate_member(raw: object) -> SemanticBundleMember:
     )
 
 
+def _typed_classification(raw: object) -> StageClassification:
+    if not isinstance(raw, dict):
+        raise ValueError("candidate classification must be an object")
+    _require_object_keys(raw, {"ncit_code"}, "classification")
+    return StageClassification(
+        ncit_code=_required_text(raw["ncit_code"], "stage-system NCIt code")
+    )
+
+
 def _typed_candidate(raw: dict[str, object]) -> SemanticBundleCandidate:
     _require_object_keys(
         raw,
@@ -1584,9 +1560,7 @@ def _typed_candidate(raw: dict[str, object]) -> SemanticBundleCandidate:
         "semantic candidate",
     )
     classification = raw["classification"]
-    if not isinstance(classification, dict):
-        raise ValueError("candidate classification must be an object")
-    _require_object_keys(classification, {"authority", "version"}, "classification")
+    typed_classification = _typed_classification(classification)
     members = raw["members"]
     if not isinstance(members, list):
         raise ValueError("candidate members must be a list")
@@ -1596,10 +1570,7 @@ def _typed_candidate(raw: dict[str, object]) -> SemanticBundleCandidate:
         subject_code=_required_text(raw["subject_code"], "candidate subject"),
         name=_required_text(raw["name"], "candidate name"),
         kind=BundleKind(_required_text(raw["kind"], "candidate kind")),
-        classification=StageClassification(
-            authority=_required_text(classification["authority"], "authority"),
-            version=_required_text(classification["version"], "version"),
-        ),
+        classification=typed_classification,
         members=tuple(_typed_candidate_member(item) for item in members),
         evidence_claim_ids=_required_text_list(
             raw["evidence_claim_ids"], "candidate evidence claim ID"
@@ -1978,16 +1949,14 @@ def write_review_workbook(
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9EAF7")
     for row, candidate in enumerate(_candidate_rows(candidate_artifact), start=9):
-        classification = candidate.get("classification")
-        if not isinstance(classification, dict):
-            raise ValueError("candidate classification must be an object")
+        classification = _typed_classification(candidate.get("classification"))
         values = (
             candidate.get("candidate_id"),
             candidate.get("semantic_identity"),
             candidate.get("subject_code"),
             candidate.get("name"),
-            classification.get("authority"),
-            classification.get("version"),
+            classification.authority,
+            classification.version,
             _member_summary(candidate),
         )
         for column, value in enumerate(values, start=1):
@@ -2081,13 +2050,13 @@ def _parse_decision_row(
     if candidate_id not in candidates:
         raise ValueError(f"unknown semantic candidate: {candidate_id}")
     candidate = candidates[candidate_id]
-    classification = cast("dict[str, object]", candidate["classification"])
+    classification = _typed_classification(candidate["classification"])
     expected = (
         candidate["semantic_identity"],
         candidate["subject_code"],
         candidate["name"],
-        classification["authority"],
-        classification["version"],
+        classification.authority,
+        classification.version,
         _member_summary(candidate),
     )
     actual = tuple(sheet.cell(row, column).value for column in range(2, 8))

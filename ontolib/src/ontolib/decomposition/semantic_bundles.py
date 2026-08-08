@@ -12,13 +12,17 @@ from enum import StrEnum
 from itertools import combinations
 from typing import Literal, get_args
 
+from pydantic import computed_field
+
+from ontolib.decomposition.filler_selection import STAGE_SYSTEM_CLASSIFICATIONS
+
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _STAGE_MEMBER_COUNT = 2
 
 type MemberKey = tuple[str, str, str]
-type ContextKey = tuple[str, str, str, str]
+type ContextKey = tuple[str, str, str]
 type AvailabilityStatus = Literal["available", "deferred", "incomplete"]
 type ProjectionAxisSource = Literal["role", "nlp", "parent"]
 PairProvenance = Literal[
@@ -116,12 +120,21 @@ class SourceOccurrence:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StageClassification:
-    authority: str
-    version: str
+    ncit_code: str
 
     def __post_init__(self) -> None:
-        _require_nonempty(self.authority, "authority")
-        _require_nonempty(self.version, "version")
+        if self.ncit_code not in STAGE_SYSTEM_CLASSIFICATIONS:
+            raise ValueError("classification requires a reviewed stage-system code")
+
+    @computed_field
+    @property
+    def authority(self) -> str:
+        return STAGE_SYSTEM_CLASSIFICATIONS[self.ncit_code][0]
+
+    @computed_field
+    @property
+    def version(self) -> str:
+        return STAGE_SYSTEM_CLASSIFICATIONS[self.ncit_code][1]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -355,8 +368,7 @@ def _semantic_identity(
             "ontoprism-semantic-bundle-v1",
             subject_code,
             kind.value,
-            classification.authority,
-            classification.version,
+            classification.ncit_code,
             tuple(sorted(member.semantic_key for member in members)),
         )
     )
@@ -725,8 +737,7 @@ def _candidate_context(candidate: SemanticBundleCandidate) -> ContextKey:
     return (
         candidate.subject_code,
         candidate.kind.value,
-        candidate.classification.authority,
-        candidate.classification.version,
+        candidate.classification.ncit_code,
     )
 
 
@@ -734,8 +745,7 @@ def _observed_context(bundle: ObservedSemanticBundle) -> ContextKey:
     return (
         bundle.subject_code,
         bundle.kind.value,
-        bundle.classification.authority,
-        bundle.classification.version,
+        bundle.classification.ncit_code,
     )
 
 
