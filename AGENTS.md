@@ -41,34 +41,50 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   enforcement is intentionally *not* enabled yet — it needs a release-bot credential as a
   ruleset bypass actor, else it would block the `GITHUB_TOKEN` release/README pushes.
 
-## Verify your own handover specs before delegating (learned 2026-08-07, the hard way)
+## Inference must never be written in the form of observation (2026-08-07, re-learned worse 2026-08-08)
 
-When you author a brief for another session to execute blindly, **apply the same evidence standard
-to your own instructions that you apply to everyone else's output.** Three defects in one handover
-cycle all came from skipping cheap local checks in a document written for blind execution — not
-from hard judgement calls:
+The checklist at the end of this section was added 2026-08-07 and broken the next day, five times,
+by the same session that wrote it. **That is the important datum: prose rules addressed to a future
+reader do not bind the writer at the moment of writing.** Only a format that cannot be filled in
+without running something binds. If you are about to add a rule here because a rule here was
+broken, stop — you are adding ceremony, and ceremony is the disease.
 
-- A task named the wrong file, because the function's location was *inferred* from a finding's
-  prose instead of grepped.
-- A task said to regenerate an artifact that has no generator, because it was *assumed* to be
-  derived from its filename and version number. One `rg` for its name returns nothing.
-- A task specified a constraint ("a proposed member is not a missing member") instead of a target
-  shape, so the executor reused an existing variant and weakened a type invariant to make it fit.
+**Root cause of every defect in that cycle: inference was written in the same form as observation.**
+A digest that was computed and a digest that was remembered look identical on the page. A step that
+was executed end-to-end and a step that was merely assumed to work look identical. Neither writer
+nor reader can then tell which claims are load-bearing guesses. Actual instances: a workbook digest
+restated from memory that did not match the file; an acceptance step ("run the report → satisfies
+AC7") whose third argument did not exist and has no generator; a required input (the proposal
+registry) omitted from that same step; a "NOT FOUND" produced by `rg` silently skipping gitignored
+paths; and worst, a human SME asked to sign an attestation on the claim that closure was one step
+away, when it was structurally blocked.
 
-Before handing over a spec, check all four:
+Mechanical rules. Each is checkable by the reader, which is what forces the check when writing:
 
-1. **Every file path and symbol in it exists.** Grep for the definition; do not infer location
-   from surrounding prose.
-2. **Every artifact you say to regenerate has a generator.** If nothing produces it, it is
-   hand-authored and must not be rebuilt.
-3. **Every type change states the target shape, not a constraint.** "Add variant `X` to union `Y`",
-   never "`A` is not a `B`" — the latter leaves the executor to invent the positive form.
-4. **Every acceptance check is sufficient, not merely necessary.** If the check can pass while the
-   work is wrong, it is not a check. This is the same gate-liveness standard the project applies to
-   its own tests, and it applies to handover briefs too.
+1. **Every factual claim carries the command that produced it, inline.** Not "digest is `abc…`" but
+   "digest is `abc…` (`shasum -a 256 <path>`, 2026-08-08)". No command → delete the claim. Never
+   restate a hash, count, or status from memory or from an earlier document.
+2. **An execution step names every argument and proves each exists.** "Run `golden_review.py`" is
+   not a step. `f(a, b, c)`, with each of `a`, `b`, `c` shown present by an `ls`/`rg`, is a step.
+   If any input is missing the step is `BLOCKED`, not pending.
+3. **Never pre-declare the hash of an artifact that does not yet exist.** Bind identities *after*
+   generation. A hash over a payload containing `uuid4()` can never be matched by a later run —
+   `corpus_evidence_identity` cost a full cycle proving exactly that.
+4. **Search artifacts with `rg --no-ignore`.** `tmp/` is gitignored (`.gitignore:2`), so a default
+   `rg` reports absent files that are present and gives no signal that it skipped anything.
+5. **Never request an irreversible human sign-off before executing the step that follows it.**
+   Dry-run the downstream path first. An attestation spent on an unverified critical path is the
+   one thing you cannot refund.
 
-Also state which tasks interact. Two tasks that touch the same type, listed independently and
-several items apart, invite exactly the failure above.
+**When a rule here has failed twice, delete the complexity that made it necessary instead of
+rewriting the rule.** Every defect above occurred inside an apparatus — chained identities, pinned
+digests, two attestations, nineteen untracked artifacts — larger than the 20-concept measurement it
+served. Complexity forces inference; inference produced the errors.
+
+Handover briefs additionally: every path and symbol exists (grep it, never infer from prose); every
+artifact you say to regenerate has a generator; every type change states the target shape ("add
+variant `X` to union `Y`"), never a constraint; every acceptance check is sufficient, not merely
+necessary. State which tasks interact.
 
 ## The one principle that keeps getting rediscovered (D60)
 
