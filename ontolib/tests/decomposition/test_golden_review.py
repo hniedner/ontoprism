@@ -19,7 +19,10 @@ from scripts.research.golden_review import (
     write_evaluation_report,
 )
 
+from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.proposal_registry import (
+    ConceptProposal,
+    CrossOntologyMapping,
     DuplicateCheck,
     ProposalRegistry,
     ProposalStatus,
@@ -490,6 +493,88 @@ def test_augmented_expectation_is_bound_to_matching_registry_record(
         load_adjudication(path, registry)
 
 
+def _accepted_concept_registry() -> ProposalRegistry:
+    name = "Malignant Non-Seminomatous Germ Cell"
+    concept = ConceptProposal(
+        id=MintedConcept(axis="op:CellType", label=name).id,
+        axis="op:CellType",
+        preferred_name=name,
+        definition="A malignant germ cell with non-seminomatous differentiation.",
+        parent_concepts=("C12917",),
+        semantic_types=("Cell",),
+        source_concepts=("C27787",),
+        source_roles=("R105",),
+        rationale="No existing NCIt cell concept expresses the required intersection.",
+        duplicate_checks=(
+            DuplicateCheck(
+                resource="NCIt",
+                version="26.07d",
+                query=name,
+                result="no-equivalent",
+                evidence_url="https://example.test/ncit-review",
+            ),
+        ),
+        mappings=(
+            CrossOntologyMapping(
+                system="SNOMED CT US",
+                version="2025-09-01",
+                concept_id="128766005",
+                label="Germ cell tumor, nonseminomatous",
+                predicate="relatedMatch",
+                evidence_url="https://example.test/snomed/128766005",
+            ),
+        ),
+        submission_target="NCIt",
+        status="accepted",
+        replacement_ncit_code="C999999",
+    )
+    return ProposalRegistry(
+        source_identity=_DIGEST_A,
+        ontology_version="26.07d",
+        proposals=(concept,),
+    )
+
+
+@pytest.mark.unit
+def test_accepted_proposal_expectation_must_cite_the_replacement_code(
+    tmp_path: Path,
+) -> None:
+    """`accepted-in-ncit` is the terminal lifecycle step (D60).
+
+    Once NCI assigns a real code, the augmented expectation must cite that code,
+    not the MINT-* placeholder that stood in for it.
+    """
+    registry = _accepted_concept_registry()
+    proposal = registry.proposals[0]
+    path = tmp_path / "adjudicated.json"
+
+    def _write(filler: str) -> None:
+        concepts = _m1_concepts()
+        concepts[0] = _accepted(
+            "C0",
+            constituents=[
+                _constituent(
+                    "op:CellType",
+                    filler,
+                    provenance_status="accepted-in-ncit",
+                    proposal_id=proposal.id,
+                )
+            ],
+        )
+        _write_json(path, _artifact(concepts, proposal_registry=registry))
+
+    _write("C999999")
+    artifact = load_adjudication(path, registry)
+    assert artifact.concepts[0].expected is not None
+    assert artifact.concepts[0].expected.constituents[0].filler == "C999999"
+
+    _write(proposal.id)
+    with pytest.raises(
+        GoldenSetValidationError, match="proposal filler does not match"
+    ):
+        load_adjudication(path, registry)
+
+
 @pytest.mark.unit
 def test_augmented_expectation_rejects_missing_id_status_or_axis_binding(
     tmp_path: Path,
@@ -675,6 +760,32 @@ def test_workbook_import_rejects_hidden_reviewer_schema_column(tmp_path: Path) -
     _create_workbook(workbook)
     hidden = load_workbook(workbook)
     hidden["Constituent Decisions"].column_dimensions["J"].hidden = True
+    hidden.save(workbook)
+
+    with pytest.raises(GoldenSetValidationError, match="hidden reviewer columns"):
+        import_adjudication_workbook(workbook)
+
+
+@pytest.mark.unit
+def test_workbook_import_rejects_a_grouped_hidden_reviewer_column(
+    tmp_path: Path,
+) -> None:
+    """openpyxl stores a grouped hide under the range's first letter only.
+
+    `column_dimensions["T"]` on an `S:T` group auto-creates a fresh default with
+    `hidden=False`, so a per-letter probe lets a reviewer conceal a data column by
+    hiding a range whose first column is blank -- and the SME then attests to
+    a sheet they could not fully see.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    hidden = load_workbook(workbook)
+    sheet = hidden["Constituent Decisions"]
+    # "T" carries concealed reviewer content; "S" is the blank leading column of the
+    # hidden range, which is the only key openpyxl stores the group under.
+    sheet["T5"] = "concealed reviewer note"
+    sheet.column_dimensions.group("S", "T", hidden=True)
+    assert sheet.column_dimensions["T"].hidden is False
     hidden.save(workbook)
 
     with pytest.raises(GoldenSetValidationError, match="hidden reviewer columns"):
@@ -1213,6 +1324,127 @@ def test_evaluation_rejects_identity_drift_and_invalid_residual_subset(
         GoldenSetValidationError, match="residual codes must be a subset"
     ):
         evaluate_adjudication(artifact, _engine_evidence(), corpus)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("ncit_version", "26.05d", "NCIt version"),
+        ("source_identity", "f" * 64, "source identity"),
+        ("sample_manifest_identity", "f" * 64, "sample manifest identity"),
+        ("run_id", "neoplasm-run-9", "run id"),
+        ("run_fingerprint_identity", "f" * 64, "run fingerprint identity"),
+        ("engine_artifact_identity", "f" * 64, "engine artifact identity"),
+        ("detector_identity", "f" * 64, "detector identity"),
+    ],
+)
+def test_every_engine_identity_binding_is_enforced(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    """Each of the eight identity bindings must discriminate on its own.
+
+    A binding that is pinned but never compared is the "identity declared, never
+    checked" defect: the artifact would claim provenance the engine run does not
+    have. `engine evidence identity` is covered separately below, because drifting
+    it requires leaving the artifact bound to a different payload.
+    """
+    engine = _engine_evidence()
+    engine[field] = value
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(_m1_concepts(), engine))
+
+    with pytest.raises(GoldenSetValidationError, match=message):
+        evaluate_adjudication(
+            load_adjudication(artifact_path), engine, _corpus_evidence()
+        )
+
+
+@pytest.mark.unit
+def test_engine_evidence_identity_binding_is_enforced(tmp_path: Path) -> None:
+    engine = _engine_evidence()
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(
+        artifact_path,
+        _artifact(_m1_concepts(), engine_evidence_identity="f" * 64),
+    )
+
+    with pytest.raises(
+        GoldenSetValidationError, match="engine evidence identity does not match"
+    ):
+        evaluate_adjudication(
+            load_adjudication(artifact_path), engine, _corpus_evidence()
+        )
+
+
+@pytest.mark.unit
+def test_engine_worklist_order_must_match_adjudication_order(tmp_path: Path) -> None:
+    """Per-concept scoring pairs adjudication[i] with engine[i].
+
+    A permuted engine worklist with the same code set would score every concept
+    against another concept's expectation while validation stayed green.
+    """
+    engine = _engine_evidence()
+    concepts = cast("list[dict[str, object]]", engine["concepts"])
+    concepts[0], concepts[1] = concepts[1], concepts[0]
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(_m1_concepts(), engine))
+
+    with pytest.raises(GoldenSetValidationError, match="adjudication order"):
+        evaluate_adjudication(
+            load_adjudication(artifact_path), engine, _corpus_evidence()
+        )
+
+
+@pytest.mark.unit
+def test_deferral_counters_report_pairs_the_engine_also_emitted(
+    tmp_path: Path,
+) -> None:
+    """`engine_matches` is the signal that a run cannot quietly bury a deferral.
+
+    Every other assertion on `expected_pair_deferrals` uses a fixture where both
+    accumulators sit at zero, so neither ever has to accumulate anything.
+    """
+    concepts = _m1_concepts()
+    concepts[0] = _accepted(
+        "C0",
+        constituents=[
+            _constituent(),
+            _constituent("op:AssociatedRegion", "C12418", needs_review=True),
+            _constituent("op:CellType", "C36903", needs_review=True),
+        ],
+    )
+    engine = _engine_evidence()
+    # The engine emits one of the two deferred pairs and not the other.
+    cast("list[dict[str, object]]", engine["concepts"][0]["constituents"]).append(
+        _engine_constituent("op:AssociatedRegion", "C12418")
+    )
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(concepts, engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    deferrals = report["expected_pair_deferrals"]
+    assert deferrals["ncit_bound"] == {
+        "deferred": 2,
+        "engine_matches": 1,
+        "expected": 22,
+    }
+    assert deferrals["augmented"]["deferred"] == 2
+    assert deferrals["augmented"]["engine_matches"] == 1
+    assert deferrals["non_defining"] == {
+        "deferred": 0,
+        "engine_matches": 0,
+        "expected": 0,
+    }
 
 
 @pytest.mark.unit

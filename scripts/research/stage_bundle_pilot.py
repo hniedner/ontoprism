@@ -17,8 +17,12 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
-from scripts.research.golden_review import import_adjudication_workbook_bytes
+from scripts.research.golden_review import (
+    hidden_column_indexes,
+    import_adjudication_workbook_bytes,
+)
 
+from ontolib.decomposition.models import ConceptOutcome
 from ontolib.decomposition.proposal_registry import (
     ConceptProposal,
     ProposalRegistry,
@@ -60,6 +64,7 @@ if TYPE_CHECKING:
 
     from ontolib.decomposition.semantic_bundles import ProjectionAxisSource
 
+_ENGINE_FILLER = re.compile(r"C[0-9]+|MINT-[0-9A-Za-z-]+")
 _NCIT_RELEASE = "26.07d"
 _WORKBOOK_SHA256 = "a538de0772df786da39f0eaeb9c374e837b71e58b567d6f045f126225e759cc8"
 _SOURCE_AUDIT_SHA256 = (
@@ -948,7 +953,7 @@ def _claim_dict(claim: EvidenceClaim) -> dict[str, object]:
 def _candidate_pair_availability(
     candidate: SemanticBundleCandidate,
     constituents: tuple[ProjectedConstituentEvidence, ...],
-    engine_outcome: str,
+    engine_outcome: ConceptOutcome,
 ) -> CandidateAvailability:
     if engine_outcome != "decomposed":
         return NotEvaluatedCandidate(
@@ -1112,8 +1117,20 @@ def _projected_constituent(
     axis, filler = raw.get("axis"), raw.get("filler")
     if not isinstance(axis, str) or not isinstance(filler, str):
         raise ValueError(f"{code} engine constituent has an invalid pair")
-    if axis not in {item.value for item in BundleAxis} or not filler.startswith("C"):
+    if axis not in {item.value for item in BundleAxis}:
+        # Scope filter: this pilot only reports on the bundle axes, so an
+        # off-axis constituent is legitimately absent from the projection.
         return None
+    if _ENGINE_FILLER.fullmatch(filler) is None:
+        raise ValueError(f"{code} engine constituent filler is not an NCIt code")
+    if filler.startswith("MINT-"):
+        # A minted proposal has no NCIt code yet, so it cannot match a bundle
+        # member pair. Fail closed rather than reporting the member as one the
+        # engine never produced.
+        raise ValueError(
+            f"{code} engine constituent on {axis} cites the unaccepted proposal "
+            f"{filler}; accept it into NCIt before running the bundle pilot"
+        )
     needs_review = raw.get("needs_review")
     if not isinstance(needs_review, bool):
         raise ValueError(f"{code} engine needs_review must be boolean")
@@ -1170,21 +1187,21 @@ def _engine_pairs(
     return result
 
 
-def _engine_outcomes(raw_engine: object) -> dict[str, str]:
+def _engine_outcomes(raw_engine: object) -> dict[str, ConceptOutcome]:
     if not isinstance(raw_engine, dict) or not isinstance(
         raw_engine.get("concepts"), list
     ):
         raise ValueError("engine evidence concepts must be a list")
-    outcomes: dict[str, str] = {}
+    outcomes: dict[str, ConceptOutcome] = {}
     for concept in raw_engine["concepts"]:
         if not isinstance(concept, dict):
             raise ValueError("engine evidence concept has an invalid shape")
         code, outcome = concept.get("code"), concept.get("outcome")
-        if not isinstance(code, str) or not isinstance(outcome, str):
+        if not isinstance(code, str) or outcome not in get_args(ConceptOutcome):
             raise ValueError("engine evidence concept outcome is invalid")
         if code in outcomes:
             raise ValueError(f"duplicate engine concept: {code}")
-        outcomes[code] = outcome
+        outcomes[code] = cast("ConceptOutcome", outcome)
     return outcomes
 
 
@@ -2144,8 +2161,8 @@ def _require_visible_semantic_review(sheet: Worksheet) -> None:
         raise ValueError("semantic decision sheet must be visible")
     hidden_columns = [
         get_column_letter(column)
-        for column in range(1, _DECISION_COLUMN_COUNT + 1)
-        if sheet.column_dimensions[get_column_letter(column)].hidden
+        for column in sorted(hidden_column_indexes(sheet))
+        if column <= _DECISION_COLUMN_COUNT
     ]
     if hidden_columns:
         raise ValueError(

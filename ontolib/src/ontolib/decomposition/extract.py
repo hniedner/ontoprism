@@ -158,54 +158,6 @@ def concepts_from_rows(rows: Iterable[Row]) -> list[str]:
     return codes
 
 
-def _add_role_if_new(
-    row: Row,
-    roles: list[RoleRestriction],
-    seen: set[tuple[str, str]],
-) -> None:
-    role_code = _required_role_code(row, "role")
-    filler_code = _required_concept_code(row, "target")
-    key = (role_code, filler_code)
-    if key not in seen:
-        seen.add(key)
-        roles.append(
-            RoleRestriction(
-                role_code=role_code,
-                filler_code=filler_code,
-                role_label=row.get("roleLabel"),
-            )
-        )
-
-
-def _add_genus_if_new(
-    row: Row,
-    genuses: list[str],
-    seen: set[str],
-) -> None:
-    genus = _required_concept_code(row, "member")
-    if genus not in seen:
-        seen.add(genus)
-        genuses.append(genus)
-
-
-def genus_walk_rows_to_roles_and_genuses(
-    rows: Iterable[Row],
-) -> tuple[list[RoleRestriction], list[str]]:
-    roles: list[RoleRestriction] = []
-    genuses: list[str] = []
-    seen_roles: set[tuple[str, str]] = set()
-    seen_genuses: set[str] = set()
-
-    for row in rows:
-        _required_binding(row, "member")
-        if row.get("type") == "http://www.w3.org/2002/07/owl#Restriction":
-            _add_role_if_new(row, roles, seen_roles)
-        else:
-            _add_genus_if_new(row, genuses, seen_genuses)
-
-    return roles, genuses
-
-
 def semantic_type_of_from_rows(
     rows: Iterable[Row],
 ) -> dict[str, list[str]]:

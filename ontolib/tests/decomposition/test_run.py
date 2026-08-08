@@ -1184,10 +1184,10 @@ def test_residual_count_flags_a_decomposition_whose_constituent_is_precoordinate
     is not a metric (the #73 vacuous-gate lesson).
     """
     decompositions = [
-        _decomp("C1", "C_atomic", "C_compound"),  # one constituent is precoordinated
-        _decomp("C2", "C_atomic"),  # fully atomic
+        _decomp("C1", "C9001", "C9002"),  # one constituent is precoordinated
+        _decomp("C2", "C9001"),  # fully atomic
     ]
-    assert _residual_count(decompositions, precoordinated_fillers={"C_compound"}) == 1
+    assert _residual_count(decompositions, precoordinated_fillers={"C9002"}) == 1
 
 
 @pytest.mark.unit
@@ -1204,7 +1204,7 @@ def test_minted_fillers_are_excluded_and_do_not_change_the_count() -> None:
         constituents=[
             Constituent(axis="R101", filler_code="C2001", axis_source="role"),
             Constituent(
-                axis="op:Laterality", filler_code="MINT-abc123", axis_source="nlp"
+                axis="op:Laterality", filler_code="MINT-0abc12345def", axis_source="nlp"
             ),
         ],
     )
@@ -1218,7 +1218,7 @@ def test_minted_fillers_are_excluded_and_do_not_change_the_count() -> None:
 def test_residual_count_is_zero_when_every_constituent_is_atomic() -> None:
     """Reject branch: a decomposition all of whose constituents are atomic is not
     residual — this is the state a fully-reduced ontology should converge toward."""
-    decompositions = [_decomp("C1", "C_a", "C_b"), _decomp("C2", "C_c")]
+    decompositions = [_decomp("C1", "C9011", "C9012"), _decomp("C2", "C9013")]
     assert _residual_count(decompositions, precoordinated_fillers=set()) == 0
 
 
@@ -1290,7 +1290,7 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
         async def version(self) -> str | None:
             return "x"
 
-    decompositions = [_decomp("C1", "C_boom")]
+    decompositions = [_decomp("C1", "C9099")]
     log_exception = MagicMock()
     monkeypatch.setattr(run_module.logger, "exception", log_exception)
     with pytest.raises(RuntimeError, match="store down") as raised:
@@ -1299,7 +1299,7 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
         )
     assert raised.value is store_error
     log_exception.assert_called_once_with(
-        "residual-precoordination detection failed for filler_code=%s", "C_boom"
+        "residual-precoordination detection failed for filler_code=%s", "C9099"
     )
 
 

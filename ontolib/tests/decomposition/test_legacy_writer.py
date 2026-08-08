@@ -158,7 +158,7 @@ async def test_minted_filler_uses_opns_prefix(tmp_path: Path) -> None:
             constituents=[
                 Constituent(
                     axis="op:Laterality",
-                    filler_code="MINT-abc123",
+                    filler_code="MINT-0abc12345def",
                     axis_source="nlp",
                 ),
             ],
@@ -167,7 +167,7 @@ async def test_minted_filler_uses_opns_prefix(tmp_path: Path) -> None:
     out = tmp_path / "out.ttl"
     await write_ttl(decs, dest=out)
     content = out.read_text()
-    assert f"<{vocab.ONTOPRISM_NS}MINT-abc123>" in content
+    assert f"<{vocab.ONTOPRISM_NS}MINT-0abc12345def>" in content
 
 
 @pytest.mark.unit
@@ -269,7 +269,9 @@ async def test_writer_output_is_valid_turtle(tmp_path: Path) -> None:
                     most_specific=True,
                 ),
                 Constituent(
-                    axis="op:Laterality", filler_code="MINT-abc123", axis_source="nlp"
+                    axis="op:Laterality",
+                    filler_code="MINT-0abc12345def",
+                    axis_source="nlp",
                 ),
             ],
         )
@@ -540,11 +542,14 @@ async def test_complete_definition_and_projection_trace_are_rendered(
         URIRef(vocab.DEFINITION_GROUP),
         nested_group,
     ) in graph
-    assert (
-        source,
-        URIRef(vocab.HAS_ROOT_DEFINITION_GROUP),
-        root_group,
-    ) in graph
+    # Exactly the declared roots, so a nested group cannot be published as a root
+    # and erase the nesting migration 0012 and the group tree exist to represent.
+    assert set(graph.objects(source, URIRef(vocab.HAS_ROOT_DEFINITION_GROUP))) == {
+        root_group
+    }
+    assert nested_group not in set(
+        graph.objects(source, URIRef(vocab.HAS_ROOT_DEFINITION_GROUP))
+    )
     assert (
         root_group,
         URIRef(vocab.HAS_CHILD_DEFINITION_GROUP),

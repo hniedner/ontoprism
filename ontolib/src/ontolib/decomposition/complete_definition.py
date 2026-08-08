@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
 
-from ontolib.decomposition import axes
 from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
@@ -33,11 +32,6 @@ Row = Mapping[str, str | None]
 Member = tuple[str, ...]
 PositionedMember = tuple[Member, bool]
 GroupedMembers = dict[str, dict[int, PositionedMember]]
-_ROUTED_SOURCE_ROLES = {
-    axes.ASSOCIATED_LINEAGE_AXIS: axes.PRIMARY_SITE_ROLE,
-    axes.ASSOCIATED_REGION_AXIS: axes.PRIMARY_SITE_ROLE,
-    axes.STAGE_SYSTEM_AXIS: "R88",
-}
 
 
 class CompleteDefinitionError(ValueError):
@@ -779,19 +773,13 @@ async def read_complete_definition(
     )
 
 
-def _source_role(constituent: Constituent) -> str | None:
-    if constituent.source_role is not None:
-        return constituent.source_role
-    if constituent.axis.startswith("R"):
-        return constituent.axis
-    return _ROUTED_SOURCE_ROLES.get(constituent.axis)
-
-
 def _role_source_ids(
     constituent: Constituent,
     restrictions: Iterable[RestrictionDefinitionFact],
 ) -> tuple[str, ...]:
-    source_role = _source_role(constituent)
+    # Constituent.__post_init__ guarantees source_role is present on every
+    # role-derived constituent, and this is the only path that reaches here.
+    source_role = constituent.source_role
     return tuple(
         sorted(
             fact.fact_id

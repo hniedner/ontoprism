@@ -12,9 +12,8 @@ from enum import StrEnum
 from itertools import combinations
 from typing import Literal, get_args
 
-from pydantic import computed_field
-
 from ontolib.decomposition.filler_selection import STAGE_SYSTEM_CLASSIFICATIONS
+from ontolib.decomposition.models import ConceptOutcome
 
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
@@ -126,12 +125,10 @@ class StageClassification:
         if self.ncit_code not in STAGE_SYSTEM_CLASSIFICATIONS:
             raise ValueError("classification requires a reviewed stage-system code")
 
-    @computed_field
     @property
     def authority(self) -> str:
         return STAGE_SYSTEM_CLASSIFICATIONS[self.ncit_code][0]
 
-    @computed_field
     @property
     def version(self) -> str:
         return STAGE_SYSTEM_CLASSIFICATIONS[self.ncit_code][1]
@@ -589,6 +586,10 @@ class MissingMember:
     member: SemanticBundleMember
     status: Literal["missing"] = field(init=False, default="missing")
 
+    def __post_init__(self) -> None:
+        if self.member.provenance_status == "proposed":
+            raise ValueError("proposed availability requires ProposedMember")
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProposedMember:
@@ -651,12 +652,13 @@ class BundlePairAvailability:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NotEvaluatedCandidate:
     candidate_id: str
-    engine_outcome: str
+    engine_outcome: ConceptOutcome
     status: Literal["not-evaluated"] = field(init=False, default="not-evaluated")
 
     def __post_init__(self) -> None:
         _require_nonempty(self.candidate_id, "candidate_id")
-        _require_nonempty(self.engine_outcome, "engine_outcome")
+        if self.engine_outcome not in get_args(ConceptOutcome):
+            raise ValueError(f"unknown engine outcome: {self.engine_outcome}")
         if self.engine_outcome == "decomposed":
             raise ValueError("a decomposed candidate must have member availability")
 
@@ -669,10 +671,6 @@ def _member_without_engine_evidence(
 ) -> MemberAvailability:
     if member.provenance_status == "proposed":
         return ProposedMember(member=member)
-    if not member.source_occurrences:
-        # Source-less non-proposals are not proposals by implication; without engine
-        # evidence, their asserted lifecycle status is missing from the projection.
-        return MissingMember(member=member)
     return MissingMember(member=member)
 
 

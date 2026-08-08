@@ -102,10 +102,20 @@ def _reviewed_source_axis(
 def route_axis(r: RoleRestriction, parent_morphology: str | None = None) -> str:
     """Map each restriction to its target axis.
 
+    Contextual routings (each depends on ``parent_morphology`` or the anchoring
+    genus, so the same role does not always reach the same axis):
+
     * R101 with lineage-generic ``anchoring_genus`` → ``ASSOCIATED_LINEAGE_AXIS``
+    * R101 whose filler is a known subsite of ``parent_morphology`` →
+      ``PRIMARY_SUBSITE_AXIS``
+    * R100 whose filler is the organ routed from ``parent_morphology`` →
+      ``PRIMARY_SITE_AXIS``
+    * R126 whose (genus, filler) pair is in ``axes.ASSOCIATED_PRIOR_DISEASE`` →
+      ``op:AssociatedPriorDisease``
     * R88 with a known stage-system filler code → ``STAGE_SYSTEM_AXIS``
-    * Known defining roles route to their univocal ``op:`` axis.
-    * Unknown roles keep their source code and are flagged for review downstream.
+
+    Otherwise: known defining roles route to their univocal ``op:`` axis, and
+    unknown roles keep their source code and are flagged for review downstream.
     """
     if contextual := _r101_axis(r, parent_morphology):
         return contextual
@@ -350,10 +360,13 @@ def _resolve_r101_with_organ_lookup(
     )
     if semantic_type_of is None:
         return [primary]
-    # Deletion deferred by D-R5: exhaustive enumeration of 144,072 closed-form
-    # inputs, 9.0M production-shaped pipeline runs, and 14,604 hermetic-suite helper
-    # executions all found this set empty. The deadness is data-contingent on the
-    # hand-maintained organ/subsite tables remaining disjoint, not structural.
+    # Retained deliberately, not dead by construction: exhaustive enumeration of
+    # 144,072 closed-form inputs, 9.0M production-shaped pipeline runs, and 14,604
+    # hermetic-suite helper executions all found this set empty. The emptiness is
+    # data-contingent on the hand-maintained MORPHOLOGY_TO_ORGAN and
+    # MORPHOLOGY_TO_PRIMARY_SUBSITES tables remaining disjoint (see
+    # ontolib.decomposition.site_resolution), not structural, so deleting the branch
+    # would silently drop subsites the moment those tables overlap.
     subsites = set(primary_subsites_for_morphology(parent_morphology)) & fillers
     regions = {
         filler
@@ -471,10 +484,19 @@ def select_constituents(
 ) -> list[Constituent]:
     """Turn a concept's stated role restrictions into its selected constituents.
 
-    Filters non-defining restrictions (``Excludes_*`` and optional ``May_Have_*``),
-    groups defining roles by routed axis (D20 refinement 1), collapses
-    hierarchy-comparable axes to their most-specific filler(s), and preserves all
-    associated-lineage fillers.
+    Three independent suppressions drop restrictions before routing, and all three
+    delete would-be constituents silently:
+
+    * non-defining restrictions (``Excludes_*`` and, optionally, ``May_Have_*``)
+    * generic fillers — ``axes.GENERIC_FILLERS_BY_ROLE``, the
+      ``contracted-role-generic-v2`` audit set (D59)
+    * concept-role fillers the projection does not support —
+      ``axes.UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE``,
+      the ``ncit-26.07d-unsupported-filler-v1`` set
+
+    The survivors are grouped by routed axis (D20 refinement 1), collapsed to their
+    most-specific filler(s) on hierarchy-comparable axes, and all associated-lineage
+    fillers are preserved.
     It then applies D20 refinement 2 (semantic-type ranking on residual R101 leaves) and
     assigns D19 relationship-group ids to ambiguous routed-axis values. Output is sorted
     (axis, filler) for deterministic, diffable results.

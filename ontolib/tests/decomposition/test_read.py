@@ -12,6 +12,7 @@ def _ncit(code: str) -> str:
 
 
 def _row(**kw: str) -> dict[str, str | None]:
+    # legacy_writer always emits op:axisSource, so a realistic row always carries it.
     return (
         dict.fromkeys(
             (
@@ -19,7 +20,6 @@ def _row(**kw: str) -> dict[str, str | None]:
                 "decomposedOn",
                 "axis",
                 "filler",
-                "axisSource",
                 "mostSpecific",
                 "group",
                 "needsReview",
@@ -28,6 +28,7 @@ def _row(**kw: str) -> dict[str, str | None]:
             ),
             None,
         )
+        | {"axisSource": "role"}
         | kw
     )
 
@@ -135,18 +136,22 @@ def test_constituents_are_deduplicated() -> None:
 
 
 @pytest.mark.unit
-def test_axis_source_defaults_to_role_when_absent() -> None:
-    d = decomposition_from_rows(
-        "C6135",
-        [
-            _row(
-                status=vocab.LEGACY_PRECOORDINATED,
-                axis=_ncit("R88"),
-                filler=_ncit("C27970"),
-            )
-        ],
+@pytest.mark.parametrize("axis_source", [None, "", "unknown", "Role", "role "])
+def test_absent_or_unknown_axis_source_fails_closed(axis_source: str | None) -> None:
+    """An absent op:axisSource must not be reported to clients as role-derived.
+
+    legacy_writer emits the triple for every constituent, so its absence means the
+    graph is corrupt; silently defaulting would relabel NLP- or parent-derived
+    provenance as role-derived.
+    """
+    row = _row(
+        status=vocab.LEGACY_PRECOORDINATED,
+        axis=_ncit("R88"),
+        filler=_ncit("C27970"),
     )
-    assert d.constituents[0].axis_source == "role"
+    row["axisSource"] = axis_source
+    with pytest.raises(ValueError, match="axis source is not a known provenance"):
+        decomposition_from_rows("C6135", [row])
 
 
 @pytest.mark.unit

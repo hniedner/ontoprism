@@ -152,6 +152,23 @@ class _RecordingStore(ProvenanceStore):
         await super().create_run(run_id, ncit_version, fingerprint)
 
 
+def _filler_for(code: str) -> str:
+    """A distinct NCIt-shaped filler per concept code.
+
+    Production fillers are always ``C<digits>``; a synthetic ``F-C1`` would let the
+    fixture assert against a shape the engine can never emit.
+    """
+    return f"C9{code.removeprefix('C')}"
+
+
+def _minted_for(code: str) -> MintedConcept:
+    """The proposal whose deterministic id production uses as the filler."""
+    return MintedConcept(axis="op:Laterality", label=f"minted {code}")
+
+
+_MINTED_C0 = _minted_for("C0")
+
+
 class _InterruptedDecomposer:
     def __init__(self) -> None:
         self._c2_failed = False
@@ -172,7 +189,7 @@ class _InterruptedDecomposer:
                 constituents=[
                     Constituent(
                         axis="R88",
-                        filler_code=f"F-{code}",
+                        filler_code=_filler_for(code),
                         axis_source="role",
                     )
                 ],
@@ -408,12 +425,12 @@ async def test_persisted_completion_counts_gate_reconstruction_and_finalization(
                 constituents=(
                     Constituent(
                         axis="op:Laterality",
-                        filler_code="MINT-C0",
+                        filler_code=_MINTED_C0.id,
                         axis_source="nlp",
                     ),
                 ),
             ),
-            minted=(MintedConcept(axis="op:Laterality", label="minted C0"),),
+            minted=(_MINTED_C0,),
             semantic_types=("Neoplastic Process",),
         )
         if mismatch == "missing":
@@ -823,7 +840,7 @@ async def test_source_swap_invalidation_removes_every_partial_snapshot() -> None
                     constituents=[
                         Constituent(
                             axis="R88",
-                            filler_code=f"F-{code}",
+                            filler_code=_filler_for(code),
                             axis_source="role",
                         )
                     ],
@@ -901,17 +918,12 @@ async def test_mint_proposals_reach_the_curator_queue_only_on_completion() -> No
                     constituents=[
                         Constituent(
                             axis="op:Laterality",
-                            filler_code=f"MINT-{code}",
+                            filler_code=_minted_for(code).id,
                             axis_source="nlp",
                         )
                     ],
                 ),
-                minted=(
-                    MintedConcept(
-                        axis="op:Laterality",
-                        label=f"minted {code}",
-                    ),
-                ),
+                minted=(_minted_for(code),),
                 semantic_types=("Neoplastic Process",),
             )
 
@@ -962,12 +974,12 @@ async def test_invalidated_run_cannot_promote_its_partial_mint_proposals() -> No
                 constituents=[
                     Constituent(
                         axis="op:Laterality",
-                        filler_code="MINT-C0",
+                        filler_code=_MINTED_C0.id,
                         axis_source="nlp",
                     )
                 ],
             ),
-            minted=(MintedConcept(axis="op:Laterality", label="minted C0"),),
+            minted=(_MINTED_C0,),
             semantic_types=("Neoplastic Process",),
         )
 
@@ -1127,12 +1139,12 @@ async def test_failed_run_cannot_be_finished_or_promote_its_proposals() -> None:
                     constituents=[
                         Constituent(
                             axis="op:Laterality",
-                            filler_code=f"MINT-{code}",
+                            filler_code=_minted_for(code).id,
                             axis_source="nlp",
                         )
                     ],
                 ),
-                minted=(MintedConcept(axis="op:Laterality", label=f"minted {code}"),),
+                minted=(_minted_for(code),),
                 semantic_types=("Neoplastic Process",),
             )
 

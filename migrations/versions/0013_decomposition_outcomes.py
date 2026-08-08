@@ -55,7 +55,12 @@ def upgrade() -> None:
             ADD CONSTRAINT ck_decomp_work_item_semantic_types
                 CHECK (
                     semantic_types IS NULL
-                    OR jsonb_typeof(semantic_types) = 'array'
+                    OR (
+                        jsonb_typeof(semantic_types) = 'array'
+                        AND NOT (
+                            semantic_types @? '$[*] ? (@.type() != "string")'
+                        )
+                    )
                 ),
             ADD CONSTRAINT ck_decomp_work_item_outcome_shape
                 CHECK (

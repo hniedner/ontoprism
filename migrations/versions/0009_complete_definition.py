@@ -19,7 +19,17 @@ def upgrade() -> None:
         ALTER TABLE decomp_constituent
             ADD COLUMN source_definition_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD CONSTRAINT ck_decomp_constituent_source_definition_ids
-                CHECK (jsonb_typeof(source_definition_ids) = 'array')
+                CHECK (
+                    jsonb_typeof(source_definition_ids) = 'array'
+                    AND NOT (
+                        source_definition_ids @?
+                            '$[*] ? (!(@.type() == "string"))'
+                    )
+                    AND NOT (
+                        source_definition_ids @?
+                            '$[*] ? (!(@ like_regex "^[0-9a-f]{64}$"))'
+                    )
+                )
         """
     )
     op.execute(

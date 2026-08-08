@@ -599,6 +599,23 @@ def _reject_reviewer_formulas(workbook: Workbook) -> None:
                     )
 
 
+def hidden_column_indexes(sheet: Worksheet) -> set[int]:
+    """Every 1-based column index hidden on *sheet*, including grouped ranges.
+
+    ``column_dimensions`` is keyed by the letter of each range's ``min`` only, so a
+    grouped hide of ``C:E`` is stored as a single entry under ``"C"`` with
+    ``min=3, max=5``. Probing ``column_dimensions["D"]`` auto-creates a default with
+    ``hidden=False``, which would let a reviewer conceal data by hiding a range whose
+    first column is blank. Expand the stored ranges instead of probing per letter.
+    """
+    return {
+        index
+        for dimension in sheet.column_dimensions.values()
+        if dimension.hidden and dimension.min is not None
+        for index in range(dimension.min, (dimension.max or dimension.min) + 1)
+    }
+
+
 def _reject_hidden_reviewer_columns(workbook: Workbook) -> None:
     for sheet_name in (
         "Reviewer & Attestation",
@@ -609,9 +626,8 @@ def _reject_hidden_reviewer_columns(workbook: Workbook) -> None:
         sheet = workbook[sheet_name]
         hidden = [
             get_column_letter(column)
-            for column in range(1, sheet.max_column + 1)
-            if sheet.column_dimensions[get_column_letter(column)].hidden
-            and any(
+            for column in sorted(hidden_column_indexes(sheet))
+            if any(
                 sheet.cell(row, column).value is not None
                 for row in range(1, sheet.max_row + 1)
             )

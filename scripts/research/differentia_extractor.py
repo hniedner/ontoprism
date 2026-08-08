@@ -38,9 +38,11 @@ _DEFINING_AXES = {"R88", "R101", "R105"}
 
 # A stage-VALUE filler ("Stage III") and a stage-SYSTEM filler ("AJCC v7 Stage") both
 # use role R88 in the raw graph; the AUTO-DRAFT proposes relabelling the system one as
-# `op:StageSystem` (design §4.2's "else an op: axis"). Detected here by a simple label
-# heuristic — a genuine axis-naming judgment call (#57 SME task), not a mechanical fact,
-# so it is isolated in one place and cannot be scored until adjudication.
+# `op:StageSystem` — design §4.2 routes every constituent node to a normalized `op:`
+# axis IRI, leaving only unknown roles on their raw NCIt role code. Detected here by a
+# simple label heuristic — a genuine axis-naming judgment call (#57 SME task), not a
+# mechanical fact, so it is isolated in one place and cannot be scored until
+# adjudication.
 _STAGE_SYSTEM_MARKERS = ("AJCC", "UICC", "Stage System")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GOLDEN = _REPO_ROOT / "ontolib/tests/decomposition/golden/neoplasm.json"

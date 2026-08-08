@@ -656,7 +656,7 @@ _CORE_NEOPLASM_ROLES: frozenset[str] = frozenset(
         "R102",  # Disease_Has_Metastatic_Anatomic_Site
         "R103",  # Disease_Has_Normal_Tissue_Origin
         "R105",  # Disease_Has_Abnormal_Cell
-        "R106",  # Disease_Has_Molecular_Abnormality (see scope note above)
+        "R106",  # Disease_Has_Molecular_Abnormality
         "R108",  # Disease_Has_Finding
         "R135",  # Disease_Excludes_Primary_Anatomic_Site (see scope note above)
     }
@@ -914,7 +914,14 @@ async def walk_genus_chain(
     *,
     max_depth: int = 5,
 ) -> list[RoleRestriction]:
-    """Return detector-compatible roles from the complete bounded stated record."""
+    """Return detector-compatible roles from the complete bounded stated record.
+
+    A thin projection of :func:`read_complete_genus_chain`, which is what the
+    pipeline calls. No production caller remains, but this is the surface the
+    real-corpus contract tests (``test_stated_integration``,
+    ``test_ncit_sibling_store_integration``) assert against, so it exercises the
+    production walk while keeping those assertions about roles alone.
+    """
     _complete, roles = await read_complete_genus_chain(
         select_fn,
         code,

@@ -785,6 +785,11 @@ async def test_get_run_decodes_jsonb_publication_predecessor() -> None:
         "ncit_version": "26.05d",
         "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
         "finished_at": None,
+        "publication_state": "published",
+        "publication_attempt_count": 1,
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/run-1.ttl",
+        "publication_predecessor_captured": True,
         "publication_predecessor": {
             "run_id": "previous-run",
             "source_identity": "a" * 64,

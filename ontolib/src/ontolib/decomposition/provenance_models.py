@@ -507,6 +507,32 @@ class RunSummary(BaseModel):
     pct_decomposed: float | None = Field(default=None, ge=0, le=1)
     roundtrip_fidelity: float | None = Field(default=None, ge=0, le=1)
 
+    @model_validator(mode="after")
+    def _validate_publication_predecessor(self) -> Self:
+        """Mirror ``ck_decomp_run_publication_predecessor`` (migration 0014).
+
+        A snapshot without the capture flag would make the run permanently
+        unpublishable — ``_prepare_publication_intent`` refuses to retry an intent
+        it cannot prove captured a predecessor — while a usable snapshot sits in
+        the row. Reject the pair here so the state cannot be read back at all.
+        """
+        if (
+            self.publication_predecessor is not None
+            and not self.publication_predecessor_captured
+        ):
+            raise ValueError(
+                "publication predecessor snapshot requires the capture flag"
+            )
+        if (
+            self.publication_state in {"legacy", "not_requested", "pending"}
+            and self.publication_predecessor_captured
+        ):
+            raise ValueError(
+                f"publication state {self.publication_state} cannot carry a "
+                "captured predecessor"
+            )
+        return self
+
 
 class MintedConcept(BaseModel):
     """A minted-concept proposal awaiting curator approval."""

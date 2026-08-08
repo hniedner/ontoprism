@@ -56,14 +56,14 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     # --- Oral Cavity ---
     "C5980": "C12421",  # Oral Cavity Squamous Cell Carcinoma → Oral Cavity
     # --- Uterine ---
-    # BUG (deferred to post-attestation rebuild, see D-R5 and §0b item 1): C4008 is
-    # "Recurrent Gallbladder Carcinoma", not Uterine Carcinosarcoma, and C12316 is
-    # Corpus Uteri, not Uterus. Both tokens of this comment were wrong. No concept in
-    # the M1 cohort resolves C4008 as its parent morphology, so the entry does not
-    # currently fire -- but it is not SME-validated and must not be relied on.
-    # Replacement key is undetermined: this table is keyed by resolved parent
-    # morphology, so it requires observed walker output, not a concept code.
-    # Do not "fix" the key before attestation.
+    # BUG (deferred to the post-attestation rebuild): C4008 is "Recurrent Gallbladder
+    # Carcinoma", not Uterine Carcinosarcoma, and C12316 is Corpus Uteri, not Uterus.
+    # Both tokens of this comment were wrong. No concept in the M1 cohort resolves
+    # C4008 as its parent morphology, so the entry does not currently fire -- but it
+    # is not SME-validated and must not be relied on. Replacement key is
+    # undetermined: this table is keyed by resolved parent morphology, so it requires
+    # observed walker output, not a concept code. Do not "fix" the key before
+    # attestation, because changing it would change the cohort the SME signed.
     "C4008": "C12316",
     "C7558": "C12316",  # Endometrial Carcinoma → Corpus Uteri
     # --- Esophagus / GEJ composite staging site ---
@@ -93,7 +93,11 @@ MORPHOLOGY_TO_PRIMARY_SUBSITES: dict[str, frozenset[str]] = {
 
 
 def organ_for_morphology(morphology_code: str | None) -> str | None:
-    """Return the SME-validated organ code for *morphology_code*, or ``None``.
+    """Return the routed organ code for *morphology_code*, or ``None``.
+
+    ``MORPHOLOGY_TO_ORGAN`` is hand-maintained, not uniformly SME-validated; see
+    the module docstring and the per-entry notes for which rows carry which
+    provenance.
 
     Parameters
     ----------

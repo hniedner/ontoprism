@@ -616,17 +616,37 @@ async def _persisted_definition_counts(
     session: AsyncSession,
     run_id: str,
 ) -> tuple[int, int, int]:
+    """Recompute the definition metrics the way the pipeline computes them.
+
+    Two scoping rules must match :func:`decompositions_for_run` exactly, or
+    :func:`_require_matching_completion_metrics` rejects every well-formed run:
+
+    * only ``is_decomposed`` work items contribute. A ``residual`` concept still
+      carries a complete definition and its facts are persisted, but it is absent
+      from the reconstructed decompositions the pipeline sums over.
+    * ``projected_fact_count`` is distinct *within* a concept and then summed, not
+      distinct across the run. ``fact_id`` is anchored on the expression's own
+      concept, so two roots sharing a defined genus legitimately reference the
+      same fact id twice.
+    """
     result = await session.execute(
         text(
             "SELECT "
             "(SELECT count(*) FROM decomp_work_item "
-            "WHERE run_id = :run_id AND has_complete_definition) "
-            "AS complete_definition_count, "
-            "(SELECT count(*) FROM decomp_definition_fact "
-            "WHERE run_id = :run_id) AS complete_fact_count, "
-            "(SELECT count(DISTINCT source_id.value) FROM decomp_constituent c "
+            "WHERE run_id = :run_id AND has_complete_definition "
+            "AND is_decomposed) AS complete_definition_count, "
+            "(SELECT count(*) FROM decomp_definition_fact f "
+            "JOIN decomp_work_item w ON w.run_id = f.run_id "
+            "AND w.concept_code = f.concept_code "
+            "WHERE f.run_id = :run_id AND w.is_decomposed) AS complete_fact_count, "
+            "(SELECT COALESCE(sum(per_concept), 0) FROM ("
+            "SELECT count(DISTINCT source_id.value) AS per_concept "
+            "FROM decomp_constituent c "
+            "JOIN decomp_work_item w ON w.run_id = c.run_id "
+            "AND w.concept_code = c.concept_code "
             "CROSS JOIN LATERAL jsonb_array_elements_text(c.source_definition_ids) "
-            "AS source_id(value) WHERE c.run_id = :run_id) AS projected_fact_count"
+            "AS source_id(value) WHERE c.run_id = :run_id AND w.is_decomposed "
+            "GROUP BY c.concept_code) AS per_concept_counts) AS projected_fact_count"
         ),
         {"run_id": run_id},
     )

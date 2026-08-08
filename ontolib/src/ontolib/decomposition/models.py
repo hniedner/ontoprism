@@ -28,6 +28,11 @@ ConceptOutcome = Literal[
 _CONCEPT_CODE = re.compile(r"C[0-9]+")
 _ROLE_CODE = re.compile(r"R[0-9]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+# A constituent axis is either a normalized op: relation or an unknown NCIt role
+# carried through verbatim for downstream review.
+_AXIS_OR_ROLE = re.compile(r"op:[A-Za-z][A-Za-z0-9]*|R[0-9]+")
+# A filler is an NCIt code or a minted proposal id (see decomposition.minting).
+_FILLER_CODE = re.compile(r"C[0-9]+|MINT-[0-9a-f]{12}")
 
 
 def _require_code(value: str, pattern: re.Pattern[str], field_name: str) -> None:
@@ -414,6 +419,8 @@ class Constituent:
     source_definition_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        _require_code(self.axis, _AXIS_OR_ROLE, "axis")
+        _require_code(self.filler_code, _FILLER_CODE, "filler_code")
         source_role = _canonical_source_role(
             self.axis,
             self.axis_source,
@@ -515,6 +522,7 @@ class Decomposition:
     complete_definition: CompleteDefinition | None = None
 
     def __post_init__(self) -> None:
+        _require_code(self.code, _CONCEPT_CODE, "code")
         object.__setattr__(self, "constituents", tuple(self.constituents))
         _validate_axis_cardinality(self.constituents)
         _validate_definition_link(

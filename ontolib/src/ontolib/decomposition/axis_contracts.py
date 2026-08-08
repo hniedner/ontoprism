@@ -21,7 +21,7 @@ class ProvisionalGovernance(_StrictModel):
     since: date
     review_by: date
     review_trigger: str = Field(min_length=1)
-    fallback_axis: str = Field(min_length=1)
+    fallback_axis: str = Field(pattern=r"^(op:[A-Za-z][A-Za-z0-9]*|R[0-9]+)$")
     fallback_needs_review: bool = False
     evidence_count: int = Field(ge=1)
 
@@ -43,7 +43,7 @@ class AxisContract(_StrictModel):
     domain_label: str = Field(min_length=1)
     range_code: str = Field(pattern=r"^C[0-9]+$")
     range_label: str = Field(min_length=1)
-    source_roles: tuple[str, ...] = ()
+    source_roles: tuple[Annotated[str, Field(pattern=r"^R[0-9]+$")], ...] = ()
     provenance: tuple[str, ...] = Field(min_length=1)
     ro_parent: str | None = Field(default=None, pattern=r"^RO:[0-9]{7}$")
     governance: AxisGovernance = Field(default_factory=StableGovernance)

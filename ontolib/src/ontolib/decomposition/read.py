@@ -6,9 +6,10 @@ Kept separate from query execution so every parsing rule is unit-tested without 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast, get_args
 
 from ontolib.decomposition import vocab
+from ontolib.decomposition.models import AxisSource
 from ontolib.decomposition.read_models import (
     ConceptDecomposition,
     DecompositionConstituent,
@@ -78,6 +79,17 @@ def _source_role(iri: str | None) -> str | None:
     return role_code
 
 
+def _axis_source(value: str | None) -> AxisSource:
+    """Reject an absent or unrecognised ``op:axisSource``.
+
+    Defaulting to ``"role"`` would report NLP- or parent-derived provenance to API
+    clients as role-derived, which is the one thing this field exists to state.
+    """
+    if value not in get_args(AxisSource):
+        raise ValueError(f"axis source is not a known provenance: {value!r}")
+    return cast("AxisSource", value)
+
+
 def _constituent_from_row(
     concept_code: str,
     axis_iri: str,
@@ -88,7 +100,7 @@ def _constituent_from_row(
     return DecompositionConstituent(
         axis=_axis_code(axis_iri),
         filler=_local(filler_iri),
-        axis_source=row.get("axisSource") or "role",
+        axis_source=_axis_source(row.get("axisSource")),
         source_role=_source_role(row.get("sourceRole")),
         most_specific=_as_bool(row.get("mostSpecific")),
         needs_review=_as_bool(row.get("needsReview")),

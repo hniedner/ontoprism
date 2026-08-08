@@ -6,6 +6,7 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 
 from pydantic import BaseModel, Field
 
+from ontolib.decomposition.models import AxisSource
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 
 
@@ -44,7 +45,7 @@ class DecompositionConstituent(BaseModel):
     axis_label: str | None = None
     filler: str
     filler_label: str | None = None
-    axis_source: str
+    axis_source: AxisSource
     source_role: str | None = None
     most_specific: bool = False
     needs_review: bool = False

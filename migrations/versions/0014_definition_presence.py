@@ -40,7 +40,28 @@ def upgrade() -> None:
         ALTER TABLE decomp_run
             ADD COLUMN publication_predecessor_captured boolean NOT NULL
                 DEFAULT false,
-            ADD COLUMN publication_predecessor jsonb
+            ADD COLUMN publication_predecessor jsonb,
+            ADD CONSTRAINT ck_decomp_run_publication_predecessor
+                CHECK (
+                    (
+                        -- SQL NULL before capture; jsonb 'null' once captured for a
+                        -- first publication, which legitimately has no predecessor.
+                        publication_predecessor IS NULL
+                        OR jsonb_typeof(publication_predecessor) = 'null'
+                        OR (
+                            publication_predecessor_captured
+                            AND jsonb_typeof(publication_predecessor) = 'object'
+                        )
+                    )
+                    AND (
+                        publication_state NOT IN
+                            ('legacy', 'not_requested', 'pending')
+                        OR (
+                            NOT publication_predecessor_captured
+                            AND publication_predecessor IS NULL
+                        )
+                    )
+                )
         """
     )
 
@@ -49,6 +70,7 @@ def downgrade() -> None:
     op.execute(
         """
         ALTER TABLE decomp_run
+            DROP CONSTRAINT IF EXISTS ck_decomp_run_publication_predecessor,
             DROP COLUMN IF EXISTS publication_predecessor,
             DROP COLUMN IF EXISTS publication_predecessor_captured
         """

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import fields, replace
-from typing import cast
+from typing import cast, get_args
 
 import pytest
 
-from ontolib.decomposition.models import canonical_definition_fact_id
+from ontolib.decomposition.models import ConceptOutcome, canonical_definition_fact_id
 from ontolib.decomposition.semantic_bundles import (
     AdjudicatedSemanticBundle,
     AdjudicatedSemanticContext,
@@ -21,6 +21,7 @@ from ontolib.decomposition.semantic_bundles import (
     EvidenceRegistry,
     MemberRole,
     MissingMember,
+    NotEvaluatedCandidate,
     ObservedBundleMember,
     ObservedSemanticBundle,
     PairProvenance,
@@ -598,6 +599,83 @@ def test_pair_availability_marks_a_proposed_member_without_engine_evidence() -> 
     assert isinstance(result.members[0], ProposedMember)
     assert result.deferred_members == ()
     assert result.missing_members == ()
+
+
+@pytest.mark.unit
+def test_missing_member_outranks_deferred_member() -> None:
+    """A bundle with both a missing and a deferred member is incomplete, not deferred.
+
+    Routing it to `deferred` would send an unprojectable bundle to SME review as
+    though the projection had merely flagged it.
+    """
+    candidate = _candidate()
+    deferred = DeferredMember(
+        member=candidate.members[0],
+        evidence=replace(_projected(candidate, 0), needs_review=True),
+    )
+    missing = MissingMember(member=candidate.members[1])
+
+    both = BundlePairAvailability(
+        candidate_id=candidate.candidate_id,
+        members=(deferred, missing),
+    )
+    reversed_order = BundlePairAvailability(
+        candidate_id=candidate.candidate_id,
+        members=(missing, deferred),
+    )
+
+    assert both.status == "incomplete"
+    assert reversed_order.status == "incomplete"
+
+
+@pytest.mark.unit
+def test_missing_member_rejects_a_proposed_member() -> None:
+    """MissingMember and ProposedMember must be disjoint, not merely conventional.
+
+    `_member_without_engine_evidence` routes proposals to ProposedMember, but a
+    caller assembling availability directly (a report replay, or the pilot
+    deserialising a stored trace) would otherwise report a proposal-only candidate
+    as `incomplete` and inflate the missing-member count.
+    """
+    proposed = _member(
+        MemberRole.STAGING_METHOD,
+        "C141685",
+        claim_ids=("mcode-valg-method",),
+        provenance_status="proposed",
+    )
+
+    with pytest.raises(ValueError, match="proposed availability requires"):
+        MissingMember(member=proposed)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("outcome", ["Decomposed", "", "unevaluated", "atomic no-op"])
+def test_not_evaluated_candidate_rejects_an_unknown_engine_outcome(
+    outcome: str,
+) -> None:
+    """A mis-cased or misspelled outcome must not become "never evaluated".
+
+    `"Decomposed"` would otherwise slip past the `!= "decomposed"` guard, silently
+    reclassifying a candidate the engine did decompose.
+    """
+    with pytest.raises(ValueError, match="unknown engine outcome"):
+        NotEvaluatedCandidate(
+            candidate_id="stage-c115057-ajcc-v7",
+            engine_outcome=cast("ConceptOutcome", outcome),
+        )
+
+
+@pytest.mark.unit
+def test_not_evaluated_candidate_accepts_every_non_decomposed_outcome() -> None:
+    for outcome in get_args(ConceptOutcome):
+        if outcome == "decomposed":
+            with pytest.raises(ValueError, match="must have member availability"):
+                NotEvaluatedCandidate(candidate_id="c", engine_outcome=outcome)
+            continue
+        assert (
+            NotEvaluatedCandidate(candidate_id="c", engine_outcome=outcome).status
+            == "not-evaluated"
+        )
 
 
 @pytest.mark.unit

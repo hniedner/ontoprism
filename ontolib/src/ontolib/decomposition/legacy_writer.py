@@ -260,8 +260,19 @@ async def write_ttl(
 ) -> Path | None:
     """Render all *decompositions* as Turtle triples into *dest* (or stdout).
 
+    Always emits the ``AXIS_CONTRACTS`` relation ontology as a header — object
+    property declarations, labels, domains, ranges, RO alignments and governance
+    triples — before the decomposition triples, including when *decompositions* is
+    empty.
+
     Writes additively — no deletes, no other graph targeted.  Returns the written path
     or ``None`` when writing to stdout.
+
+    Raises
+    ------
+    ValueError
+        When *emit_equivalence* is requested. Reversible equivalence emission needs
+        a separately validated proof-bearing export mode (D43).
     """
     if emit_equivalence:
         raise ValueError(

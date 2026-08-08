@@ -46,10 +46,10 @@ LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset(
     {"C3010", "C3809", "C3773", "C215715"}
 )
 
-# Fillers inherited by essentially every concept in the applicable hierarchy (policy
-# 5.1). Membership is measured as inherited coverage over the complete stated record,
-# never as raw assertion frequency and never across roles: a filler may be generic on
-# one role and discriminating on another.
+# Fillers inherited by essentially every concept in the applicable hierarchy, so they
+# discriminate nothing and are suppressed (D59). Membership is measured as inherited
+# coverage over the complete stated record, never as raw assertion frequency and never
+# across roles: a filler may be generic on one role and discriminating on another.
 #
 # v2 removed R108 C36122 (Benign Cellular Infiltrate). It was admitted in v1 on its
 # apparent cohort frequency, but that frequency came from R142

@@ -570,6 +570,82 @@ async def test_lost_begin_acknowledgement_reconciles_committed_intent(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "drift",
+    [
+        pytest.param({"status": "failed"}, id="status"),
+        pytest.param({"source_identity": "b" * 64}, id="source-identity"),
+        pytest.param({"publication_state": "failed"}, id="publication-state"),
+        pytest.param({"representation_identity": "c" * 64}, id="representation"),
+        pytest.param({"publication_artifact_path": "/elsewhere.ttl"}, id="path"),
+        pytest.param(
+            {"publication_built_at": datetime(2026, 7, 29, tzinfo=UTC)}, id="built-at"
+        ),
+        pytest.param(
+            {
+                "publication_predecessor": PublicationMarkerSnapshot(
+                    run_id="some-other-run",
+                    source_identity="9" * 64,
+                    representation_identity="8" * 64,
+                    built_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+                )
+            },
+            id="predecessor",
+        ),
+        pytest.param(
+            {
+                "publication_predecessor_captured": False,
+                "publication_predecessor": None,
+            },
+            id="predecessor-not-captured",
+        ),
+    ],
+)
+async def test_lost_begin_acknowledgement_rejects_any_field_of_a_foreign_intent(
+    tmp_path: Path,
+    drift: dict[str, object],
+) -> None:
+    """Every field of the reconciliation tuple must discriminate, not just its shape.
+
+    A lost begin acknowledgement is only safe to treat as committed when the
+    persisted intent is byte-for-byte this intent. Accepting a row that differs in,
+    say, the predecessor would make `_replace_graph` validate against the wrong
+    predecessor marker.
+    """
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+
+    class _DriftingStore(_PublicationStore):
+        async def get_run(self, run_id: str) -> RunSummary | None:
+            summary = await super().get_run(run_id)
+            if summary is None or self.summary_state != "publishing":
+                return summary
+            return summary.model_copy(update=drift)
+
+    store = _DriftingStore(
+        destination=destination,
+        begin_error=RuntimeError("connection closed after commit"),
+        begin_commits_before_error=True,
+    )
+
+    with pytest.raises(PublicationPreflightError, match="connection closed"):
+        await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=False,
+            client=_GraphClient(),
+            provenance=store,
+        )
+
+    assert store.finished_identity is None
+
+
+@pytest.mark.unit
 async def test_publication_uses_the_validated_bytes_if_staging_path_changes(
     tmp_path: Path,
 ) -> None:
@@ -812,6 +888,56 @@ async def test_ambiguous_update_error_reconciles_committed_marker(
     ]
     assert store.failures == []
     assert store.finished_identity == identity
+
+
+@pytest.mark.unit
+async def test_preexisting_marker_cannot_launder_a_failed_replacement(
+    tmp_path: Path,
+) -> None:
+    """A marker that already matched before the update cannot prove a replay committed.
+
+    On a retry whose marker is already ahead, the post-failure marker read returns
+    this intent's own marker regardless of whether the replacement committed. Without
+    the pre-update comparison, a failed `update` would be treated as success and the
+    run finalized as published over a graph that was never replaced.
+    """
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    identity = hashlib.sha256(staging.read_bytes()).hexdigest()
+    built_at = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
+    ahead = PublicationMarker(
+        run_id="neoplasm-run-1",
+        source_identity="a" * 64,
+        representation_identity=identity,
+        built_at=built_at,
+    )
+    original = RuntimeError("connection reset before commit")
+    graph = _GraphClient(
+        _marker_rows(ahead),
+        update_error=original,
+        marker_on_update_error=ahead,
+    )
+    store = _PublicationStore(destination=destination, persisted_built_at=built_at)
+
+    with pytest.raises(RuntimeError, match="connection reset") as exc_info:
+        await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=True,
+            client=graph,
+            provenance=store,
+        )
+
+    assert exc_info.value is original
+    # No second marker read: the guard short-circuits before reconciliation.
+    assert graph.events == ["read-marker", "stage", "replace"]
+    assert store.finished_identity is None
+    assert store.failures == [original]
 
 
 @pytest.mark.unit
