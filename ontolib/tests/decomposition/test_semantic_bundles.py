@@ -911,3 +911,63 @@ def test_context_only_construct_uses_same_typed_source_occurrence() -> None:
     assert context.member.source_occurrences[0].root_code == context.subject_code
     with pytest.raises(ValueError, match="classification-context member"):
         replace(context, member=_member(MemberRole.STAGE_TYPE, "C90530"))
+
+
+@pytest.mark.unit
+def test_semantic_metric_missing_and_extra_sets_must_be_disjoint() -> None:
+    """A pair cannot be both absent from and surplus to the same expectation.
+
+    The counts alone cannot catch it: one missing and one extra is consistent
+    with `expected == actual == 1, true_positive == 0`.
+    """
+    with pytest.raises(ValueError, match="missing and extra sets must be disjoint"):
+        SemanticMetricScore(
+            expected=1,
+            actual=1,
+            true_positive=0,
+            missing=frozenset({"pair-a"}),
+            extra=frozenset({"pair-a"}),
+        )
+
+
+@pytest.mark.unit
+def test_available_and_deferred_members_reject_a_proposed_member() -> None:
+    """The disjointness must hold on every branch, not just the missing one.
+
+    If engine evidence turns up for a pair the registry still calls proposed, the
+    registry and the projection disagree; resolving that to "available" would
+    report an unaccepted proposal as present.
+    """
+    candidate = replace(
+        _candidate(),
+        members=(
+            _member(
+                MemberRole.STAGING_METHOD,
+                "C141685",
+                claim_ids=("mcode-valg-method",),
+                provenance_status="proposed",
+            ),
+            _member(MemberRole.STAGE_VALUE, "C27966"),
+        ),
+    )
+    proposed_member = candidate.members[0]
+    evidence = ProjectedConstituentEvidence(
+        axis=proposed_member.axis,
+        filler_code=proposed_member.filler_code,
+        needs_review=False,
+        relationship_group=None,
+        source_role="R88",
+        axis_source="role",
+        source_fact_ids=(),
+    )
+
+    with pytest.raises(ValueError, match="proposed availability requires"):
+        AvailableMember(member=proposed_member, evidence=evidence)
+    with pytest.raises(ValueError, match="proposed availability requires"):
+        DeferredMember(
+            member=proposed_member, evidence=replace(evidence, needs_review=True)
+        )
+
+    # And the engine/registry disagreement is named rather than resolved.
+    with pytest.raises(ValueError, match="proposed but the engine projected it"):
+        evaluate_pair_availability(candidate, (evidence,))

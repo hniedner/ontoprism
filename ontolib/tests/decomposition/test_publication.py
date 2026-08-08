@@ -150,6 +150,7 @@ class _PublicationStore:
         predecessor: PublicationMarker | None = None,
         begin_commits_before_error: bool = False,
         source_identity: str = "a" * 64,
+        predecessor_captured: bool | None = None,
     ) -> None:
         self.destination = destination
         self.persisted_built_at = persisted_built_at
@@ -162,7 +163,11 @@ class _PublicationStore:
         self.lock_error = lock_error
         self.unlock_error = unlock_error
         self.predecessor = predecessor
-        self.predecessor_captured = persisted_built_at is not None
+        self.predecessor_captured = (
+            persisted_built_at is not None
+            if predecessor_captured is None
+            else predecessor_captured
+        )
         self.begin_commits_before_error = begin_commits_before_error
         self.source_identity = source_identity
         self.representation_identity: str | None = None
@@ -463,6 +468,46 @@ async def test_file_only_publication_never_touches_the_graph(
     assert graph.events == []
     assert destination.exists()
     assert store.events == ["lock", "begin", "finish", "unlock"]
+
+
+@pytest.mark.unit
+async def test_retry_of_a_pre_capture_intent_refuses_to_publish(
+    tmp_path: Path,
+) -> None:
+    """A publication intent written before predecessor capture cannot be retried.
+
+    Migration 0014 added the predecessor columns and defaults them to
+    uncaptured/NULL, so a run that was mid-publication across the upgrade has an
+    intent with no recorded rollback target. Retrying it would replace the
+    published graph with nothing to roll back to, so it must fail closed rather
+    than proceed with `predecessor=None`.
+    """
+    staging = tmp_path / ".decomposed.ttl.staging-run"
+    destination = tmp_path / "decomposed.ttl"
+    await write_ttl([_decomposition()], staging, run_id="neoplasm-run-1")
+    graph = _GraphClient()
+    store = _PublicationStore(
+        destination=destination,
+        persisted_built_at=datetime(2026, 7, 30, 12, 0, tzinfo=UTC),
+        predecessor_captured=False,
+    )
+
+    with pytest.raises(PublicationPreflightError, match="no captured predecessor"):
+        await publish_artifact(
+            run_id="neoplasm-run-1",
+            source_identity="a" * 64,
+            artifact=staging,
+            destination=destination,
+            expected_codes={"C1"},
+            metrics={"decomposed": 1},
+            load_to_store=True,
+            client=graph,
+            provenance=store,
+        )
+
+    assert graph.events == []
+    assert store.finished_identity is None
+    assert not destination.exists()
 
 
 @pytest.mark.unit

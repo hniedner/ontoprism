@@ -489,8 +489,9 @@ def select_constituents(
     delete would-be constituents silently:
 
     * non-defining restrictions — ``Excludes_*`` negative axioms and the
-      probabilistic ``May_Have_*`` roles (``axes.DROPPED_ROLES``), both dropped
-      unconditionally
+      probabilistic ``May_Have_*`` roles (``axes.DROPPED_ROLES``). Neither is gated
+      by a caller flag, but the ``Excludes_*`` test keys on ``role_label`` and so
+      misses a restriction whose label did not resolve
     * generic fillers — ``axes.GENERIC_FILLERS_BY_ROLE``, the
       ``contracted-role-generic-v2`` audit set (D59)
     * concept-role fillers the projection does not support —

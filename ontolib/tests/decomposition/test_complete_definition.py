@@ -111,6 +111,52 @@ def test_rows_preserve_multiple_axioms_genera_restrictions_and_groups() -> None:
 
 
 @pytest.mark.unit
+async def test_mutually_nested_groups_fail_closed_instead_of_recursing() -> None:
+    """A 2-cycle in `nestedExpression` must raise, not blow the stack.
+
+    `_linked_group_depths` has a pinned cycle guard, but `_canonical_group_ids`
+    walks the same graph a second time to canonicalise the ids. Without its own
+    guard the recursion is unbounded, so the failure mode is `RecursionError`
+    rather than a typed `CompleteDefinitionError`.
+    """
+    rows = [
+        {
+            "expression": "_:a",
+            "parentExpression": "_:b",
+            "nestingDepth": "1",
+            "position": "0",
+            "member": "_:b",
+            "childExpression": None,
+            "nestedExpression": "_:b",
+            "role": None,
+            "target": None,
+            "overflow": "false",
+        },
+        {
+            "expression": "_:b",
+            "parentExpression": "_:a",
+            "nestingDepth": "1",
+            "position": "0",
+            "member": "_:a",
+            "childExpression": None,
+            "nestedExpression": "_:a",
+            "role": None,
+            "target": None,
+            "overflow": "false",
+        },
+    ]
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    with pytest.raises(CompleteDefinitionError, match="cycle"):
+        await read_complete_definition(select, "C27262")
+
+
+@pytest.mark.unit
 async def test_nested_intersection_is_a_stable_proof_bearing_group_tree() -> None:
     rows = [
         {
@@ -566,6 +612,9 @@ async def test_nested_intersection_fails_closed_on_incomplete_or_too_deep_shape(
             },
             "integer",
         ),
+        # The bound itself, not a downstream symptom: with the guard removed, a
+        # negative position is caught later by "definition list has a missing
+        # position", which also matches a loose "position" regex.
         (
             {
                 "expression": "_:expression",
@@ -574,7 +623,27 @@ async def test_nested_intersection_fails_closed_on_incomplete_or_too_deep_shape(
                 "role": None,
                 "target": None,
             },
-            "position",
+            "position exceeds list bound",
+        ),
+        (
+            {
+                "expression": "_:expression",
+                "position": "64",
+                "member": _iri("C100"),
+                "role": None,
+                "target": None,
+            },
+            "position exceeds list bound",
+        ),
+        (
+            {
+                "expression": "_:expression",
+                "position": "999",
+                "member": _iri("C100"),
+                "role": None,
+                "target": None,
+            },
+            "position exceeds list bound",
         ),
         (
             {

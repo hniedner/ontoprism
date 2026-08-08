@@ -99,6 +99,88 @@ def _relation() -> RelationProposal:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("status", ["proposed", "locally-approved", "submitted"])
+def test_only_an_accepted_concept_may_carry_a_replacement_code(
+    status: ProposalStatus,
+) -> None:
+    """The reject direction of the D60 lifecycle.
+
+    `resolve_proposal_identifier` returns `replacement_ncit_code` whenever it is
+    set, so a still-`proposed` record carrying one would publish an NCIt code NCI
+    has not assigned.
+    """
+    with pytest.raises(
+        ValidationError, match="only accepted concept may carry replacement NCIt code"
+    ):
+        _concept().model_copy(
+            update={"status": status, "replacement_ncit_code": "C999999"}
+        ).model_validate(
+            _concept().model_dump()
+            | {"status": status, "replacement_ncit_code": "C999999"}
+        )
+
+
+@pytest.mark.unit
+def test_relation_proposal_must_use_its_deterministic_id() -> None:
+    with pytest.raises(ValidationError, match="deterministic relation proposal id"):
+        RelationProposal.model_validate(
+            _relation().model_dump() | {"id": "RELPROP-not-derived"}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", ["proposed", "locally-approved", "submitted"])
+def test_only_an_accepted_relation_may_carry_a_replacement_identity(
+    status: ProposalStatus,
+) -> None:
+    with pytest.raises(
+        ValidationError, match="only accepted relation may carry a replacement"
+    ):
+        RelationProposal.model_validate(
+            _relation().model_dump()
+            | {
+                "status": status,
+                "replacement_relation_iri": "http://purl.obolibrary.org/obo/RO_0004026",
+                "replacement_relation_version": "2026-08-05",
+            }
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("iri", ["/obo/RO_0004026", "not an iri", "obo/RO_0004026", ""])
+def test_replacement_relation_iri_must_be_absolute(iri: str) -> None:
+    with pytest.raises(ValidationError, match="must be an absolute IRI"):
+        RelationProposal.model_validate(
+            _relation().model_dump()
+            | {
+                "status": "accepted",
+                "replacement_relation_iri": iri,
+                "replacement_relation_version": "2026-08-05",
+            }
+        )
+
+
+@pytest.mark.unit
+def test_duplicate_check_candidates_must_be_unique() -> None:
+    with pytest.raises(ValidationError, match="candidates must be unique"):
+        DuplicateCheck.model_validate(
+            _duplicate_check(result="equivalent-found", candidates=("C1",)).model_dump()
+            | {"candidates": ("C1", "C1")}
+        )
+
+
+@pytest.mark.unit
+def test_duplicate_checks_must_use_unique_resources() -> None:
+    """One resource checked twice is not two independent corroborations."""
+    check = _duplicate_check()
+    with pytest.raises(ValidationError, match="unique resources"):
+        ConceptProposal.model_validate(
+            _concept().model_dump()
+            | {"duplicate_checks": (check.model_dump(), check.model_dump())}
+        )
+
+
+@pytest.mark.unit
 def test_registry_filters_typed_proposals_and_exports_submission_packets() -> None:
     registry = ProposalRegistry(
         source_identity=_SOURCE_IDENTITY,

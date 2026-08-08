@@ -96,9 +96,10 @@ def organ_for_morphology(morphology_code: str | None) -> str | None:
     """Return the routed organ code for *morphology_code*, or ``None``.
 
     ``MORPHOLOGY_TO_ORGAN`` is hand-maintained and only partly SME-validated:
-    entries carrying an explicit ``SME:`` note are reviewed, the rest are
-    unannotated curation, and the ``C4008`` row is a known-wrong entry deferred to
-    the post-attestation rebuild.
+    entries carrying an ``SME:`` note are reviewed; ``C2955`` carries an SME
+    judgement recorded as a walker-gap note; ``C4008`` is a known-wrong entry
+    deferred to the post-attestation rebuild; every other row is unannotated
+    curation.
 
     Parameters
     ----------

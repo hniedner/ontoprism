@@ -853,7 +853,8 @@ def test_hidden_column_without_a_stored_range_is_still_reported() -> None:
     """An in-memory hide leaves `min`/`max` unset until `reindex()` at save time.
 
     Skipping those dimensions would let the anti-tamper helper degrade to
-    "nothing is hidden" -- the same fail-open shape as the grouped-range defect.
+    "nothing is hidden". Not reachable through ``load_workbook`` -- a file's
+    ``<col>`` always carries ``min`` -- but the helper must not depend on that.
     """
     sheet = Workbook().active
     assert sheet is not None
@@ -861,7 +862,7 @@ def test_hidden_column_without_a_stored_range_is_still_reported() -> None:
     sheet.column_dimensions["D"].hidden = True
     assert sheet.column_dimensions["D"].min is None
 
-    assert golden_review.hidden_column_indexes(sheet) == {4}
+    assert golden_review.hidden_column_indexes(sheet, limit=sheet.max_column) == {4}
 
 
 @pytest.mark.unit

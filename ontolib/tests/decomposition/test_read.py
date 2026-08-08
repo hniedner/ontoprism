@@ -100,8 +100,8 @@ def test_normalized_axis_preserves_valid_ncit_source_role() -> None:
 @pytest.mark.parametrize(
     "source_role",
     [
-        # Foreign namespaces: the local part looks like a role code, so only the
-        # namespace guard can reject them.
+        # Foreign or absent namespaces: the local part looks like a role code, so
+        # only the namespace guard can reject them.
         "https://example.org/R101",
         "http://example.org/ns#R101",
         "http://purl.obolibrary.org/obo/R101",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
@@ -181,6 +182,63 @@ def test_schema_v1_fingerprint_cannot_resume_as_hierarchy_scoped_identity() -> N
         match="predates the hierarchy-scope schema",
     ):
         ProvenanceStore._validated_fingerprint(legacy, "f" * 64)
+
+
+def _retry_row(**overrides: object) -> dict[str, object]:
+    built_at = datetime.datetime(2026, 7, 30, 12, 0, tzinfo=datetime.UTC)
+    return {
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/run-1.ttl",
+        "publication_built_at": built_at,
+        "publication_predecessor_captured": True,
+        "publication_predecessor": None,
+    } | overrides
+
+
+_RETRY_IDENTITY = (
+    "c" * 64,
+    "artifacts/run-1.ttl",
+    datetime.datetime(2026, 7, 30, 12, 0, tzinfo=datetime.UTC),
+)
+
+
+@pytest.mark.unit
+def test_publication_retry_refuses_an_intent_predating_predecessor_capture() -> None:
+    """Migration 0014 defaults the predecessor columns to uncaptured/NULL.
+
+    A run that was mid-publication across that upgrade therefore has an intent
+    with no recorded rollback target. Retrying it would replace the published
+    graph with nothing to roll back to.
+    """
+    with pytest.raises(RunStateError, match="predates predecessor capture"):
+        provenance_module._validate_publication_retry(
+            cast("Any", _retry_row(publication_predecessor_captured=False)),
+            state="failed",
+            requested_identity=_RETRY_IDENTITY,
+            requested_predecessor=None,
+        )
+
+
+@pytest.mark.unit
+def test_publication_retry_accepts_a_captured_intent_without_a_predecessor() -> None:
+    """A first publication legitimately has captured=True and predecessor=None."""
+    provenance_module._validate_publication_retry(
+        cast("Any", _retry_row()),
+        state="failed",
+        requested_identity=_RETRY_IDENTITY,
+        requested_predecessor=None,
+    )
+
+
+@pytest.mark.unit
+def test_publication_retry_rejects_a_predecessor_that_moved() -> None:
+    with pytest.raises(RunIdentityMismatchError, match="predecessor does not match"):
+        provenance_module._validate_publication_retry(
+            cast("Any", _retry_row(publication_predecessor={"run_id": "other"})),
+            state="failed",
+            requested_identity=_RETRY_IDENTITY,
+            requested_predecessor=None,
+        )
 
 
 @pytest.mark.unit

@@ -150,6 +150,26 @@ def test_sample_manifest_file_round_trips_canonical_review_definition(
                 },
             )
         },
+        # The rationale is inside the manifest identity, so untrimmed whitespace
+        # silently changes the digest the run fingerprint binds.
+        {
+            "concepts": (
+                {
+                    "code": "C1",
+                    "strata": tuple(sorted(REQUIRED_SAMPLE_STRATA)),
+                    "rationale": "  Leading and trailing space.  ",
+                },
+            )
+        },
+        {
+            "concepts": (
+                {
+                    "code": "C1",
+                    "strata": tuple(sorted(REQUIRED_SAMPLE_STRATA)),
+                    "rationale": "   ",
+                },
+            )
+        },
         {"concepts": (_concept("C1", "atomic-no-op"),)},
     ],
 )

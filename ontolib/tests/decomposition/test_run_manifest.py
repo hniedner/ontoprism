@@ -7,7 +7,12 @@ import datetime
 import pytest
 from pydantic import ValidationError
 
-from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
+from ontolib.decomposition.provenance_models import (
+    PersistedRunMetrics,
+    RunFingerprint,
+    RunResumeIdentity,
+    WorkItemOutcome,
+)
 
 
 def _fingerprint(**updates: object) -> RunFingerprint:
@@ -116,6 +121,13 @@ def test_named_graph_load_requires_a_file_output_for_run_and_resume() -> None:
             "total_limit": None,
             "sample_manifest_identity": "not-a-digest",
         },
+        # A sampled run's worklist IS the manifest, so a total_limit alongside it
+        # would leave two disagreeing statements of the same scope.
+        {
+            "schema_version": 3,
+            "total_limit": 2,
+            "sample_manifest_identity": "b" * 64,
+        },
         {"emitted_at": datetime.datetime(2026, 7, 29, 12, 0)},
         {"unknown_field": "ignored-proof"},
     ],
@@ -125,3 +137,117 @@ def test_fingerprint_rejects_malformed_or_ambiguous_identity(
 ) -> None:
     with pytest.raises(ValidationError):
         _fingerprint(**updates)
+
+
+def _metrics(**updates: object) -> PersistedRunMetrics:
+    values: dict[str, object] = {
+        "total_in_scope": 4,
+        "decomposed": 2,
+        "residual": 1,
+        "semantic_excluded": 1,
+        "atomic_noop": 0,
+        "unknown_outcome": 0,
+        "minted_count": 0,
+        "complete_definition_count": 2,
+        "complete_fact_count": 6,
+        "projected_fact_count": 4,
+        "projection_loss_count": 2,
+    }
+    values.update(updates)
+    return PersistedRunMetrics.model_validate(values)
+
+
+@pytest.mark.unit
+def test_persisted_metrics_accept_a_consistent_set() -> None:
+    assert _metrics().projection_loss_count == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        # Only a decomposed concept is reconstructed, so it cannot be outnumbered
+        # by the definitions attributed to it.
+        (
+            {"complete_definition_count": 3},
+            "complete-definition count exceeds decomposed count",
+        ),
+        (
+            {"projection_loss_count": 1},
+            "projection loss count does not match fact counts",
+        ),
+        (
+            {"projection_loss_count": 3},
+            "projection loss count does not match fact counts",
+        ),
+    ],
+)
+def test_persisted_metrics_reject_inconsistent_definition_counts(
+    updates: dict[str, object],
+    message: str,
+) -> None:
+    """The model-level form of the invariant the run reconciliation enforces."""
+    with pytest.raises(ValidationError, match=message):
+        _metrics(**updates)
+
+
+def _outcome(**updates: object) -> WorkItemOutcome:
+    values: dict[str, object] = {
+        "run_id": "neoplasm-run-1",
+        "concept_code": "C6135",
+        "ordinal": 0,
+        "state": "complete",
+        "outcome": "decomposed",
+        "semantic_types": ("Neoplastic Process",),
+        "is_decomposed": True,
+        "is_residual": False,
+        "constituent_count": 1,
+        "minted_count": 0,
+    }
+    values.update(updates)
+    return WorkItemOutcome.model_validate(values)
+
+
+@pytest.mark.unit
+def test_work_item_outcome_accepts_a_consistent_complete_shape() -> None:
+    assert _outcome().outcome == "decomposed"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"outcome": None}, "complete work item requires a typed outcome"),
+        ({"semantic_types": None}, "complete work item requires a typed outcome"),
+        ({"is_decomposed": None}, "complete work item requires a typed outcome"),
+        (
+            {"constituent_count": 0},
+            "decomposed outcome requires at least one constituent",
+        ),
+        (
+            {
+                "outcome": "atomic-no-op",
+                "is_decomposed": False,
+                "is_residual": False,
+            },
+            "non-decomposed outcome cannot carry constituents or mints",
+        ),
+        (
+            {
+                "outcome": "residual",
+                "is_decomposed": False,
+                "is_residual": True,
+                "constituent_count": 0,
+                "minted_count": 2,
+            },
+            "non-decomposed outcome cannot carry constituents or mints",
+        ),
+    ],
+)
+def test_work_item_outcome_rejects_an_inconsistent_complete_shape(
+    updates: dict[str, object],
+    message: str,
+) -> None:
+    """These shapes are now observable through GET /runs/{run_id}/outcomes."""
+    with pytest.raises(ValidationError, match=message):
+        _outcome(**updates)

@@ -822,6 +822,20 @@ async def _seed_pre_definition_presence(dsn: str) -> None:
         await conn.close()
 
 
+# A run moved into a legal 'publishing' state, where the pre-publication arm of
+# ck_decomp_run_publication_predecessor is vacuous.
+_PUBLISHING_ASSIGNMENTS = (
+    "publication_state = 'publishing', "
+    "publication_attempt_count = 1, "
+    "status = 'running', "
+    "finished_at = NULL, "
+    "representation_identity = repeat('d', 64), "
+    "publication_artifact_path = 'artifacts/a.ttl', "
+    "publication_built_at = now(), "
+    "publication_started_at = now()"
+)
+
+
 async def _definition_presence_facts(dsn: str) -> dict[str, Any]:
     conn = await asyncpg.connect(dsn)
     try:
@@ -870,20 +884,37 @@ async def _definition_presence_facts(dsn: str) -> dict[str, Any]:
                 conn,
                 update.format(assignments="publication_predecessor_captured = true"),
             ),
+            # The two probes above are also rejected by the pre-publication-state
+            # arm, so they cannot pin the predecessor SHAPE arm on their own.
+            # Repeat them from a publishable state, where that arm is the only
+            # one left standing.
+            "uncaptured_object_in_publishing_state_rejected": await _rejects(
+                conn,
+                update.format(
+                    assignments=(
+                        _PUBLISHING_ASSIGNMENTS
+                        + f", publication_predecessor = {snapshot}, "
+                        "publication_predecessor_captured = false"
+                    )
+                ),
+            ),
+            "scalar_snapshot_in_publishing_state_rejected": await _rejects(
+                conn,
+                update.format(
+                    assignments=(
+                        _PUBLISHING_ASSIGNMENTS
+                        + ", publication_predecessor = '7'::jsonb, "
+                        "publication_predecessor_captured = true"
+                    )
+                ),
+            ),
             # Accept branch: a first publication legitimately stores jsonb 'null'.
             "captured_json_null_accepted": not await _rejects(
                 conn,
                 update.format(
                     assignments=(
-                        "publication_state = 'publishing', "
-                        "publication_attempt_count = 1, "
-                        "status = 'running', "
-                        "finished_at = NULL, "
-                        "representation_identity = repeat('d', 64), "
-                        "publication_artifact_path = '/tmp/a.ttl', "
-                        "publication_built_at = now(), "
-                        "publication_started_at = now(), "
-                        "publication_predecessor = 'null'::jsonb, "
+                        _PUBLISHING_ASSIGNMENTS
+                        + ", publication_predecessor = 'null'::jsonb, "
                         "publication_predecessor_captured = true"
                     )
                 ),
@@ -931,4 +962,6 @@ def test_definition_presence_migration_roundtrip() -> None:
     assert facts["uncaptured_snapshot_rejected"] is True
     assert facts["scalar_snapshot_rejected"] is True
     assert facts["legacy_state_capture_rejected"] is True
+    assert facts["uncaptured_object_in_publishing_state_rejected"] is True
+    assert facts["scalar_snapshot_in_publishing_state_rejected"] is True
     assert facts["captured_json_null_accepted"] is True

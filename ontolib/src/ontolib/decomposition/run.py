@@ -147,6 +147,11 @@ def _validate_sample_config(config: RunConfig) -> None:
         raise ValueError("a sample run cannot load into the configured store")
     if sample.branch != config.branch.value:
         raise ValueError("sample manifest does not match run branch")
+    # Unreachable today, and deliberately kept: `ScopeVersion` is a single-value
+    # Literal and `DecompositionSampleManifest` derives `scope_root` from its own
+    # branch, so a manifest that passes the branch check above always agrees here.
+    # Adding a second scope version makes this the only thing stopping a manifest
+    # walked under one version from being run under another.
     if (
         sample.scope_root != config.scope_root
         or sample.scope_version != config.scope_version

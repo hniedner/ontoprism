@@ -555,6 +555,18 @@ class ProjectedConstituentEvidence:
         return self.axis, self.filler_code
 
 
+def _require_projectable(member: SemanticBundleMember) -> None:
+    """A proposal has no NCIt concept, so no other availability can describe it.
+
+    Enforced on every non-``ProposedMember`` branch, not just the missing one: if
+    engine evidence turns up for a pair the registry still calls ``proposed``, the
+    registry and the projection disagree, and resolving that silently to
+    ``available`` is what would let an unaccepted proposal be reported as present.
+    """
+    if member.provenance_status == "proposed":
+        raise ValueError("proposed availability requires ProposedMember")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AvailableMember:
     member: SemanticBundleMember
@@ -566,6 +578,7 @@ class AvailableMember:
             raise ValueError("availability evidence pair must match member pair")
         if self.evidence.needs_review:
             raise ValueError("available member cannot carry review evidence")
+        _require_projectable(self.member)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -579,6 +592,7 @@ class DeferredMember:
             raise ValueError("availability evidence pair must match member pair")
         if not self.evidence.needs_review:
             raise ValueError("deferred member requires review evidence")
+        _require_projectable(self.member)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -587,8 +601,7 @@ class MissingMember:
     status: Literal["missing"] = field(init=False, default="missing")
 
     def __post_init__(self) -> None:
-        if self.member.provenance_status == "proposed":
-            raise ValueError("proposed availability requires ProposedMember")
+        _require_projectable(self.member)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -642,7 +655,10 @@ class BundlePairAvailability:
 
     @property
     def status(self) -> AvailabilityStatus:
-        """The weakest member's standing, worst first.
+        """The standing of the weakest member, worst first.
+
+        A ``MissingMember`` reports as ``incomplete`` rather than ``missing``:
+        the bundle-level and member-level vocabularies are deliberately distinct.
 
         ``proposed`` is distinct from ``available``: a member whose concept is an
         unaccepted proposal cannot be projected from NCIt at all, so reporting the
@@ -695,7 +711,15 @@ def evaluate_pair_availability(
         evidence = by_pair.get(member.pair)
         if evidence is None:
             members.append(_member_without_engine_evidence(member))
-        elif evidence.needs_review:
+            continue
+        if member.provenance_status == "proposed":
+            # The registry still calls this pair a proposal, yet the engine
+            # projected it. Name the disagreement instead of resolving it.
+            raise ValueError(
+                f"{candidate.candidate_id} declares {member.pair} proposed but the "
+                "engine projected it; reconcile the proposal registry first"
+            )
+        if evidence.needs_review:
             members.append(DeferredMember(member=member, evidence=evidence))
         else:
             members.append(AvailableMember(member=member, evidence=evidence))

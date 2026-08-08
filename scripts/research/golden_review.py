@@ -599,7 +599,7 @@ def _reject_reviewer_formulas(workbook: Workbook) -> None:
                     )
 
 
-def hidden_column_indexes(sheet: Worksheet, limit: int | None = None) -> set[int]:
+def hidden_column_indexes(sheet: Worksheet, *, limit: int) -> set[int]:
     """Every 1-based column index hidden on *sheet*, including grouped ranges.
 
     ``column_dimensions`` is keyed by the letter of each range's ``min`` only, so a
@@ -608,28 +608,28 @@ def hidden_column_indexes(sheet: Worksheet, limit: int | None = None) -> set[int
     ``hidden=False``, which would let a reviewer conceal data by hiding a range whose
     first column is blank. Expand the stored ranges instead of probing per letter.
 
-    *limit* caps the expansion. Excel writes ``<col min="8" max="16384" hidden="1"/>``
-    when a reviewer hides the trailing columns, so an uncapped expansion would return
-    ~16k indexes; a caller that then reads cells would materialise the whole grid.
-    A hidden column that actually *contains* data is by definition within the sheet's
-    used range, so capping at ``max_column`` loses no tamper signal.
+    *limit* caps the expansion and is required, because an uncapped expansion is a
+    hang. Excel writes ``<col min="8" max="16384" hidden="1"/>`` when a reviewer
+    hides the trailing columns, so without the cap this returns ~16k indexes and a
+    caller that then reads cells materialises the whole grid. A hidden column that
+    actually *contains* data always has a parsed cell, hence an index within
+    ``max_column``, so capping there loses no tamper signal.
     """
     indexes: set[int] = set()
     for dimension in sheet.column_dimensions.values():
         if not dimension.hidden:
             continue
-        # `min`/`max` are only populated by the reader and by `reindex()` at save
-        # time; an in-memory `column_dimensions["D"].hidden = True` leaves them None.
-        # Fall back to the key rather than skipping, so the gate cannot degrade to
-        # "nothing is hidden".
+        # `min`/`max` are populated by the reader, by `DimensionHolder.group()`,
+        # and by `reindex()` at save time; a bare
+        # `column_dimensions["D"].hidden = True` leaves them None. Fall back to the
+        # key rather than skipping, so the gate cannot degrade to "nothing is
+        # hidden".
         start = (
             dimension.min
             if dimension.min is not None
             else column_index_from_string(dimension.index)
         )
-        end = dimension.max if dimension.max is not None else start
-        if limit is not None:
-            end = min(end, limit)
+        end = min(dimension.max if dimension.max is not None else start, limit)
         indexes.update(range(start, end + 1))
     return indexes
 
