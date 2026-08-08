@@ -154,10 +154,15 @@ substrate lacks.
 > **Guardrail.** *Sounds better:* **"NCIt becomes a subset of the vetted
 > ontologies."** *Why it fails:* NCIt is *not* a subset of the upstream ontologies: it holds concepts with no upstream counterpart, and its class structure
 > genuinely differs. The bridge is therefore **dual-canonical and additive** (D24–D26) —
-> NCIt and caDSR anchoring are both preserved. And the substrate splits on licence:
-> **Uberon/CL/Mondo are open and can be depended on definitionally; SNOMED CT and
-> ICD-O-3 are licence-gated and may only be *mapped to***. An NCIt that is definitionally
-> dependent on SNOMED cannot be redistributed, which would defeat the point.
+> NCIt and caDSR anchoring are both preserved. And the discriminator is **dependency,
+> not licence** (D38.2b, D60): *align, do not depend; learn, do not copy; corroborate,
+> do not inherit.* **No external source — open or licence-gated — may be a definitional
+> dependency.** An NCIt that cannot resolve without Uberon is a dependent ontology
+> whether or not Uberon is CC-BY, and one definitionally dependent on SNOMED cannot be
+> redistributed at all. External codes are therefore carried as **alignment annotations,
+> never as definitional fillers**. Licence still governs one narrower thing: *publicly
+> serving* SCTIDs and ICD-O-3 codes to unlicensed consumers remains entitlement-gated
+> (D29.3).
 >
 > **And "grounded in" is not "losslessly equivalent to."** The mapping layer is a standing
 > maintenance liability, not a one-time conquest: cross-ontology maps rot at roughly

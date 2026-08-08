@@ -1,7 +1,41 @@
 # Decomposition golden-set candidates and adjudicated oracle
 
-The current `neoplasm.json` is an `AUTO-DRAFT` review input, not an oracle. Correct
-extraction of stated pre-coordination is **curation-heavy, not mechanical** — a
+## Files in this directory
+
+| File | What it is |
+|---|---|
+| `neoplasm-adjudicated.json` | **The M1 oracle.** `SME-ADJUDICATED`, NCIt 26.07d, 20 concepts, 154 expected pairs, reviewed by R. Hannes Niedner, MD. Produced by `import-workbook` from the attested #57 workbook. |
+| `neoplasm-engine-evidence.json` | The recorded engine run the oracle was scored against (`run_id` `neoplasm-3981f4d1…`). Tracked so the baseline is reproducible without a live store. |
+| `neoplasm-corpus-comparison.json` | The #154 15-code residual comparison, derived from the engine evidence restricted to `samples/ncit-26.07d-m1-review.json`. Its `evidence_identity` is computed **after** the payload, per D61. |
+| `neoplasm.json`, `neoplasm-draft.json` | `AUTO-DRAFT` review inputs. **Not** oracles. Retained as seeds. |
+| `proposal-registry.json` | The 7 mint/relation proposals bound to the oracle by `registry_identity`. |
+| `complete-definition.json`, `minted-concepts.json` | Fixtures for the complete-definition and minting paths. |
+
+## The M1 baseline this oracle records
+
+Measured 2026-08-08 against the attested workbook and reproduced byte-identically at
+`b4aa5e2`:
+
+| | |
+|---|---|
+| precision / recall (`ncit_bound`, D59 strict denominator) | 0.7547 / 0.5229 |
+| engine suggestions accepted unchanged | **48 of 106 (45%)** |
+| constituents the SME added that the engine never proposed | **63** |
+| relationship-group agreement | **2 of 20 concepts** |
+| `residual_precoordination` — adjudication / #154 subset | 18/18 and 13/13, delta 0.0 |
+
+Those numbers are the point of #57. They are why #271 (compound fillers), #267 (routing
+order) and #274 (group partition) exist. Treat them as the baseline any engine change is
+measured against — a change that moves them is expected to say so explicitly.
+
+The #154 sample is a strict subset of this golden set, so the residual comparison cannot
+detect divergence; the test that carries D37's intent runs against the full corpus in
+#127 step 5 (D62).
+
+## How adjudication works
+
+The `AUTO-DRAFT` files are review input, not oracles. Correct extraction of stated
+pre-coordination is **curation-heavy, not mechanical** — a
 genus-chain walk over-collects and most-specific selection can pick the wrong filler
 (engine design [§6.2](../../../../docs/design/ncit-decomposition-engine.md)).
 
@@ -38,8 +72,9 @@ The final artifact requires:
   have `expected: null` and never enter metrics.
 
 The final M1 artifact must contain 20–50 adjudicated concepts and include `C4791`,
-`C35756`, and `C89995` or a recorded unsuitable-case decision. `neoplasm.json` remains a
-starter seed until #57 records genuine SME adjudication.
+`C35756`, and `C89995` or a recorded unsuitable-case decision. **#57 satisfied this on
+2026-08-08; `neoplasm-adjudicated.json` is that artifact.** `neoplasm.json` remains a
+starter seed.
 
 The loader retains one complete expectation store for audit and outcome evaluation.
 Reports derive provenance and modality views from each pair. `ncit_bound` filters the

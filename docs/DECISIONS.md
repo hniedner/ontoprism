@@ -2,6 +2,65 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-08 — the M1 measurement landed, and what it cost to get there
+
+### D61. Identities are bound after generation, never pre-declared
+
+The #57 review packet wrote a `Corpus evidence identity` into the SME workbook before the
+corpus artifact existed. `evidence_identity` is a SHA-256 over a payload containing
+`run_id = f"{branch}-{uuid4()}"` (`decomposition/run.py:345`), so **no run could ever produce
+that hash**. The gate at `golden_review.py` was unsatisfiable by construction and blocked the
+authoritative report on an artifact that could not be built. The original artifact was also
+unrecoverable: it had lived only in gitignored `tmp/`, so it was never in git history.
+
+**Decision: never write the identity of an artifact that does not yet exist. Compute identities
+from the artifact and record them; do not assert them as preconditions.** The equality check was
+removed (`84eb122`); `_residual_dict` still carries the identity into the report, so the
+comparison stays auditable without an impossible precondition. Note that no test had ever
+covered any of the three corpus-identity branches — all were vacuous, which is why a gate that
+could never pass survived to the point of blocking closure.
+
+### D62. The golden-set/corpus divergence test belongs to the full corpus, not the #154 sample
+
+D37 pins `residual_precoordination` against the curated golden set so detector drift becomes
+visible "when the two diverge". The #154 corpus sample is a **strict subset** of the #57 golden
+set — 15 of the same 20 codes, same `source_identity`, same run, same detector (verified: the
+15 codes are wholly contained in the 20; the golden-only 5 are `C4791`, `C35756`, `C89995`,
+`C27787`, `C115118`). A set compared against its own subset cannot diverge.
+
+**Decision: #57's AC7 is satisfied in letter — counts compared, not averaged — and the
+divergence test moves to #127 step 5 against the full corpus, where an independent population
+exists.** Recorded on both issues with the subset proof.
+
+### D63. The SME oracle lives in tracked code, not in a review workbook
+
+189 constituent decisions and 20 concept adjudications existed only inside a gitignored
+`.xlsx`. Everything downstream — precision/recall, group agreement, every future regression
+claim — depended on a file that git had never seen and that Excel silently rewrote three times
+during review.
+
+**Decision: the adjudicated artifact, the engine evidence it was scored against, and the corpus
+comparison are tracked under `ontolib/tests/decomposition/golden/`, and the M1 baseline is
+reproducible from tracked data alone.** `adjudication.py import-workbook` already emits the
+`{_meta, concepts}` shape the golden directory uses; the attestation was the only gate.
+
+### D64. M1 is a measurement milestone; the web application precedes further content work
+
+M1 was scoped as "trustworthy decomposed NCIt" — an exit criterion that requires the engine to
+be *good*, which it is not: the attested oracle measures **48 of 106 engine-proposed
+constituents accepted unchanged (45%)**, with the SME supplying 63 constituents the engine never
+proposed, and **relationship-group agreement of 2 of 20 concepts**. A milestone that cannot
+close until the product works is not a milestone. M1 had also accumulated engine, data, UI,
+documentation and governance work plus two epics that by construction close last, and its
+feature branch reached 76 commits over several weeks.
+
+**Decision: M1 becomes "decomposition baseline measured against SME truth" and closes on the
+measurement. Engine quality moves to M1.6 (#271 compound fillers, #267 routing order, #274 group
+partition, #127 full-corpus run). The web application becomes M1.5 and is done first**, because
+it is useful against today's unmodified NCIt — inspecting defects, verifying corrections, and
+later guided editing — and because it does not depend on engine quality. Epics carry no
+milestone. **Corollary: no branch reaches 76 commits again; M1.5 is one small branch per issue.**
+
 ## 2026-08-07 — what we produce is NCIt, and provenance is what makes alignment work
 
 ### D60. Everything OntoPrism emits is NCIt in a new rendition; derivation is provenance, never ownership
