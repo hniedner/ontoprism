@@ -1844,6 +1844,32 @@ def test_row_decision_export_accepts_kept_constituent_defects_the_import_rejects
 
 
 @pytest.mark.unit
+def test_row_decision_reader_rejects_a_padded_axis_on_an_excluded_row(
+    tmp_path: Path,
+) -> None:
+    """Non-kept rows are canonically validated too — a deliberate tightening.
+
+    The pre-export reader skipped `exclude` and `not-needed` rows before reading
+    `Expected Axis`/`Expected Filler`, so a padded value there was accepted. The
+    export writes those cells out verbatim, so it must read them, and it holds them
+    to the same canonical form as a kept row's on both paths.
+    """
+    workbook_path = tmp_path / "padded-excluded-axis.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Constituent Decisions"]
+    sheet["J5"] = "exclude"
+    sheet["K5"] = " op:StageValue"
+    workbook.save(workbook_path)
+
+    message = "C0 expected axis must be non-empty without outer whitespace"
+    with pytest.raises(GoldenSetValidationError, match=message):
+        export_row_decisions(workbook_path)
+    with pytest.raises(GoldenSetValidationError, match=message):
+        import_adjudication_workbook(workbook_path)
+
+
+@pytest.mark.unit
 def test_row_decision_export_rejects_an_unrecognized_sme_action(
     tmp_path: Path,
 ) -> None:

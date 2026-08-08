@@ -858,7 +858,17 @@ def _constituent_decision_sheet(
 def _constituent_row_decision(
     ws: Worksheet, row: int, headers: dict[str, int]
 ) -> ConstituentRowDecision:
-    """Validate one reviewer decision row without inferring an expectation."""
+    """Validate one reviewer decision row without inferring an expectation.
+
+    `Expected Axis` and `Expected Filler` are read on *every* row, not only on the
+    kept ones: required on `include`/`revise`, optional but canonically validated
+    on `exclude`/`not-needed`. That is a deliberate tightening over the reader this
+    replaced, which skipped non-kept rows before reaching those columns and so
+    accepted a padded or non-textual value there. The export writes those cells out
+    verbatim, so a defect in them is a workbook defect worth failing on rather than
+    something to record and propagate. It is fail-closed and cannot alter the
+    oracle: a row it rejects would previously have been dropped, never kept.
+    """
     code, row_type, action = _constituent_row_identity(ws, row, headers)
     complete = _cell_text(
         ws, row, headers["Row Complete?"], f"{code} constituent completeness"
