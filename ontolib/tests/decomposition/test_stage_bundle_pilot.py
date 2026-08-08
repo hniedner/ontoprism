@@ -47,11 +47,17 @@ _PROPOSAL_REGISTRY = load_proposal_registry(
 )
 
 
-def _candidate_artifact() -> dict[str, object]:
+def _candidate_artifact(base_workbook: Path | None = None) -> dict[str, object]:
     report = build_stage_bundle_report(
         _engine_evidence_for_candidates(),
         _engine_outcomes_for_candidates(),
     )
+    if base_workbook is not None:
+        report["bindings"] = {
+            "constituent_workbook": {
+                "sha256": hashlib.sha256(base_workbook.read_bytes()).hexdigest()
+            }
+        }
     report["artifact_identity"] = _payload_identity(report)
     return report
 
@@ -559,6 +565,27 @@ def _attest_review_workbook(path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_review_workbook_requires_the_artifact_bound_base_digest(
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact(base)
+    workbook = load_workbook(base)
+    workbook["START HERE"]["A1"] = "Changed after the candidate was bound."
+    workbook.save(base)
+
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        write_review_workbook(
+            base,
+            artifact,
+            review,
+            proposal_registry=_PROPOSAL_REGISTRY,
+        )
+
+
+@pytest.mark.unit
 def test_constituent_corrections_remove_and_add_exact_pairs() -> None:
     workbook = Workbook()
     sheet = workbook.create_sheet("Constituent Decisions")
@@ -686,7 +713,7 @@ def test_ncit_add_correction_requires_bound_source_audit_support(
     with pytest.raises(ValueError, match="source audit"):
         write_review_workbook(
             base,
-            _candidate_artifact(),
+            _candidate_artifact(base),
             review,
             (
                 ConstituentCorrection(
@@ -805,7 +832,7 @@ def test_semantic_review_accepts_excel_date_cells(tmp_path: Path) -> None:
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     workbook = load_workbook(review)
     assert workbook["Semantic Bundle Decisions"]["K9"].number_format == "@"
@@ -837,7 +864,7 @@ def test_review_workbook_binds_augmented_pair_to_proposal_registry(
     sheet.cell(5, headers["Expected Filler"], "C27262")
     sheet.cell(5, headers["Expected Provenance Status"], "locally-approved")
     workbook.save(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
 
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
 
@@ -884,7 +911,7 @@ def test_relation_proposal_workbook_pair_requires_an_ncit_filler(
     with pytest.raises(ValueError, match="NCIt code"):
         write_review_workbook(
             base,
-            _candidate_artifact(),
+            _candidate_artifact(base),
             review,
             proposal_registry=_PROPOSAL_REGISTRY,
         )
@@ -897,7 +924,7 @@ def test_canonical_rules_can_only_be_imported_from_attested_decisions(
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
 
     workbook = load_workbook(review)
@@ -943,7 +970,7 @@ def test_canonical_import_requires_complete_constituent_review(tmp_path: Path) -
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     workbook = load_workbook(review)
@@ -963,7 +990,7 @@ def test_canonical_import_rejects_hidden_semantic_review_content(
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     workbook = load_workbook(review)
@@ -985,7 +1012,7 @@ def test_canonical_import_validates_semantic_review_metadata(tmp_path: Path) -> 
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     workbook = load_workbook(review)
@@ -1004,7 +1031,7 @@ def test_canonical_import_hashes_the_parsed_workbook_snapshot(
     base = tmp_path / "base.xlsx"
     review = tmp_path / "review.xlsx"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)
     snapshot = review.read_bytes()
@@ -1031,7 +1058,7 @@ def test_external_manifest_hash_binds_pending_candidate_and_workbook(
     review = tmp_path / "review.xlsx"
     candidate_path = tmp_path / "candidate.json"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     candidate_path.write_text(
         json.dumps(artifact, sort_keys=True),
         encoding="utf-8",
@@ -1066,7 +1093,7 @@ def test_attested_manifest_validates_canonical_payload_and_review_binding(
     candidate_path = tmp_path / "candidate.json"
     canonical_path = tmp_path / "canonical.json"
     _blank_workbook(base)
-    artifact = _candidate_artifact()
+    artifact = _candidate_artifact(base)
     candidate_path.write_text(json.dumps(artifact, sort_keys=True), encoding="utf-8")
     write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
     _attest_review_workbook(review)

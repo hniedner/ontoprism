@@ -1883,16 +1883,31 @@ def _bind_workbook_proposals(
 
 def _load_review_workbook_snapshot(
     base_workbook_path: Path,
-    expected_base_sha256: str | None,
+    expected_base_sha256: str,
 ) -> Workbook:
     base_workbook_bytes = base_workbook_path.read_bytes()
     actual_base_sha256 = _sha256_bytes(base_workbook_bytes)
-    if expected_base_sha256 is not None and actual_base_sha256 != expected_base_sha256:
+    if actual_base_sha256 != expected_base_sha256:
         raise ValueError(
             f"{base_workbook_path.name} SHA-256 mismatch: expected "
             f"{expected_base_sha256}, got {actual_base_sha256}"
         )
     return load_workbook(BytesIO(base_workbook_bytes))
+
+
+def _bound_constituent_workbook_sha256(
+    candidate_artifact: dict[str, object],
+) -> str:
+    bindings = candidate_artifact.get("bindings")
+    if not isinstance(bindings, dict):
+        raise ValueError("candidate artifact lacks constituent workbook binding")
+    workbook = bindings.get("constituent_workbook")
+    if not isinstance(workbook, dict):
+        raise ValueError("candidate artifact lacks constituent workbook binding")
+    sha256 = workbook.get("sha256")
+    if not isinstance(sha256, str) or re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+        raise ValueError("candidate artifact constituent workbook SHA-256 is invalid")
+    return sha256
 
 
 def write_review_workbook(
@@ -1902,13 +1917,12 @@ def write_review_workbook(
     corrections: tuple[ConstituentCorrection, ...] = (),
     *,
     proposal_registry: ProposalRegistry,
-    expected_base_sha256: str | None = None,
 ) -> None:
     """Add a reviewer-owned semantic decision sheet to a fresh workbook copy."""
     _validate_artifact_identity(candidate_artifact)
     workbook = _load_review_workbook_snapshot(
         base_workbook_path,
-        expected_base_sha256,
+        _bound_constituent_workbook_sha256(candidate_artifact),
     )
     if corrections:
         _validate_ncit_add_corrections(candidate_artifact, corrections)
@@ -2377,7 +2391,6 @@ def _prepare(args: Any) -> None:
         args.review_workbook_output,
         corrections,
         proposal_registry=proposal_registry,
-        expected_base_sha256=_WORKBOOK_SHA256,
     )
     if args.manifest_output is not None:
         manifest = build_verification_manifest(
