@@ -44,8 +44,24 @@ the second one reproducible.
 The `include` and `revise` rows are exactly the oracle's 154 expected pairs —
 `test_m1_baseline.py` asserts that equality on `(code, axis, filler)`, and that both
 files name the same `workbook_identity`, so neither can drift from the other or be
-regenerated from a different review. The equality holds only when keyed on the SME
-action: three `exclude` rows still carry the expectation the reviewer withdrew.
+regenerated from a different review. The equality must be keyed on the SME action, not
+on "the row names a pair": an `exclude` row necessarily names the pair it excludes, so
+filtering on filler presence yields 157 triples rather than 154.
+
+Those three exclusions are worth reading, because they are evidence rather than noise:
+
+```
+C6135    op:AssociatedRegion  C12418   Head and Neck   (engine suggestion, excluded)
+C101539  op:AssociatedRegion  C12418   Head and Neck   (candidate, excluded)
+C4791    op:AssociatedRegion  C12727                   (candidate, excluded)
+```
+
+These are the same three concepts #267 names. The reviewer excluded the *broader* region
+where a narrower one was already routed to the same axis — `C6135` retained `C13063`
+(Neck) and dropped `C12418` (Head and Neck). The oracle therefore corroborates #267's
+ordering defect independently: raw `R101` fillers are reduced for specificity before
+semantic routing, which can preserve a broader region. The engine proposed one of the
+three itself.
 
 Those numbers are the point of #57. They are why #271 (compound fillers), #267 (routing
 order) and #274 (group partition) exist. Treat them as the baseline any engine change is
