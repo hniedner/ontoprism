@@ -971,3 +971,27 @@ def test_available_and_deferred_members_reject_a_proposed_member() -> None:
     # And the engine/registry disagreement is named rather than resolved.
     with pytest.raises(ValueError, match="proposed but the engine projected it"):
         evaluate_pair_availability(candidate, (evidence,))
+
+
+@pytest.mark.unit
+def test_bundle_availability_rejects_a_member_reported_twice() -> None:
+    """One member cannot hold two contradictory availabilities.
+
+    `evaluate_pair_availability` keys off `candidate.members`, but the public
+    constructor is reachable from a report replay, and a repeated member would
+    also double-count in the report's member tallies.
+    """
+    candidate = _candidate()
+    available = AvailableMember(
+        member=candidate.members[0], evidence=_projected(candidate, 0)
+    )
+    missing = MissingMember(member=candidate.members[0])
+
+    with pytest.raises(ValueError, match="members must be unique"):
+        BundlePairAvailability(
+            candidate_id=candidate.candidate_id, members=(available, missing)
+        )
+    with pytest.raises(ValueError, match="members must be unique"):
+        BundlePairAvailability(
+            candidate_id=candidate.candidate_id, members=(available, available)
+        )

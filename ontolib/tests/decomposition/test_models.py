@@ -216,8 +216,14 @@ def test_role_restriction_anchoring_genus_defaults_none() -> None:
     "source_role", ["101", "R", "R101x", "R101 ", "op:PrimarySite"]
 )
 def test_explicit_source_role_must_be_an_ncit_role_code(source_role: str) -> None:
-    """Only the ABSENT source_role case was covered; a malformed one is persisted
-    to `decomp_constituent.source_role` and republished by `legacy_writer`."""
+    """Only the ABSENT source_role case was covered.
+
+    `decomp_constituent.source_role` does carry a `^R[0-9]+$` CHECK (migration
+    0010), so persistence fails closed; this validator is what makes the failure
+    happen at construction rather than at run commit, and it is the only guard on
+    the non-persisting path -- `legacy_writer` renders `source_role` straight into
+    an NCIt IRI.
+    """
     with pytest.raises(ValueError, match="source_role must be an NCIt role code"):
         Constituent(
             axis="op:PrimarySite",

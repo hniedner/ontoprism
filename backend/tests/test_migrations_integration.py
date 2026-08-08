@@ -884,10 +884,13 @@ async def _definition_presence_facts(dsn: str) -> dict[str, Any]:
                 conn,
                 update.format(assignments="publication_predecessor_captured = true"),
             ),
-            # The two probes above are also rejected by the pre-publication-state
-            # arm, so they cannot pin the predecessor SHAPE arm on their own.
-            # Repeat them from a publishable state, where that arm is the only
-            # one left standing.
+            # `uncaptured_snapshot_rejected` and `scalar_snapshot_rejected` are
+            # also rejected by the pre-publication-state arm, so they cannot pin
+            # the predecessor SHAPE arm on their own. Repeat those two from a
+            # publishable state, where the shape arm is the only one left
+            # standing. (`legacy_state_capture_rejected` pins the state arm alone
+            # and has no publishable-state counterpart: with the predecessor NULL
+            # it would be accepted there.)
             "uncaptured_object_in_publishing_state_rejected": await _rejects(
                 conn,
                 update.format(

@@ -272,6 +272,10 @@ class PersistedRunMetrics(BaseModel):
             and self.complete_definition_count > self.decomposed
         ):
             raise ValueError("complete-definition count exceeds decomposed count")
+        # ck_decomp_work_item_outcome_shape forces minted_count = 0 on every
+        # non-decomposed outcome, so a positive sum implies decomposed >= 1.
+        if self.minted_count and self.decomposed == 0:
+            raise ValueError("minted count requires at least one decomposed concept")
 
     def _validate_fact_metrics(self) -> None:
         if self.complete_fact_count is None or self.projected_fact_count is None:

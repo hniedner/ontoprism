@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 from scripts.research import stage_bundle_pilot
 from scripts.research.stage_bundle_pilot import (
     EVIDENCE_REGISTRY,
@@ -1155,6 +1156,34 @@ def test_canonical_import_rejects_hidden_semantic_review_content(
 
     with pytest.raises(ValueError, match=r"visible|hidden"):
         import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
+
+
+@pytest.mark.unit
+def test_canonical_import_accepts_a_trailing_hide_past_the_decision_columns(
+    tmp_path: Path,
+) -> None:
+    """Hiding the unused columns to the right is an ordinary reviewer action.
+
+    Excel records it as one `<col min=... max="16384" hidden="1"/>` range, so an
+    unbounded expansion would reject the workbook (and, in the sibling gate,
+    materialise the whole grid). Only the reject direction was pinned.
+    """
+    base = tmp_path / "base.xlsx"
+    review = tmp_path / "review.xlsx"
+    _blank_workbook(base)
+    artifact = _candidate_artifact(base)
+    write_review_workbook(base, artifact, review, proposal_registry=_PROPOSAL_REGISTRY)
+    _attest_review_workbook(review)
+    workbook = load_workbook(review)
+    sheet = workbook["Semantic Bundle Decisions"]
+    sheet.column_dimensions.group(
+        get_column_letter(stage_bundle_pilot._DECISION_COLUMN_COUNT + 1),
+        "XFD",
+        hidden=True,
+    )
+    workbook.save(review)
+
+    assert import_review_decisions(review, artifact, _PROPOSAL_REGISTRY)
 
 
 @pytest.mark.unit

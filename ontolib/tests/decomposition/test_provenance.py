@@ -867,6 +867,38 @@ async def test_get_run_decodes_jsonb_publication_predecessor() -> None:
 
 
 @pytest.mark.unit
+async def test_malformed_persisted_predecessor_fails_closed() -> None:
+    """Migration 0014's CHECK only requires a jsonb object, not this schema.
+
+    A row written by an older writer, or one surviving a snapshot schema change,
+    must not be reported as `publication_predecessor=None` alongside
+    `captured=true` -- that silently loses the rollback target.
+    """
+    sf = _make_mock_sf()
+    result_mock = sf().execute.return_value
+    result_mock.mappings.return_value.first.return_value = {
+        "id": "run-1",
+        "branch": "neoplasm",
+        "status": "complete",
+        "ncit_version": "26.05d",
+        "started_at": datetime.datetime(2026, 7, 12, tzinfo=datetime.UTC),
+        "finished_at": None,
+        "publication_state": "published",
+        "publication_attempt_count": 1,
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/run-1.ttl",
+        "publication_predecessor_captured": True,
+        "publication_predecessor": {"unexpected": 1},
+        "metrics": None,
+    }
+
+    with pytest.raises(
+        RunStateError, match="persisted publication predecessor violates its schema"
+    ):
+        await ProvenanceStore(sf).get_run("run-1")
+
+
+@pytest.mark.unit
 async def test_get_run_not_found() -> None:
     sf = _make_mock_sf()
     result_mock = sf().execute.return_value

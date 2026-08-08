@@ -628,6 +628,11 @@ class BundlePairAvailability:
         _require_nonempty(self.candidate_id, "candidate_id")
         if not self.members:
             raise ValueError("bundle availability requires at least one member")
+        # One member cannot be both available and missing, and a repeated member
+        # would double-count in the report's member tallies.
+        keys = [item.member.semantic_key for item in self.members]
+        if len(keys) != len(set(keys)):
+            raise ValueError("bundle availability members must be unique")
 
     @property
     def available_members(self) -> tuple[SemanticBundleMember, ...]:

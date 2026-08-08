@@ -11,6 +11,7 @@ from ontolib.decomposition.provenance_models import (
     PersistedRunMetrics,
     RunFingerprint,
     RunResumeIdentity,
+    RunSummary,
     WorkItemOutcome,
 )
 
@@ -180,6 +181,20 @@ def test_persisted_metrics_accept_a_consistent_set() -> None:
             {"projection_loss_count": 3},
             "projection loss count does not match fact counts",
         ),
+        # Only a decomposed concept can mint, so mints without one describe a run
+        # that cannot exist.
+        (
+            {
+                "decomposed": 0,
+                "residual": 3,
+                "minted_count": 7,
+                "complete_definition_count": 0,
+                "complete_fact_count": 0,
+                "projected_fact_count": 0,
+                "projection_loss_count": 0,
+            },
+            "minted count requires at least one decomposed concept",
+        ),
     ],
 )
 def test_persisted_metrics_reject_inconsistent_definition_counts(
@@ -251,3 +266,86 @@ def test_work_item_outcome_rejects_an_inconsistent_complete_shape(
     """These shapes are now observable through GET /runs/{run_id}/outcomes."""
     with pytest.raises(ValidationError, match=message):
         _outcome(**updates)
+
+
+def _summary(**updates: object) -> RunSummary:
+    values: dict[str, object] = {
+        "id": "neoplasm-run-1",
+        "branch": "neoplasm",
+        "status": "running",
+        "ncit_version": "26.07d",
+        "started_at": datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC),
+    }
+    values.update(updates)
+    return RunSummary.model_validate(values)
+
+
+_PREDECESSOR = {
+    "run_id": "previous-run",
+    "source_identity": "a" * 64,
+    "representation_identity": "b" * 64,
+    "built_at": datetime.datetime(2026, 7, 11, 12, 0, tzinfo=datetime.UTC),
+}
+
+
+@pytest.mark.unit
+def test_run_summary_rejects_a_snapshot_without_the_capture_flag() -> None:
+    """The read-side mirror of ck_decomp_run_publication_predecessor (0014).
+
+    `_prepare_publication_intent` refuses to retry an intent it cannot prove
+    captured a predecessor, so this pair would leave the run permanently
+    unpublishable while a usable rollback target sat in the row.
+    """
+    with pytest.raises(ValidationError, match="requires the capture flag"):
+        _summary(
+            publication_state="publishing",
+            publication_predecessor=_PREDECESSOR,
+            publication_predecessor_captured=False,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("state", ["legacy", "not_requested", "pending"])
+def test_run_summary_rejects_a_captured_predecessor_before_publication(
+    state: str,
+) -> None:
+    """Capture happens atomically with the move to 'publishing'."""
+    with pytest.raises(ValidationError, match="cannot carry a captured predecessor"):
+        _summary(
+            publication_state=state,
+            publication_predecessor_captured=True,
+        )
+
+
+@pytest.mark.unit
+def test_run_summary_accepts_a_captured_first_publication() -> None:
+    """A first publication has captured=True with no predecessor at all."""
+    summary = _summary(
+        publication_state="publishing",
+        publication_attempt_count=1,
+        representation_identity="c" * 64,
+        publication_artifact_path="artifacts/run-1.ttl",
+        publication_predecessor_captured=True,
+    )
+    assert summary.publication_predecessor is None
+
+
+@pytest.mark.unit
+def test_work_item_outcome_rejects_completion_data_on_a_non_complete_state() -> None:
+    """The non-complete branch of the shape rule.
+
+    Newly observable through `GET /runs/{run_id}/outcomes`: a pending or running
+    item that already carries an outcome is claiming a result it does not have.
+    """
+    with pytest.raises(
+        ValidationError, match="non-complete work item cannot expose a completion"
+    ):
+        _outcome(
+            state="running",
+            outcome=None,
+            semantic_types=None,
+            is_decomposed=None,
+            is_residual=None,
+            constituent_count=0,
+            minted_count=None,
+        )
