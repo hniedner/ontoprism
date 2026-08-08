@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter, defaultdict
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -33,6 +34,7 @@ from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.semantic_bundles import (
     BundleAxis,
     MemberRole,
+    NotEvaluatedCandidate,
     ProjectedConstituentEvidence,
     canonical_restriction_fact_id,
     validate_candidate_evidence,
@@ -274,9 +276,10 @@ def test_report_separates_available_deferred_missing_and_observed_scores() -> No
     assert report["status"] == "FINAL-REVIEW-PENDING"
     assert availability["candidate_counts"] == {
         "expected": 15,
-        "available": 12,
-        "deferred": 2,
+        "available": 13,
+        "deferred": 1,
         "incomplete": 1,
+        "not-evaluated": 0,
     }
     semantic_scores = cast("dict[str, dict[str, str]]", availability["semantic_scores"])
     assert semantic_scores["exact_bundle"]["status"] == "not-evaluable"
@@ -302,14 +305,15 @@ def test_report_accepts_unmodified_candidate_outcome_map() -> None:
 
     assert availability["candidate_counts"] == {
         "expected": 15,
-        "available": 14,
-        "deferred": 1,
+        "available": 15,
+        "deferred": 0,
         "incomplete": 0,
+        "not-evaluated": 0,
     }
 
 
 @pytest.mark.unit
-def test_report_defers_members_for_nondecomposed_candidate() -> None:
+def test_report_marks_nondecomposed_candidate_not_evaluated_once() -> None:
     outcomes = _engine_outcomes_for_candidates()
     outcomes["C6135"] = "semantic-excluded"
 
@@ -320,33 +324,59 @@ def test_report_defers_members_for_nondecomposed_candidate() -> None:
         row for row in candidates if row["candidate_id"] == "stage-c6135-ajcc-v7"
     )
 
-    assert candidate["status"] == "deferred"
+    assert candidate["status"] == "not-evaluated"
     assert candidate["engine_outcome"] == "semantic-excluded"
-    member_rows = cast("list[dict[str, object]]", candidate["members"])
-    assert member_rows
-    assert {row["status"] for row in member_rows} == {"deferred"}
+    assert "members" not in candidate
+    typed = stage_bundle_pilot._candidate_pair_availability(
+        STAGE_BUNDLE_CANDIDATES[0],
+        (),
+        "atomic-no-op",
+    )
+    assert isinstance(typed, NotEvaluatedCandidate)
+    assert typed.engine_outcome == "atomic-no-op"
 
 
 @pytest.mark.unit
-def test_report_defers_source_less_proposed_member() -> None:
+def test_report_distinguishes_proposed_missing_and_review_deferred_members() -> None:
+    evidence = _engine_evidence_for_candidates()
+    evidence = {
+        code: tuple(
+            replace(item, needs_review=True)
+            if code == "C115057" and item.filler_code == "C90529"
+            else item
+            for item in items
+            if item.filler_code not in {"C140961", "C206211"}
+        )
+        for code, items in evidence.items()
+    }
     report = build_stage_bundle_report(
-        _engine_evidence_for_candidates(),
+        evidence,
         _engine_outcomes_for_candidates(),
     )
     availability = cast("dict[str, object]", report["engine_pair_availability"])
     candidates = cast("list[dict[str, object]]", availability["candidates"])
-    candidate = next(
-        row
-        for row in candidates
-        if row["candidate_id"] == "stage-c35756-valg-extensive"
-    )
+    states = [
+        (
+            cast("dict[str, object]", member_row["member"])["filler_code"],
+            member_row,
+        )
+        for candidate in candidates
+        if "members" in candidate
+        for member_row in cast("list[dict[str, object]]", candidate["members"])
+        if cast("dict[str, object]", member_row["member"])["filler_code"]
+        in {"C141685", "C140961", "C206211", "C90529"}
+    ]
 
-    member_rows = cast("list[dict[str, object]]", candidate["members"])
-    deferred = [row for row in member_rows if row["status"] == "deferred"]
-    assert [
-        cast("dict[str, object]", row["member"])["filler_code"] for row in deferred
-    ] == ["C141685"]
-    assert all(row["status"] != "missing" for row in member_rows)
+    assert any(
+        code == "C141685" and row["status"] == "proposed" for code, row in states
+    )
+    assert any(code == "C140961" and row["status"] == "missing" for code, row in states)
+    assert any(code == "C206211" and row["status"] == "missing" for code, row in states)
+    deferred = next(
+        row for code, row in states if code == "C90529" and row["status"] == "deferred"
+    )
+    deferred_evidence = cast("dict[str, object]", deferred["engine_evidence"])
+    assert deferred_evidence["needs_review"] is True
 
 
 @pytest.mark.unit

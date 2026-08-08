@@ -574,12 +574,10 @@ class AvailableMember:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeferredMember:
     member: SemanticBundleMember
-    evidence: ProjectedConstituentEvidence | None = None
+    evidence: ProjectedConstituentEvidence
     status: Literal["deferred"] = field(init=False, default="deferred")
 
     def __post_init__(self) -> None:
-        if self.evidence is None:
-            return
         if self.evidence.pair != self.member.pair:
             raise ValueError("availability evidence pair must match member pair")
         if not self.evidence.needs_review:
@@ -592,7 +590,19 @@ class MissingMember:
     status: Literal["missing"] = field(init=False, default="missing")
 
 
-type MemberAvailability = AvailableMember | DeferredMember | MissingMember
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProposedMember:
+    member: SemanticBundleMember
+    status: Literal["proposed"] = field(init=False, default="proposed")
+
+    def __post_init__(self) -> None:
+        if self.member.provenance_status != "proposed":
+            raise ValueError("proposed availability requires a proposed member")
+
+
+type MemberAvailability = (
+    AvailableMember | DeferredMember | MissingMember | ProposedMember
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -624,6 +634,12 @@ class BundlePairAvailability:
         )
 
     @property
+    def proposed_members(self) -> tuple[SemanticBundleMember, ...]:
+        return tuple(
+            item.member for item in self.members if isinstance(item, ProposedMember)
+        )
+
+    @property
     def status(self) -> AvailabilityStatus:
         if any(isinstance(item, MissingMember) for item in self.members):
             return "incomplete"
@@ -632,11 +648,31 @@ class BundlePairAvailability:
         return "available"
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NotEvaluatedCandidate:
+    candidate_id: str
+    engine_outcome: str
+    status: Literal["not-evaluated"] = field(init=False, default="not-evaluated")
+
+    def __post_init__(self) -> None:
+        _require_nonempty(self.candidate_id, "candidate_id")
+        _require_nonempty(self.engine_outcome, "engine_outcome")
+        if self.engine_outcome == "decomposed":
+            raise ValueError("a decomposed candidate must have member availability")
+
+
+type CandidateAvailability = BundlePairAvailability | NotEvaluatedCandidate
+
+
 def _member_without_engine_evidence(
     member: SemanticBundleMember,
 ) -> MemberAvailability:
-    if not member.source_occurrences or member.provenance_status == "proposed":
-        return DeferredMember(member=member)
+    if member.provenance_status == "proposed":
+        return ProposedMember(member=member)
+    if not member.source_occurrences:
+        # Source-less non-proposals are not proposals by implication; without engine
+        # evidence, their asserted lifecycle status is missing from the projection.
+        return MissingMember(member=member)
     return MissingMember(member=member)
 
 

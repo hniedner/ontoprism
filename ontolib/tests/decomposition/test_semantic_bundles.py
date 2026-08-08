@@ -25,6 +25,7 @@ from ontolib.decomposition.semantic_bundles import (
     ObservedSemanticBundle,
     PairProvenance,
     ProjectedConstituentEvidence,
+    ProposedMember,
     RejectedSemanticBundle,
     SemanticBundleCandidate,
     SemanticBundleMember,
@@ -576,7 +577,7 @@ def test_pair_availability_reports_missing_without_inventing_association() -> No
 
 
 @pytest.mark.unit
-def test_pair_availability_defers_a_proposed_member_without_engine_evidence() -> None:
+def test_pair_availability_marks_a_proposed_member_without_engine_evidence() -> None:
     candidate = replace(
         _candidate(),
         members=(
@@ -592,8 +593,10 @@ def test_pair_availability_defers_a_proposed_member_without_engine_evidence() ->
 
     result = evaluate_pair_availability(candidate, (_projected(candidate, 1),))
 
-    assert result.status == "deferred"
-    assert [member.filler_code for member in result.deferred_members] == ["C141685"]
+    assert result.status == "available"
+    assert [member.filler_code for member in result.proposed_members] == ["C141685"]
+    assert isinstance(result.members[0], ProposedMember)
+    assert result.deferred_members == ()
     assert result.missing_members == ()
 
 
@@ -627,6 +630,8 @@ def test_bundle_pair_availability_is_one_validated_discriminated_sequence() -> N
             member=candidate.members[0],
             evidence=first_evidence,
         )
+    with pytest.raises(TypeError):
+        DeferredMember(member=candidate.members[0])  # type: ignore[call-arg]
 
 
 @pytest.mark.unit

@@ -30,7 +30,7 @@ from ontolib.decomposition.semantic_bundles import (
     AvailableMember,
     BundleAxis,
     BundleKind,
-    BundlePairAvailability,
+    CandidateAvailability,
     DeferredMember,
     DeferredSemanticBundle,
     EvidenceClaim,
@@ -39,6 +39,7 @@ from ontolib.decomposition.semantic_bundles import (
     EvidenceRegistry,
     MemberAvailability,
     MemberRole,
+    NotEvaluatedCandidate,
     PairProvenance,
     ProjectedConstituentEvidence,
     RejectedSemanticBundle,
@@ -948,13 +949,11 @@ def _candidate_pair_availability(
     candidate: SemanticBundleCandidate,
     constituents: tuple[ProjectedConstituentEvidence, ...],
     engine_outcome: str,
-) -> BundlePairAvailability:
+) -> CandidateAvailability:
     if engine_outcome != "decomposed":
-        return BundlePairAvailability(
+        return NotEvaluatedCandidate(
             candidate_id=candidate.candidate_id,
-            members=tuple(
-                DeferredMember(member=member) for member in candidate.members
-            ),
+            engine_outcome=engine_outcome,
         )
     return evaluate_pair_availability(candidate, constituents)
 
@@ -965,8 +964,13 @@ def build_stage_bundle_report(
 ) -> dict[str, object]:
     """Report availability without inventing actual bundle associations."""
     rule_results: list[dict[str, object]] = []
-    status_counts = {"available": 0, "deferred": 0, "incomplete": 0}
-    member_counts = {"available": 0, "deferred": 0, "missing": 0}
+    status_counts = {
+        "available": 0,
+        "deferred": 0,
+        "incomplete": 0,
+        "not-evaluated": 0,
+    }
+    member_counts = {"available": 0, "deferred": 0, "missing": 0, "proposed": 0}
     for candidate in STAGE_BUNDLE_CANDIDATES:
         validate_candidate_evidence(candidate, EVIDENCE_REGISTRY)
         engine_outcome = engine_outcomes_by_code.get(candidate.subject_code)
@@ -980,18 +984,22 @@ def build_stage_bundle_report(
             engine_outcome,
         )
         status_counts[result.status] += 1
+        result_row: dict[str, object] = {
+            "candidate_id": candidate.candidate_id,
+            "name": candidate.name,
+            "semantic_identity": candidate.semantic_identity,
+            "engine_outcome": engine_outcome,
+            "status": result.status,
+        }
+        if isinstance(result, NotEvaluatedCandidate):
+            rule_results.append(result_row)
+            continue
         for item in result.members:
             member_counts[item.status] += 1
-        rule_results.append(
-            {
-                "candidate_id": candidate.candidate_id,
-                "name": candidate.name,
-                "semantic_identity": candidate.semantic_identity,
-                "engine_outcome": engine_outcome,
-                "status": result.status,
-                "members": [_availability_member_dict(item) for item in result.members],
-            }
-        )
+        result_row["members"] = [
+            _availability_member_dict(item) for item in result.members
+        ]
+        rule_results.append(result_row)
 
     expected_bundles = len(STAGE_BUNDLE_CANDIDATES)
     expected_members = sum(len(rule.members) for rule in STAGE_BUNDLE_CANDIDATES)
