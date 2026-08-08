@@ -9,13 +9,17 @@ from ontolib.decomposition.models import canonical_definition_fact_id
 from ontolib.decomposition.semantic_bundles import (
     AdjudicatedSemanticBundle,
     AdjudicatedSemanticContext,
+    AvailableMember,
     BundleAxis,
     BundleKind,
+    BundlePairAvailability,
+    DeferredMember,
     EvidenceClaim,
     EvidenceClaimKind,
     EvidenceClaimTarget,
     EvidenceRegistry,
     MemberRole,
+    MissingMember,
     ObservedBundleMember,
     ObservedSemanticBundle,
     PairProvenance,
@@ -577,6 +581,38 @@ def test_pair_availability_defers_a_proposed_member_without_engine_evidence() ->
     assert result.status == "deferred"
     assert [member.filler_code for member in result.deferred_members] == ["C141685"]
     assert result.missing_members == ()
+
+
+@pytest.mark.unit
+def test_bundle_pair_availability_is_one_validated_discriminated_sequence() -> None:
+    candidate = _candidate()
+    first_evidence = _projected(candidate, 0)
+    available = AvailableMember(
+        member=candidate.members[0],
+        evidence=first_evidence,
+    )
+    missing = MissingMember(member=candidate.members[1])
+
+    result = BundlePairAvailability(
+        candidate_id=candidate.candidate_id,
+        members=(available, missing),
+    )
+
+    assert result.status == "incomplete"
+    assert result.available_members == (candidate.members[0],)
+    assert result.missing_members == (candidate.members[1],)
+    with pytest.raises(ValueError, match="at least one member"):
+        BundlePairAvailability(candidate_id=candidate.candidate_id, members=())
+    with pytest.raises(ValueError, match="evidence pair must match"):
+        AvailableMember(
+            member=candidate.members[0],
+            evidence=_projected(candidate, 1),
+        )
+    with pytest.raises(ValueError, match="review evidence"):
+        DeferredMember(
+            member=candidate.members[0],
+            evidence=first_evidence,
+        )
 
 
 @pytest.mark.unit

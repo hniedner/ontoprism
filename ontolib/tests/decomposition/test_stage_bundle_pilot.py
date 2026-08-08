@@ -322,7 +322,9 @@ def test_report_defers_members_for_nondecomposed_candidate() -> None:
 
     assert candidate["status"] == "deferred"
     assert candidate["engine_outcome"] == "semantic-excluded"
-    assert candidate["missing_members"] == []
+    member_rows = cast("list[dict[str, object]]", candidate["members"])
+    assert member_rows
+    assert {row["status"] for row in member_rows} == {"deferred"}
 
 
 @pytest.mark.unit
@@ -339,11 +341,12 @@ def test_report_defers_source_less_proposed_member() -> None:
         if row["candidate_id"] == "stage-c35756-valg-extensive"
     )
 
+    member_rows = cast("list[dict[str, object]]", candidate["members"])
+    deferred = [row for row in member_rows if row["status"] == "deferred"]
     assert [
-        member["filler_code"]
-        for member in cast("list[dict[str, object]]", candidate["deferred_members"])
+        cast("dict[str, object]", row["member"])["filler_code"] for row in deferred
     ] == ["C141685"]
-    assert candidate["missing_members"] == []
+    assert all(row["status"] != "missing" for row in member_rows)
 
 
 @pytest.mark.unit

@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from itertools import combinations
@@ -542,32 +542,85 @@ class ProjectedConstituentEvidence:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class AvailableMember:
+    member: SemanticBundleMember
+    evidence: ProjectedConstituentEvidence
+    status: Literal["available"] = field(init=False, default="available")
+
+    def __post_init__(self) -> None:
+        if self.evidence.pair != self.member.pair:
+            raise ValueError("availability evidence pair must match member pair")
+        if self.evidence.needs_review:
+            raise ValueError("available member cannot carry review evidence")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeferredMember:
+    member: SemanticBundleMember
+    evidence: ProjectedConstituentEvidence | None = None
+    status: Literal["deferred"] = field(init=False, default="deferred")
+
+    def __post_init__(self) -> None:
+        if self.evidence is None:
+            return
+        if self.evidence.pair != self.member.pair:
+            raise ValueError("availability evidence pair must match member pair")
+        if not self.evidence.needs_review:
+            raise ValueError("deferred member requires review evidence")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MissingMember:
+    member: SemanticBundleMember
+    status: Literal["missing"] = field(init=False, default="missing")
+
+
+type MemberAvailability = AvailableMember | DeferredMember | MissingMember
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class BundlePairAvailability:
     candidate_id: str
-    available_members: tuple[SemanticBundleMember, ...]
-    deferred_members: tuple[SemanticBundleMember, ...]
-    missing_members: tuple[SemanticBundleMember, ...]
-    available_evidence: tuple[ProjectedConstituentEvidence, ...]
-    deferred_evidence: tuple[ProjectedConstituentEvidence, ...]
+    members: tuple[MemberAvailability, ...]
+
+    def __post_init__(self) -> None:
+        _require_nonempty(self.candidate_id, "candidate_id")
+        if not self.members:
+            raise ValueError("bundle availability requires at least one member")
+
+    @property
+    def available_members(self) -> tuple[SemanticBundleMember, ...]:
+        return tuple(
+            item.member for item in self.members if isinstance(item, AvailableMember)
+        )
+
+    @property
+    def deferred_members(self) -> tuple[SemanticBundleMember, ...]:
+        return tuple(
+            item.member for item in self.members if isinstance(item, DeferredMember)
+        )
+
+    @property
+    def missing_members(self) -> tuple[SemanticBundleMember, ...]:
+        return tuple(
+            item.member for item in self.members if isinstance(item, MissingMember)
+        )
 
     @property
     def status(self) -> AvailabilityStatus:
-        if self.missing_members:
+        if any(isinstance(item, MissingMember) for item in self.members):
             return "incomplete"
-        if self.deferred_members:
+        if any(isinstance(item, DeferredMember) for item in self.members):
             return "deferred"
         return "available"
 
 
-def _record_member_without_engine_evidence(
+def _member_without_engine_evidence(
     member: SemanticBundleMember,
-    deferred: list[SemanticBundleMember],
-    missing: list[SemanticBundleMember],
-) -> None:
+) -> MemberAvailability:
     if not member.source_occurrences or member.provenance_status == "proposed":
-        deferred.append(member)
-    else:
-        missing.append(member)
+        return DeferredMember(member=member)
+    return MissingMember(member=member)
 
 
 def evaluate_pair_availability(
@@ -577,28 +630,18 @@ def evaluate_pair_availability(
     by_pair = {constituent.pair: constituent for constituent in constituents}
     if len(by_pair) != len(constituents):
         raise ValueError("projected constituent pairs must be unique")
-    available: list[SemanticBundleMember] = []
-    deferred: list[SemanticBundleMember] = []
-    missing: list[SemanticBundleMember] = []
-    available_evidence: list[ProjectedConstituentEvidence] = []
-    deferred_evidence: list[ProjectedConstituentEvidence] = []
+    members: list[MemberAvailability] = []
     for member in candidate.members:
         evidence = by_pair.get(member.pair)
         if evidence is None:
-            _record_member_without_engine_evidence(member, deferred, missing)
+            members.append(_member_without_engine_evidence(member))
         elif evidence.needs_review:
-            deferred.append(member)
-            deferred_evidence.append(evidence)
+            members.append(DeferredMember(member=member, evidence=evidence))
         else:
-            available.append(member)
-            available_evidence.append(evidence)
+            members.append(AvailableMember(member=member, evidence=evidence))
     return BundlePairAvailability(
         candidate_id=candidate.candidate_id,
-        available_members=tuple(available),
-        deferred_members=tuple(deferred),
-        missing_members=tuple(missing),
-        available_evidence=tuple(available_evidence),
-        deferred_evidence=tuple(deferred_evidence),
+        members=tuple(members),
     )
 
 

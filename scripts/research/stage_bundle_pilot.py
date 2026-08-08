@@ -26,13 +26,16 @@ from ontolib.decomposition.proposal_registry import (
 )
 from ontolib.decomposition.semantic_bundles import (
     AdjudicatedSemanticContext,
+    AvailableMember,
     BundleAxis,
     BundleKind,
     BundlePairAvailability,
+    DeferredMember,
     EvidenceClaim,
     EvidenceClaimKind,
     EvidenceClaimTarget,
     EvidenceRegistry,
+    MemberAvailability,
     MemberRole,
     PairProvenance,
     ProjectedConstituentEvidence,
@@ -904,6 +907,17 @@ def _projected_dict(item: ProjectedConstituentEvidence) -> dict[str, object]:
     }
 
 
+def _availability_member_dict(item: MemberAvailability) -> dict[str, object]:
+    evidence = (
+        item.evidence if isinstance(item, AvailableMember | DeferredMember) else None
+    )
+    return {
+        "status": item.status,
+        "member": _member_dict(item.member),
+        "engine_evidence": _projected_dict(evidence) if evidence is not None else None,
+    }
+
+
 def _claim_dict(claim: EvidenceClaim) -> dict[str, object]:
     target = claim.target
     return {
@@ -934,11 +948,9 @@ def _candidate_pair_availability(
     if engine_outcome != "decomposed":
         return BundlePairAvailability(
             candidate_id=candidate.candidate_id,
-            available_members=(),
-            deferred_members=candidate.members,
-            missing_members=(),
-            available_evidence=(),
-            deferred_evidence=(),
+            members=tuple(
+                DeferredMember(member=member) for member in candidate.members
+            ),
         )
     return evaluate_pair_availability(candidate, constituents)
 
@@ -964,9 +976,8 @@ def build_stage_bundle_report(
             engine_outcome,
         )
         status_counts[result.status] += 1
-        member_counts["available"] += len(result.available_members)
-        member_counts["deferred"] += len(result.deferred_members)
-        member_counts["missing"] += len(result.missing_members)
+        for item in result.members:
+            member_counts[item.status] += 1
         rule_results.append(
             {
                 "candidate_id": candidate.candidate_id,
@@ -974,21 +985,7 @@ def build_stage_bundle_report(
                 "semantic_identity": candidate.semantic_identity,
                 "engine_outcome": engine_outcome,
                 "status": result.status,
-                "available_members": [
-                    _member_dict(member) for member in result.available_members
-                ],
-                "deferred_members": [
-                    _member_dict(member) for member in result.deferred_members
-                ],
-                "missing_members": [
-                    _member_dict(member) for member in result.missing_members
-                ],
-                "available_engine_evidence": [
-                    _projected_dict(item) for item in result.available_evidence
-                ],
-                "deferred_engine_evidence": [
-                    _projected_dict(item) for item in result.deferred_evidence
-                ],
+                "members": [_availability_member_dict(item) for item in result.members],
             }
         )
 
