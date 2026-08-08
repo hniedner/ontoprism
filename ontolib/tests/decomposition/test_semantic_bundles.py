@@ -594,7 +594,9 @@ def test_pair_availability_marks_a_proposed_member_without_engine_evidence() -> 
 
     result = evaluate_pair_availability(candidate, (_projected(candidate, 1),))
 
-    assert result.status == "available"
+    # Not "available": the member's concept is an unaccepted proposal, so the pair
+    # cannot be projected from NCIt at all (D60).
+    assert result.status == "proposed"
     assert [member.filler_code for member in result.proposed_members] == ["C141685"]
     assert isinstance(result.members[0], ProposedMember)
     assert result.deferred_members == ()

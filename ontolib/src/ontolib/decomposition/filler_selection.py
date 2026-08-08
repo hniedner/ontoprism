@@ -102,8 +102,8 @@ def _reviewed_source_axis(
 def route_axis(r: RoleRestriction, parent_morphology: str | None = None) -> str:
     """Map each restriction to its target axis.
 
-    Contextual routings (each depends on ``parent_morphology`` or the anchoring
-    genus, so the same role does not always reach the same axis):
+    Routings that are not a plain role → axis lookup, so the same role does not
+    always reach the same axis:
 
     * R101 with lineage-generic ``anchoring_genus`` → ``ASSOCIATED_LINEAGE_AXIS``
     * R101 whose filler is a known subsite of ``parent_morphology`` →
@@ -112,7 +112,8 @@ def route_axis(r: RoleRestriction, parent_morphology: str | None = None) -> str:
       ``PRIMARY_SITE_AXIS``
     * R126 whose (genus, filler) pair is in ``axes.ASSOCIATED_PRIOR_DISEASE`` →
       ``op:AssociatedPriorDisease``
-    * R88 with a known stage-system filler code → ``STAGE_SYSTEM_AXIS``
+    * R88 with a known stage-system filler code → ``STAGE_SYSTEM_AXIS`` (keyed on
+      the filler alone, unlike the four above)
 
     Otherwise: known defining roles route to their univocal ``op:`` axis, and
     unknown roles keep their source code and are flagged for review downstream.
@@ -487,7 +488,9 @@ def select_constituents(
     Three independent suppressions drop restrictions before routing, and all three
     delete would-be constituents silently:
 
-    * non-defining restrictions (``Excludes_*`` and, optionally, ``May_Have_*``)
+    * non-defining restrictions — ``Excludes_*`` negative axioms and the
+      probabilistic ``May_Have_*`` roles (``axes.DROPPED_ROLES``), both dropped
+      unconditionally
     * generic fillers — ``axes.GENERIC_FILLERS_BY_ROLE``, the
       ``contracted-role-generic-v2`` audit set (D59)
     * concept-role fillers the projection does not support —

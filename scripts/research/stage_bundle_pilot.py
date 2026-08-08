@@ -58,6 +58,8 @@ from ontolib.decomposition.semantic_bundles import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from openpyxl.cell.cell import Cell
     from openpyxl.workbook.workbook import Workbook
     from openpyxl.worksheet.worksheet import Worksheet
@@ -964,14 +966,15 @@ def _candidate_pair_availability(
 
 
 def build_stage_bundle_report(
-    engine_pairs_by_code: dict[str, tuple[ProjectedConstituentEvidence, ...]],
-    engine_outcomes_by_code: dict[str, str],
+    engine_pairs_by_code: Mapping[str, tuple[ProjectedConstituentEvidence, ...]],
+    engine_outcomes_by_code: Mapping[str, ConceptOutcome],
 ) -> dict[str, object]:
     """Report availability without inventing actual bundle associations."""
     rule_results: list[dict[str, object]] = []
     status_counts = {
         "available": 0,
         "deferred": 0,
+        "proposed": 0,
         "incomplete": 0,
         "not-evaluated": 0,
     }
@@ -1302,7 +1305,7 @@ def _provenance_disposition(
     fact: dict[str, object],
     semantic_owners: dict[tuple[str, str], tuple[str, ...]],
     contracted: dict[ContractedKey, str],
-    concept_outcomes: dict[str, str],
+    concept_outcomes: Mapping[str, ConceptOutcome],
 ) -> tuple[str, object, ContractedKey | None]:
     occurrence_key = cast("tuple[str, str]", (fact["root_code"], fact["fact_id"]))
     if owners := semantic_owners.get(occurrence_key):
@@ -2161,8 +2164,7 @@ def _require_visible_semantic_review(sheet: Worksheet) -> None:
         raise ValueError("semantic decision sheet must be visible")
     hidden_columns = [
         get_column_letter(column)
-        for column in sorted(hidden_column_indexes(sheet))
-        if column <= _DECISION_COLUMN_COUNT
+        for column in sorted(hidden_column_indexes(sheet, limit=_DECISION_COLUMN_COUNT))
     ]
     if hidden_columns:
         raise ValueError(

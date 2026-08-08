@@ -21,7 +21,15 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import provenance as provenance_module
 from ontolib.decomposition.minting import MintedConcept
-from ontolib.decomposition.models import Constituent, Decomposition
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    Constituent,
+    Decomposition,
+    DefinitionGroup,
+    RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
+)
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
     RunIdentityMismatchError,
@@ -73,7 +81,12 @@ def _publication_fingerprint() -> RunFingerprint:
 async def _cleanup(dsn: str) -> None:
     conn = await asyncpg.connect(dsn)
     try:
-        run_ids = [_RUN_ID, _RERUN_ID, _PUBLICATION_RUN_ID]
+        run_ids = [
+            _RUN_ID,
+            _RERUN_ID,
+            _PUBLICATION_RUN_ID,
+            _SHARED_GENUS_RUN_ID,
+        ]
         await conn.execute(
             "DELETE FROM decomp_constituent WHERE run_id = ANY($1)", run_ids
         )
@@ -150,6 +163,163 @@ async def _assert_processing_and_publication_failures_remain_separate(
     assert resumed.error_type is None
     assert resumed.publication_state == "failed"
     assert resumed.publication_error_type == "RuntimeError"
+
+
+_SHARED_GENUS_RUN_ID = "test-provenance-shared-genus-run"
+
+
+def _shared_genus_decomposition(root_code: str, depth: int) -> Decomposition:
+    """Two roots that walk into the SAME defined genus.
+
+    ``canonical_definition_fact_id`` is anchored on the expression's own concept,
+    not the root, so both roots legitimately cite the identical ``fact_id``.
+    """
+    group_id = canonical_definition_group_id("C100", ("restriction:R101:C200",))
+    fact_id = canonical_definition_fact_id(
+        "C100", group_id, "restriction", "R101", "C200"
+    )
+    return Decomposition(
+        code=root_code,
+        semantic_type="Neoplastic Process",
+        constituents=(
+            Constituent(
+                axis="R101",
+                filler_code="C200",
+                axis_source="role",
+                source_role="R101",
+                source_definition_ids=(fact_id,),
+            ),
+        ),
+        complete_definition=CompleteDefinition(
+            root_code=root_code,
+            facts=(
+                RestrictionDefinitionFact(
+                    fact_id=fact_id,
+                    anchor_code="C100",
+                    group_id=group_id,
+                    depth=depth,
+                    role_code="R101",
+                    filler_code="C200",
+                ),
+            ),
+            groups=(
+                DefinitionGroup(group_id=group_id, anchor_code="C100", depth=depth),
+            ),
+            root_group_ids=(group_id,),
+        ),
+    )
+
+
+def _residual_decomposition(code: str) -> Decomposition:
+    """A residual concept: a complete definition, but no surviving constituents.
+
+    The detector flagged it pre-coordinated, so it carries >= 1 persisted fact,
+    yet ``decompositions_for_run`` excludes it because it is not ``is_decomposed``.
+    """
+    group_id = canonical_definition_group_id(code, ("restriction:R105:C300",))
+    fact_id = canonical_definition_fact_id(
+        code, group_id, "restriction", "R105", "C300"
+    )
+    return Decomposition(
+        code=code,
+        semantic_type="Neoplastic Process",
+        constituents=(),
+        complete_definition=CompleteDefinition(
+            root_code=code,
+            facts=(
+                RestrictionDefinitionFact(
+                    fact_id=fact_id,
+                    anchor_code=code,
+                    group_id=group_id,
+                    depth=0,
+                    role_code="R105",
+                    filler_code="C300",
+                ),
+            ),
+            groups=(DefinitionGroup(group_id=group_id, anchor_code=code, depth=0),),
+            root_group_ids=(group_id,),
+        ),
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_completion_metrics_match_for_shared_facts_and_residual_concepts() -> (
+    None
+):
+    """The persisted definition metrics must be scoped exactly like the pipeline.
+
+    Two independent ways this can drift, each of which makes ``finish_run`` reject
+    every well-formed run of this shape and is therefore unrecoverable:
+
+    * a run-wide ``count(DISTINCT ...)`` under-counts ``projected_fact_count`` when
+      two roots share a defined genus;
+    * counting definition rows for concepts that are not ``is_decomposed``
+      over-counts, because a residual concept still persists its definition.
+    """
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    store = ProvenanceStore(sf)
+    codes = ("C1", "C2", "C3")
+    try:
+        await _cleanup(dsn)
+        await store.create_run(_SHARED_GENUS_RUN_ID, "26.07d", _fingerprint(codes))
+        for code, decomposition in (
+            ("C1", _shared_genus_decomposition("C1", 1)),
+            ("C2", _shared_genus_decomposition("C2", 2)),
+            ("C3", _residual_decomposition("C3")),
+        ):
+            claim = await store.claim_work_item(_SHARED_GENUS_RUN_ID, code)
+            assert claim is not None
+            await store.complete_work_item(
+                _SHARED_GENUS_RUN_ID,
+                code,
+                claim,
+                decomposition=decomposition,
+                minted=(),
+                semantic_types=("Neoplastic Process",),
+            )
+
+        decompositions = await store.decompositions_for_run(_SHARED_GENUS_RUN_ID)
+        # The residual concept is excluded from the reconstruction ...
+        assert [item.code for item in decompositions] == ["C1", "C2"]
+        # ... but its definition fact IS persisted, so an unscoped count sees it.
+        conn = await asyncpg.connect(dsn)
+        try:
+            persisted_facts = await conn.fetchval(
+                "SELECT count(*) FROM decomp_definition_fact WHERE run_id = $1",
+                _SHARED_GENUS_RUN_ID,
+            )
+            distinct_source_ids = await conn.fetchval(
+                "SELECT count(DISTINCT source_id.value) FROM decomp_constituent c "
+                "CROSS JOIN LATERAL "
+                "jsonb_array_elements_text(c.source_definition_ids) "
+                "AS source_id(value) WHERE c.run_id = $1",
+                _SHARED_GENUS_RUN_ID,
+            )
+        finally:
+            await conn.close()
+        assert persisted_facts == 3
+        # Run-wide DISTINCT collapses the shared fact; the per-concept sum is 2.
+        assert distinct_source_ids == 1
+
+        metrics = await _completion_metrics(store, _SHARED_GENUS_RUN_ID)
+        assert metrics["complete_fact_count"] == 2
+        assert metrics["projected_fact_count"] == 2
+        assert metrics["complete_definition_count"] == 2
+
+        assert (
+            await store.finish_run(
+                _SHARED_GENUS_RUN_ID,
+                source_identity="a" * 64,
+                metrics=metrics,
+            )
+            is True
+        )
+    finally:
+        await _cleanup(dsn)
+        await dispose_engine(engine)
 
 
 @pytest.mark.integration

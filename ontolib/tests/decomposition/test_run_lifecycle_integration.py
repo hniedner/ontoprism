@@ -155,8 +155,10 @@ class _RecordingStore(ProvenanceStore):
 def _filler_for(code: str) -> str:
     """A distinct NCIt-shaped filler per concept code.
 
-    Production fillers are always ``C<digits>``; a synthetic ``F-C1`` would let the
-    fixture assert against a shape the engine can never emit.
+    Production role-derived fillers are always ``C<digits>``; minted NLP-fallback
+    fillers use the ``MINT-…`` shape instead (see ``_minted_for``). A synthetic
+    ``F-C1`` is neither, and would let the fixture assert against a shape the
+    engine can never emit.
     """
     return f"C9{code.removeprefix('C')}"
 

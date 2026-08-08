@@ -100,7 +100,12 @@ def test_normalized_axis_preserves_valid_ncit_source_role() -> None:
 @pytest.mark.parametrize(
     "source_role",
     [
+        # Foreign namespaces: the local part looks like a role code, so only the
+        # namespace guard can reject them.
         "https://example.org/R101",
+        "http://example.org/ns#R101",
+        "http://purl.obolibrary.org/obo/R101",
+        "R101",
         f"{NCIT_NS}C101",
     ],
 )
@@ -204,6 +209,10 @@ def test_malformed_persisted_boolean_fails_closed(value: str) -> None:
         "https://example.org/not-an-ontoprism-fact",
         f"{vocab.DEFINITION_FACT_NS}not-a-digest",
         f"{vocab.DEFINITION_FACT_NS}C2/{'a' * 64}",
+        # Right length, wrong alphabet: only the hex check rejects these, and the
+        # DB CHECK is ^[0-9a-f]{64}$, so they could never join to a persisted fact.
+        f"{vocab.DEFINITION_FACT_NS}C1/{'A' * 64}",
+        f"{vocab.DEFINITION_FACT_NS}C1/{'z' * 64}",
     ],
 )
 def test_invalid_projection_source_fact_fails_closed(source_iri: str) -> None:

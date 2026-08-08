@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
@@ -599,7 +599,7 @@ def _reject_reviewer_formulas(workbook: Workbook) -> None:
                     )
 
 
-def hidden_column_indexes(sheet: Worksheet) -> set[int]:
+def hidden_column_indexes(sheet: Worksheet, limit: int | None = None) -> set[int]:
     """Every 1-based column index hidden on *sheet*, including grouped ranges.
 
     ``column_dimensions`` is keyed by the letter of each range's ``min`` only, so a
@@ -607,13 +607,31 @@ def hidden_column_indexes(sheet: Worksheet) -> set[int]:
     ``min=3, max=5``. Probing ``column_dimensions["D"]`` auto-creates a default with
     ``hidden=False``, which would let a reviewer conceal data by hiding a range whose
     first column is blank. Expand the stored ranges instead of probing per letter.
+
+    *limit* caps the expansion. Excel writes ``<col min="8" max="16384" hidden="1"/>``
+    when a reviewer hides the trailing columns, so an uncapped expansion would return
+    ~16k indexes; a caller that then reads cells would materialise the whole grid.
+    A hidden column that actually *contains* data is by definition within the sheet's
+    used range, so capping at ``max_column`` loses no tamper signal.
     """
-    return {
-        index
-        for dimension in sheet.column_dimensions.values()
-        if dimension.hidden and dimension.min is not None
-        for index in range(dimension.min, (dimension.max or dimension.min) + 1)
-    }
+    indexes: set[int] = set()
+    for dimension in sheet.column_dimensions.values():
+        if not dimension.hidden:
+            continue
+        # `min`/`max` are only populated by the reader and by `reindex()` at save
+        # time; an in-memory `column_dimensions["D"].hidden = True` leaves them None.
+        # Fall back to the key rather than skipping, so the gate cannot degrade to
+        # "nothing is hidden".
+        start = (
+            dimension.min
+            if dimension.min is not None
+            else column_index_from_string(dimension.index)
+        )
+        end = dimension.max if dimension.max is not None else start
+        if limit is not None:
+            end = min(end, limit)
+        indexes.update(range(start, end + 1))
+    return indexes
 
 
 def _reject_hidden_reviewer_columns(workbook: Workbook) -> None:
@@ -624,12 +642,15 @@ def _reject_hidden_reviewer_columns(workbook: Workbook) -> None:
         "Source & Run Evidence",
     ):
         sheet = workbook[sheet_name]
+        # Read both extents once: `max_row`/`max_column` are O(cells), and reading
+        # them inside the scan would make it quadratic.
+        max_row, max_column = sheet.max_row, sheet.max_column
         hidden = [
             get_column_letter(column)
-            for column in sorted(hidden_column_indexes(sheet))
+            for column in sorted(hidden_column_indexes(sheet, limit=max_column))
             if any(
                 sheet.cell(row, column).value is not None
-                for row in range(1, sheet.max_row + 1)
+                for row in range(1, max_row + 1)
             )
         ]
         if hidden:

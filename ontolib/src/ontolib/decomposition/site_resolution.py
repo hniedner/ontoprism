@@ -95,9 +95,10 @@ MORPHOLOGY_TO_PRIMARY_SUBSITES: dict[str, frozenset[str]] = {
 def organ_for_morphology(morphology_code: str | None) -> str | None:
     """Return the routed organ code for *morphology_code*, or ``None``.
 
-    ``MORPHOLOGY_TO_ORGAN`` is hand-maintained, not uniformly SME-validated; see
-    the module docstring and the per-entry notes for which rows carry which
-    provenance.
+    ``MORPHOLOGY_TO_ORGAN`` is hand-maintained and only partly SME-validated:
+    entries carrying an explicit ``SME:`` note are reviewed, the rest are
+    unannotated curation, and the ``C4008`` row is a known-wrong entry deferred to
+    the post-attestation rebuild.
 
     Parameters
     ----------

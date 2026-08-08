@@ -22,7 +22,7 @@ _STAGE_MEMBER_COUNT = 2
 
 type MemberKey = tuple[str, str, str]
 type ContextKey = tuple[str, str, str]
-type AvailabilityStatus = Literal["available", "deferred", "incomplete"]
+type AvailabilityStatus = Literal["available", "deferred", "proposed", "incomplete"]
 type ProjectionAxisSource = Literal["role", "nlp", "parent"]
 PairProvenance = Literal[
     "ncit-26.07d",
@@ -642,10 +642,19 @@ class BundlePairAvailability:
 
     @property
     def status(self) -> AvailabilityStatus:
+        """The weakest member's standing, worst first.
+
+        ``proposed`` is distinct from ``available``: a member whose concept is an
+        unaccepted proposal cannot be projected from NCIt at all, so reporting the
+        bundle as available would tell a reviewer the pair is present when the
+        lifecycle says it is provisional until NCI adopts it (D60).
+        """
         if any(isinstance(item, MissingMember) for item in self.members):
             return "incomplete"
         if any(isinstance(item, DeferredMember) for item in self.members):
             return "deferred"
+        if any(isinstance(item, ProposedMember) for item in self.members):
+            return "proposed"
         return "available"
 
 

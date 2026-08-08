@@ -276,8 +276,11 @@ def test_report_separates_available_deferred_missing_and_observed_scores() -> No
     assert report["status"] == "FINAL-REVIEW-PENDING"
     assert availability["candidate_counts"] == {
         "expected": 15,
-        "available": 13,
+        "available": 12,
         "deferred": 1,
+        # The VALG staging-method bundle is blocked on an unaccepted proposal, not
+        # projected: it must not be counted as available (D60).
+        "proposed": 1,
         "incomplete": 1,
         "not-evaluated": 0,
     }
@@ -305,8 +308,9 @@ def test_report_accepts_unmodified_candidate_outcome_map() -> None:
 
     assert availability["candidate_counts"] == {
         "expected": 15,
-        "available": 15,
+        "available": 14,
         "deferred": 0,
+        "proposed": 1,
         "incomplete": 0,
         "not-evaluated": 0,
     }

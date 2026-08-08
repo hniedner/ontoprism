@@ -122,6 +122,11 @@ fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
+tests = ["test_definition_presence_migration_roundtrip"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "backend/tests/test_migrations_integration.py"
 tests = ["test_nested_definition_group_migration_roundtrip"]
 fixtures = ["isolated_postgres_settings"]
 

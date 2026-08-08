@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 from scripts.adjudication import main as adjudication_main
 from scripts.research import golden_review
 from scripts.research.golden_review import (
@@ -33,6 +34,7 @@ from ontolib.decomposition.proposal_registry import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+_EXCEL_MAX_COLUMN = 16384
 _DIGEST_A = "a" * 64
 _DIGEST_B = "b" * 64
 _DIGEST_C = "c" * 64
@@ -790,6 +792,76 @@ def test_workbook_import_rejects_a_grouped_hidden_reviewer_column(
 
     with pytest.raises(GoldenSetValidationError, match="hidden reviewer columns"):
         import_adjudication_workbook(workbook)
+
+
+@pytest.mark.unit
+def test_trailing_hidden_columns_neither_reject_nor_materialize_the_grid(
+    tmp_path: Path,
+) -> None:
+    """Excel writes `<col min="8" max="16384" hidden="1"/>` for a trailing hide.
+
+    That is an ordinary, harmless reviewer action. An uncapped expansion would
+    report ~16k indexes and, once the caller reads cells, materialise the whole
+    grid -- turning a legitimate import into a hang rather than a verdict.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    hidden = load_workbook(workbook)
+    sheet = hidden["Concept Decisions"]
+    used_columns = sheet.max_column
+    sheet.column_dimensions.group(
+        get_column_letter(used_columns + 1), "XFD", hidden=True
+    )
+    hidden.save(workbook)
+
+    reloaded = load_workbook(workbook)["Concept Decisions"]
+    assert (
+        reloaded.column_dimensions[get_column_letter(used_columns + 1)].max
+        == _EXCEL_MAX_COLUMN
+    )
+    # Bounded by the used range, so the caller never materialises the full grid.
+    assert (
+        max(
+            golden_review.hidden_column_indexes(reloaded, limit=reloaded.max_column),
+            default=0,
+        )
+        <= used_columns
+    )
+    assert reloaded.max_column == used_columns
+
+    assert import_adjudication_workbook(workbook).concepts
+
+
+@pytest.mark.unit
+def test_a_visible_column_dimension_is_not_reported_as_hidden(tmp_path: Path) -> None:
+    """Only the reject direction was pinned; a width change must still import.
+
+    openpyxl populates `min`/`max` on every `<col>` element it reads, so a gate
+    that ignored `hidden` would reject every workbook a reviewer had ever resized.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    widened = load_workbook(workbook)
+    widened["Concept Decisions"].column_dimensions["A"].width = 40
+    widened.save(workbook)
+
+    assert import_adjudication_workbook(workbook).concepts
+
+
+@pytest.mark.unit
+def test_hidden_column_without_a_stored_range_is_still_reported() -> None:
+    """An in-memory hide leaves `min`/`max` unset until `reindex()` at save time.
+
+    Skipping those dimensions would let the anti-tamper helper degrade to
+    "nothing is hidden" -- the same fail-open shape as the grouped-range defect.
+    """
+    sheet = Workbook().active
+    assert sheet is not None
+    sheet["D1"] = "concealed"
+    sheet.column_dimensions["D"].hidden = True
+    assert sheet.column_dimensions["D"].min is None
+
+    assert golden_review.hidden_column_indexes(sheet) == {4}
 
 
 @pytest.mark.unit

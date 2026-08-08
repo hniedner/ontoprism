@@ -219,9 +219,86 @@ async def _complete_definition_schema_facts(dsn: str) -> dict[str, Any]:
             "definition_columns": definition_columns,
             "constituent_source_type": constituent_source_type,
             "definition_constraints": definition_constraints,
+            "rejected": await _rejected_complete_definition_writes(conn),
         }
     finally:
         await conn.close()
+
+
+async def _rejects(conn: Any, statement: str) -> bool:
+    """Whether *statement* violates a CHECK, leaving no row behind either way.
+
+    Asserting on `pg_get_constraintdef` text alone cannot tell a live constraint
+    from a weakened one: `"restriction" in constraints` survives replacing
+    `role_code ~ '^R[0-9]+$'` with `role_code IS NOT NULL`.
+    """
+    transaction = conn.transaction()
+    await transaction.start()
+    try:
+        await conn.execute(statement)
+    except asyncpg.CheckViolationError:
+        return True
+    else:
+        return False
+    finally:
+        await transaction.rollback()
+
+
+async def _rejected_complete_definition_writes(conn: Any) -> dict[str, bool]:
+    await conn.execute(
+        "INSERT INTO decomp_run "
+        "(id, branch, status, ncit_version, started_at, source_identity, "
+        "fingerprint, fingerprint_sha256, emitted_at, publication_state) VALUES "
+        "('definition-checks', 'neoplasm', 'running', '26.07d', now(), "
+        "repeat('a', 64), '{}'::jsonb, repeat('b', 64), now(), 'not_requested') "
+        "ON CONFLICT (id) DO NOTHING"
+    )
+    await conn.execute(
+        "INSERT INTO decomp_work_item "
+        "(run_id, concept_code, ordinal, state, attempt_count) VALUES "
+        "('definition-checks', 'C1', 0, 'pending', 0) "
+        "ON CONFLICT (run_id, concept_code) DO NOTHING"
+    )
+    await conn.execute(
+        "INSERT INTO decomp_definition_group "
+        "(run_id, concept_code, group_id, anchor_code, depth, is_root) VALUES "
+        "('definition-checks', 'C1', repeat('b', 64), 'C1', 0, true) "
+        "ON CONFLICT DO NOTHING"
+    )
+    constituent = (
+        "INSERT INTO decomp_constituent "
+        "(run_id, concept_code, axis, filler_code, axis_source, most_specific, "
+        "needs_review, source_definition_ids) VALUES "
+        "('definition-checks', 'C1', 'op:PrimarySite', 'C12400', 'role', false, "
+        "false, {value}::jsonb)"
+    )
+    fact = (
+        "INSERT INTO decomp_definition_fact "
+        "(run_id, concept_code, fact_id, anchor_code, group_id, depth, fact_kind, "
+        "role_code, filler_code) VALUES "
+        "('definition-checks', 'C1', repeat('a', 64), 'C1', repeat('b', 64), 0, "
+        "'restriction', {role}, {filler})"
+    )
+    digest = "'[\"" + "a" * 64 + "\"]'"
+    return {
+        "non_digest_source_id": await _rejects(
+            conn, constituent.format(value="'[\"not-a-sha\"]'")
+        ),
+        "non_string_source_id": await _rejects(conn, constituent.format(value="'[1]'")),
+        "object_source_ids": await _rejects(conn, constituent.format(value="'{}'")),
+        "valid_source_id_accepted": not await _rejects(
+            conn, constituent.format(value=digest)
+        ),
+        "non_role_code": await _rejects(
+            conn, fact.format(role="'X1'", filler="'C12400'")
+        ),
+        "non_concept_filler": await _rejects(
+            conn, fact.format(role="'R101'", filler="'12400'")
+        ),
+        "valid_fact_accepted": not await _rejects(
+            conn, fact.format(role="'R101'", filler="'C12400'")
+        ),
+    }
 
 
 async def _complete_definition_schema_is_absent(dsn: str) -> bool:
@@ -611,6 +688,16 @@ def test_complete_definition_migration_roundtrip() -> None:
     assert "fact_kind" in constraints
     assert "genus" in constraints
     assert "restriction" in constraints
+    # Liveness: every CHECK must actually reject, and must still accept valid rows.
+    assert facts["rejected"] == {
+        "non_digest_source_id": True,
+        "non_string_source_id": True,
+        "object_source_ids": True,
+        "valid_source_id_accepted": True,
+        "non_role_code": True,
+        "non_concept_filler": True,
+        "valid_fact_accepted": True,
+    }
 
 
 @pytest.mark.integration
@@ -700,3 +787,148 @@ def test_migration_matches_cloned_db_schema() -> None:
     if not facts["tables"]:
         pytest.skip("embedding tables not present in the configured DB")
     _assert_embedding_schema(facts)
+
+
+async def _seed_pre_definition_presence(dsn: str) -> None:
+    """A run and two work items, one of which already has persisted definition rows."""
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(
+            "INSERT INTO decomp_run "
+            "(id, branch, status, ncit_version, started_at, finished_at, "
+            "source_identity, fingerprint, fingerprint_sha256, emitted_at, "
+            "publication_state) VALUES "
+            "('definition-presence', 'neoplasm', 'complete', '26.07d', now(), "
+            "now(), repeat('a', 64), '{}'::jsonb, repeat('b', 64), now(), 'legacy')"
+        )
+        await conn.executemany(
+            "INSERT INTO decomp_work_item "
+            "(run_id, concept_code, ordinal, state, attempt_count, is_decomposed, "
+            "is_residual, constituent_count, minted_count, outcome, semantic_types, "
+            "completed_at) "
+            "VALUES ('definition-presence', $1, $2, 'complete', 1, $3, $4, $5, 0, "
+            "$6, '[]'::jsonb, now())",
+            [
+                ("C1", 0, True, False, 1, "decomposed"),
+                ("C2", 1, False, False, 0, "atomic-no-op"),
+            ],
+        )
+        await conn.execute(
+            "INSERT INTO decomp_definition_group "
+            "(run_id, concept_code, group_id, anchor_code, depth, is_root) VALUES "
+            "('definition-presence', 'C1', repeat('c', 64), 'C1', 0, true)"
+        )
+    finally:
+        await conn.close()
+
+
+async def _definition_presence_facts(dsn: str) -> dict[str, Any]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        backfilled = {
+            row["concept_code"]: row["has_complete_definition"]
+            for row in await conn.fetch(
+                "SELECT concept_code, has_complete_definition FROM decomp_work_item "
+                "WHERE run_id = 'definition-presence' ORDER BY ordinal"
+            )
+        }
+        columns = {
+            row["column_name"]: row["data_type"]
+            for row in await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'decomp_run' AND column_name IN "
+                "('publication_predecessor', 'publication_predecessor_captured')"
+            )
+        }
+        snapshot = '\'{"run_id": "prior"}\'::jsonb'
+        update = "UPDATE decomp_run SET {assignments} WHERE id = 'definition-presence'"
+        return {
+            "backfilled": backfilled,
+            "columns": columns,
+            # Reject branch: a snapshot without the capture flag would leave the run
+            # permanently unpublishable while a usable predecessor sat in the row.
+            "uncaptured_snapshot_rejected": await _rejects(
+                conn,
+                update.format(
+                    assignments=(
+                        f"publication_predecessor = {snapshot}, "
+                        "publication_predecessor_captured = false"
+                    )
+                ),
+            ),
+            "scalar_snapshot_rejected": await _rejects(
+                conn,
+                update.format(
+                    assignments=(
+                        "publication_predecessor = '7'::jsonb, "
+                        "publication_predecessor_captured = true"
+                    )
+                ),
+            ),
+            # 'legacy' is a pre-publication state and must carry no predecessor.
+            "legacy_state_capture_rejected": await _rejects(
+                conn,
+                update.format(assignments="publication_predecessor_captured = true"),
+            ),
+            # Accept branch: a first publication legitimately stores jsonb 'null'.
+            "captured_json_null_accepted": not await _rejects(
+                conn,
+                update.format(
+                    assignments=(
+                        "publication_state = 'publishing', "
+                        "publication_attempt_count = 1, "
+                        "status = 'running', "
+                        "finished_at = NULL, "
+                        "representation_identity = repeat('d', 64), "
+                        "publication_artifact_path = '/tmp/a.ttl', "
+                        "publication_built_at = now(), "
+                        "publication_started_at = now(), "
+                        "publication_predecessor = 'null'::jsonb, "
+                        "publication_predecessor_captured = true"
+                    )
+                ),
+            ),
+        }
+    finally:
+        await conn.close()
+
+
+async def _definition_presence_is_absent(dsn: str) -> bool:
+    conn = await asyncpg.connect(dsn)
+    try:
+        return not await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'decomp_work_item' "
+            "AND column_name = 'has_complete_definition'"
+        )
+    finally:
+        await conn.close()
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+@pytest.mark.usefixtures("isolated_postgres_settings")
+def test_definition_presence_migration_roundtrip() -> None:
+    dsn = _asyncpg_dsn(get_settings().database_url)
+    cfg = Config(str(_REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    try:
+        command.downgrade(cfg, "0013_decomposition_outcomes")
+        absent_after_down = asyncio.run(_definition_presence_is_absent(dsn))
+        asyncio.run(_seed_pre_definition_presence(dsn))
+        command.upgrade(cfg, "head")
+        facts = asyncio.run(_definition_presence_facts(dsn))
+    finally:
+        command.upgrade(cfg, "head")
+
+    assert absent_after_down is True
+    # C1 owns a definition group, C2 owns nothing: the backfill must discriminate.
+    assert facts["backfilled"] == {"C1": True, "C2": False}
+    assert facts["columns"] == {
+        "publication_predecessor": "jsonb",
+        "publication_predecessor_captured": "boolean",
+    }
+    assert facts["uncaptured_snapshot_rejected"] is True
+    assert facts["scalar_snapshot_rejected"] is True
+    assert facts["legacy_state_capture_rejected"] is True
+    assert facts["captured_json_null_accepted"] is True

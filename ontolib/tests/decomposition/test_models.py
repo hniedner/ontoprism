@@ -2,7 +2,9 @@
 
 import pytest
 
+from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import (
+    CompleteDefinition,
     Constituent,
     Decomposition,
     DetectionResult,
@@ -35,6 +37,73 @@ def test_normalized_role_constituent_requires_source_role() -> None:
             filler_code="C12400",
             axis_source="role",
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "axis",
+    [
+        "PrimarySite",  # missing the op: prefix
+        "op:",
+        "op:Primary Site",
+        "op:Primary_Site",
+        "R",
+        "R101x",
+        "R101 ",
+        "",
+    ],
+)
+def test_constituent_rejects_an_axis_that_is_neither_op_nor_a_role(axis: str) -> None:
+    """The axis is rendered straight into an IRI by ``legacy_writer._axis_uri``.
+
+    Trailing-garbage cases are what pin ``fullmatch``: ``match`` would accept
+    ``"R101x"`` and emit a relation IRI no reader can resolve.
+    """
+    with pytest.raises(ValueError, match="axis is invalid"):
+        Constituent(axis=axis, filler_code="C12400", axis_source="role")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "filler_code",
+    [
+        "12400",  # missing the C prefix
+        "C12400 ",
+        "C12400junk",
+        "MINT-XYZ",  # not lowercase hex
+        "MINT-0abc12345de",  # 11 hex, not 12
+        "MINT-0abc12345deff",  # 13 hex, not 12
+        "",
+    ],
+)
+def test_constituent_rejects_a_filler_that_is_neither_ncit_nor_minted(
+    filler_code: str,
+) -> None:
+    """Only ``C<digits>`` and ``MINT-`` + 12 lowercase hex are producible.
+
+    Migration 0009 enforces ``^C[0-9]+$`` on the persisted facts, so anything else
+    is rejected at the END of a run instead of at construction.
+    """
+    with pytest.raises(ValueError, match="filler_code is invalid"):
+        Constituent(axis="R101", filler_code=filler_code, axis_source="role")
+
+
+@pytest.mark.unit
+def test_constituent_accepts_a_minted_filler_of_the_exact_produced_shape() -> None:
+    minted = MintedConcept(axis="op:Laterality", label="left")
+    constituent = Constituent(
+        axis="op:Laterality", filler_code=minted.id, axis_source="nlp"
+    )
+    assert constituent.filler_code == minted.id
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("code", ["6135", "C6135x", "C6135 ", "MINT-0abc12345def", ""])
+def test_decomposition_and_definition_reject_a_non_ncit_code(code: str) -> None:
+    with pytest.raises(ValueError, match="code is invalid"):
+        Decomposition(code=code, semantic_type=None)
+    with pytest.raises(ValueError, match="root_code is invalid"):
+        CompleteDefinition(root_code=code, facts=())
 
 
 @pytest.mark.unit
