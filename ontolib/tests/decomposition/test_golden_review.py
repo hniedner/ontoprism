@@ -1956,10 +1956,112 @@ def test_row_decision_loader_rejects_duplicate_kept_pairs(tmp_path: Path) -> Non
     adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
     payload = json.loads(export_path.read_text(encoding="utf-8"))
     payload["rows"][1]["code"] = payload["rows"][0]["code"]
-    _write_json(export_path, payload)
+    _write_json(export_path, _resign_row_decisions(payload))
 
-    with pytest.raises(GoldenSetValidationError, match="kept rows must be unique"):
+    with pytest.raises(GoldenSetValidationError, match="must be unique on"):
         load_row_decisions(export_path)
+
+
+def _resign_row_decisions(payload: dict[str, Any]) -> dict[str, Any]:
+    """Recompute `payload_identity` so a test isolates the structural rules.
+
+    Without this a structural test would depend on `_validate_rows` checking
+    structure before identity, and would silently start asserting tamper detection
+    instead if that order ever changed.
+    """
+    payload.pop("payload_identity", None)
+    payload["payload_identity"] = _identity(payload)
+    return payload
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_duplicate_withdrawn_pairs(
+    tmp_path: Path,
+) -> None:
+    """Uniqueness covers every row carrying an expected pair, not only kept ones.
+
+    A withdrawn expectation duplicated across two `exclude` rows is one reviewer
+    decision counted twice, and it enlarges the denominator of the acceptance rate
+    exactly as a duplicated kept row would.
+    """
+    workbook = tmp_path / "review.xlsx"
+    export_path = tmp_path / "rows.json"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+    adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    withdrawn = next(
+        row
+        for row in payload["rows"]
+        if row["sme_action"] == "exclude" and row["expected_axis"] is not None
+    )
+    payload["rows"].append(dict(withdrawn))
+    _write_json(export_path, _resign_row_decisions(payload))
+
+    with pytest.raises(GoldenSetValidationError, match="must be unique on"):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_a_pair_both_kept_and_withdrawn(
+    tmp_path: Path,
+) -> None:
+    """One triple cannot be simultaneously in and out of the oracle.
+
+    `expected_pairs()` keys on the SME action, so a triple present on both a kept
+    and an excluded row was silently counted as kept while also being reported as
+    a rejection — the numerator and the denominator disagreeing about the same
+    decision.
+    """
+    workbook = tmp_path / "review.xlsx"
+    export_path = tmp_path / "rows.json"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+    adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    kept = next(row for row in payload["rows"] if row["sme_action"] == "include")
+    withdrawn = next(
+        row
+        for row in payload["rows"]
+        if row["sme_action"] == "exclude" and row["expected_axis"] is not None
+    )
+    withdrawn.update(
+        code=kept["code"],
+        expected_axis=kept["expected_axis"],
+        expected_filler=kept["expected_filler"],
+    )
+    _write_json(export_path, _resign_row_decisions(payload))
+
+    with pytest.raises(GoldenSetValidationError, match="both kept and withdrawn"):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_rows_carrying_no_expected_pair_may_repeat(tmp_path: Path) -> None:
+    """The stated limit of the uniqueness rule, pinned so it is not mistaken.
+
+    A row with no expected pair has no identity in this payload: the export does
+    not record the engine's suggested axis and filler, which is the only thing that
+    distinguishes two excluded suggestions on one concept. The attested #57
+    workbook contains six such legitimately identical tuples — three excluded
+    suggestions and three not-needed candidates — so uniqueness cannot extend to
+    them without rejecting the real review. Duplication of *these* rows is caught
+    by `payload_identity` at load and by the per-concept engine-run binding in
+    `test_m1_baseline.py`, not here.
+    """
+    workbook = tmp_path / "review.xlsx"
+    export_path = tmp_path / "rows.json"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+    adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    blank = next(row for row in payload["rows"] if row["sme_action"] == "not-needed")
+    payload["rows"].append(dict(blank))
+    _write_json(export_path, _resign_row_decisions(payload))
+
+    export = load_row_decisions(export_path)
+
+    assert export.cross_tab()["ADD IF MISSING"]["not-needed"] == 2
 
 
 @pytest.mark.unit

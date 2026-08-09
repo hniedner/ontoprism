@@ -337,13 +337,24 @@ class RowDecisionExport(_StrictModel):
     def _validate_rows(self) -> Self:
         if not self.rows:
             raise ValueError("row decisions must not be empty")
-        pairs = [
-            (row.code, row.expected_axis, row.expected_filler)
-            for row in self.rows
-            if row.kept
-        ]
-        if len(pairs) != len(set(pairs)):
-            raise ValueError("expected pairs of kept rows must be unique")
+        kept: list[tuple[str, str, str]] = []
+        withdrawn: list[tuple[str, str, str]] = []
+        for row in self.rows:
+            if row.expected_axis is None or row.expected_filler is None:
+                continue
+            triple = (row.code, row.expected_axis, row.expected_filler)
+            (kept if row.kept else withdrawn).append(triple)
+        both = sorted(set(kept) & set(withdrawn))
+        if both:
+            raise ValueError(
+                "an expected pair cannot be both kept and withdrawn: "
+                + ", ".join("/".join(triple) for triple in both)
+            )
+        identified = kept + withdrawn
+        if len(identified) != len(set(identified)):
+            raise ValueError(
+                "rows carrying an expected pair must be unique on (code, axis, filler)"
+            )
         if self.payload_identity != _payload_identity(
             self.model_dump(
                 mode="json",
@@ -1339,10 +1350,14 @@ def export_row_decisions_bytes(
       concept the reviewer never declared. This is the one `Concept Decisions`
       gate the export shares with the import, because an orphan row enlarges the
       acceptance denominator with a concept nobody adjudicated.
-    - `RowDecisionExport`: a nonempty row set with unique kept `(code, axis,
-      filler)` triples, signed by a `payload_identity` over the rows themselves.
+    - `RowDecisionExport`: a nonempty row set in which every row carrying an
+      expected pair is unique on `(code, axis, filler)` and no such triple is both
+      kept and withdrawn, signed by a `payload_identity` over the rows themselves.
       `workbook_identity` hashes the `.xlsx`; `payload_identity` hashes what was
-      read out of it, so an edit to the tracked JSON is a load failure.
+      read out of it, so an edit to the tracked JSON is a load failure. A row
+      carrying *no* expected pair has no identity here — the export does not record
+      the engine's suggested axis and filler — so such rows are unconstrained by
+      the uniqueness rule.
 
     It does **not** run `_kept_constituent`, so the `Expected Provenance Status`,
     `Expected needs_review`, `Expected Group` and `Expected Proposal ID` gates —
