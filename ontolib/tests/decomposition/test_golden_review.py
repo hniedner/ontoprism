@@ -1574,6 +1574,49 @@ def test_residual_denominator_uses_actual_decomposed_and_types_are_sets(
 
 
 @pytest.mark.unit
+def test_residual_numerator_excludes_decomposed_concepts_the_detector_cleared(
+    tmp_path: Path,
+) -> None:
+    """Gate liveness for the residual filter, which the tracked baseline cannot give.
+
+    On the tracked M1 evidence every decomposed concept is also residual, so
+    `count == denominator == 18` there and `rate == 1.0`. That saturation makes the
+    tracked assertions satisfiable by the identity `count == denominator` — exactly
+    what deleting the `code in engine.residual_precoordinated_codes` filter
+    produces. This fixture is deliberately unsaturated: 20 decomposed concepts of
+    which the detector flagged 18, so the numerator can only be 18 if the filter
+    runs. Deleting the filter yields 20/20; inverting it yields 2/20.
+    """
+    engine = _engine_evidence()
+    cleared = {"C0", "C1"}
+    engine["residual_precoordinated_codes"] = [
+        code for code in engine["residual_precoordinated_codes"] if code not in cleared
+    ]
+    _sign(engine)
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(_m1_concepts(), engine))
+
+    report = evaluate_adjudication(
+        load_adjudication(artifact_path), engine, _corpus_evidence()
+    )
+
+    adjudication = report["residual_comparison"]["adjudication"]
+    assert adjudication["denominator"] == 20
+    assert adjudication["count"] == 18
+    assert adjudication["rate"] == 0.9
+    assert set(adjudication["denominator_codes"]) >= cleared
+    assert set(adjudication["residual_codes"]).isdisjoint(cleared)
+    assert (
+        set(adjudication["residual_codes"])
+        == set(adjudication["denominator_codes"]) - cleared
+    )
+    # The report subtracts the two rates; it never averages them. An average of
+    # 0.9 and the corpus sample's 0.0 would be 0.45.
+    assert report["residual_comparison"]["corpus_sample"]["rate"] == 0.0
+    assert report["residual_comparison"]["absolute_rate_delta"] == 0.9
+
+
+@pytest.mark.unit
 def test_zero_pair_metrics_are_undefined_and_detector_drift_is_rejected(
     tmp_path: Path,
 ) -> None:

@@ -149,7 +149,21 @@ def test_group_partition_agreement_holds_the_m1_baseline(
 def test_residual_comparison_holds_the_m1_baseline(
     m1_report: dict[str, object],
 ) -> None:
-    """Residual pre-coordination is 18/18 and 13/13 — a 0.0 delta, never averaged."""
+    """Residual pre-coordination is 18/18 and 13/13 — a 0.0 delta, never averaged.
+
+    Both figures are saturated: on this evidence every decomposed concept is also
+    residual, so `count == denominator` and `rate == 1.0` on both sides. These
+    assertions therefore pin *the tracked numbers* and cannot, on their own, prove
+    the detector filter that produced the numerator ran at all — deleting it yields
+    the same 18/18. The filter's discriminating behaviour is proved separately, on
+    an unsaturated fixture, by
+    `test_golden_review.py::test_residual_numerator_excludes_decomposed_concepts_the_detector_cleared`.
+
+    `rates_averaged` is not asserted here: it is a hardcoded `False` literal in the
+    report and no change to the code under test can move it. `absolute_rate_delta`
+    carries the same claim and can fail — an averaged pair of 1.0 rates would be
+    1.0, not 0.0.
+    """
     residual = _mapping(m1_report["residual_comparison"], "residual_comparison")
     adjudication = _mapping(
         residual["adjudication"], "residual_comparison.adjudication"
@@ -166,7 +180,6 @@ def test_residual_comparison_holds_the_m1_baseline(
     assert corpus_sample["rate"] == 1.0
 
     assert residual["absolute_rate_delta"] == 0.0
-    assert residual["rates_averaged"] is False
 
 
 @pytest.mark.unit
