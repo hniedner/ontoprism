@@ -411,10 +411,13 @@ def test_three_withdrawn_expectations_sit_outside_the_oracle(
     survived the whole suite once the payload was re-signed — so the docstrings
     asserted a design the data no longer had to satisfy.
 
-    Pinned three ways: the triples themselves, so a fabricated pair fails; their
-    disjointness from the oracle, so the rule they demonstrate is the rule tested;
-    and the 157 they make with the kept set, which is the number a pair-presence
-    filter would return and the reason 154 is not that number.
+    Pinned four ways: the triples themselves, so a fabricated pair fails; which of
+    them the engine had suggested, so a row type cannot be swapped between an
+    excluded suggestion and an excluded candidate on one concept — an edit that
+    moves no count and is invisible to a per-concept cross-tab; their disjointness
+    from the oracle, so the rule they demonstrate is the rule tested; and the 157
+    they make with the kept set, which is the number a pair-presence filter would
+    return and the reason 154 is not that number.
     """
     expected = _oracle_triples(m1_artifact)
     withdrawn = {
@@ -422,12 +425,24 @@ def test_three_withdrawn_expectations_sit_outside_the_oracle(
         for row in m1_row_decisions.rows
         if isinstance(row, ExcludedRow) and (triple := row.withdrawn_triple) is not None
     }
+    withdrawn_suggestions = {
+        triple
+        for row in m1_row_decisions.rows
+        if isinstance(row, ExcludedRow)
+        and row.engine is not None
+        and (triple := row.withdrawn_triple) is not None
+    }
 
     assert withdrawn == {
         ExpectedTriple(code="C6135", axis="op:AssociatedRegion", filler="C12418"),
         ExpectedTriple(code="C4791", axis="op:AssociatedRegion", filler="C12727"),
         ExpectedTriple(code="C101539", axis="op:AssociatedRegion", filler="C12418"),
     }
+    assert withdrawn_suggestions == {
+        ExpectedTriple(code="C6135", axis="op:AssociatedRegion", filler="C12418")
+    }
+    assert withdrawn_suggestions <= _engine_emitted_triples()
+    assert len(withdrawn - withdrawn_suggestions) == 2
     assert withdrawn.isdisjoint(expected)
     assert len(withdrawn) == 3
     assert len(expected | withdrawn) == 157
