@@ -42,17 +42,32 @@ moved TP while holding the rounded ratios would not fail the suite.
 
 | | `include` | `revise` | `exclude` | `not-needed` |
 |---|---|---|---|---|
-| `ENGINE SUGGESTION` (106 rows) | **48** (45%) | **42** | **16** | — |
+| `ENGINE SUGGESTION` (106 rows) | **48** | **42** | **16** | — |
 | `ADD IF MISSING` (83 rows) | **63** | 1 | 4 | 15 |
+
+**Read these two rates as different questions, not two views of one.** Each row records
+the engine's own pair alongside the reviewer's, so both are checkable:
+
+| | | |
+|---|---|---|
+| the engine proposed the right `(axis, filler)` | **80 of 106 = 0.7547** | `pair_preserved` — equals precision |
+| the reviewer changed nothing at all about the row | **48 of 106 = 0.4528** | `included_rate` |
+
+The gap is 32 rows on which the engine got the pair right and the reviewer still revised
+something else — the relationship group, `needs_review`, or provenance. So "45%" is not
+"the engine picked the wrong filler 55% of the time"; the filler was right 75% of the
+time. It is the *rest* of the row the engine gets wrong, which is why #274
+(relationship-group partition disagreeing on 18 of 20 concepts) is likely the larger
+defect and #271 (compound fillers) the narrower one.
 
 The `ENGINE SUGGESTION` / `not-needed` cell is **unrepresentable**, not merely unused: an
 engine suggestion the reviewer never ruled on must not enter the denominator, so the model
 rejects the combination and `cross_tab()` does not emit the cell.
 
-The two provenances measure different things and will not reconcile directly: a
-`revise` row replaces one pair with another, so it lands in both the wrong-pair and
-never-emitted rows above. 80/106 and 48/106 answer different questions, and #275 made
-the second one reproducible.
+The row-level and pair-level counts still will not reconcile line by line: a `revise` row
+that changed the pair contributes to the never-emitted column, while one that changed only
+the group does not. #275 made the row-level figures reproducible; before it, they existed
+only in a gitignored workbook.
 
 The `include` and `revise` rows are exactly the oracle's 154 expected pairs —
 `test_m1_baseline.py` asserts that equality on `(code, axis, filler)`, that both files name
@@ -203,39 +218,48 @@ historical aggregate counts alone are insufficient because they cannot prove mem
 
 `import-workbook` discards the `exclude` and `not-needed` rows — necessarily, since they
 define no expectation — which is what made the acceptance rate unrecoverable from the
-oracle. `export-row-decisions` keeps every row. It runs the workbook-level tamper gates
-(sheet contract, sheet visibility, hidden reviewer rows and columns, formula cells,
-attestation, required evidence keys), the shared constituent row reader (row identity,
-row type, SME action vocabulary, no `PENDING` engine suggestion, `Row Complete?` — waived
-for a `not-needed` row, which an engine suggestion can never be — and canonical
-`Expected Axis`/`Expected Filler`), the requirement that a `not-needed` row leave both
-`Expected Axis` and `Expected Filler` blank, and the `Concept Decisions` header and
-orphan-row checks, so a row referencing an unadjudicated concept cannot inflate the
-denominator.
+oracle. `export-row-decisions` keeps every row. It runs:
+
+- the **workbook-level tamper gates** — sheet contract, sheet visibility, hidden reviewer
+  rows and columns, formula cells, attestation, required evidence keys;
+- the **`Concept Decisions` preconditions**, shared with the import so the two cannot
+  diverge — required headers, no hidden concept row, no populated row with a blank code —
+  followed by the orphan check, so a constituent row naming a concept the reviewer never
+  declared, or declared only on a concealed row, cannot inflate the denominator;
+- the **shared constituent row reader** — row identity, row type, SME action vocabulary,
+  no `PENDING` engine suggestion, `Row Complete?` (waived for a `not-needed` row, which an
+  engine suggestion can never be), and canonical `Expected Axis`/`Expected Filler`;
+- the **row-shape gates** — an expected pair names both an axis and a filler or neither, a
+  `not-needed` row names no expected pair, and `Engine Axis`/`Engine Filler` are present
+  and canonical exactly on `ENGINE SUGGESTION` rows.
 
 It does **not** run the kept-constituent gates — `Expected Provenance Status`,
 `Expected needs_review`, `Expected Group`, `Expected Proposal ID` — nor the cohort or
 proposal-registry gates; those belong to `import-workbook`. A workbook the export accepts
 can still be rejected as an oracle, so run both.
 
-The export is signed. `payload_identity` is a SHA-256 over the whole payload, computed
-after generation per D61 and checked at load, and `_meta` binds the rows to the run they
-measure via `source_identity`, `run_id` and `engine_evidence_identity`. Together with the
-per-concept row-count assertion in `test_m1_baseline.py`, that closes the hole where
-deleting, relabelling or duplicating rows moved the published acceptance rate to 53%, 40%
-and 38% with every test still green. `schema_version` is 3.
+The export carries a `payload_identity` — a SHA-256 over the whole payload, computed after
+generation per D61 and checked at load — and `_meta` binds the rows to the run they measure
+via `source_identity`, `run_id` and `engine_evidence_identity`. It is a self-consistency
+digest stored inside the document it covers, so it detects an edit that does not recompute
+it, **not** an edit that does; it is not a tamper seal. What closes the remaining gap is
+that each row records the engine's own pair, so the recorded suggestions must equal the
+emitted triples of `neoplasm-engine-evidence.json`. Together those turned four edits that
+had moved the published rate to 53%, 40% and 38% with every test green into load failures.
+`schema_version` is 4.
 
 A row is one of three shapes, discriminated on `sme_action`, so the invariants are carried
-by the type rather than by a validator: a **kept** row (`include`/`revise`) must have both
-an axis and a filler; an **excluded** row may name the expectation withdrawn or leave it
-blank; an **unused candidate** row (`not-needed`) is `ADD IF MISSING` only and carries no
-pair fields at all. The combination `ENGINE SUGGESTION` + `not-needed` therefore has no
-inhabitant — an engine suggestion the reviewer never ruled on cannot reach the
-denominator.
+by the type rather than by a validator: a **kept** row (`include`/`revise`) must name an
+`expected` pair; an **excluded** row either names the expectation withdrawn or names
+nothing — a half-named withdrawal is unrepresentable; an **unused candidate**
+(`not-needed`) is `ADD IF MISSING` only and carries no expected pair. Every row also
+carries `engine`, non-null exactly when `row_type` is `ENGINE SUGGESTION`, enforced as a
+biconditional. The combination `ENGINE SUGGESTION` + `not-needed` has no inhabitant — an
+engine suggestion the reviewer never ruled on cannot reach the denominator.
 
-`cross_tab()` returns a typed result, not a grid of dictionaries, and
-`EngineAcceptance.accepted_unchanged_rate` computes the published figure — 0.4528 — which
-`test_m1_baseline.py` asserts. Before this, 45% was arithmetic no code performed.
+`cross_tab()` returns a typed result, not a grid of dictionaries. `included_rate` computes
+0.4528 and `pair_preserved` counts the 80 kept rows whose expected pair is the engine's
+own. Before this, 45% was arithmetic no code performed.
 
 The tracked export was produced by:
 
