@@ -30,6 +30,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from scripts.research.golden_review import (
+    ExpectedTriple,
+    KeptRow,
     evaluate_adjudication,
     load_adjudication,
     load_row_decisions,
@@ -61,16 +63,16 @@ def _sequence(value: object, label: str) -> list[Any]:
     return value
 
 
-def _engine_emitted_triples() -> set[tuple[str, str, str]]:
+def _engine_emitted_triples() -> set[ExpectedTriple]:
     """Every `(code, axis, filler)` the recorded engine run actually emitted."""
     evidence = _mapping(
         read_json_without_duplicates(_ENGINE_EVIDENCE_PATH), "engine evidence"
     )
     return {
-        (
-            _mapping(concept, "engine concept")["code"],
-            _mapping(constituent, "engine constituent")["axis"],
-            _mapping(constituent, "engine constituent")["filler"],
+        ExpectedTriple(
+            code=_mapping(concept, "engine concept")["code"],
+            axis=_mapping(constituent, "engine constituent")["axis"],
+            filler=_mapping(constituent, "engine constituent")["filler"],
         )
         for concept in _sequence(evidence["concepts"], "engine concepts")
         for constituent in _sequence(
@@ -102,12 +104,18 @@ def _engine_constituents_per_concept() -> Counter[str]:
 
 def _row_triples(
     export: RowDecisionExport, row_type: str, sme_action: str
-) -> set[tuple[str | None, str | None, str | None]]:
-    """The `(code, expected axis, expected filler)` triples of one cross-tab cell."""
+) -> set[ExpectedTriple]:
+    """The `(code, expected axis, expected filler)` triples of one cross-tab cell.
+
+    Only kept rows have a triple at all: `ExcludedRow` may carry a withdrawn one
+    and `UnusedCandidateRow` carries none, so the filter is on the variant.
+    """
     return {
-        (row.code, row.expected_axis, row.expected_filler)
+        row.expected_triple
         for row in export.rows
-        if row.row_type == row_type and row.sme_action == sme_action
+        if isinstance(row, KeptRow)
+        and row.row_type == row_type
+        and row.sme_action == sme_action
     }
 
 
@@ -313,7 +321,7 @@ def test_row_decisions_and_the_oracle_agree_on_the_expected_set(
     regenerated from a different review without the other failing here.
     """
     expected = {
-        (concept.code, item.axis, item.filler)
+        ExpectedTriple(code=concept.code, axis=item.axis, filler=item.filler)
         for concept in m1_artifact.concepts
         if concept.expected is not None
         for item in concept.expected.constituents

@@ -13,11 +13,14 @@ from pydantic import ValidationError
 from scripts.adjudication import main as adjudication_main
 from scripts.research import golden_review
 from scripts.research.golden_review import (
+    _ROW_DECISION_ADAPTER,
     CandidateOutcomes,
-    ConstituentRowDecision,
     EngineAcceptance,
+    ExpectedTriple,
     GoldenSetValidationError,
+    KeptRow,
     RowDecisionCrossTab,
+    UnusedCandidateRow,
     evaluate_adjudication,
     export_row_decisions,
     import_adjudication_workbook,
@@ -1856,12 +1859,15 @@ def test_row_decision_export_reproduces_the_imported_expected_set(
     artifact = import_adjudication_workbook(workbook)
 
     assert export.expected_pairs() == {
-        (concept.code, item.axis, item.filler)
+        ExpectedTriple(code=concept.code, axis=item.axis, filler=item.filler)
         for concept in artifact.concepts
         if concept.expected is not None
         for item in concept.expected.constituents
     }
-    assert ("C4", "op:StageValue", "C27972") not in export.expected_pairs()
+    assert (
+        ExpectedTriple(code="C4", axis="op:StageValue", filler="C27972")
+        not in export.expected_pairs()
+    )
 
 
 def _hide_a_constituent_row(workbook: Workbook) -> None:
@@ -2022,7 +2028,11 @@ def test_row_decision_export_rejects_an_unrecognized_sme_action(
 def test_row_decision_loader_rejects_a_kept_row_without_an_expected_pair(
     tmp_path: Path,
 ) -> None:
-    """A hand-edited export that drops a kept row's pair cannot be loaded."""
+    """A hand-edited export that drops a kept row's pair cannot be loaded.
+
+    `KeptRow` requires both halves, so the refusal comes from the field rather
+    than from a validator that a `model_construct` could step around.
+    """
     workbook = tmp_path / "review.xlsx"
     export_path = tmp_path / "rows.json"
     _create_workbook(workbook)
@@ -2032,7 +2042,7 @@ def test_row_decision_loader_rejects_a_kept_row_without_an_expected_pair(
     payload["rows"][0]["expected_filler"] = None
     _write_json(export_path, payload)
 
-    with pytest.raises(GoldenSetValidationError, match="expected axis and filler"):
+    with pytest.raises(GoldenSetValidationError, match="expected_filler"):
         load_row_decisions(export_path)
 
 
@@ -2097,7 +2107,7 @@ def test_row_decision_loader_rejects_a_pair_both_kept_and_withdrawn(
 ) -> None:
     """One triple cannot be simultaneously in and out of the oracle.
 
-    `expected_pairs()` keys on the SME action, so a triple present on both a kept
+    `expected_pairs()` keys on the row variant, so a triple present on both a kept
     and an excluded row was silently counted as kept while also being reported as
     a rejection — the numerator and the denominator disagreeing about the same
     decision.
@@ -2193,7 +2203,7 @@ def test_row_decision_export_signs_the_rows_it_exports(tmp_path: Path) -> None:
 
     export = export_row_decisions(workbook)
 
-    assert export.meta.schema_version == 2
+    assert export.meta.schema_version == 3
     assert export.payload_identity == _identity(
         export.model_dump(mode="json", by_alias=True, exclude={"payload_identity"})
     )
@@ -2311,27 +2321,95 @@ def test_engine_suggestion_cannot_be_left_not_needed() -> None:
     measurement. `not-needed` reached the same state through a second door: it
     parses, it is retained by the export, it is dropped by the import, and it lands
     in the acceptance denominator as a suggestion the SME never accepted or
-    rejected. Make it unrepresentable rather than merely counted at zero.
+    rejected. It is now unrepresentable rather than rejected by a runtime check:
+    `UnusedCandidateRow` pins `row_type`, so the combination has no inhabitant and
+    a later variant cannot reintroduce it without changing that literal.
     """
-    with pytest.raises(ValidationError, match="cannot be left not-needed"):
-        ConstituentRowDecision(
+    with pytest.raises(ValidationError, match="ADD IF MISSING"):
+        UnusedCandidateRow(
             code="C0",
-            row_type="ENGINE SUGGESTION",
+            row_type=cast("Any", "ENGINE SUGGESTION"),
             sme_action="not-needed",
-            expected_axis=None,
-            expected_filler=None,
+        )
+    with pytest.raises(ValidationError, match="ADD IF MISSING"):
+        _ROW_DECISION_ADAPTER.validate_python(
+            {
+                "code": "C0",
+                "row_type": "ENGINE SUGGESTION",
+                "sme_action": "not-needed",
+            }
         )
 
-    assert (
-        ConstituentRowDecision(
-            code="C0",
-            row_type="ADD IF MISSING",
-            sme_action="not-needed",
-            expected_axis=None,
-            expected_filler=None,
-        ).kept
-        is False
+    unused = UnusedCandidateRow(
+        code="C0", row_type="ADD IF MISSING", sme_action="not-needed"
     )
+    assert not isinstance(unused, KeptRow)
+    assert not hasattr(unused, "expected_axis")
+
+
+@pytest.mark.unit
+def test_a_kept_row_cannot_be_built_without_its_expected_pair() -> None:
+    """`KeptRow` requires both halves, so no caller has to assert they are there.
+
+    The pair used to be `str | None` on every row with a runtime validator saying
+    "kept implies both present", which forced four unchecked `cast("str", ...)`
+    sites. A `model_construct` or a new variant would have skipped the validator
+    and left those casts asserting something no longer true.
+    """
+    for missing in ("expected_axis", "expected_filler"):
+        payload = {
+            "code": "C0",
+            "row_type": "ENGINE SUGGESTION",
+            "sme_action": "include",
+            "expected_axis": "op:StageValue",
+            "expected_filler": "C27970",
+        }
+        del payload[missing]
+        with pytest.raises(ValidationError, match=missing):
+            _ROW_DECISION_ADAPTER.validate_python(payload)
+
+    kept = _ROW_DECISION_ADAPTER.validate_python(
+        {
+            "code": "C0",
+            "row_type": "ENGINE SUGGESTION",
+            "sme_action": "include",
+            "expected_axis": "op:StageValue",
+            "expected_filler": "C27970",
+        }
+    )
+    assert isinstance(kept, KeptRow)
+    assert kept.expected_triple == ExpectedTriple("C0", "op:StageValue", "C27970")
+
+
+@pytest.mark.unit
+def test_a_not_needed_candidate_row_cannot_record_an_expectation(
+    tmp_path: Path,
+) -> None:
+    """`not-needed` says the reviewer never had to fill the row in.
+
+    A pair in those cells contradicts the action, and `UnusedCandidateRow` has
+    nowhere to put it. Before, both were recorded and then silently ignored by
+    every consumer, so the workbook and the export disagreed with no error.
+    """
+    workbook_path = tmp_path / "not-needed-with-pair.xlsx"
+    _create_workbook(workbook_path)
+    _append_decision_rows(workbook_path)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Constituent Decisions"]
+    row = next(
+        index
+        for index in range(5, sheet.max_row + 1)
+        if sheet.cell(index, 10).value == "not-needed"
+    )
+    sheet.cell(row, 11, "op:PrimarySite")
+    sheet.cell(row, 12, "C12345")
+    workbook.save(workbook_path)
+
+    message = "C2 not-needed candidate row must not record an expected pair"
+    with pytest.raises(GoldenSetValidationError, match=message):
+        export_row_decisions(workbook_path)
+    with pytest.raises(GoldenSetValidationError, match=message):
+        import_adjudication_workbook(workbook_path)
 
 
 @pytest.mark.unit
@@ -2339,11 +2417,13 @@ def test_engine_suggestion_cannot_be_left_not_needed() -> None:
 def test_workbook_rejects_a_not_needed_engine_suggestion(
     tmp_path: Path, complete: str
 ) -> None:
-    """Both doors are shut: the completeness gate and the row model itself.
+    """`Row Complete?` cannot buy an engine suggestion out of being adjudicated.
 
-    An `ENGINE SUGGESTION` / `not-needed` row previously exempted itself from
-    `Row Complete?` as well, so an incomplete one passed both the export and the
-    import and shifted the acceptance denominator with no error.
+    The waiver used to read "not an engine suggestion *and* `not-needed`", so an
+    `ENGINE SUGGESTION` / `not-needed` row exempted itself from `Row Complete?` as
+    well, passed both the export and the import, and shifted the acceptance
+    denominator with no error. The combination is now refused before completeness
+    is consulted, so the value in that cell cannot change the outcome.
     """
     workbook_path = tmp_path / f"not-needed-{complete}.xlsx"
     _create_workbook(workbook_path)
@@ -2353,15 +2433,30 @@ def test_workbook_rejects_a_not_needed_engine_suggestion(
     sheet["R5"] = complete
     workbook.save(workbook_path)
 
-    message = (
-        "C0 engine suggestion cannot be left not-needed"
-        if complete == "YES"
-        else "incomplete constituent"
-    )
+    message = "C0 engine suggestion cannot be left not-needed"
     with pytest.raises(GoldenSetValidationError, match=message):
         export_row_decisions(workbook_path)
     with pytest.raises(GoldenSetValidationError, match=message):
         import_adjudication_workbook(workbook_path)
+
+
+@pytest.mark.unit
+def test_an_incomplete_engine_suggestion_is_still_rejected(tmp_path: Path) -> None:
+    """The completeness waiver reaches only `not-needed` rows, nothing else.
+
+    Pinned beside the case above so the reordering cannot quietly widen the
+    waiver: an `ENGINE SUGGESTION` carrying a real action must still be complete.
+    """
+    workbook_path = tmp_path / "incomplete.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    workbook["Constituent Decisions"]["R5"] = "NO"
+    workbook.save(workbook_path)
+
+    with pytest.raises(
+        GoldenSetValidationError, match="C0 has incomplete constituent row"
+    ):
+        export_row_decisions(workbook_path)
 
 
 @pytest.mark.unit
