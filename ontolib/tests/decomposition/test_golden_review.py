@@ -1962,6 +1962,40 @@ def test_row_decision_loader_rejects_duplicate_kept_pairs(tmp_path: Path) -> Non
 
 
 @pytest.mark.unit
+def test_row_decision_export_rejects_a_constituent_row_with_no_concept(
+    tmp_path: Path,
+) -> None:
+    """An orphan constituent row inflates the denominator with an unreviewed code.
+
+    `import-workbook` has always rejected a constituent row whose concept is absent
+    from `Concept Decisions` — the SME never adjudicated that concept, so nothing
+    licenses its rows. The export accepted it and wrote it into the tracked
+    artifact, so the same workbook produced a clean acceptance denominator and an
+    unloadable oracle. The export now applies the same check.
+    """
+    workbook_path = tmp_path / "orphan.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Constituent Decisions"]
+    row = sheet.max_row + 1
+    sheet.cell(row, 2, "C999999")
+    sheet.cell(row, 4, "ENGINE SUGGESTION")
+    sheet.cell(row, 10, "include")
+    sheet.cell(row, 11, "op:StageValue")
+    sheet.cell(row, 12, "C27971")
+    sheet.cell(row, 14, "FALSE")
+    sheet.cell(row, 15, "ncit-26.07d")
+    sheet.cell(row, 18, "YES")
+    workbook.save(workbook_path)
+
+    message = "constituent rows reference unknown concepts: C999999"
+    with pytest.raises(GoldenSetValidationError, match=message):
+        export_row_decisions(workbook_path)
+    with pytest.raises(GoldenSetValidationError, match=message):
+        import_adjudication_workbook(workbook_path)
+
+
+@pytest.mark.unit
 def test_engine_suggestion_cannot_be_left_not_needed() -> None:
     """`not-needed` is a candidate-row action; on a suggestion it is a non-decision.
 

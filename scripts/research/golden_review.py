@@ -972,6 +972,32 @@ def _kept_constituent(
     )
 
 
+def _declared_concept_codes(ws: Worksheet, headers: dict[str, int]) -> set[str]:
+    """Every textual code the reviewer declared on `Concept Decisions`."""
+    return {
+        code
+        for row in range(5, ws.max_row + 1)
+        if isinstance((code := ws.cell(row, headers["Concept Code"]).value), str)
+    }
+
+
+def _reject_orphan_constituents(
+    constituent_codes: set[str], declared_codes: set[str]
+) -> None:
+    """Fail on a constituent row whose concept was never adjudicated.
+
+    Nothing licenses such a row: the SME recorded no decision for that concept, so
+    its constituent decisions are unattested. Both the oracle import and the
+    row-decision export apply this, because an orphan row silently enlarges the
+    acceptance denominator.
+    """
+    orphaned = sorted(constituent_codes - declared_codes)
+    if orphaned:
+        raise GoldenSetValidationError(
+            "constituent rows reference unknown concepts: " + ", ".join(orphaned)
+        )
+
+
 def _workbook_constituents(
     workbook: Workbook,
 ) -> tuple[dict[str, list[GoldenConstituent]], set[str]]:
@@ -1196,19 +1222,7 @@ def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
             + ", ".join(str(row) for row in blank)
         )
     expected_constituents, constituent_codes = _workbook_constituents(workbook)
-    declared_codes = {
-        code
-        for row in range(5, ws.max_row + 1)
-        if isinstance(
-            (code := ws.cell(row, headers["Concept Code"]).value),
-            str,
-        )
-    }
-    orphaned = sorted(constituent_codes - declared_codes)
-    if orphaned:
-        raise GoldenSetValidationError(
-            "constituent rows reference unknown concepts: " + ", ".join(orphaned)
-        )
+    _reject_orphan_constituents(constituent_codes, _declared_concept_codes(ws, headers))
     concepts = tuple(
         concept
         for row in range(5, ws.max_row + 1)
@@ -1307,22 +1321,32 @@ def export_row_decisions_bytes(
       suggestion, no `not-needed` engine suggestion, `Row Complete?` `YES` on every
       row but a `not-needed` candidate, and `Expected Axis`/`Expected Filler`
       canonical on every row and required on a kept one.
+    - `_concept_headers` / `_reject_orphan_constituents`: all nine required
+      `Concept Decisions` headers present, and no constituent row referencing a
+      concept the reviewer never declared. This is the one `Concept Decisions`
+      gate the export shares with the import, because an orphan row enlarges the
+      acceptance denominator with a concept nobody adjudicated.
     - `RowDecisionExport`: a nonempty row set with unique kept `(code, axis,
       filler)` triples.
 
     It does **not** run `_kept_constituent`, so the `Expected Provenance Status`,
     `Expected needs_review`, `Expected Group` and `Expected Proposal ID` gates —
     and the whole of `GoldenConstituent` — belong to the import alone. Nor does it
-    read `Concept Decisions` or apply the M1 cohort, artifact-identity and
-    proposal-registry gates. A workbook the export accepts can therefore still be
-    rejected by `import-workbook`; the export is evidence of what the reviewer
-    recorded, never a substitute for validating the oracle.
+    read any *decision* on `Concept Decisions` or apply the M1 cohort,
+    artifact-identity and proposal-registry gates. A workbook the export accepts
+    can therefore still be rejected by `import-workbook`; the export is evidence of
+    what the reviewer recorded, never a substitute for validating the oracle.
     """
     workbook = _load_review_workbook(workbook_bytes)
     reviewer = _reviewer_from_workbook(workbook)
     evidence = _required_evidence(workbook)
     ws, headers = _constituent_decision_sheet(workbook)
     rows = tuple(decision for _, decision in _constituent_decisions(ws, headers))
+    concept_ws = workbook["Concept Decisions"]
+    _reject_orphan_constituents(
+        {decision.code for decision in rows},
+        _declared_concept_codes(concept_ws, _concept_headers(concept_ws)),
+    )
     try:
         return RowDecisionExport.model_validate(
             {
