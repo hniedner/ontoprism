@@ -1725,6 +1725,12 @@ def test_evidence_json_reader_rejects_duplicate_provenance_keys(tmp_path: Path) 
         read_json_without_duplicates(path)
 
 
+def _truncate_then_fail(self: Path, *args: object, **kwargs: object) -> int:
+    """Emulate `Path.write_text` losing the device after it has truncated."""
+    self.write_bytes(b"")
+    raise OSError(28, "No space left on device")
+
+
 @pytest.mark.unit
 def test_a_failed_cli_write_leaves_the_previous_artifact_intact(
     tmp_path: Path,
@@ -1744,10 +1750,6 @@ def test_a_failed_cli_write_leaves_the_previous_artifact_intact(
     previous = output.read_bytes()
     real_write_text = Path.write_text
 
-    def _truncate_then_fail(self: Path, *args: object, **kwargs: object) -> int:
-        self.write_bytes(b"")
-        raise OSError(28, "No space left on device")
-
     monkeypatch.setattr(Path, "write_text", _truncate_then_fail)
     with pytest.raises(OSError, match="No space left on device"):
         adjudication_main(["export-row-decisions", str(workbook), str(output)])
@@ -1758,6 +1760,34 @@ def test_a_failed_cli_write_leaves_the_previous_artifact_intact(
         "review.xlsx",
         "rows.json",
     ]
+
+
+@pytest.mark.unit
+def test_a_failed_report_write_leaves_the_previous_report_intact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The evaluation report is written the same way, or it is not protected.
+
+    `write_evaluation_report` kept its own `Path(path).write_text(...)` after the
+    CLI's artifact writer was rewritten to stage and `os.replace`, and it is what
+    the `evaluate` subcommand points at the tracked report. A failure part way
+    through therefore truncated the previous report — the exact loss the rewrite
+    was for.
+    """
+    output = tmp_path / "report.json"
+    report: dict[str, object] = {"schema_version": 2, "accepted_concepts": 20}
+    write_evaluation_report(report, output)
+    previous = output.read_bytes()
+    real_write_text = Path.write_text
+
+    monkeypatch.setattr(Path, "write_text", _truncate_then_fail)
+    with pytest.raises(OSError, match="No space left on device"):
+        write_evaluation_report(report, output)
+    monkeypatch.setattr(Path, "write_text", real_write_text)
+
+    assert output.read_bytes() == previous
+    assert sorted(item.name for item in tmp_path.iterdir()) == ["report.json"]
 
 
 @pytest.mark.unit

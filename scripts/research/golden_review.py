@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
 from collections import Counter
 from datetime import date, datetime
 from io import BytesIO
@@ -2220,12 +2222,33 @@ def evaluate_adjudication(
     }
 
 
+def write_canonical_json(payload: object, path: str | Path) -> None:
+    """Write canonical JSON atomically, never truncating what is already there.
+
+    `Path.write_text` truncates the destination the moment it opens it, and every
+    caller of this points at a tracked golden artifact or report. A write that
+    fails part way -- no space, an interrupt -- would leave that file empty or half
+    a document. Stage in a sibling temporary directory and `os.replace` into place,
+    the pattern `proposal_registry.write_submission_exports` already uses. The
+    staging directory is a sibling so the replace stays on one filesystem, where it
+    is atomic.
+
+    `sort_keys` and `ensure_ascii` are what make identical evidence produce
+    byte-identical output, which is why the report writer shares this rather than
+    formatting its own JSON beside it.
+    """
+    rendered = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output.name}-staging-",
+        dir=output.parent,
+    ) as temporary:
+        staged = Path(temporary) / output.name
+        staged.write_text(rendered, encoding="utf-8")
+        os.replace(staged, output)
+
+
 def write_evaluation_report(report: dict[str, object], path: str | Path) -> None:
     """Write canonical JSON so identical evidence produces byte-identical reports."""
-    rendered = json.dumps(
-        report,
-        indent=2,
-        sort_keys=True,
-        ensure_ascii=True,
-    )
-    Path(path).write_text(rendered + "\n", encoding="utf-8")
+    write_canonical_json(report, path)
