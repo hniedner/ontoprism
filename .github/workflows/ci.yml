@@ -70,6 +70,7 @@ jobs:
               # that the test jobs can't (CI never builds the images otherwise).
               - 'backend/Dockerfile'
               - 'frontend/Dockerfile'
+              - 'docker-compose.yml'
               - 'pyproject.toml'
               - 'pdm.lock'
               - 'ontolib/pyproject.toml'
@@ -318,14 +319,11 @@ jobs:
 
       - name: Install ROBOT
         env:
-          ROBOT_VERSION: "1.9.10"
+          ONTOPRISM_ROBOT_DIR: ${{ runner.temp }}/ontoprism-robot
         run: |
-          curl -sSL -o "$HOME/robot.jar" \
-            "https://github.com/ontodev/robot/releases/download/v${ROBOT_VERSION}/robot.jar"
-          printf '#!/usr/bin/env bash\nexec java -Xmx4g -jar %s/robot.jar "$@"\n' "$HOME" \
-            > "$HOME/robot"
-          chmod +x "$HOME/robot"
-          echo "$HOME" >> "$GITHUB_PATH"
+          pdm run python scripts/install_robot.py --install-dir "$ONTOPRISM_ROBOT_DIR"
+          echo "$ONTOPRISM_ROBOT_DIR" >> "$GITHUB_PATH"
+          echo "ONTOPRISM_ROBOT_DIR=$ONTOPRISM_ROBOT_DIR" >> "$GITHUB_ENV"
 
       - name: Verify ROBOT
         run: robot --version

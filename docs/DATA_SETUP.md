@@ -1,7 +1,8 @@
 # Data provisioning (one-time, dev)
 
-ontoprism runs its **own** isolated data services (see `docker-compose.yml`) so it never
-interferes with the sibling fairdata app:
+ontoprism runs its **own** isolated data services (see `docker-compose.yml`). A fresh
+checkout uses digest-pinned official service images and does not require another
+repository or a locally built image:
 
 | Service | ontoprism | fairdata |
 |---|---|---|
@@ -10,23 +11,27 @@ interferes with the sibling fairdata app:
 | PostgreSQL (pgvector) | `:5433` | `:5432` |
 | backend | `:8011` | `:8001` |
 
-The Oxigraph and caDSR source artifacts were initially provisioned from fairdata
-(without re-downloading); embeddings must be rebuilt and validated as described below:
+## 1. Start empty services
 
-## 1. Oxigraph stores (triple store)
-
-APFS copy-on-write clones of fairdata's on-disk RocksDB stores into `./data/`
-(instant, own writable copy; `./data` is gitignored):
+Install the repository dependencies, copy the environment template, then start the
+empty stores:
 
 ```bash
-cp -Rc ../fairdata/resources/ncit/graph_store/.   data/oxigraph-ncit/
-cp -Rc ../fairdata/resources/uberon/graph_store/. data/oxigraph-uberon/
-cp -c  ../fairdata/data/cde_repository/cde_repository.db data/cadsr/cde_repository.db
-docker compose up -d      # serves the clones via the same oxigraph 0.5.3 image
+cp .env.example .env
+pdm install --dev
+npm ci --prefix frontend
+docker compose up -d
+pdm run migrate
 ```
 
-Verify: `curl -s localhost:7888/query -H 'Content-Type: application/sparql-query' \
---data 'SELECT (COUNT(*) AS ?n){?s ?p ?o}'` → 12,836,426 triples.
+Verify the pinned processes and empty service endpoints before building data:
+
+```bash
+docker compose images
+docker compose ps
+curl -fsS localhost:7888/query -H 'Content-Type: application/sparql-query' \
+  --data 'ASK {}'
+```
 
 This loopback request is an operator check against the Oxigraph service itself. The
 FastAPI application exposes no public raw-SPARQL endpoint; its supported query surface
@@ -74,15 +79,15 @@ actual predecessor (`0001_embedding_tables`) and then upgrades through every lat
 migration; it never stamps the current head without creating publication schema.
 Legacy embedding rows remain inactive until an explicit validated rebuild.
 
-## Rebuild-from-scratch (standalone, no fairdata)
+## Rebuild from public sources
 
-`pdm run data-build` stands ontoprism up from public sources with no fairdata
-dependency (issue #7). It has five steps, runnable individually or together:
+`pdm run data-build` builds ontoprism from public sources. Its steps are runnable
+individually or together:
 
 ```bash
-# 0. Bring up the empty data services + apply the DB schema.
-pdm run up                      # oxigraph-ncit :7888, postgres :5433
-pdm run migrate                 # pgvector embedding tables + ncit_search FTS cache
+# 0. Bring up the empty data services + apply the DB schema if step 1 was skipped.
+pdm run up
+pdm run migrate
 
 # 1. Download, hash, same-release-bind, and revalidate the inferred/stated NCIt pair.
 #    Online full-store loading is disabled (D12/D46).
@@ -254,28 +259,22 @@ Verify: `java -version` → `openjdk version "21" …`.
 
 ### Install ROBOT
 
-Download the latest `.jar` from the [releases page](https://github.com/ontodev/robot/releases)
-and place a wrapper script on PATH:
+Use the repository installer. It downloads the pinned release to a temporary file,
+requires its SHA-256 identity to match, and only then publishes the JAR, launcher, and
+`robot-tool.json` provenance record:
 
 ```bash
-ROBOT_VERSION=1.9.6   # check latest at the releases page
-curl -sSLO "https://github.com/ontodev/robot/releases/download/v$ROBOT_VERSION/robot.jar"
-chmod +x robot.jar
-
-# Create a small launcher script (adjust JAVA_HOME as needed):
-cat > /usr/local/bin/robot << 'SCRIPT'
-#!/bin/bash
-exec java -jar /path/to/robot.jar "$@"
-SCRIPT
-chmod +x /usr/local/bin/robot
+ROBOT_INSTALL_DIR="$PWD/.tools/robot"
+pdm run python scripts/install_robot.py --install-dir "$ROBOT_INSTALL_DIR"
+export ONTOPRISM_ROBOT_DIR="$ROBOT_INSTALL_DIR"
+export PATH="$ROBOT_INSTALL_DIR:$PATH"
 ```
 
-Alternatively, on macOS with Homebrew:
-```bash
-brew install robot
-```
-
-Verify: `robot --version` → prints a version string.
+Verify: `robot --version` must print `ROBOT version 1.9.10`. The pinned digest is
+`sha256:16a73c074f3df359a7338a84b4e0788785fe06117f931bb9796e9619ea776105`
+(`gh release view v1.9.10 --repo ontodev/robot --json assets`, 2026-08-09); the official
+release exposes that SHA-256 asset digest and no separate signature asset in its asset
+list (same command, 2026-08-09).
 
 ### Usage
 
@@ -293,8 +292,10 @@ launcher or `JAVA_OPTS`:
 robot reason --reasoner ELK -Xmx32g --input <ontology.owl> --output <inferred.owl>
 ```
 
-The harness defaults to the standard `robot` executable on PATH; no Python dependency is
-added for Java or ROBOT.
+`data-build xref-promote` requires `ONTOPRISM_ROBOT_DIR`, revalidates the JAR, launcher,
+metadata, and observed version before starting, then persists the source, version, and
+digest in the xref run metrics. Direct library contract tests may use `robot` on `PATH`;
+no Python dependency is added for Java or ROBOT.
 
 ### Running the promotion pass (#73)
 
@@ -346,5 +347,4 @@ Notes:
   verify the real encoder shape and inspect configured full-build artifacts; the
   expensive end-to-end build remains an operator run.
 - The Oxigraph store, caDSR SQLite, and pgvector rows produced are the same shapes the
-  running app reads, so a standalone build is a drop-in replacement for the fairdata
-  clone described above. See [DECISIONS.md](DECISIONS.md).
+  running app reads. See [DECISIONS.md](DECISIONS.md).

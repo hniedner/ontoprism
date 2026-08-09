@@ -36,6 +36,10 @@ from pathlib import Path  # noqa: TC003 — needed at runtime by pytest fixtures
 
 import pytest
 
+from ontolib.core.data_build_tools import (
+    ROBOT_ARTIFACT,
+    configured_robot_installation,
+)
 from ontolib.repositories.xref.promotion import elk_reasoner, parse_inferred_subclasses
 from ontolib.repositories.xref.validation import classify, to_el_profile_and_check
 
@@ -62,6 +66,14 @@ def _ttl(body: str) -> str:
 
 
 # ── 1. the tool's contract ─────────────────────────────────────────────
+
+
+def test_robot_elk_installation_matches_pinned_release_artifact() -> None:
+    """The reasoner contract runs against the exact JAR persisted in provenance."""
+    install_dir, identity = configured_robot_installation()
+
+    assert (install_dir / ROBOT_ARTIFACT.filename).is_file()
+    assert identity == ROBOT_ARTIFACT.identity
 
 
 def test_robot_reason_does_not_materialize_the_transitive_closure(

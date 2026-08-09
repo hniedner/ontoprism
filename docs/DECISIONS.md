@@ -2,6 +2,32 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-09 — standalone build-tool identity
+
+### D65. Data-build executables are content-addressed and recorded where their output is certified
+
+**Decision:** every non-library executable that can determine data-build output has a
+`DataBuildToolIdentity` containing exactly `name`, `source`, `version`, and canonical
+`sha256:<hex>` digest. Add required field `tool: DataBuildToolIdentity` to
+`LoaderIdentity`; persist the ROBOT/ELK identity in `xref_run.metrics.tools`. Refuse an
+xref promotion before creating its run if the configured ROBOT JAR, generated launcher,
+metadata, or observed version differs from the pin.
+
+The target shape and fail-closed behavior are enforced by the focused supply-chain and
+candidate-manifest contracts (`pdm run pytest
+ontolib/tests/core/test_data_build_tools.py backend/tests/test_supply_chain_contract.py
+ontolib/tests/terminologies/test_ncit_sibling_store.py -q`, 2026-08-09), the real
+reasoner contract (`PATH=/private/tmp/ontoprism-robot-163:/opt/homebrew/opt/openjdk/bin:/opt/homebrew/bin:/usr/bin:/bin
+ONTOPRISM_ROBOT_DIR=/private/tmp/ontoprism-robot-163 pdm run pytest
+ontolib/tests/repositories/xref/test_reasoner_contract.py -q`, 2026-08-09), and the
+disposable-Postgres persistence contract (`pdm run python
+scripts/run_safe_integration.py
+ontolib/tests/repositories/xref/test_promotion_persistence.py -v`, 2026-08-09).
+
+**Why:** a mutable tag or unchecked download lets the implementation that generated an
+artifact drift while its data inputs remain unchanged. Binding the executable identity
+inside the artifact's own proof makes that drift visible to every later validator.
+
 ## 2026-08-08 — the M1 measurement landed, and what it cost to get there
 
 ### D61. Identities are bound after generation, never pre-declared

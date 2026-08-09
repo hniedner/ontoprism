@@ -15,6 +15,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from ontolib.core.data_build_tools import (
+    OXIGRAPH_IMAGE,
+    OXIGRAPH_TOOL,
+    DataBuildToolIdentity,
+)
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_download import (
@@ -33,11 +38,7 @@ if TYPE_CHECKING:
 CANDIDATE_MANIFEST_FILENAME = ".ontoprism-ncit-candidate.json"
 REJECTED_CANDIDATE_FILENAME = ".ontoprism-ncit-rejected.json"
 OWNER_MARKER_FILENAME = ".ontoprism-ncit-owner"
-CANDIDATE_MANIFEST_SCHEMA_VERSION = 1
-OXIGRAPH_IMAGE = (
-    "ghcr.io/oxigraph/oxigraph@sha256:"
-    "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
-)
+CANDIDATE_MANIFEST_SCHEMA_VERSION = 2
 OXIGRAPH_CLI_VERSION = "oxigraph 0.5.3"
 
 _OWNER = re.compile(r"[0-9a-f]{32}")
@@ -71,6 +72,7 @@ class LoaderIdentity(_StrictProofModel):
     image: str
     image_id: str
     cli_version: str
+    tool: DataBuildToolIdentity
     store_format_identity: str = ""
 
     def model_post_init(self, _context: object) -> None:
@@ -83,6 +85,7 @@ class LoaderIdentity(_StrictProofModel):
                         "image": self.image,
                         "image_id": self.image_id,
                         "cli_version": self.cli_version,
+                        "tool": self.tool.as_dict(),
                     }
                 ),
             )
@@ -377,6 +380,7 @@ class DockerOxigraphRuntime:
             image=OXIGRAPH_IMAGE,
             image_id=image_id,
             cli_version=version,
+            tool=OXIGRAPH_TOOL,
         )
 
     def _load_command(
@@ -860,11 +864,13 @@ def _validate_manifest_runtime(manifest: NcitSiblingStoreManifest) -> None:
         image=manifest.loader.image,
         image_id=manifest.loader.image_id,
         cli_version=manifest.loader.cli_version,
+        tool=manifest.loader.tool,
     )
     if (
         manifest.loader != exact_loader
         or manifest.loader.image != OXIGRAPH_IMAGE
         or manifest.loader.cli_version != OXIGRAPH_CLI_VERSION
+        or manifest.loader.tool != OXIGRAPH_TOOL
     ):
         raise SiblingStoreValidationError(
             "candidate loader identity does not match the pinned runtime"

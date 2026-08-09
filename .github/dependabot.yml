@@ -50,6 +50,7 @@ updates:
   # bumps so the pins stay current without manual tracking.
   - package-ecosystem: "docker"
     directories:
+      - "/"
       - "/backend"
       - "/frontend"
     schedule:
