@@ -54,6 +54,15 @@ _CONSTITUENT_ROW_TYPES: tuple[ConstituentRowType, ...] = (
 # import; three attested `exclude` rows still carry a withdrawn expectation, so the
 # action -- not the presence of a pair -- decides what the SME kept.
 _KEPT_SME_ACTIONS = frozenset({"include", "revise"})
+# `not-needed` records that a *candidate* row never had to be filled in. On an
+# engine suggestion it is a non-decision: the suggestion entered the acceptance
+# denominator without the SME ever accepting or rejecting it, which is the same
+# hole `PENDING` closes on the other side. The combination is rejected by
+# `ConstituentRowDecision`, so it can reach neither the export nor the oracle, and
+# `cross_tab` omits the cell rather than reporting an impossible zero.
+_IMPOSSIBLE_ROW_DECISIONS: frozenset[tuple[ConstituentRowType, SmeAction]] = frozenset(
+    {("ENGINE SUGGESTION", "not-needed")}
+)
 _M1_REQUIRED_SEEDS = frozenset({"C4791", "C35756", "C89995"})
 _M1_MIN_CONCEPTS = 20
 _M1_MAX_CONCEPTS = 50
@@ -276,6 +285,10 @@ class ConstituentRowDecision(_StrictModel):
 
     @model_validator(mode="after")
     def _validate_expectation(self) -> Self:
+        if (self.row_type, self.sme_action) in _IMPOSSIBLE_ROW_DECISIONS:
+            raise ValueError(
+                f"{self.code} {self.row_type.lower()} cannot be left {self.sme_action}"
+            )
         for field, value in (
             ("expected axis", self.expected_axis),
             ("expected filler", self.expected_filler),
@@ -345,10 +358,19 @@ class RowDecisionExport(_StrictModel):
         }
 
     def cross_tab(self) -> dict[str, dict[str, int]]:
-        """Row type by SME action, with every action present even at zero."""
+        """Row type by SME action, with every *possible* action present at zero.
+
+        The `(ENGINE SUGGESTION, not-needed)` cell is omitted rather than reported
+        as zero: no such row can exist, and reporting it invited the reading that
+        the combination is merely unused in this workbook.
+        """
         counts = Counter((row.row_type, row.sme_action) for row in self.rows)
         return {
-            row_type: {action: counts[(row_type, action)] for action in _SME_ACTIONS}
+            row_type: {
+                action: counts[(row_type, action)]
+                for action in _SME_ACTIONS
+                if (row_type, action) not in _IMPOSSIBLE_ROW_DECISIONS
+            }
             for row_type in _CONSTITUENT_ROW_TYPES
         }
 
@@ -868,6 +890,11 @@ def _constituent_row_decision(
     verbatim, so a defect in them is a workbook defect worth failing on rather than
     something to record and propagate. It is fail-closed and cannot alter the
     oracle: a row it rejects would previously have been dropped, never kept.
+
+    `Row Complete?` is waived only for a `not-needed` *candidate* row. An
+    `ENGINE SUGGESTION` row must be complete whatever the action; the combination
+    `ENGINE SUGGESTION` / `not-needed` is then rejected outright by
+    `ConstituentRowDecision`, which is why the waiver cannot reach a suggestion.
     """
     code, row_type, action = _constituent_row_identity(ws, row, headers)
     complete = _cell_text(
@@ -875,10 +902,11 @@ def _constituent_row_decision(
     )
     if row_type == "ENGINE SUGGESTION" and action == "PENDING":
         raise GoldenSetValidationError(f"{code} has pending constituent action")
-    if action != "not-needed" and complete != "YES":
-        raise GoldenSetValidationError(f"{code} has incomplete constituent row")
     if action not in _SME_ACTIONS:
         raise GoldenSetValidationError(f"{code} has invalid SME action: {action}")
+    waived = row_type != "ENGINE SUGGESTION" and action == "not-needed"
+    if not waived and complete != "YES":
+        raise GoldenSetValidationError(f"{code} has incomplete constituent row")
     axis_column, filler_column = headers["Expected Axis"], headers["Expected Filler"]
     axis_field, filler_field = f"{code} expected axis", f"{code} expected filler"
     read = _cell_text if action in _KEPT_SME_ACTIONS else _optional_text
@@ -1276,9 +1304,9 @@ def export_row_decisions_bytes(
     - `_constituent_decisions` / `_constituent_row_decision`: no populated row with
       a blank concept code, no hidden constituent row, textual concept code
       matching `^C[0-9]+$`, a known row type and SME action, no `PENDING` engine
-      suggestion, `Row Complete?` `YES` on every action but `not-needed`, and
-      `Expected Axis`/`Expected Filler` canonical on every row and required on a
-      kept one.
+      suggestion, no `not-needed` engine suggestion, `Row Complete?` `YES` on every
+      row but a `not-needed` candidate, and `Expected Axis`/`Expected Filler`
+      canonical on every row and required on a kept one.
     - `RowDecisionExport`: a nonempty row set with unique kept `(code, axis,
       filler)` triples.
 

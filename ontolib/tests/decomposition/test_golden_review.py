@@ -8,9 +8,11 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
+from pydantic import ValidationError
 from scripts.adjudication import main as adjudication_main
 from scripts.research import golden_review
 from scripts.research.golden_review import (
+    ConstituentRowDecision,
     GoldenSetValidationError,
     evaluate_adjudication,
     export_row_decisions,
@@ -1796,7 +1798,6 @@ def test_row_decision_export_keeps_every_reviewer_decision(tmp_path: Path) -> No
             "include": 20,
             "revise": 1,
             "exclude": 1,
-            "not-needed": 0,
         },
         "ADD IF MISSING": {
             "include": 1,
@@ -1958,3 +1959,111 @@ def test_row_decision_loader_rejects_duplicate_kept_pairs(tmp_path: Path) -> Non
 
     with pytest.raises(GoldenSetValidationError, match="kept rows must be unique"):
         load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_engine_suggestion_cannot_be_left_not_needed() -> None:
+    """`not-needed` is a candidate-row action; on a suggestion it is a non-decision.
+
+    `PENDING` already stops an unadjudicated engine suggestion reaching the
+    measurement. `not-needed` reached the same state through a second door: it
+    parses, it is retained by the export, it is dropped by the import, and it lands
+    in the acceptance denominator as a suggestion the SME never accepted or
+    rejected. Make it unrepresentable rather than merely counted at zero.
+    """
+    with pytest.raises(ValidationError, match="cannot be left not-needed"):
+        ConstituentRowDecision(
+            code="C0",
+            row_type="ENGINE SUGGESTION",
+            sme_action="not-needed",
+            expected_axis=None,
+            expected_filler=None,
+        )
+
+    assert (
+        ConstituentRowDecision(
+            code="C0",
+            row_type="ADD IF MISSING",
+            sme_action="not-needed",
+            expected_axis=None,
+            expected_filler=None,
+        ).kept
+        is False
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("complete", ["YES", "NO"])
+def test_workbook_rejects_a_not_needed_engine_suggestion(
+    tmp_path: Path, complete: str
+) -> None:
+    """Both doors are shut: the completeness gate and the row model itself.
+
+    An `ENGINE SUGGESTION` / `not-needed` row previously exempted itself from
+    `Row Complete?` as well, so an incomplete one passed both the export and the
+    import and shifted the acceptance denominator with no error.
+    """
+    workbook_path = tmp_path / f"not-needed-{complete}.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Constituent Decisions"]
+    sheet["J5"] = "not-needed"
+    sheet["R5"] = complete
+    workbook.save(workbook_path)
+
+    message = (
+        "C0 engine suggestion cannot be left not-needed"
+        if complete == "YES"
+        else "incomplete constituent"
+    )
+    with pytest.raises(GoldenSetValidationError, match=message):
+        export_row_decisions(workbook_path)
+    with pytest.raises(GoldenSetValidationError, match=message):
+        import_adjudication_workbook(workbook_path)
+
+
+@pytest.mark.unit
+def test_cross_tab_omits_the_cell_no_engine_suggestion_row_can_occupy(
+    tmp_path: Path,
+) -> None:
+    """An impossible cell is absent, not reported as a zero.
+
+    Reporting `("ENGINE SUGGESTION", "not-needed"): 0` invited the reading that the
+    combination is merely unused in this workbook. It cannot occur.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+
+    cross_tab = export_row_decisions(workbook).cross_tab()
+
+    assert "not-needed" not in cross_tab["ENGINE SUGGESTION"]
+    assert set(cross_tab["ENGINE SUGGESTION"]) == {"include", "revise", "exclude"}
+    assert set(cross_tab["ADD IF MISSING"]) == {
+        "include",
+        "revise",
+        "exclude",
+        "not-needed",
+    }
+
+
+@pytest.mark.unit
+def test_an_unrecognized_action_is_reported_before_the_completeness_gate(
+    tmp_path: Path,
+) -> None:
+    """A typo in `SME Action` names the action, not the completeness column.
+
+    The vocabulary check ran after the completeness check, so an unrecognised
+    action on an incomplete row was reported as an incomplete row and the reviewer
+    was sent to the wrong cell.
+    """
+    workbook_path = tmp_path / "invalid-action-incomplete.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Constituent Decisions"]
+    sheet["J5"] = "maybe"
+    sheet["R5"] = "NO"
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match="invalid SME action: maybe"):
+        export_row_decisions(workbook_path)

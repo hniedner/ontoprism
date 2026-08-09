@@ -200,15 +200,18 @@ def test_engine_suggestion_acceptance_holds_the_m1_baseline(
 ) -> None:
     """The #57 headline: 48 of 106 engine suggestions kept unchanged (45%).
 
-    42 were revised and 16 excluded. Nothing was deferred as `not-needed` — that
-    action exists only for candidate rows the SME never had to fill in.
+    42 were revised and 16 excluded. There is no `not-needed` column here: that
+    action records a *candidate* row the SME never had to fill in, and on an engine
+    suggestion it is a non-decision `ConstituentRowDecision` rejects outright. The
+    cell is absent rather than zero, so the denominator cannot quietly grow by rows
+    nobody adjudicated.
     """
     assert m1_row_decisions.cross_tab()["ENGINE SUGGESTION"] == {
         "include": 48,
         "revise": 42,
         "exclude": 16,
-        "not-needed": 0,
     }
+    assert sum(m1_row_decisions.cross_tab()["ENGINE SUGGESTION"].values()) == 106
 
 
 @pytest.mark.unit
