@@ -1,15 +1,19 @@
 {
   "_meta": {
+    "engine_evidence_identity": "2d5bd0b610fc214eac807d6fa215628f73e7c1dededca7b8726d3b57c92bee8c",
     "ncit_version": "26.07d",
     "reviewer": {
       "name": "R. Hannes Niedner, MD",
       "qualification_or_role": "Physician and ONTOPRISM project/domain reviewer. Substantive semantic and policy review completed interactively; final attestation status is recorded separately.",
       "reviewed_at": "2026-08-03"
     },
-    "schema_version": 1,
+    "run_id": "neoplasm-3981f4d1-28fe-446e-b63a-0db81c80963b",
+    "schema_version": 2,
+    "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8",
     "source_workbook": "M1-57_SME_Adjudication_Workbook_FINAL-REVIEW-PENDING_v14.xlsx",
     "workbook_identity": "c1fbcb0d3d09c4846b519bc9e58fced4b393461191c2634994d2346f9df12321"
   },
+  "payload_identity": "60ace6987de606e0ecc87fe22340124d6443b1a9d3d917992db7a1318cc3cf67",
   "rows": [
     {
       "code": "C27262",

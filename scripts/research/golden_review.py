@@ -43,7 +43,7 @@ ConstituentRowType = Literal["ENGINE SUGGESTION", "ADD IF MISSING"]
 ConstituentPair = tuple[str, str]
 _ADJUDICATED_STATUS = "SME-ADJUDICATED"
 _SCHEMA_VERSION = 3
-_ROW_DECISION_SCHEMA_VERSION = 1
+_ROW_DECISION_SCHEMA_VERSION = 2
 _SME_ACTIONS: tuple[SmeAction, ...] = ("include", "revise", "exclude", "not-needed")
 _CONSTITUENT_ROW_TYPES: tuple[ConstituentRowType, ...] = (
     "ENGINE SUGGESTION",
@@ -309,16 +309,20 @@ class ConstituentRowDecision(_StrictModel):
 
 
 class RowDecisionMetadata(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     ncit_version: str
     source_workbook: str
     workbook_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    run_id: str
+    engine_evidence_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     reviewer: Reviewer
 
     @model_validator(mode="after")
     def _validate_text(self) -> Self:
         _canonical_text(self.ncit_version, "ncit_version")
         _canonical_text(self.source_workbook, "source_workbook")
+        _canonical_text(self.run_id, "run_id")
         return self
 
 
@@ -327,6 +331,7 @@ class RowDecisionExport(_StrictModel):
 
     meta: Annotated[RowDecisionMetadata, Field(alias="_meta")]
     rows: tuple[ConstituentRowDecision, ...]
+    payload_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _validate_rows(self) -> Self:
@@ -339,6 +344,14 @@ class RowDecisionExport(_StrictModel):
         ]
         if len(pairs) != len(set(pairs)):
             raise ValueError("expected pairs of kept rows must be unique")
+        if self.payload_identity != _payload_identity(
+            self.model_dump(
+                mode="json",
+                by_alias=True,
+                exclude={"payload_identity"},
+            )
+        ):
+            raise ValueError("row decision payload identity does not match its payload")
         return self
 
     def expected_pairs(self) -> set[tuple[str, str, str]]:
@@ -1327,7 +1340,9 @@ def export_row_decisions_bytes(
       gate the export shares with the import, because an orphan row enlarges the
       acceptance denominator with a concept nobody adjudicated.
     - `RowDecisionExport`: a nonempty row set with unique kept `(code, axis,
-      filler)` triples.
+      filler)` triples, signed by a `payload_identity` over the rows themselves.
+      `workbook_identity` hashes the `.xlsx`; `payload_identity` hashes what was
+      read out of it, so an edit to the tracked JSON is a load failure.
 
     It does **not** run `_kept_constituent`, so the `Expected Provenance Status`,
     `Expected needs_review`, `Expected Group` and `Expected Proposal ID` gates —
@@ -1348,17 +1363,24 @@ def export_row_decisions_bytes(
         _declared_concept_codes(concept_ws, _concept_headers(concept_ws)),
     )
     try:
+        meta = RowDecisionMetadata(
+            schema_version=_ROW_DECISION_SCHEMA_VERSION,
+            ncit_version=evidence["NCIt release"],
+            source_workbook=source_workbook,
+            workbook_identity=hashlib.sha256(workbook_bytes).hexdigest(),
+            source_identity=evidence["Source identity"],
+            run_id=evidence["Engine run"],
+            engine_evidence_identity=evidence["Engine evidence identity"],
+            reviewer=reviewer,
+        )
+        # Bind the identity *after* the payload exists (D61). Nothing here is
+        # pre-declared: the hash is taken over the rows that were actually read.
+        payload: dict[str, object] = {
+            "_meta": meta.model_dump(mode="json"),
+            "rows": tuple(row.model_dump(mode="json") for row in rows),
+        }
         return RowDecisionExport.model_validate(
-            {
-                "_meta": RowDecisionMetadata(
-                    schema_version=_ROW_DECISION_SCHEMA_VERSION,
-                    ncit_version=evidence["NCIt release"],
-                    source_workbook=source_workbook,
-                    workbook_identity=hashlib.sha256(workbook_bytes).hexdigest(),
-                    reviewer=reviewer,
-                ),
-                "rows": rows,
-            }
+            {**payload, "payload_identity": _payload_identity(payload)}
         )
     except (ValidationError, ValueError) as error:
         raise _model_error(error) from error

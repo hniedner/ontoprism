@@ -24,6 +24,7 @@ means something upstream changed; that is a finding to report, not a test to rep
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -52,6 +53,62 @@ def _mapping(value: object, label: str) -> dict[str, Any]:
     """Narrow one report node to a mapping, failing loudly if its shape changed."""
     assert isinstance(value, dict), f"{label} must be a mapping, got {type(value)}"
     return value
+
+
+def _sequence(value: object, label: str) -> list[Any]:
+    """Narrow one evidence node to a list, failing loudly if its shape changed."""
+    assert isinstance(value, list), f"{label} must be a list, got {type(value)}"
+    return value
+
+
+def _engine_emitted_triples() -> set[tuple[str, str, str]]:
+    """Every `(code, axis, filler)` the recorded engine run actually emitted."""
+    evidence = _mapping(
+        read_json_without_duplicates(_ENGINE_EVIDENCE_PATH), "engine evidence"
+    )
+    return {
+        (
+            _mapping(concept, "engine concept")["code"],
+            _mapping(constituent, "engine constituent")["axis"],
+            _mapping(constituent, "engine constituent")["filler"],
+        )
+        for concept in _sequence(evidence["concepts"], "engine concepts")
+        for constituent in _sequence(
+            _mapping(concept, "engine concept")["constituents"],
+            "engine constituents",
+        )
+    }
+
+
+def _engine_constituents_per_concept() -> Counter[str]:
+    """How many constituents the run emitted per concept, zeros omitted.
+
+    Zeros are dropped rather than relying on `Counter.__eq__` eliding them: two
+    adjudicated concepts have no engine constituents at all, and a comparison that
+    depended on that stdlib nicety would be a false assumption waiting to break.
+    The row-side counter never contains a zero by construction.
+    """
+    evidence = _mapping(
+        read_json_without_duplicates(_ENGINE_EVIDENCE_PATH), "engine evidence"
+    )
+    counts: Counter[str] = Counter()
+    for concept in _sequence(evidence["concepts"], "engine concepts"):
+        node = _mapping(concept, "engine concept")
+        emitted = len(_sequence(node["constituents"], "engine constituents"))
+        if emitted:
+            counts[node["code"]] = emitted
+    return counts
+
+
+def _row_triples(
+    export: RowDecisionExport, row_type: str, sme_action: str
+) -> set[tuple[str | None, str | None, str | None]]:
+    """The `(code, expected axis, expected filler)` triples of one cross-tab cell."""
+    return {
+        (row.code, row.expected_axis, row.expected_filler)
+        for row in export.rows
+        if row.row_type == row_type and row.sme_action == sme_action
+    }
 
 
 @pytest.fixture(scope="module")
@@ -258,3 +315,64 @@ def test_row_decisions_and_the_oracle_agree_on_the_expected_set(
     assert len(expected) == 154
     assert m1_row_decisions.meta.workbook_identity == m1_artifact.meta.workbook_identity
     assert m1_row_decisions.meta.ncit_version == m1_artifact.meta.ncit_version
+
+
+@pytest.mark.unit
+def test_the_acceptance_denominator_is_this_engine_run_s_output(
+    m1_row_decisions: RowDecisionExport,
+    m1_artifact: AdjudicationArtifact,
+) -> None:
+    """106 is what the recorded run emitted, concept by concept — not a row count.
+
+    The published headline divides by the number of `ENGINE SUGGESTION` rows, and
+    nothing tied that number to any engine output: relabelling the 63
+    `ADD IF MISSING` / `include` rows as suggestions would have moved it to 121 and
+    the rate to 40%. Here the per-concept row counts must equal the per-concept
+    constituent counts of `neoplasm-engine-evidence.json`, so the denominator is
+    the run's output and any relabelled, deleted or duplicated suggestion row
+    breaks a concept's count.
+
+    The 48 accepted suggestions must further be triples that run actually emitted,
+    and the SME-added constituents must be disjoint from them — 0 of the 63 appear
+    in the run's output, which is what makes the relabelling check bite rather than
+    pass vacuously. `revise` rows sit in between by construction: 32 of 42 kept the
+    engine's pair and 10 replaced it, so `include` is not merely "the rows whose
+    pair survives".
+    """
+    emitted = _engine_emitted_triples()
+    suggestions_per_concept = Counter(
+        row.code for row in m1_row_decisions.rows if row.row_type == "ENGINE SUGGESTION"
+    )
+    emitted_per_concept = _engine_constituents_per_concept()
+
+    assert suggestions_per_concept == emitted_per_concept
+    assert len(emitted_per_concept) == 18
+    assert sum(suggestions_per_concept.values()) == 106
+    assert len(emitted) == 106
+
+    accepted = _row_triples(m1_row_decisions, "ENGINE SUGGESTION", "include")
+    assert len(accepted) == 48
+    assert accepted <= emitted
+    assert _row_triples(m1_row_decisions, "ADD IF MISSING", "include").isdisjoint(
+        emitted
+    )
+    assert len(_row_triples(m1_row_decisions, "ENGINE SUGGESTION", "revise") & emitted)
+
+
+@pytest.mark.unit
+def test_row_decisions_name_the_run_and_source_the_oracle_names(
+    m1_row_decisions: RowDecisionExport,
+    m1_artifact: AdjudicationArtifact,
+) -> None:
+    """Acceptance is a statement about one engine run, so the export names it.
+
+    `_required_evidence` already demanded `Engine evidence identity`, `Source
+    identity` and `Engine run` and then discarded all but `NCIt release`, so the
+    tracked rows could be read beside any run at all.
+    """
+    assert (
+        m1_row_decisions.meta.engine_evidence_identity
+        == m1_artifact.meta.engine_evidence_identity
+    )
+    assert m1_row_decisions.meta.source_identity == m1_artifact.meta.source_identity
+    assert m1_row_decisions.meta.run_id == m1_artifact.meta.run_id

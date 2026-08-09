@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -36,6 +36,7 @@ from ontolib.decomposition.proposal_registry import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 _EXCEL_MAX_COLUMN = 16384
@@ -1959,6 +1960,122 @@ def test_row_decision_loader_rejects_duplicate_kept_pairs(tmp_path: Path) -> Non
 
     with pytest.raises(GoldenSetValidationError, match="kept rows must be unique"):
         load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_row_decision_export_binds_the_rows_to_the_engine_run_they_measure(
+    tmp_path: Path,
+) -> None:
+    """An acceptance rate is meaningless without the run whose output it grades.
+
+    `_required_evidence` already demanded these three keys and then discarded all
+    but `NCIt release`, so the exported rows named no engine run, no source and no
+    engine evidence. Nothing tied "48 of 106 suggestions accepted" to the
+    suggestions of a particular run.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+
+    export = export_row_decisions(workbook)
+    artifact = import_adjudication_workbook(workbook)
+
+    assert export.meta.source_identity == artifact.meta.source_identity
+    assert export.meta.run_id == artifact.meta.run_id
+    assert (
+        export.meta.engine_evidence_identity == artifact.meta.engine_evidence_identity
+    )
+    assert (
+        export.meta.engine_evidence_identity == _engine_evidence()["evidence_identity"]
+    )
+
+
+@pytest.mark.unit
+def test_row_decision_export_signs_the_rows_it_exports(tmp_path: Path) -> None:
+    """The payload identity covers the rows, not merely the workbook they came from.
+
+    `workbook_identity` hashes the `.xlsx`; it says nothing about the row set
+    derived from it. Every sibling artifact in this module carries a
+    payload-covering identity and validates it at load; this one did not.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+
+    export = export_row_decisions(workbook)
+
+    assert export.meta.schema_version == 2
+    assert export.payload_identity == _identity(
+        export.model_dump(mode="json", by_alias=True, exclude={"payload_identity"})
+    )
+    assert export.payload_identity != export.meta.workbook_identity
+
+
+def _row_decision_payload(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
+    workbook = tmp_path / "review.xlsx"
+    export_path = tmp_path / "rows.json"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+    adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
+    return export_path, json.loads(export_path.read_text(encoding="utf-8"))
+
+
+def _drop_excluded_rows(payload: dict[str, Any]) -> None:
+    payload["rows"] = [row for row in payload["rows"] if row["sme_action"] != "exclude"]
+
+
+def _relabel_a_candidate_row(payload: dict[str, Any]) -> None:
+    for row in payload["rows"]:
+        if row["row_type"] == "ADD IF MISSING" and row["sme_action"] == "include":
+            row["row_type"] = "ENGINE SUGGESTION"
+            return
+    raise AssertionError("fixture no longer contains an included candidate row")
+
+
+def _duplicate_an_excluded_row(payload: dict[str, Any]) -> None:
+    excluded = next(row for row in payload["rows"] if row["sme_action"] == "exclude")
+    payload["rows"].extend([dict(excluded)] * 20)
+
+
+def _blank_a_withdrawn_expectation(payload: dict[str, Any]) -> None:
+    for row in payload["rows"]:
+        if row["sme_action"] == "exclude" and row["expected_axis"] is not None:
+            row["expected_axis"] = None
+            row["expected_filler"] = None
+            return
+    raise AssertionError("fixture no longer contains a withdrawn expectation")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "edit",
+    [
+        _drop_excluded_rows,
+        _relabel_a_candidate_row,
+        _duplicate_an_excluded_row,
+        _blank_a_withdrawn_expectation,
+    ],
+    ids=["deleted", "relabelled", "duplicated", "blanked"],
+)
+def test_row_decision_loader_rejects_a_hand_edited_row_set(
+    tmp_path: Path, edit: Callable[[dict[str, Any]], None]
+) -> None:
+    """Every edit that moves the acceptance rate is now a load failure.
+
+    Each of these loaded clean before the payload identity existed, and each moves
+    the published denominator: deleting the excluded rows, relabelling candidate
+    rows as suggestions, duplicating one excluded row, or blanking a withdrawn
+    expectation — which destroys exactly the property
+    `test_row_decisions_and_the_oracle_agree_on_the_expected_set` relies on.
+    """
+    export_path, payload = _row_decision_payload(tmp_path)
+    before = load_row_decisions(export_path)
+    edit(payload)
+    _write_json(export_path, payload)
+
+    with pytest.raises(GoldenSetValidationError, match="payload identity"):
+        load_row_decisions(export_path)
+    assert payload["rows"] != [row.model_dump(mode="json") for row in before.rows], (
+        "the edit must actually change the row set"
+    )
 
 
 @pytest.mark.unit
