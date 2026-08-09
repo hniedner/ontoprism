@@ -14,7 +14,14 @@ from zipfile import BadZipFile
 
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
 from ontolib.decomposition.proposal_registry import (
@@ -326,17 +333,32 @@ class RowDecisionMetadata(_StrictModel):
         return self
 
 
+def _require_decision_rows(
+    value: tuple[ConstituentRowDecision, ...],
+) -> tuple[ConstituentRowDecision, ...]:
+    """Reject an empty row set as a *field* failure, not a whole-model one.
+
+    A model-level check reports the entire validated input, so pydantic renders
+    the reviewer's `_meta` block — name, qualification, attestation date — into an
+    exception that is then printed by the CLI and captured in CI logs. None of it
+    is evidence about an empty row set. Failing on the field reports the field.
+    """
+    if not value:
+        raise ValueError("row decisions must not be empty")
+    return value
+
+
 class RowDecisionExport(_StrictModel):
     """Every constituent decision the reviewer recorded, verbatim."""
 
     meta: Annotated[RowDecisionMetadata, Field(alias="_meta")]
-    rows: tuple[ConstituentRowDecision, ...]
+    rows: Annotated[
+        tuple[ConstituentRowDecision, ...], AfterValidator(_require_decision_rows)
+    ]
     payload_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _validate_rows(self) -> Self:
-        if not self.rows:
-            raise ValueError("row decisions must not be empty")
         kept: list[tuple[str, str, str]] = []
         withdrawn: list[tuple[str, str, str]] = []
         for row in self.rows:

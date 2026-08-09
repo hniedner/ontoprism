@@ -2415,3 +2415,148 @@ def test_an_unrecognized_action_is_reported_before_the_completeness_gate(
 
     with pytest.raises(GoldenSetValidationError, match="invalid SME action: maybe"):
         export_row_decisions(workbook_path)
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_an_empty_row_set(tmp_path: Path) -> None:
+    """An export with no rows is not a review, and the refusal names only the rows.
+
+    The rejection is reachable only through the JSON loader: a workbook with no
+    populated constituent row is a real possibility, but `export_row_decisions`
+    reaches this gate with whatever the sheet held, so the empty case has to be
+    provoked here. The message must not drag `_meta` into the failure text — these
+    land verbatim in CI logs, and the metadata block carries the reviewer's name
+    and attestation date, none of which is evidence about an empty row set.
+    """
+    export_path, payload = _row_decision_payload(tmp_path)
+    payload["rows"] = []
+    _write_json(export_path, _resign_row_decisions(payload))
+
+    with pytest.raises(GoldenSetValidationError) as error:
+        load_row_decisions(export_path)
+
+    assert "row decisions must not be empty" in str(error.value)
+    assert "_meta" not in str(error.value)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", ["expected_axis", "expected_filler"])
+@pytest.mark.parametrize("action", ["include", "exclude"])
+def test_row_decision_loader_rejects_a_padded_expectation(
+    tmp_path: Path, action: str, field: str
+) -> None:
+    """The row model's canonical-text gate is live, and only on this path.
+
+    `_cell_text`/`_optional_text` canonicalize before the row model is built, so
+    from the workbook the model's own check can never fire. The signed JSON export
+    is a real second entry point — `test_m1_baseline.py` reads the tracked file
+    through it — and there the padded value reaches the model directly.
+    """
+    export_path, payload = _row_decision_payload(tmp_path)
+    row = next(
+        item
+        for item in payload["rows"]
+        if item["sme_action"] == action and item["expected_axis"] is not None
+    )
+    row[field] = " " + row[field]
+    _write_json(export_path, _resign_row_decisions(payload))
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match="must be non-empty without outer whitespace",
+    ):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", ["ncit_version", "source_workbook", "run_id"])
+def test_row_decision_loader_rejects_padded_metadata_text(
+    tmp_path: Path, field: str
+) -> None:
+    """A hand-edited `_meta` cannot smuggle a padded release, label or run id."""
+    export_path, payload = _row_decision_payload(tmp_path)
+    payload["_meta"][field] = " " + payload["_meta"][field]
+    _write_json(export_path, _resign_row_decisions(payload))
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match=f"{field} must be non-empty without outer whitespace",
+    ):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_row_decision_export_rejects_a_padded_evidence_value(
+    tmp_path: Path,
+) -> None:
+    """`Source & Run Evidence` values are never canonicalized on the way in.
+
+    `_evidence_values` reads both columns raw, so `RowDecisionMetadata`'s text gate
+    is the only thing standing between a padded `NCIt release` cell and the tracked
+    export — and reaching it is what exercises the `_model_error` wrap in
+    `export_row_decisions_bytes`, which turns a pydantic failure into the
+    `GoldenSetValidationError` every caller of this module handles.
+    """
+    workbook_path = tmp_path / "padded-release.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Source & Run Evidence"]
+    sheet.cell(5, 2, " 26.07d")
+    workbook.save(workbook_path)
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match="ncit_version must be non-empty without outer whitespace",
+    ):
+        export_row_decisions(workbook_path)
+
+
+@pytest.mark.unit
+def test_row_decision_export_rejects_a_padded_source_workbook_label(
+    tmp_path: Path,
+) -> None:
+    """The display label is caller-supplied, so it is held to the same form.
+
+    `export_row_decisions` passes `Path.name`, which preserves a leading space in
+    the file name; `export_row_decisions_bytes` accepts any label at all.
+    """
+    workbook_path = tmp_path / "review.xlsx"
+    _create_workbook(workbook_path)
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match="source_workbook must be non-empty without outer whitespace",
+    ):
+        golden_review.export_row_decisions_bytes(
+            workbook_path.read_bytes(), " review.xlsx"
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "read",
+    [export_row_decisions, import_adjudication_workbook],
+    ids=["export", "import"],
+)
+def test_an_unreadable_workbook_path_is_reported_as_such(
+    tmp_path: Path, read: Callable[[Path], object]
+) -> None:
+    """A missing or unreadable `.xlsx` fails as a workbook, not as a stack trace."""
+    with pytest.raises(
+        GoldenSetValidationError, match="cannot read adjudication workbook"
+    ):
+        read(tmp_path / "absent.xlsx")
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_a_json_document_that_is_not_an_object(
+    tmp_path: Path,
+) -> None:
+    """A JSON array parses cleanly and is not a row-decision export."""
+    export_path = tmp_path / "rows.json"
+    _write_json(export_path, [])
+
+    with pytest.raises(
+        GoldenSetValidationError, match="row decisions must be a JSON object"
+    ):
+        load_row_decisions(export_path)
