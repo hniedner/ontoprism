@@ -365,8 +365,8 @@ def test_the_acceptance_denominator_is_this_engine_run_s_output(
     The 48 accepted suggestions must further be triples that run actually emitted,
     and the 64 kept candidate pairs must be disjoint from the run's output, which
     is what makes the relabelling check bite rather than pass vacuously. Suggestion
-    `revise` rows sit in between by construction: 32 of 42 kept the engine's pair
-    and 10 replaced it, so `include` is not merely "the rows whose pair survives".
+    `revise` rows may preserve or replace the recorded engine pair, so the action
+    label alone does not say whether the pair survives.
 
     Every structural assertion precedes the count literal it supports. Ordered the
     other way, a `len(...) == 48` failing first hides whether the set relation still
@@ -389,11 +389,14 @@ def test_the_acceptance_denominator_is_this_engine_run_s_output(
     assert sum(suggestions_per_concept.values()) == 106
     assert len(emitted) == 106
 
+    kept_candidates = _row_triples(
+        m1_row_decisions, "ADD IF MISSING", "include"
+    ) | _row_triples(m1_row_decisions, "ADD IF MISSING", "revise")
+    assert kept_candidates.isdisjoint(emitted)
+    assert len(kept_candidates) == 64
+
     accepted = _row_triples(m1_row_decisions, "ENGINE SUGGESTION", "include")
     assert accepted <= emitted
-    assert _row_triples(m1_row_decisions, "ADD IF MISSING", "include").isdisjoint(
-        emitted
-    )
     assert len(_row_triples(m1_row_decisions, "ENGINE SUGGESTION", "revise") & emitted)
     assert len(accepted) == 48
 
