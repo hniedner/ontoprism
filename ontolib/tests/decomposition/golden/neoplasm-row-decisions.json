@@ -8,1303 +8,2107 @@
       "reviewed_at": "2026-08-03"
     },
     "run_id": "neoplasm-3981f4d1-28fe-446e-b63a-0db81c80963b",
-    "schema_version": 3,
+    "schema_version": 4,
     "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8",
     "source_workbook": "M1-57_SME_Adjudication_Workbook_FINAL-REVIEW-PENDING_v14.xlsx",
     "workbook_identity": "c1fbcb0d3d09c4846b519bc9e58fced4b393461191c2634994d2346f9df12321"
   },
-  "payload_identity": "49def8963e94a098112ec87210e99ebbc65aedf200f4129b81e03b2766d38b61",
+  "payload_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
   "rows": [
     {
       "code": "C27262",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C41063",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C41063"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C41063"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C27262",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C36220",
+      "engine": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36220"
+      },
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36220"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C27262",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C41397",
+      "engine": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C41397"
+      },
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C41397"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C27262",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C35501",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C35501"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C35501"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C27262",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12431",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12431"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12431"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C27262",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C9290",
+      "engine": null,
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C9290"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C27262",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C41165",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C41165"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C102870",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C12917"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C102870",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36903",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36903"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36903"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C102870",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C121619",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C121619"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C121619"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C102870",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12404",
+      "engine": null,
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12404"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C102870",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C39986",
+      "engine": null,
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C39986"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C162770",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C102870",
-      "expected_axis": "op:AssociatedSite",
-      "expected_filler": "C12321",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedSite",
+        "filler": "C12321"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C102883",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C102883",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C115057",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36771",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36771"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36771"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C115057",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C42690",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C42690"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C42690"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C115057",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C54224",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C54224"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C54224"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C115057",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90529",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90529"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90529"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C115057",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90530",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C115057",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-d104509874ed"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C115057",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27966",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C115057",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12418",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12418"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C115057",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36836",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36836"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36836"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C7153",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C7153"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C7153"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C101539",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C101539",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-8512b41a844d"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C140961",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C140961"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C140961"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27966",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12400",
+      "engine": null,
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12400"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12705",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12705"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:MetastaticSite",
-      "expected_filler": "C32298",
+      "engine": {
+        "axis": "op:MetastaticSite",
+        "filler": "C32298"
+      },
+      "expected": {
+        "axis": "op:MetastaticSite",
+        "filler": "C32298"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C8566",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C8566"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C8566"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C132248",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C132248"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C132248"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C132677",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-4563e6974906"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27970",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C40989",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C40989"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C132677",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C181564",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C9039",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C9039"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C9039"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C181564",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12311",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12311"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12311"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C181564",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C180901",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C180901"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C180901"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C181564",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-27f8060dd413"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C181564",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27966",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C181564",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12402",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12402"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C181564",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C186620",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C9039",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C9039"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C9039"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C186620",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12311",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12311"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12311"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C186620",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C186618",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C186618"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C186618"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C186620",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27966",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27966"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C186620",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12402",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12402"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C186620",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C162226",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C9039",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C9039"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C9039"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C162226",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12311",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12311"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12311"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C162226",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C186617",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C186617"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C186617"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C162226",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C96244",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C96244"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C96244"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C162226",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12402",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12402"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C162226",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C206219",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12402",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12402"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12402"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C206219",
-      "expected_axis": "op:PrimarySubsite",
-      "expected_filler": "C32514",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C32514"
+      },
+      "expected": {
+        "axis": "op:PrimarySubsite",
+        "filler": "C32514"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C206219",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C7558",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C7558"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C7558"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C206219",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C206211",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C206211"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C206211"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C206219",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C96244",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C96244"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C96244"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C206219",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12316",
+      "engine": null,
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12316"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "revise"
     },
     {
       "code": "C206219",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C198031",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C12914",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C12914"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C12914"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C198031",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C3168",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C4005"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C3168"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C198031",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C198023",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C198023"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C198023"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C198031",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C198031",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12431",
+      "engine": null,
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12431"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C100054",
-      "expected_axis": "op:AssociatedSite",
-      "expected_filler": "C137974",
+      "engine": {
+        "axis": "op:AssociatedSite",
+        "filler": "C137974"
+      },
+      "expected": {
+        "axis": "op:AssociatedSite",
+        "filler": "C137974"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C100054",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36862",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36862"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36862"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C100054",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C36027",
+      "engine": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36027"
+      },
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36027"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C100054",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C8326",
+      "engine": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C8326"
+      },
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C8326"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C100054",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C204977",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C204977"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C204977"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C100054",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C32365",
+      "engine": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C32365"
+      },
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C32365"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C100054",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12341",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12341"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12341"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C100054",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C100054",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12413",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12413"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12413"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C49274",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C49274"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C49274"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36773",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36773"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36773"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C9385",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C9385"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C9385"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:AssociatedPriorDisease",
-      "expected_filler": "C3270",
+      "engine": {
+        "axis": "R126",
+        "filler": "C3270"
+      },
+      "expected": {
+        "axis": "op:AssociatedPriorDisease",
+        "filler": "C3270"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C100051",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:WithFinding",
+        "filler": "MINT-e7a70a54f6ff"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12415",
+      "engine": null,
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12415"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:AssociatedSite",
-      "expected_filler": "C61107",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedSite",
+        "filler": "C61107"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12418",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12418"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12418"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C13063",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C13063"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C13063"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:MolecularAbnormality",
-      "expected_filler": "C129702",
+      "engine": {
+        "axis": "op:MolecularAbnormality",
+        "filler": "C129702"
+      },
+      "expected": {
+        "axis": "op:MolecularAbnormality",
+        "filler": "C129702"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C3879",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C3879"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C3879"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12400",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12400"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12400"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90530",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-8512b41a844d"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27970",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12705",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12705"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36825",
+      "engine": null,
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36825"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12905",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12905"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12905"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C13004",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C13004"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C13004"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:AssociatedSite",
-      "expected_filler": "C13004",
+      "engine": {
+        "axis": "op:AssociatedSite",
+        "filler": "C13004"
+      },
+      "expected": {
+        "axis": "op:AssociatedSite",
+        "filler": "C13004"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36899",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36899"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36899"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36954",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36954"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36954"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C4791",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:Laterality",
+        "filler": "MINT-77bd086d7877"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C3499",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C3499"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C3499"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12869",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12869"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12869"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12727",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12727"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "exclude"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:AssociatedLineageClassification",
-      "expected_filler": "C12471",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedLineageClassification",
+        "filler": "C12471"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36820",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36820"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36820"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C3331",
+      "engine": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C3331"
+      },
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C3331"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C4917",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C4878"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C4917"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12468",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12468"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12468"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:PrimarySubsite",
-      "expected_filler": "C12683",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12683"
+      },
+      "expected": {
+        "axis": "op:PrimarySubsite",
+        "filler": "C12683"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90530",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-8512b41a844d"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27978",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27978"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27978"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C28064",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C28064"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C28064"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:WithFinding",
+        "filler": "MINT-a60f42d6b2d0"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:AssociatedLineageClassification",
-      "expected_filler": "C12704",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedLineageClassification",
+        "filler": "C12704"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:AssociatedLineageClassification",
-      "expected_filler": "C12705",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedLineageClassification",
+        "filler": "C12705"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C89995",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C54189",
+      "engine": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C54189"
+      },
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C54189"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C89995",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C4910",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C2955"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C4910"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C89995",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12382",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12382"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12382"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C89995",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90530",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C89995",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-8512b41a844d"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C89995",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27970",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C89995",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C141685",
+      "engine": null,
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C141685"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C27787",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C12917"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:CellType",
-      "expected_filler": "C36903",
+      "engine": {
+        "axis": "op:CellType",
+        "filler": "C36903"
+      },
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "C36903"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C5027",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C5027"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C5027"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C12412",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12412"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C12412"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90529",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90529"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90529"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90530",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C27787",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-d104509874ed"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27970",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27970"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12722",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12722"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C27787",
-      "expected_axis": "op:CellType",
-      "expected_filler": "MINT-781c8c8c6096",
+      "engine": null,
+      "expected": {
+        "axis": "op:CellType",
+        "filler": "MINT-781c8c8c6096"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C115118",
-      "expected_axis": "op:Morphology",
-      "expected_filler": "C3513",
+      "engine": {
+        "axis": "op:Morphology",
+        "filler": "C3513"
+      },
+      "expected": {
+        "axis": "op:Morphology",
+        "filler": "C3513"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C115118",
-      "expected_axis": "op:PrimarySubsite",
-      "expected_filler": "C12389",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C12389"
+      },
+      "expected": {
+        "axis": "op:PrimarySubsite",
+        "filler": "C12389"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C115118",
-      "expected_axis": "op:PrimarySite",
-      "expected_filler": "C203674",
+      "engine": {
+        "axis": "op:PrimarySite",
+        "filler": "C203674"
+      },
+      "expected": {
+        "axis": "op:PrimarySite",
+        "filler": "C203674"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C115118",
-      "expected_axis": "op:StageSystem",
-      "expected_filler": "C90530",
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
+      "expected": {
+        "axis": "op:StageSystem",
+        "filler": "C90530"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "include"
     },
     {
       "code": "C115118",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": {
+        "axis": "op:StageSystem",
+        "filler": "MINT-8512b41a844d"
+      },
+      "expected": null,
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "exclude"
     },
     {
       "code": "C115118",
-      "expected_axis": "op:StageValue",
-      "expected_filler": "C27976",
+      "engine": {
+        "axis": "op:StageValue",
+        "filler": "C27976"
+      },
+      "expected": {
+        "axis": "op:StageValue",
+        "filler": "C27976"
+      },
       "row_type": "ENGINE SUGGESTION",
       "sme_action": "revise"
     },
     {
       "code": "C115118",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12378",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12378"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C115118",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12418",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12418"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "exclude"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C13063",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C13063"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C198031",
+      "engine": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "not-needed"
     },
     {
       "code": "C198031",
-      "expected_axis": "op:AssociatedRegion",
-      "expected_filler": "C12746",
+      "engine": null,
+      "expected": {
+        "axis": "op:AssociatedRegion",
+        "filler": "C12746"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C100051",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C49276",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C49276"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C33782",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C33782"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C188014",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C188014"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C47806",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C47806"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C101539",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C47817",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C47817"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C102870",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": null,
+      "expected": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "exclude"
     },
     {
       "code": "C102870",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C156460",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C156460"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C115118",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C49221",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C49221"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C40557",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C40557"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C41444",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C41444"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C132677",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C48322",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C48322"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C162226",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C49218",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C49218"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C181564",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C49218",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C49218"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C186620",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C49218",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C49218"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C198031",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C13049",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C13049"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C198031",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C60644",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C60644"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C206219",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C12313",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C12313"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C27262",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C13051",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C13051"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C27787",
-      "expected_axis": null,
-      "expected_filler": null,
+      "engine": null,
+      "expected": null,
       "row_type": "ADD IF MISSING",
       "sme_action": "exclude"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C155863",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C155863"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C207031",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C207031"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C36129",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36129"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C36184",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36184"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C43574",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C43574"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C54209",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C54209"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C55817",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C55817"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C35756",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C60308",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C60308"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C35998",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C35998"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C36105",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36105"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C53583",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C53583"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C33782",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C33782"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C155863",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C155863"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C207031",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C207031"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C41457",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C41457"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C43574",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C43574"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C47804",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C47804"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C6135",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C47807",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C47807"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C89995",
-      "expected_axis": "op:NormalTissueOrigin",
-      "expected_filler": "C32926",
+      "engine": null,
+      "expected": {
+        "axis": "op:NormalTissueOrigin",
+        "filler": "C32926"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     },
     {
       "code": "C4791",
-      "expected_axis": "op:ClinicalFinding",
-      "expected_filler": "C36122",
+      "engine": null,
+      "expected": {
+        "axis": "op:ClinicalFinding",
+        "filler": "C36122"
+      },
       "row_type": "ADD IF MISSING",
       "sme_action": "include"
     }

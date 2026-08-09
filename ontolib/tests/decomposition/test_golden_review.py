@@ -45,6 +45,8 @@ from ontolib.decomposition.proposal_registry import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from openpyxl.worksheet.worksheet import Worksheet
+
 _EXCEL_MAX_COLUMN = 16384
 _DIGEST_A = "a" * 64
 _DIGEST_B = "b" * 64
@@ -1813,16 +1815,50 @@ def test_adjudication_cli_imports_workbook_and_evaluates_report(
 
 
 _EXTRA_DECISION_ROWS = (
-    # code, row type, action, expected axis, expected filler, complete
-    ("C0", "ADD IF MISSING", "include", "op:PrimarySite", "C12345", "YES"),
-    ("C1", "ADD IF MISSING", "exclude", None, None, "YES"),
-    ("C2", "ADD IF MISSING", "not-needed", None, None, "NO"),
-    ("C3", "ENGINE SUGGESTION", "revise", "op:StageValue", "C27971", "YES"),
+    # code, row type, engine axis, engine filler, action, expected axis,
+    # expected filler, complete
+    ("C0", "ADD IF MISSING", None, None, "include", "op:PrimarySite", "C12345", "YES"),
+    ("C1", "ADD IF MISSING", None, None, "exclude", None, None, "YES"),
+    ("C2", "ADD IF MISSING", None, None, "not-needed", None, None, "NO"),
+    # A revision that replaced the engine's pair: the reviewer kept the row but not
+    # what the engine offered, so it counts in `revise` and not in `pair_preserved`.
+    (
+        "C3",
+        "ENGINE SUGGESTION",
+        "op:StageValue",
+        "C27974",
+        "revise",
+        "op:StageValue",
+        "C27971",
+        "YES",
+    ),
     # An excluded row that still carries a stale expectation, as three rows of the
     # attested #57 workbook do. Its pair differs from C4's kept pair, so a reader
     # that filtered on "has an expected pair" instead of the SME action would
     # produce a triple the oracle does not contain.
-    ("C4", "ENGINE SUGGESTION", "exclude", "op:StageValue", "C27972", "YES"),
+    (
+        "C4",
+        "ENGINE SUGGESTION",
+        "op:StageValue",
+        "C27972",
+        "exclude",
+        "op:StageValue",
+        "C27972",
+        "YES",
+    ),
+    # A revision that kept the engine's pair — 32 of the attested workbook's 42
+    # revised suggestions have this shape, which is why `pair_preserved` and
+    # `include` are different questions.
+    (
+        "C5",
+        "ENGINE SUGGESTION",
+        "op:StageValue",
+        "C27973",
+        "revise",
+        "op:StageValue",
+        "C27973",
+        "YES",
+    ),
 )
 
 
@@ -1830,12 +1866,21 @@ def _append_decision_rows(path: Path) -> None:
     """Append reviewer decision rows covering every SME action and row type."""
     workbook = load_workbook(path)
     sheet = workbook["Constituent Decisions"]
-    for offset, (code, row_type, action, axis, filler, complete) in enumerate(
-        _EXTRA_DECISION_ROWS
-    ):
+    for offset, (
+        code,
+        row_type,
+        engine_axis,
+        engine_filler,
+        action,
+        axis,
+        filler,
+        complete,
+    ) in enumerate(_EXTRA_DECISION_ROWS):
         row = sheet.max_row + 1 + offset
         sheet.cell(row, 2, code)
         sheet.cell(row, 4, row_type)
+        sheet.cell(row, 5, engine_axis)
+        sheet.cell(row, 6, engine_filler)
         sheet.cell(row, 10, action)
         sheet.cell(row, 11, axis)
         sheet.cell(row, 12, filler)
@@ -1854,7 +1899,7 @@ def test_row_decision_export_keeps_every_reviewer_decision(tmp_path: Path) -> No
 
     export = export_row_decisions(workbook)
 
-    assert len(export.rows) == 25
+    assert len(export.rows) == 26
     assert export.meta.ncit_version == "26.07d"
     assert export.meta.source_workbook == "review.xlsx"
     assert export.meta.reviewer.name == "Example Reviewer"
@@ -1863,7 +1908,9 @@ def test_row_decision_export_keeps_every_reviewer_decision(tmp_path: Path) -> No
         == hashlib.sha256(workbook.read_bytes()).hexdigest()
     )
     assert export.cross_tab() == RowDecisionCrossTab(
-        engine_suggestion=EngineAcceptance(include=20, revise=1, exclude=1),
+        engine_suggestion=EngineAcceptance(
+            include=20, revise=2, exclude=1, pair_preserved=21
+        ),
         add_if_missing=CandidateOutcomes(include=1, revise=0, exclude=1, not_needed=1),
     )
 
@@ -2002,10 +2049,12 @@ def test_row_decision_export_accepts_kept_constituent_defects_the_import_rejects
 
         export = export_row_decisions(workbook_path)
 
-        assert export.rows[0].code == "C0"
-        assert export.rows[0].sme_action == "include"
-        assert export.rows[0].expected_axis == "op:StageValue"
-        assert export.rows[0].expected_filler == "C27970"
+        first = export.rows[0]
+        assert isinstance(first, KeptRow)
+        assert first.code == "C0"
+        assert first.sme_action == "include"
+        assert first.expected.axis == "op:StageValue"
+        assert first.expected.filler == "C27970"
         with pytest.raises(GoldenSetValidationError, match=message):
             import_adjudication_workbook(workbook_path)
 
@@ -2066,10 +2115,10 @@ def test_row_decision_loader_rejects_a_kept_row_without_an_expected_pair(
     adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
     payload = json.loads(export_path.read_text(encoding="utf-8"))
     assert load_row_decisions(export_path).rows[0].sme_action == "include"
-    payload["rows"][0]["expected_filler"] = None
+    payload["rows"][0]["expected"]["filler"] = None
     _write_json(export_path, payload)
 
-    with pytest.raises(GoldenSetValidationError, match="expected_filler"):
+    with pytest.raises(GoldenSetValidationError, match=r"expected\.filler"):
         load_row_decisions(export_path)
 
 
@@ -2119,7 +2168,7 @@ def test_row_decision_loader_rejects_duplicate_withdrawn_pairs(
     withdrawn = next(
         row
         for row in payload["rows"]
-        if row["sme_action"] == "exclude" and row["expected_axis"] is not None
+        if row["sme_action"] == "exclude" and row["expected"] is not None
     )
     payload["rows"].append(dict(withdrawn))
     _write_json(export_path, _resign_row_decisions(payload))
@@ -2149,13 +2198,9 @@ def test_row_decision_loader_rejects_a_pair_both_kept_and_withdrawn(
     withdrawn = next(
         row
         for row in payload["rows"]
-        if row["sme_action"] == "exclude" and row["expected_axis"] is not None
+        if row["sme_action"] == "exclude" and row["expected"] is not None
     )
-    withdrawn.update(
-        code=kept["code"],
-        expected_axis=kept["expected_axis"],
-        expected_filler=kept["expected_filler"],
-    )
+    withdrawn.update(code=kept["code"], expected=dict(kept["expected"]))
     _write_json(export_path, _resign_row_decisions(payload))
 
     with pytest.raises(GoldenSetValidationError, match="both kept and withdrawn"):
@@ -2230,7 +2275,7 @@ def test_row_decision_export_signs_the_rows_it_exports(tmp_path: Path) -> None:
 
     export = export_row_decisions(workbook)
 
-    assert export.meta.schema_version == 3
+    assert export.meta.schema_version == 4
     assert export.payload_identity == _identity(
         export.model_dump(mode="json", by_alias=True, exclude={"payload_identity"})
     )
@@ -2251,9 +2296,16 @@ def _drop_excluded_rows(payload: dict[str, Any]) -> None:
 
 
 def _relabel_a_candidate_row(payload: dict[str, Any]) -> None:
+    """Promote an SME-added row to a suggestion, engine pair and all.
+
+    Relabelling alone is now refused by `_AdjudicatedRow`, so the forgery has to
+    invent the suggestion too. That leaves a structurally valid row set, and the
+    payload identity is what refuses it.
+    """
     for row in payload["rows"]:
         if row["row_type"] == "ADD IF MISSING" and row["sme_action"] == "include":
             row["row_type"] = "ENGINE SUGGESTION"
+            row["engine"] = dict(row["expected"])
             return
     raise AssertionError("fixture no longer contains an included candidate row")
 
@@ -2265,9 +2317,8 @@ def _duplicate_an_excluded_row(payload: dict[str, Any]) -> None:
 
 def _blank_a_withdrawn_expectation(payload: dict[str, Any]) -> None:
     for row in payload["rows"]:
-        if row["sme_action"] == "exclude" and row["expected_axis"] is not None:
-            row["expected_axis"] = None
-            row["expected_filler"] = None
+        if row["sme_action"] == "exclude" and row["expected"] is not None:
+            row["expected"] = None
             return
     raise AssertionError("fixture no longer contains a withdrawn expectation")
 
@@ -2451,6 +2502,7 @@ def test_engine_suggestion_cannot_be_left_not_needed() -> None:
             code="C0",
             row_type=cast("Any", "ENGINE SUGGESTION"),
             sme_action="not-needed",
+            engine=None,
         )
     with pytest.raises(ValidationError, match="ADD IF MISSING"):
         _ROW_DECISION_ADAPTER.validate_python(
@@ -2458,14 +2510,171 @@ def test_engine_suggestion_cannot_be_left_not_needed() -> None:
                 "code": "C0",
                 "row_type": "ENGINE SUGGESTION",
                 "sme_action": "not-needed",
+                "engine": None,
             }
         )
 
     unused = UnusedCandidateRow(
-        code="C0", row_type="ADD IF MISSING", sme_action="not-needed"
+        code="C0", row_type="ADD IF MISSING", sme_action="not-needed", engine=None
     )
     assert not isinstance(unused, KeptRow)
-    assert not hasattr(unused, "expected_axis")
+    assert not hasattr(unused, "expected")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("blank", ["axis", "filler"])
+@pytest.mark.parametrize(
+    "read",
+    [export_row_decisions, import_adjudication_workbook],
+    ids=["export", "import"],
+)
+def test_a_half_named_withdrawal_is_refused_on_both_paths(
+    tmp_path: Path, read: Callable[[Path], object], blank: str
+) -> None:
+    """An excluded row names the pair it withdrew, or it names nothing.
+
+    `expected_axis` and `expected_filler` were independently `str | None`, so
+    `(axis="op:StageValue", filler=None)` was a third state nothing rejected:
+    `withdrawn_triple` returned `None` for it, which silently exempted the row from
+    both the `(code, axis, filler)` uniqueness rule and the kept/withdrawn
+    disjointness rule. Both entry points accepted such a workbook end to end.
+    """
+    workbook_path = tmp_path / f"half-withdrawal-{blank}.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Constituent Decisions"]
+    sheet["J5"] = "exclude"
+    sheet["K5" if blank == "axis" else "L5"] = None
+    workbook.save(workbook_path)
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match="C0 expected pair must name both an axis and a filler, or neither",
+    ):
+        read(workbook_path)
+
+
+@pytest.mark.unit
+def test_row_decision_export_records_the_pair_each_suggestion_offered(
+    tmp_path: Path,
+) -> None:
+    """`Engine Axis` and `Engine Filler` are real columns nothing was reading.
+
+    Without them the export recorded only what the reviewer wrote, so "48 accepted
+    unchanged" was a claim about a label — relabelling `revise` rows whose pair the
+    engine had in fact emitted moved the published rate from 0.4528 to 0.7547 with
+    every test green. Recording the suggested pair makes "unchanged" a comparison
+    the export can perform rather than a word in a docstring.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+
+    export = export_row_decisions(workbook)
+    suggestion = next(row for row in export.rows if row.row_type == "ENGINE SUGGESTION")
+    candidate = next(row for row in export.rows if row.row_type == "ADD IF MISSING")
+
+    assert suggestion.engine is not None
+    assert (suggestion.engine.axis, suggestion.engine.filler) == (
+        "op:StageValue",
+        "C27970",
+    )
+    assert candidate.engine is None
+
+
+def _blank_the_engine_pair_of_a_suggestion(sheet: Worksheet) -> None:
+    sheet["E5"] = None
+    sheet["F5"] = None
+
+
+def _relabel_a_suggestion_as_a_candidate(sheet: Worksheet) -> None:
+    sheet["D5"] = "ADD IF MISSING"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    [
+        (_blank_the_engine_pair_of_a_suggestion, "C0 engine axis must be text"),
+        (
+            _relabel_a_suggestion_as_a_candidate,
+            "C0 candidate row must not record an engine suggestion",
+        ),
+    ],
+    ids=["suggestion-without-a-pair", "candidate-with-a-pair"],
+)
+@pytest.mark.parametrize(
+    "read",
+    [export_row_decisions, import_adjudication_workbook],
+    ids=["export", "import"],
+)
+def test_the_engine_pair_is_present_exactly_on_the_engine_s_own_rows(
+    tmp_path: Path,
+    read: Callable[[Path], object],
+    tamper: Callable[[Worksheet], None],
+    message: str,
+) -> None:
+    """`ENGINE SUGGESTION` means the engine suggested something; the pair proves it.
+
+    Row type was a free-text label the reviewer's sheet carried and nothing
+    corroborated, so a candidate row could be relabelled a suggestion — the edit
+    that moved the denominator from 106 to 121. The engine pair is now required on
+    a suggestion and forbidden on a candidate, on both entry points, so the label
+    cannot move without the evidence for it moving too.
+    """
+    workbook_path = tmp_path / "engine-pair.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    tamper(workbook["Constituent Decisions"])
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match=message):
+        read(workbook_path)
+
+
+@pytest.mark.unit
+def test_a_revised_row_that_kept_the_engine_pair_is_counted_as_preserved(
+    tmp_path: Path,
+) -> None:
+    """`include` counts a label; `pair_preserved` counts an equality.
+
+    On the attested workbook the two differ: 32 of the 42 `revise` suggestions
+    carry the engine's exact pair, so `include` is not "the rows whose pair
+    survived". The fixture reproduces that shape — one `revise` row whose expected
+    pair equals the engine's — so `pair_preserved` exceeds `include` and neither
+    number can be derived from the other.
+    """
+    workbook = tmp_path / "review.xlsx"
+    _create_workbook(workbook)
+    _append_decision_rows(workbook)
+
+    acceptance = export_row_decisions(workbook).cross_tab().engine_suggestion
+
+    assert acceptance.include == 20
+    assert acceptance.revise == 2
+    assert acceptance.pair_preserved == 21
+    assert acceptance.included_rate is not None
+    assert round(acceptance.included_rate, 4) == round(20 / 23, 4)
+
+
+@pytest.mark.unit
+def test_more_pairs_cannot_be_preserved_than_the_reviewer_kept() -> None:
+    """`pair_preserved` counts kept suggestions, so it cannot exceed them.
+
+    A hand-edited tally claiming more preserved pairs than `include + revise` rows
+    describes no row set, and nothing may accept it as evidence.
+    """
+    with pytest.raises(
+        ValidationError, match="pair_preserved cannot exceed the kept suggestions"
+    ):
+        EngineAcceptance(include=1, revise=1, exclude=2, pair_preserved=3)
+
+    assert (
+        EngineAcceptance(
+            include=1, revise=1, exclude=2, pair_preserved=2
+        ).pair_preserved
+        == 2
+    )
 
 
 @pytest.mark.unit
@@ -2477,29 +2686,42 @@ def test_a_kept_row_cannot_be_built_without_its_expected_pair() -> None:
     sites. A `model_construct` or a new variant would have skipped the validator
     and left those casts asserting something no longer true.
     """
-    for missing in ("expected_axis", "expected_filler"):
-        payload = {
-            "code": "C0",
-            "row_type": "ENGINE SUGGESTION",
-            "sme_action": "include",
-            "expected_axis": "op:StageValue",
-            "expected_filler": "C27970",
-        }
-        del payload[missing]
+    for missing in ("axis", "filler"):
+        expected = {"axis": "op:StageValue", "filler": "C27970"}
+        del expected[missing]
         with pytest.raises(ValidationError, match=missing):
-            _ROW_DECISION_ADAPTER.validate_python(payload)
+            _ROW_DECISION_ADAPTER.validate_python(
+                {
+                    "code": "C0",
+                    "row_type": "ENGINE SUGGESTION",
+                    "sme_action": "include",
+                    "engine": {"axis": "op:StageValue", "filler": "C27970"},
+                    "expected": expected,
+                }
+            )
+
+    with pytest.raises(ValidationError, match="expected"):
+        _ROW_DECISION_ADAPTER.validate_python(
+            {
+                "code": "C0",
+                "row_type": "ENGINE SUGGESTION",
+                "sme_action": "include",
+                "engine": {"axis": "op:StageValue", "filler": "C27970"},
+            }
+        )
 
     kept = _ROW_DECISION_ADAPTER.validate_python(
         {
             "code": "C0",
             "row_type": "ENGINE SUGGESTION",
             "sme_action": "include",
-            "expected_axis": "op:StageValue",
-            "expected_filler": "C27970",
+            "engine": {"axis": "op:StageValue", "filler": "C27970"},
+            "expected": {"axis": "op:StageValue", "filler": "C27970"},
         }
     )
     assert isinstance(kept, KeptRow)
     assert kept.expected_triple == ExpectedTriple("C0", "op:StageValue", "C27970")
+    assert kept.pair_preserved
 
 
 @pytest.mark.unit
@@ -2596,7 +2818,12 @@ def test_the_cell_no_engine_suggestion_row_can_occupy_has_no_field(
 
     cross_tab = export_row_decisions(workbook).cross_tab()
 
-    assert set(EngineAcceptance.model_fields) == {"include", "revise", "exclude"}
+    assert set(EngineAcceptance.model_fields) == {
+        "include",
+        "revise",
+        "exclude",
+        "pair_preserved",
+    }
     assert set(CandidateOutcomes.model_fields) == {
         "include",
         "revise",
@@ -2616,13 +2843,12 @@ def test_acceptance_is_undefined_when_the_run_suggested_nothing() -> None:
     bare `float` return would have made `cross_tab()` raise `ZeroDivisionError` on
     a legitimate export whose rows are all SME-added candidates.
     """
-    assert (
-        EngineAcceptance(include=0, revise=0, exclude=0).accepted_unchanged_rate is None
-    )
-    assert EngineAcceptance(include=1, revise=1, exclude=2).adjudicated == 4
-    assert EngineAcceptance(include=1, revise=1, exclude=2).accepted_unchanged_rate == (
-        0.25
-    )
+    empty = EngineAcceptance(include=0, revise=0, exclude=0, pair_preserved=0)
+    ruled_on = EngineAcceptance(include=1, revise=1, exclude=2, pair_preserved=1)
+
+    assert empty.included_rate is None
+    assert ruled_on.adjudicated == 4
+    assert ruled_on.included_rate == 0.25
 
 
 @pytest.mark.unit
@@ -2670,7 +2896,7 @@ def test_row_decision_loader_rejects_an_empty_row_set(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("field", ["expected_axis", "expected_filler"])
+@pytest.mark.parametrize("field", ["axis", "filler"])
 @pytest.mark.parametrize("action", ["include", "exclude"])
 def test_row_decision_loader_rejects_a_padded_expectation(
     tmp_path: Path, action: str, field: str
@@ -2686,9 +2912,9 @@ def test_row_decision_loader_rejects_a_padded_expectation(
     row = next(
         item
         for item in payload["rows"]
-        if item["sme_action"] == action and item["expected_axis"] is not None
+        if item["sme_action"] == action and item["expected"] is not None
     )
-    row[field] = " " + row[field]
+    row["expected"][field] = " " + row["expected"][field]
     _write_json(export_path, _resign_row_decisions(payload))
 
     with pytest.raises(

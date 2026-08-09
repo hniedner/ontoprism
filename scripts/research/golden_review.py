@@ -51,7 +51,7 @@ ConstituentRowType = Literal["ENGINE SUGGESTION", "ADD IF MISSING"]
 ConstituentPair = tuple[str, str]
 _ADJUDICATED_STATUS = "SME-ADJUDICATED"
 _SCHEMA_VERSION = 3
-_ROW_DECISION_SCHEMA_VERSION = 3
+_ROW_DECISION_SCHEMA_VERSION = 4
 _SME_ACTIONS: tuple[SmeAction, ...] = ("include", "revise", "exclude", "not-needed")
 _CONSTITUENT_ROW_TYPES: tuple[ConstituentRowType, ...] = (
     "ENGINE SUGGESTION",
@@ -283,6 +283,47 @@ class ExpectedTriple(NamedTuple):
     filler: str
 
 
+class ExpectedPair(_StrictModel):
+    """The axis and filler one row records as the reviewer's expectation.
+
+    A pair, never two independently optional halves. `expected_axis` and
+    `expected_filler` were separately `str | None` on `ExcludedRow`, which admitted
+    a third state — one half named — that `withdrawn_triple` reported as "named
+    nothing". Such a row was silently exempt from both the `(code, axis, filler)`
+    uniqueness rule and the kept/withdrawn disjointness rule, and both entry points
+    accepted it. Folded into one optional object there are two states, not three.
+    """
+
+    axis: str
+    filler: str
+
+    @model_validator(mode="after")
+    def _validate_text(self) -> Self:
+        _canonical_text(self.axis, "expected axis")
+        _canonical_text(self.filler, "expected filler")
+        return self
+
+
+class EngineSuggestion(_StrictModel):
+    """The axis and filler the engine offered on one row.
+
+    `Engine Axis` and `Engine Filler` are columns of the attested workbook that
+    nothing read. Without them "accepted unchanged" was a statement about the SME's
+    label alone: relabelling the `revise` rows whose pair the engine had in fact
+    emitted moved the published rate from 0.4528 to 0.7547 and no assertion could
+    contradict it. Recorded here, "unchanged" becomes a comparison.
+    """
+
+    axis: str
+    filler: str
+
+    @model_validator(mode="after")
+    def _validate_text(self) -> Self:
+        _canonical_text(self.axis, "engine axis")
+        _canonical_text(self.filler, "engine filler")
+        return self
+
+
 class _ConstituentRow(_StrictModel):
     """One reviewer decision row, recorded before any expectation is inferred.
 
@@ -300,26 +341,60 @@ class _ConstituentRow(_StrictModel):
     code: str = Field(pattern=r"^C[0-9]+$")
 
 
-class KeptRow(_ConstituentRow):
-    """A row whose pair entered the adjudicated expected set."""
+class _AdjudicatedRow(_ConstituentRow):
+    """A row the reviewer ruled on, beside whatever the engine offered for it.
+
+    `UnusedCandidateRow` deliberately does not inherit from here: it pins both
+    fields to their only legal values, and narrowing an inherited mutable field is
+    not a subtype relation the type checker accepts.
+    """
 
     row_type: ConstituentRowType
-    sme_action: Literal["include", "revise"]
-    expected_axis: str
-    expected_filler: str
+    engine: EngineSuggestion | None
 
     @model_validator(mode="after")
-    def _validate_expectation(self) -> Self:
-        _canonical_text(self.expected_axis, f"{self.code} expected axis")
-        _canonical_text(self.expected_filler, f"{self.code} expected filler")
+    def _validate_engine_presence(self) -> Self:
+        """Bind the row-type label to the evidence that justifies it.
+
+        `row_type` used to be a free-text label the reviewer's sheet carried and
+        nothing corroborated, so relabelling `ADD IF MISSING` rows as suggestions
+        moved the acceptance denominator from 106 to 121. An engine suggestion now
+        has to carry the pair the engine suggested, and a candidate row has to
+        carry none: on all 189 rows of the attested workbook the engine pair is
+        present exactly on the 106 `ENGINE SUGGESTION` rows and absent on the 83
+        `ADD IF MISSING` ones.
+        """
+        if (self.engine is None) != (self.row_type == "ADD IF MISSING"):
+            raise ValueError(
+                f"{self.code} engine pair must be present on an ENGINE SUGGESTION "
+                "row and absent on an ADD IF MISSING row"
+            )
         return self
+
+
+class KeptRow(_AdjudicatedRow):
+    """A row whose pair entered the adjudicated expected set."""
+
+    sme_action: Literal["include", "revise"]
+    expected: ExpectedPair
 
     @property
     def expected_triple(self) -> ExpectedTriple:
-        return ExpectedTriple(self.code, self.expected_axis, self.expected_filler)
+        return ExpectedTriple(self.code, self.expected.axis, self.expected.filler)
+
+    @property
+    def pair_preserved(self) -> bool:
+        """Whether this row kept the pair the engine offered.
+
+        False on every candidate row, because there was no suggestion to preserve.
+        """
+        return self.engine is not None and (self.engine.axis, self.engine.filler) == (
+            self.expected.axis,
+            self.expected.filler,
+        )
 
 
-class ExcludedRow(_ConstituentRow):
+class ExcludedRow(_AdjudicatedRow):
     """A row the reviewer rejected, optionally still naming what they withdrew.
 
     Three rows of the attested #57 workbook carry an expectation the reviewer then
@@ -327,27 +402,15 @@ class ExcludedRow(_ConstituentRow):
     pair -- decides what the SME kept.
     """
 
-    row_type: ConstituentRowType
     sme_action: Literal["exclude"]
-    expected_axis: str | None
-    expected_filler: str | None
-
-    @model_validator(mode="after")
-    def _validate_expectation(self) -> Self:
-        for field, value in (
-            ("expected axis", self.expected_axis),
-            ("expected filler", self.expected_filler),
-        ):
-            if value is not None:
-                _canonical_text(value, f"{self.code} {field}")
-        return self
+    expected: ExpectedPair | None
 
     @property
     def withdrawn_triple(self) -> ExpectedTriple | None:
         """What this row withdrew, or `None` when it named nothing."""
-        if self.expected_axis is None or self.expected_filler is None:
+        if self.expected is None:
             return None
-        return ExpectedTriple(self.code, self.expected_axis, self.expected_filler)
+        return ExpectedTriple(self.code, self.expected.axis, self.expected.filler)
 
 
 class UnusedCandidateRow(_ConstituentRow):
@@ -356,12 +419,14 @@ class UnusedCandidateRow(_ConstituentRow):
     `row_type` is pinned, so `ENGINE SUGGESTION` / `not-needed` has no inhabitant.
     On a suggestion the action is a non-decision: the suggestion would enter the
     acceptance denominator without the SME accepting or rejecting it, which is the
-    same hole `PENDING` closes on the other side. There are no pair fields either,
-    because a row nobody had to fill in has nothing to record.
+    same hole `PENDING` closes on the other side. `engine` is pinned to `None` for
+    the same reason the pair fields are absent -- a row nobody had to fill in
+    records neither an expectation nor a suggestion.
     """
 
     row_type: Literal["ADD IF MISSING"]
     sme_action: Literal["not-needed"]
+    engine: None
 
 
 ConstituentRowDecision = Annotated[
@@ -385,7 +450,7 @@ class RowDecisionMetadata(_StrictModel):
     `test_m1_baseline` compares against the oracle's.
     """
 
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     ncit_version: str
     source_workbook: str
     workbook_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -410,11 +475,29 @@ class EngineAcceptance(_StrictModel):
     suggestion it would be a non-decision sitting in the acceptance denominator,
     which is the same hole `PENDING` closes on the other side. The combination has
     no inhabitant in `ConstituentRowDecision`, so this tally has no cell for it.
+
+    `include`, `revise` and `exclude` count SME *labels*. `pair_preserved` counts
+    an equality between two recorded pairs, and the two questions have different
+    answers: on the attested workbook 48 suggestions were labelled `include` and 80
+    kept the engine's exact pair, because 32 of the 42 `revise` rows changed
+    something other than the axis and filler. Relabelling those 32 moved the
+    published rate from 0.4528 to 0.7547; it cannot move `pair_preserved`, which is
+    why both are reported.
     """
 
     include: int = Field(ge=0)
     revise: int = Field(ge=0)
     exclude: int = Field(ge=0)
+    pair_preserved: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_preserved(self) -> Self:
+        if self.pair_preserved > self.include + self.revise:
+            raise ValueError(
+                "pair_preserved cannot exceed the kept suggestions "
+                f"({self.include + self.revise})"
+            )
+        return self
 
     @property
     def adjudicated(self) -> int:
@@ -422,8 +505,14 @@ class EngineAcceptance(_StrictModel):
         return self.include + self.revise + self.exclude
 
     @property
-    def accepted_unchanged_rate(self) -> float | None:
-        """The published acceptance rate, or `None` when the run suggested nothing.
+    def included_rate(self) -> float | None:
+        """The published rate, or `None` when the run suggested nothing.
+
+        Named for what it divides. It was `accepted_unchanged_rate`, and
+        "unchanged" was false of 11 of the 48 rows it counts: those rows keep the
+        engine's axis and filler but change the relationship group, the
+        `needs_review` flag or the provenance status. `pair_preserved` is the
+        quantity that is actually unchanged.
 
         Undefined rather than zero or an exception: a review of a run that emitted
         no constituent at all is a legitimate export with nothing to accept, and
@@ -535,6 +624,9 @@ class RowDecisionExport(_StrictModel):
                 include=counts[("ENGINE SUGGESTION", "include")],
                 revise=counts[("ENGINE SUGGESTION", "revise")],
                 exclude=counts[("ENGINE SUGGESTION", "exclude")],
+                pair_preserved=sum(
+                    isinstance(row, KeptRow) and row.pair_preserved for row in self.rows
+                ),
             ),
             add_if_missing=CandidateOutcomes(
                 include=counts[("ADD IF MISSING", "include")],
@@ -1031,6 +1123,8 @@ def _constituent_decision_sheet(
     required = {
         "Concept Code",
         "Row Type",
+        "Engine Axis",
+        "Engine Filler",
         "SME Action",
         "Expected Axis",
         "Expected Filler",
@@ -1047,6 +1141,31 @@ def _constituent_decision_sheet(
     return ws, headers
 
 
+def _engine_suggestion(
+    ws: Worksheet, row: int, headers: dict[str, int], code: str, row_type: str
+) -> dict[str, str] | None:
+    """Read `Engine Axis`/`Engine Filler`, which only a suggestion row may carry.
+
+    Required on an `ENGINE SUGGESTION` row and forbidden on an `ADD IF MISSING`
+    one, which is what makes `row_type` corroborated rather than declared. Read at
+    the workbook boundary so the reviewer is told which cell to fix; the invariant
+    itself is carried by `_AdjudicatedRow`, which the JSON entry point also sees.
+    """
+    axis_field, filler_field = f"{code} engine axis", f"{code} engine filler"
+    if row_type == "ENGINE SUGGESTION":
+        return {
+            "axis": _cell_text(ws, row, headers["Engine Axis"], axis_field),
+            "filler": _cell_text(ws, row, headers["Engine Filler"], filler_field),
+        }
+    axis = _optional_text(ws, row, headers["Engine Axis"], axis_field)
+    filler = _optional_text(ws, row, headers["Engine Filler"], filler_field)
+    if axis is not None or filler is not None:
+        raise GoldenSetValidationError(
+            f"{code} candidate row must not record an engine suggestion"
+        )
+    return None
+
+
 def _constituent_row_decision(
     ws: Worksheet, row: int, headers: dict[str, int]
 ) -> ConstituentRowDecision:
@@ -1060,6 +1179,11 @@ def _constituent_row_decision(
     verbatim, so a defect in them is a workbook defect worth failing on rather than
     something to record and propagate. It is fail-closed and cannot alter the
     oracle: a row it rejects would previously have been dropped, never kept.
+
+    The two halves are read together: an `exclude` row names both or neither, so a
+    half-named withdrawal — which `withdrawn_triple` reported as "named nothing",
+    exempting the row from the uniqueness and disjointness rules — cannot be
+    recorded.
 
     On a `not-needed` row the pair must be *blank*: `UnusedCandidateRow` has no
     field to hold it, and a populated pair contradicts the action that says the
@@ -1090,19 +1214,25 @@ def _constituent_row_decision(
     read = _cell_text if action in _KEPT_SME_ACTIONS else _optional_text
     axis = read(ws, row, axis_column, axis_field)
     filler = read(ws, row, filler_column, filler_field)
+    if (axis is None) != (filler is None):
+        raise GoldenSetValidationError(
+            f"{code} expected pair must name both an axis and a filler, or neither"
+        )
     payload: dict[str, object] = {
         "code": code,
         "row_type": row_type,
         "sme_action": action,
+        "engine": _engine_suggestion(ws, row, headers, code, row_type),
     }
     if action == "not-needed":
-        if axis is not None or filler is not None:
+        if axis is not None:
             raise GoldenSetValidationError(
                 f"{code} not-needed candidate row must not record an expected pair"
             )
+    elif axis is None:
+        payload["expected"] = None
     else:
-        payload["expected_axis"] = axis
-        payload["expected_filler"] = filler
+        payload["expected"] = {"axis": axis, "filler": filler}
     try:
         return _ROW_DECISION_ADAPTER.validate_python(payload)
     except (ValidationError, ValueError) as error:
@@ -1132,8 +1262,8 @@ def _kept_constituent(
     """Build the expectation a kept row contributes to the oracle."""
     code = decision.code
     return GoldenConstituent(
-        axis=decision.expected_axis,
-        filler=decision.expected_filler,
+        axis=decision.expected.axis,
+        filler=decision.expected.filler,
         relationship_group=_optional_text(
             ws, row, headers["Expected Group"], f"{code} expected group"
         ),
@@ -1520,14 +1650,16 @@ def export_row_decisions_bytes(
       attestation, canonical reviewer name and qualification, ISO `reviewed_at`.
     - `_required_evidence`: no hidden populated `Source & Run Evidence` row, no
       duplicate evidence key, all ten required evidence keys present.
-    - `_constituent_decision_sheet`: no duplicate header, all ten required
+    - `_constituent_decision_sheet`: no duplicate header, all twelve required
       `Constituent Decisions` headers present.
     - `_constituent_decisions` / `_constituent_row_decision`: no populated row with
       a blank concept code, no hidden constituent row, textual concept code
       matching `^C[0-9]+$`, a known row type and SME action, no `PENDING` engine
       suggestion, no `not-needed` engine suggestion, `Row Complete?` `YES` on every
       row but a `not-needed` one, `Expected Axis`/`Expected Filler` canonical on
-      every row and required on a kept one, and blank on a `not-needed` one.
+      every row, required on a kept one, blank on a `not-needed` one and never
+      half-named, and `Engine Axis`/`Engine Filler` canonical and required on an
+      `ENGINE SUGGESTION` row and blank on an `ADD IF MISSING` one.
     - `_concept_decision_sheet` / `_reject_orphan_constituents`: all nine required
       `Concept Decisions` headers present, no hidden row declaring a concept, no
       populated row with a blank concept code, and no constituent row referencing a

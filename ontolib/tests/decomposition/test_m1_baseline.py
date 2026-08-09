@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from scripts.research.golden_review import (
+    ExcludedRow,
     ExpectedTriple,
     KeptRow,
     evaluate_adjudication,
@@ -116,6 +117,16 @@ def _row_triples(
         if isinstance(row, KeptRow)
         and row.row_type == row_type
         and row.sme_action == sme_action
+    }
+
+
+def _oracle_triples(artifact: AdjudicationArtifact) -> set[ExpectedTriple]:
+    """Every `(code, axis, filler)` the adjudicated oracle expects."""
+    return {
+        ExpectedTriple(code=concept.code, axis=item.axis, filler=item.filler)
+        for concept in artifact.concepts
+        if concept.expected is not None
+        for item in concept.expected.constituents
     }
 
 
@@ -263,17 +274,20 @@ def test_row_decisions_record_every_workbook_decision_row(
 def test_engine_suggestion_acceptance_holds_the_m1_baseline(
     m1_row_decisions: RowDecisionExport,
 ) -> None:
-    """The #57 headline: 48 of 106 engine suggestions kept unchanged (45%).
+    """The #57 headline: 48 of 106 engine suggestions kept as offered (45%).
 
     42 were revised and 16 excluded. There is no `not-needed` column here: that
     action records a *candidate* row the SME never had to fill in, and on an engine
     suggestion it is a non-decision no row can express. The cell is absent rather
     than zero, so the denominator cannot quietly grow by rows nobody adjudicated.
 
-    The published 45% is asserted, not left to a reader dividing four integers.
-    Until `accepted_unchanged_rate` existed, the figure in `docs/DECISIONS.md` D64
-    and the golden README was arithmetic no code performed and no test could
-    contradict.
+    `include` counts a label the reviewer wrote, and a label can be rewritten:
+    relabelling the 32 `revise` rows whose expected pair the engine had in fact
+    emitted, and re-signing the payload, moved this figure from 0.4528 to 0.7547
+    with every assertion in this file still passing. `pair_preserved` counts an
+    equality between two recorded pairs instead, so that edit cannot move it —
+    which is why it is asserted here beside the labels. The two numbers differ (48
+    against 80) precisely because "revised" does not mean "the pair changed".
     """
     engine_suggestion = m1_row_decisions.cross_tab().engine_suggestion
 
@@ -281,8 +295,9 @@ def test_engine_suggestion_acceptance_holds_the_m1_baseline(
     assert engine_suggestion.revise == 42
     assert engine_suggestion.exclude == 16
     assert engine_suggestion.adjudicated == 106
+    assert engine_suggestion.pair_preserved == 80
 
-    rate = engine_suggestion.accepted_unchanged_rate
+    rate = engine_suggestion.included_rate
     assert rate is not None
     assert round(rate, 4) == 0.4528
 
@@ -320,12 +335,7 @@ def test_row_decisions_and_the_oracle_agree_on_the_expected_set(
     Both artifacts also name the same workbook digest, so neither can be
     regenerated from a different review without the other failing here.
     """
-    expected = {
-        ExpectedTriple(code=concept.code, axis=item.axis, filler=item.filler)
-        for concept in m1_artifact.concepts
-        if concept.expected is not None
-        for item in concept.expected.constituents
-    }
+    expected = _oracle_triples(m1_artifact)
 
     assert m1_row_decisions.expected_pairs() == expected
     assert len(expected) == 154
@@ -338,15 +348,17 @@ def test_the_acceptance_denominator_is_this_engine_run_s_output(
     m1_row_decisions: RowDecisionExport,
     m1_artifact: AdjudicationArtifact,
 ) -> None:
-    """106 is what the recorded run emitted, concept by concept — not a row count.
+    """106 is what the recorded run emitted, pair for pair — not a row count.
 
     The published headline divides by the number of `ENGINE SUGGESTION` rows, and
     nothing tied that number to any engine output: relabelling the 63
     `ADD IF MISSING` / `include` rows as suggestions would have moved it to 121 and
-    the rate to 40%. Here the per-concept row counts must equal the per-concept
-    constituent counts of `neoplasm-engine-evidence.json`, so the denominator is
-    the run's output and any relabelled, deleted or duplicated suggestion row
-    breaks a concept's count.
+    the rate to 40%. The export now records `Engine Axis` / `Engine Filler` on every
+    suggestion row, so the binding is an equality between two sets of triples rather
+    than a comparison of counts: the pairs the rows say were suggested must be
+    exactly the pairs `neoplasm-engine-evidence.json` says were emitted. A
+    relabelled row has to invent an engine pair, and any invented pair breaks that
+    equality.
 
     The 48 accepted suggestions must further be triples that run actually emitted,
     and the SME-added constituents must be disjoint from them — 0 of the 63 appear
@@ -354,25 +366,71 @@ def test_the_acceptance_denominator_is_this_engine_run_s_output(
     pass vacuously. `revise` rows sit in between by construction: 32 of 42 kept the
     engine's pair and 10 replaced it, so `include` is not merely "the rows whose
     pair survives".
+
+    Every structural assertion precedes the count literal it supports. Ordered the
+    other way, a `len(...) == 48` failing first hides whether the set relation still
+    holds, and the relation is the claim; the literal is only its size.
     """
     emitted = _engine_emitted_triples()
+    suggested = {
+        ExpectedTriple(code=row.code, axis=row.engine.axis, filler=row.engine.filler)
+        for row in m1_row_decisions.rows
+        if row.engine is not None
+    }
     suggestions_per_concept = Counter(
         row.code for row in m1_row_decisions.rows if row.row_type == "ENGINE SUGGESTION"
     )
     emitted_per_concept = _engine_constituents_per_concept()
 
+    assert suggested == emitted
     assert suggestions_per_concept == emitted_per_concept
     assert len(emitted_per_concept) == 18
     assert sum(suggestions_per_concept.values()) == 106
     assert len(emitted) == 106
 
     accepted = _row_triples(m1_row_decisions, "ENGINE SUGGESTION", "include")
-    assert len(accepted) == 48
     assert accepted <= emitted
     assert _row_triples(m1_row_decisions, "ADD IF MISSING", "include").isdisjoint(
         emitted
     )
     assert len(_row_triples(m1_row_decisions, "ENGINE SUGGESTION", "revise") & emitted)
+    assert len(accepted) == 48
+
+
+@pytest.mark.unit
+def test_three_withdrawn_expectations_sit_outside_the_oracle(
+    m1_row_decisions: RowDecisionExport,
+    m1_artifact: AdjudicationArtifact,
+) -> None:
+    """The rows that prove the SME *action* decides what was kept, pinned.
+
+    Three `exclude` rows still name the pair the reviewer withdrew, and they are the
+    entire evidence for the rule repeated in `ExcludedRow`, `expected_pairs()` and
+    `_KEPT_SME_ACTIONS`: the presence of an expected pair never decides membership.
+    Nothing pinned them. Blanking all three, or rewriting one to a fabricated pair,
+    survived the whole suite once the payload was re-signed — so the docstrings
+    asserted a design the data no longer had to satisfy.
+
+    Pinned three ways: the triples themselves, so a fabricated pair fails; their
+    disjointness from the oracle, so the rule they demonstrate is the rule tested;
+    and the 157 they make with the kept set, which is the number a pair-presence
+    filter would return and the reason 154 is not that number.
+    """
+    expected = _oracle_triples(m1_artifact)
+    withdrawn = {
+        triple
+        for row in m1_row_decisions.rows
+        if isinstance(row, ExcludedRow) and (triple := row.withdrawn_triple) is not None
+    }
+
+    assert withdrawn == {
+        ExpectedTriple(code="C6135", axis="op:AssociatedRegion", filler="C12418"),
+        ExpectedTriple(code="C4791", axis="op:AssociatedRegion", filler="C12727"),
+        ExpectedTriple(code="C101539", axis="op:AssociatedRegion", filler="C12418"),
+    }
+    assert withdrawn.isdisjoint(expected)
+    assert len(withdrawn) == 3
+    assert len(expected | withdrawn) == 157
 
 
 @pytest.mark.unit
@@ -385,6 +443,12 @@ def test_row_decisions_name_the_run_and_source_the_oracle_names(
     `_required_evidence` already demanded `Engine evidence identity`, `Source
     identity` and `Engine run` and then discarded all but `NCIt release`, so the
     tracked rows could be read beside any run at all.
+
+    The reviewer block is compared too. Both artifacts read it from the same sheet
+    of the same workbook, so a disagreement about who signed the review, in what
+    capacity, or on what date is a forgery in one of the two files and provable as
+    such without consulting the workbook. Rewriting `_meta.reviewer` in the export
+    and re-signing the payload was otherwise undetectable.
     """
     assert (
         m1_row_decisions.meta.engine_evidence_identity
@@ -392,3 +456,4 @@ def test_row_decisions_name_the_run_and_source_the_oracle_names(
     )
     assert m1_row_decisions.meta.source_identity == m1_artifact.meta.source_identity
     assert m1_row_decisions.meta.run_id == m1_artifact.meta.run_id
+    assert m1_row_decisions.meta.reviewer == m1_artifact.meta.reviewer
