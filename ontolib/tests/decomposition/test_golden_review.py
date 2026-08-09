@@ -1626,6 +1626,33 @@ def test_residual_numerator_excludes_decomposed_concepts_the_detector_cleared(
 
 
 @pytest.mark.unit
+def test_the_residual_delta_is_a_distance_not_a_signed_difference(
+    tmp_path: Path,
+) -> None:
+    """The corpus may be *more* residual than the adjudicated sample.
+
+    Every other residual fixture in this module, and the tracked M1 evidence,
+    puts the adjudication rate at or above the corpus rate, so `a - b` is already
+    non-negative and dropping `abs()` changes nothing. Here the adjudication is
+    0/20 and the corpus 1/1, so the unsigned difference is -1.0 and only a
+    distance reports 1.0.
+    """
+    engine = _engine_evidence()
+    engine["residual_precoordinated_codes"] = []
+    _sign(engine)
+    corpus = _corpus_evidence(denominator=["C1"], residual=["C1"])
+    artifact_path = tmp_path / "artifact.json"
+    _write_json(artifact_path, _bind_artifact_to_engine(_m1_concepts(), engine, corpus))
+
+    report = evaluate_adjudication(load_adjudication(artifact_path), engine, corpus)
+
+    residual = report["residual_comparison"]
+    assert residual["adjudication"]["rate"] == 0.0
+    assert residual["corpus_sample"]["rate"] == 1.0
+    assert residual["absolute_rate_delta"] == 1.0
+
+
+@pytest.mark.unit
 def test_zero_pair_metrics_are_undefined_and_detector_drift_is_rejected(
     tmp_path: Path,
 ) -> None:
