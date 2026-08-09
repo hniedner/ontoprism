@@ -1294,6 +1294,49 @@ def _concept_headers(ws: Worksheet) -> dict[str, int]:
     return headers
 
 
+def _concept_decision_sheet(workbook: Workbook) -> tuple[Worksheet, dict[str, int]]:
+    """Return `Concept Decisions` only once its declarations can be trusted.
+
+    Everything downstream asks this sheet which concepts the reviewer declared, and
+    two ways of answering that question were wrong before the question was asked: a
+    hidden row declares a concept no human reading the workbook can see, and a
+    populated row with an empty code cell declares nothing while looking adjudicated.
+
+    Both guards used to live inside `_workbook_concepts`, so only the oracle import
+    ran them; `export_row_decisions_bytes` called `_concept_headers` and
+    `_declared_concept_codes` directly and reached the orphan check with a code set
+    the import would have refused to build. A hidden row declaring `C999999` plus a
+    matching constituent row therefore exported cleanly and failed to import. The
+    preconditions live here so neither path can reach the declared codes without
+    them.
+    """
+    ws = workbook["Concept Decisions"]
+    headers = _concept_headers(ws)
+    hidden = [
+        row
+        for row in range(5, ws.max_row + 1)
+        if ws.row_dimensions[row].hidden
+        and ws.cell(row, headers["Concept Code"]).value is not None
+    ]
+    if hidden:
+        raise GoldenSetValidationError(
+            "hidden concept rows are not permitted: "
+            + ", ".join(str(row) for row in hidden)
+        )
+    blank = [
+        row
+        for row in range(5, ws.max_row + 1)
+        if ws.cell(row, headers["Concept Code"]).value is None
+        and _row_has_data(ws, row)
+    ]
+    if blank:
+        raise GoldenSetValidationError(
+            "populated concept row has blank concept code: "
+            + ", ".join(str(row) for row in blank)
+        )
+    return ws, headers
+
+
 def _decision_status(
     ws: Worksheet, row: int, headers: dict[str, int], code: str
 ) -> DecisionStatus:
@@ -1384,30 +1427,7 @@ def _concept_from_row(
 
 
 def _workbook_concepts(workbook: Workbook) -> tuple[AdjudicatedConcept, ...]:
-    ws = workbook["Concept Decisions"]
-    headers = _concept_headers(ws)
-    hidden = [
-        row
-        for row in range(5, ws.max_row + 1)
-        if ws.row_dimensions[row].hidden
-        and ws.cell(row, headers["Concept Code"]).value is not None
-    ]
-    if hidden:
-        raise GoldenSetValidationError(
-            "hidden concept rows are not permitted: "
-            + ", ".join(str(row) for row in hidden)
-        )
-    blank = [
-        row
-        for row in range(5, ws.max_row + 1)
-        if ws.cell(row, headers["Concept Code"]).value is None
-        and _row_has_data(ws, row)
-    ]
-    if blank:
-        raise GoldenSetValidationError(
-            "populated concept row has blank concept code: "
-            + ", ".join(str(row) for row in blank)
-        )
+    ws, headers = _concept_decision_sheet(workbook)
     expected_constituents, constituent_codes = _workbook_constituents(workbook)
     _reject_orphan_constituents(constituent_codes, _declared_concept_codes(ws, headers))
     concepts = tuple(
@@ -1508,11 +1528,13 @@ def export_row_decisions_bytes(
       suggestion, no `not-needed` engine suggestion, `Row Complete?` `YES` on every
       row but a `not-needed` one, `Expected Axis`/`Expected Filler` canonical on
       every row and required on a kept one, and blank on a `not-needed` one.
-    - `_concept_headers` / `_reject_orphan_constituents`: all nine required
-      `Concept Decisions` headers present, and no constituent row referencing a
-      concept the reviewer never declared. This is the one `Concept Decisions`
-      gate the export shares with the import, because an orphan row enlarges the
-      acceptance denominator with a concept nobody adjudicated.
+    - `_concept_decision_sheet` / `_reject_orphan_constituents`: all nine required
+      `Concept Decisions` headers present, no hidden row declaring a concept, no
+      populated row with a blank concept code, and no constituent row referencing a
+      concept the reviewer never declared. These are the `Concept Decisions` gates
+      the export shares with the import, because an orphan row enlarges the
+      acceptance denominator with a concept nobody adjudicated — and a hidden or
+      blank-coded declaration decides which rows count as orphans.
     - `RowDecisionExport`: a nonempty row set in which every row carrying an
       expected pair is unique on `(code, axis, filler)` and no such triple is both
       kept and withdrawn, signed by a `payload_identity` over the rows themselves.
@@ -1535,10 +1557,10 @@ def export_row_decisions_bytes(
     evidence = _required_evidence(workbook)
     ws, headers = _constituent_decision_sheet(workbook)
     rows = tuple(decision for _, decision in _constituent_decisions(ws, headers))
-    concept_ws = workbook["Concept Decisions"]
+    concept_ws, concept_headers = _concept_decision_sheet(workbook)
     _reject_orphan_constituents(
         {decision.code for decision in rows},
-        _declared_concept_codes(concept_ws, _concept_headers(concept_ws)),
+        _declared_concept_codes(concept_ws, concept_headers),
     )
     try:
         meta = RowDecisionMetadata(

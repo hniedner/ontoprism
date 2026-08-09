@@ -2306,6 +2306,25 @@ def test_row_decision_loader_rejects_a_hand_edited_row_set(
     )
 
 
+_UNDECLARED_CODE = "C999999"
+
+
+def _append_constituent_row(workbook: Workbook, code: str) -> None:
+    """Append one complete `ENGINE SUGGESTION` / `include` row for `code`."""
+    sheet = workbook["Constituent Decisions"]
+    row = sheet.max_row + 1
+    sheet.cell(row, 2, code)
+    sheet.cell(row, 4, "ENGINE SUGGESTION")
+    sheet.cell(row, 5, "op:StageValue")
+    sheet.cell(row, 6, "C27971")
+    sheet.cell(row, 10, "include")
+    sheet.cell(row, 11, "op:StageValue")
+    sheet.cell(row, 12, "C27971")
+    sheet.cell(row, 14, "FALSE")
+    sheet.cell(row, 15, "ncit-26.07d")
+    sheet.cell(row, 18, "YES")
+
+
 @pytest.mark.unit
 def test_row_decision_export_rejects_a_constituent_row_with_no_concept(
     tmp_path: Path,
@@ -2321,23 +2340,98 @@ def test_row_decision_export_rejects_a_constituent_row_with_no_concept(
     workbook_path = tmp_path / "orphan.xlsx"
     _create_workbook(workbook_path)
     workbook = load_workbook(workbook_path)
-    sheet = workbook["Constituent Decisions"]
-    row = sheet.max_row + 1
-    sheet.cell(row, 2, "C999999")
-    sheet.cell(row, 4, "ENGINE SUGGESTION")
-    sheet.cell(row, 10, "include")
-    sheet.cell(row, 11, "op:StageValue")
-    sheet.cell(row, 12, "C27971")
-    sheet.cell(row, 14, "FALSE")
-    sheet.cell(row, 15, "ncit-26.07d")
-    sheet.cell(row, 18, "YES")
+    _append_constituent_row(workbook, _UNDECLARED_CODE)
     workbook.save(workbook_path)
 
-    message = "constituent rows reference unknown concepts: C999999"
+    message = f"constituent rows reference unknown concepts: {_UNDECLARED_CODE}"
     with pytest.raises(GoldenSetValidationError, match=message):
         export_row_decisions(workbook_path)
     with pytest.raises(GoldenSetValidationError, match=message):
         import_adjudication_workbook(workbook_path)
+
+
+def _conceal_a_concept_declaration(workbook: Workbook) -> None:
+    """Declare a concept on a hidden row and give it a constituent row.
+
+    A human reading the workbook sees neither the concept nor a reason for the
+    constituent row that references it, but `_declared_concept_codes` reads the
+    cell regardless, so the orphan gate is satisfied by an invisible declaration.
+    """
+    concepts = workbook["Concept Decisions"]
+    row = concepts.max_row + 1
+    for column, value in enumerate(
+        [
+            row - 4,
+            _UNDECLARED_CODE,
+            f"Reviewed {_UNDECLARED_CODE}",
+            "Neoplastic Process",
+            "Neoplastic Process",
+            "decomposed",
+            "accepted",
+            "decomposed",
+            "Reviewed against the stated source.",
+            "YES",
+            "YES",
+        ],
+        start=1,
+    ):
+        concepts.cell(row, column, value)
+    concepts.row_dimensions[row].hidden = True
+    _append_constituent_row(workbook, _UNDECLARED_CODE)
+
+
+def _add_a_concept_row_with_no_code(workbook: Workbook) -> None:
+    """Populate a concept row while leaving its `Concept Code` cell empty."""
+    concepts = workbook["Concept Decisions"]
+    row = concepts.max_row + 1
+    concepts.cell(row, 3, "Reviewed but unnamed")
+    concepts.cell(row, 7, "accepted")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "read",
+    [export_row_decisions, import_adjudication_workbook],
+    ids=["export", "import"],
+)
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    [
+        (_conceal_a_concept_declaration, "hidden concept rows are not permitted"),
+        (
+            _add_a_concept_row_with_no_code,
+            "populated concept row has blank concept code",
+        ),
+    ],
+    ids=["hidden", "blank-code"],
+)
+def test_both_entry_points_apply_the_concept_sheet_preconditions(
+    tmp_path: Path,
+    read: Callable[[Path], object],
+    tamper: Callable[[Workbook], None],
+    message: str,
+) -> None:
+    """The orphan gate is only as strong as the sheet it reads its codes from.
+
+    `_declared_concept_codes` accepts any textual code, including one on a hidden
+    row, and ignores a populated row whose code cell is blank. The import reached
+    the orphan check only after `_workbook_concepts` had refused both; the export
+    called `_concept_headers` and `_declared_concept_codes` directly and so
+    accepted a workbook the import then rejected — a clean acceptance denominator
+    beside an unloadable oracle, from one file. The concealed case is the worse
+    one: the concept licensing the constituent row is invisible to a reviewer.
+
+    Both paths now share `_concept_decision_sheet`, so the two guards cannot
+    diverge again without moving the code both of them call.
+    """
+    workbook_path = tmp_path / "concept-sheet.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    tamper(workbook)
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match=message):
+        read(workbook_path)
 
 
 @pytest.mark.unit
