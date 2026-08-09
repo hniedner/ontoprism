@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -37,7 +38,6 @@ from ontolib.decomposition.proposal_registry import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 _EXCEL_MAX_COLUMN = 16384
 _DIGEST_A = "a" * 64
@@ -1691,6 +1691,41 @@ def test_evidence_json_reader_rejects_duplicate_provenance_keys(tmp_path: Path) 
 
 
 @pytest.mark.unit
+def test_a_failed_cli_write_leaves_the_previous_artifact_intact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A half-written tracked artifact is worse than no new one.
+
+    `Path.write_text` truncates the destination the moment it opens it, and the
+    CLI pointed it straight at a tracked golden file. The double emulates exactly
+    that: truncate, then fail. Staging in a sibling directory and `os.replace`-ing
+    into place means only the staged copy is lost, and it leaves nothing behind.
+    """
+    workbook = tmp_path / "review.xlsx"
+    output = tmp_path / "rows.json"
+    _create_workbook(workbook)
+    adjudication_main(["export-row-decisions", str(workbook), str(output)])
+    previous = output.read_bytes()
+    real_write_text = Path.write_text
+
+    def _truncate_then_fail(self: Path, *args: object, **kwargs: object) -> int:
+        self.write_bytes(b"")
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", _truncate_then_fail)
+    with pytest.raises(OSError, match="No space left on device"):
+        adjudication_main(["export-row-decisions", str(workbook), str(output)])
+    monkeypatch.setattr(Path, "write_text", real_write_text)
+
+    assert output.read_bytes() == previous
+    assert sorted(item.name for item in tmp_path.iterdir()) == [
+        "review.xlsx",
+        "rows.json",
+    ]
+
+
+@pytest.mark.unit
 def test_adjudication_cli_imports_workbook_and_evaluates_report(
     tmp_path: Path,
 ) -> None:
@@ -1835,24 +1870,82 @@ def test_row_decision_export_reproduces_the_imported_expected_set(
     assert ("C4", "op:StageValue", "C27972") not in export.expected_pairs()
 
 
+def _hide_a_constituent_row(workbook: Workbook) -> None:
+    workbook["Constituent Decisions"].row_dimensions[5].hidden = True
+
+
+def _hide_a_reviewer_column(workbook: Workbook) -> None:
+    workbook["Constituent Decisions"].column_dimensions["J"].hidden = True
+
+
+def _plant_a_reviewer_formula(workbook: Workbook) -> None:
+    workbook["Concept Decisions"]["I5"] = '=CONCAT("not", " authored")'
+
+
+def _withdraw_the_attestation(workbook: Workbook) -> None:
+    workbook["Reviewer & Attestation"]["B9"] = "PENDING"
+
+
+def _remove_a_required_evidence_key(workbook: Workbook) -> None:
+    sheet = workbook["Source & Run Evidence"]
+    for row in range(5, sheet.max_row + 1):
+        if sheet.cell(row, 1).value == "Detector identity":
+            # `sheet.cell(row, column, None)` is a *read*: openpyxl treats a None
+            # `value` argument as "no value given" and returns the cell untouched.
+            sheet.cell(row, 1).value = None
+            sheet.cell(row, 2).value = None
+            return
+    raise AssertionError("fixture no longer carries a detector identity")
+
+
+def _corrupt_a_row_type(workbook: Workbook) -> None:
+    workbook["Constituent Decisions"]["D5"] = "ENGINE HINT"
+
+
+def _rename_a_sheet(workbook: Workbook) -> None:
+    workbook["Worked Examples"].title = "Worked Example"
+
+
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    [
+        (_rename_a_sheet, "workbook sheets do not match the review contract"),
+        (_hide_a_constituent_row, "hidden constituent rows"),
+        (_hide_a_reviewer_column, "hidden reviewer columns"),
+        (_plant_a_reviewer_formula, "formula cells are not permitted"),
+        (_withdraw_the_attestation, "reviewer attestation is pending"),
+        (_remove_a_required_evidence_key, "Source & Run Evidence is missing"),
+        (_corrupt_a_row_type, "invalid row type"),
+    ],
+    ids=[
+        "sheet-contract",
+        "hidden-row",
+        "hidden-column",
+        "formula",
+        "attestation",
+        "evidence-key",
+        "row-identity",
+    ],
+)
 def test_row_decision_export_fails_closed_on_a_tampered_workbook(
-    tmp_path: Path,
+    tmp_path: Path, tamper: Callable[[Workbook], None], message: str
 ) -> None:
     """The export runs the workbook-level tamper gates the oracle import runs.
 
-    Sheet contract, hidden rows and columns, formula cells, attestation, required
-    evidence keys and the constituent row identity are shared. The gates the
-    export does *not* run are pinned by
+    One case per gate family named in `export_row_decisions_bytes`: the sheet
+    contract, hidden rows, hidden columns, formula cells in reviewer input, the
+    attestation, the required evidence keys and the constituent row identity. The
+    gates the export does *not* run are pinned by
     `test_row_decision_export_accepts_kept_constituent_defects_the_import_rejects`.
     """
-    workbook_path = tmp_path / "hidden.xlsx"
+    workbook_path = tmp_path / "tampered.xlsx"
     _create_workbook(workbook_path)
     workbook = load_workbook(workbook_path)
-    workbook["Constituent Decisions"].row_dimensions[5].hidden = True
+    tamper(workbook)
     workbook.save(workbook_path)
 
-    with pytest.raises(GoldenSetValidationError, match="hidden constituent rows"):
+    with pytest.raises(GoldenSetValidationError, match=message):
         export_row_decisions(workbook_path)
 
 
@@ -1860,10 +1953,12 @@ def test_row_decision_export_fails_closed_on_a_tampered_workbook(
 def test_row_decision_export_accepts_kept_constituent_defects_the_import_rejects(
     tmp_path: Path,
 ) -> None:
-    """The export stops at the row identity; it never builds the expectation.
+    """The export stops before `_kept_constituent`; it never builds the expectation.
 
-    `_kept_constituent` runs only on the import path, so the `Expected Provenance
-    Status` and `Expected needs_review` gates are the import's alone. A workbook
+    It does read the row identity *and* `Expected Axis` / `Expected Filler`, so
+    "stops at the row identity" was wrong in both directions. What it does not run
+    is `_kept_constituent`, which is where the `Expected Provenance Status` and
+    `Expected needs_review` gates live, so those are the import's alone. A workbook
     corrupt in either column is a valid row-decision export and an invalid oracle.
     The export is therefore not a substitute for `import-workbook`, and this pins
     that boundary so the claim cannot silently widen.

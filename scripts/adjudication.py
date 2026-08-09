@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +36,25 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
 
 
 def _write_canonical_json(payload: object, output: Path) -> None:
-    output.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
-        encoding="utf-8",
-    )
+    """Write canonical JSON atomically, never truncating what is already there.
+
+    `Path.write_text` truncates the destination the moment it opens it, and this
+    is pointed straight at a tracked golden artifact. A write that fails part way
+    -- no space, an interrupt -- would leave that artifact empty or half a
+    document. Stage in a sibling temporary directory and `os.replace` into place,
+    the pattern `proposal_registry.write_submission_exports` already uses. The
+    staging directory is a sibling so the replace stays on one filesystem, where
+    it is atomic.
+    """
+    rendered = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output.name}-staging-",
+        dir=output.parent,
+    ) as temporary:
+        staged = Path(temporary) / output.name
+        staged.write_text(rendered, encoding="utf-8")
+        os.replace(staged, output)
 
 
 def _write_artifact(workbook: Path, registry: Path, output: Path) -> None:
