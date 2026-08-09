@@ -315,13 +315,13 @@ class ExpectedPair(_StrictModel):
 
 
 class EngineSuggestion(_StrictModel):
-    """The axis and filler the engine offered on one row.
+    """The engine axis and filler recorded on one suggestion-labelled row.
 
     `Engine Axis` and `Engine Filler` are columns of the attested workbook that
-    nothing read. Without them "accepted unchanged" was a statement about the SME's
-    label alone: relabelling `revise` rows whose pair the engine had emitted moved
-    the label rate without changing the pairs. Recording the suggestion here makes
-    exact pair preservation a direct comparison.
+    nothing read. Reading them makes exact pair preservation a direct comparison
+    between two recorded pairs. These cells require the row shape; they do not by
+    themselves establish that the recorded engine run emitted the pair. The
+    tracked baseline's equality with engine evidence supplies that corroboration.
     """
 
     axis: str
@@ -353,7 +353,7 @@ class _ConstituentRow(_StrictModel):
 
 
 class _AdjudicatedRow(_ConstituentRow):
-    """A row the reviewer ruled on, beside whatever the engine offered for it.
+    """A ruled-on row beside its workbook-recorded engine pair, if any.
 
     `UnusedCandidateRow` deliberately does not inherit from here: it pins both
     fields to their only legal values, and narrowing an inherited mutable field is
@@ -365,15 +365,13 @@ class _AdjudicatedRow(_ConstituentRow):
 
     @model_validator(mode="after")
     def _validate_engine_presence(self) -> Self:
-        """Bind the row-type label to the evidence that justifies it.
+        """Require the engine-pair fields to agree with the declared row type.
 
-        `row_type` used to be a free-text label the reviewer's sheet carried and
-        nothing corroborated, so relabelling `ADD IF MISSING` rows as suggestions
-        moved the acceptance denominator from 106 to 121. An engine suggestion now
-        has to carry the pair the engine suggested, and a candidate row has to
-        carry none: on all 189 rows of the attested workbook the engine pair is
-        present exactly on the 106 `ENGINE SUGGESTION` rows and absent on the 83
-        `ADD IF MISSING` ones.
+        `row_type` used to be a free-text label that could move the acceptance
+        denominator when relabelled. A suggestion-labelled row must now record an
+        engine pair and a candidate row must record none. This enforces the row
+        shape but does not independently prove that the engine run emitted the
+        recorded pair; the tracked baseline checks equality with engine evidence.
         """
         if (self.engine is None) != (self.row_type == "ADD IF MISSING"):
             raise ValueError(
@@ -395,7 +393,7 @@ class KeptRow(_AdjudicatedRow):
 
     @property
     def pair_preserved(self) -> bool:
-        """Whether this row kept the pair the engine offered.
+        """Whether this row kept its recorded engine pair.
 
         This is exact `(axis, filler)` pair equality, not an independent measure of
         filler accuracy. False on every candidate row, because there was no
@@ -1169,9 +1167,10 @@ def _engine_suggestion(
     """Read `Engine Axis`/`Engine Filler`, which only a suggestion row may carry.
 
     Required on an `ENGINE SUGGESTION` row and forbidden on an `ADD IF MISSING`
-    one, which is what makes `row_type` corroborated rather than declared. Read at
-    the workbook boundary so the reviewer is told which cell to fix; the invariant
-    itself is carried by `_AdjudicatedRow`, which the JSON entry point also sees.
+    one, so the workbook pair cells record the declared row shape. They do not
+    independently establish that the engine run emitted the pair. Read them at the
+    workbook boundary so the reviewer is told which cell to fix; `_AdjudicatedRow`
+    carries the same shape invariant for the JSON entry point.
     """
     axis_field, filler_field = f"{code} engine axis", f"{code} engine filler"
     if row_type == "ENGINE SUGGESTION":

@@ -1865,8 +1865,8 @@ _EXTRA_DECISION_ROWS = (
     ("C0", "ADD IF MISSING", None, None, "include", "op:PrimarySite", "C12345", "YES"),
     ("C1", "ADD IF MISSING", None, None, "exclude", None, None, "YES"),
     ("C2", "ADD IF MISSING", None, None, "not-needed", None, None, "NO"),
-    # A revision that replaced the engine's pair: the reviewer kept the row but not
-    # what the engine offered, so it counts in `revise` and not in `pair_preserved`.
+    # A revision that replaced the recorded engine pair: the reviewer kept the row
+    # but not that pair, so it counts in `revise` and not in `pair_preserved`.
     (
         "C3",
         "ENGINE SUGGESTION",
@@ -2305,7 +2305,7 @@ def test_not_needed_candidate_rows_may_repeat(tmp_path: Path) -> None:
 
     Engine suggestions always carry an engine pair and are unique by that pair even
     when `expected` is `None`. Rows with neither an engine pair nor an expected pair
-    may repeat; the tracked workbook's exact duplicates of this shape happen to be
+    may repeat; the tracked export's exact duplicates of this shape happen to be
     `ADD IF MISSING` / `not-needed` candidates. An `ADD IF MISSING` / `exclude` row
     with no expected pair has the same permitted identity-free shape.
     """
@@ -2409,7 +2409,7 @@ def _drop_excluded_rows(payload: dict[str, Any]) -> None:
 
 
 def _relabel_a_candidate_row(payload: dict[str, Any]) -> None:
-    """Promote an SME-added row to a suggestion, engine pair and all.
+    """Promote a candidate row to a suggestion, engine pair and all.
 
     Relabelling alone is now refused by `_AdjudicatedRow`, so the edit has to invent
     the suggestion too. That leaves a structurally valid row set whose unchanged
@@ -2729,16 +2729,16 @@ def test_a_half_named_withdrawal_is_refused_on_both_paths(
 
 
 @pytest.mark.unit
-def test_row_decision_export_records_the_pair_each_suggestion_offered(
+def test_row_decision_export_records_the_engine_pair_on_each_suggestion_row(
     tmp_path: Path,
 ) -> None:
     """`Engine Axis` and `Engine Filler` are real columns nothing was reading.
 
-    Without them the export recorded only what the reviewer wrote, so "48 accepted
-    unchanged" was a claim about a label — relabelling `revise` rows whose pair the
-    engine had in fact emitted moved the published rate from 0.4528 to 0.7547 with
-    every test green. Recording the suggested pair makes "unchanged" a comparison
-    the export can perform rather than a word in a docstring.
+    Without them the export could not compare the expected pair with the pair
+    recorded on a suggestion-labelled row. Recording both makes exact
+    `(axis, filler)` pair preservation a direct comparison. This boundary test
+    establishes the row shape; the tracked baseline separately corroborates these
+    pairs against the recorded engine evidence.
     """
     workbook = tmp_path / "review.xlsx"
     _create_workbook(workbook)
@@ -2792,19 +2792,18 @@ def _candidate_with_only_engine_filler(sheet: Worksheet) -> None:
     [export_row_decisions, import_adjudication_workbook],
     ids=["export", "import"],
 )
-def test_the_engine_pair_is_present_exactly_on_the_engine_s_own_rows(
+def test_the_engine_pair_is_present_exactly_on_suggestion_labelled_rows(
     tmp_path: Path,
     read: Callable[[Path], object],
     tamper: Callable[[Worksheet], None],
     message: str,
 ) -> None:
-    """`ENGINE SUGGESTION` means the engine suggested something; the pair proves it.
+    """The workbook pair cells require and record the declared row shape.
 
-    Row type was a free-text label the reviewer's sheet carried and nothing
-    corroborated, so a candidate row could be relabelled a suggestion — the edit
-    that moved the denominator from 106 to 121. The engine pair is now required on
-    a suggestion and forbidden on a candidate, on both entry points, so the label
-    cannot move without the evidence for it moving too.
+    A candidate row could once be relabelled as a suggestion and move the
+    denominator. The engine pair is now required on a suggestion-labelled row and
+    forbidden on a candidate, on both entry points. This establishes internal row
+    shape only; it does not prove that the engine emitted the recorded pair.
     """
     workbook_path = tmp_path / "engine-pair.xlsx"
     _create_workbook(workbook_path)
@@ -3055,7 +3054,7 @@ def test_acceptance_is_undefined_when_the_run_suggested_nothing() -> None:
     `include / adjudicated` is a division the tracked evidence never performs with
     an empty denominator, so nothing else proves this branch is reachable — and a
     bare `float` return would have made `cross_tab()` raise `ZeroDivisionError` on
-    a legitimate export whose rows are all SME-added candidates.
+    a legitimate export whose rows are all candidates.
     """
     empty = EngineAcceptance(include=0, revise=0, exclude=0, pair_preserved=0)
     ruled_on = EngineAcceptance(include=1, revise=1, exclude=2, pair_preserved=1)

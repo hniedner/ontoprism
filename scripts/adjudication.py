@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import and evaluate provenance-bound SME decomposition adjudication."""
+"""Import, export, and evaluate provenance-bound SME decomposition adjudication."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def _export_proposals(registry: Path, output_directory: Path) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Fail-closed SME adjudication import and evaluation"
+        description="Fail-closed SME adjudication import, export, and evaluation"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     import_parser = subparsers.add_parser("import-workbook")

@@ -262,7 +262,7 @@ def test_residual_comparison_holds_the_m1_baseline(
 def test_row_decisions_record_every_workbook_decision_row(
     m1_row_decisions: RowDecisionExport,
 ) -> None:
-    """189 constituent rows: 106 engine suggestions and 83 SME-added candidates."""
+    """189 constituent rows: 106 engine suggestions and 83 candidate rows."""
     assert len(m1_row_decisions.rows) == 189
     assert (
         sum(row.row_type == "ENGINE SUGGESTION" for row in m1_row_decisions.rows) == 106
@@ -282,9 +282,9 @@ def test_engine_suggestion_acceptance_holds_the_m1_baseline(
     than zero, so the denominator cannot quietly grow by rows nobody adjudicated.
 
     `include` counts a label the reviewer wrote, and a label can be rewritten:
-    relabelling the 32 `revise` rows whose expected pair the engine had in fact
-    emitted, and recomputing the unkeyed digest, moved this figure from 0.4528 to
-    0.7547
+    relabelling the 32 `revise` rows whose expected pair equals their recorded
+    engine pair, and recomputing the unkeyed digest, moved this figure from 0.4528
+    to 0.7547
     with every assertion in this file still passing. `pair_preserved` counts an
     equality between two recorded pairs instead, so that edit cannot move it —
     which is why it is asserted here beside the labels. The two numbers differ (48
@@ -304,12 +304,13 @@ def test_engine_suggestion_acceptance_holds_the_m1_baseline(
 
 
 @pytest.mark.unit
-def test_sme_added_constituents_hold_the_m1_baseline(
+def test_candidate_constituents_hold_the_m1_baseline(
     m1_row_decisions: RowDecisionExport,
 ) -> None:
-    """63 constituents the engine never proposed were added by the SME.
+    """Of 83 candidate rows, 63 are labelled `include` and 1 `revise`.
 
-    One further candidate row was revised, 4 excluded and 15 left `not-needed`.
+    All 64 kept candidate pairs are absent from the recorded engine output. The
+    remaining candidate rows comprise 4 `exclude` and 15 `not-needed` labels.
     """
     add_if_missing = m1_row_decisions.cross_tab().add_if_missing
 
@@ -362,11 +363,10 @@ def test_the_acceptance_denominator_is_this_engine_run_s_output(
     equality.
 
     The 48 accepted suggestions must further be triples that run actually emitted,
-    and the SME-added constituents must be disjoint from them — 0 of the 63 appear
-    in the run's output, which is what makes the relabelling check bite rather than
-    pass vacuously. `revise` rows sit in between by construction: 32 of 42 kept the
-    engine's pair and 10 replaced it, so `include` is not merely "the rows whose
-    pair survives".
+    and the 64 kept candidate pairs must be disjoint from the run's output, which
+    is what makes the relabelling check bite rather than pass vacuously. Suggestion
+    `revise` rows sit in between by construction: 32 of 42 kept the engine's pair
+    and 10 replaced it, so `include` is not merely "the rows whose pair survives".
 
     Every structural assertion precedes the count literal it supports. Ordered the
     other way, a `len(...) == 48` failing first hides whether the set relation still
