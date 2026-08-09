@@ -56,12 +56,21 @@ reproducible from tracked data alone.** `adjudication.py import-workbook` alread
 ### D64. M1 is a measurement milestone; the web application precedes further content work
 
 M1 was scoped as "trustworthy decomposed NCIt" — an exit criterion that requires the engine to
-be *good*, which it is not: the attested oracle measures **48 of 106 engine-proposed
-constituents accepted unchanged (45%)**, with the SME supplying 63 constituents the engine never
-proposed, and **relationship-group agreement of 2 of 20 concepts**. A milestone that cannot
-close until the product works is not a milestone. M1 had also accumulated engine, data, UI,
-documentation and governance work plus two epics that by construction close last, and its
-feature branch reached 76 commits over several weeks.
+be *good*, which it is not. The attested oracle measures **48 of 106 engine-proposed rows
+(45%) accepted with no revision at all**, the SME supplying **63** constituents the engine never
+proposed, and **relationship-group agreement of 2 of 20 concepts**.
+
+**Do not read 45% as "the engine picked the wrong filler 55% of the time."** Now that each row
+records the engine's own pair, the two rates are separable and both are asserted:
+`pair_preserved` is **80 of 106 (0.7547)** — the engine proposed the right `(axis, filler)`, and
+that is exactly the precision figure — while `included_rate` is **48 of 106 (0.4528)**. The
+32-row gap is rows where the pair was right and the reviewer revised the relationship group,
+`needs_review` or provenance instead. The filler is the narrower defect (#271); the rest of the
+row is the larger one (#274).
+
+A milestone that cannot close until the product works is not a milestone. M1 had also
+accumulated engine, data, UI, documentation and governance work plus two epics that by
+construction close last, and its feature branch reached 76 commits over several weeks.
 
 **Decision: M1 becomes "decomposition baseline measured against SME truth" and closes on the
 measurement. Engine quality moves to M1.6 (#271 compound fillers, #267 routing order, #274 group
