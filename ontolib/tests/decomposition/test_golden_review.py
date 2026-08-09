@@ -2486,6 +2486,40 @@ def test_both_entry_points_apply_the_concept_sheet_preconditions(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "read",
+    [export_row_decisions, import_adjudication_workbook],
+    ids=["export", "import"],
+)
+def test_a_constituent_code_that_is_not_an_ncit_code_is_refused(
+    tmp_path: Path, read: Callable[[Path], object]
+) -> None:
+    """The row model is the only thing checking the shape of a constituent code.
+
+    `_constituent_row_identity` asks whether the cell holds text and nothing more,
+    so `^C[0-9]+$` is enforced solely by `_ROW_DECISION_ADAPTER.validate_python`,
+    whose `except` wrap turns the pydantic failure into a `GoldenSetValidationError`.
+    Every other way that call can fail is pre-empted by an explicit check upstream,
+    which left the pattern as the one live reject on that line — and it was
+    uncovered on both entry points.
+
+    The same value goes into `Concept Decisions!B5`, so the concept is declared and
+    the orphan gate is not what fires. The assertion is on the message rather than
+    the exception type, because a `GoldenSetValidationError` from any of the
+    upstream checks would satisfy the type and prove nothing about the pattern.
+    """
+    workbook_path = tmp_path / "not-an-ncit-code.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    workbook["Constituent Decisions"]["B5"] = "banana"
+    workbook["Concept Decisions"]["B5"] = "banana"
+    workbook.save(workbook_path)
+
+    with pytest.raises(GoldenSetValidationError, match="should match pattern"):
+        read(workbook_path)
+
+
+@pytest.mark.unit
 def test_engine_suggestion_cannot_be_left_not_needed() -> None:
     """`not-needed` is a candidate-row action; on a suggestion it is a non-decision.
 
