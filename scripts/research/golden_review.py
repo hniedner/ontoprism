@@ -333,6 +333,58 @@ class RowDecisionMetadata(_StrictModel):
         return self
 
 
+class EngineAcceptance(_StrictModel):
+    """What the reviewer did with the suggestions of one engine run.
+
+    There is no `not_needed` field, and its absence is the point. `not-needed`
+    records a *candidate* row the SME never had to fill in; on an engine
+    suggestion it would be a non-decision sitting in the acceptance denominator,
+    which is the same hole `PENDING` closes on the other side. The combination has
+    no inhabitant in `ConstituentRowDecision`, so this tally has no cell for it.
+    """
+
+    include: int = Field(ge=0)
+    revise: int = Field(ge=0)
+    exclude: int = Field(ge=0)
+
+    @property
+    def adjudicated(self) -> int:
+        """Every suggestion the reviewer ruled on — the acceptance denominator."""
+        return self.include + self.revise + self.exclude
+
+    @property
+    def accepted_unchanged_rate(self) -> float | None:
+        """The published acceptance rate, or `None` when the run suggested nothing.
+
+        Undefined rather than zero or an exception: a review of a run that emitted
+        no constituent at all is a legitimate export with nothing to accept, and
+        the same convention already governs `_residual_dict`'s empty denominator.
+        """
+        adjudicated = self.adjudicated
+        return self.include / adjudicated if adjudicated else None
+
+
+class CandidateOutcomes(_StrictModel):
+    """What the reviewer did with the rows they added themselves.
+
+    A candidate row carries no engine suggestion, so `not_needed` is a real
+    outcome here and no acceptance rate is defined: nothing was proposed to
+    accept.
+    """
+
+    include: int = Field(ge=0)
+    revise: int = Field(ge=0)
+    exclude: int = Field(ge=0)
+    not_needed: int = Field(ge=0)
+
+
+class RowDecisionCrossTab(_StrictModel):
+    """Row type by SME action, with each row type's own set of outcomes."""
+
+    engine_suggestion: EngineAcceptance
+    add_if_missing: CandidateOutcomes
+
+
 def _require_decision_rows(
     value: tuple[ConstituentRowDecision, ...],
 ) -> tuple[ConstituentRowDecision, ...]:
@@ -403,22 +455,27 @@ class RowDecisionExport(_StrictModel):
             if row.kept
         }
 
-    def cross_tab(self) -> dict[str, dict[str, int]]:
-        """Row type by SME action, with every *possible* action present at zero.
+    def cross_tab(self) -> RowDecisionCrossTab:
+        """Row type by SME action, as two differently shaped tallies.
 
-        The `(ENGINE SUGGESTION, not-needed)` cell is omitted rather than reported
-        as zero: no such row can exist, and reporting it invited the reading that
-        the combination is merely unused in this workbook.
+        Not a `dict[str, dict[str, int]]`: the two row types do not have the same
+        columns, and a bare grid could neither say so nor compute the acceptance
+        rate the grid exists to support.
         """
         counts = Counter((row.row_type, row.sme_action) for row in self.rows)
-        return {
-            row_type: {
-                action: counts[(row_type, action)]
-                for action in _SME_ACTIONS
-                if (row_type, action) not in _IMPOSSIBLE_ROW_DECISIONS
-            }
-            for row_type in _CONSTITUENT_ROW_TYPES
-        }
+        return RowDecisionCrossTab(
+            engine_suggestion=EngineAcceptance(
+                include=counts[("ENGINE SUGGESTION", "include")],
+                revise=counts[("ENGINE SUGGESTION", "revise")],
+                exclude=counts[("ENGINE SUGGESTION", "exclude")],
+            ),
+            add_if_missing=CandidateOutcomes(
+                include=counts[("ADD IF MISSING", "include")],
+                revise=counts[("ADD IF MISSING", "revise")],
+                exclude=counts[("ADD IF MISSING", "exclude")],
+                not_needed=counts[("ADD IF MISSING", "not-needed")],
+            ),
+        )
 
 
 class EngineConcept(_StrictModel):
@@ -893,7 +950,7 @@ def _constituent_row_identity(
             f"hidden constituent rows are not permitted: {row}"
         )
     row_type = _cell_text(ws, row, headers["Row Type"], f"{code} row type")
-    if row_type not in {"ENGINE SUGGESTION", "ADD IF MISSING"}:
+    if row_type not in _CONSTITUENT_ROW_TYPES:
         raise GoldenSetValidationError(f"{code} has invalid row type: {row_type}")
     action = _cell_text(ws, row, headers["SME Action"], f"{code} SME action")
     return code, row_type, action

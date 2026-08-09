@@ -13,8 +13,11 @@ from pydantic import ValidationError
 from scripts.adjudication import main as adjudication_main
 from scripts.research import golden_review
 from scripts.research.golden_review import (
+    CandidateOutcomes,
     ConstituentRowDecision,
+    EngineAcceptance,
     GoldenSetValidationError,
+    RowDecisionCrossTab,
     evaluate_adjudication,
     export_row_decisions,
     import_adjudication_workbook,
@@ -1829,19 +1832,10 @@ def test_row_decision_export_keeps_every_reviewer_decision(tmp_path: Path) -> No
         export.meta.workbook_identity
         == hashlib.sha256(workbook.read_bytes()).hexdigest()
     )
-    assert export.cross_tab() == {
-        "ENGINE SUGGESTION": {
-            "include": 20,
-            "revise": 1,
-            "exclude": 1,
-        },
-        "ADD IF MISSING": {
-            "include": 1,
-            "revise": 0,
-            "exclude": 1,
-            "not-needed": 1,
-        },
-    }
+    assert export.cross_tab() == RowDecisionCrossTab(
+        engine_suggestion=EngineAcceptance(include=20, revise=1, exclude=1),
+        add_if_missing=CandidateOutcomes(include=1, revise=0, exclude=1, not_needed=1),
+    )
 
 
 @pytest.mark.unit
@@ -2156,7 +2150,7 @@ def test_rows_carrying_no_expected_pair_may_repeat(tmp_path: Path) -> None:
 
     export = load_row_decisions(export_path)
 
-    assert export.cross_tab()["ADD IF MISSING"]["not-needed"] == 2
+    assert export.cross_tab().add_if_missing.not_needed == 2
 
 
 @pytest.mark.unit
@@ -2371,13 +2365,14 @@ def test_workbook_rejects_a_not_needed_engine_suggestion(
 
 
 @pytest.mark.unit
-def test_cross_tab_omits_the_cell_no_engine_suggestion_row_can_occupy(
+def test_the_cell_no_engine_suggestion_row_can_occupy_has_no_field(
     tmp_path: Path,
 ) -> None:
-    """An impossible cell is absent, not reported as a zero.
+    """An impossible cell is absent from the *type*, not reported as a zero.
 
     Reporting `("ENGINE SUGGESTION", "not-needed"): 0` invited the reading that the
-    combination is merely unused in this workbook. It cannot occur.
+    combination is merely unused in this workbook. It cannot occur, so
+    `EngineAcceptance` has nowhere to put it, and a reader cannot ask.
     """
     workbook = tmp_path / "review.xlsx"
     _create_workbook(workbook)
@@ -2385,14 +2380,33 @@ def test_cross_tab_omits_the_cell_no_engine_suggestion_row_can_occupy(
 
     cross_tab = export_row_decisions(workbook).cross_tab()
 
-    assert "not-needed" not in cross_tab["ENGINE SUGGESTION"]
-    assert set(cross_tab["ENGINE SUGGESTION"]) == {"include", "revise", "exclude"}
-    assert set(cross_tab["ADD IF MISSING"]) == {
+    assert set(EngineAcceptance.model_fields) == {"include", "revise", "exclude"}
+    assert set(CandidateOutcomes.model_fields) == {
         "include",
         "revise",
         "exclude",
-        "not-needed",
+        "not_needed",
     }
+    assert not hasattr(cross_tab.engine_suggestion, "not_needed")
+    assert cross_tab.add_if_missing.not_needed == 1
+
+
+@pytest.mark.unit
+def test_acceptance_is_undefined_when_the_run_suggested_nothing() -> None:
+    """A review of a run that emitted no constituent has no rate, not a zero.
+
+    `include / adjudicated` is a division the tracked evidence never performs with
+    an empty denominator, so nothing else proves this branch is reachable — and a
+    bare `float` return would have made `cross_tab()` raise `ZeroDivisionError` on
+    a legitimate export whose rows are all SME-added candidates.
+    """
+    assert (
+        EngineAcceptance(include=0, revise=0, exclude=0).accepted_unchanged_rate is None
+    )
+    assert EngineAcceptance(include=1, revise=1, exclude=2).adjudicated == 4
+    assert EngineAcceptance(include=1, revise=1, exclude=2).accepted_unchanged_rate == (
+        0.25
+    )
 
 
 @pytest.mark.unit

@@ -259,16 +259,24 @@ def test_engine_suggestion_acceptance_holds_the_m1_baseline(
 
     42 were revised and 16 excluded. There is no `not-needed` column here: that
     action records a *candidate* row the SME never had to fill in, and on an engine
-    suggestion it is a non-decision `ConstituentRowDecision` rejects outright. The
-    cell is absent rather than zero, so the denominator cannot quietly grow by rows
-    nobody adjudicated.
+    suggestion it is a non-decision no row can express. The cell is absent rather
+    than zero, so the denominator cannot quietly grow by rows nobody adjudicated.
+
+    The published 45% is asserted, not left to a reader dividing four integers.
+    Until `accepted_unchanged_rate` existed, the figure in `docs/DECISIONS.md` D64
+    and the golden README was arithmetic no code performed and no test could
+    contradict.
     """
-    assert m1_row_decisions.cross_tab()["ENGINE SUGGESTION"] == {
-        "include": 48,
-        "revise": 42,
-        "exclude": 16,
-    }
-    assert sum(m1_row_decisions.cross_tab()["ENGINE SUGGESTION"].values()) == 106
+    engine_suggestion = m1_row_decisions.cross_tab().engine_suggestion
+
+    assert engine_suggestion.include == 48
+    assert engine_suggestion.revise == 42
+    assert engine_suggestion.exclude == 16
+    assert engine_suggestion.adjudicated == 106
+
+    rate = engine_suggestion.accepted_unchanged_rate
+    assert rate is not None
+    assert round(rate, 4) == 0.4528
 
 
 @pytest.mark.unit
@@ -279,12 +287,12 @@ def test_sme_added_constituents_hold_the_m1_baseline(
 
     One further candidate row was revised, 4 excluded and 15 left `not-needed`.
     """
-    assert m1_row_decisions.cross_tab()["ADD IF MISSING"] == {
-        "include": 63,
-        "revise": 1,
-        "exclude": 4,
-        "not-needed": 15,
-    }
+    add_if_missing = m1_row_decisions.cross_tab().add_if_missing
+
+    assert add_if_missing.include == 63
+    assert add_if_missing.revise == 1
+    assert add_if_missing.exclude == 4
+    assert add_if_missing.not_needed == 15
 
 
 @pytest.mark.unit
