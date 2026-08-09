@@ -86,7 +86,18 @@ def _parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export-proposals")
     export_parser.add_argument("registry", type=Path)
     export_parser.add_argument("output_directory", type=Path)
-    rows_parser = subparsers.add_parser("export-row-decisions")
+    rows_parser = subparsers.add_parser(
+        "export-row-decisions",
+        help="Export the selected row-decision projection from an attested workbook",
+        description=(
+            "Export the selected row-decision projection from an attested review "
+            "workbook.\n"
+            "Precondition: reviewer attestation and workbook structural gates must "
+            "pass;\n"
+            "oracle validation still requires import-workbook."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     rows_parser.add_argument("workbook", type=Path)
     rows_parser.add_argument("output", type=Path)
     return parser

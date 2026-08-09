@@ -1844,6 +1844,21 @@ def test_adjudication_cli_imports_workbook_and_evaluates_report(
     assert report["accepted_concepts"] == 20
 
 
+@pytest.mark.unit
+def test_export_row_decisions_cli_help_states_its_boundary(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The export's help names both its purpose and its validation limit."""
+    with pytest.raises(SystemExit) as error:
+        adjudication_main(["export-row-decisions", "--help"])
+
+    assert error.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "selected row-decision projection" in help_text
+    assert "attested review workbook" in help_text
+    assert "oracle validation still requires import-workbook" in help_text
+
+
 _EXTRA_DECISION_ROWS = (
     # code, row type, engine axis, engine filler, action, expected axis,
     # expected filler, complete
@@ -2097,8 +2112,8 @@ def test_row_decision_reader_rejects_a_padded_axis_on_an_excluded_row(
 
     The pre-export reader skipped `exclude` and `not-needed` rows before reading
     `Expected Axis`/`Expected Filler`, so a padded value there was accepted. The
-    export writes those cells out verbatim, so it must read them, and it holds them
-    to the same canonical form as a kept row's on both paths.
+    export projects those cells, so it must read them, and it holds them to the
+    same canonical form as a kept row's on both paths.
     """
     workbook_path = tmp_path / "padded-excluded-axis.xlsx"
     _create_workbook(workbook_path)
@@ -2161,18 +2176,18 @@ def test_row_decision_loader_rejects_duplicate_kept_pairs(tmp_path: Path) -> Non
     adjudication_main(["export-row-decisions", str(workbook), str(export_path)])
     payload = json.loads(export_path.read_text(encoding="utf-8"))
     payload["rows"][1]["code"] = payload["rows"][0]["code"]
-    _write_json(export_path, _resign_row_decisions(payload))
+    _write_json(export_path, _recompute_row_decision_identity(payload))
 
     with pytest.raises(GoldenSetValidationError, match="must be unique on"):
         load_row_decisions(export_path)
 
 
-def _resign_row_decisions(payload: dict[str, Any]) -> dict[str, Any]:
+def _recompute_row_decision_identity(payload: dict[str, Any]) -> dict[str, Any]:
     """Recompute `payload_identity` so a test isolates the structural rules.
 
     Without this a structural test would depend on `_validate_rows` checking
-    structure before identity, and would silently start asserting tamper detection
-    instead if that order ever changed.
+    structure before identity, and would silently start asserting only digest
+    inconsistency instead if that order ever changed.
     """
     payload.pop("payload_identity", None)
     payload["payload_identity"] = _identity(payload)
@@ -2201,9 +2216,56 @@ def test_row_decision_loader_rejects_duplicate_withdrawn_pairs(
         if row["sme_action"] == "exclude" and row["expected"] is not None
     )
     payload["rows"].append(dict(withdrawn))
-    _write_json(export_path, _resign_row_decisions(payload))
+    _write_json(export_path, _recompute_row_decision_identity(payload))
 
     with pytest.raises(GoldenSetValidationError, match="must be unique on"):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_a_duplicate_excluded_engine_suggestion(
+    tmp_path: Path,
+) -> None:
+    """An excluded suggestion remains identified by the engine pair it records."""
+    export_path, payload = _row_decision_payload(tmp_path)
+    source = next(
+        row for row in payload["rows"] if row["row_type"] == "ENGINE SUGGESTION"
+    )
+    duplicate = dict(source)
+    duplicate["sme_action"] = "exclude"
+    duplicate["expected"] = None
+    payload["rows"].append(duplicate)
+    _write_json(export_path, _recompute_row_decision_identity(payload))
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match=r"engine suggestions must be unique on \(code, axis, filler\)",
+    ):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+def test_row_decision_loader_rejects_one_engine_pair_with_distinct_expectations(
+    tmp_path: Path,
+) -> None:
+    """Different SME expectations do not turn one engine suggestion into two."""
+    export_path, payload = _row_decision_payload(tmp_path)
+    source = next(
+        row for row in payload["rows"] if row["row_type"] == "ENGINE SUGGESTION"
+    )
+    duplicate = dict(source)
+    duplicate["sme_action"] = "revise"
+    duplicate["expected"] = {
+        "axis": source["expected"]["axis"],
+        "filler": "C999998",
+    }
+    payload["rows"].append(duplicate)
+    _write_json(export_path, _recompute_row_decision_identity(payload))
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match=r"engine suggestions must be unique on \(code, axis, filler\)",
+    ):
         load_row_decisions(export_path)
 
 
@@ -2231,24 +2293,21 @@ def test_row_decision_loader_rejects_a_pair_both_kept_and_withdrawn(
         if row["sme_action"] == "exclude" and row["expected"] is not None
     )
     withdrawn.update(code=kept["code"], expected=dict(kept["expected"]))
-    _write_json(export_path, _resign_row_decisions(payload))
+    _write_json(export_path, _recompute_row_decision_identity(payload))
 
     with pytest.raises(GoldenSetValidationError, match="both kept and withdrawn"):
         load_row_decisions(export_path)
 
 
 @pytest.mark.unit
-def test_rows_carrying_no_expected_pair_may_repeat(tmp_path: Path) -> None:
+def test_not_needed_candidate_rows_may_repeat(tmp_path: Path) -> None:
     """The stated limit of the uniqueness rule, pinned so it is not mistaken.
 
-    A row with no expected pair has no identity in this payload: the export does
-    not record the engine's suggested axis and filler, which is the only thing that
-    distinguishes two excluded suggestions on one concept. The attested #57
-    workbook contains six such legitimately identical tuples — three excluded
-    suggestions and three not-needed candidates — so uniqueness cannot extend to
-    them without rejecting the real review. Duplication of *these* rows is caught
-    by `payload_identity` at load and by the per-concept engine-run binding in
-    `test_m1_baseline.py`, not here.
+    Engine suggestions always carry an engine pair and are unique by that pair even
+    when `expected` is `None`. Rows with neither an engine pair nor an expected pair
+    may repeat; the tracked workbook's exact duplicates of this shape happen to be
+    `ADD IF MISSING` / `not-needed` candidates. An `ADD IF MISSING` / `exclude` row
+    with no expected pair has the same permitted identity-free shape.
     """
     workbook = tmp_path / "review.xlsx"
     export_path = tmp_path / "rows.json"
@@ -2258,11 +2317,33 @@ def test_rows_carrying_no_expected_pair_may_repeat(tmp_path: Path) -> None:
     payload = json.loads(export_path.read_text(encoding="utf-8"))
     blank = next(row for row in payload["rows"] if row["sme_action"] == "not-needed")
     payload["rows"].append(dict(blank))
-    _write_json(export_path, _resign_row_decisions(payload))
+    _write_json(export_path, _recompute_row_decision_identity(payload))
 
     export = load_row_decisions(export_path)
 
     assert export.cross_tab().add_if_missing.not_needed == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("row_type", "engine"),
+    [
+        ("ENGINE SUGGESTION", None),
+        ("ADD IF MISSING", {"axis": "op:StageValue", "filler": "C27970"}),
+    ],
+    ids=["suggestion-without-engine", "candidate-with-engine"],
+)
+def test_row_decision_loader_rejects_a_row_type_engine_shape_mismatch(
+    tmp_path: Path, row_type: str, engine: dict[str, str] | None
+) -> None:
+    """The JSON entry point enforces the row-type/engine biconditional."""
+    export_path, payload = _row_decision_payload(tmp_path)
+    row = next(item for item in payload["rows"] if item["row_type"] == row_type)
+    row["engine"] = engine
+    _write_json(export_path, _recompute_row_decision_identity(payload))
+
+    with pytest.raises(GoldenSetValidationError, match="engine pair must be present"):
+        load_row_decisions(export_path)
 
 
 @pytest.mark.unit
@@ -2293,12 +2374,14 @@ def test_row_decision_export_binds_the_rows_to_the_engine_run_they_measure(
 
 
 @pytest.mark.unit
-def test_row_decision_export_signs_the_rows_it_exports(tmp_path: Path) -> None:
-    """The payload identity covers the rows, not merely the workbook they came from.
+def test_row_decision_export_digest_covers_its_selected_projection(
+    tmp_path: Path,
+) -> None:
+    """The unkeyed digest covers the projection, not merely its source workbook.
 
     `workbook_identity` hashes the `.xlsx`; it says nothing about the row set
-    derived from it. Every sibling artifact in this module carries a
-    payload-covering identity and validates it at load; this one did not.
+    derived from it. `payload_identity` supplies a self-consistency check, not
+    authentication or proof of authorship.
     """
     workbook = tmp_path / "review.xlsx"
     _create_workbook(workbook)
@@ -2328,9 +2411,9 @@ def _drop_excluded_rows(payload: dict[str, Any]) -> None:
 def _relabel_a_candidate_row(payload: dict[str, Any]) -> None:
     """Promote an SME-added row to a suggestion, engine pair and all.
 
-    Relabelling alone is now refused by `_AdjudicatedRow`, so the forgery has to
-    invent the suggestion too. That leaves a structurally valid row set, and the
-    payload identity is what refuses it.
+    Relabelling alone is now refused by `_AdjudicatedRow`, so the edit has to invent
+    the suggestion too. That leaves a structurally valid row set whose unchanged
+    payload identity is inconsistent with its contents.
     """
     for row in payload["rows"]:
         if row["row_type"] == "ADD IF MISSING" and row["sme_action"] == "include":
@@ -2367,13 +2450,13 @@ def _blank_a_withdrawn_expectation(payload: dict[str, Any]) -> None:
 def test_row_decision_loader_rejects_a_hand_edited_row_set(
     tmp_path: Path, edit: Callable[[dict[str, Any]], None]
 ) -> None:
-    """Every edit that moves the acceptance rate is now a load failure.
+    """Each edit is refused while its stale self-consistency digest remains.
 
-    Each of these loaded clean before the payload identity existed, and each moves
-    the published denominator: deleting the excluded rows, relabelling candidate
-    rows as suggestions, duplicating one excluded row, or blanking a withdrawn
-    expectation — which destroys exactly the property
-    `test_row_decisions_and_the_oracle_agree_on_the_expected_set` relies on.
+    Deleting, relabelling and duplicating rows move the acceptance denominator.
+    Blanking a withdrawn expectation leaves the rate and denominator unchanged but
+    breaks the recorded evidence for why that pair is absent from the oracle. The
+    unkeyed digest detects only that these tests leave it stale; it is not an
+    authenticity or tamper seal.
     """
     export_path, payload = _row_decision_payload(tmp_path)
     before = load_row_decisions(export_path)
@@ -2384,6 +2467,33 @@ def test_row_decision_loader_rejects_a_hand_edited_row_set(
         load_row_decisions(export_path)
     assert payload["rows"] != [row.model_dump(mode="json") for row in before.rows], (
         "the edit must actually change the row set"
+    )
+
+
+@pytest.mark.unit
+def test_blanking_a_withdrawn_expectation_preserves_the_acceptance_measurement(
+    tmp_path: Path,
+) -> None:
+    """A withdrawn pair is oracle evidence, not a rate or denominator input."""
+    export_path, payload = _row_decision_payload(tmp_path)
+    before = load_row_decisions(export_path)
+    named_withdrawals_before = sum(
+        row.sme_action == "exclude" and getattr(row, "expected", None) is not None
+        for row in before.rows
+    )
+    _blank_a_withdrawn_expectation(payload)
+    _write_json(export_path, _recompute_row_decision_identity(payload))
+
+    after = load_row_decisions(export_path)
+
+    assert after.cross_tab() == before.cross_tab()
+    assert after.expected_pairs() == before.expected_pairs()
+    assert (
+        sum(
+            row.sme_action == "exclude" and getattr(row, "expected", None) is not None
+            for row in after.rows
+        )
+        == named_withdrawals_before - 1
     )
 
 
@@ -2655,6 +2765,16 @@ def _relabel_a_suggestion_as_a_candidate(sheet: Worksheet) -> None:
     sheet["D5"] = "ADD IF MISSING"
 
 
+def _candidate_with_only_engine_axis(sheet: Worksheet) -> None:
+    sheet["D5"] = "ADD IF MISSING"
+    sheet["F5"] = None
+
+
+def _candidate_with_only_engine_filler(sheet: Worksheet) -> None:
+    sheet["D5"] = "ADD IF MISSING"
+    sheet["E5"] = None
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("tamper", "message"),
@@ -2693,6 +2813,36 @@ def test_the_engine_pair_is_present_exactly_on_the_engine_s_own_rows(
     workbook.save(workbook_path)
 
     with pytest.raises(GoldenSetValidationError, match=message):
+        read(workbook_path)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "tamper",
+    [_candidate_with_only_engine_axis, _candidate_with_only_engine_filler],
+    ids=["axis-only", "filler-only"],
+)
+@pytest.mark.parametrize(
+    "read",
+    [export_row_decisions, import_adjudication_workbook],
+    ids=["export", "import"],
+)
+def test_a_candidate_row_rejects_either_half_of_an_engine_pair(
+    tmp_path: Path,
+    read: Callable[[Path], object],
+    tamper: Callable[[Worksheet], None],
+) -> None:
+    """Either populated engine cell contradicts an `ADD IF MISSING` row."""
+    workbook_path = tmp_path / "half-engine-pair.xlsx"
+    _create_workbook(workbook_path)
+    workbook = load_workbook(workbook_path)
+    tamper(workbook["Constituent Decisions"])
+    workbook.save(workbook_path)
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match="C0 candidate row must not record an engine suggestion",
+    ):
         read(workbook_path)
 
 
@@ -2950,7 +3100,7 @@ def test_row_decision_loader_rejects_an_empty_row_set(tmp_path: Path) -> None:
     """
     export_path, payload = _row_decision_payload(tmp_path)
     payload["rows"] = []
-    _write_json(export_path, _resign_row_decisions(payload))
+    _write_json(export_path, _recompute_row_decision_identity(payload))
 
     with pytest.raises(GoldenSetValidationError) as error:
         load_row_decisions(export_path)
@@ -2968,9 +3118,9 @@ def test_row_decision_loader_rejects_a_padded_expectation(
     """The row model's canonical-text gate is live, and only on this path.
 
     `_cell_text`/`_optional_text` canonicalize before the row model is built, so
-    from the workbook the model's own check can never fire. The signed JSON export
-    is a real second entry point — `test_m1_baseline.py` reads the tracked file
-    through it — and there the padded value reaches the model directly.
+    from the workbook the model's own check can never fire. The digest-covered JSON
+    projection is a real second entry point — `test_m1_baseline.py` reads the
+    tracked file through it — and there the padded value reaches the model directly.
     """
     export_path, payload = _row_decision_payload(tmp_path)
     row = next(
@@ -2979,11 +3129,33 @@ def test_row_decision_loader_rejects_a_padded_expectation(
         if item["sme_action"] == action and item["expected"] is not None
     )
     row["expected"][field] = " " + row["expected"][field]
-    _write_json(export_path, _resign_row_decisions(payload))
+    _write_json(export_path, _recompute_row_decision_identity(payload))
 
     with pytest.raises(
         GoldenSetValidationError,
         match="must be non-empty without outer whitespace",
+    ):
+        load_row_decisions(export_path)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", ["axis", "filler"])
+@pytest.mark.parametrize("edge", ["leading", "trailing"])
+def test_row_decision_loader_rejects_outer_whitespace_in_an_engine_pair(
+    tmp_path: Path, field: str, edge: str
+) -> None:
+    """Engine pairs stay canonical when loaded from the tracked JSON projection."""
+    export_path, payload = _row_decision_payload(tmp_path)
+    row = next(
+        item for item in payload["rows"] if item["row_type"] == "ENGINE SUGGESTION"
+    )
+    value = row["engine"][field]
+    row["engine"][field] = f" {value}" if edge == "leading" else f"{value} "
+    _write_json(export_path, _recompute_row_decision_identity(payload))
+
+    with pytest.raises(
+        GoldenSetValidationError,
+        match=f"engine {field} must be non-empty without outer whitespace",
     ):
         load_row_decisions(export_path)
 
@@ -2996,7 +3168,7 @@ def test_row_decision_loader_rejects_padded_metadata_text(
     """A hand-edited `_meta` cannot smuggle a padded release, label or run id."""
     export_path, payload = _row_decision_payload(tmp_path)
     payload["_meta"][field] = " " + payload["_meta"][field]
-    _write_json(export_path, _resign_row_decisions(payload))
+    _write_json(export_path, _recompute_row_decision_identity(payload))
 
     with pytest.raises(
         GoldenSetValidationError,

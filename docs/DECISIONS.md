@@ -6,78 +6,70 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 ### D61. Identities are bound after generation, never pre-declared
 
-The #57 review packet wrote a `Corpus evidence identity` into the SME workbook before the
-corpus artifact existed. `evidence_identity` is a SHA-256 over a payload containing
-`run_id = f"{branch}-{uuid4()}"` (`_new_run_id` in `ontolib/src/ontolib/decomposition/run.py`),
-so **no run could ever produce that hash**. The gate at `golden_review.py` was unsatisfiable by
-construction and blocked the authoritative report on an artifact that could not be built. The
-original artifact was also unrecoverable: it had lived only in gitignored `tmp/`, so it was
-never in git history.
+**Decision: never pre-declare the identity of an artifact that does not yet exist. Compute the
+identity from the completed artifact, then record it.** The tracked row-decision export now has
+a `payload_identity` and names the source, run, and engine-evidence identities in `_meta`
+(`jq '{payload_identity,meta:{workbook_identity:._meta.workbook_identity,source_identity:._meta.source_identity,run_id:._meta.run_id,engine_evidence_identity:._meta.engine_evidence_identity}}' ontolib/tests/decomposition/golden/neoplasm-row-decisions.json`,
+2026-08-09).
 
-**Decision: never write the identity of an artifact that does not yet exist. Compute identities
-from the artifact and record them; do not assert them as preconditions.** The equality check was
-removed (`84eb122`); `_residual_dict` still carries the identity into the report, so the
-comparison stays auditable without an impossible precondition. Of the three corpus-identity
-branches, the `detector_identity` one *was* covered by a drift test; the `evidence_identity`
-branch — the unsatisfiable one — was not, and neither was `source_identity`. A gate that could
-never pass therefore survived until it blocked closure.
-
-**Corollary, learned the same day (#275).** An identity that binds an artifact to its *source*
-is not an identity that binds it to *itself*. The row-decision export carried
-`workbook_identity` and no payload digest, so its rows were freely editable — deleting,
-relabelling or duplicating them moved the published acceptance rate to 53%, 40% and 38%
-respectively, with every test still green. Sign the payload, and bind it to the run it
-measures.
+`payload_identity` is an unkeyed self-consistency digest stored beside the payload it covers. It
+detects an edit only when the editor does not recompute the digest; it does not establish origin or
+authorship. Loading the tracked export recomputes the digest, and the focused edit
+test rejects a changed row whose digest was not recomputed
+(`pdm run pytest ontolib/tests/decomposition/test_golden_review.py::test_row_decision_loader_rejects_a_hand_edited_row_set -q`,
+2026-08-09).
 
 ### D62. The golden-set/corpus divergence test belongs to the full corpus, not the #154 sample
 
-D37 pins `residual_precoordination` against the curated golden set so detector drift becomes
-visible "when the two diverge". The #154 corpus sample is a **strict subset** of the #57 golden
-set — 15 of the same 20 codes, same `source_identity`, same run, same detector (verified: the
-15 codes are wholly contained in the 20; the golden-only 5 are `C4791`, `C35756`, `C89995`,
-`C27787`, `C115118`). A set compared against its own subset cannot diverge.
+The 15-code sample is a strict subset of the 20-code adjudicated cohort; the five
+adjudication-only codes are `C4791`, `C35756`, `C89995`, `C27787`, and `C115118`
+(`jq -n --slurpfile sample samples/ncit-26.07d-m1-review.json --slurpfile oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json '($sample[0].concepts|map(.code)) as $s | ($oracle[0].concepts|map(.code)) as $o | {sample:($s|length),oracle:($o|length),sample_only:($s-$o),oracle_only:($o-$s)}'`,
+2026-08-09). The tracked residual comparison identifies itself as the adjudication run
+restricted to that sample
+(`jq '{name,denominator:(.denominator_codes|length),residual:(.residual_codes|length)}' ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json`,
+2026-08-09), so it is a same-cohort check rather than an independent-population divergence test.
 
-**Decision: #57's AC7 is satisfied in letter — counts compared, not averaged — and the
-divergence test moves to #127 step 5 against the full corpus, where an independent population
-exists.** Recorded on both issues with the subset proof.
+**Decision: retain the tracked subset comparison as a reproducible baseline, but test population
+divergence only against the full corpus.**
 
 ### D63. The SME oracle lives in tracked code, not in a review workbook
 
-189 constituent decisions and 20 concept adjudications existed only inside a gitignored
-`.xlsx`. Everything downstream — precision/recall, group agreement, every future regression
-claim — depended on a file that git had never seen and that Excel silently rewrote three times
-during review.
-
-**Decision: the adjudicated artifact, the engine evidence it was scored against, and the corpus
-comparison are tracked under `ontolib/tests/decomposition/golden/`, and the M1 baseline is
-reproducible from tracked data alone.** `adjudication.py import-workbook` already emits the
-`{_meta, concepts}` shape the golden directory uses; the attestation was the only gate.
+**Decision: the adjudicated oracle, row decisions, engine evidence, corpus comparison, and
+proposal registry are tracked under `ontolib/tests/decomposition/golden/`.** Git lists all five
+inputs (`git ls-files ontolib/tests/decomposition/golden/neoplasm-adjudicated.json ontolib/tests/decomposition/golden/neoplasm-row-decisions.json ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json ontolib/tests/decomposition/golden/proposal-registry.json`,
+2026-08-09), and the baseline test loads only those tracked inputs
+(`pdm run pytest ontolib/tests/decomposition/test_m1_baseline.py -q`, 2026-08-09).
 
 ### D64. M1 is a measurement milestone; the web application precedes further content work
 
-M1 was scoped as "trustworthy decomposed NCIt" — an exit criterion that requires the engine to
-be *good*, which it is not. The attested oracle measures **48 of 106 engine-proposed rows
-(45%) accepted with no revision at all**, the SME supplying **63** constituents the engine never
-proposed, and **relationship-group agreement of 2 of 20 concepts**.
+The engine-suggestion rows contain 48 `include`, 42 `revise`, and 16 `exclude` labels. Among
+the 90 kept suggestions, 80 preserve the exact `(axis, filler)` pair, 87 preserve the filler,
+and 83 preserve the axis
+(`jq '[.rows[] | select(.row_type=="ENGINE SUGGESTION")] as $r | [$r[] | select(.sme_action=="include" or .sme_action=="revise")] as $k | {include:([$r[]|select(.sme_action=="include")]|length),revise:([$r[]|select(.sme_action=="revise")]|length),exclude:([$r[]|select(.sme_action=="exclude")]|length),kept:($k|length),pair_match:([$k[]|select(.engine==.expected)]|length),filler_match:([$k[]|select(.engine.filler==.expected.filler)]|length),axis_match:([$k[]|select(.engine.axis==.expected.axis)]|length)}' ontolib/tests/decomposition/golden/neoplasm-row-decisions.json`,
+2026-08-09). These are different measurements: exact pair preservation does not independently
+measure filler accuracy, and `include` is strictly the SME label rate. In particular, 11 of the
+48 included rows differ from the recorded engine constituent in relationship-group or
+`needs_review` fields
+(`pdm run python -c 'import json,pathlib; p=pathlib.Path("ontolib/tests/decomposition/golden"); r=json.loads((p/"neoplasm-row-decisions.json").read_text())["rows"]; e=json.loads((p/"neoplasm-engine-evidence.json").read_text()); a=json.loads((p/"neoplasm-adjudicated.json").read_text()); E={(c["code"],x["axis"],x["filler"]):x for c in e["concepts"] for x in c["constituents"]}; A={(c["code"],x["axis"],x["filler"]):x for c in a["concepts"] if c["expected"] for x in c["expected"]["constituents"]}; I=[x for x in r if x["row_type"]=="ENGINE SUGGESTION" and x["sme_action"]=="include"]; print(sum(any(E[(x["code"],x["expected"]["axis"],x["expected"]["filler"])].get(f)!=A[(x["code"],x["expected"]["axis"],x["expected"]["filler"])].get(f) for f in ("relationship_group","needs_review")) for x in I))'`,
+2026-08-09).
 
-**Do not read 45% as "the engine picked the wrong filler 55% of the time."** Now that each row
-records the engine's own pair, the two rates are separable and both are asserted:
-`pair_preserved` is **80 of 106 (0.7547)** — the engine proposed the right `(axis, filler)`, and
-that is exactly the precision figure — while `included_rate` is **48 of 106 (0.4528)**. The
-32-row gap is rows where the pair was right and the reviewer revised the relationship group,
-`needs_review` or provenance instead. The filler is the narrower defect (#271); the rest of the
-row is the larger one (#274).
+Candidate rows contain 63 `include` labels, but 64 kept constituents: the remaining kept row is
+the `revise` decision for `C206219 op:PrimarySite C12316`, and that revised pair is absent from
+the recorded engine evidence
+(`jq -n --slurpfile rows ontolib/tests/decomposition/golden/neoplasm-row-decisions.json --slurpfile engine ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json '[$rows[0].rows[]|select(.row_type=="ADD IF MISSING")] as $r | {include:([$r[]|select(.sme_action=="include")]|length),kept:([$r[]|select(.sme_action=="include" or .sme_action=="revise")]|length),revised:([$r[]|select(.sme_action=="revise")|. as $x|{code,expected,in_engine:any($engine[0].concepts[];.code==$x.code and any(.constituents[];.axis==$x.expected.axis and .filler==$x.expected.filler))}])}'`,
+2026-08-09).
 
-A milestone that cannot close until the product works is not a milestone. M1 had also
-accumulated engine, data, UI, documentation and governance work plus two epics that by
-construction close last, and its feature branch reached 76 commits over several weeks.
+The tracked NCIt-bound score has 153 expected pairs, precision 0.7547, recall 0.5229, and
+relationship-group agreement on 2 of 20 concepts
+(`pdm run pytest ontolib/tests/decomposition/test_m1_baseline.py::test_expected_pair_provenance_holds_the_m1_baseline ontolib/tests/decomposition/test_m1_baseline.py::test_ncit_bound_precision_and_recall_hold_the_m1_baseline ontolib/tests/decomposition/test_m1_baseline.py::test_group_partition_agreement_holds_the_m1_baseline -q`,
+2026-08-09). The integer true-positive count is uniquely 80: it is the only integer `tp` for
+which `round(tp / 153, 4) == 0.5229`
+(`pdm run python -c 'print([tp for tp in range(154) if round(tp/153,4)==0.5229])'`,
+2026-08-09).
 
-**Decision: M1 becomes "decomposition baseline measured against SME truth" and closes on the
-measurement. Engine quality moves to M1.6 (#271 compound fillers, #267 routing order, #274 group
-partition, #127 full-corpus run). The web application becomes M1.5 and is done first**, because
-it is useful against today's unmodified NCIt — inspecting defects, verifying corrections, and
-later guided editing — and because it does not depend on engine quality. Epics carry no
-milestone. **Corollary: no branch reaches 76 commits again; M1.5 is one small branch per issue.**
+**Decision: M1 is "decomposition baseline measured against SME truth". Engine-quality work
+follows the measurement; web-application work precedes further content work. Keep subsequent
+work on one small issue branch apiece.**
 
 ## 2026-08-07 — what we produce is NCIt, and provenance is what makes alignment work
 

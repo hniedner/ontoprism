@@ -9,8 +9,8 @@ cannot express. Everything the test reads is tracked in this directory, so the
 baseline reproduces from git alone — no live store, no network, no `tmp/` workbook.
 
 The two provenances answer different questions and do not reconcile pair-for-pair: a
-`revise` row replaces one pair with another, so it lands in both the wrong-pair and
-the never-emitted column of the pair-level score.
+`revise` row may preserve the engine pair or record a different expected pair. Only
+the latter lands in both the wrong-pair and never-emitted columns of the pair score.
 
 A change that moves any number here is not automatically a failure, but it must be
 **deliberate and stated**: say which engine or scorer change moved it, and update the
@@ -274,7 +274,7 @@ def test_row_decisions_record_every_workbook_decision_row(
 def test_engine_suggestion_acceptance_holds_the_m1_baseline(
     m1_row_decisions: RowDecisionExport,
 ) -> None:
-    """The #57 headline: 48 of 106 engine suggestions kept as offered (45%).
+    """The #57 label rate: 48 of 106 engine suggestions marked `include` (45%).
 
     42 were revised and 16 excluded. There is no `not-needed` column here: that
     action records a *candidate* row the SME never had to fill in, and on an engine
@@ -283,7 +283,8 @@ def test_engine_suggestion_acceptance_holds_the_m1_baseline(
 
     `include` counts a label the reviewer wrote, and a label can be rewritten:
     relabelling the 32 `revise` rows whose expected pair the engine had in fact
-    emitted, and re-signing the payload, moved this figure from 0.4528 to 0.7547
+    emitted, and recomputing the unkeyed digest, moved this figure from 0.4528 to
+    0.7547
     with every assertion in this file still passing. `pair_preserved` counts an
     equality between two recorded pairs instead, so that edit cannot move it —
     which is why it is asserted here beside the labels. The two numbers differ (48
@@ -408,8 +409,8 @@ def test_three_withdrawn_expectations_sit_outside_the_oracle(
     entire evidence for the rule repeated in `ExcludedRow`, `expected_pairs()` and
     `_KEPT_SME_ACTIONS`: the presence of an expected pair never decides membership.
     Nothing pinned them. Blanking all three, or rewriting one to a fabricated pair,
-    survived the whole suite once the payload was re-signed — so the docstrings
-    asserted a design the data no longer had to satisfy.
+    survived the whole suite once the payload digest was recomputed — so the
+    docstrings asserted a design the data no longer had to satisfy.
 
     Pinned four ways: the triples themselves, so a fabricated pair fails; which of
     them the engine had suggested, so a row type cannot be swapped between an
@@ -460,10 +461,10 @@ def test_row_decisions_name_the_run_and_source_the_oracle_names(
     tracked rows could be read beside any run at all.
 
     The reviewer block is compared too. Both artifacts read it from the same sheet
-    of the same workbook, so a disagreement about who signed the review, in what
-    capacity, or on what date is a forgery in one of the two files and provable as
-    such without consulting the workbook. Rewriting `_meta.reviewer` in the export
-    and re-signing the payload was otherwise undetectable.
+    of the same workbook, so a disagreement about who attested to the review, in
+    what capacity, or on what date proves that the files disagree without consulting
+    the workbook. Rewriting `_meta.reviewer` in the export and recomputing its
+    unkeyed digest was otherwise undetectable.
     """
     assert (
         m1_row_decisions.meta.engine_evidence_identity

@@ -285,6 +285,14 @@ class ExpectedTriple(NamedTuple):
     filler: str
 
 
+class EngineSuggestionTriple(NamedTuple):
+    """One engine suggestion, named by concept code, axis, and filler."""
+
+    code: str
+    axis: str
+    filler: str
+
+
 class ExpectedPair(_StrictModel):
     """The axis and filler one row records as the reviewer's expectation.
 
@@ -311,9 +319,9 @@ class EngineSuggestion(_StrictModel):
 
     `Engine Axis` and `Engine Filler` are columns of the attested workbook that
     nothing read. Without them "accepted unchanged" was a statement about the SME's
-    label alone: relabelling the `revise` rows whose pair the engine had in fact
-    emitted moved the published rate from 0.4528 to 0.7547 and no assertion could
-    contradict it. Recorded here, "unchanged" becomes a comparison.
+    label alone: relabelling `revise` rows whose pair the engine had emitted moved
+    the label rate without changing the pairs. Recording the suggestion here makes
+    exact pair preservation a direct comparison.
     """
 
     axis: str
@@ -327,12 +335,13 @@ class EngineSuggestion(_StrictModel):
 
 
 class _ConstituentRow(_StrictModel):
-    """One reviewer decision row, recorded before any expectation is inferred.
+    """The selected fields from one decision row, before expectation inference.
 
-    The oracle keeps only what the SME included or revised. The export keeps the
-    rejected and unused rows too, because the ratio between them *is* the
-    measurement of the engine: an accepted suggestion and an excluded one are
-    indistinguishable once only the surviving pairs are stored.
+    The oracle keeps only what the SME included or revised. The export projects the
+    concept code, row type, engine pair, SME action, and expected pair, including
+    rejected and unused rows, because the ratio between them *is* the measurement
+    of the engine: an accepted suggestion and an excluded one are indistinguishable
+    once only the surviving pairs are stored.
 
     The three variants below differ in what they may carry, so the differences are
     enforced by the shape of each row rather than by a validator every caller then
@@ -388,7 +397,9 @@ class KeptRow(_AdjudicatedRow):
     def pair_preserved(self) -> bool:
         """Whether this row kept the pair the engine offered.
 
-        False on every candidate row, because there was no suggestion to preserve.
+        This is exact `(axis, filler)` pair equality, not an independent measure of
+        filler accuracy. False on every candidate row, because there was no
+        suggestion to preserve.
         """
         return self.engine is not None and (self.engine.axis, self.engine.filler) == (
             self.expected.axis,
@@ -564,7 +575,7 @@ def _require_decision_rows(
 
 
 class RowDecisionExport(_StrictModel):
-    """Every constituent decision the reviewer recorded, verbatim."""
+    """A selected projection of the reviewer's constituent decision rows."""
 
     meta: Annotated[RowDecisionMetadata, Field(alias="_meta")]
     rows: Annotated[
@@ -576,6 +587,15 @@ class RowDecisionExport(_StrictModel):
     def _validate_rows(self) -> Self:
         kept: list[ExpectedTriple] = []
         withdrawn: list[ExpectedTriple] = []
+        suggestions = [
+            EngineSuggestionTriple(row.code, row.engine.axis, row.engine.filler)
+            for row in self.rows
+            if row.engine is not None
+        ]
+        if len(suggestions) != len(set(suggestions)):
+            raise ValueError(
+                "engine suggestions must be unique on (code, axis, filler)"
+            )
         for row in self.rows:
             if isinstance(row, KeptRow):
                 kept.append(row.expected_triple)
@@ -1177,10 +1197,11 @@ def _constituent_row_decision(
     kept ones: required on `include`/`revise`, optional but canonically validated
     on `exclude`/`not-needed`. That is a deliberate tightening over the reader this
     replaced, which skipped non-kept rows before reaching those columns and so
-    accepted a padded or non-textual value there. The export writes those cells out
-    verbatim, so a defect in them is a workbook defect worth failing on rather than
-    something to record and propagate. It is fail-closed and cannot alter the
-    oracle: a row it rejects would previously have been dropped, never kept.
+    accepted a padded or non-textual value there. The export includes those cells
+    in its selected projection, so a defect in them is a workbook defect worth
+    failing on rather than something to record and propagate. It is fail-closed
+    and cannot alter the oracle: a row it rejects would previously have been
+    dropped, never kept.
 
     The two halves are read together: an `exclude` row names both or neither, so a
     half-named withdrawal — which `withdrawn_triple` reported as "named nothing",
@@ -1636,13 +1657,15 @@ def import_adjudication_workbook(
 def export_row_decisions_bytes(
     workbook_bytes: bytes, source_workbook: str
 ) -> RowDecisionExport:
-    """Export every constituent decision row of one workbook snapshot.
+    """Export a selected projection of each decision row in one workbook snapshot.
 
     The oracle import discards `exclude` and `not-needed` rows, which is what makes
     the engine's acceptance rate unrecoverable from the artifact alone. This keeps
     the rows instead.
 
-    It runs the workbook-level tamper gates and the shared row reader, and no more.
+    It runs the workbook-level integrity gates and the shared row reader, and no
+    more. The projection contains the concept code, row type, engine pair, SME
+    action and expected pair; it does not reproduce every workbook cell.
     Specifically it runs:
 
     - `_load_review_workbook`: the sheet-name contract, every reviewer sheet
@@ -1669,14 +1692,15 @@ def export_row_decisions_bytes(
       the export shares with the import, because an orphan row enlarges the
       acceptance denominator with a concept nobody adjudicated — and a hidden or
       blank-coded declaration decides which rows count as orphans.
-    - `RowDecisionExport`: a nonempty row set in which every row carrying an
-      expected pair is unique on `(code, axis, filler)` and no such triple is both
-      kept and withdrawn, signed by a `payload_identity` over the rows themselves.
-      `workbook_identity` hashes the `.xlsx`; `payload_identity` hashes what was
-      read out of it, so an edit to the tracked JSON is a load failure. A row
-      carrying *no* expected pair has no identity here — the export does not record
-      the engine's suggested axis and filler — so such rows are unconstrained by
-      the uniqueness rule.
+    - `RowDecisionExport`: a nonempty row set in which engine suggestions are
+      unique on `(code, engine.axis, engine.filler)`, every row carrying an expected
+      pair is unique on `(code, expected.axis, expected.filler)`, and no expected
+      triple is both kept and withdrawn. Rows with neither an engine pair nor an
+      expected pair may repeat; the tracked exact duplicates of this shape happen
+      to be `ADD IF MISSING` / `not-needed` rows.
+      `workbook_identity` hashes the `.xlsx`; `payload_identity` is an unkeyed
+      digest over the selected projection and supplies only a self-consistency
+      check. It does not authenticate the payload or prove who produced it.
 
     It does **not** run `_kept_constituent`, so the `Expected Provenance Status`,
     `Expected needs_review`, `Expected Group` and `Expected Proposal ID` gates —
@@ -1733,7 +1757,7 @@ def export_row_decisions(path: str | Path) -> RowDecisionExport:
 
 
 def load_row_decisions(path: str | Path) -> RowDecisionExport:
-    """Load the tracked row-decision export, rejecting a hand edit that broke it."""
+    """Load the tracked export, rejecting a payload inconsistent with its digest."""
     raw = read_json_without_duplicates(path)
     if not isinstance(raw, dict):
         raise GoldenSetValidationError("row decisions must be a JSON object")
