@@ -64,18 +64,50 @@ Legacy pre-coordinated concepts are **flagged, never deleted**
 (`representationStatus="legacy-precoordinated"`) and linked to constituents via
 `hasConstituent[axis, filler]`. Constituents come roles-first (100% already exist as
 active concepts) with NLP/label parsing as fallback for label-only axes (laterality,
-with/without <finding>, staging-manual version). Scope: disease/neoplasm(/regimen);
-gene/protein role families are excluded by a semantic-type gate. Extraction runs off the
-**stated** OWL (DECISIONS D4); the inferred store is used only for validation/closure.
+with/without <finding>, staging-manual version). The `neoplasm` (`C3262`) and `disease`
+(`C2991`) populations are strict descendant closures of the stated named-class DAG,
+including defined-class genus edges; disease contains neoplasm. Both use the same
+axis-qualified algorithm and its semantic-type applicability gate. Regimen is reserved
+for a distinct component-bag algorithm; gene/protein role families remain excluded.
+Extraction runs off the **stated** OWL (DECISIONS D4/D51); the inferred store is used
+only for validation/closure.
 
-The deployed graph is the deliberately **lossy curated projection** for human legibility.
-It never emits `owl:equivalentClass`; requests for equivalence fail closed before client or
-artifact effects, and new runs record no round-trip-fidelity value (D43). Exact
-reversibility requires the future **complete, proof-bearing representation of record**:
-the full multi-parent-DAG unfolding with genuinely co-equal axes kept multi-valued as
-SNOMED-style relationship groups (#153; D19). Most-specific collapse applies only to
-*nested* (is-a/part-of) candidates, never to non-nested co-equal values such as
-site-vs-lineage (D19/D20).
+The human-facing view is a deliberately **lossy curated projection**. The representation
+of record separately preserves the complete stated multi-parent definition DAG, every
+genus/restriction group, and stable trace links from role- and parent-derived projected
+constituents; minted NLP fallback retains separate proposal provenance (D50).
+PostgreSQL and the additive RDF artifact both round-trip groups, review flags, and those
+facts. The graph still never emits `owl:equivalentClass`; requests for equivalence fail
+closed and new runs record no round-trip-fidelity value until a separate proof/validation
+step establishes exact semantics (D43/D50). Most-specific collapse applies only to the
+projection and never changes the complete record.
+
+`op:PrimarySite` is anatomy-valued and cardinality `0..1` after class-projection review;
+the pending projection may retain multiple review-required candidates rather than choose
+silently. A future cancer-disease occurrence is likewise `0..1`. Absence in the resolved
+class projection is not CUP: site-agnostic morphology classes simply do not pose the
+question. The future
+occurrence model must instead carry exactly one `primarySiteStatus` (`known`,
+`unknown-cup`, `undetermined`, or `not-applicable`), with `known` iff a primary-site filler
+is present. Patients may have any number of disease occurrences; occurrence individuation
+(second primary versus metastasis) is upstream of this constraint and must never be
+inferred from the site cardinality. D58 defines a future class-status derivation from the
+site plus explicit complete-record unknown-primary evidence; the current projection does
+not compute or persist it. The proposed no-site/no-CUP `not-applicable` summary is
+class-local and never inherited by an occurrence:
+a solid-tumour occurrence without established site evidence is `undetermined` (D58).
+The future occurrence schema and API are tracked in #263.
+
+The pending M1 reference candidate includes audited R103 normal-tissue-origin and R108
+clinical-finding expectations after same-axis specificity and the versioned
+`contracted-role-generic-v2` suppression list. R103 expectations carry their source-derived
+non-defining modality; `ncit-26.07d-unsupported-filler-v1` excludes the two C54105 source
+conflicts from accuracy content. Ten R104 CellOrigin and one R107
+CytogeneticAbnormality survivor remain named scope omissions pending axis-level
+adjudication; their complete-definition facts are still preserved. Production projection
+recall remains depth-bounded. Is-a may collapse a broader filler on routed axes except
+lineage classification, while R82 part-of may collapse only location-axis fillers.
+Independent lineage classifiers remain ungrouped and uncollapsed (D59).
 
 See the [design docs](design/) — the [decomposition assessment](design/ncit-decomposition-assessment.md)
 (the *why* + verified prevalence numbers) and the [engine design](design/ncit-decomposition-engine.md)

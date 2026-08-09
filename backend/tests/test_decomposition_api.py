@@ -20,7 +20,16 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 def _row(**kw: str) -> dict[str, str | None]:
     base = dict.fromkeys(
-        ("status", "decomposedOn", "axis", "filler", "axisSource", "mostSpecific"), None
+        (
+            "status",
+            "decomposedOn",
+            "axis",
+            "filler",
+            "axisSource",
+            "sourceRole",
+            "mostSpecific",
+        ),
+        None,
     )
     return base | kw
 
@@ -75,17 +84,19 @@ _DECOMPOSED_ROWS = [
     _row(
         status=vocab.LEGACY_PRECOORDINATED,
         decomposedOn="2026-07-06",
-        axis=f"{NCIT_NS}R88",
+        axis=f"{vocab.ONTOPRISM_NS}StageValue",
         filler=f"{NCIT_NS}C27970",
         axisSource="role",
+        sourceRole=f"{NCIT_NS}R88",
         mostSpecific="false",
     ),
     _row(
         status=vocab.LEGACY_PRECOORDINATED,
         decomposedOn="2026-07-06",
-        axis=f"{NCIT_NS}R101",
+        axis=f"{vocab.ONTOPRISM_NS}PrimarySite",
         filler=f"{NCIT_NS}C12400",
         axisSource="role",
+        sourceRole=f"{NCIT_NS}R101",
         mostSpecific="true",
     ),
 ]
@@ -109,12 +120,14 @@ def test_decomposition_returns_flagged_constituents_with_labels() -> None:
     assert body["is_legacy_precoordinated"] is True
     assert body["decomposed_on"] == "2026-07-06"
     by_axis = {c["axis"]: c for c in body["constituents"]}
-    assert set(by_axis) == {"R88", "R101"}
+    assert set(by_axis) == {"op:StageValue", "op:PrimarySite"}
     # Filler labels are resolved for display; most-specific flag round-trips.
-    assert by_axis["R101"]["filler"] == "C12400"
-    assert by_axis["R101"]["filler_label"] == "Thyroid Gland"
-    assert by_axis["R101"]["most_specific"] is True
-    assert by_axis["R88"]["most_specific"] is False
+    assert by_axis["op:PrimarySite"]["filler"] == "C12400"
+    assert by_axis["op:PrimarySite"]["filler_label"] == "Thyroid Gland"
+    assert by_axis["op:PrimarySite"]["source_role"] == "R101"
+    assert by_axis["op:PrimarySite"]["most_specific"] is True
+    assert by_axis["op:StageValue"]["source_role"] == "R88"
+    assert by_axis["op:StageValue"]["most_specific"] is False
 
 
 @pytest.mark.api

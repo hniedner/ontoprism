@@ -5,11 +5,15 @@ import pytest
 from ontolib.decomposition.axes import (
     ASSOCIATED_LINEAGE_AXIS,
     ASSOCIATED_REGION_AXIS,
+    GENERIC_FILLERS_BY_ROLE,
+    GENERIC_SUPPRESSION_VERSION,
     IN_SCOPE_SEMANTIC_TYPES,
     LINEAGE_GENERIC_GENERA,
     MORPHOLOGY_AXIS,
     ORGAN_SEMANTIC_TYPE,
     PRIMARY_SITE_ROLE,
+    UNSUPPORTED_FILLER_VERSION,
+    UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE,
     is_defining_role,
     is_excluded_role,
     is_in_scope,
@@ -86,6 +90,7 @@ def test_morphology_axis_is_an_ontoprism_axis() -> None:
         ("C3010", True),
         ("C3809", True),
         ("C3773", True),
+        ("C215715", True),
         ("C12400", False),
         (None, False),
     ],
@@ -134,12 +139,32 @@ def test_lineage_generic_genera_scope_is_endocrine_only() -> None:
     3. Addition to D20 decision record
     """
     # All current members are endocrine/neuroendocrine
-    expected = frozenset({"C3010", "C3809", "C3773"})
+    expected = frozenset({"C3010", "C3809", "C3773", "C215715"})
     assert expected == LINEAGE_GENERIC_GENERA
     # C3010 = Endocrine Neoplasm, C3809 = Neuroendocrine Neoplasm,
-    # C3773 = Neuroendocrine Carcinoma
+    # C3773 = Neuroendocrine Carcinoma, C215715 = Endocrine Carcinoma
 
     # Hematopoietic genera (C3209 Hematopoietic Neoplasm) are NOT in list
     assert "C3209" not in LINEAGE_GENERIC_GENERA
     # Germ cell genera (C4144 Germ Cell Neoplasm) are NOT in list
     assert "C4144" not in LINEAGE_GENERIC_GENERA
+
+
+@pytest.mark.unit
+def test_generic_suppression_is_versioned_and_role_specific() -> None:
+    assert GENERIC_SUPPRESSION_VERSION == "contracted-role-generic-v2"
+    assert {
+        "R103": frozenset({"C45714"}),
+        "R104": frozenset({"C12578"}),
+        "R105": frozenset({"C12917", "C12922", "C36779"}),
+        "R108": frozenset({"C36115", "C53596", "C54172"}),
+    } == GENERIC_FILLERS_BY_ROLE
+
+
+@pytest.mark.unit
+def test_unsupported_filler_exclusion_is_versioned_and_role_specific() -> None:
+    assert UNSUPPORTED_FILLER_VERSION == "ncit-26.07d-unsupported-filler-v1"
+    assert {
+        ("C102870", "R103"): frozenset({"C54105"}),
+        ("C27787", "R103"): frozenset({"C54105"}),
+    } == UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE

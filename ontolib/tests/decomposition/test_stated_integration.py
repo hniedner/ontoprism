@@ -16,6 +16,10 @@ import httpx
 import pytest
 
 from ontolib.decomposition import stated_queries
+from ontolib.decomposition.complete_definition import (
+    build_complete_definition_query,
+    read_complete_definition,
+)
 from ontolib.decomposition.extract import (
     AncestorPair,
     PartOfPair,
@@ -26,6 +30,12 @@ from ontolib.decomposition.extract import (
     semantic_type_of_from_rows,
 )
 from ontolib.decomposition.filler_selection import select_constituents
+from ontolib.decomposition.models import (
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+    RoleRestriction,
+)
+from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
@@ -54,7 +64,10 @@ _EXPANSION_NODE = re.compile(rf"BIND\(<{re.escape(NCIT_NS)}(C[0-9]+)> AS \?node\
 
 
 def _url() -> str:
-    return os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL)
+    return os.environ.get(
+        "NCIT_STATED_SPARQL_URL",
+        os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL),
+    )
 
 
 def _reachable(url: str) -> bool:
@@ -89,6 +102,26 @@ def _stated_loaded(url: str) -> bool:
         return False
     resp.raise_for_status()
     return parse_ask_result(resp.json())
+
+
+@pytest.mark.unit
+def test_stated_store_url_prefers_dedicated_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NCIT_SPARQL_URL", "http://inferred.example")
+    monkeypatch.setenv("NCIT_STATED_SPARQL_URL", "http://stated.example")
+
+    assert _url() == "http://stated.example"
+
+
+@pytest.mark.unit
+def test_stated_store_url_falls_back_to_general_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NCIT_SPARQL_URL", "http://general.example")
+    monkeypatch.delenv("NCIT_STATED_SPARQL_URL", raising=False)
+
+    assert _url() == "http://general.example"
 
 
 def _fixture_expansions() -> dict[str, list[tuple[str, str]]]:
@@ -147,6 +180,285 @@ async def test_stated_query_builders_parse_against_disposable_store(
         for q in build_genus_walk_members_query("C6135"):
             rows = await client.select(q)
             assert isinstance(rows, list)
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_genus_traversal_matches_disposable_owl_list_shape(
+    isolated_oxigraph_url: str,
+) -> None:
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99401 owl:equivalentClass [
+            owl:intersectionOf (
+                ncit:C99402
+                [
+                    a owl:Restriction ;
+                    owl:onProperty ncit:R101 ;
+                    owl:someValuesFrom ncit:C99410
+                ]
+            )
+        ] .
+        ncit:C99402
+            rdfs:label "Synthetic Carcinoma by AJCC Stage II" ;
+            owl:equivalentClass [
+                owl:intersectionOf (
+                    ncit:C99403
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R101 ;
+                        owl:someValuesFrom ncit:C99411
+                    ]
+                )
+            ] .
+        ncit:C99403 rdfs:label "Synthetic Carcinoma" .
+    """
+    default_labels = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:R101 rdfs:label "Disease_Has_Primary_Anatomic_Site" .
+        ncit:C99991 rdfs:label "Unrelated Default Label One" .
+        ncit:C99992 rdfs:label "Unrelated Default Label Two" .
+    """
+
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        await client.load(
+            default_labels.encode(),
+            content_type="text/turtle",
+            replace=False,
+        )
+        root_queries = build_genus_walk_members_query("C99401")
+        genus_rows = await client.select_once(
+            root_queries[0],
+            required_variables={"member"},
+        )
+        restriction_rows = await client.select_once(
+            root_queries[1],
+            required_variables={"member"},
+        )
+        roles = await walk_genus_chain(client.select, "C99401", max_depth=3)
+        morphology = await resolve_morphology_filler(
+            client.select,
+            "C99401",
+            max_depth=3,
+        )
+
+    assert genus_rows == [{"member": f"{NCIT_NS}C99402"}]
+    assert len(restriction_rows) == 1
+    assert {
+        key: value for key, value in restriction_rows[0].items() if key != "member"
+    } == {
+        "role": f"{NCIT_NS}R101",
+        "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+        "target": f"{NCIT_NS}C99410",
+        "type": f"{OWL_NS}Restriction",
+    }
+    assert [
+        (role.role_code, role.filler_code, role.anchoring_genus) for role in roles
+    ] == [
+        ("R101", "C99410", "C99401"),
+        ("R101", "C99411", "C99402"),
+    ]
+    assert morphology == "C99403"
+
+    double_rows: dict[str, list[dict[str, str | None]]] = {}
+    for code, genus, filler in (
+        ("C99401", "C99402", "C99410"),
+        ("C99402", "C99403", "C99411"),
+    ):
+        double_rows[build_complete_definition_query(code)] = [
+            {
+                "expression": f"_:expression-{code}",
+                "parentExpression": None,
+                "nestingDepth": "0",
+                "position": "0",
+                "member": f"{NCIT_NS}{genus}",
+                "childExpression": ("_:defined" if genus == "C99402" else None),
+                "nestedExpression": None,
+                "role": None,
+                "target": None,
+                "overflow": "false",
+            },
+            {
+                "expression": f"_:expression-{code}",
+                "parentExpression": None,
+                "nestingDepth": "0",
+                "position": "1",
+                "member": "_:restriction",
+                "childExpression": None,
+                "nestedExpression": None,
+                "role": f"{NCIT_NS}R101",
+                "target": f"{NCIT_NS}{filler}",
+                "overflow": "false",
+            },
+        ]
+
+    async def double_select(
+        query: str,
+        *,
+        required_variables: Collection[str] = (),
+    ) -> list[dict[str, str | None]]:
+        if "SELECT ?role ?roleLabel" in query:
+            assert set(required_variables) == {"role"}
+            return [
+                {
+                    "role": f"{NCIT_NS}R101",
+                    "roleLabel": "Disease_Has_Primary_Anatomic_Site",
+                }
+            ]
+        assert set(required_variables) == {
+            "expression",
+            "list",
+            "cell",
+        }
+        return double_rows.get(query, [])
+
+    assert await walk_genus_chain(double_select, "C99401", max_depth=3) == roles
+
+    semantic_types = {
+        "C99410": "Body Part, Organ, or Organ Component",
+        "C99411": "Anatomical Structure",
+    }
+    constituents = select_constituents(
+        roles,
+        lambda _ancestor, _descendant: False,
+        semantic_type_of=semantic_types.get,
+    )
+    assert {(item.axis, item.filler_code) for item in constituents} == {
+        ("op:PrimarySite", "C99410"),
+        ("op:AssociatedRegion", "C99411"),
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_nested_intersection_groups_and_late_members_match_real_oxigraph(
+    isolated_oxigraph_url: str,
+) -> None:
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99601
+            <{NCIT_NS}P106> "Neoplastic Process" ;
+            owl:equivalentClass [
+                owl:intersectionOf (
+                    ncit:C99602
+                    ncit:C99603
+                    [
+                        a owl:Class ;
+                        owl:equivalentClass [
+                            owl:intersectionOf (
+                                [
+                                    a owl:Restriction ;
+                                    owl:onProperty ncit:R140 ;
+                                    owl:someValuesFrom ncit:C99610
+                                ]
+                                [
+                                    a owl:Restriction ;
+                                    owl:onProperty ncit:R141 ;
+                                    owl:someValuesFrom ncit:C99611
+                                ]
+                            )
+                        ]
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R101 ;
+                        owl:someValuesFrom ncit:C99612
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R105 ;
+                        owl:someValuesFrom ncit:C99613
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R108 ;
+                        owl:someValuesFrom ncit:C99614
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R139 ;
+                        owl:someValuesFrom ncit:C99615
+                    ]
+                    [
+                        a owl:Restriction ;
+                        owl:onProperty ncit:R142 ;
+                        owl:someValuesFrom ncit:C99616
+                    ]
+                )
+            ] .
+        ncit:C99602 rdfs:label "Synthetic Morphology" .
+        ncit:C99603 rdfs:label "Synthetic Second Genus" .
+        ncit:R101 rdfs:label "Disease_Has_Primary_Anatomic_Site" .
+        ncit:R105 rdfs:label "Disease_Has_Abnormal_Cell" .
+        ncit:R108 rdfs:label "Disease_Has_Finding" .
+        ncit:R139 rdfs:label "Disease_Has_Something" .
+        ncit:R140 rdfs:label "Disease_Has_Nested_One" .
+        ncit:R141 rdfs:label "Disease_Has_Nested_Two" .
+        ncit:R142 rdfs:label "Disease_Has_Late_Member" .
+    """
+
+    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        direct_primitive_rows = await client.select(
+            f"SELECT ?expression WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"<{NCIT_NS}C99603> <{OWL_NS}equivalentClass> ?expression . }} }}"
+        )
+        assert direct_primitive_rows == []
+        primitive_rows = await client.select(build_complete_definition_query("C99603"))
+        assert primitive_rows == []
+        complete = await read_complete_definition(client.select, "C99601")
+        roles = await walk_genus_chain(client.select, "C99601", max_depth=3)
+
+    assert {group.anchor_code for group in complete.groups} == {"C99601"}
+    assert len(complete.groups) == 2
+    assert len(complete.root_group_ids) == 1
+    root = next(
+        group for group in complete.groups if group.group_id in complete.root_group_ids
+    )
+    assert len(root.child_group_ids) == 1
+    assert {
+        (fact.role_code, fact.filler_code)
+        for fact in complete.facts
+        if isinstance(fact, RestrictionDefinitionFact)
+    } == {
+        ("R101", "C99612"),
+        ("R105", "C99613"),
+        ("R108", "C99614"),
+        ("R139", "C99615"),
+        ("R140", "C99610"),
+        ("R141", "C99611"),
+        ("R142", "C99616"),
+    }
+    assert {
+        (role.role_code, role.filler_code, role.anchoring_genus) for role in roles
+    } == {
+        ("R101", "C99612", "C99601"),
+        ("R105", "C99613", "C99601"),
+        ("R108", "C99614", "C99601"),
+        ("R139", "C99615", "C99601"),
+        ("R140", "C99610", "C99601"),
+        ("R141", "C99611", "C99601"),
+        ("R142", "C99616", "C99601"),
+    }
 
 
 @pytest.mark.integration
@@ -382,7 +694,7 @@ async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> Non
             f"SELECT ?s WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ ?s ?p ?o }} }} LIMIT 1"
         )
 
-    assert version_rows == [{"version": "26.06e"}]
+    assert version_rows == [{"version": "26.07d"}]
     assert rows == [
         {
             "part": f"{NCIT_NS}C32291",
@@ -410,7 +722,7 @@ async def test_part_of_closure_matches_version_pinned_full_store() -> None:
             f"?ontology a <{OWL_NS}Ontology> ; "
             f"<{OWL_NS}versionInfo> ?version . }} }}"
         )
-        assert version_rows == [{"version": "26.06e"}]
+        assert version_rows == [{"version": "26.07d"}]
         one_edge_rows = await client.select(
             build_part_of_pairs_query(part_codes=codes, whole_codes=codes),
             required_variables={"part", "whole"},
@@ -463,7 +775,7 @@ async def test_c6135_genus_walk_finds_roles() -> None:
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url) as client:
+    async with OxigraphHttpClient(url, query_timeout=180.0) as client:
         roles = await walk_genus_chain(client.select, "C6135", max_depth=6)
 
     # The walker should find at minimum these core roles from the genus chain:
@@ -475,11 +787,169 @@ async def test_c6135_genus_walk_finds_roles() -> None:
     assert "C13063" in filler_codes  # R101 — Neck (from C6077)
     assert "C12418" in filler_codes  # R101 — Head and Neck (from C35850)
 
-    # Core-role filter must have excluded generic neoplasm roles like R103/R108
-    # that originate at the C3879 (Neoplasm by Site) level:
-    role_codes = {r.role_code for r in roles}
-    assert "R88" in role_codes
-    assert "R101" in role_codes
+    role_pairs = {(role.role_code, role.filler_code) for role in roles}
+    assert ("R88", "C27970") in role_pairs
+    assert ("R101", "C12400") in role_pairs
+    assert ("R103", "C33782") in role_pairs
+    assert ("R108", "C47804") in role_pairs
+    assert ("R108", "C47807") in role_pairs
+    assert all(role_code not in {"R104", "R107"} for role_code, _ in role_pairs)
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    async with OxigraphHttpClient(url) as client:
+        assert await client.version() == "26.07d"
+        closure = await stated_queries.resolve_part_of_pairs(
+            client, ["C12704", "C12705"]
+        )
+    assert closure == [PartOfPair(part="C12704", whole="C12705")]
+
+    constituents = select_constituents(
+        [
+            RoleRestriction("R101", "C12704", anchoring_genus="C3809"),
+            RoleRestriction("R101", "C12705", anchoring_genus="C215715"),
+        ],
+        lambda _ancestor, _descendant: False,
+        is_part_of=lambda part, whole: (part, whole) == ("C12704", "C12705"),
+    )
+    assert {item.filler_code for item in constituents} == {"C12704", "C12705"}
+    assert all(item.group is None for item in constituents)
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_only_r103_role_annotation_declares_non_defining() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    async with OxigraphHttpClient(url) as client:
+        assert await client.version() == "26.07d"
+        rows = await client.select(
+            f"SELECT ?role ?note WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?role <{NCIT_NS}P98> ?note . "
+            'FILTER(STRSTARTS(STR(?role), "http://ncicb.nci.nih.gov/xml/owl/EVS/'
+            'Thesaurus.owl#R")) '
+            'FILTER(CONTAINS(LCASE(STR(?note)), "non-defining role")) } }',
+            required_variables={"role", "note"},
+        )
+    assert rows == [
+        {
+            "role": f"{NCIT_NS}R103",
+            "note": (
+                "This non-defining role represents non-essential characteristics "
+                "which are true in some, but not all, cases, yet have an association "
+                "frequent enough to be of interest."
+            ),
+        }
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+@pytest.mark.parametrize("concept_code", ["C102870", "C27787"])
+async def test_2607d_unsupported_r103_fact_is_conserved_but_not_projected(
+    concept_code: str,
+) -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            concept_code,
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    source_pairs = {
+        (fact.role_code, fact.filler_code)
+        for fact in decomposition.complete_definition.facts
+        if isinstance(fact, RestrictionDefinitionFact)
+    }
+    projected_pairs = {
+        (constituent.source_role, constituent.filler_code)
+        for constituent in decomposition.constituents
+    }
+    assert ("R103", "C54105") in source_pairs
+    assert ("R103", "C54105") not in projected_pairs
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_2607d_m1_complete_role_audit_remains_source_complete() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    concept_codes = (
+        "C27262",
+        "C102870",
+        "C162770",
+        "C102883",
+        "C115057",
+        "C101539",
+        "C132677",
+        "C181564",
+        "C186620",
+        "C162226",
+        "C206219",
+        "C198031",
+        "C100054",
+        "C100051",
+        "C6135",
+        "C4791",
+        "C35756",
+        "C89995",
+        "C27787",
+        "C115118",
+    )
+    expected = Counter(
+        {
+            "R88": 32,
+            "R100": 6,
+            "R101": 57,
+            "R102": 1,
+            "R103": 28,
+            "R104": 26,
+            "R105": 73,
+            "R106": 1,
+            "R107": 2,
+            "R108": 77,
+            "R110": 0,
+            "R126": 1,
+        }
+    )
+    actual: Counter[str] = Counter()
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        for concept_code in concept_codes:
+            complete, _roles = await stated_queries.read_complete_genus_chain(
+                client.select, concept_code, max_depth=6
+            )
+            actual.update(
+                fact.role_code
+                for fact in complete.facts
+                if isinstance(fact, RestrictionDefinitionFact)
+                and fact.role_code in expected
+            )
+
+    assert actual == expected
+    assert actual.total() == 304
 
 
 @pytest.mark.integration
@@ -617,3 +1087,199 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
     assert len(morphology_constituents) == 1
     assert morphology_constituents[0].filler_code == "C3879"
     assert morphology_constituents[0].axis_source == "parent"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
+    """Pin the D59 projection while preserving both stated region facts."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        stated_version = await client.select(
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?ontology a <{OWL_NS}Ontology> ; "
+            f"<{OWL_NS}versionInfo> ?version . }} }}"
+        )
+        result = await _decompose_one(
+            "C6135",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    assert stated_version == [{"version": "26.07d"}]
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    by_axis = {
+        axis: {
+            constituent.filler_code
+            for constituent in decomposition.constituents
+            if constituent.axis == axis
+        }
+        for axis in ("op:PrimarySite", "op:AssociatedRegion")
+    }
+    assert by_axis["op:PrimarySite"] == {"C12400"}
+    assert by_axis["op:AssociatedRegion"] == {"C13063"}
+    regions = [
+        constituent
+        for constituent in decomposition.constituents
+        if constituent.axis == "op:AssociatedRegion"
+    ]
+    assert all(
+        constituent.group is None
+        and constituent.source_role == "R101"
+        and constituent.source_definition_ids
+        and constituent.needs_review is False
+        for constituent in regions
+    )
+    stated_site_facts = [
+        fact
+        for fact in decomposition.complete_definition.facts
+        if isinstance(fact, RestrictionDefinitionFact)
+        and fact.role_code == "R101"
+        and fact.filler_code in {"C12400", "C12418", "C13063"}
+    ]
+    assert {fact.filler_code for fact in stated_site_facts} == {
+        "C12400",
+        "C12418",
+        "C13063",
+    }
+    assert all(fact.anchor_code and fact.group_id for fact in stated_site_facts)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_complete_record_matches_real_multi_parent_group_and_review_cases() -> (
+    None
+):
+    """Pin the production shapes that #153 must preserve, not fixture assumptions."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        stated_version = await client.select(
+            f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
+            f"?ontology a <{OWL_NS}Ontology> ; "
+            f"<{OWL_NS}versionInfo> ?version . }} }}"
+        )
+        assert stated_version == [{"version": "26.07d"}]
+        multi_parent = await read_complete_definition(client.select, "C3879")
+        grouped_result = await _decompose_one(
+            "C136775",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+        review_result = await _decompose_one(
+            "C27787",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+        c3879_genera = {
+            fact.genus_code
+            for fact in multi_parent.facts
+            if isinstance(fact, GenusDefinitionFact) and fact.anchor_code == "C3879"
+        }
+        assert c3879_genera == {"C160980", "C4815"}
+
+        grouped = grouped_result.decomposition
+        assert grouped is not None
+        assert grouped.complete_definition is not None
+        grouped_regions = [
+            constituent
+            for constituent in grouped.constituents
+            if constituent.axis == "op:AssociatedRegion"
+            and constituent.filler_code in {"C12471", "C33209"}
+        ]
+        assert {constituent.filler_code for constituent in grouped_regions} == {
+            "C12471",
+            "C33209",
+        }, grouped.constituents
+        assert all(
+            constituent.group == "op:AssociatedRegion"
+            and constituent.source_definition_ids
+            for constituent in grouped_regions
+        )
+
+        review = review_result.decomposition
+        assert review is not None
+        assert review.complete_definition is not None
+        retained_cell_types = [
+            constituent
+            for constituent in review.constituents
+            if constituent.axis == "op:CellType"
+            and constituent.filler_code in {"C12917", "C36903"}
+        ]
+        assert {constituent.filler_code for constituent in retained_cell_types} == {
+            "C36903"
+        }, review.constituents
+        assert all(
+            not constituent.needs_review
+            and constituent.source_role == "R105"
+            and constituent.source_definition_ids
+            for constituent in retained_cell_types
+        )
+        complete_cell_types = {
+            fact.filler_code
+            for fact in review.complete_definition.facts
+            if isinstance(fact, RestrictionDefinitionFact)
+            and fact.role_code == "R105"
+            and fact.filler_code in {"C12917", "C36903"}
+        }
+        assert complete_cell_types == {"C12917", "C36903"}
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
+async def test_ncit_role_metadata_contract_matches_normalization() -> None:
+    """Pin the real role identities that distinguish Has from May_Have."""
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+        rows = await client.select(
+            f"""
+            SELECT ?role ?label WHERE {{
+                GRAPH <{STATED_GRAPH_IRI}> {{
+                    VALUES ?role {{
+                        <{NCIT_NS}R104> <{NCIT_NS}R108>
+                        <{NCIT_NS}R114> <{NCIT_NS}R115>
+                    }}
+                    ?role <{RDFS_NS}label> ?label .
+                }}
+            }}
+            """
+        )
+
+    assert {(row["role"].removeprefix(NCIT_NS), row["label"]) for row in rows} == {
+        ("R104", "Disease_Has_Normal_Cell_Origin"),
+        ("R108", "Disease_Has_Finding"),
+        ("R114", "Disease_May_Have_Cytogenetic_Abnormality"),
+        ("R115", "Disease_May_Have_Finding"),
+    }

@@ -120,10 +120,12 @@ seductive form is the wrong one, and three of them would quietly *destroy inform
 built as stated.
 
 **1 · Decompose.** Every pre-coordinated NCIt concept gets an additive constituent view.
-The current view is a deliberately lossy curated projection: it does not assert
-`owl:equivalentClass`, and `roundtrip_fidelity` is unavailable. A future proof-bearing
-representation must preserve the complete multi-parent, grouped definition before it can
-assert and measure reversibility (#153; D19/D21/D43).
+The human-facing view is a deliberately lossy curated projection, but its representation
+of record now preserves the complete stated multi-parent, grouped definition and traces
+role- and parent-derived projected constituents back to source facts; minted NLP fallback
+constituents retain separate proposal provenance (D50). It still does not assert
+`owl:equivalentClass`, and `roundtrip_fidelity` remains unavailable until a separate
+proof/validation step establishes exact reversibility (D19/D21/D43/D50).
 
 > **Guardrail.** *Sounds better:* **"zero pre-coordinated concepts."** *Why it fails:*
 > the target is zero **unanalyzed** pre-coordination, not zero pre-coordinated concepts. These are not the same thing, and only the first is
@@ -131,7 +133,7 @@ assert and measure reversibility (#153; D19/D21/D43).
 > pre-coordinated NCIt codes, so deleting them would break the very anchoring the caDSR
 > coverage guarantee exists to protect. GALEN attempted full elimination and was not
 > adopted; SNOMED CT retains pre-coordination and *sanctions* post-coordination. We
-> follow SNOMED. Future success, after #153, is: **no pre-coordinated concept without a sanctioned,
+> follow SNOMED. Success is: **no pre-coordinated concept without a sanctioned,
 > reversible, genuinely atomic definition** — measured by `roundtrip_fidelity` (did we
 > capture everything the source asserts?) and `residual_precoordination` (is what we
 > produced actually atomic?). The second is **detector-relative**: it measures reducibility
@@ -152,10 +154,15 @@ substrate lacks.
 > **Guardrail.** *Sounds better:* **"NCIt becomes a subset of the vetted
 > ontologies."** *Why it fails:* NCIt is *not* a subset of the upstream ontologies: it holds concepts with no upstream counterpart, and its class structure
 > genuinely differs. The bridge is therefore **dual-canonical and additive** (D24–D26) —
-> NCIt and caDSR anchoring are both preserved. And the substrate splits on licence:
-> **Uberon/CL/Mondo are open and can be depended on definitionally; SNOMED CT and
-> ICD-O-3 are licence-gated and may only be *mapped to***. An NCIt that is definitionally
-> dependent on SNOMED cannot be redistributed, which would defeat the point.
+> NCIt and caDSR anchoring are both preserved. And the discriminator is **dependency,
+> not licence** (D38.2b, D60): *align, do not depend; learn, do not copy; corroborate,
+> do not inherit.* **No external source — open or licence-gated — may be a definitional
+> dependency.** An NCIt that cannot resolve without Uberon is a dependent ontology
+> whether or not Uberon is CC-BY, and one definitionally dependent on SNOMED cannot be
+> redistributed at all. External codes are therefore carried as **alignment annotations,
+> never as definitional fillers**. Licence still governs one narrower thing: *publicly
+> serving* SCTIDs and ICD-O-3 codes to unlicensed consumers remains entitlement-gated
+> (D29.3).
 >
 > **And "grounded in" is not "losslessly equivalent to."** The mapping layer is a standing
 > maintenance liability, not a one-time conquest: cross-ontology maps rot at roughly
@@ -215,10 +222,12 @@ through caDSR; NAACCR keeps its exchange format, operational rules, and mandate.
 
 ## The Approach
 
-1. **Detect** — Identify pre-coordinated concepts via a semantic-type gate
-   (neoplasm/disease/regimen branches; gene/protein role families excluded) and a
-   defining-role count ≥ 2, excluding pure qualifier or value-set nodes. Each
-   role-filler pair is a semantic dimension that can be factored out.
+1. **Detect** — Select the `neoplasm` or `disease` population from NCIt's stated
+   named-class hierarchy (direct subclass plus defined-class genus edges), then apply
+   the shared axis algorithm's semantic-type and defining-axis gates. The disease
+   branch contains the neoplasm branch; regimen remains reserved for its distinct
+   component-bag algorithm. Each supported, projectable role-filler pair can be factored
+   out; filtered source facts remain available in the complete structural record.
 
 2. **Extract** — Walk each concept's genus chain recursively (a multi-parent DAG,
    not a single lineage). For each defining role, select the most-specific filler
@@ -272,7 +281,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 |---|---|---|
 | NCIt + caDSR explorer | **Working** — search, browse, concept detail, graph explorer, CDE cross-links | |
 | Decomposition engine | **Working** — detector, extractor, writer, CLI (`pdm run decompose`); SME golden-set curation loop landed (#44) | [design docs](docs/design/) |
-| Extractor curation | **Ongoing** — expanding the SME-validated golden set | [#57](https://github.com/hniedner/ontoprism/issues/57) |
+| Extractor curation | **Pending final attestation** — the 20-concept source-bound/augmented review packet and reporting are ready, but are not yet the scorer oracle | [#57](https://github.com/hniedner/ontoprism/issues/57) · follow-ups [#261](https://github.com/hniedner/ontoprism/issues/261), [#262](https://github.com/hniedner/ontoprism/issues/262), [#263](https://github.com/hniedner/ontoprism/issues/263) |
 | External integration (dual-canonical) | **Phase-A foundation landed** — xref store, caDSR anchors, Uberon/CL candidates, ELK/ROBOT validation (#76 golden mapping set still open); Phase B–E pending | [#70](https://github.com/hniedner/ontoprism/issues/70) |
 | Graph balancing | **Not started** — depends on trustworthy decomposition output | [#5](https://github.com/hniedner/ontoprism/issues/5) |
 | Post-coordination grammar | **Not started** — depends on graph balancing | [#6](https://github.com/hniedner/ontoprism/issues/6) |
@@ -311,9 +320,13 @@ pdm run test-ci            # CI gate with ≥90% coverage
 pdm run pre-commit run --all-files  # Local quality gate
 ```
 
+When the certified stated NCIt corpus is served separately from the configured inferred
+store, set `NCIT_STATED_SPARQL_URL` for the read-only full-store gate. For the M1 26.07d
+review setup: `NCIT_STATED_SPARQL_URL=http://localhost:7890 pdm run test-integration-full-store`.
+
 ### Architecture decisions
 
-Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D44)
+Key architectural decisions are documented in [docs/DECISIONS.md](docs/DECISIONS.md) (D1-D60)
 and the [decomposition design series](docs/design/).
 
 <!-- CODEBASE_LINE_COUNT_TABLE:START -->
@@ -323,18 +336,18 @@ _This table is auto-updated by CI after successful builds on `main`._
 
 | Language | Files | Lines |
 | --- | ---: | ---: |
-| Python | 227 | 55,255 |
-| JSON | 7 | 12,733 |
-| Markdown | 20 | 6,817 |
+| Python | 258 | 85,777 |
+| JSON | 15 | 17,834 |
+| Markdown | 20 | 7,932 |
 | TypeScript | 61 | 4,195 |
 | Svelte | 38 | 3,120 |
 | CSS | 3 | 1,993 |
 | YAML | 10 | 1,168 |
-| TOML | 5 | 903 |
+| TOML | 5 | 969 |
 | Shell | 1 | 95 |
 | JavaScript | 1 | 38 |
 | HTML | 1 | 21 |
-| **Total** | **374** | **86,338** |
+| **Total** | **413** | **123,142** |
 <!-- CODEBASE_LINE_COUNT_TABLE:END -->
 
 ## Provenance

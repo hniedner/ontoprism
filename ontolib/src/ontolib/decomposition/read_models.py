@@ -6,6 +6,7 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 
 from pydantic import BaseModel, Field
 
+from ontolib.decomposition.models import AxisSource
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 
 
@@ -34,17 +35,22 @@ class UpstreamMapping(BaseModel):
 class DecompositionConstituent(BaseModel):
     """One decomposed constituent: the axis and the concept that fills it.
 
-    ``axis`` is the NCIt role code (or an ``op:`` axis such as ``op:Morphology``);
-    ``filler`` is the constituent concept code. Labels are resolved for display when
-    available.
+    ``axis`` is a normalized ``op:`` relation (or a legacy NCIt role code);
+    ``source_role`` preserves the NCIt role from which a normalized relation was
+    projected. ``filler`` is the constituent concept code. Labels are resolved for
+    display when available.
     """
 
     axis: str
     axis_label: str | None = None
     filler: str
     filler_label: str | None = None
-    axis_source: str
+    axis_source: AxisSource
+    source_role: str | None = None
     most_specific: bool = False
+    needs_review: bool = False
+    group: str | None = None
+    source_definition_ids: tuple[str, ...] = ()
     upstream: list[UpstreamMapping] = []
 
 

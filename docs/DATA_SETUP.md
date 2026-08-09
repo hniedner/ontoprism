@@ -32,6 +32,19 @@ This loopback request is an operator check against the Oxigraph service itself. 
 FastAPI application exposes no public raw-SPARQL endpoint; its supported query surface
 is the typed API (D44).
 
+The M1 26.07d review uses a separately certified stated-source store on `:7890`; it does
+not replace the application store on `:7888`. Run the combined read-only corpus contracts
+with both lanes explicit:
+
+```bash
+NCIT_SPARQL_URL=http://localhost:7888 \
+NCIT_STATED_SPARQL_URL=http://localhost:7890 \
+pdm run test-integration-full-store
+```
+
+`NCIT_STATED_SPARQL_URL` affects only stated-graph full-store contracts and falls back to
+`NCIT_SPARQL_URL` when omitted.
+
 ## 2. Embeddings (pgvector)
 
 Embeddings are published only by ontoprism's validated build. Do **not** pipe a sibling
@@ -128,15 +141,40 @@ pdm run decompose \
   --out data/ncit_decomposed.ttl
 ```
 
+For the deterministic, review-only 26.07d M1 slice:
+
+```bash
+pdm run decompose \
+  --source-manifest /absolute/candidate/path/.ontoprism-ncit-candidate.json \
+  --branch neoplasm \
+  --sample-manifest samples/ncit-26.07d-m1-review.json \
+  --out data/ncit-26.07d-m1-review.ttl
+```
+
+The sample manifest records the exact ordered codes, overlapping strata and rationales,
+source identity/version, and selection method. Its digest is part of run/resume identity.
+Sample execution validates every code against the revalidated hierarchy before
+provenance, requires `--out`, and rejects `--total-limit`, `--load`, and equivalence
+emission. It does not replace the later full-corpus acceptance run.
+
 The CLI revalidates the D47 proof and compares its complete candidate observation with
 the live endpoint. It persists the exact worklist and immutable source/config fingerprint
-before processing. `--resume RUN_ID` accepts only the same source, branch, scope, limit,
+before processing. `--branch` is a closed choice: `neoplasm` selects strict descendants
+of `C3262`; `disease` selects strict descendants of `C2991`, including the neoplasm
+population. Both share the axis-qualified algorithm, while their hierarchy root and
+scope-algorithm version are independent fingerprint dimensions. `regimen` remains
+unavailable until its distinct component-bag algorithm is implemented. `--resume RUN_ID`
+accepts only the same source, branch, root, scope algorithm, limit,
 algorithm/config, output, and load modes; it processes exactly unfinished items. Source
-drift before completion fails closed and invalidates every persisted result row. The
-`--out` TTL is staged and moved into place only after that check and completion succeed,
-so a drifted run leaves no artifact behind. `--load` publishes the finished TTL into
-the additive `ncit_decomposed` named graph after the run; that publication is outside
-the run's transactional guarantees and its full design is #147.
+drift before publication fails closed and invalidates every persisted result row. The
+`--out` TTL is staged, flushed, validated, and source-checked before publication. With
+`--load`, the CLI loads a unique staging graph and transactionally replaces the additive
+`ncit_decomposed` graph together with its publication marker. It then atomically replaces
+and directory-syncs the file before marking the run complete. Failures after publication
+intent is journaled but before completion remain separately visible and resumable;
+matching marker-ahead retries reconcile without replaying a committed graph update.
+Preflight failures fail the run, while post-completion lock-release failures surface
+without demoting it (D53).
 
 Every manifest records source version/hash, immutable model revision, vector dimension,
 expected unique-row count, code commit, build ID, sentinels, state, and timestamps;
@@ -156,6 +194,23 @@ pdm run test-integration-full-build -k pinned_sentence_transformer
 This explicitly downloads/loads the pinned model revision and requires one 768-vector
 per input. It is `full_build` and intentionally excluded from the lightweight seeded CI
 job; absence is a failed applicable manual contract, not a skip.
+
+The source-qualified decomposition hierarchy contract is also an explicit `full_build`
+test:
+
+```bash
+pdm run pytest \
+  ontolib/tests/terminologies/test_ncit_sibling_store_integration.py::test_complete_pinned_ncit_pair_builds_certified_sibling \
+  -v
+```
+
+It revalidates the cached `ncit-artifact-pair.json`, including both OWL hashes and their
+same-release binding, rebuilds an inactive sibling with the pinned loader, and evaluates
+both hierarchy branches only after the candidate proof matches the live temporary
+endpoint. It never uses the configured active store and is deliberately excluded from
+`test`, `test-ci`, `test-integration`, and the read-only `full_store` lane. It also
+checks that the tracked 26.07d review sample names that exact certified source and that
+all selected codes are members of its neoplasm hierarchy.
 
 ### Validation and recovery
 

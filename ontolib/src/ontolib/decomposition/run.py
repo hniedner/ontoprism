@@ -8,20 +8,20 @@ Usage:
         --branch neoplasm [--out path.ttl] [--load] [--resume RUN_ID]
 
 Scope of this orchestrator (documented boundaries, not oversights):
-- Extraction uses the genus-chain walker (``stated_queries.walk_genus_chain``) to
-  traverse ``owl:equivalentClass``/``owl:intersectionOf`` members, collecting role
-  restrictions from defined classes. A ``_CORE_NEOPLASM_ROLES`` boundary filter
+- Extraction uses the bounded complete-definition reader through
+  ``stated_queries.read_complete_genus_chain`` to traverse named-genus and anonymous
+  nested ``owl:intersectionOf`` groups once, collecting role restrictions from the same
+  record later persisted as provenance. A ``_CORE_NEOPLASM_ROLES`` boundary filter
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
 - Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
   ``stated_queries.resolve_morphology_filler`` walks the genus chain for the first
   non-staging genus, ``filler_selection._append_morphology`` adds the ``op:Morphology``
   constituent, and ``detector.detect`` counts it as a decomposable axis.
-- ``--load`` (pushing the written TTL into the store) is a CLI-layer concern, not this
-  function's — ``run_pipeline`` only ever writes the file at ``config.out``, and only
-  after the source identity is re-verified and the run is marked complete: the TTL is
-  rendered to an unpublished staging sibling and atomically moved into place, so a
-  drifted or failed run never leaves an artifact at ``config.out``. The CLI script
-  performs the store load afterwards using the concrete client's ``.load()``.
+- File and optional named-graph publication are coordinated inside ``run_pipeline``.
+  A complete artifact is rendered and validated first, the graph is replaced through
+  a run-scoped staging graph and one transactional update, the file is atomically
+  replaced, and only then is the run marked complete. Failures after intent journaling
+  but before completion remain separately recorded and resumable.
 - ``--resume`` consumes the immutable materialized worklist for a matching
   running/failed run. Every concept has an explicit state, including concepts producing
   no constituents. Per-concept replacement and completion are one fenced transaction.
@@ -40,6 +40,7 @@ from uuid import uuid4
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import (
     axes,
+    complete_definition,
     constituent_index,
     detector,
     extract,
@@ -47,13 +48,34 @@ from ontolib.decomposition import (
     stated_queries,
 )
 from ontolib.decomposition import filler_selection as fs
+from ontolib.decomposition import (
+    scope as hierarchy_scope,
+)
+from ontolib.decomposition.branches import (
+    DecompositionAlgorithm,
+    DecompositionBranch,
+    ScopeRoot,
+    ScopeVersion,
+    branch_spec,
+    parse_branch,
+)
 from ontolib.decomposition.legacy_writer import write_ttl
-from ontolib.decomposition.models import Decomposition
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    ConceptOutcome,
+    Decomposition,
+)
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
     NcitSourceSnapshot,
     RunFingerprint,
     RunResumeIdentity,
+)
+from ontolib.decomposition.publication import (
+    PublicationFinalizationError,
+    PublicationGraphClient,
+    PublicationPreflightError,
+    publish_artifact,
 )
 
 logger = get_logger(__name__)
@@ -66,6 +88,7 @@ if TYPE_CHECKING:
     from ontolib.decomposition.minting import MintedConcept
     from ontolib.decomposition.models import RoleRestriction
     from ontolib.decomposition.provenance import ProvenanceStore
+    from ontolib.decomposition.sampling import DecompositionSampleManifest
 
 # Batch code -> preferred label (design's NLP fallback needs the label; the detector's
 # advisory label_multi_aspect signal needs it too). Injected so this module has no
@@ -73,9 +96,7 @@ if TYPE_CHECKING:
 GetLabels = Callable[[list[str]], Awaitable[dict[str, str]]]
 GetSourceSnapshot = Callable[[], Awaitable[NcitSourceSnapshot]]
 
-_DEFAULT_PAGE_SIZE = 500
-_ALGORITHM_VERSION = "decomposition-v1"
-_CONFIG_VERSION = "axes-v1"
+_CONFIG_VERSION = "nested-definition-v2"
 
 
 class SourceIdentityChangedError(RuntimeError):
@@ -83,12 +104,7 @@ class SourceIdentityChangedError(RuntimeError):
 
 
 class RunPublicationError(RuntimeError):
-    """The run completed, but its rendered artifact was not published.
-
-    Distinct from a run failure: the run is already recorded ``complete``, so there
-    is nothing for ``fail_run`` to record. Publication of the file and the named
-    graph is the separate #147 boundary.
-    """
+    """Artifact publication failed and remains retryable on the running run."""
 
 
 class SparqlClient(Protocol):
@@ -110,6 +126,7 @@ class SparqlClient(Protocol):
 class DecompositionSparqlClient(
     SparqlClient,
     stated_queries.SingleAttemptSelectRows,
+    PublicationGraphClient,
     Protocol,
 ):
     """SPARQL client with a non-retrying SELECT path for bounded closure."""
@@ -120,38 +137,81 @@ async def _never_resolves(_: str) -> str | None:
     return None
 
 
+def _validate_sample_config(config: RunConfig) -> None:
+    sample = config.sample_manifest
+    if sample is None:
+        return
+    if config.out is None:
+        raise ValueError("a sample run requires an output path")
+    if config.load_to_store:
+        raise ValueError("a sample run cannot load into the configured store")
+    if sample.branch != config.branch.value:
+        raise ValueError("sample manifest does not match run branch")
+    # Unreachable today, and deliberately kept: `ScopeVersion` is a single-value
+    # Literal and `DecompositionSampleManifest` derives `scope_root` from its own
+    # branch, so a manifest that passes the branch check above always agrees here.
+    # Adding a second scope version makes this the only thing stopping a manifest
+    # walked under one version from being run under another.
+    if (
+        sample.scope_root != config.scope_root
+        or sample.scope_version != config.scope_version
+    ):
+        raise ValueError("sample manifest does not match run hierarchy scope")
+
+
 @dataclass(frozen=True)
 class RunConfig:
     """Configuration for a decomposition run.
 
-    ``load_to_store`` never causes ``run_pipeline`` to load anything: loading is a
-    CLI-layer concern performed by the caller after ``run_pipeline`` returns (see the
-    module docstring). It is read only to record ``load_mode`` in the immutable run
-    fingerprint, which is why it must agree with ``out``. Equivalence emission is
-    quarantined until #153 provides a proof-bearing representation.
+    ``load_to_store`` publishes the validated artifact through a staging graph before
+    run completion. It therefore requires ``out`` and is part of the immutable run
+    fingerprint. Equivalence emission is quarantined until a separate
+    equivalence-validation step can prove the complete representation is exact.
     """
 
-    branch: str
+    branch: DecompositionBranch
     out: Path | None = None
     load_to_store: bool = False
     emit_equivalence: bool = False
     resume_from: str | None = None
     walker_max_depth: int = 5
+    sample_manifest: DecompositionSampleManifest | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "branch", parse_branch(self.branch))
         if self.emit_equivalence:
             raise ValueError(
-                "equivalence emission is not available until a proof-bearing "
-                "representation can establish exact completeness (#153)"
+                "equivalence emission is not available until a separate validation "
+                "step can establish exact completeness"
             )
         if self.load_to_store and self.out is None:
             raise ValueError("load_to_store requires an output path")
-        # `branch` becomes part of the run id and therefore of the staging filename.
-        # Reject a path-unsafe branch here rather than after the whole worklist has
-        # been processed, where the run can no longer be resumed under a fixed name.
-        # An empty branch is rejected separately: the run id would carry no label.
-        if not self.branch or set(self.branch) & {"/", "\\", "\0"}:
-            raise ValueError("branch must be non-empty and free of path separators")
+        _validate_sample_config(self)
+
+    @property
+    def semantic_types(self) -> tuple[str, ...]:
+        """Canonical algorithm-applicability types selected by this branch."""
+        return branch_spec(self.branch).semantic_types
+
+    @property
+    def scope_root(self) -> ScopeRoot:
+        """NCIt root whose stated named-class DAG defines the branch population."""
+        return branch_spec(self.branch).root_code
+
+    @property
+    def scope_version(self) -> ScopeVersion:
+        """Version of the hierarchy-edge and closure contract."""
+        return branch_spec(self.branch).scope_version
+
+    @property
+    def algorithm(self) -> DecompositionAlgorithm:
+        """Algorithm selected by this branch."""
+        return branch_spec(self.branch).algorithm
+
+    @property
+    def algorithm_version(self) -> str:
+        """Version of the selected algorithm, persisted in the run identity."""
+        return branch_spec(self.branch).algorithm_version
 
 
 @dataclass
@@ -196,14 +256,22 @@ class RunMetrics:
 
     ``roundtrip_fidelity`` is unavailable for the current curated projection. Numeric
     values from historical runs remain readable, but new runs record ``None`` until
-    #153 provides a proof-bearing representation.
+    a separate validation step proves exact equivalence from the complete record.
     """
 
     total_in_scope: int = 0
     decomposed: int = 0
     residual: int = 0
+    semantic_excluded: int = 0
+    atomic_noop: int = 0
+    unknown_outcome: int = 0
     residual_precoordinated_count: int = 0
     minted_count: int = 0
+    complete_definition_count: int = 0
+    complete_fact_count: int = 0
+    projected_fact_count: int = 0
+    projection_loss_count: int = 0
+    projection_loss_rate: float = 0.0
     pct_decomposed: float = 0.0
     roundtrip_fidelity: None = None
 
@@ -226,50 +294,68 @@ class RunMetrics:
         return self.residual_precoordinated_count / self.decomposed
 
 
+def _require_candidate_outcome_shape(
+    decomposition: Decomposition | None,
+    outcome: ConceptOutcome,
+) -> None:
+    if outcome == "decomposed":
+        _require_decomposed_candidate(decomposition)
+        return
+    if outcome == "residual":
+        _require_residual_candidate(decomposition)
+        return
+    if outcome not in {"decomposed", "residual"} and decomposition is not None:
+        raise ValueError(
+            "_CandidateResult: non-decomposition outcomes cannot carry a decomposition"
+        )
+
+
+def _require_decomposed_candidate(decomposition: Decomposition | None) -> None:
+    if decomposition is None or not decomposition.constituents:
+        raise ValueError(
+            "_CandidateResult: decomposed outcome requires at least one constituent"
+        )
+
+
+def _require_residual_candidate(decomposition: Decomposition | None) -> None:
+    if decomposition is None or decomposition.constituents:
+        raise ValueError(
+            "_CandidateResult: residual outcome requires exactly zero constituents"
+        )
+
+
+def _require_candidate_mint_shape(
+    outcome: ConceptOutcome,
+    minted: list[MintedConcept],
+) -> None:
+    if outcome != "decomposed" and minted:
+        raise ValueError(
+            "_CandidateResult: minted concepts require a decomposed outcome"
+        )
+
+
 @dataclass
 class _CandidateResult:
     decomposition: Decomposition | None
+    outcome: ConceptOutcome
+    semantic_types: tuple[str, ...]
     minted: list[MintedConcept] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if self.decomposition is None and self.minted:
-            raise ValueError(
-                "_CandidateResult: minted concepts without a decomposition is not "
-                "a valid state — minting only happens while building constituents "
-                "for an actual candidate"
-            )
+        _require_candidate_outcome_shape(self.decomposition, self.outcome)
+        _require_candidate_mint_shape(self.outcome, self.minted)
 
 
-def _new_run_id(branch: str) -> str:
+def _new_run_id(branch: DecompositionBranch | str) -> str:
     return f"{branch}-{uuid4()}"
 
 
 async def enumerate_in_scope_codes(
-    client: SparqlClient,
-    semantic_types: Sequence[str] | None = None,
-    *,
-    page_size: int = _DEFAULT_PAGE_SIZE,
+    client: DecompositionSparqlClient,
+    root_code: str,
 ) -> list[str]:
-    """Page through every stated-graph concept carrying an in-scope semantic type."""
-    scope = (
-        tuple(semantic_types)
-        if semantic_types is not None
-        else tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
-    )
-    codes: list[str] = []
-    offset = 0
-    while True:
-        rows = await client.select(
-            stated_queries.build_in_scope_concepts_query(
-                scope, limit=page_size, offset=offset
-            ),
-            required_variables={"concept"},
-        )
-        page = extract.concepts_from_rows(rows)
-        codes.extend(page)
-        if len(page) < page_size:
-            return codes
-        offset += page_size
+    """Materialize a hierarchy-defined branch population from stated named edges."""
+    return list(await hierarchy_scope.enumerate_scope_codes(client, root_code))
 
 
 async def _detect_concept(
@@ -278,7 +364,13 @@ async def _detect_concept(
     *,
     label: str | None,
     walker_max_depth: int,
-) -> tuple[detector.DetectionResult, list[RoleRestriction], str | None]:
+) -> tuple[
+    detector.DetectionResult,
+    list[RoleRestriction],
+    str | None,
+    CompleteDefinition,
+    tuple[str, ...],
+]:
     """Run the detector on *code*: semantic types, genus-chain roles, and morphology.
 
     Returns the ``DetectionResult`` plus the ``roles`` and ``morphology_filler`` the
@@ -287,13 +379,19 @@ async def _detect_concept(
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
     constituent is judged by the *same* detector as the concept it came from.
     """
-    semantic_types = extract.semantic_types_from_rows(
-        await client.select(
-            stated_queries.build_semantic_type_query(code),
-            required_variables={"semanticType"},
+    semantic_types = tuple(
+        sorted(
+            set(
+                extract.semantic_types_from_rows(
+                    await client.select(
+                        stated_queries.build_semantic_type_query(code),
+                        required_variables={"semanticType"},
+                    )
+                )
+            )
         )
     )
-    roles = await stated_queries.walk_genus_chain(
+    definition, roles = await stated_queries.read_complete_genus_chain(
         client.select, code, max_depth=walker_max_depth
     )
     morphology_filler = await stated_queries.resolve_morphology_filler(
@@ -306,7 +404,15 @@ async def _detect_concept(
         has_parent_morphology=morphology_filler is not None,
         label=label,
     )
-    return result, roles, morphology_filler
+    return result, roles, morphology_filler, definition, semantic_types
+
+
+def _non_candidate_outcome(
+    semantic_types: tuple[str, ...],
+) -> ConceptOutcome:
+    if any(axes.is_in_scope(value) for value in semantic_types):
+        return "atomic-no-op"
+    return "semantic-excluded"
 
 
 async def _decompose_one(
@@ -323,7 +429,13 @@ async def _decompose_one(
     # Phase 1: detect (semantic types + genus-chain roles + morphology-from-parent).
     # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
     # which is correct — nothing to decompose.
-    result, roles, morphology_filler = await _detect_concept(
+    (
+        result,
+        roles,
+        morphology_filler,
+        definition,
+        semantic_types,
+    ) = await _detect_concept(
         code, client, label=label, walker_max_depth=walker_max_depth
     )
 
@@ -341,7 +453,11 @@ async def _decompose_one(
         semantic_type_of = extract.semantic_type_of_from_rows(rows)
 
     if not result.is_precoordinated:
-        return _CandidateResult(decomposition=None)
+        return _CandidateResult(
+            decomposition=None,
+            outcome=_non_candidate_outcome(semantic_types),
+            semantic_types=semantic_types,
+        )
 
     ancestor_pairs = extract.ancestor_pairs_from_rows(
         await client.select(
@@ -351,37 +467,48 @@ async def _decompose_one(
     )
     # Treat an R82 whole as broader than its part for specificity selection (D16).
     part_of_pairs = await stated_queries.resolve_part_of_pairs(
-        client, fs.comparison_filler_codes(roles)
+        client, fs.comparison_filler_codes(roles, concept_code=code)
     )
-    ancestor_pairs.update(
-        extract.AncestorPair(ancestor=pair.whole, descendant=pair.part)
-        for pair in part_of_pairs
-    )
+    part_of = {(pair.part, pair.whole) for pair in part_of_pairs}
 
-    # Wrap semantic_type_of dict into a callable (prefer the first type if
-    # multiple; NCIt rarely assigns more than one).
     def _semantic_type_of(filler_code: str) -> str | None:
         types = semantic_type_of.get(filler_code)
-        return types[0] if types else None
+        if not types:
+            return None
+        if axes.ORGAN_SEMANTIC_TYPE in types:
+            return axes.ORGAN_SEMANTIC_TYPE
+        return min(types)
 
     role_constituents = fs.select_constituents(
         roles,
         extract.make_is_ancestor(ancestor_pairs),
         parent_morphology=morphology_filler,
         semantic_type_of=_semantic_type_of,
+        is_part_of=lambda part, whole: (part, whole) in part_of,
+        concept_code=code,
     )
 
     aspects = nlp_fallback.parse_label_aspects(label)
     nlp_constituents, minted = await constituent_index.resolve_aspects(
         aspects, label_lookup
     )
+    curated = complete_definition.trace_curated_projection(
+        [*role_constituents, *nlp_constituents],
+        definition,
+    )
 
     decomposition = Decomposition(
         code=code,
         semantic_type=result.semantic_type,
-        constituents=[*role_constituents, *nlp_constituents],
+        constituents=curated,
+        complete_definition=definition,
     )
-    return _CandidateResult(decomposition=decomposition, minted=minted)
+    return _CandidateResult(
+        decomposition=decomposition,
+        outcome="decomposed" if decomposition.constituents else "residual",
+        semantic_types=semantic_types,
+        minted=minted,
+    )
 
 
 def _residual_count(
@@ -443,7 +570,13 @@ async def _precoordinated_fillers(
     precoordinated: set[str] = set()
     for filler in fillers:
         try:
-            result, _roles, _morph = await _detect_concept(
+            (
+                result,
+                _roles,
+                _morph,
+                _definition,
+                _semantic_types,
+            ) = await _detect_concept(
                 filler,
                 client,
                 label=labels.get(filler),
@@ -507,12 +640,19 @@ def _resume_identity(
     semantic_types: tuple[str, ...],
     total_limit: int | None,
 ) -> RunResumeIdentity:
+    sample_identity = (
+        config.sample_manifest.identity if config.sample_manifest is not None else None
+    )
     return RunResumeIdentity(
+        schema_version=3 if sample_identity is not None else 2,
         source_identity=snapshot.source_identity,
-        branch=config.branch,
+        branch=config.branch.value,
+        scope_root=config.scope_root,
+        scope_version=config.scope_version,
         semantic_types=semantic_types,
         total_limit=total_limit,
-        algorithm_version=_ALGORITHM_VERSION,
+        sample_manifest_identity=sample_identity,
+        algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
         output_mode="file" if config.out is not None else "none",
@@ -520,44 +660,43 @@ def _resume_identity(
     )
 
 
-def _canonical_scope(semantic_types: Sequence[str] | None) -> tuple[str, ...]:
-    selected = (
-        semantic_types if semantic_types is not None else axes.IN_SCOPE_SEMANTIC_TYPES
-    )
-    return tuple(sorted(selected))
-
-
 async def _create_fresh_run(
     config: RunConfig,
-    client: SparqlClient,
+    client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     snapshot: NcitSourceSnapshot,
     *,
     get_source_snapshot: GetSourceSnapshot,
-    scope: tuple[str, ...],
-    page_size: int,
+    semantic_types: tuple[str, ...],
     total_limit: int | None,
+    worklist: tuple[str, ...] | None = None,
 ) -> tuple[str, RunFingerprint]:
     run_id = _new_run_id(config.branch)
-    codes = await enumerate_in_scope_codes(client, scope, page_size=page_size)
-    if total_limit is not None:
-        if total_limit <= 0:
-            raise ValueError("total_limit must be greater than zero")
-        codes = codes[:total_limit]
-    if len(codes) != len(set(codes)):
-        raise RuntimeError("scope enumeration returned duplicate concept codes")
+    codes = (
+        await _standard_worklist(config, client, total_limit)
+        if worklist is None
+        else list(worklist)
+    )
     await _require_source_snapshot(
         client,
         get_source_snapshot,
         expected=snapshot,
     )
     fingerprint = RunFingerprint(
+        schema_version=3 if config.sample_manifest is not None else 2,
         source_identity=snapshot.source_identity,
-        branch=config.branch,
-        semantic_types=scope,
+        branch=config.branch.value,
+        scope_root=config.scope_root,
+        scope_version=config.scope_version,
+        semantic_types=semantic_types,
         worklist=tuple(codes),
         total_limit=total_limit,
-        algorithm_version=_ALGORITHM_VERSION,
+        sample_manifest_identity=(
+            config.sample_manifest.identity
+            if config.sample_manifest is not None
+            else None
+        ),
+        algorithm_version=config.algorithm_version,
         config_version=_CONFIG_VERSION,
         walker_max_depth=config.walker_max_depth,
         output_mode="file" if config.out is not None else "none",
@@ -566,6 +705,67 @@ async def _create_fresh_run(
     )
     await provenance.create_run(run_id, snapshot.ontology_version, fingerprint)
     return run_id, fingerprint
+
+
+async def _standard_worklist(
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    total_limit: int | None,
+) -> list[str]:
+    codes = await enumerate_in_scope_codes(client, config.scope_root)
+    if not codes:
+        raise RuntimeError("scope enumeration returned no concepts")
+    if total_limit is not None:
+        if total_limit <= 0:
+            raise ValueError("total_limit must be greater than zero")
+        codes = codes[:total_limit]
+    if len(codes) != len(set(codes)):
+        raise RuntimeError("scope enumeration returned duplicate concept codes")
+    return codes
+
+
+def _require_sample_source(
+    sample: DecompositionSampleManifest,
+    snapshot: NcitSourceSnapshot,
+) -> None:
+    if sample.source_identity != snapshot.source_identity:
+        raise SourceIdentityChangedError(
+            "sample manifest source identity does not match the revalidated source"
+        )
+    if sample.ontology_version != snapshot.ontology_version:
+        raise SourceIdentityChangedError(
+            "sample manifest ontology version does not match the revalidated source"
+        )
+
+
+def _require_sample_scope(
+    sample: DecompositionSampleManifest,
+    scope_codes: list[str],
+) -> None:
+    if len(scope_codes) != len(set(scope_codes)):
+        raise RuntimeError("scope enumeration returned duplicate concept codes")
+    scope_code_set = set(scope_codes)
+    outside_scope = tuple(code for code in sample.codes if code not in scope_code_set)
+    if outside_scope:
+        raise ValueError(
+            "sample concepts outside the configured hierarchy scope: "
+            + ", ".join(outside_scope)
+        )
+
+
+async def _validated_sample_worklist(
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    snapshot: NcitSourceSnapshot,
+) -> tuple[str, ...] | None:
+    """Validate a review manifest against the live source and complete branch scope."""
+    sample = config.sample_manifest
+    if sample is None:
+        return None
+    _require_sample_source(sample, snapshot)
+    scope_codes = await enumerate_in_scope_codes(client, config.scope_root)
+    _require_sample_scope(sample, scope_codes)
+    return sample.codes
 
 
 async def _load_pending_run_data(
@@ -593,18 +793,19 @@ async def _load_pending_run_data(
 
 async def _prepare_run(
     config: RunConfig,
-    client: SparqlClient,
+    client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     *,
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
-    semantic_types: Sequence[str] | None,
-    page_size: int,
     total_limit: int | None,
 ) -> _RunSetup:
     """Create or reopen one exact source-bound worklist."""
+    if config.sample_manifest is not None and total_limit is not None:
+        raise ValueError("sample manifest and total_limit are mutually exclusive")
     snapshot = await _require_source_snapshot(client, get_source_snapshot)
-    scope = _canonical_scope(semantic_types)
+    semantic_types = config.semantic_types
+    sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if config.resume_from:
         run_id = config.resume_from
         fingerprint = await provenance.resume_run(
@@ -612,7 +813,7 @@ async def _prepare_run(
             _resume_identity(
                 config,
                 snapshot,
-                semantic_types=scope,
+                semantic_types=semantic_types,
                 total_limit=total_limit,
             ),
         )
@@ -623,9 +824,9 @@ async def _prepare_run(
             provenance,
             snapshot,
             get_source_snapshot=get_source_snapshot,
-            scope=scope,
-            page_size=page_size,
+            semantic_types=semantic_types,
             total_limit=total_limit,
+            worklist=sample_worklist,
         )
     pending, labels = await _load_pending_run_data(
         provenance,
@@ -666,6 +867,8 @@ async def _process_work_item(
             code,
             claim,
             decomposition=result.decomposition,
+            outcome=result.outcome,
+            semantic_types=result.semantic_types,
             minted=tuple(result.minted),
         )
     except BaseException as exc:
@@ -717,8 +920,28 @@ async def _reconstructed_metrics(
         total_in_scope=counts.total_in_scope,
         decomposed=counts.decomposed,
         residual=counts.residual,
+        semantic_excluded=counts.semantic_excluded,
+        atomic_noop=counts.atomic_noop,
+        unknown_outcome=counts.unknown_outcome,
         minted_count=counts.minted_count,
     )
+    metrics.complete_definition_count = sum(
+        decomposition.complete_definition is not None
+        for decomposition in decompositions
+    )
+    metrics.complete_fact_count = sum(
+        decomposition.complete_fact_count for decomposition in decompositions
+    )
+    metrics.projected_fact_count = sum(
+        decomposition.projected_fact_count for decomposition in decompositions
+    )
+    metrics.projection_loss_count = sum(
+        decomposition.projection_loss_count for decomposition in decompositions
+    )
+    if metrics.complete_fact_count:
+        metrics.projection_loss_rate = (
+            metrics.projection_loss_count / metrics.complete_fact_count
+        )
     precoordinated = await _precoordinated_fillers(
         decompositions,
         client,
@@ -758,6 +981,94 @@ def _discard_staging(staging: Path, exc: BaseException) -> None:
         )
 
 
+async def _write_staging_artifact(
+    publication: tuple[Path, Path] | None,
+    decompositions: Sequence[Decomposition],
+    setup: _RunSetup,
+) -> None:
+    if publication is None:
+        return
+    try:
+        await write_ttl(
+            decompositions,
+            dest=publication[0],
+            run_id=setup.run_id,
+            emitted_on=setup.fingerprint.emitted_at.date(),
+        )
+    except BaseException as exc:
+        _discard_staging(publication[0], exc)
+        raise
+
+
+async def _verify_final_source_snapshot(
+    setup: _RunSetup,
+    client: DecompositionSparqlClient,
+    get_source_snapshot: GetSourceSnapshot,
+    publication: tuple[Path, Path] | None,
+) -> None:
+    try:
+        await _require_source_snapshot(
+            client,
+            get_source_snapshot,
+            expected=setup.source_snapshot,
+        )
+    except BaseException as exc:
+        if publication is not None:
+            _discard_staging(publication[0], exc)
+        raise
+
+
+def _persisted_metrics(metrics: RunMetrics) -> dict[str, object]:
+    persisted = asdict(metrics)
+    persisted["residual_precoordination"] = metrics.residual_precoordination
+    return persisted
+
+
+async def _publish_or_complete_run(
+    *,
+    setup: _RunSetup,
+    config: RunConfig,
+    client: DecompositionSparqlClient,
+    provenance: ProvenanceStore,
+    decompositions: Sequence[Decomposition],
+    metrics: dict[str, object],
+    publication: tuple[Path, Path] | None,
+) -> None:
+    if publication is not None:
+        try:
+            await publish_artifact(
+                run_id=setup.run_id,
+                source_identity=setup.fingerprint.source_identity,
+                artifact=publication[0],
+                destination=publication[1],
+                expected_codes={decomposition.code for decomposition in decompositions},
+                metrics=metrics,
+                load_to_store=config.load_to_store,
+                client=client,
+                provenance=provenance,
+            )
+        except Exception as publish_error:
+            if isinstance(
+                publish_error,
+                PublicationPreflightError | PublicationFinalizationError,
+            ):
+                raise
+            raise RunPublicationError(
+                f"Run {setup.run_id!r} publication failed and remains retryable"
+            ) from publish_error
+        return
+    finished = await provenance.finish_run(
+        setup.run_id,
+        source_identity=setup.fingerprint.source_identity,
+        metrics=metrics,
+    )
+    if not finished:
+        raise RuntimeError(
+            f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
+            f"(branch={config.branch!r})"
+        )
+
+
 async def _finish_run(
     setup: _RunSetup,
     config: RunConfig,
@@ -775,47 +1086,28 @@ async def _finish_run(
         get_labels=get_labels,
     )
     publication = _publication_paths(config, setup.run_id)
-    try:
-        if publication is not None:
-            # Render to an unpublished staging sibling: the artifact must not appear
-            # at the operator's path unless the source identity still holds *and* the
-            # run completed, otherwise a drifted (mixed-source) run leaves a
-            # complete-looking TTL behind after its rows are invalidated.
-            await write_ttl(
-                decompositions,
-                dest=publication[0],
-                run_id=setup.run_id,
-                emitted_on=setup.fingerprint.emitted_at.date(),
-            )
-        await _require_source_snapshot(
-            client,
-            get_source_snapshot,
-            expected=setup.source_snapshot,
-        )
-        finished = await provenance.finish_run(
-            setup.run_id,
-            source_identity=setup.fingerprint.source_identity,
-            metrics=asdict(metrics),
-        )
-        if not finished:
-            raise RuntimeError(
-                f"finish_run found no decomp_run row for run_id={setup.run_id!r} "
-                f"(branch={config.branch!r})"
-            )
-    except BaseException as exc:
-        if publication is not None:
-            _discard_staging(publication[0], exc)
-        raise
-    if publication is not None:
-        try:
-            publication[0].replace(publication[1])
-        except OSError as publish_error:
-            raise RunPublicationError(
-                f"Run {setup.run_id!r} completed but its artifact was not published "
-                f"to {publication[1]}; the rendered output remains at "
-                f"{publication[0]}."
-            ) from publish_error
+    await _write_staging_artifact(publication, decompositions, setup)
+    await _verify_final_source_snapshot(
+        setup,
+        client,
+        get_source_snapshot,
+        publication,
+    )
+    await _publish_or_complete_run(
+        setup=setup,
+        config=config,
+        client=client,
+        provenance=provenance,
+        decompositions=decompositions,
+        metrics=_persisted_metrics(metrics),
+        publication=publication,
+    )
     return metrics
+
+
+def _validate_run_request(config: RunConfig, total_limit: int | None) -> None:
+    if config.load_to_store and total_limit is not None:
+        raise ValueError("total_limit cannot be combined with load_to_store")
 
 
 async def run_pipeline(
@@ -826,8 +1118,6 @@ async def run_pipeline(
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None = None,
     label_lookup: LabelLookup = _never_resolves,
-    semantic_types: Sequence[str] | None = None,
-    page_size: int = _DEFAULT_PAGE_SIZE,
     total_limit: int | None = None,
 ) -> RunMetrics:
     """Execute the decomposition pipeline for a given branch (design §9).
@@ -838,16 +1128,16 @@ async def run_pipeline(
     surface form to an existing concept code; the default never resolves (always
     mints) — the conservative choice per design §7.2. ``total_limit`` caps how many
     enumerated codes are processed — a full in-scope enumeration is tens of thousands
-    of concepts (assessment §3.3); use this for a manual/smoke run.
+    of concepts (assessment §3.3); use this for a manual/smoke run. A truncated run
+    cannot publish to the configured graph.
     """
+    _validate_run_request(config, total_limit)
     setup = await _prepare_run(
         config,
         client,
         provenance,
         get_source_snapshot=get_source_snapshot,
         get_labels=get_labels,
-        semantic_types=semantic_types,
-        page_size=page_size,
         total_limit=total_limit,
     )
 
@@ -867,9 +1157,9 @@ async def run_pipeline(
             get_source_snapshot=get_source_snapshot,
             get_labels=get_labels,
         )
-    except RunPublicationError:
-        # The run is recorded complete; there is no run failure to record, and
-        # calling fail_run here would append a spurious "not recorded" note.
+    except (RunPublicationError, PublicationFinalizationError):
+        # Retryable failures are already journaled; finalization failures occur after
+        # completion. Neither may demote the decomposition run via fail_run.
         raise
     except BaseException as exc:
         try:

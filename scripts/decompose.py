@@ -5,6 +5,8 @@
   pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
       --branch neoplasm --out data/ncit_decomposed.ttl --load
   pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
+      --branch disease --out data/ncit_decomposed.ttl
+  pdm run decompose --source-manifest data/.candidate/.ontoprism-ncit-candidate.json \
       --branch neoplasm --resume neoplasm-7bb8b360-a2ec-45d0-b06d-a79ae18c3689
 
 Wires the pure orchestrator (`ontolib.decomposition.run.run_pipeline`) to the real
@@ -26,6 +28,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition import vocab
+from ontolib.decomposition.branches import DecompositionBranch
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import NcitSourceSnapshot
 from ontolib.decomposition.run import (
@@ -34,6 +37,7 @@ from ontolib.decomposition.run import (
     SourceIdentityChangedError,
     run_pipeline,
 )
+from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.sibling_store import (
@@ -66,17 +70,6 @@ def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
     return lookup
 
 
-async def _load_output(client: OxigraphHttpClient, output: Path) -> None:
-    """Stream a bounded generated graph from disk into its dedicated named graph."""
-    with output.open("rb") as stream:
-        await client.load(
-            stream,
-            content_type="text/turtle",
-            graph_iri=vocab.DECOMPOSED_GRAPH_IRI,
-            replace=True,
-        )
-
-
 async def _source_snapshot(
     manifest_path: Path,
     endpoint_url: str,
@@ -105,14 +98,18 @@ async def _source_snapshot(
 
 async def _run(
     source_manifest: Path,
-    branch: str,
+    branch: DecompositionBranch,
     out: Path | None,
     load: bool,
     emit_equivalence: bool,
     resume: str | None,
     total_limit: int | None,
     walker_max_depth: int = 5,
+    sample_manifest: Path | None = None,
 ) -> RunMetrics:
+    sample = (
+        load_sample_manifest(sample_manifest) if sample_manifest is not None else None
+    )
     config = RunConfig(
         branch=branch,
         out=out,
@@ -120,43 +117,62 @@ async def _run(
         emit_equivalence=emit_equivalence,
         resume_from=resume,
         walker_max_depth=walker_max_depth,
+        sample_manifest=sample,
     )
+    if sample is not None and total_limit is not None:
+        raise ValueError("sample manifest and total_limit are mutually exclusive")
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     provenance = ProvenanceStore(sf)
+    primary_error: BaseException | None = None
     try:
-        async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
-            store = NcitGraphStore(client)
+        try:
             try:
-                metrics = await run_pipeline(
-                    config,
-                    client,
-                    provenance,
-                    get_source_snapshot=lambda: _source_snapshot(
-                        source_manifest,
-                        settings.ncit_sparql_url,
-                    ),
-                    get_labels=store.labels_for,
-                    label_lookup=_make_label_lookup(store),
-                    total_limit=total_limit,
-                )
-            except Exception:
-                logger.exception(
-                    "decompose run failed (branch=%s resume=%s)", branch, resume
-                )
+                async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+                    store = NcitGraphStore(client)
+                    try:
+                        metrics = await run_pipeline(
+                            config,
+                            client,
+                            provenance,
+                            get_source_snapshot=lambda: _source_snapshot(
+                                source_manifest,
+                                settings.ncit_sparql_url,
+                            ),
+                            get_labels=store.labels_for,
+                            label_lookup=_make_label_lookup(store),
+                            total_limit=total_limit,
+                        )
+                    except BaseException as exc:
+                        primary_error = exc
+                        raise
+            except BaseException as exc:
+                if primary_error is not None and exc is not primary_error:
+                    primary_error.add_note(
+                        "Closing the NCIt client also failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    raise primary_error from exc
                 raise
-            if load:
-                out_path = config.out
-                if out_path is None:
-                    raise ValueError("--load requires --out")
-                await _load_output(client, out_path)
+        except Exception:
+            logger.exception(
+                "decompose run failed (branch=%s resume=%s)", branch, resume
+            )
+            raise
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
         try:
             await dispose_engine(engine)
-        except Exception:
-            # Never let a cleanup-time failure replace/mask the pipeline's own
-            # exception (if any) propagating out of the `try` block above.
+        except BaseException as cleanup_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(
+                "Disposing the decomposition database engine also failed: "
+                f"{type(cleanup_error).__name__}: {cleanup_error}"
+            )
             logger.exception("dispose_engine failed during cleanup (branch=%s)", branch)
     return metrics
 
@@ -170,22 +186,35 @@ def main(
         ),
     ],
     branch: Annotated[
-        str, typer.Option(help="Run label ('neoplasm' | 'disease').")
-    ] = "neoplasm",
+        DecompositionBranch,
+        typer.Option(
+            help=(
+                "Hierarchy population: neoplasm (C3262 descendants) or disease "
+                "(C2991 descendants). Regimen remains unavailable until its "
+                "component-bag algorithm is implemented."
+            )
+        ),
+    ] = DecompositionBranch.NEOPLASM,
     out: Annotated[
         Path | None, typer.Option(help="Write the decomposed TTL here.")
     ] = None,
     load: Annotated[
         bool,
         typer.Option(
-            "--load", help="Load --out into the decomposed named graph after writing."
+            "--load",
+            help=(
+                "Publish staged TTL to the decomposed graph before finalizing --out."
+            ),
         ),
     ] = False,
     emit_equivalence: Annotated[
         bool,
         typer.Option(
             "--emit-equivalence",
-            help="Reserved for #153; requests currently fail closed.",
+            help=(
+                "Reserved until a separate validation step proves exact "
+                "equivalence; requests currently fail closed."
+            ),
         ),
     ] = False,
     resume: Annotated[
@@ -197,7 +226,12 @@ def main(
     ] = None,
     total_limit: Annotated[
         int | None,
-        typer.Option(help="Cap how many enumerated codes are processed (smoke runs)."),
+        typer.Option(
+            help=(
+                "Cap how many enumerated codes are processed (smoke runs; cannot be "
+                "combined with --load)."
+            )
+        ),
     ] = None,
     walker_max_depth: Annotated[
         int,
@@ -206,19 +240,36 @@ def main(
             help="Genus-chain walker recursion depth (default 5).",
         ),
     ] = 5,
+    sample_manifest: Annotated[
+        Path | None,
+        typer.Option(
+            "--sample-manifest",
+            help=(
+                "Run an explicit source-bound review sample. Requires --out and "
+                "cannot be combined with --load or --total-limit."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run the decomposition pipeline for a branch and print its coverage metrics."""
     if emit_equivalence:
         raise typer.BadParameter(
-            "--emit-equivalence is not available until #153 provides a "
-            "proof-bearing representation"
+            "--emit-equivalence is not available until a separate validation step "
+            "can establish exact completeness"
         )
     if load and out is None:
         raise typer.BadParameter("--load requires --out")
-    if not branch or set(branch) & {"/", "\\", "\0"}:
-        raise typer.BadParameter(
-            "--branch must be non-empty and free of path separators"
-        )
+    if load and total_limit is not None:
+        raise typer.BadParameter("--load cannot be combined with --total-limit")
+    if sample_manifest is not None:
+        if out is None:
+            raise typer.BadParameter("--sample-manifest requires --out")
+        if load:
+            raise typer.BadParameter("--sample-manifest cannot be combined with --load")
+        if total_limit is not None:
+            raise typer.BadParameter(
+                "--sample-manifest and --total-limit are mutually exclusive"
+            )
     metrics = asyncio.run(
         _run(
             source_manifest,
@@ -229,11 +280,15 @@ def main(
             resume,
             total_limit,
             walker_max_depth,
+            sample_manifest,
         )
     )
     typer.echo(
         f"in_scope={metrics.total_in_scope} decomposed={metrics.decomposed} "
-        f"residual={metrics.residual} minted={metrics.minted_count} "
+        f"residual={metrics.residual} "
+        f"semantic_excluded={metrics.semantic_excluded} "
+        f"atomic_noop={metrics.atomic_noop} unknown={metrics.unknown_outcome} "
+        f"minted={metrics.minted_count} "
         f"coverage={metrics.coverage:.2%} "
         # detector-relative (D37): reducibility as the detector sees it (not truth)
         f"residual_precoordination={metrics.residual_precoordination:.2%} "

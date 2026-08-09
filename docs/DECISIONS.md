@@ -2,6 +2,601 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-08 — the M1 measurement landed, and what it cost to get there
+
+### D61. Identities are bound after generation, never pre-declared
+
+**Decision: never pre-declare the identity of an artifact that does not yet exist. Compute the
+identity from the completed artifact, then record it.** The tracked row-decision export now has
+a `payload_identity` and names the source, run, and engine-evidence identities in `_meta`
+(`jq '{payload_identity,meta:{workbook_identity:._meta.workbook_identity,source_identity:._meta.source_identity,run_id:._meta.run_id,engine_evidence_identity:._meta.engine_evidence_identity}}' ontolib/tests/decomposition/golden/neoplasm-row-decisions.json`,
+2026-08-09).
+
+`payload_identity` is an unkeyed self-consistency digest stored beside the payload it covers. It
+detects an edit only when the editor does not recompute the digest; it does not establish origin or
+authorship. Loading the tracked export recomputes the digest, and the focused edit
+test rejects a changed row whose digest was not recomputed
+(`pdm run pytest ontolib/tests/decomposition/test_golden_review.py::test_row_decision_loader_rejects_a_hand_edited_row_set -q`,
+2026-08-09).
+
+### D62. The golden-set/corpus divergence test belongs to the full corpus, not the #154 sample
+
+The 15-code sample is a strict subset of the 20-code adjudicated cohort; the five
+adjudication-only codes are `C4791`, `C35756`, `C89995`, `C27787`, and `C115118`
+(`jq -n --slurpfile sample samples/ncit-26.07d-m1-review.json --slurpfile oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json '($sample[0].concepts|map(.code)) as $s | ($oracle[0].concepts|map(.code)) as $o | {sample:($s|length),oracle:($o|length),sample_only:($s-$o),oracle_only:($o-$s)}'`,
+2026-08-09). The tracked residual comparison identifies itself as the adjudication run
+restricted to that sample
+(`jq '{name,denominator:(.denominator_codes|length),residual:(.residual_codes|length)}' ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json`,
+2026-08-09), so it is a same-cohort check rather than an independent-population divergence test.
+
+**Decision: retain the tracked subset comparison as a reproducible baseline, but test population
+divergence only against the full corpus.**
+
+### D63. The SME oracle lives in tracked code, not in a review workbook
+
+**Decision: the adjudicated oracle, row decisions, engine evidence, corpus comparison, and
+proposal registry are tracked under `ontolib/tests/decomposition/golden/`.** Git lists all five
+inputs (`git ls-files ontolib/tests/decomposition/golden/neoplasm-adjudicated.json ontolib/tests/decomposition/golden/neoplasm-row-decisions.json ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json ontolib/tests/decomposition/golden/neoplasm-corpus-comparison.json ontolib/tests/decomposition/golden/proposal-registry.json`,
+2026-08-09), and the baseline test loads only those tracked inputs
+(`pdm run pytest ontolib/tests/decomposition/test_m1_baseline.py -q`, 2026-08-09).
+
+### D64. M1 is a measurement milestone; the web application precedes further content work
+
+The engine-suggestion rows contain 48 `include`, 42 `revise`, and 16 `exclude` labels. Among
+the 90 kept suggestions, 80 preserve the exact `(axis, filler)` pair, 87 preserve the filler,
+and 83 preserve the axis
+(`jq '[.rows[] | select(.row_type=="ENGINE SUGGESTION")] as $r | [$r[] | select(.sme_action=="include" or .sme_action=="revise")] as $k | {include:([$r[]|select(.sme_action=="include")]|length),revise:([$r[]|select(.sme_action=="revise")]|length),exclude:([$r[]|select(.sme_action=="exclude")]|length),kept:($k|length),pair_match:([$k[]|select(.engine==.expected)]|length),filler_match:([$k[]|select(.engine.filler==.expected.filler)]|length),axis_match:([$k[]|select(.engine.axis==.expected.axis)]|length)}' ontolib/tests/decomposition/golden/neoplasm-row-decisions.json`,
+2026-08-09). These are different measurements: exact pair preservation does not independently
+measure filler accuracy, and `include` is strictly the SME label rate. In particular, 11 of the
+48 included rows differ from the recorded engine constituent in relationship-group or
+`needs_review` fields
+(`pdm run python -c 'import json,pathlib; p=pathlib.Path("ontolib/tests/decomposition/golden"); r=json.loads((p/"neoplasm-row-decisions.json").read_text())["rows"]; e=json.loads((p/"neoplasm-engine-evidence.json").read_text()); a=json.loads((p/"neoplasm-adjudicated.json").read_text()); E={(c["code"],x["axis"],x["filler"]):x for c in e["concepts"] for x in c["constituents"]}; A={(c["code"],x["axis"],x["filler"]):x for c in a["concepts"] if c["expected"] for x in c["expected"]["constituents"]}; I=[x for x in r if x["row_type"]=="ENGINE SUGGESTION" and x["sme_action"]=="include"]; print(sum(any(E[(x["code"],x["expected"]["axis"],x["expected"]["filler"])].get(f)!=A[(x["code"],x["expected"]["axis"],x["expected"]["filler"])].get(f) for f in ("relationship_group","needs_review")) for x in I))'`,
+2026-08-09).
+
+Candidate rows contain 63 `include` labels, but 64 kept constituents: the remaining kept row is
+the `revise` decision for `C206219 op:PrimarySite C12316`, and that revised pair is absent from
+the recorded engine evidence
+(`jq -n --slurpfile rows ontolib/tests/decomposition/golden/neoplasm-row-decisions.json --slurpfile engine ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json '[$rows[0].rows[]|select(.row_type=="ADD IF MISSING")] as $r | {include:([$r[]|select(.sme_action=="include")]|length),kept:([$r[]|select(.sme_action=="include" or .sme_action=="revise")]|length),revised:([$r[]|select(.sme_action=="revise")|. as $x|{code,expected,in_engine:any($engine[0].concepts[];.code==$x.code and any(.constituents[];.axis==$x.expected.axis and .filler==$x.expected.filler))}])}'`,
+2026-08-09).
+
+The tracked NCIt-bound score has 153 expected pairs, precision 0.7547, recall 0.5229, and
+relationship-group agreement on 2 of 20 concepts
+(`pdm run pytest ontolib/tests/decomposition/test_m1_baseline.py::test_expected_pair_provenance_holds_the_m1_baseline ontolib/tests/decomposition/test_m1_baseline.py::test_ncit_bound_precision_and_recall_hold_the_m1_baseline ontolib/tests/decomposition/test_m1_baseline.py::test_group_partition_agreement_holds_the_m1_baseline -q`,
+2026-08-09). The integer true-positive count is uniquely 80: it is the only integer `tp` for
+which `round(tp / 153, 4) == 0.5229`
+(`pdm run python -c 'print([tp for tp in range(154) if round(tp/153,4)==0.5229])'`,
+2026-08-09).
+
+**Decision: M1 is "decomposition baseline measured against SME truth". Engine-quality work
+follows the measurement; web-application work precedes further content work. Keep subsequent
+work on one small issue branch apiece.**
+
+## 2026-08-07 — what we produce is NCIt, and provenance is what makes alignment work
+
+### D60. Everything OntoPrism emits is NCIt in a new rendition; derivation is provenance, never ownership
+
+Recurring design discussions stalled on the phrase "external content". A concept or relation
+sourced from Uberon, Cell Ontology, SNOMED CT or ICD-O-3 was repeatedly treated as *belonging*
+elsewhere, which turned a question about where something came from into a question about whose
+it is. Those are different questions, and conflating them produced a false category — content
+that is permanently foreign — that this project's architecture neither has nor wants. Several
+downstream decisions inherited the error before it was caught.
+
+**Decision.**
+
+1. **Everything we add, change or remove is NCIt.** The deliverable is NCIt reorganised, not NCIt
+   blended with other ontologies. That is what makes it adoptable: NCI can take it whole. A
+   concept or role we introduce is NCIt content even when it exactly matches, and was directly
+   derived from, a class or property in another ontology.
+
+2. **All of it is provisional until NCI adopts it.** New content is a *proposal*, not a private
+   extension. The lifecycle already exists and is authoritative: `proposed → locally-approved →
+   submitted → accepted-in-ncit`. `locally-approved` means our SME accepted it; it does not mean
+   NCI did. No status short of `accepted-in-ncit` may be presented as NCIt-authored.
+
+3. **Derivation is recorded as provenance and alignment, never as ownership.** Where a concept or
+   relation of ours corresponds to an external one, that correspondence is a mapping annotation
+   alongside our content — the pattern `AxisContract.ro_parent` already uses, where `op:PrimarySite`
+   is *our* relation and `RO:0004026` is what it aligns to. External identifiers are never the
+   values our definitions must resolve to (D-R7, D38 correction).
+
+4. **Provenance is instrumental.** It exists so that Metathesaurus integration and cross-terminology
+   mapping actually work, and so a reviewer can see what evidence supported a proposal. It is not
+   an audit ritual. Provenance that no mapping or reviewer consumes is not worth the field.
+
+5. **Alignment is a design goal, subordinate to architectural integrity.** Align with expert-curated,
+   well-vetted sources as far as they take us — and stop where alignment would cost a core design
+   property. Adopting an external modelling error, or a dependency that stops NCIt resolving on its
+   own, is not alignment.
+
+**Why.** Two ontologies can converge on the same concept without either owning it; identity and
+derivation are orthogonal. Treating derivation as ownership creates content we can never propose
+back to NCI, which defeats the purpose of building it. Treating it as provenance creates exactly
+the mapping trail that makes the result useful in the Metathesaurus — the same evidence serves both
+governance and interoperability.
+
+**Language rule, because the wording is what caused the drift.** Do not write "external content",
+"borrowed from", or "depends on" about anything we emit. Write "derived from", "aligned to",
+"corroborated by", or "proposed, evidenced by". If a sentence implies another project owns
+something in our output, it is wrong regardless of intent.
+
+**Consequence for the semantic-bundle layer.** A member NCIt does not currently assert is
+`proposed`, carrying its evidence — not "externally asserted". `SemanticBundleMember` and
+`ProjectedConstituentEvidence` carry no lifecycle status today, while `GoldenConstituent` does;
+that gap is what allowed the wrong framing to look reasonable. Reuse the existing `PairProvenance`
+vocabulary rather than adding a fourth copy of it.
+
+## 2026-08-04 — the candidate M1 oracle covers audited R103/R108 without laundering held axes
+
+### D59. Contracted-role source audit governs projection scope and relation-specific collapse
+
+The latest technical #57 review found that the candidate oracle and production walker
+shared the same omission: inherited R103/R108 facts were filtered before curation, while
+R104/R107 contracts existed in code but had never received axis-level SME sanctioning. A
+certified NCIt 26.07d complete-definition pass over all 20 concepts found 304 contracted-role
+facts.
+After same-axis specificity and reviewed generic suppression, v10 still omitted 13 R103,
+25 R108, 10 R104, and one R107 pair. The old 0.6807 recall therefore measured an
+engine-shaped reference, not the source-complete content now presented for final v14
+review.
+
+**Decision:** the pending v14 M1 candidate includes the reviewed R103 and range-valid R108
+survivors after same-axis collapse and the versioned `contracted-role-generic-v2` list.
+Corrections are validated against a matching root/filler source occurrence, not a
+role-specific occurrence. The pair scorer becomes usable after the workbook's main
+attestation; `stage-bundle-pilot finalize` separately requires complete semantic-bundle
+attestation before semantic rules become `ATTESTED`. NCIt marks R103 as non-defining in
+P98, so its 12 expected pairs remain scored and reports derive their visible
+`non-defining` stratum from the axis contract. The versioned
+`ncit-26.07d-unsupported-filler-v1` register excludes R103 C54105 for C102870 and C27787:
+that germinal-layer filler conflicts with both concept definitions and is not accuracy
+content. R104 CellOrigin and R107 CytogeneticAbnormality remain explicit named scope
+omissions until their cardinality, grouping, RO alignment, and suppression policy are
+adjudicated; the 10 R104 and one R107 survivors are not silently called non-core or mixed
+into current metrics. The walker projects inherited R103/R108 within its depth-five
+projection bound and continues to hold inherited R104/R107. The independently bounded
+complete record retains all source facts regardless of projection suppression.
+
+The generic list is role-specific: R103 C45714; R104 C12578; R105 C12917, C12922,
+C36779; and R108 C36115, C53596, C54172. Membership is inherited coverage over the
+complete stated record, measured per role: v1 wrongly suppressed R108 C36122 (Benign
+Cellular Infiltrate) on frequency drawn from R142 exclusions on malignant concepts. As a
+positive R108 finding it is asserted only on the benign genera C3677, C4776 and C5111 and
+covers 5.6% of the cohort against 61-100% for every retained entry, so v2 restores it and
+C4791 Left Atrial Myxoma regains a true constituent. Changes require a new list version and
+the full-corpus routing impact gate from D58. Runtime stage system/value routing uses the
+versioned `ncit-26.07d-stage-kind-v1` reviewed code allowlist. Definitions informed its
+curation but are not consulted at runtime; semantic type alone is insufficient because
+NCIt uses `Classification` for both values and frameworks.
+
+`rdfs:subClassOf` licenses most-specific collapse on routed axes except
+`op:AssociatedLineageClassification`, whose fillers remain independent. R82 part-of
+licenses collapse only on location axes under RO:0004026; it is not subsumption for
+morphology, cell, tissue, finding, or classification axes. Consequently C35756's
+C12704/C12705 lineage classifiers remain separate and ungrouped. Complete-definition groups preserve
+source co-assertion partitions; curated projection groups may additionally identify
+multiple co-equal values retained on one routed axis, but never genus-walk path bookkeeping.
+
+The three PrimarySubsite mappings and C206219's R100-to-PrimarySite override remain
+scoreable provisional human-curated morphology-context mappings. They preserve original
+source roles and are not claimed as OWL-derived partonomy. PrimarySubsite has an
+AssociatedRegion fallback; the R100 override has no machine-readable fallback contract.
+C132677 currently emits only R108 C48322 as a ClinicalFinding. A future class-level
+projection may derive a separate non-constituent `unknown-cup` status. C198031 retains
+C3168 alone because C4005 is its broader stated defining ancestor.
+
+**Why:** rules and conserved source dispositions make the candidate reproducible and
+expose production blind spots without importing unadjudicated axes. The pending v14
+descriptive NCIt-bound result is TP 80, FP 26, FN 73 (precision 0.7547, recall 0.5229);
+the augmented view adds one locally approved expectation and therefore has FN 74 (recall
+0.5195). These are packet-verification values, not authoritative performance claims, until
+both attestations are complete. `ncit_bound` filters the expected set to NCIt-stamped
+pairs; actual engine emissions have no pair-level provenance and all remain in its actual
+and false-positive denominator.
+
+## 2026-08-03 — cardinality, local-relation maturity, and routing release gates
+
+### D58. Primary-site semantics, provisional relations, and routing gates are explicit
+
+The M1 adjudication needed to distinguish three cases without introducing another
+pre-coordinated disease class: a patient with one cancer, a patient with concurrent
+independent primary malignancies, and one cancer with metastatic lesions at additional
+locations. It also introduced two local relation terms whose fillers are ordinary NCIt
+26.07d concepts, unlike a locally minted filler that the source-bound engine cannot emit.
+
+**Decision:** primary-site semantics have three explicit levels:
+
+1. An NCIt disease-class projection has `op:PrimarySite 0..1`. Absence usually means that
+   primary site is not a defining dimension of the class; it does not imply unknown
+   primary.
+2. A cancer-disease occurrence (one neoplastic process in one patient) also has
+   `op:PrimarySite 0..1`. The future occurrence model enforces this same invariant.
+3. A patient has `0..*` disease occurrences and therefore no patient-level maximum on
+   primary malignancies. Synchronous multiple primary malignancies are separate
+   occurrences, each with its own primary-site state.
+
+`op:PrimarySite` remains anatomy-valued and never receives an unknown sentinel. Every
+disease occurrence instead carries exactly one conceptual `primarySiteStatus` from the
+closed set `known`, `unknown-cup`, `undetermined`, and `not-applicable`; `known` holds if
+and only if a `PrimarySite` filler is present. `unknown-cup` is a positive clinical state,
+not absence, and is accompanied by an explicit unknown-primary finding where supported.
+`undetermined` preserves incomplete workup or unresolved second-primary-versus-metastasis
+classification. `not-applicable` covers classes or occurrences that genuinely do not pose
+the site question. A future class-level projection may derive `known` from a present site,
+`unknown-cup` from explicit complete-record unknown-primary evidence, and otherwise
+`not-applicable`; the current extractor neither computes nor persists this status. A
+future class-derived value never propagates to an occurrence. A solid-tumour occurrence
+from a site-agnostic class defaults to `undetermined` until site or CUP status is
+established; occurrence-level `not-applicable` is reserved for a disease model where
+primary site truly does not apply.
+Issue #263 tracks the occurrence schema/API and executable invariants.
+
+Occurrence individuation is upstream and out of scope. The 0..1 rule must never decide
+whether two involved sites are two primaries or one primary with metastasis. A future
+instance model must preserve an unresolved site role rather than coercing it to
+`MetastaticSite`. The same occurrence may have `0..* op:MetastaticSite` values once that
+relationship is established. `op:PrimarySubsite` refines anatomy within one primary-site
+umbrella and never denotes another primary. Predisposition syndromes attach to occurrences
+through the R126 relation family; they do not relax primary-site cardinality.
+
+`op:PrimarySubsite` and `op:AssociatedPriorDisease` are provisional local relations with
+stable IRIs, machine-readable effective/review dates, a named review trigger, evidence
+counts, and fallback encodings. `op:PrimarySubsite` is declared under verified
+`RO:0004026` and falls back to `op:AssociatedRegion`; `op:AssociatedPriorDisease` remains
+explicitly unaligned and falls back to raw `R126` with `needs_review=true`. The former has
+three cohort examples and low migration risk; the latter has one and must not silently
+generalize to treatment causation or shared susceptibility. Its current name is retained
+provisionally because the formal definition is less ambiguous than `FollowsDisease` or
+`AfterDisease`; the same review trigger covers both name and definition. Both relations
+remain in the NCIt-bound score because their fillers are NCIt 26.07d concepts; relation
+locality and filler locality are independent provenance dimensions. The artifact binds the
+whole proposal registry identity separately. Its augmented view adds endpoint proposals,
+such as the locally approved `MINT-781c8c8c6096` filler, only when the expected row names
+that proposal ID and status.
+
+Provisional unaligned `op:` relations are a time-bounded exception to the project's OBO
+Foundry Principle 7 target. They may support the curated local projection only with
+machine-readable maturity, review trigger/date, evidence, and fallback; they emit no
+speculative RO parent axiom and are not represented as Principle-7-conformant. This
+exception also covers `op:AssociatedLineageClassification` until a classification-type RO
+parent is established.
+
+Routing-semantic changes use two gates. Focused tests and the adjudicated sample are the
+development/PR inner loop. Before release, the algorithm identity changes and a
+full-corpus impact report classifies every changed pair. More than one primary site,
+contradiction between a projected site and derived class status, contract/group
+violations, or an unadjudicated change to the golden cohort blocks release. Loss of a
+previous primary site requires named source evidence and re-adjudication; absence alone is
+never classified as CUP. Every stated R101 fact must be conserved as a routed pair, a
+collapse under a named ancestor, or a named suppression. Unclassified deltas require a
+written reason; acceptance is semantic, never a percentage threshold.
+
+The depth-5 walker bound remains an identified production constraint, not an oracle
+boundary. Omissions attributable to it are explainable implementation limitations but
+still score as false negatives against the source-complete reference and lower recall.
+
+C100051's prior-disease normalization is source-bound: the NCIt 26.07d class definition,
+not R126 itself or external clinical literature, states that the renal cell carcinoma
+develops in long-term survivors of childhood neuroblastoma. Without that concept-specific
+source wording, the assertion would remain raw R126 and review-required.
+
+**Why:** a total anatomy relation would misclassify every site-agnostic morphology class as
+CUP or corrupt the anatomy range with a sentinel. A separate closed status preserves the
+FHIR/ISO-style null-flavour distinction between unknown, undetermined, and not applicable
+without weakening `PrimarySite 0..1`. Patient-level multiplicity and occurrence-level site
+cardinality are compatible once diagnoses are post-coordinated occurrences rather than one
+combined disease concept. Keeping local relations in the bound score prevents the metric
+from becoming blind to the hardest adjudicated distinctions. Routing failures are silent
+and clinically plausible, so only versioned corpus-wide conservation and invariant checks
+can expose systematic loss outside the small golden cohort.
+
+## 2026-08-02 — missing concepts and relations remain typed proposals
+
+### D57. Proposal governance is source-bound, duplicate-checked, and non-promoting
+
+Issue #57 exposed two separate gaps that the former qualifier-only mint record could not
+represent safely: a missing atomic NCIt concept and an overloaded NCIt source role that
+may require several univocal relations. The old `MintedConcept` payload stores only axis,
+label, source signal, and status. It cannot carry a formal definition, parentage,
+domain/range, duplicate-search evidence, external-review target, or source examples, and
+therefore cannot support a defensible NCIt or Relation Ontology submission.
+
+**Decision:** proposal review uses a strict versioned registry with two discriminated
+types: concept proposals and relation proposals. Both carry an identified NCIt source,
+formal definition, source roles, rationale, one or more resource- and version-labelled
+duplicate checks, a submission target, and an explicit `proposed`, `locally-approved`,
+`submitted`, `accepted`, or `rejected` state. Concept proposals additionally carry their
+projection axis, parent concepts, semantic types, synonyms, and source concepts. Relation
+proposals carry their normalized projection axis, domain, range, and representative source
+pairs. Accepted concepts resolve to an NCIt code; accepted relations require both an
+assigned absolute IRI and its ontology version. IDs are deterministic from the concept
+axis/name or relation name; duplicate IDs and duplicate-check resources fail closed. JSON
+loading rejects duplicate keys and verifies a canonical SHA-256 registry identity. Every
+augmented golden expectation names its proposal ID, and import verifies the registry
+identity, source, release, proposal status, axis, and concept filler where applicable.
+
+Only `proposed` records enter deterministic flat submission exports. The same export
+command also writes locally augmented RDF and accepted replacement resolutions, but
+export does not automatically promote registry records. A separately ratified relation
+may enter `AXIS_CONTRACTS` and production routing through an explicit code change; no
+proposal is approved merely because an export exists. `pdm run
+adjudication export-proposals REGISTRY OUTPUT_DIR` validates the registry before writing
+NCIt concept, relation, manifest, augmentation, and replacement artifacts.
+
+**Why:** a missing class and a missing relation are different ontology changes, and an
+overloaded relation must not be "fixed" by inventing a class. Source-bound duplicate
+evidence prevents proposals for concepts already present under another label or semantic
+type; the explicit non-promoting boundary keeps research candidates filterable and
+submission-ready without laundering them into accepted ontology content.
+
+## 2026-07-30 — every completed work item has an explicit classification
+
+### D56. Persist typed non-decomposition outcomes and all observed semantic types
+
+The certified M1 SME-review run exposed an ambiguity that aggregate coverage could not
+explain. `C162770` was correctly excluded because its NCIt P106 type is `Finding`;
+`C102883` was an applicable `Neoplastic Process` that was correctly atomic. Both had
+previously been persisted as the same all-null/false, zero-count work-item shape.
+
+**Decision:** every completed work item stores one closed outcome:
+`decomposed`, `residual`, `semantic-excluded`, or `atomic-no-op`. Historical completed
+rows whose reason cannot be recovered are backfilled as `unknown`, never guessed. The
+row also stores the complete canonical set of observed source semantic types; the
+single `semantic_type` column remains a compatibility projection. Database constraints
+bind each outcome to its decomposed/residual flags, and incomplete items cannot carry a
+completion outcome.
+
+Run metrics and API summaries report each outcome count, while the ordered run-outcomes
+API exposes the per-concept classification and source types. For a completed current
+run, `total_in_scope` must reconcile exactly with decomposed + residual +
+semantic-excluded + atomic-no-op; `unknown` is expected only for migrated history.
+
+**Why:** the hierarchy worklist is broader than the algorithm applicability gate.
+Coverage alone must not conflate “not handled by this algorithm” with “handled and
+already atomic,” and a later reader must not reconstruct either fact from nulls. This
+keeps sample review and full-corpus interpretation evidence-bearing across fresh,
+resumed, and historical runs.
+
+## 2026-07-30 — R82 closure bounds include real definition-filler cones
+
+### D54. Calibrate inherited-superclass depth to the certified C27262 sample
+
+#213 selected an eight-hop inherited-superclass bound from an owned synthetic chain and
+proved the constant-subject R82 expansion query safe. The first source-qualified 26.07d
+sample run later failed closed on C27262: one of its five comparison-filler superclass
+cones needs fourteen hops before termination. The eight-hop policy therefore prevented a
+certified production-shaped concept from reaching a verdict even though the query shape
+and every independent resource cap remained well within their envelope.
+
+**Decision:** permit at most fourteen inherited named-superclass hops while retaining
+#213's eight-hop R82-to-R82 limit, one-attempt constant-subject queries, 16-code request
+tiles, 64-request limit, 256 expanded-code limit, 256-row response sentinel, 4,096 total
+rows, and 64 KiB query-body limit. Exhaustion errors report the configured bound rather
+than a hard-coded historical number.
+
+On the certified source identity
+`f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8`,
+C27262's closure terminates at fourteen hops with no requested R82 pair, using 11
+requests, 40 rows, and 35 expanded codes. Thirteen hops still fails closed, establishing
+boundary liveness; a following source query remains healthy at NCIt 26.07d.
+
+**Why:** a safety limit that rejects a canonical production case is not empirically
+calibrated. Raising only the measured depth dimension to the smallest sufficient value
+preserves the bounded algorithm and leaves substantial independent request, row, and
+memory headroom.
+
+## 2026-07-30 — review samples are explicit source-bound worklists
+
+### D55. Persist the canonical stratified sample definition in run identity
+
+`--total-limit` is a deterministic truncation, not a stratified sample: it cannot
+guarantee coverage of rare staging editions, semantic exclusions, deep genus DAGs,
+multi-valued/grouped definitions, NLP/mint paths, region/organ resolution, or atomic
+controls.
+
+**Decision:** a decomposition review sample is a strict, tracked JSON manifest containing
+its schema, name, branch/root/scope contract, D47 source identity, ontology version,
+selection method and optional seed, plus an exactly ordered unique code list. Every code
+has sorted overlapping stratum tags and a non-empty rationale; the schema requires the
+complete review-stratum catalogue. The canonical 26.07d M1 manifest is
+`samples/ncit-26.07d-m1-review.json`, identity
+`729c6c73ec3367bfacaa93ee34d961c74deef2268f48b308d81051b3a01ddbc1`.
+
+Every invocation revalidates the live D47 source, proves the manifest release and source
+identity match, enumerates the complete hierarchy scope, and rejects any selected code
+outside it before creating or reopening provenance. The manifest order is the persisted
+worklist. Sample runs require a file output and reject `--load`, `--total-limit`, and
+equivalence emission, keeping review separate from publication. Ordinary `--total-limit`
+smoke runs also reject `--load`: a truncated worklist may produce a diagnostic artifact,
+but it must never replace the complete public graph. Sample runs' schema-v3 run fingerprint
+and resume identity bind the manifest digest; ordinary and historical runs remain schema
+v2 with their existing canonical digests. The configuration version is
+`nested-definition-v2`, preventing pre-D50/D55 work from resuming under the complete
+nested-definition reader.
+
+**Why:** reproducibility requires the selected cases and the source they were selected
+from, not merely a random seed or release label. Binding the exact reviewed definition to
+resume prevents a changed rationale, order, source, or stratum set from masquerading as
+the same scientific run, while review-only execution prevents a sample from accidentally
+becoming production data.
+
+## 2026-07-30 — normalized axes have executable semantic contracts
+
+### D52. Preserve source roles while serving only univocal projection relations
+
+The certified 26.07d stated artifact exposed a factual error in D23's old prose:
+`R108` is `Disease_Has_Finding`, `R104` is `Disease_Has_Normal_Cell_Origin`, and
+`R111`–`R116` (plus `R89`) are the probabilistic `May_Have_*` family. In particular,
+`R114` is `Disease_May_Have_Cytogenetic_Abnormality` and `R115` is
+`Disease_May_Have_Finding`; they are not the defining clinical-finding and cell-origin
+roles formerly assigned to them.
+
+**Decision:** the curated projection routes every supported positive NCIt role to a
+single-sense `op:` relation. Each relation has an executable contract containing its
+human label and definition, NCIt-backed domain/range codes and labels, provenance, and
+source-role mapping. Direct mappings include `R88 → op:StageValue`,
+`R100 → op:AssociatedSite`, `R101 → op:PrimarySite`, `R102 → op:MetastaticSite`,
+`R103 → op:NormalTissueOrigin`, `R104 → op:CellOrigin`, `R105 → op:CellType`,
+`R106 → op:MolecularAbnormality`, `R107 → op:CytogeneticAbnormality`,
+`R108 → op:ClinicalFinding`, and `R110 → op:Grade`. Contextual splits retain the same
+source role: R88 stage systems use `op:StageSystem`; R101 regions and
+lineage classifications use their existing dedicated axes.
+
+Every role-derived constituent stores `source_role` separately from `axis`. Unknown
+roles retain their NCIt code and always require review; probabilistic R89/R111–R116 and
+negative `Excludes_*` restrictions do not enter the curated projection but remain in
+D50's complete definition. Migration `0010_constituent_source_role` carries the
+provenance through PostgreSQL. Turtle publishes the axis contracts and
+`op:sourceRole`; the read API preserves it, and `GET /api/v1/decomposition/axes`
+serves the catalogue without requiring a database.
+
+**Why:** a raw source identifier is provenance, not a semantic contract. Keeping it
+separate makes normalization reversible while preventing ambiguous or factually
+misidentified NCIt roles from silently becoming the public composition grammar.
+
+## 2026-07-30 — decomposition branches are executable contracts, not run labels
+
+### D51. Separate a branch's hierarchy population from its decomposition algorithm
+
+`neoplasm` and `disease` previously selected the same semantic-type population and the
+same axis-qualified algorithm; the free-form label only changed run identity. That was a
+false interface promise, but removing `disease` was also wrong: NCIt's `Neoplasm`
+(`C3262`) is a descendant of `Disease or Disorder` (`C2991`), and hierarchical concepts
+may legitimately share an algorithm while selecting different populations. Semantic
+types are not a hierarchy oracle: the certified stated corpus contains hierarchy members
+outside the canonical three semantic types and concepts with those types outside the
+disease hierarchy.
+
+**Decision:** a closed `DecompositionBranch` accepts `neoplasm` and `disease`. Each
+executable specification owns an immutable hierarchy root and scope algorithm:
+`neoplasm → C3262`, `disease → C2991`, both at
+`stated-genus-subclass-v1`. Scope is the strict descendant closure of the stated named
+class DAG, combining named `rdfs:subClassOf` edges with named genus members from
+`owl:equivalentClass/owl:intersectionOf`. The bounded definition-list reader fails
+closed if a later named genus exists. The disease population therefore contains the
+neoplasm root and every neoplasm descendant; the neoplasm worklist excludes its own
+scope anchor.
+
+Both branches deliberately dispatch to the same `axis-qualified` algorithm and canonical
+semantic-type applicability gate (`Neoplastic Process`, `Disease or Syndrome`,
+`Cell or Molecular Dysfunction`). The hierarchy defines which concepts are considered;
+semantic type determines whether this algorithm applies to a considered concept. Scope
+root and scope-algorithm version are persisted in the fingerprint, so historical
+pre-hierarchy runs cannot resume and a future hierarchy change cannot masquerade as the
+same run. `regimen` and arbitrary labels fail before provenance is created. Regimen stays
+unavailable until its separate component-bag mini-design is implemented end to end.
+Completed historical rows retain their original free-form label on the read-only summary
+API.
+
+Run completion persists one stable metric schema, including the residual numerator and
+rate. The run-summary API exposes every accepted stored metric: worklist/decomposition,
+residual, mint, complete-definition, projection-loss, coverage, and historical
+round-trip fields. Fresh and resumed runs both reconstruct and serialize through this
+same completion path.
+
+**Why:** a branch is meaningful when it changes an executable contract—population,
+algorithm, or both. Keeping population and algorithm explicit avoids cosmetic labels
+without forcing different hierarchy levels to invent different decomposers. A closed
+boundary also ensures that adding regimen later requires an explicit algorithm dispatch
+and its distinct contracts.
+
+## 2026-07-30 — decomposition publication is journaled and reconcilable
+
+### D53. Commit each system at its native boundary; reconcile marker-ahead retries
+
+PostgreSQL, a filesystem, and Oxigraph cannot participate in one atomic commit. Marking
+the run complete before publishing the file and graph exposed a false success, while a
+Graph Store `PUT` after completion had no durable identity or recovery protocol.
+
+**Decision:** render the complete Turtle to a same-directory staging file, flush and
+`fsync` it, parse it, and prove its exact concept set and run links before publication.
+Its SHA-256 is the representation identity. A session-level PostgreSQL advisory lock
+serializes publishers across the external coordination window; the run journal stores
+an immutable representation identity, destination, build time, attempt count, and
+bounded publication-only failures separately from processing failures.
+
+When `--load` is requested, upload the artifact to a unique run-scoped staging graph.
+One Oxigraph SPARQL Update clears the public decomposed graph, adds the staging graph,
+drops it, and inserts a marker containing run ID, D47 source identity, representation
+identity, and build timestamp. The pinned real Oxigraph contract proves that the update
+is transactional, including clean replacement by an artifact with no decomposed
+concepts. SPARQL Update transport failures are never blindly replayed: the marker is
+read first to determine whether the server committed.
+
+After graph publication, atomically replace the file and `fsync` its directory; only
+then may PostgreSQL mark the run and publication `complete`/`published`. A crash can
+therefore leave the graph and/or file ahead of PostgreSQL, but never a partially replaced
+public graph or a completed database row ahead of requested publication. A matching
+marker-ahead retry replays the sealed validated graph to repair possible drift,
+republishes the same bytes to the file, and completes the journal. A journal-ahead retry
+may replace only the exact predecessor marker captured with its immutable intent. A
+different, malformed, or uncaptured predecessor fails closed. Historical complete runs
+are labelled `legacy`, not retroactively certified.
+
+**Why:** cross-system atomicity would be a false guarantee. Native atomic replacement,
+an immutable intent, and idempotent state-based reconciliation provide the strongest
+honest contract while retaining the last complete public graph until one complete new
+graph commits.
+
+## 2026-07-30 — the complete stated definition is the decomposition record
+
+### D50. Persist the stated definition DAG separately from its curated projection
+
+The curated constituent view intentionally filters, routes, and collapses stated facts.
+It therefore cannot serve as the source of truth for reconstruction, and storing only
+that view made `group`/`needs_review` lossy across PostgreSQL and the read API.
+
+**Decision:** for every decomposed concept, breadth-first read every
+`owl:equivalentClass`/`owl:intersectionOf` member from the protected stated graph,
+following every named genus that is itself defined. Anonymous nested intersections are
+canonical group nodes with explicit child-group edges and root-group identities;
+atomic typed genus and existential-restriction facts attach to those groups with their
+anchoring concept and named-genus DAG depth. Recursive structural SHA-256 identities
+ignore blank-node labels and semantically irrelevant intersection order while preserving
+the nested group graph. One compact subject-anchored query returns the reachable RDF
+list cells; application validation bounds the accepted record to 64 members per
+intersection, anonymous nesting depth 4, named-definition depth 64, and 4096 scheduled
+genera. It queries each reconvergent named genus once and fails closed on overflow,
+gaps, disconnected cells, missing nested groups, list/group cycles, foreign IRIs,
+conflicts, or store failure. It never reconstructs from inferred
+`rdfs:subClassOf+`.
+
+The existing constituent view remains useful, but is now an explicit projection whose
+role- and parent-derived members link back to source definition-fact IDs; NLP fallback
+members that mint retain separate proposal provenance. Complete/projected/lost fact
+counts are run metrics. PostgreSQL migrations `0009_complete_definition`,
+`0012_nested_definition_groups`, and `0014_definition_presence` store the typed facts,
+canonical groups/edges, explicit empty-definition presence, and source links atomically
+with each fenced work item; invalidation removes them in the same transaction. The
+additive RDF artifact carries the same facts, group graph, root-scoped occurrence
+identities, counts, review flags, and trace links. The read API round-trips constituent
+`group`, `needs_review`, and all source-fact IDs.
+
+The version-pinned stated-store contract proves the real shapes independently:
+`C3879` has the two stated genera `C160980` and `C4815`; `C136775` preserves a traced
+co-equal region group; and `C27787` preserves a traced review-required `R105` pair.
+It also exposed that the C6135 morphology-to-organ tiebreaker had short-circuited D20
+and erased the associated regions from the projection. Issue #156 corrected that
+cross-axis collapse: the known organ remains `R101`, while every co-present non-organ
+fact is routed to `op:AssociatedRegion` and traced to this complete record.
+
+A later source-qualified 26.07d build corrected the original direct-member assumption:
+97 concepts contain an anonymous nested intersection member, 91 of which are in the
+inferred neoplasm scope. C27262 has eight direct outer members plus three restrictions
+in one nested group. The old six-position detector walker both rejected that group and
+could not reach the final two direct restrictions. Detection now derives its roles from
+the same complete record instance used by projection and provenance, so structural
+coverage cannot drift between two readers. The detector's configurable walker-depth
+bound limits only that legacy role projection; it never truncates the independently
+bounded complete record.
+
+**Why:** completeness and a convenient navigation view are different artifacts. Keeping
+both makes every curated omission measurable and traceable without weakening the
+additive, non-destructive model. This is the only representation future equivalence or
+round-trip fidelity may consume. It does **not** itself enable equivalence emission or
+claim a fidelity score; D43's quarantine remains until a separate proof/validation step
+defines and verifies those semantics.
+
 ## 2026-07-29 — the mutating reviewer runs alone
 
 ### D49. `pr-test-analyzer` runs on its own, never beside another reviewer
@@ -55,17 +650,14 @@ permitted only for a matching running/failed manifest, never re-enumerates, and 
 exactly non-complete work. Metrics and normalized TTL are reconstructed from the full
 worklist, so fresh and resumed completion agree. Mint proposals enter the global curator
 queue only when the run completes. The D47 manifest and full live candidate observation
-are required before work, and source drift before completion invalidates every persisted
+are required before work, and source drift before publication invalidates every persisted
 result row for the run in one transaction. The `--out` TTL is rendered to an unpublished
-staging sibling and atomically moved into place only after that final identity check and
-completion both succeed, so a drifted or failed run leaves no artifact at `--out`.
+staging sibling and source identity is rechecked before the publication protocol begins.
 
 **Why:** a successful manifest now proves one complete computation over one identified
 NCIt snapshot; interruption, collision, retry, and zero-output cases cannot masquerade as
-complete or mix source states. PostgreSQL and the filesystem are still two systems and
-are not written atomically together; the ordering guarantees only that no published
-artifact can outlive an invalidated run, never a joint commit. Named-graph publication
-remains the separate #147 boundary.
+complete or mix source states. D53 owns the multi-system publication and reconciliation
+contract.
 
 ## 2026-07-29 — NCIt stores are constructed and certified as inactive siblings
 
@@ -897,6 +1489,13 @@ complete default product without any licensed dependency.
 
 ### D23. R101 resolution = the named organ (SME-approved principle); `op:StageSystem`, `op:MolecularAbnormality`, `op:MetastaticSite` are first-class axes; minted concepts for missing NCIt terms are tracked in git
 
+**Current-status correction (D57):** the original `MINT-3a7f2c8e901d` identifier and
+parent `C12917` were authored outside the deterministic mint contract and before the
+source-bound duplicate audit found `C54110 Malignant Germ Cell`. The proposal is now
+`MINT-781c8c8c6096` with parent `C54110`. D57/D58 later advanced it to
+`locally-approved` for the filterable augmented view; it is still not NCIt-authored or
+accepted by NCI.
+
 > **Current-status correction (2026-08-06) — the organ principle stands; its hand-maintained
 > implementation does not, and must not be rebuilt by hand.**
 >
@@ -957,14 +1556,15 @@ All proposal axes from D23 draft are ratified:
 - `op:PrimarySite` (R101) — organ per Part 1
 - `op:CellType` (R105) — histology
 - `op:AssociatedSite` (R100) — non-primary, non-metastatic
-- `op:ClinicalFinding` (R114) — probabilistic, not defining (SME distinction: `Has_*` = defining; `May_Have_*` = optional)
-- `op:CellOrigin` (R115) — lineage, optional per above
+- `op:ClinicalFinding` (R108) — defining `Disease_Has_Finding`
+- `op:CellOrigin` (R104) — defining normal cell origin
+- R89 and R111–R116 — probabilistic `May_Have_*`, not defining
 
 **Part 3: Settings model change**
 
 | Setting | Old | New | SME Note |
 |---------|-----|-----|----------|
-| `drop_out_of_scope` | yes | **SPLIT per role** | R106 keep; R114/R115 may drop |
+| `drop_out_of_scope` | yes | **SPLIT per role** | R100–R108/R110 keep; R89/R111–R116 drop |
 | `include_associated_sites` | yes | **maybe** | Metastatic sites need separate axis |
 
 **Part 4: Collisions = Both**
@@ -1039,6 +1639,16 @@ Full survey, examples, and the mitigation-vs-current-approach comparison table:
 ## 2026-07-09 — subsumption-closure completeness is a precondition of D19
 
 ### D21. NCIt's `rdfs:subClassOf+` closure omits defined-class subsumption, so "nested" is only decidable where it is materialized — accept the fail-safe direction, and do not use the inferred graph as a round-trip oracle
+
+**Current-status correction (D59):** source-bound M1 scoring supersedes decision item
+2's engine-flag exclusion. Engine `needs_review` flags are diagnostics and do not defer
+scoring; D59's strict denominator governs. The current strict view is 80/106 precision
+(0.7547) and 80/153 recall (0.5229). The former D21-style exclusion view, retained for
+reference only, is 66/85 precision (0.7765) and 66/139 recall (0.4748). Exclusion buys
+only +0.0218 precision while costing 0.0481 recall, so D21's "unreachable by
+construction" rationale does not survive measurement. The #44 ≥0.9 gate remains
+binding and unmet under both views; it is not retired, rescoped, or re-baselined.
+
 D19's central rule — collapse only *nested* (is-a/part-of) candidates, preserve co-equal
 non-nested ones — makes correctness depend on deciding nestedness, which
 `filler_selection.py` does via `rdfs:subClassOf+`. That closure is **incomplete**, and more

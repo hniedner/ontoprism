@@ -19,6 +19,499 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.18.0 (2026-08-09)
+
+### Bug Fixes
+
+- **decomposition**: Bind adjudication evidence
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Bind corpus review evidence
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Bind genus walker role labels
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Bind oracle to proposal governance
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Bound the hidden-column scan and separate proposed bundles
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Calibrate R82 superclass depth
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Classify publication lock failures
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Close adjudication review gaps
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Close oracle review gaps
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Constrain every row that carries an expected pair
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Correct generic suppression membership test
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Define hierarchy-scoped branches
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Distinguish proposed and unevaluated availability
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Distinguish publication preflight failures
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Enforce persisted run invariants
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Fail closed on uncovered candidate subjects
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Finalize v13 oracle policy
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Harden adjudication evidence
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Harden export and completion invariants
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Harden final oracle packet
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Harden publication and oracle invariants
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Harden row-decision evidence integrity
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Make a not-needed engine suggestion unrepresentable
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Persist typed work-item outcomes
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin contracted disposition digest
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Preserve nested definition groups
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Preserve publication cancellation
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Preserve publication cleanup errors
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Preserve publication primary failures
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Preserve regions after organ lookup
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Project audited source roles
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Propagate graph publication cancellation
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Publish graphs with marker reconciliation
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Reconcile completion metrics and close review-gate gaps
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Reconcile final review semantics
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Reject an orphan constituent row in the export too
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Require Row Type header
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Require the base workbook digest
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Resolve final oracle review findings
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Score proposed bundle members in the augmented view
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Stop asserting a pre-declared corpus evidence identity
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Stop reporting proposed members as engine failures
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Surface CLI cleanup failures
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Treat engine review flags as diagnostics
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Write adjudication artifacts atomically, and fix two test claims
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **golden-review**: Share the Concept Decisions preconditions with the export
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **golden-review**: Stage the evaluation report instead of truncating it
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **research**: Reject unadjudicated golden metrics
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **research**: Report audited golden partitions
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+### Build System
+
+- Bump @testing-library/jest-dom from 6.9.1 to 7.0.0 in /frontend
+  ([#259](https://github.com/hniedner/ontoprism/pull/259),
+  [`3279309`](https://github.com/hniedner/ontoprism/commit/3279309f132ab4b46b53b6498ebc6301b6ff66ce))
+
+- Bump the frontend-minor-patch group across 1 directory with 10 updates
+  ([#269](https://github.com/hniedner/ontoprism/pull/269),
+  [`aed4351`](https://github.com/hniedner/ontoprism/commit/aed4351a510738e4ee05739087d6a60aab911ba2))
+
+- Bump undici from 7.28.0 to 7.29.0 in /frontend
+  ([#265](https://github.com/hniedner/ontoprism/pull/265),
+  [`401b3fd`](https://github.com/hniedner/ontoprism/commit/401b3fdd79f1773bb9b7310587d59df39bba01ab))
+
+### Continuous Integration
+
+- Bump the github-actions group across 1 directory with 3 updates
+  ([#270](https://github.com/hniedner/ontoprism/pull/270),
+  [`b598af4`](https://github.com/hniedner/ontoprism/commit/b598af49bf039b59ff9c02c56578460563a751d2))
+
+### Documentation
+
+- Update README code line-count table
+  ([`b4da193`](https://github.com/hniedner/ontoprism/commit/b4da193cd4f717baf7400a353cb72d09344cf60f))
+
+- Update README code line-count table
+  ([`3065ab8`](https://github.com/hniedner/ontoprism/commit/3065ab805a4d7b3fa4d4744d4b979c801fb68e39))
+
+- Update README code line-count table
+  ([`d02f43c`](https://github.com/hniedner/ontoprism/commit/d02f43c5cb6fcc70afca5aa2028d9b6e6501ab8b))
+
+- Update README code line-count table
+  ([`f3f5db1`](https://github.com/hniedner/ontoprism/commit/f3f5db1087d82bf622aa904ec92d3a0783043f04))
+
+- **architecture**: Record that everything we emit is NCIt, and derivation is provenance
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **ci**: Record CodeQL NEUTRAL as expected for dependency and workflow PRs
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decisions**: Record the M1 baseline and correct the dependency guardrail
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decisions**: Separate the include rate from the pair rate in D64
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Correct claims the review proved false
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Correct site_resolution provenance claims
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Correct the exclude-row note and record the #267 corroboration
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Describe the signed, typed row-decision schema
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Distinguish recorded pairs from evidence
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Identify the source workbook by digest, not by tmp path
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Record adjudicated projection policy
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Record the non-kept row tightening as deliberate
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Say what pydantic actually renders, not what was claimed
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Separate tracked figures from workbook-only counts
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: State which gates the row-decision export actually runs
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Stop conflating the include rate with the pair rate
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Supersede D21 engine-flag exclusion
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **process**: Require claims to carry the command that produced them
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **process**: Require handover specs to be verified before delegation
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **process**: Separate pushing from PR creation in the pre-PR review cycle
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **strategy**: Correct licence boundary and external-integration status
+  ([#268](https://github.com/hniedner/ontoprism/pull/268),
+  [`1a4f8a7`](https://github.com/hniedner/ontoprism/commit/1a4f8a74b5d410d4deee102f6f48d3c674d05df8))
+
+- **strategy**: Correct the external-source licence boundary and integration status
+  ([#268](https://github.com/hniedner/ontoprism/pull/268),
+  [`1a4f8a7`](https://github.com/hniedner/ontoprism/commit/1a4f8a74b5d410d4deee102f6f48d3c674d05df8))
+
+- **strategy**: Replace the licence-based external-source split with alignment-without-dependency
+  ([#268](https://github.com/hniedner/ontoprism/pull/268),
+  [`1a4f8a7`](https://github.com/hniedner/ontoprism/commit/1a4f8a74b5d410d4deee102f6f48d3c674d05df8))
+
+### Features
+
+- **decomposition**: Add SME adjudication tooling
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Add source-backed stage bundles
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Add source-bound review samples
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Bind stage bundles to reviewer decisions
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Establish the SME-measured M1 baseline
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Give bundle members a provenance status
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Govern ontology proposals
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Materialize complete definition records
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Route reviewed site and disease senses
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Serve univocal axis contracts
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Sign the row-decision payload and bind it to its engine run
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Surface member provenance on the review sheet
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Track row-level SME adjudication decisions
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Type run branches and metrics
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **golden-review**: Record the engine's pair and count preserved pairs
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **research**: Score provenance-scoped golden views
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **storage**: Add non-retrying SPARQL updates
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+### Refactoring
+
+- **decomposition**: Compute the published acceptance rate in code
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Construct adjudicated bundles on the production path
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Derive staging authority from the NCIt code
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Drop unused engine review-flag exclusion
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Make an unrepresentable row decision unrepresentable
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Make bundle availability states unrepresentable when invalid
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+### Testing
+
+- **backend**: Make rate-limit reset deterministic
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Bind every kept candidate to evidence
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Cover run fidelity contracts
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Cover stated traversal contracts
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin organ/subsite disjointness invariant
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin restriction/definition fact-id equality
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin the completion metric scope partition
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin the fail-closed guards the suite never exercised
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin the publication predecessor read path
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin the residual delta as a distance
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Pin the write-side completion outcome agreement
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Prove every row-decision reject branch fires
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Prove the residual detector filter discriminates
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Track the SME-adjudicated M1 oracle and its baseline
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **decomposition**: Update adjudication fixtures
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **golden-review**: Cover the NCIt code-shape reject on both entry points
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+- **m1-baseline**: Pin which withdrawn expectation the engine had suggested
+  ([#277](https://github.com/hniedner/ontoprism/pull/277),
+  [`eaa7e9f`](https://github.com/hniedner/ontoprism/commit/eaa7e9f33e38cf84d72c554c98bfa74a36260d01))
+
+
 ## v0.17.1 (2026-07-30)
 
 ### Bug Fixes

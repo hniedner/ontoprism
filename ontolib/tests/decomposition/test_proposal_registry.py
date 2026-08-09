@@ -1,0 +1,675 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+
+import pytest
+import rdflib
+from pydantic import ValidationError
+from rdflib.namespace import RDFS
+from scripts.adjudication import main as adjudication_main
+
+from ontolib.decomposition import proposal_registry as proposal_registry_module
+from ontolib.decomposition.minting import MintedConcept
+from ontolib.decomposition.proposal_registry import (
+    ConceptProposal,
+    CrossOntologyMapping,
+    DuplicateCheck,
+    DuplicateResult,
+    ProposalRegistry,
+    ProposalStatus,
+    RelationProposal,
+    load_proposal_registry,
+    relation_proposal_id,
+    resolve_proposal_identifier,
+    write_submission_exports,
+)
+
+_SOURCE_IDENTITY = "a" * 64
+
+
+def _duplicate_check(
+    *,
+    resource: str = "NCIt",
+    result: DuplicateResult = "no-equivalent",
+    candidates: tuple[str, ...] = (),
+) -> DuplicateCheck:
+    return DuplicateCheck(
+        resource=resource,
+        version="26.07d",
+        query="Malignant Non-Seminomatous Germ Cell",
+        result=result,
+        candidates=candidates,
+        evidence_url="https://api-evsrest.nci.nih.gov/api/v1/concept/ncit/search",
+    )
+
+
+def _concept() -> ConceptProposal:
+    return ConceptProposal(
+        id=MintedConcept(
+            axis="op:CellType",
+            label="Malignant Non-Seminomatous Germ Cell",
+        ).id,
+        axis="op:CellType",
+        preferred_name="Malignant Non-Seminomatous Germ Cell",
+        definition=("A malignant germ cell with non-seminomatous differentiation."),
+        parent_concepts=("C12917",),
+        semantic_types=("Cell",),
+        synonyms=("Malignant Nonseminomatous Germ Cell",),
+        source_concepts=("C27787",),
+        source_roles=("R105",),
+        rationale="No existing NCIt cell concept expresses the required intersection.",
+        duplicate_checks=(_duplicate_check(),),
+        mappings=(
+            CrossOntologyMapping(
+                system="SNOMED CT US",
+                version="2025-09-01",
+                concept_id="128766005",
+                label="Germ cell tumor, nonseminomatous",
+                predicate="relatedMatch",
+                evidence_url=(
+                    "https://evsexplore.semantics.cancer.gov/evsexplore/concept/"
+                    "snomedct_us/128766005"
+                ),
+            ),
+        ),
+        submission_target="NCIt",
+    )
+
+
+def _relation() -> RelationProposal:
+    return RelationProposal(
+        id=relation_proposal_id("associated prior disease"),
+        axis="op:AssociatedPriorDisease",
+        preferred_name="associated prior disease",
+        definition=(
+            "Relates a disease to a distinct disease that existed earlier and from "
+            "which the subject disease arose or transformed."
+        ),
+        domain="C7057",
+        range="C7057",
+        source_roles=("R126",),
+        source_examples=("C172130->C27262",),
+        rationale="R126 conflates temporal transformation with other associations.",
+        duplicate_checks=(_duplicate_check(resource="RO", result="no-equivalent"),),
+        submission_target="RO",
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", ["proposed", "locally-approved", "submitted"])
+def test_only_an_accepted_concept_may_carry_a_replacement_code(
+    status: ProposalStatus,
+) -> None:
+    """The reject direction of the D60 lifecycle.
+
+    `resolve_proposal_identifier` returns `replacement_ncit_code` whenever it is
+    set, so a still-`proposed` record carrying one would publish an NCIt code NCI
+    has not assigned.
+    """
+    with pytest.raises(
+        ValidationError, match="only accepted concept may carry replacement NCIt code"
+    ):
+        _concept().model_copy(
+            update={"status": status, "replacement_ncit_code": "C999999"}
+        ).model_validate(
+            _concept().model_dump()
+            | {"status": status, "replacement_ncit_code": "C999999"}
+        )
+
+
+@pytest.mark.unit
+def test_relation_proposal_must_use_its_deterministic_id() -> None:
+    with pytest.raises(ValidationError, match="deterministic relation proposal id"):
+        RelationProposal.model_validate(
+            _relation().model_dump() | {"id": "RELPROP-not-derived"}
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", ["proposed", "locally-approved", "submitted"])
+def test_only_an_accepted_relation_may_carry_a_replacement_identity(
+    status: ProposalStatus,
+) -> None:
+    with pytest.raises(
+        ValidationError, match="only accepted relation may carry a replacement"
+    ):
+        RelationProposal.model_validate(
+            _relation().model_dump()
+            | {
+                "status": status,
+                "replacement_relation_iri": "http://purl.obolibrary.org/obo/RO_0004026",
+                "replacement_relation_version": "2026-08-05",
+            }
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("iri", ["/obo/RO_0004026", "not an iri", "obo/RO_0004026", ""])
+def test_replacement_relation_iri_must_be_absolute(iri: str) -> None:
+    with pytest.raises(ValidationError, match="must be an absolute IRI"):
+        RelationProposal.model_validate(
+            _relation().model_dump()
+            | {
+                "status": "accepted",
+                "replacement_relation_iri": iri,
+                "replacement_relation_version": "2026-08-05",
+            }
+        )
+
+
+@pytest.mark.unit
+def test_duplicate_check_candidates_must_be_unique() -> None:
+    with pytest.raises(ValidationError, match="candidates must be unique"):
+        DuplicateCheck.model_validate(
+            _duplicate_check(result="equivalent-found", candidates=("C1",)).model_dump()
+            | {"candidates": ("C1", "C1")}
+        )
+
+
+@pytest.mark.unit
+def test_duplicate_checks_must_use_unique_resources() -> None:
+    """One resource checked twice is not two independent corroborations."""
+    check = _duplicate_check()
+    with pytest.raises(ValidationError, match="unique resources"):
+        ConceptProposal.model_validate(
+            _concept().model_dump()
+            | {"duplicate_checks": (check.model_dump(), check.model_dump())}
+        )
+
+
+@pytest.mark.unit
+def test_registry_filters_typed_proposals_and_exports_submission_packets() -> None:
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_concept(), _relation()),
+    )
+
+    assert registry.filter(kind="concept", status="proposed") == (_concept(),)
+    assert registry.filter(kind="relation") == (_relation(),)
+    assert registry.ncit_submission_rows() == (
+        {
+            "proposal_id": "MINT-781c8c8c6096",
+            "preferred_name": "Malignant Non-Seminomatous Germ Cell",
+            "definition": (
+                "A malignant germ cell with non-seminomatous differentiation."
+            ),
+            "parent_concepts": "C12917",
+            "semantic_types": "Cell",
+            "synonyms": "Malignant Nonseminomatous Germ Cell",
+            "source_concepts": "C27787",
+            "source_roles": "R105",
+            "rationale": (
+                "No existing NCIt cell concept expresses the required intersection."
+            ),
+            "status": "proposed",
+        },
+    )
+    assert registry.relation_submission_rows() == (
+        {
+            "proposal_id": relation_proposal_id("associated prior disease"),
+            "axis": "op:AssociatedPriorDisease",
+            "preferred_name": "associated prior disease",
+            "definition": (
+                "Relates a disease to a distinct disease that existed earlier and "
+                "from which the subject disease arose or transformed."
+            ),
+            "domain": "C7057",
+            "range": "C7057",
+            "source_roles": "R126",
+            "source_examples": "C172130->C27262",
+            "rationale": (
+                "R126 conflates temporal transformation with other associations."
+            ),
+            "status": "proposed",
+            "submission_target": "RO",
+        },
+    )
+
+
+@pytest.mark.unit
+def test_registry_requires_duplicate_evidence_and_unique_proposal_ids() -> None:
+    with pytest.raises(ValidationError, match="duplicate_checks"):
+        ConceptProposal(
+            id="MINT-3a7f2c8e901d",
+            axis="op:CellType",
+            preferred_name="Missing Cell",
+            definition="A missing cell definition.",
+            parent_concepts=("C12917",),
+            semantic_types=("Cell",),
+            source_concepts=("C27787",),
+            source_roles=("R105",),
+            rationale="Missing from NCIt.",
+            duplicate_checks=(),
+            mappings=(),
+            submission_target="NCIt",
+        )
+
+    with pytest.raises(ValidationError, match="deterministic concept proposal id"):
+        ConceptProposal(
+            **{
+                **_concept().model_dump(),
+                "id": "MINT-3a7f2c8e901d",
+            }
+        )
+
+    with pytest.raises(ValidationError, match="proposal ids must be unique"):
+        ProposalRegistry(
+            source_identity=_SOURCE_IDENTITY,
+            ontology_version="26.07d",
+            proposals=(_concept(), _concept()),
+        )
+
+
+@pytest.mark.unit
+def test_duplicate_check_requires_candidates_when_an_equivalent_exists() -> None:
+    with pytest.raises(ValidationError, match="requires at least one candidate"):
+        _duplicate_check(result="equivalent-found")
+    with pytest.raises(ValidationError, match="possible-match requires"):
+        _duplicate_check(result="possible-match")
+    with pytest.raises(ValidationError, match="must not carry candidates"):
+        _duplicate_check(result="no-equivalent", candidates=("C1",))
+
+
+@pytest.mark.unit
+def test_equivalent_found_can_only_close_a_rejected_proposal() -> None:
+    equivalent = _duplicate_check(
+        result="equivalent-found",
+        candidates=("C54110",),
+    )
+    payload = {
+        **_concept().model_dump(),
+        "duplicate_checks": (equivalent,),
+    }
+
+    with pytest.raises(
+        ValidationError, match="equivalent-found proposals must be rejected"
+    ):
+        ConceptProposal.model_validate(payload)
+
+    rejected = ConceptProposal.model_validate(payload | {"status": "rejected"})
+    assert rejected.status == "rejected"
+
+
+@pytest.mark.unit
+def test_submission_exports_are_deterministic_and_proposed_only(
+    tmp_path: Path,
+) -> None:
+    rejected = _concept().model_copy(update={"status": "rejected"})
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_relation(), rejected),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    assert (tmp_path / "ncit-concept-proposals.csv").read_text() == (
+        "proposal_id,preferred_name,definition,parent_concepts,semantic_types,"
+        "synonyms,source_concepts,source_roles,rationale,status\n"
+    )
+    relation_csv = (tmp_path / "relation-proposals.csv").read_text()
+    assert relation_csv.startswith(
+        "proposal_id,axis,preferred_name,definition,domain,range,source_roles,"
+        "source_examples,rationale,status,submission_target\n"
+    )
+    assert relation_proposal_id("associated prior disease") in relation_csv
+    manifest = json.loads((tmp_path / "submission-manifest.json").read_text())
+    assert manifest == {
+        "ontology_version": "26.07d",
+        "registry_identity": registry.registry_identity,
+        "relation_proposals": 1,
+        "source_identity": _SOURCE_IDENTITY,
+        "status": "proposed",
+        "concept_proposals": 0,
+        "files": {
+            name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
+            for name in (
+                "accepted-replacements.json",
+                "augmented-ncit-proposals.ttl",
+                "ncit-concept-proposals.csv",
+                "relation-proposals.csv",
+            )
+        },
+    }
+
+
+@pytest.mark.unit
+def test_submission_manifest_is_promoted_last_and_detects_partial_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    initial = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_relation(),),
+    )
+    write_submission_exports(initial, tmp_path)
+    original_manifest = (tmp_path / "submission-manifest.json").read_bytes()
+
+    accepted_payload = _relation().model_dump()
+    accepted_payload.update(
+        status="accepted",
+        replacement_relation_iri="http://purl.obolibrary.org/obo/RO_1234567",
+        replacement_relation_version="2026-08-05",
+    )
+    replacement = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(RelationProposal.model_validate(accepted_payload),),
+    )
+    real_replace = os.replace
+
+    def fail_manifest_promotion(
+        source: str | os.PathLike[str],
+        destination: str | os.PathLike[str],
+    ) -> None:
+        if Path(destination).name == "submission-manifest.json":
+            raise OSError("manifest promotion failed")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(proposal_registry_module.os, "replace", fail_manifest_promotion)
+
+    with pytest.raises(OSError, match="manifest promotion failed"):
+        write_submission_exports(replacement, tmp_path)
+
+    assert (tmp_path / "submission-manifest.json").read_bytes() == original_manifest
+    manifest = json.loads(original_manifest)
+    assert any(
+        hashlib.sha256((tmp_path / name).read_bytes()).hexdigest() != expected
+        for name, expected in manifest["files"].items()
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "status",
+    ["proposed", "locally-approved", "submitted", "accepted", "rejected"],
+)
+def test_concept_export_matrix_is_governed_by_status(
+    tmp_path: Path,
+    status: ProposalStatus,
+) -> None:
+    payload = _concept().model_dump()
+    payload["status"] = status
+    if status == "accepted":
+        payload["replacement_ncit_code"] = "C999999"
+    proposal = ConceptProposal.model_validate(payload)
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(proposal,),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    concept_csv = (tmp_path / "ncit-concept-proposals.csv").read_text()
+    augmented = (tmp_path / "augmented-ncit-proposals.ttl").read_text()
+    replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
+    assert (proposal.id in concept_csv) is (status == "proposed")
+    assert (proposal.id in augmented) is (
+        status in {"locally-approved", "submitted", "accepted"}
+    )
+    assert replacements == ({proposal.id: "C999999"} if status == "accepted" else {})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "status",
+    ["proposed", "locally-approved", "submitted", "accepted", "rejected"],
+)
+def test_relation_export_matrix_is_governed_by_status(
+    tmp_path: Path,
+    status: ProposalStatus,
+) -> None:
+    payload = _relation().model_dump()
+    payload["status"] = status
+    if status == "accepted":
+        payload.update(
+            replacement_relation_iri="http://purl.obolibrary.org/obo/RO_1234567",
+            replacement_relation_version="2026-08-05",
+        )
+    proposal = RelationProposal.model_validate(payload)
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(proposal,),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    relation_csv = (tmp_path / "relation-proposals.csv").read_text()
+    replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
+    assert (proposal.id in relation_csv) is (status == "proposed")
+    assert replacements == (
+        {
+            proposal.id: {
+                "identifier": "http://purl.obolibrary.org/obo/RO_1234567",
+                "version": "2026-08-05",
+            }
+        }
+        if status == "accepted"
+        else {}
+    )
+
+
+@pytest.mark.unit
+def test_locally_approved_concept_is_augmented_and_replaceable(
+    tmp_path: Path,
+) -> None:
+    approved = _concept().model_copy(update={"status": "locally-approved"})
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(approved,),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    ttl = (tmp_path / "augmented-ncit-proposals.ttl").read_text()
+    assert "MINT-781c8c8c6096" in ttl
+    assert 'op:proposalStatus "locally-approved"' in ttl
+    assert "skos:relatedMatch <http://snomed.info/id/128766005>" in ttl
+    assert resolve_proposal_identifier(registry, approved.id) == approved.id
+    replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
+    assert replacements == {}
+
+
+@pytest.mark.unit
+def test_augmented_turtle_preserves_every_parent(tmp_path: Path) -> None:
+    approved = _concept().model_copy(
+        update={
+            "status": "locally-approved",
+            "parent_concepts": ("C12917", "C12508"),
+        }
+    )
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(approved,),
+    )
+
+    write_submission_exports(registry, tmp_path)
+
+    graph = rdflib.Graph().parse(tmp_path / "augmented-ncit-proposals.ttl")
+    subject = rdflib.URIRef("https://w3id.org/ontoprism/vocab#MINT-781c8c8c6096")
+    assert set(graph.objects(subject, RDFS.subClassOf)) == {
+        rdflib.URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C12917"),
+        rdflib.URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C12508"),
+    }
+
+
+@pytest.mark.unit
+def test_proposal_rdf_terms_reject_turtle_injection() -> None:
+    with pytest.raises(ValidationError, match="mapping concept_id"):
+        CrossOntologyMapping(
+            system="Example Ontology",
+            version="1",
+            concept_id="https://example.test/value> . op:injected <https://evil.test/x",
+            label="Unsafe mapping",
+            predicate="relatedMatch",
+            evidence_url="https://example.test/evidence",
+        )
+
+    with pytest.raises(ValidationError, match="parent_concepts"):
+        ConceptProposal.model_validate(
+            {
+                **_concept().model_dump(),
+                "parent_concepts": ("C12917> ; op:injected op:value",),
+            }
+        )
+
+
+@pytest.mark.unit
+def test_accepted_concept_requires_and_resolves_to_ncit_replacement() -> None:
+    with pytest.raises(ValidationError, match="accepted concept requires replacement"):
+        ConceptProposal.model_validate(
+            {**_concept().model_dump(), "status": "accepted"}
+        )
+
+    accepted = ConceptProposal.model_validate(
+        {
+            **_concept().model_dump(),
+            "status": "accepted",
+            "replacement_ncit_code": "C999999",
+        }
+    )
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(accepted,),
+    )
+
+    assert resolve_proposal_identifier(registry, accepted.id) == "C999999"
+
+
+@pytest.mark.unit
+def test_accepted_relation_requires_and_exports_assigned_ontology_identity(
+    tmp_path: Path,
+) -> None:
+    payload = {**_relation().model_dump(), "status": "accepted"}
+
+    with pytest.raises(ValidationError, match="accepted relation requires"):
+        RelationProposal.model_validate(payload)
+
+    accepted = RelationProposal.model_validate(
+        payload
+        | {
+            "replacement_relation_iri": "http://purl.obolibrary.org/obo/RO_1234567",
+            "replacement_relation_version": "2026-08-05",
+        }
+    )
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(accepted,),
+    )
+
+    assert resolve_proposal_identifier(registry, accepted.id) == (
+        "http://purl.obolibrary.org/obo/RO_1234567"
+    )
+    write_submission_exports(registry, tmp_path)
+    replacements = json.loads((tmp_path / "accepted-replacements.json").read_text())
+    assert replacements == {
+        accepted.id: {
+            "identifier": "http://purl.obolibrary.org/obo/RO_1234567",
+            "version": "2026-08-05",
+        }
+    }
+
+
+@pytest.mark.unit
+def test_relation_proposal_requires_a_safe_normalized_axis() -> None:
+    payload = _relation().model_dump()
+
+    with pytest.raises(ValidationError, match="axis"):
+        RelationProposal.model_validate(payload | {"axis": "Associated Prior Disease"})
+
+
+@pytest.mark.unit
+def test_concept_proposal_requires_versioned_external_mapping() -> None:
+    with pytest.raises(ValidationError, match="at least 1 item"):
+        ConceptProposal(**{**_concept().model_dump(), "mappings": ()})
+
+    with pytest.raises(ValidationError, match="mapping version"):
+        CrossOntologyMapping(
+            system="SNOMED CT US",
+            version="",
+            concept_id="128766005",
+            label="Germ cell tumor, nonseminomatous",
+            predicate="relatedMatch",
+            evidence_url="https://example.test",
+        )
+
+
+@pytest.mark.unit
+def test_registry_load_rejects_duplicate_json_keys_and_tampering(
+    tmp_path: Path,
+) -> None:
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_concept(),),
+    )
+    path = tmp_path / "registry.json"
+    path.write_text(registry.model_dump_json(by_alias=True), encoding="utf-8")
+
+    assert load_proposal_registry(path) == registry
+
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_text('{"schema_version":1,"schema_version":1}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        load_proposal_registry(duplicate)
+
+    payload = registry.model_dump(mode="json", by_alias=True)
+    payload["ontology_version"] = "26.08a"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValidationError, match="identity does not match"):
+        load_proposal_registry(path)
+
+    for required_field in ("schema_version", "registry_identity"):
+        payload = registry.model_dump(mode="json", by_alias=True)
+        payload.pop(required_field)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match=f"missing {required_field}"):
+            load_proposal_registry(path)
+
+
+@pytest.mark.unit
+def test_adjudication_cli_validates_and_exports_proposal_registry(
+    tmp_path: Path,
+) -> None:
+    registry = ProposalRegistry(
+        source_identity=_SOURCE_IDENTITY,
+        ontology_version="26.07d",
+        proposals=(_concept(), _relation()),
+    )
+    path = tmp_path / "registry.json"
+    output = tmp_path / "exports"
+    path.write_text(registry.model_dump_json(), encoding="utf-8")
+
+    adjudication_main(["export-proposals", str(path), str(output)])
+
+    assert (output / "ncit-concept-proposals.csv").is_file()
+    assert (output / "relation-proposals.csv").is_file()
+    assert (output / "submission-manifest.json").is_file()
+
+
+@pytest.mark.unit
+def test_tracked_proposal_registry_remains_valid() -> None:
+    registry = load_proposal_registry(
+        Path(__file__).with_name("golden") / "proposal-registry.json"
+    )
+
+    assert registry.source_identity == (
+        "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+    )
+    assert len(registry.filter(kind="concept", status="locally-approved")) == 1
+    assert [
+        proposal.id
+        for proposal in registry.filter(kind="relation", status="locally-approved")
+    ] == ["RELPROP-8637e8500dff"]
+    assert len(registry.filter(kind="relation", status="proposed")) == 5

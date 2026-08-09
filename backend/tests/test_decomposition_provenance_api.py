@@ -9,7 +9,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import get_provenance_store
 from backend.main import create_app
-from ontolib.decomposition.provenance_models import MintedConcept, RunSummary
+from ontolib.decomposition.provenance_models import (
+    MintedConcept,
+    RunSummary,
+    WorkItemOutcome,
+)
 
 
 class _FakeProvenanceStore:
@@ -17,9 +21,11 @@ class _FakeProvenanceStore:
         self,
         runs: list[RunSummary] | None = None,
         mints: list[MintedConcept] | None = None,
+        outcomes: list[WorkItemOutcome] | None = None,
     ) -> None:
         self._runs = runs or []
         self._mints = mints or []
+        self._outcomes = outcomes or []
 
     async def list_runs(self, limit: int = 50, offset: int = 0) -> list[RunSummary]:
         return self._runs[offset : offset + limit]
@@ -29,6 +35,9 @@ class _FakeProvenanceStore:
             if r.id == run_id:
                 return r
         return None
+
+    async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
+        return [outcome for outcome in self._outcomes if outcome.run_id == run_id]
 
     async def list_minted_concepts(
         self,
@@ -56,6 +65,11 @@ class _ErrorFakeStore:
         msg = "fake db error"
         raise SQLAlchemyError(msg)
 
+    async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
+        del run_id
+        msg = "fake db error"
+        raise SQLAlchemyError(msg)
+
     async def list_minted_concepts(
         self,
         run_id: str | None = None,
@@ -76,10 +90,27 @@ _SAMPLE_RUN = RunSummary(
     fingerprint_sha256="b" * 64,
     started_at=datetime(2026, 7, 12, 0, 0, tzinfo=timezone.utc),  # noqa: UP017
     finished_at=datetime(2026, 7, 12, 1, 0, tzinfo=timezone.utc),  # noqa: UP017
+    publication_state="published",
+    publication_attempt_count=2,
+    representation_identity="c" * 64,
+    publication_artifact_path="/data/ncit_decomposed.ttl",
+    publication_built_at=datetime(2026, 7, 12, 0, 55, tzinfo=timezone.utc),  # noqa: UP017
+    publication_started_at=datetime(2026, 7, 12, 0, 56, tzinfo=timezone.utc),  # noqa: UP017
+    publication_finished_at=datetime(2026, 7, 12, 1, 0, tzinfo=timezone.utc),  # noqa: UP017
     total_in_scope=5,
     decomposed=3,
     residual=2,
+    semantic_excluded=1,
+    atomic_noop=1,
+    unknown_outcome=0,
+    residual_precoordinated_count=1,
+    residual_precoordination=1 / 3,
     minted_count=1,
+    complete_definition_count=3,
+    complete_fact_count=12,
+    projected_fact_count=9,
+    projection_loss_count=3,
+    projection_loss_rate=0.25,
     pct_decomposed=0.6,
     roundtrip_fidelity=0.95,
 )
@@ -90,6 +121,7 @@ _SAMPLE_INCOMPLETE_RUN = RunSummary(
     status="running",
     ncit_version="26.05d",
     started_at=datetime(2026, 7, 12, 0, 0, tzinfo=timezone.utc),  # noqa: UP017
+    publication_state="pending",
 )
 
 _SAMPLE_MINT = MintedConcept(
@@ -99,6 +131,20 @@ _SAMPLE_MINT = MintedConcept(
     label="Left",
     source_signal="Left Atrial Myxoma",
     status="proposed",
+)
+
+_SAMPLE_OUTCOME = WorkItemOutcome(
+    run_id="run-1",
+    concept_code="C162770",
+    ordinal=4,
+    state="complete",
+    outcome="semantic-excluded",
+    semantic_type="Finding",
+    semantic_types=("Finding",),
+    is_decomposed=False,
+    is_residual=False,
+    constituent_count=0,
+    minted_count=0,
 )
 
 
@@ -123,14 +169,33 @@ def test_list_runs_returns_summaries() -> None:
     assert complete["total_in_scope"] == 5
     assert complete["decomposed"] == 3
     assert complete["residual"] == 2
+    assert complete["semantic_excluded"] == 1
+    assert complete["atomic_noop"] == 1
+    assert complete["unknown_outcome"] == 0
+    assert complete["residual_precoordinated_count"] == 1
+    assert complete["residual_precoordination"] == pytest.approx(1 / 3)
     assert complete["minted_count"] == 1
+    assert complete["complete_definition_count"] == 3
+    assert complete["complete_fact_count"] == 12
+    assert complete["projected_fact_count"] == 9
+    assert complete["projection_loss_count"] == 3
+    assert complete["projection_loss_rate"] == 0.25
     assert complete["pct_decomposed"] == 0.6
     assert complete["roundtrip_fidelity"] == 0.95
     assert complete["source_identity"] == "a" * 64
     assert complete["fingerprint_sha256"] == "b" * 64
     assert complete["error_type"] is None
+    assert complete["publication_state"] == "published"
+    assert complete["publication_attempt_count"] == 2
+    assert complete["representation_identity"] == "c" * 64
+    assert complete["publication_built_at"] == "2026-07-12T00:55:00Z"
+    assert complete["publication_finished_at"] == "2026-07-12T01:00:00Z"
+    assert complete["publication_error_type"] is None
     running = next(r for r in body if r["status"] == "running")
+    assert running["publication_state"] == "pending"
     assert running["total_in_scope"] is None
+    assert running["residual_precoordinated_count"] is None
+    assert running["projection_loss_rate"] is None
     assert running["finished_at"] is None
 
 
@@ -152,6 +217,55 @@ def test_get_run_found() -> None:
     resp = client.get("/api/v1/decomposition/runs/run-1")
     assert resp.status_code == 200
     assert resp.json()["id"] == "run-1"
+
+
+@pytest.mark.api
+def test_list_run_outcomes_explains_each_completed_work_item() -> None:
+    fake = _FakeProvenanceStore(runs=[_SAMPLE_RUN], outcomes=[_SAMPLE_OUTCOME])
+    client = next(_client(fake))
+
+    resp = client.get("/api/v1/decomposition/runs/run-1/outcomes")
+
+    assert resp.status_code == 200
+    assert resp.json() == [
+        {
+            "run_id": "run-1",
+            "concept_code": "C162770",
+            "ordinal": 4,
+            "state": "complete",
+            "outcome": "semantic-excluded",
+            "semantic_type": "Finding",
+            "semantic_types": ["Finding"],
+            "is_decomposed": False,
+            "is_residual": False,
+            "constituent_count": 0,
+            "minted_count": 0,
+        }
+    ]
+
+
+@pytest.mark.api
+def test_list_run_outcomes_returns_404_for_missing_run() -> None:
+    client = next(_client(_FakeProvenanceStore()))
+
+    resp = client.get("/api/v1/decomposition/runs/missing/outcomes")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.api
+def test_axis_contract_catalogue_is_served_without_database_access() -> None:
+    client = next(_client(_ErrorFakeStore()))
+
+    resp = client.get("/api/v1/decomposition/axes")
+
+    assert resp.status_code == 200
+    primary = next(item for item in resp.json() if item["axis"] == "op:PrimarySite")
+    assert primary["source_roles"] == ["R101"]
+    assert primary["domain_code"] == "C7057"
+    assert primary["range_code"] == "C12219"
+    assert primary["definition"]
+    assert primary["provenance"]
 
 
 @pytest.mark.api
@@ -255,6 +369,13 @@ def test_list_runs_503_on_db_error() -> None:
 def test_get_run_503_on_db_error() -> None:
     client = next(_client(_ErrorFakeStore()))
     resp = client.get("/api/v1/decomposition/runs/run-1")
+    assert resp.status_code == 503
+
+
+@pytest.mark.api
+def test_list_run_outcomes_503_on_db_error() -> None:
+    client = next(_client(_ErrorFakeStore()))
+    resp = client.get("/api/v1/decomposition/runs/run-1/outcomes")
     assert resp.status_code == 503
 
 

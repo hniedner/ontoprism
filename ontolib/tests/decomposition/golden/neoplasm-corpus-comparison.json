@@ -1,0 +1,40 @@
+{
+  "denominator_codes": [
+    "C27262",
+    "C102870",
+    "C115057",
+    "C101539",
+    "C132677",
+    "C181564",
+    "C186620",
+    "C162226",
+    "C206219",
+    "C198031",
+    "C100054",
+    "C100051",
+    "C6135"
+  ],
+  "detector_identity": "d2f8da71466ef46865de9d3411b7c30481449800e7627b41554d01d8f836c5d5",
+  "engine_artifact_identity": "2c0a569f4bfd269ccf276dda36e9fffb0740fea356f68b025dd48c4d092361d5",
+  "evidence_identity": "2d64c0d6b7fb32bbb9155209899a6ea2402598164fc1999ffbe6785b51a06fc1",
+  "name": "adjudication-run restricted to the 15 ncit-26.07d-m1-review (#154) codes",
+  "residual_codes": [
+    "C27262",
+    "C102870",
+    "C115057",
+    "C101539",
+    "C132677",
+    "C181564",
+    "C186620",
+    "C162226",
+    "C206219",
+    "C198031",
+    "C100054",
+    "C100051",
+    "C6135"
+  ],
+  "run_fingerprint_identity": "44a493dff9dea8eb7aab2dcd1e828a6491ab757829b15b7a36989943c6b7d09c",
+  "run_id": "neoplasm-3981f4d1-28fe-446e-b63a-0db81c80963b",
+  "sample_manifest_identity": "9c32b36c482879f030aca0ec8f2bd84542a3f53fe541c9a4372cfe050b94b87c",
+  "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+}

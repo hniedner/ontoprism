@@ -5,7 +5,8 @@ Correct extraction of stated pre-coordination is curation-heavy (engine design �
 genus-chain walk over-collects and most-specific can pick the wrong filler. This is the
 iteration harness for that research, NOT a production extractor. It walks the stated
 equivalentClass/intersectionOf genus chain, keeps positive defining roles, and scores
-precision/recall against ontolib/tests/decomposition/golden/neoplasm.json.
+precision/recall against ontolib/tests/decomposition/golden/neoplasm.json only after
+that artifact carries provenance-bearing SME adjudication. Automated drafts fail closed.
 
 Needs the stated NCIt graph loaded (docs/DATA_SETUP.md). Manual/offline; not in CI.
 
@@ -15,13 +16,18 @@ Needs the stated NCIt graph loaded (docs/DATA_SETUP.md). Manual/offline; not in 
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
+
+try:
+    from scripts.research.golden_review import load_scorable_golden
+except ModuleNotFoundError:  # direct `python scripts/decomposition_spike.py`
+    from research.golden_review import load_scorable_golden
 
 from backend.config import get_settings
 from ontolib.decomposition.axes import is_defining_role
 from ontolib.decomposition.extract import roles_from_rows
 from ontolib.decomposition.models import RoleRestriction
+from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.score import score
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -30,10 +36,25 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_
 _GOLDEN = Path(__file__).resolve().parents[1] / (
     "ontolib/tests/decomposition/golden/neoplasm.json"
 )
+_PROPOSAL_REGISTRY = Path(__file__).resolve().parents[1] / (
+    "ontolib/tests/decomposition/golden/proposal-registry.json"
+)
 # Non-defining role families to drop (beyond Excludes_*, which axes already drops).
 _NON_DEFINING = ("May_", "Mapped_")
 _Pair = tuple[str, str]
 _EXTRA_PREVIEW = 10  # cap the over-collection list printed per concept
+
+
+def _metric(value: float, denominator: int) -> str:
+    return f"{value:.2f}" if denominator else "undefined"
+
+
+def _load_golden_expectations(
+    path: str | Path,
+) -> dict[str, frozenset[tuple[str, str]]]:
+    """Load only provenance-bearing SME-accepted expectations."""
+    registry = load_proposal_registry(_PROPOSAL_REGISTRY)
+    return load_scorable_golden(path, registry).expected
 
 
 def _level_query(code: str) -> str:
@@ -94,27 +115,39 @@ async def _extract(
 
 
 async def main() -> None:
-    golden = json.loads(_GOLDEN.read_text())["concepts"]
+    golden = load_scorable_golden(
+        _GOLDEN,
+        load_proposal_registry(_PROPOSAL_REGISTRY),
+    )
     settings = get_settings()
     async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
         agg_tp = agg_exp = agg_act = 0
-        for code, entry in golden.items():
-            expected = {(a, f) for a, f in entry["constituents"]}
+        for code, expected_pairs in golden.expected.items():
+            expected = set(expected_pairs)
             actual = await _extract(client, code)
-            s = score(expected, actual)
+            s = score(
+                expected,
+                actual,
+                expected_needs_review=set(
+                    golden.review_exclusions.get(code, frozenset())
+                ),
+            )
             agg_tp += s.true_positive
             agg_exp += s.expected
             agg_act += s.actual
             extra = sorted(s.extra)
-            print(f"\n{code} — {entry.get('label', '')}")
-            print(f"  precision={s.precision:.2f} recall={s.recall:.2f} f1={s.f1:.2f}")
+            print(f"\n{code} — {golden.labels[code]}")
+            precision = _metric(s.precision, s.actual)
+            recall = _metric(s.recall, s.expected)
+            f1 = _metric(s.f1, min(s.actual, s.expected))
+            print(f"  precision={precision} recall={recall} f1={f1}")
             print(f"  missing: {sorted(s.missing)}")
             tail = " …" if len(extra) > _EXTRA_PREVIEW else ""
             print(f"  extra ({len(extra)}): {extra[:_EXTRA_PREVIEW]}{tail}")
-        micro_p = agg_tp / agg_act if agg_act else 1.0
-        micro_r = agg_tp / agg_exp if agg_exp else 1.0
+        micro_p = f"{agg_tp / agg_act:.2f}" if agg_act else "undefined"
+        micro_r = f"{agg_tp / agg_exp:.2f}" if agg_exp else "undefined"
         print(
-            f"\nAGGREGATE micro precision={micro_p:.2f} recall={micro_r:.2f} "
+            f"\nAGGREGATE micro precision={micro_p} recall={micro_r} "
             f"(tp={agg_tp} expected={agg_exp} actual={agg_act})"
         )
 

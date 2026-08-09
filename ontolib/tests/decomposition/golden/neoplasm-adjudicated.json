@@ -1,0 +1,1575 @@
+{
+  "_meta": {
+    "corpus_evidence_identity": "2be52e42e769768c636f8d4ec5a1e324d1109738ece1920ec953fd6c83afe36f",
+    "detector_identity": "d2f8da71466ef46865de9d3411b7c30481449800e7627b41554d01d8f836c5d5",
+    "engine_artifact_identity": "2c0a569f4bfd269ccf276dda36e9fffb0740fea356f68b025dd48c4d092361d5",
+    "engine_evidence_identity": "2d5bd0b610fc214eac807d6fa215628f73e7c1dededca7b8726d3b57c92bee8c",
+    "ncit_version": "26.07d",
+    "proposal_registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
+    "reviewer": {
+      "name": "R. Hannes Niedner, MD",
+      "qualification_or_role": "Physician and ONTOPRISM project/domain reviewer. Substantive semantic and policy review completed interactively; final attestation status is recorded separately.",
+      "reviewed_at": "2026-08-03"
+    },
+    "run_fingerprint_identity": "44a493dff9dea8eb7aab2dcd1e828a6491ab757829b15b7a36989943c6b7d09c",
+    "run_id": "neoplasm-3981f4d1-28fe-446e-b63a-0db81c80963b",
+    "sample_manifest_identity": "9c32b36c482879f030aca0ec8f2bd84542a3f53fe541c9a4372cfe050b94b87c",
+    "schema_version": 3,
+    "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8",
+    "status": "SME-ADJUDICATED",
+    "workbook_identity": "c1fbcb0d3d09c4846b519bc9e58fced4b393461191c2634994d2346f9df12321"
+  },
+  "artifact_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
+  "concepts": [
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Neoplastic Process; pre-coordinated over morphology, primary site, cell type and two blast-percentage findings. Two stated defining parents are retained as co-equal genus values (C35501 site genus, C9290 myeloid lineage genus). Engine omitted the stated R101 body system C41165; added.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C41165, op:Morphology C9290. Grouping and review-flag differences are recorded per row.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C13051.",
+        "status": "accepted"
+      },
+      "code": "C27262",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:CellType",
+            "filler": "C41063",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C36220",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "mdsmpn-blast-findings"
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C41397",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "mdsmpn-blast-findings"
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C35501",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "mdsmpn-genus"
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12431",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C9290",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "mdsmpn-genus"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C41165",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C13051",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Myelodysplastic/Myeloproliferative Neoplasm"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source evidence corrected: NCIt 26.07d directly states R101 -> C12404 Ovary at defining anchor C3873, depth 3. Ovary remains the PrimarySite. The R100 AssociatedSite collapse is pending the certified complete-role re-audit.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C54105; op:ClinicalFinding C156460.\n\nv13: R103 C54105 withdrawn as an accuracy exclusion; the source definition and R104 establish germ-cell, not embryonic-germ-layer, origin.",
+        "status": "accepted"
+      },
+      "code": "C102870",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:CellType",
+            "filler": "C36903",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C121619",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "ovarian-nsgct-genus"
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12404",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C39986",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "ovarian-nsgct-genus"
+          },
+          {
+            "axis": "op:AssociatedSite",
+            "filler": "C12321",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C156460",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Ovarian Non-Dysgerminomatous Germ Cell Tumor"
+    },
+    {
+      "adjudication": {
+        "rationale": "Confirmed independently: P106 Semantic_Type = Finding in NCIt 26.07d (the concept is an ASPH biomarker finding on an HNSCC, not a neoplasm class). Outside algorithm applicability; no constituents. Agreement with the engine is based on the source semantic type, not on the engine's empty result.\n\nCROSS-REVIEW CONSOLIDATION: FULL AGREEMENT on concept status, outcome, and expected pair set.",
+        "status": "accepted"
+      },
+      "code": "C162770",
+      "expected": {
+        "constituents": [],
+        "outcome": "semantic-excluded",
+        "semantic_types": [
+          "Finding"
+        ]
+      },
+      "label": "ASPH-Positive Head and Neck Squamous Cell Carcinoma"
+    },
+    {
+      "adjudication": {
+        "rationale": "Confirmed: P106 = Neoplastic Process, so applicable; definition is 'a benign or malignant neoplasm which is not further characterized'. Its single role (R105 -> C12922 Neoplastic Cell) is the universal generic neoplastic cell present on every neoplasm and carries no pre-coordinated dimension. Genuinely atomic, not residual: there is nothing unresolved, there is nothing to decompose.\n\nCROSS-REVIEW CONSOLIDATION: FULL AGREEMENT on concept status, outcome, and expected pair set.",
+        "status": "accepted"
+      },
+      "code": "C102883",
+      "expected": {
+        "constituents": [],
+        "outcome": "atomic-no-op",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Miscellaneous Neoplasm"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Two co-equal staging editions (AJCC v6 + v7) share one stated stage value, so all three stage constituents are placed in one relationship group. Stage-system MINT excluded as redundant with C90529. Stated R101 region C12418 added. D20 caveat: both stated R101 fillers here are region-typed, so the organ-vs-region rule does not apply; C54224 is retained as primary site as the most specific site of origin.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C12418. Grouping and review-flag differences are recorded per row.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv8 E1: C12418 Head and Neck is accepted and scoreable.",
+        "status": "accepted"
+      },
+      "code": "C115057",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:CellType",
+            "filler": "C36771",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C42690",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C54224",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90529",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v6-and-v7"
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90530",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v6-and-v7"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27966",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v6-and-v7"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12418",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage I Lip and Oral Cavity Squamous Cell Carcinoma AJCC v6 and v7"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified, with two corrections. C140961 is semantic type Classification whose stated parent is C90530 (AJCC v7 Stage): it is a concept-specific staging FRAMEWORK, not a stage value, so it is routed to op:StageSystem and the generic C90530 is collapsed as its stated is-a ancestor. The engine emitted no anatomy at all; the stated organ-level R101 C12400 and three stated region/system fillers are added. Open item: the 'Under 45 Years' age qualifier has no sanctioned axis and is currently carried only inside C140961.\n\nCROSS-REVIEW CONSOLIDATION: DEFERRED, NOT CONTRADICTED. The independent AI review did not assert an expected set because the C140961 staging axis and grouping were unresolved; this draft resolves the case.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C33782; op:ClinicalFinding C188014; op:ClinicalFinding C47806; op:ClinicalFinding C47817.",
+        "status": "accepted"
+      },
+      "code": "C101539",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:CellType",
+            "filler": "C36836",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C7153",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C140961",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7-dtc-under45"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27966",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7-dtc-under45"
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12400",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12705",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C13063",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C33782",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C188014",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C47806",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C47817",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage I Differentiated Thyroid Gland Carcinoma Under 45 Years AJCC v7"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Metastatic site, unknown-primary morphology, and AJCC v8 stage are correct. Added the label-supported stated finding C40989 (Cervical Lymphadenopathy), which the engine omitted. Open item: the label's negative qualifier ('Except for EBV-Related and HPV-Related Tumors', source R142 exclusions) cannot be expressed by any sanctioned axis; it is recorded here as known projection loss rather than invented.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:ClinicalFinding C40989. Grouping and review-flag differences are recorded per row.\n\nv11 certified 26.07d source-complete additions: op:ClinicalFinding C40557; op:ClinicalFinding C41444; op:ClinicalFinding C48322.",
+        "status": "accepted"
+      },
+      "code": "C132677",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:MetastaticSite",
+            "filler": "C32298",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C8566",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C132248",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v8"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27970",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v8"
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C40989",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C40557",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C41444",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C48322",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage III Unknown Primary Tumor (Except for EBV-Related and HPV-Related Tumors) and Metastatic Cervical Adenopathy AJCC v8"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. C9039 Cervical Carcinoma confirmed as the stated defining genus via C181562. Stage system and value correct; the AJCC v9 MINT is redundant with C180901. Stated R101 systems C12402 and C12810 added.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C12402, op:AssociatedRegion C12810. Grouping and review-flag differences are recorded per row.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C49218.",
+        "status": "accepted"
+      },
+      "code": "C181564",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:Morphology",
+            "filler": "C9039",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12311",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C180901",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v9"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27966",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v9"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12402",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C49218",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage I Cervical Cancer AJCC v9"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Note a source-side inconsistency, not an engine error: this FIGO 2009 concept states the generic C27966 (Stage I) as its value while the FIGO 2018/2023 siblings state C96244 (FIGO Stage I). The stated value is recorded as-is. Stated R101 systems added.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C12402, op:AssociatedRegion C12810. Grouping and review-flag differences are recorded per row.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C49218.",
+        "status": "accepted"
+      },
+      "code": "C186620",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:Morphology",
+            "filler": "C9039",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12311",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C186618",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-figo-2009"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27966",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-figo-2009"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12402",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C49218",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage I Cervical Cancer FIGO 2009"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Stage system C186617 and value C96244 are both correctly routed by the engine. Stated R101 systems C12402 and C12810 added.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C12402, op:AssociatedRegion C12810. Grouping and review-flag differences are recorded per row.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C49218.",
+        "status": "accepted"
+      },
+      "code": "C162226",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:Morphology",
+            "filler": "C9039",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12311",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C186617",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-figo-2018"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C96244",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-figo-2018"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12402",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C49218",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage I Cervical Cancer FIGO 2018"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified, with two corrections. C206211 (FIGO 2023 Stage) is the framework, not a stage value, and is moved to op:StageSystem. Leaving C32514 as an associated region left this concept with NO primary site, contradicting the source: C32514 Endometrial Cavity is the most specific stated R101 and is routed to op:PrimarySite. D20 caveat: its semantic type is Anatomical Structure, so filler-type routing under-determines this; resolved on site-of-origin grounds.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C12810, op:PrimarySite C32514. Independent review instead/additionally expected: op:AssociatedRegion C32514. Grouping and review-flag differences are recorded per row.\n\nCROSS-REVIEW CORRECTION: op:PrimarySite C32514 is now flagged needs_review TRUE - the two reviews disagree on its axis and R82 shows it has no part-of anchor at all (only R81 location -> C12316). C12810 withdrawn as an R82 ancestor of the retained C12402.\n\nv4 R100 regeneration: expected op:AssociatedSite C12316 Corpus Uteri was added from the bound complete definition.\n\nv7: Corpus Uteri/Endometrial Cavity are PrimarySite/PrimarySubsite; anatomy deferral closed.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C12313.",
+        "status": "accepted"
+      },
+      "code": "C206219",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12402",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySubsite",
+            "filler": "C32514",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C7558",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C206211",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-figo-2023"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C96244",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-figo-2023"
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12316",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C12313",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage I Endometrial Cancer FIGO 2023"
+    },
+    {
+      "adjudication": {
+        "rationale": "Morphology evidence corrected: C4005 Childhood Malignant Neoplasm is a broader defining ancestor at depth 3, not a leaf or absent from the ancestry. C3168 is the more specific morphology at depth 2. Stage-system/value and source-role completeness remain subject to the certified 26.07d re-audit before attestation.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C13049; op:ClinicalFinding C60644.",
+        "status": "accepted"
+      },
+      "code": "C198031",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:CellType",
+            "filler": "C12914",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C3168",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C198023",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12431",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12746",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C13049",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C60644",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Childhood Acute Lymphoblastic Leukemia Toronto Guidelines v2, Tier 1"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Both stated R108 findings are genuine co-equal, non-nested facts describing the lesion spectrum and are grouped; the engine's review flags are resolved to FALSE. Two non-sanctioned axes were emitted: op:AssociatedSite (excluded - R100-only broad grouper, axis not in the ratified set) and op:NormalTissueOrigin (a true stated R103 fact, retained visibly with needs_review TRUE pending axis ratification under D21).\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. Independent review instead/additionally expected: op:AssociatedSite C137974. Grouping and review-flag differences are recorded per row.",
+        "status": "accepted"
+      },
+      "code": "C100054",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:AssociatedSite",
+            "filler": "C137974",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:CellType",
+            "filler": "C36862",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C36027",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "cmil-findings"
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C8326",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "cmil-findings"
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C204977",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C32365",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12341",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Conjunctival Melanocytic Intraepithelial Lesion"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. The NCIt 26.07d definition states that this renal cell carcinoma develops in long-term survivors of childhood neuroblastoma, so op:AssociatedPriorDisease C3270 is a concept-specific source-supported refinement of underspecified R126. This does not assert treatment causation or shared susceptibility. Kidney C12415, associated site C61107, and the remaining source-complete expected constituents are retained as adjudicated.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C49276.",
+        "status": "accepted"
+      },
+      "code": "C100051",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12413",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C49274",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:CellType",
+            "filler": "C36773",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C9385",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedPriorDisease",
+            "filler": "C3270",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12415",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedSite",
+            "filler": "C61107",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C49276",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Renal Cell Carcinoma Associated with Neuroblastoma"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Stated R106 molecular abnormality C129702 is a true fact but op:MolecularAbnormality is not in the ratified univocal axis set, so it is retained with needs_review TRUE rather than silently accepted or silently dropped. Added stated R101 C12705 and cell type C36825 (whose stated parent is C36929, so most-specific selection is safe). C12704 Endocrine Gland is collapsed as a stated is-a ancestor of C12400.\n\nCROSS-REVIEW CONSOLIDATION: DEFERRED, NOT CONTRADICTED. The independent AI review did not assert an expected set because the intended most-specific neuroendocrine cell constituent was unresolved; this draft resolves the case.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C33782; op:ClinicalFinding C155863; op:ClinicalFinding C207031; op:ClinicalFinding C41457; op:ClinicalFinding C43574; op:ClinicalFinding C47804; op:ClinicalFinding C47807.",
+        "status": "accepted"
+      },
+      "code": "C6135",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C13063",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "site-region-head-neck"
+          },
+          {
+            "axis": "op:MolecularAbnormality",
+            "filler": "C129702",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C3879",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12400",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90530",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27970",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12705",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:CellType",
+            "filler": "C36825",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C33782",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C155863",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C207031",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C41457",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C43574",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C47804",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C47807",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage III Thyroid Gland Medullary Carcinoma AJCC v7"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Both stated R105 cell types are real, non-nested myxoma cell morphologies (stellate and spindle) and are grouped; review flags resolved. The Laterality MINT is excluded: 'Left' is part of the named cardiac chamber C12869, which is already the primary site, and the left atrium is not a lateral instance of a paired organ. Soft-tissue anatomy is routed to op:AssociatedLineageClassification under D20 because it is inherited through the myxoma/soft-tissue genus rather than the literal location of an intracardiac tumour.\n\nCROSS-REVIEW CONSOLIDATION: DEFERRED, NOT CONTRADICTED. The independent AI review did not assert an expected set because the two-cell and inherited anatomy projection was unresolved; this draft resolves the case.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv4 R100 regeneration: op:AssociatedSite C13004 Endocardium is no longer deferred; D23 explicitly permits the same anatomy code on multiple axes.\n\nv11 certified 26.07d source-complete additions: op:ClinicalFinding C35998; op:ClinicalFinding C36105; op:ClinicalFinding C53583.",
+        "status": "accepted"
+      },
+      "code": "C4791",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12905",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C13004",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedSite",
+            "filler": "C13004",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:CellType",
+            "filler": "C36899",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "myxoma-cell-types"
+          },
+          {
+            "axis": "op:CellType",
+            "filler": "C36954",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "myxoma-cell-types"
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C3499",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12869",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedLineageClassification",
+            "filler": "C12471",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C35998",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C36105",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C53583",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C36122",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Left Atrial Myxoma"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified, with three corrections. Morphology C4878 (Lung Carcinoma) loses the small-cell histology the label asserts; the stated defining genus is C4917 (Lung Small Cell Carcinoma) via C9049. Bronchus is an organ component co-asserted at R101 and is routed to op:AssociatedRegion so a single organ-level primary site remains. HARD CASE retained: C28064 Extensive Stage is genuinely co-equal and non-nested with the AJCC v7 value C27978 because it belongs to the separate limited/extensive SCLC framework; no NCIt filler for that framework was found in the source, so its op:StageSystem partner is unresolved and the value stays needs_review TRUE under D21.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedLineageClassification C12704, op:AssociatedLineageClassification C12705, op:AssociatedRegion C12683. Independent review instead/additionally expected: op:PrimarySite C12683. Grouping and review-flag differences are recorded per row.\n\nCROSS-REVIEW CORRECTION: C12683 Bronchus is restored to op:PrimarySite, grouped with C12468 and flagged under D21. New R82 evidence shows there is no part-of path from Bronchus to Lung, so my earlier demotion to op:AssociatedRegion was an unprovable interpretation and the independent reviewer's dual-site reading is adopted.\n\nv6 source correction: C141685 VALG Clinical Classification is added as the system for C28064 Extensive Stage; that pair is no longer deferred.\n\nv7: Lung is PrimarySite and Bronchus is PrimarySubsite; the dual-primary deferral is closed.\n\nv8 E2: both Endocrine Gland and Endocrine System lineage classifiers are grouped and scoreable.\n\nv11 certified 26.07d source-complete additions: op:ClinicalFinding C155863; op:ClinicalFinding C207031; op:ClinicalFinding C36129; op:ClinicalFinding C36184; op:ClinicalFinding C43574; op:ClinicalFinding C54209; op:ClinicalFinding C55817; op:ClinicalFinding C60308.",
+        "status": "accepted"
+      },
+      "code": "C35756",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:CellType",
+            "filler": "C36820",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C3331",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C4917",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12468",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySubsite",
+            "filler": "C12683",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90530",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27978",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C28064",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-sclc-extensive-vs-limited"
+          },
+          {
+            "axis": "op:AssociatedLineageClassification",
+            "filler": "C12704",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:AssociatedLineageClassification",
+            "filler": "C12705",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C141685",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-sclc-extensive-vs-limited"
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C155863",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C207031",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C36129",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C36184",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C43574",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C54209",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C55817",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:ClinicalFinding",
+            "filler": "C60308",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion AJCC v7"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified, with one correction. The stated defining genus via C91224 is C4910 (Colon Carcinoma), whose stated parent is the engine's C2955 (Colorectal Carcinoma); most-specific selection is safe here and preserves the 'Colon' meaning in the label. D19 anatomy pattern confirmed: Colon is the primary site while Colorectal Region legitimately remains an associated region. Stated R101 C12378 added.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C12378, op:Morphology C4910. Independent review instead/additionally expected: op:Morphology C2955. Grouping and review-flag differences are recorded per row.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained. R82 does confirm C12382 Colon and C54189 Colorectal Region are non-nested siblings under C12379 Large Intestine; the project review agrees this conclusion is sound.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C32926.",
+        "status": "accepted"
+      },
+      "code": "C89995",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C54189",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C4910",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12382",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90530",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27970",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C32926",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage III Colon Cancer AJCC v7"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. Two co-equal staging editions share one stated stage value; grouped. Generic C12917 excluded as non-discriminating. The prior SME 'Malignant Non-Seminomatous Germ Cell' proposal is deliberately NOT adopted: it is re-recorded as an open governance gap (no NCIt filler expresses the malignant germ cell intersection), not as an accepted expectation. Stated R101 C12722 added.\n\nCROSS-REVIEW CONSOLIDATION: DEFERRED, NOT CONTRADICTED. The independent AI review did not assert an expected set because no exact malignant non-seminomatous germ-cell filler was established; this draft resolves the case.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv7: MINT-781c8c8c6096 is approved for submission but remains proposed and excluded from scoring.\n\nv8 E3: locally approved MINT-781c8c6096 participates in the augmented oracle pending NCIt replacement.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C54105.\n\nv13: R103 C54105 withdrawn as an accuracy exclusion; the source definition and R104 establish germ-cell, not embryonic-germ-layer, origin.",
+        "status": "accepted"
+      },
+      "code": "C27787",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:CellType",
+            "filler": "C36903",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:Morphology",
+            "filler": "C5027",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C12412",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90529",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v6-and-v7"
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90530",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v6-and-v7"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27970",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v6-and-v7"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12722",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:CellType",
+            "filler": "MINT-781c8c8c6096",
+            "needs_review": false,
+            "proposal_id": "MINT-781c8c8c6096",
+            "provenance_status": "locally-approved",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage III Testicular Non-Seminomatous Germ Cell Tumor AJCC v6 and v7"
+    },
+    {
+      "adjudication": {
+        "rationale": "Source-verified. HARD CASE, re-reviewed rather than copied from prior SME evidence: C12389 (Esophagus) and C203674 (Esophagus and Gastroesophageal Junction) are BOTH stated at R101 and BOTH carry the organ-level semantic type, so D20's filler-type rule cannot separate them, and no is-a/part-of relation between them is materialized (D21). Resolved as PrimarySite = C12389 (the organ named in the label) with the composite reporting grouper C203674 retained as an associated region at needs_review TRUE. The prior SME workbook chose C203674 as the primary site; that choice is explicitly revisited, not inherited.\n\nCROSS-REVIEW CONSOLIDATION: AGREEMENT on concept status and outcome. This draft additionally expects: op:AssociatedRegion C12378, op:AssociatedRegion C203674. Independent review instead/additionally expected: op:PrimarySite C203674. Grouping and review-flag differences are recorded per row.\n\nv3: v2's cross-axis R82 withdrawals on this concept are REVERSED. Most-specific collapse is axis-local; a partonomic relation to the op:PrimarySite filler does not license deleting an op:AssociatedRegion fact that D20 routed there. Axis-local collapses (a broader filler dropped in favour of a narrower one on the same axis) are retained.\n\nv7: C203674/C12389 are PrimarySite/PrimarySubsite; anatomy deferral closed.\n\nv11 certified 26.07d source-complete additions: op:NormalTissueOrigin C49221.",
+        "status": "accepted"
+      },
+      "code": "C115118",
+      "expected": {
+        "constituents": [
+          {
+            "axis": "op:Morphology",
+            "filler": "C3513",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySubsite",
+            "filler": "C12389",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:PrimarySite",
+            "filler": "C203674",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:StageSystem",
+            "filler": "C90530",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:StageValue",
+            "filler": "C27976",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": "stage-ajcc-v7"
+          },
+          {
+            "axis": "op:AssociatedRegion",
+            "filler": "C12378",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          },
+          {
+            "axis": "op:NormalTissueOrigin",
+            "filler": "C49221",
+            "needs_review": false,
+            "proposal_id": null,
+            "provenance_status": "ncit-26.07d",
+            "relationship_group": null
+          }
+        ],
+        "outcome": "decomposed",
+        "semantic_types": [
+          "Neoplastic Process"
+        ]
+      },
+      "label": "Stage IB Esophageal Cancer AJCC v7"
+    }
+  ]
+}

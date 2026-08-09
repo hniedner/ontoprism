@@ -1,9 +1,8 @@
 """Axis catalogue: which concepts are in decomposition scope, and which role
 restrictions are *defining* axes vs. ``Excludes_*`` negative axioms.
 
-The engine reuses the NCIt role code itself as the axis identifier (design §4.2), so
-this module classifies roles rather than renaming them. Morphology is the exception —
-it is carried by the taxonomic parent, not a role — so it gets an ``op:`` axis.
+The curated projection routes defining NCIt source roles to univocal ``op:`` axes
+(design §4.2). Morphology is carried by the taxonomic parent rather than a role.
 """
 
 from __future__ import annotations
@@ -29,6 +28,9 @@ MORPHOLOGY_AXIS = "op:Morphology"
 
 # D23 first-class axis for the staging manual/system (AJCC v6/v7/v8/v9, FIGO, etc.)
 STAGE_SYSTEM_AXIS = "op:StageSystem"
+STAGE_VALUE_AXIS = "op:StageValue"
+PRIMARY_SITE_AXIS = "op:PrimarySite"
+PRIMARY_SUBSITE_AXIS = "op:PrimarySubsite"
 
 # D20 refinement 1 axis: genus-sense classification (lineage) carved from R101.
 ASSOCIATED_LINEAGE_AXIS = "op:AssociatedLineageClassification"
@@ -40,7 +42,41 @@ PRIMARY_SITE_ROLE = "R101"
 
 # Genera whose R101 restrictions convey lineage classification rather than literal
 # primary site (D17/D20 §6.6, confirmed via C6135 analysis).
-LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset({"C3010", "C3809", "C3773"})
+LINEAGE_GENERIC_GENERA: frozenset[str] = frozenset(
+    {"C3010", "C3809", "C3773", "C215715"}
+)
+
+# Fillers inherited by essentially every concept in the applicable hierarchy, so they
+# discriminate nothing and are suppressed (D59). Membership is measured as inherited
+# coverage over the complete stated record, never as raw assertion frequency and never
+# across roles: a filler may be generic on one role and discriminating on another.
+#
+# v2 removed R108 C36122 (Benign Cellular Infiltrate). It was admitted in v1 on its
+# apparent cohort frequency, but that frequency came from R142
+# (Disease_Excludes_Finding) assertions on malignant concepts. As a positive R108
+# finding it is asserted only on the benign genera C3677, C4776 and C5111, giving 5.6%
+# inherited coverage (1 of 18) in the adjudicated cohort against 61-100% for every
+# retained entry. It is discriminating for benign neoplasms, so suppressing it deleted a
+# true constituent (C4791 Left Atrial Myxoma). Full-corpus impact is confined to the
+# benign-neoplasm subtree.
+GENERIC_SUPPRESSION_VERSION = "contracted-role-generic-v2"
+GENERIC_FILLERS_BY_ROLE: dict[str, frozenset[str]] = {
+    "R103": frozenset({"C45714"}),
+    "R104": frozenset({"C12578"}),
+    "R105": frozenset({"C12917", "C12922", "C36779"}),
+    "R108": frozenset({"C36115", "C53596", "C54172"}),
+}
+
+UNSUPPORTED_FILLER_VERSION = "ncit-26.07d-unsupported-filler-v1"
+UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE: dict[tuple[str, str], frozenset[str]] = {
+    ("C102870", "R103"): frozenset({"C54105"}),
+    ("C27787", "R103"): frozenset({"C54105"}),
+}
+
+# Source-reviewed R126 assertions that have a ratified univocal sense. Every other
+# R126 assertion remains raw and review-required; there is deliberately no generic
+# associated-disease fallback (Issue #57 adjudication Q5/Q6).
+ASSOCIATED_PRIOR_DISEASE: frozenset[tuple[str, str]] = frozenset({("C100051", "C3270")})
 
 # Semantic type for literal primary-site fillers (D20 refinement 2).
 ORGAN_SEMANTIC_TYPE = "Body Part, Organ, or Organ Component"
@@ -67,10 +103,28 @@ def is_lineage_generic(genus_code: str | None) -> bool:
     return genus_code in LINEAGE_GENERIC_GENERA
 
 
-# D23 SME decision: probabilistic/optional roles (R114 Clinical Finding,
-# R115 Cell Origin) are non-defining and dropped from decomposition output.
-# ``Has_*`` = defining; ``May_Have_*`` = probabilistic (SME distinction).
-DROPPED_ROLES: frozenset[str] = frozenset({"R114", "R115"})
+def is_generic_filler(role_code: str, filler_code: str) -> bool:
+    """True when a reviewed source-role filler is non-discriminating in projection."""
+    return filler_code in GENERIC_FILLERS_BY_ROLE.get(role_code, ())
+
+
+def is_unsupported_filler(
+    concept_code: str | None, role_code: str, filler_code: str
+) -> bool:
+    """True when source role/filler meaning conflicts with the concept definition."""
+    if concept_code is None:
+        return False
+    return filler_code in UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE.get(
+        (concept_code, role_code), ()
+    )
+
+
+# NCIt 26.07d's probabilistic ``May_Have_*`` roles are non-defining and excluded
+# from the curated projection. D50's complete definition still retains them.
+DROPPED_ROLES: frozenset[str] = frozenset(
+    {"R89", "R111", "R112", "R113", "R114", "R115", "R116"}
+)
+NON_DEFINING_PROJECTED_ROLES: frozenset[str] = frozenset({"R103"})
 
 
 def is_dropped_role(role_code: str) -> bool:
@@ -78,9 +132,16 @@ def is_dropped_role(role_code: str) -> bool:
     return role_code in DROPPED_ROLES
 
 
-def is_defining_role(restriction: RoleRestriction) -> bool:
-    """True if the restriction contributes a decomposition axis (i.e. is not a
-    negative ``Excludes_*`` axiom AND not a probabilistic/optional role per SME)."""
+def is_projectable_role(restriction: RoleRestriction) -> bool:
+    """True when the curated projection retains this positive source restriction."""
     return not is_excluded_role(restriction.role_label) and not is_dropped_role(
         restriction.role_code
+    )
+
+
+def is_defining_role(restriction: RoleRestriction) -> bool:
+    """True when a projectable restriction contributes a defining detector axis."""
+    return (
+        is_projectable_role(restriction)
+        and restriction.role_code not in NON_DEFINING_PROJECTED_ROLES
     )
