@@ -1772,7 +1772,7 @@ def evaluate_adjudication(
             "corpus detector identity does not match adjudication"
         )
     # The corpus evidence_identity is recorded, never pre-declared. It hashes a payload
-    # containing run_id = f"{branch}-{uuid4()}" (decomposition/run.py:345), so a value
+    # containing run_id = f"{branch}-{uuid4()}" (`_new_run_id`), so a value
     # written into the workbook before the corpus run exists can never be matched by
     # that run. _residual_dict(corpus) still carries the identity into the report, which
     # keeps the comparison auditable; asserting equality here only made the gate

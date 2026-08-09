@@ -7,34 +7,47 @@
 | `neoplasm-adjudicated.json` | **The M1 oracle.** `SME-ADJUDICATED`, NCIt 26.07d, 20 concepts, 154 expected pairs, reviewed by R. Hannes Niedner, MD. Produced by `import-workbook` from the attested #57 workbook. |
 | `neoplasm-row-decisions.json` | **The reviewer's row-level decisions**, 189 rows from the same workbook — what the SME did with each engine suggestion, including the rows the oracle drops. Produced by `export-row-decisions`. |
 | `neoplasm-engine-evidence.json` | The recorded engine run the oracle was scored against (`run_id` `neoplasm-3981f4d1…`). Tracked so the baseline is reproducible without a live store. |
-| `neoplasm-corpus-comparison.json` | The #154 15-code residual comparison, derived from the engine evidence restricted to `samples/ncit-26.07d-m1-review.json`. Its `evidence_identity` is computed **after** the payload, per D61. |
+| `neoplasm-corpus-comparison.json` | The #154 residual comparison: 13 denominator and 13 residual codes, being the engine evidence restricted to the 15 codes in `samples/ncit-26.07d-m1-review.json` (two of the 15 did not decompose). Its `evidence_identity` is computed **after** the payload, per D61. |
 | `neoplasm.json`, `neoplasm-draft.json` | `AUTO-DRAFT` review inputs. **Not** oracles. Retained as seeds. |
 | `proposal-registry.json` | The 7 mint/relation proposals bound to the oracle by `registry_identity`. |
 | `complete-definition.json`, `minted-concepts.json` | Fixtures for the complete-definition and minting paths. |
 
+Note a deliberate mismatch: the oracle's `_meta.corpus_evidence_identity` (`2be52e42…`) does
+**not** equal the corpus file's `evidence_identity` (`2d64c0d6…`), and nothing compares them.
+The first was pre-declared in the workbook before the artifact existed and can never be matched
+by any run — that is the defect D61 records. The second was computed from the payload that
+exists. The mismatch is expected and permanent.
+
 ## The M1 baseline this oracle records
 
-Measured 2026-08-08 against the attested workbook and reproduced byte-identically at
-`b4aa5e2`. Every figure below is asserted by `test_m1_baseline.py` and recomputable
-from the tracked files above with no store and no workbook.
+Measured 2026-08-08 against the attested workbook, using the scoring code at `b4aa5e2`, and
+recomputable from the tracked files above with no store and no workbook.
 
 **Pair-level** — the oracle's expected pairs against the recorded engine run:
 
-| | |
-|---|---|
-| precision / recall (`ncit_bound`, D59 strict denominator) | 0.7547 / 0.5229 |
-| engine pairs matching an expected pair | **80 of 106** |
-| engine pairs that were wrong | **26** |
-| expected pairs the engine never emitted | **74** |
-| relationship-group agreement | **2 of 20 concepts** |
-| `residual_precoordination` — adjudication / #154 subset | 18/18 and 13/13, delta 0.0 |
+| | | asserted by `test_m1_baseline.py`? |
+|---|---|---|
+| precision / recall (`ncit_bound`, D59 strict denominator) | 0.7547 / 0.5229 | yes |
+| engine pairs matching an expected pair (TP) | **80 of 106** | no — implied by precision |
+| engine pairs that were wrong (FP) | **26** | no |
+| expected pairs the engine never emitted (FN, `ncit_bound`: 153 − 80) | **73** | no |
+| same, on the `augmented` view (154 − 80) | 74 | no |
+| relationship-group agreement | **2 of 20 concepts** | yes |
+| `residual_precoordination` — adjudication / #154 subset | 18/18 and 13/13, delta 0.0 | yes |
+
+The rows marked "no" are derivable from the report but not pinned, so an engine change that
+moved TP while holding the rounded ratios would not fail the suite.
 
 **Row-level** — what the SME did with each of the 189 constituent decision rows:
 
 | | `include` | `revise` | `exclude` | `not-needed` |
 |---|---|---|---|---|
-| `ENGINE SUGGESTION` (106 rows) | **48** (45%) | **42** | **16** | 0 |
+| `ENGINE SUGGESTION` (106 rows) | **48** (45%) | **42** | **16** | — |
 | `ADD IF MISSING` (83 rows) | **63** | 1 | 4 | 15 |
+
+The `ENGINE SUGGESTION` / `not-needed` cell is **unrepresentable**, not merely unused: an
+engine suggestion the reviewer never ruled on must not enter the denominator, so the model
+rejects the combination and `cross_tab()` does not emit the cell.
 
 The two provenances measure different things and will not reconcile directly: a
 `revise` row replaces one pair with another, so it lands in both the wrong-pair and
@@ -42,11 +55,11 @@ never-emitted rows above. 80/106 and 48/106 answer different questions, and #275
 the second one reproducible.
 
 The `include` and `revise` rows are exactly the oracle's 154 expected pairs —
-`test_m1_baseline.py` asserts that equality on `(code, axis, filler)`, and that both
-files name the same `workbook_identity`, so neither can drift from the other or be
-regenerated from a different review. The equality must be keyed on the SME action, not
-on "the row names a pair": an `exclude` row necessarily names the pair it excludes, so
-filtering on filler presence yields 157 triples rather than 154.
+`test_m1_baseline.py` asserts that equality on `(code, axis, filler)`, that both files name
+the same `workbook_identity`, and that the export's `ENGINE SUGGESTION` rows match the engine
+run per concept. The equality must be keyed on the SME action, not on "the row names a pair":
+3 of the 20 `exclude` rows still name the expectation the reviewer withdrew — the other 17
+carry no pair at all — so filtering on filler presence yields 157 triples rather than 154.
 
 Those three exclusions are worth reading, because they are evidence rather than noise:
 
@@ -56,12 +69,17 @@ C101539  op:AssociatedRegion  C12418   Head and Neck   (candidate, excluded)
 C4791    op:AssociatedRegion  C12727                   (candidate, excluded)
 ```
 
-These are the same three concepts #267 names. The reviewer excluded the *broader* region
-where a narrower one was already routed to the same axis — `C6135` retained `C13063`
-(Neck) and dropped `C12418` (Head and Neck). The oracle therefore corroborates #267's
-ordering defect independently: raw `R101` fillers are reduced for specificity before
-semantic routing, which can preserve a broader region. The engine proposed one of the
-three itself.
+These are the same three concepts #267 names, and the engine proposed one of the three
+itself. `C6135` is the clean case: the reviewer dropped `C12418` (Head and Neck) while
+retaining `C13063` (Neck), which is exactly the outcome #267 says the ordering defect
+prevents — raw `R101` fillers reduced for specificity *before* semantic routing can preserve
+a broader region.
+
+Do not generalise the rule from this paragraph. On `C4791` the excluded filler is `C12727`
+(Heart) while the oracle *retains* `C12905` (Thoracic Cavity), which is broader than the code
+excluded, alongside `C13004` (Endocardium). "Drop the broader region" therefore describes
+`C6135` and not the cohort uniformly; anyone building a #267 regression fixture should read
+all three rows rather than the summary.
 
 Those numbers are the point of #57. They are why #271 (compound fillers), #267 (routing
 order) and #274 (group partition) exist. Treat them as the baseline any engine change is
@@ -187,13 +205,26 @@ historical aggregate counts alone are insufficient because they cannot prove mem
 define no expectation — which is what made the acceptance rate unrecoverable from the
 oracle. `export-row-decisions` keeps every row. It runs the workbook-level tamper gates
 (sheet contract, sheet visibility, hidden reviewer rows and columns, formula cells,
-attestation, required evidence keys) and the shared constituent row reader (row identity,
-row type, SME action vocabulary, no `PENDING` engine suggestion, `Row Complete?`, and
-canonical `Expected Axis`/`Expected Filler`). It does **not** run the kept-constituent
-gates — `Expected Provenance Status`, `Expected needs_review`, `Expected Group`,
-`Expected Proposal ID` — nor any `Concept Decisions`, cohort or proposal-registry gate;
-those belong to `import-workbook`. A workbook the export accepts can still be rejected as
-an oracle, so run both. The tracked export was produced by:
+attestation, required evidence keys), the shared constituent row reader (row identity,
+row type, SME action vocabulary, no `PENDING` engine suggestion, `Row Complete?` — waived
+only for a `not-needed` *candidate* row — and canonical `Expected Axis`/`Expected Filler`),
+the rejection of a `not-needed` engine suggestion as unrepresentable, and the
+`Concept Decisions` header and orphan-row checks, so a row referencing an unadjudicated
+concept cannot inflate the denominator.
+
+It does **not** run the kept-constituent gates — `Expected Provenance Status`,
+`Expected needs_review`, `Expected Group`, `Expected Proposal ID` — nor the cohort or
+proposal-registry gates; those belong to `import-workbook`. A workbook the export accepts
+can still be rejected as an oracle, so run both.
+
+The export is signed. `payload_identity` is a SHA-256 over the whole payload, computed
+after generation per D61 and checked at load, and `_meta` binds the rows to the run they
+measure via `source_identity`, `run_id` and `engine_evidence_identity`. Together with the
+per-concept row-count assertion in `test_m1_baseline.py`, that closes the hole where
+deleting, relabelling or duplicating rows moved the published acceptance rate to 53%, 40%
+and 38% with every test still green. `schema_version` is 2.
+
+The tracked export was produced by:
 
 ```
 pdm run adjudication export-row-decisions \

@@ -8,17 +8,26 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 The #57 review packet wrote a `Corpus evidence identity` into the SME workbook before the
 corpus artifact existed. `evidence_identity` is a SHA-256 over a payload containing
-`run_id = f"{branch}-{uuid4()}"` (`decomposition/run.py:345`), so **no run could ever produce
-that hash**. The gate at `golden_review.py` was unsatisfiable by construction and blocked the
-authoritative report on an artifact that could not be built. The original artifact was also
-unrecoverable: it had lived only in gitignored `tmp/`, so it was never in git history.
+`run_id = f"{branch}-{uuid4()}"` (`_new_run_id` in `ontolib/src/ontolib/decomposition/run.py`),
+so **no run could ever produce that hash**. The gate at `golden_review.py` was unsatisfiable by
+construction and blocked the authoritative report on an artifact that could not be built. The
+original artifact was also unrecoverable: it had lived only in gitignored `tmp/`, so it was
+never in git history.
 
 **Decision: never write the identity of an artifact that does not yet exist. Compute identities
 from the artifact and record them; do not assert them as preconditions.** The equality check was
 removed (`84eb122`); `_residual_dict` still carries the identity into the report, so the
-comparison stays auditable without an impossible precondition. Note that no test had ever
-covered any of the three corpus-identity branches — all were vacuous, which is why a gate that
-could never pass survived to the point of blocking closure.
+comparison stays auditable without an impossible precondition. Of the three corpus-identity
+branches, the `detector_identity` one *was* covered by a drift test; the `evidence_identity`
+branch — the unsatisfiable one — was not, and neither was `source_identity`. A gate that could
+never pass therefore survived until it blocked closure.
+
+**Corollary, learned the same day (#275).** An identity that binds an artifact to its *source*
+is not an identity that binds it to *itself*. The row-decision export carried
+`workbook_identity` and no payload digest, so its rows were freely editable — deleting,
+relabelling or duplicating them moved the published acceptance rate to 53%, 40% and 38%
+respectively, with every test still green. Sign the payload, and bind it to the run it
+measures.
 
 ### D62. The golden-set/corpus divergence test belongs to the full corpus, not the #154 sample
 
