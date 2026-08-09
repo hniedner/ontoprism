@@ -1,19 +1,14 @@
-"""Morphology-to-organ resolution table (D23 SME-validated).
+"""Morphology-to-organ resolution tables used by D58/D59.
 
-The SME established the governing principle: R101 = the named organ
-(``tmp/plans/D23-site-specific-resolution-and-role-naming.md``, Part 1).
-This module encodes the validated morphology→organ mapping for the concepts
-in the ``ontolib/tests/decomposition/golden/`` golden set. It is used as a
-tiebreaker when the walker returns multiple R101 candidates — the matching
-organ is preferred over generic or data-quality-issue alternatives.
+These hand-maintained tables are keyed by the resolved parent morphology emitted by
+the walker, not by the concept being decomposed. They are used as tiebreakers when the
+walker returns multiple site candidates.
 
-References
-----------
-- D23 site-specific resolution: ``tmp/plans/sme_decisions.json``
-- SME workbook: ``tmp/plans/SME_Review_Workbook.xlsx``
+The durable source-bound routing and scoring contracts are recorded in
+``docs/DECISIONS.md`` D58/D59.
 """
 
-# Maps morphology code → SME-validated organ code.
+# Maps resolved parent morphology code → routed organ code.
 # Keys are *parent* morphology codes that the walker resolves for each
 # concept — these are the resolved morphology at the top of the genus chain,
 # not the concept's own ``owl:intersectionOf`` morphology restriction.
@@ -40,6 +35,8 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     # --- Lung ---
     "C4874": "C12468",  # Non-Small Cell Lung Carcinoma → Lung
     "C4915": "C12468",  # Small Cell Lung Carcinoma
+    "C4878": "C12468",  # Lung Carcinoma (legacy engine morphology)
+    "C4917": "C12468",  # Lung Small Cell Carcinoma
     # --- Breast ---
     "C4017": "C12971",  # Breast Carcinoma → Breast
     # --- Pancreatic ---
@@ -59,7 +56,18 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     # --- Oral Cavity ---
     "C5980": "C12421",  # Oral Cavity Squamous Cell Carcinoma → Oral Cavity
     # --- Uterine ---
-    "C4008": "C12316",  # Uterine Carcinosarcoma → Uterus
+    # BUG (deferred to the post-attestation rebuild): C4008 is "Recurrent Gallbladder
+    # Carcinoma", not Uterine Carcinosarcoma, and C12316 is Corpus Uteri, not Uterus.
+    # Both tokens of this comment were wrong. No concept in the M1 cohort resolves
+    # C4008 as its parent morphology, so the entry does not currently fire -- but it
+    # is not SME-validated and must not be relied on. Replacement key is
+    # undetermined: this table is keyed by resolved parent morphology, so it requires
+    # observed walker output, not a concept code. Do not "fix" the key before
+    # attestation, because changing it would change the cohort the SME signed.
+    "C4008": "C12316",
+    "C7558": "C12316",  # Endometrial Carcinoma → Corpus Uteri
+    # --- Esophagus / GEJ composite staging site ---
+    "C3513": "C203674",  # Esophageal Carcinoma → Esophagus and GEJ
     # --- Bone ---
     "C3711": "C12366",  # Osteosarcoma → Bone
     # --- Lip ---
@@ -74,9 +82,24 @@ MORPHOLOGY_TO_ORGAN: dict[str, str] = {
     "C3834": "C12417",  # Urethral Carcinoma → Urethra
 }
 
+# Organ components/localized sites within the single primary-site umbrella. These are
+# not independent primary cancers and therefore use op:PrimarySubsite (Q3/Q4).
+MORPHOLOGY_TO_PRIMARY_SUBSITES: dict[str, frozenset[str]] = {
+    "C4878": frozenset({"C12683"}),  # Bronchus within lung-cancer umbrella
+    "C4917": frozenset({"C12683"}),
+    "C7558": frozenset({"C32514"}),  # Endometrial cavity within corpus uteri
+    "C3513": frozenset({"C12389"}),  # Esophagus within AJCC v7 composite site
+}
+
 
 def organ_for_morphology(morphology_code: str | None) -> str | None:
-    """Return the SME-validated organ code for *morphology_code*, or ``None``.
+    """Return the routed organ code for *morphology_code*, or ``None``.
+
+    ``MORPHOLOGY_TO_ORGAN`` is hand-maintained and only partly SME-validated:
+    entries carrying an ``SME:`` note are reviewed; ``C2955`` carries an SME
+    judgement recorded as a walker-gap note; ``C4008`` is a known-wrong entry
+    deferred to the post-attestation rebuild; every other row is unannotated
+    curation.
 
     Parameters
     ----------
@@ -92,3 +115,10 @@ def organ_for_morphology(morphology_code: str | None) -> str | None:
     if morphology_code is None:
         return None
     return MORPHOLOGY_TO_ORGAN.get(morphology_code)
+
+
+def primary_subsites_for_morphology(morphology_code: str | None) -> frozenset[str]:
+    """Return reviewed primary-subsite fillers for one morphology context."""
+    if morphology_code is None:
+        return frozenset()
+    return MORPHOLOGY_TO_PRIMARY_SUBSITES.get(morphology_code, frozenset())

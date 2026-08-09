@@ -4,8 +4,15 @@ import pytest
 
 from ontolib.decomposition.site_resolution import (
     MORPHOLOGY_TO_ORGAN,
+    MORPHOLOGY_TO_PRIMARY_SUBSITES,
     organ_for_morphology,
 )
+
+
+@pytest.mark.unit
+def test_no_morphology_maps_an_organ_that_is_also_its_own_subsite() -> None:
+    for morph, subsites in MORPHOLOGY_TO_PRIMARY_SUBSITES.items():
+        assert organ_for_morphology(morph) not in subsites
 
 
 @pytest.mark.unit

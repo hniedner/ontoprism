@@ -1,16 +1,27 @@
 """Unit tests for legacy_writer — TTL rendering from Decomposition objects."""
 
+import os
 from datetime import date
 from pathlib import Path
 
 import pytest
 import rdflib
-from rdflib.namespace import OWL
+from rdflib import Literal, URIRef
+from rdflib.namespace import OWL, RDFS
 
 from ontolib.decomposition import vocab
 from ontolib.decomposition.axes import MORPHOLOGY_AXIS
 from ontolib.decomposition.legacy_writer import write_ttl
-from ontolib.decomposition.models import Constituent, Decomposition
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    Constituent,
+    Decomposition,
+    DefinitionGroup,
+    GenusDefinitionFact,
+    RestrictionDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
+)
 
 
 @pytest.mark.unit
@@ -44,6 +55,101 @@ async def test_single_decomposition_writes_to_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+async def test_file_artifact_is_flushed_and_fsynced_before_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "out.ttl"
+    synced_inodes: list[int] = []
+    real_fsync = os.fsync
+
+    def record_fsync(file_descriptor: int) -> None:
+        synced_inodes.append(os.fstat(file_descriptor).st_ino)
+        real_fsync(file_descriptor)
+
+    monkeypatch.setattr(os, "fsync", record_fsync)
+    await write_ttl([_decomposition_for_durability()], dest=out, run_id="run-1")
+
+    assert synced_inodes == [out.stat().st_ino]
+    assert out.read_text(encoding="utf-8").endswith("\n")
+
+
+def _decomposition_for_durability() -> Decomposition:
+    return Decomposition(
+        code="C1",
+        semantic_type="Neoplastic Process",
+        constituents=[
+            Constituent(
+                axis="op:PrimarySite",
+                filler_code="C12400",
+                axis_source="role",
+                source_role="R101",
+            )
+        ],
+    )
+
+
+@pytest.mark.unit
+async def test_ttl_publishes_axis_contract_and_constituent_source_role(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "out.ttl"
+    await write_ttl(
+        [
+            Decomposition(
+                code="C1",
+                semantic_type="Neoplastic Process",
+                constituents=[
+                    Constituent(
+                        axis="op:PrimarySite",
+                        filler_code="C12400",
+                        axis_source="role",
+                        source_role="R101",
+                    )
+                ],
+            )
+        ],
+        dest=out,
+    )
+    graph = rdflib.Graph().parse(out)
+    primary_site = URIRef(f"{vocab.ONTOPRISM_NS}PrimarySite")
+    source_role = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#R101")
+
+    assert (primary_site, rdflib.RDF.type, OWL.ObjectProperty) in graph
+    assert (primary_site, rdflib.RDFS.domain, None) in graph
+    assert (primary_site, rdflib.RDFS.range, None) in graph
+    assert (primary_site, rdflib.RDFS.comment, None) in graph
+    assert (primary_site, URIRef(vocab.NORMALIZED_FROM_ROLE), source_role) in graph
+    assert (None, URIRef(vocab.SOURCE_ROLE), source_role) in graph
+
+    primary_subsite = URIRef(f"{vocab.ONTOPRISM_NS}PrimarySubsite")
+    normal_tissue_origin = URIRef(f"{vocab.ONTOPRISM_NS}NormalTissueOrigin")
+    assert (
+        primary_subsite,
+        RDFS.subPropertyOf,
+        URIRef("http://purl.obolibrary.org/obo/RO_0004026"),
+    ) in graph
+    assert (
+        primary_subsite,
+        URIRef(vocab.GOVERNANCE_STATUS),
+        Literal("provisional"),
+    ) in graph
+    assert (primary_subsite, URIRef(vocab.GOVERNANCE_REVIEW_BY), None) in graph
+    assert (primary_subsite, URIRef(vocab.GOVERNANCE_REVIEW_TRIGGER), None) in graph
+    assert (primary_subsite, URIRef(vocab.GOVERNANCE_FALLBACK_AXIS), None) in graph
+    assert (
+        primary_subsite,
+        URIRef(vocab.GOVERNANCE_EVIDENCE_COUNT),
+        Literal(3),
+    ) in graph
+    assert (
+        normal_tissue_origin,
+        URIRef(vocab.AXIS_MODALITY),
+        Literal("non-defining"),
+    ) in graph
+
+
+@pytest.mark.unit
 async def test_minted_filler_uses_opns_prefix(tmp_path: Path) -> None:
     decs = [
         Decomposition(
@@ -52,7 +158,7 @@ async def test_minted_filler_uses_opns_prefix(tmp_path: Path) -> None:
             constituents=[
                 Constituent(
                     axis="op:Laterality",
-                    filler_code="MINT-abc123",
+                    filler_code="MINT-0abc12345def",
                     axis_source="nlp",
                 ),
             ],
@@ -61,7 +167,7 @@ async def test_minted_filler_uses_opns_prefix(tmp_path: Path) -> None:
     out = tmp_path / "out.ttl"
     await write_ttl(decs, dest=out)
     content = out.read_text()
-    assert f"<{vocab.ONTOPRISM_NS}MINT-abc123>" in content
+    assert f"<{vocab.ONTOPRISM_NS}MINT-0abc12345def>" in content
 
 
 @pytest.mark.unit
@@ -163,7 +269,9 @@ async def test_writer_output_is_valid_turtle(tmp_path: Path) -> None:
                     most_specific=True,
                 ),
                 Constituent(
-                    axis="op:Laterality", filler_code="MINT-abc123", axis_source="nlp"
+                    axis="op:Laterality",
+                    filler_code="MINT-0abc12345def",
+                    axis_source="nlp",
                 ),
             ],
         )
@@ -280,12 +388,14 @@ async def test_group_id_is_rendered(tmp_path: Path) -> None:
                     axis="op:AssociatedRegion",
                     filler_code="C12418",
                     axis_source="role",
+                    source_role="R101",
                     group="op:AssociatedRegion",
                 ),
                 Constituent(
                     axis="op:AssociatedRegion",
                     filler_code="C13063",
                     axis_source="role",
+                    source_role="R101",
                     group="op:AssociatedRegion",
                 ),
             ],
@@ -325,12 +435,14 @@ async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
                     axis="op:AssociatedRegion",
                     filler_code="C12418",
                     axis_source="role",
+                    source_role="R101",
                     group="op:AssociatedRegion",
                 ),
                 Constituent(
                     axis="op:AssociatedRegion",
                     filler_code="C13063",
                     axis_source="role",
+                    source_role="R101",
                     group="op:AssociatedRegion",
                 ),
             ],
@@ -341,3 +453,191 @@ async def test_grouped_output_is_valid_turtle(tmp_path: Path) -> None:
     graph = rdflib.Graph()
     graph.parse(out, format="turtle")
     assert len(graph) > 0
+
+
+@pytest.mark.unit
+async def test_complete_definition_and_projection_trace_are_rendered(
+    tmp_path: Path,
+) -> None:
+    nested_group_id = canonical_definition_group_id(
+        "C6135", ("restriction:R88:C27970",)
+    )
+    restriction_id = canonical_definition_fact_id(
+        "C6135", nested_group_id, "restriction", "R88", "C27970"
+    )
+    group_id = canonical_definition_group_id(
+        "C6135", ("genus:C141041:defined", f"group:{nested_group_id}")
+    )
+    genus_id = canonical_definition_fact_id(
+        "C6135", group_id, "genus", "C141041", "defined"
+    )
+    decs = [
+        Decomposition(
+            code="C6135",
+            semantic_type="Neoplastic Process",
+            constituents=[
+                Constituent(
+                    axis="R88",
+                    filler_code="C27970",
+                    axis_source="role",
+                    needs_review=True,
+                    group="disease-1",
+                    source_definition_ids=(restriction_id,),
+                )
+            ],
+            complete_definition=CompleteDefinition(
+                root_code="C6135",
+                facts=(
+                    GenusDefinitionFact(
+                        fact_id=genus_id,
+                        anchor_code="C6135",
+                        group_id=group_id,
+                        depth=0,
+                        genus_code="C141041",
+                        is_defined=True,
+                    ),
+                    RestrictionDefinitionFact(
+                        fact_id=restriction_id,
+                        anchor_code="C6135",
+                        group_id=nested_group_id,
+                        depth=0,
+                        role_code="R88",
+                        filler_code="C27970",
+                    ),
+                ),
+                groups=(
+                    DefinitionGroup(
+                        group_id=group_id,
+                        anchor_code="C6135",
+                        depth=0,
+                        child_group_ids=(nested_group_id,),
+                    ),
+                    DefinitionGroup(
+                        group_id=nested_group_id,
+                        anchor_code="C6135",
+                        depth=0,
+                    ),
+                ),
+                root_group_ids=(group_id,),
+            ),
+        )
+    ]
+    out = tmp_path / "out.ttl"
+    await write_ttl(decs, dest=out)
+
+    graph = rdflib.Graph()
+    graph.parse(out, format="turtle")
+    source = URIRef("http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C6135")
+    restriction = URIRef(f"{vocab.DEFINITION_FACT_NS}C6135/{restriction_id}")
+    root_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}C6135/{group_id}")
+    nested_group = URIRef(f"{vocab.DEFINITION_GROUP_NS}C6135/{nested_group_id}")
+    assert (source, URIRef(vocab.HAS_DEFINITION_FACT), restriction) in graph
+    assert (
+        restriction,
+        URIRef(vocab.FACT_KIND),
+        Literal("restriction"),
+    ) in graph
+    assert (
+        restriction,
+        URIRef(vocab.DEFINITION_GROUP),
+        nested_group,
+    ) in graph
+    # Exactly the declared roots, so a nested group cannot be published as a root
+    # and erase the nesting migration 0012 and the group tree exist to represent.
+    assert set(graph.objects(source, URIRef(vocab.HAS_ROOT_DEFINITION_GROUP))) == {
+        root_group
+    }
+    assert nested_group not in set(
+        graph.objects(source, URIRef(vocab.HAS_ROOT_DEFINITION_GROUP))
+    )
+    assert (
+        root_group,
+        URIRef(vocab.HAS_CHILD_DEFINITION_GROUP),
+        nested_group,
+    ) in graph
+    constituent = next(graph.objects(source, URIRef(vocab.HAS_CONSTITUENT)))
+    assert (
+        constituent,
+        URIRef(vocab.NEEDS_REVIEW),
+        Literal(True),
+    ) in graph
+    assert (
+        constituent,
+        URIRef(vocab.SOURCE_DEFINITION_FACT),
+        restriction,
+    ) in graph
+    assert (
+        source,
+        URIRef(vocab.PROJECTION_LOSS_COUNT),
+        Literal(1),
+    ) in graph
+
+
+@pytest.mark.unit
+async def test_shared_definition_ids_are_scoped_to_each_decomposition_root(
+    tmp_path: Path,
+) -> None:
+    group_id = canonical_definition_group_id("C100", ("restriction:R101:C200",))
+    fact_id = canonical_definition_fact_id(
+        "C100", group_id, "restriction", "R101", "C200"
+    )
+
+    def decomposition(root_code: str, depth: int) -> Decomposition:
+        return Decomposition(
+            code=root_code,
+            semantic_type="Neoplastic Process",
+            constituents=(
+                Constituent(
+                    axis="R101",
+                    filler_code="C200",
+                    axis_source="role",
+                    source_role="R101",
+                    source_definition_ids=(fact_id,),
+                ),
+            ),
+            complete_definition=CompleteDefinition(
+                root_code=root_code,
+                facts=(
+                    RestrictionDefinitionFact(
+                        fact_id=fact_id,
+                        anchor_code="C100",
+                        group_id=group_id,
+                        depth=depth,
+                        role_code="R101",
+                        filler_code="C200",
+                    ),
+                ),
+                groups=(
+                    DefinitionGroup(
+                        group_id=group_id,
+                        anchor_code="C100",
+                        depth=depth,
+                    ),
+                ),
+                root_group_ids=(group_id,),
+            ),
+        )
+
+    out = tmp_path / "out.ttl"
+    await write_ttl((decomposition("C1", 1), decomposition("C2", 2)), out)
+    graph = rdflib.Graph()
+    graph.parse(out, format="turtle")
+
+    roots = [
+        URIRef(f"http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}")
+        for code in ("C1", "C2")
+    ]
+    facts = [
+        next(graph.objects(root, URIRef(vocab.HAS_DEFINITION_FACT))) for root in roots
+    ]
+    groups = [
+        next(graph.objects(root, URIRef(vocab.HAS_DEFINITION_GROUP))) for root in roots
+    ]
+    assert len(set(facts)) == 2
+    assert len(set(groups)) == 2
+    assert [
+        set(graph.objects(fact, URIRef(vocab.DEFINITION_DEPTH))) for fact in facts
+    ] == [{Literal(1)}, {Literal(2)}]
+    for root, fact in zip(roots, facts, strict=True):
+        constituent = next(graph.objects(root, URIRef(vocab.HAS_CONSTITUENT)))
+        assert (constituent, URIRef(vocab.SOURCE_DEFINITION_FACT), fact) in graph

@@ -23,7 +23,7 @@ _C6135_ROLES = _roles(
 def test_multi_axis_in_scope_concept_is_precoordinated() -> None:
     result = detect("C6135", ["Neoplastic Process"], _C6135_ROLES)
     assert result.is_precoordinated
-    assert result.defining_role_count == 4
+    assert result.defining_role_count == 3
     assert result.semantic_type == "Neoplastic Process"
 
 
@@ -83,6 +83,19 @@ def test_excludes_roles_do_not_count_toward_the_gate() -> None:
     )
     result = detect("C1", ["Neoplastic Process"], roles)
     # Only the one positive site role counts → single-axis → not pre-coordinated.
+    assert result.defining_role_count == 1
+    assert not result.is_precoordinated
+
+
+@pytest.mark.unit
+def test_projected_nondefining_tissue_origin_does_not_trigger_detection() -> None:
+    roles = _roles(
+        ("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
+        ("R103", "C49276", "Disease_Has_Normal_Tissue_Origin"),
+    )
+
+    result = detect("C1", ["Neoplastic Process"], roles)
+
     assert result.defining_role_count == 1
     assert not result.is_precoordinated
 

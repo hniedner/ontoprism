@@ -35,6 +35,7 @@ logger = get_logger(__name__)
 
 _SPARQL_JSON = "application/sparql-results+json"
 _SPARQL_QUERY = "application/sparql-query"
+_SPARQL_UPDATE = "application/sparql-update"
 _SPARQL_BINDING_TYPES = frozenset({"uri", "bnode", "literal", "typed-literal"})
 # Chunk size for streaming a file object to the store (keeps a multi-hundred-MB OWL
 # from fully materializing in memory).
@@ -194,6 +195,7 @@ class OxigraphHttpClient:
         """Create a client for *endpoint_url* (its ``/query`` path is derived)."""
         self._endpoint_url = endpoint_url.rstrip("/")
         self._query_url = f"{self._endpoint_url}/query"
+        self._update_url = f"{self._endpoint_url}/update"
         self._store_url = f"{self._endpoint_url}/store"
         self._timeout = httpx.Timeout(query_timeout, connect=connect_timeout)
         self._client: httpx.AsyncClient | None = None
@@ -283,6 +285,33 @@ class OxigraphHttpClient:
         ):
             raise StorageError(
                 f"Store load failed: HTTP {response.status_code} — "
+                f"{response.text[:200]}"
+            )
+
+    async def update(self, update: str) -> None:
+        """Execute one SPARQL Update request without automatic replay.
+
+        A transport failure can happen after the server commits, so retrying here
+        could replay a non-idempotent update. Callers that need recovery must
+        reconcile observable state before deciding whether to issue another request.
+
+        Raises:
+            StorageError: on a transport error or a non-2xx response.
+        """
+        try:
+            response = await self._get_client().post(
+                self._update_url,
+                content=update.encode("utf-8"),
+                headers={"Content-Type": _SPARQL_UPDATE},
+            )
+        except _RETRYABLE as exc:
+            raise StorageError(
+                f"SPARQL update transport error against {self._update_url}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        if not response.is_success:
+            raise StorageError(
+                f"SPARQL update failed: HTTP {response.status_code} — "
                 f"{response.text[:200]}"
             )
 

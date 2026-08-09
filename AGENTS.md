@@ -21,6 +21,15 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   path-gated prerequisite did not run. If any expected check is absent, or any check failed,
   was cancelled, is pending, or was unexpectedly skipped, *stop* — ask the user before
   proceeding.
+  **Documented exception (confirmed 2026-08-07):** on PRs that change only dependency
+  manifests (`package.json`, `package-lock.json`) or only workflow files, CodeQL default setup
+  does not run the three `Analyze (...)` jobs and posts the aggregate `CodeQL` check as
+  `"NEUTRAL"`. That combination — Analyze jobs absent **and** aggregate `NEUTRAL` — is expected
+  for those two PR shapes and is not a reason to stop. It is *not* expected on any PR touching
+  source code, where all three Analyze jobs must be present and `"SUCCESS"`. Note also that
+  `statusCheckRollup` sometimes omits `conventional commit subject` even when it has passed;
+  confirm with the `gh run list --workflow pr-title.yml` command above rather than treating the
+  omission as an absent check.
 - **After merging any PR to `main`, watch CI and all triggered post-merge workflows to
   completion.** If any run fails, fix it before starting new work. Do not begin the next
   issue, create its branch, or open its PR while required post-merge runs are pending or
@@ -31,6 +40,70 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   rewrite or delete `main`. Land all work through PRs (see D30). Require-PR/required-CI
   enforcement is intentionally *not* enabled yet — it needs a release-bot credential as a
   ruleset bypass actor, else it would block the `GITHUB_TOKEN` release/README pushes.
+
+## Inference must never be written in the form of observation (2026-08-07, re-learned worse 2026-08-08)
+
+The checklist at the end of this section was added 2026-08-07 and broken the next day, five times,
+by the same session that wrote it. **That is the important datum: prose rules addressed to a future
+reader do not bind the writer at the moment of writing.** Only a format that cannot be filled in
+without running something binds. If you are about to add a rule here because a rule here was
+broken, stop — you are adding ceremony, and ceremony is the disease.
+
+**Root cause of every defect in that cycle: inference was written in the same form as observation.**
+A digest that was computed and a digest that was remembered look identical on the page. A step that
+was executed end-to-end and a step that was merely assumed to work look identical. Neither writer
+nor reader can then tell which claims are load-bearing guesses. Actual instances: a workbook digest
+restated from memory that did not match the file; an acceptance step ("run the report → satisfies
+AC7") whose third argument did not exist and has no generator; a required input (the proposal
+registry) omitted from that same step; a "NOT FOUND" produced by `rg` silently skipping gitignored
+paths; and worst, a human SME asked to sign an attestation on the claim that closure was one step
+away, when it was structurally blocked.
+
+Mechanical rules. Each is checkable by the reader, which is what forces the check when writing:
+
+1. **Every factual claim carries the command that produced it, inline.** Not "digest is `abc…`" but
+   "digest is `abc…` (`shasum -a 256 <path>`, 2026-08-08)". No command → delete the claim. Never
+   restate a hash, count, or status from memory or from an earlier document.
+2. **An execution step names every argument and proves each exists.** "Run `golden_review.py`" is
+   not a step. `f(a, b, c)`, with each of `a`, `b`, `c` shown present by an `ls`/`rg`, is a step.
+   If any input is missing the step is `BLOCKED`, not pending.
+3. **Never pre-declare the hash of an artifact that does not yet exist.** Bind identities *after*
+   generation. A hash over a payload containing `uuid4()` can never be matched by a later run —
+   `corpus_evidence_identity` cost a full cycle proving exactly that.
+4. **Search artifacts with `rg --no-ignore`.** `tmp/` is gitignored (`.gitignore:2`), so a default
+   `rg` reports absent files that are present and gives no signal that it skipped anything.
+5. **Never request an irreversible human sign-off before executing the step that follows it.**
+   Dry-run the downstream path first. An attestation spent on an unverified critical path is the
+   one thing you cannot refund.
+
+**When a rule here has failed twice, delete the complexity that made it necessary instead of
+rewriting the rule.** Every defect above occurred inside an apparatus — chained identities, pinned
+digests, two attestations, nineteen untracked artifacts — larger than the 20-concept measurement it
+served. Complexity forces inference; inference produced the errors.
+
+Handover briefs additionally: every path and symbol exists (grep it, never infer from prose); every
+artifact you say to regenerate has a generator; every type change states the target shape ("add
+variant `X` to union `Y`"), never a constraint; every acceptance check is sufficient, not merely
+necessary. State which tasks interact.
+
+## The one principle that keeps getting rediscovered (D60)
+
+**Everything OntoPrism emits is NCIt.** Not NCIt blended with other ontologies — NCIt reorganised,
+which is what makes it adoptable. A concept or role we introduce is NCIt content even when it
+exactly matches, and was derived from, something in Uberon, Cell Ontology, SNOMED CT or ICD-O-3.
+
+All of it is provisional until NCI adopts it: `proposed → locally-approved → submitted →
+accepted-in-ncit`. `locally-approved` means *our* SME accepted it, not NCI.
+
+Derivation is recorded as provenance and alignment, never as ownership — the pattern
+`AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026` is
+what it aligns to. Provenance exists so Metathesaurus integration and cross-terminology mapping
+work, not as an audit ritual.
+
+**Language rule:** never write "external content", "borrowed from" or "depends on" about anything
+we emit. Write "derived from", "aligned to", "corroborated by", or "proposed, evidenced by".
+Wording that implies another project owns part of our output has repeatedly misdirected design
+decisions — see D60 for the full statement.
 
 ## Repo layout (keep-names, 3 project packages)
 
@@ -188,7 +261,7 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   them by hand.
 - **Pre-PR review fix cycle (mandatory, no exceptions): after implementation and local
   gates are complete, commit all intended changes on the feature branch. The worktree must
-  be clean before review starts. Then, before the first push or PR creation, review the
+  be clean before review starts. Then, before PR creation, review the
   committed branch diff (`main...HEAD`) against current `main` with the FULL
   `pr-review-toolkit` agent set in the initial round — ALL FIVE, no cherry-picking. A
   review of staged or unstaged changes does not count toward convergence:**
@@ -223,8 +296,13 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   (anything you can confirm and act on) — then re-run the applicable local gates and commit
   those fixes before re-running **only the non-converged agents** (if that reduced set
   includes `pr-test-analyzer`, it still runs by itself, after the others). Every review round must
-  inspect a clean worktree and the committed `main...HEAD` diff. Do not push or create the
-  PR until all five agents have converged and the final local gates pass. An agent converges
+  inspect a clean worktree and the committed `main...HEAD` diff. Do not create the
+  PR until all five agents have converged and the final local gates pass. **Pushing the
+  feature branch is a separate matter and is encouraged at any point** — `ci.yml` triggers only
+  on `main` pushes and pull requests, so a branch push runs no workflows. It costs nothing, and
+  it is the only backup for work that otherwise exists on one machine. The PR is what is delayed,
+  for two reasons: a PR should present finished work rather than a moving target, and opening one
+  early triggers the full check matrix repeatedly on every subsequent push. An agent converges
   only when a
   successfully completed full-diff review
   explicitly reports no unresolved actionable verified findings. An agent that reports

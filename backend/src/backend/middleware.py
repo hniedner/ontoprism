@@ -44,10 +44,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     # IPs can't grow it without bound (in-memory, single process).
     _SWEEP_THRESHOLD = 10_000
 
-    def __init__(self, app: object, *, limit: int, window_sec: float = 60.0) -> None:
+    def __init__(
+        self,
+        app: object,
+        *,
+        limit: int,
+        window_sec: float = 60.0,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
         super().__init__(app)  # pyright: ignore[reportArgumentType]
         self._limit = limit
         self._window = window_sec
+        self._monotonic = monotonic
         self._hits: dict[str, tuple[float, int]] = {}
 
     def _sweep_expired(self, now: float) -> None:
@@ -61,7 +69,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if self._limit <= 0:
             return await call_next(request)
         key = request.client.host if request.client else "unknown"
-        now = time.monotonic()
+        now = self._monotonic()
         if len(self._hits) > self._SWEEP_THRESHOLD:
             self._sweep_expired(now)
         window_start, count = self._hits.get(key, (now, 0))

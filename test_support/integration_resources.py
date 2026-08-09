@@ -30,6 +30,7 @@ _PERSISTENT_SQL = re.compile(
 )
 _REPOSITORY_WRITES: Final = frozenset(
     {
+        "begin_publication",
         "claim_work_item",
         "complete_work_item",
         "create_run",
@@ -39,7 +40,9 @@ _REPOSITORY_WRITES: Final = frozenset(
         "invalidate_run",
         "persist_promotions",
         "populate",
+        "publish_artifact",
         "quarantine_stale",
+        "record_publication_failure",
         "rebuild",
         "resume_run",
         "run_pipeline",

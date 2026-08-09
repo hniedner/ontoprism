@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
 
 from ontolib.decomposition import axes
+from ontolib.decomposition import run as run_module
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -19,7 +22,9 @@ from ontolib.decomposition.provenance_models import (
     NcitSourceSnapshot,
     RunFingerprint,
     RunOutcomeCounts,
+    RunSummary,
 )
+from ontolib.decomposition.publication import PublicationPreflightError
 from ontolib.decomposition.run import (
     RunConfig,
     RunMetrics,
@@ -34,6 +39,11 @@ from ontolib.decomposition.run import (
 )
 from ontolib.decomposition.run import (
     run_pipeline as _run_pipeline_impl,
+)
+from ontolib.decomposition.sampling import (
+    REQUIRED_SAMPLE_STRATA,
+    DecompositionSampleManifest,
+    SampleConcept,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -68,12 +78,9 @@ class _FakeClient:
     """Branches on query-text markers, matching the repo's fake-client convention
     (see ``test_oxigraph_client_http.py``).
 
-    The walker queries (``build_genus_walk_members_query``) return per-concept
-    genus-walk rows: for each code the fake produces one hop-0 genus member
-    (the code itself as a named class, making it a defined class) and one
-    hop-1 restriction per role defined in ``self._genus_walk[code]``. This
-    makes the walker behave equivalently to the old flat query while testing
-    the walker's actual query-splitting, parsing, and frontier logic.
+    The complete-definition query returns one canonical root group per concept and
+    preserves every configured role. The older direct member rows remain only for the
+    separate morphology resolver, whose contract intentionally follows named genera.
     """
 
     def __init__(
@@ -92,6 +99,29 @@ class _FakeClient:
         self._pages = pages if pages is not None else [[]]
         self._semantic_types = semantic_types or {}
         self._label_rows = label_rows or []
+        self._role_labels: dict[str, str] = {}
+        self._complete_rows: dict[str, list[dict[str, str | None]]] = {}
+        for code, role_rows in (roles or {}).items():
+            for role_row in role_rows:
+                role_iri = role_row["rel"]
+                role_label = role_row.get("relLabel")
+                if role_iri is not None and role_label is not None:
+                    self._role_labels[role_iri.removeprefix(NCIT_NS)] = role_label
+            self._complete_rows[code] = [
+                {
+                    "expression": f"_:complete-{code}",
+                    "parentExpression": None,
+                    "nestingDepth": "0",
+                    "position": str(position),
+                    "member": f"_:complete-{code}-r{position}",
+                    "role": role_row["rel"],
+                    "target": role_row["target"],
+                    "childExpression": None,
+                    "nestedExpression": None,
+                    "overflow": "false",
+                }
+                for position, role_row in enumerate(role_rows)
+            ]
         # Convert old role format to genus-walk rows
         self._genus_walk: dict[str, list[dict[str, str | None]]] = {}
         for code, role_rows in (roles or {}).items():
@@ -123,7 +153,7 @@ class _FakeClient:
                 return token
         return None
 
-    async def select(  # noqa: PLR0911 — test helper, many query-type branches
+    async def select(  # noqa: C901, PLR0911 — query-routing test helper
         self,
         query: str,
         *,
@@ -133,6 +163,16 @@ class _FakeClient:
         self.required_variables.append(required)
         self.query_requirements.append((query, required))
         self.queries.append(query)
+        if "?overflowChild" in query:
+            return []
+        if "SELECT DISTINCT ?child ?parent" in query:
+            if "rdfs:subClassOf ?parent" not in query:
+                return []
+            codes = [code for page in self._pages for code in page]
+            return [
+                {"child": _iri("C3262"), "parent": _iri("C2991")},
+                *({"child": _iri(code), "parent": _iri("C3262")} for code in codes),
+            ]
         if "ORDER BY ?concept" in query:
             offset = int(query.split("OFFSET")[1].split(maxsplit=1)[0])
             page_index = offset // 500
@@ -143,6 +183,15 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
+        if "SELECT ?expression ?parentExpression ?list ?cell" in query:
+            code = self._code_in(query)
+            return self._complete_rows.get(code or "", [])
+        if "SELECT ?role ?roleLabel" in query:
+            return [
+                {"role": _iri(role_code), "roleLabel": label}
+                for role_code, label in self._role_labels.items()
+                if f"#{role_code}>" in query
+            ]
         if "rdf:first ?member" in query:
             code = self._code_in(query)
             return self._genus_walk.get(code or "", [])
@@ -235,6 +284,52 @@ def _install_lifecycle_doubles(store: Any, state: dict[str, Any]) -> None:
     store.invalidate_run = AsyncMock(side_effect=invalidate_run)
 
 
+def _install_publication_doubles(store: Any, state: dict[str, Any]) -> None:
+    async def get_run(run_id: str) -> RunSummary | None:
+        if state["status"] == "missing":
+            return None
+        fingerprint = state["fingerprint"]
+        return RunSummary(
+            id=run_id,
+            branch="neoplasm",
+            status=state["status"],
+            ncit_version="26.02d",
+            started_at=datetime(2026, 7, 30, tzinfo=UTC),
+            source_identity=(
+                fingerprint.source_identity if fingerprint is not None else "a" * 64
+            ),
+            publication_state=state["publication_state"],
+            representation_identity=state["representation_identity"],
+            publication_artifact_path=state["publication_artifact_path"],
+            publication_built_at=state["publication_built_at"],
+            publication_predecessor=state["publication_predecessor"],
+            publication_predecessor_captured=state["publication_predecessor_captured"],
+        )
+
+    async def begin_publication(
+        _run_id: str,
+        *,
+        representation_identity: str,
+        artifact_path: str,
+        built_at: datetime,
+        predecessor: object,
+    ) -> None:
+        state["publication_state"] = "publishing"
+        state["representation_identity"] = representation_identity
+        state["publication_artifact_path"] = artifact_path
+        state["publication_built_at"] = built_at
+        state["publication_predecessor"] = predecessor
+        state["publication_predecessor_captured"] = True
+
+    async def record_publication_failure(_run_id: str, error: BaseException) -> None:
+        state["publication_state"] = "failed"
+        state["publication_failure"] = error
+
+    store.get_run = AsyncMock(side_effect=get_run)
+    store.begin_publication = AsyncMock(side_effect=begin_publication)
+    store.record_publication_failure = AsyncMock(side_effect=record_publication_failure)
+
+
 def _mock_provenance() -> Any:
     store = MagicMock(spec=ProvenanceStore)
     state: dict[str, Any] = {
@@ -243,13 +338,22 @@ def _mock_provenance() -> Any:
         "decompositions": [],
         "decomposed": 0,
         "residual": 0,
+        "semantic_excluded": 0,
+        "atomic_noop": 0,
         "minted": 0,
         "failed": None,
         "invalidated": None,
         "status": "running",
+        "publication_state": "pending",
+        "publication_built_at": None,
+        "representation_identity": None,
+        "publication_artifact_path": None,
+        "publication_predecessor": None,
+        "publication_predecessor_captured": False,
     }
 
     _install_lifecycle_doubles(store, state)
+    _install_publication_doubles(store, state)
 
     async def create_run(
         run_id: str,
@@ -270,6 +374,8 @@ def _mock_provenance() -> Any:
             fingerprint = RunFingerprint(
                 source_identity="a" * 64,
                 branch="neoplasm",
+                scope_root="C3262",
+                scope_version="stated-genus-subclass-v1",
                 semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
                 worklist=(),
                 total_limit=None,
@@ -289,6 +395,8 @@ def _mock_provenance() -> Any:
         claim: UUID,
         *,
         decomposition: Decomposition | None,
+        outcome: str,
+        semantic_types: tuple[str, ...],
         minted: tuple[MintedConcept, ...],
     ) -> None:
         del claim
@@ -298,7 +406,11 @@ def _mock_provenance() -> Any:
                 state["decompositions"].append(decomposition)
             else:
                 state["residual"] += 1
-        del run_id, code
+        elif outcome == "semantic-excluded":
+            state["semantic_excluded"] += 1
+        elif outcome == "atomic-no-op":
+            state["atomic_noop"] += 1
+        del run_id, code, semantic_types
         state["minted"] += len(minted)
 
     async def outcome_counts(_run_id: str) -> RunOutcomeCounts:
@@ -307,6 +419,8 @@ def _mock_provenance() -> Any:
             total_in_scope=len(fingerprint.worklist) if fingerprint else 0,
             decomposed=state["decomposed"],
             residual=state["residual"],
+            semantic_excluded=state["semantic_excluded"],
+            atomic_noop=state["atomic_noop"],
             minted_count=state["minted"],
         )
 
@@ -330,6 +444,36 @@ def _source_snapshot(identity: str = "a" * 64) -> NcitSourceSnapshot:
     )
 
 
+def _sample_manifest(
+    *codes: str,
+    source_identity: str = "a" * 64,
+    ontology_version: str = "26.02d",
+) -> DecompositionSampleManifest:
+    concepts = tuple(
+        SampleConcept(
+            code=code,
+            strata=(
+                tuple(sorted(REQUIRED_SAMPLE_STRATA))
+                if index == 0
+                else ("atomic-no-op",)
+            ),
+            rationale=f"Review concept {code}.",
+        )
+        for index, code in enumerate(codes)
+    )
+    return DecompositionSampleManifest(
+        name="ncit-26.02d-review",
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        source_identity=source_identity,
+        ontology_version=ontology_version,
+        selection_method="explicit-stratified",
+        seed=None,
+        concepts=concepts,
+    )
+
+
 def _set_resume_worklist(
     provenance: Any,
     *,
@@ -339,6 +483,8 @@ def _set_resume_worklist(
     provenance._test_state["fingerprint"] = RunFingerprint(
         source_identity="a" * 64,
         branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
         semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
         worklist=worklist,
         total_limit=None,
@@ -375,33 +521,37 @@ async def run_pipeline(
 
 
 @pytest.mark.unit
-async def test_enumerate_in_scope_codes_pages_until_short_page() -> None:
-    client = _FakeClient(pages=[["C1", "C2"]])
-    codes = await enumerate_in_scope_codes(
-        client, ["Neoplastic Process"], page_size=500
-    )
-    assert codes == ["C1", "C2"]
-
-
-@pytest.mark.unit
-async def test_enumerate_in_scope_codes_follows_full_pages() -> None:
-    full_page = [f"C{i}" for i in range(500)]
-    client = _FakeClient(pages=[full_page, ["C500"]])
-    codes = await enumerate_in_scope_codes(
-        client, ["Neoplastic Process"], page_size=500
-    )
-    assert len(codes) == 501
-    assert codes[-1] == "C500"
-
-
-@pytest.mark.unit
-async def test_enumerate_in_scope_codes_aborts_on_missing_concept_binding() -> None:
+async def test_enumerate_in_scope_codes_uses_named_hierarchy_closure() -> None:
     client = MagicMock()
-    client.select = AsyncMock(return_value=[{}])
+    client.select_once = AsyncMock(
+        side_effect=[
+            [{"child": _iri("C3262"), "parent": _iri("C2991")}],
+            [{"child": _iri("C9305"), "parent": _iri("C3262")}],
+            [{"child": _iri("C6135"), "parent": _iri("C9305")}],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ]
+    )
 
-    with pytest.raises(ValueError, match="concept"):
-        await enumerate_in_scope_codes(client, ["Neoplastic Process"], page_size=500)
-    assert client.select.await_args.kwargs["required_variables"] == {"concept"}
+    codes = await enumerate_in_scope_codes(client, "C3262")
+
+    assert codes == ["C6135", "C9305"]
+
+
+@pytest.mark.unit
+async def test_enumerate_in_scope_codes_aborts_on_missing_hierarchy_binding() -> None:
+    client = MagicMock()
+    client.select_once = AsyncMock(return_value=[{}])
+
+    with pytest.raises(RuntimeError, match="child"):
+        await enumerate_in_scope_codes(client, "C3262")
+    assert client.select_once.await_args.kwargs["required_variables"] == {
+        "child",
+        "parent",
+    }
 
 
 @pytest.mark.unit
@@ -412,7 +562,7 @@ def test_run_config_rejects_equivalence_emission() -> None:
 
 @pytest.mark.unit
 async def test_run_pipeline_skeleton_returns_metrics() -> None:
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     config = RunConfig(branch="neoplasm")
     metrics = await run_pipeline(config, client, provenance)
@@ -438,7 +588,13 @@ async def test_run_pipeline_atomic_concept_is_not_decomposed() -> None:
     # In-scope but only one role -> below min_decomposable_axes, atomic.
     client = _FakeClient(
         pages=[["C12400"]],
-        semantic_types={"C12400": ["Neoplastic Process"]},
+        semantic_types={
+            "C12400": [
+                "Neoplastic Process",
+                "Disease or Syndrome",
+                "Neoplastic Process",
+            ]
+        },
         roles={"C12400": []},
     )
     provenance = _mock_provenance()
@@ -446,7 +602,34 @@ async def test_run_pipeline_atomic_concept_is_not_decomposed() -> None:
     metrics = await run_pipeline(config, client, provenance)
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 0
-    assert provenance.complete_work_item.await_args.kwargs["decomposition"] is None
+    completed = provenance.complete_work_item.await_args.kwargs
+    assert completed["decomposition"] is None
+    assert completed["outcome"] == "atomic-no-op"
+    assert completed["semantic_types"] == (
+        "Disease or Syndrome",
+        "Neoplastic Process",
+    )
+    assert metrics.atomic_noop == 1
+    assert metrics.semantic_excluded == 0
+
+
+@pytest.mark.unit
+async def test_run_pipeline_persists_semantic_exclusion_as_a_distinct_outcome() -> None:
+    client = _FakeClient(
+        pages=[["C162770"]],
+        semantic_types={"C162770": ["Finding"]},
+        roles={"C162770": []},
+    )
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
+
+    completed = provenance.complete_work_item.await_args.kwargs
+    assert completed["decomposition"] is None
+    assert completed["outcome"] == "semantic-excluded"
+    assert completed["semantic_types"] == ("Finding",)
+    assert metrics.total_in_scope == 1
+    assert metrics.decomposed == 0
 
 
 @pytest.mark.unit
@@ -501,6 +684,10 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     assert metrics.decomposed == 1
     assert metrics.residual == 0
     assert metrics.coverage == 1.0
+    assert metrics.complete_definition_count == 1
+    assert metrics.complete_fact_count == 2
+    assert metrics.projected_fact_count == 2
+    assert metrics.projection_loss_count == 0
     provenance.create_run.assert_awaited_once()
     provenance.complete_work_item.assert_awaited_once()
     provenance.finish_run.assert_called_once()
@@ -511,13 +698,21 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
     assert persisted_metrics["decomposed"] == 1
     assert persisted_metrics["roundtrip_fidelity"] is None
     assert metrics.roundtrip_fidelity is None
+    decomposition = provenance.complete_work_item.await_args.kwargs["decomposition"]
+    assert decomposition.complete_definition is not None
+    assert decomposition.complete_fact_count == 2
+    assert all(
+        constituent.source_definition_ids for constituent in decomposition.constituents
+    )
 
 
 @pytest.mark.unit
 async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
-    """R101 fillers with semantic type "Body Part, Organ, or Organ Component"
-    stay on R101 (D20 — recognised organ site). Fillers without a recognised
-    semantic type route to op:AssociatedRegion (D19 — ambiguous body region)."""
+    """R101 organ fillers normalize to ``op:PrimarySite`` (D20).
+
+    Fillers without a recognized organ semantic type route to
+    ``op:AssociatedRegion`` (D19).
+    """
     client = _FakeClient(
         pages=[["C1"]],
         semantic_types={"C1": ["Neoplastic Process"]},
@@ -529,6 +724,7 @@ async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
             ]
         },
         semantic_type_of_rows=[
+            {"code": "C12400", "st": "Anatomical Structure"},
             {"code": "C12400", "st": "Body Part, Organ, or Organ Component"},
         ],
     )
@@ -542,7 +738,7 @@ async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
         c.filler_code for c in constituents if c.axis == "op:AssociatedRegion"
     }
     assert region_fillers == {"C13063"}
-    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12400"}
 
 
@@ -552,7 +748,7 @@ async def test_run_pipeline_raises_if_finish_run_finds_no_manifest_row() -> None
     # doesn't exist (e.g. run_id mismatch, concurrent delete) — must not be silently
     # ignored, or the run looks "successful" while decomp_run.status never becomes
     # 'complete'.
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     _mark_run_row_missing(provenance, provenance._test_state)
     with pytest.raises(RuntimeError, match="finish_run"):
@@ -603,7 +799,7 @@ async def test_run_pipeline_most_specific_selection_uses_live_ancestor_pairs() -
     constituents = provenance.complete_work_item.await_args.kwargs[
         "decomposition"
     ].constituents
-    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12401"}  # the ancestor C12400 was dropped
 
 
@@ -633,7 +829,7 @@ async def test_run_pipeline_part_of_closure_collapses_transitive_wholes() -> Non
     constituents = provenance.complete_work_item.await_args.kwargs[
         "decomposition"
     ].constituents
-    site_fillers = {c.filler_code for c in constituents if c.axis == "R101"}
+    site_fillers = {c.filler_code for c in constituents if c.axis == "op:PrimarySite"}
     assert site_fillers == {"C12400"}
     assert all(c.filler_code != "C9000" for c in constituents)
     assert all(
@@ -672,7 +868,7 @@ async def test_run_pipeline_preserves_cyclic_fillers_for_review() -> None:
     constituents = provenance.complete_work_item.await_args.kwargs[
         "decomposition"
     ].constituents
-    sites = [c for c in constituents if c.axis == "R101"]
+    sites = [c for c in constituents if c.axis == "op:PrimarySite"]
     assert {c.filler_code for c in sites} == {"C120", "C121", "C130"}
     assert all(c.needs_review and not c.most_specific for c in sites)
 
@@ -707,7 +903,10 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
             if query_fragment in query
         }
 
-    assert requirements_for("ORDER BY ?concept") == {frozenset({"concept"})}
+    assert requirements_for("SELECT DISTINCT ?child ?parent") == {
+        frozenset({"child", "parent"})
+    }
+    assert requirements_for("?overflowChild") == {frozenset({"overflowChild"})}
     assert requirements_for("SELECT ?semanticType") == {frozenset({"semanticType"})}
     assert requirements_for("BIND(REPLACE(STR(?concept)") == {frozenset({"code", "st"})}
     assert requirements_for("rdfs:subClassOf+") == {
@@ -728,7 +927,11 @@ async def test_run_pipeline_closure_preserves_cross_batch_pair() -> None:
         if "SELECT DISTINCT ?node ?kind ?target" in query
     ]
     assert len(expansion_queries) > 1
-    assert expansion_queries == client.single_attempt_queries
+    assert expansion_queries == [
+        query
+        for query in client.single_attempt_queries
+        if "SELECT DISTINCT ?node ?kind ?target" in query
+    ]
     assert all(
         len(set(re.findall(r"BIND\(<[^>]+#(C[0-9]+)> AS \?node\)", query))) <= 16
         for query in expansion_queries
@@ -796,6 +999,8 @@ async def test_run_pipeline_out_of_scope_semantic_type_is_skipped() -> None:
     assert metrics.total_in_scope == 1
     assert metrics.decomposed == 0
     assert metrics.residual == 0  # never a precoordination candidate to begin with
+    assert metrics.semantic_excluded == 1
+    assert metrics.atomic_noop == 0
 
 
 @pytest.mark.unit
@@ -935,7 +1140,7 @@ async def test_run_pipeline_writes_ttl_when_out_is_set(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 async def test_run_pipeline_no_out_does_not_write_a_file(tmp_path: Path) -> None:
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     await run_pipeline(RunConfig(branch="neoplasm"), client, provenance)
     assert list(tmp_path.iterdir()) == []
@@ -979,10 +1184,10 @@ def test_residual_count_flags_a_decomposition_whose_constituent_is_precoordinate
     is not a metric (the #73 vacuous-gate lesson).
     """
     decompositions = [
-        _decomp("C1", "C_atomic", "C_compound"),  # one constituent is precoordinated
-        _decomp("C2", "C_atomic"),  # fully atomic
+        _decomp("C1", "C9001", "C9002"),  # one constituent is precoordinated
+        _decomp("C2", "C9001"),  # fully atomic
     ]
-    assert _residual_count(decompositions, precoordinated_fillers={"C_compound"}) == 1
+    assert _residual_count(decompositions, precoordinated_fillers={"C9002"}) == 1
 
 
 @pytest.mark.unit
@@ -999,7 +1204,7 @@ def test_minted_fillers_are_excluded_and_do_not_change_the_count() -> None:
         constituents=[
             Constituent(axis="R101", filler_code="C2001", axis_source="role"),
             Constituent(
-                axis="op:Laterality", filler_code="MINT-abc123", axis_source="nlp"
+                axis="op:Laterality", filler_code="MINT-0abc12345def", axis_source="nlp"
             ),
         ],
     )
@@ -1013,7 +1218,7 @@ def test_minted_fillers_are_excluded_and_do_not_change_the_count() -> None:
 def test_residual_count_is_zero_when_every_constituent_is_atomic() -> None:
     """Reject branch: a decomposition all of whose constituents are atomic is not
     residual — this is the state a fully-reduced ontology should converge toward."""
-    decompositions = [_decomp("C1", "C_a", "C_b"), _decomp("C2", "C_c")]
+    decompositions = [_decomp("C1", "C9011", "C9012"), _decomp("C2", "C9013")]
     assert _residual_count(decompositions, precoordinated_fillers=set()) == 0
 
 
@@ -1063,12 +1268,14 @@ async def test_precoordinated_fillers_detects_a_compound_constituent() -> None:
 
 @pytest.mark.unit
 async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
-    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A store failure during the metric post-pass must surface LOUDLY, naming the
     filler — never vanish into a quiet 0 (the #73 cardinal sin). The post-pass runs
     outside the main loop's try/except, so it logs its own context then re-raises.
     """
+
+    store_error = RuntimeError("store down")
 
     class _BoomClient:
         async def select(
@@ -1078,17 +1285,22 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
             required_variables: Collection[str] = (),
         ) -> list[dict[str, str | None]]:
             del query, required_variables
-            raise RuntimeError("store down")
+            raise store_error
 
         async def version(self) -> str | None:
             return "x"
 
-    decompositions = [_decomp("C1", "C_boom")]
-    with pytest.raises(RuntimeError, match="store down"):
+    decompositions = [_decomp("C1", "C9099")]
+    log_exception = MagicMock()
+    monkeypatch.setattr(run_module.logger, "exception", log_exception)
+    with pytest.raises(RuntimeError, match="store down") as raised:
         await _precoordinated_fillers(
             decompositions, _BoomClient(), None, walker_max_depth=5
         )
-    assert any("C_boom" in r.getMessage() for r in caplog.records)
+    assert raised.value is store_error
+    log_exception.assert_called_once_with(
+        "residual-precoordination detection failed for filler_code=%s", "C9099"
+    )
 
 
 @pytest.mark.unit
@@ -1123,9 +1335,28 @@ async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
     assert metrics.decomposed == 1
     assert metrics.residual_precoordinated_count == 1
     assert metrics.residual_precoordination == pytest.approx(1.0)
-    # persisted honestly (the count is a field; the fraction is derived on read)
+    # Persist both numerator and derived rate so every read surface has one schema.
     persisted = provenance.finish_run.call_args.kwargs["metrics"]
     assert persisted["residual_precoordinated_count"] == 1
+    assert persisted["residual_precoordination"] == pytest.approx(1.0)
+    assert set(persisted) == {
+        "total_in_scope",
+        "decomposed",
+        "residual",
+        "semantic_excluded",
+        "atomic_noop",
+        "unknown_outcome",
+        "residual_precoordinated_count",
+        "residual_precoordination",
+        "minted_count",
+        "complete_definition_count",
+        "complete_fact_count",
+        "projected_fact_count",
+        "projection_loss_count",
+        "projection_loss_rate",
+        "pct_decomposed",
+        "roundtrip_fidelity",
+    }
 
 
 @pytest.mark.unit
@@ -1144,8 +1375,44 @@ def test_run_metrics_coverage_computed_correctly() -> None:
 def test_run_config_defaults() -> None:
     cfg = RunConfig(branch="neoplasm")
     assert cfg.branch == "neoplasm"
+    assert cfg.scope_root == "C3262"
+    assert cfg.scope_version == "stated-genus-subclass-v1"
+    assert cfg.semantic_types == tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
+    assert cfg.algorithm == "axis-qualified"
     assert cfg.out is None
     assert not cfg.load_to_store
+
+
+@pytest.mark.unit
+def test_sample_run_config_is_review_only_and_scope_bound(tmp_path: Path) -> None:
+    sample = _sample_manifest("C1")
+
+    with pytest.raises(ValueError, match="requires an output path"):
+        RunConfig(branch="neoplasm", sample_manifest=sample)
+    with pytest.raises(ValueError, match="cannot load"):
+        RunConfig(
+            branch="neoplasm",
+            out=tmp_path / "review.ttl",
+            load_to_store=True,
+            sample_manifest=sample,
+        )
+    with pytest.raises(ValueError, match="does not match run branch"):
+        RunConfig(
+            branch="disease",
+            out=tmp_path / "review.ttl",
+            sample_manifest=sample,
+        )
+
+
+@pytest.mark.unit
+def test_disease_config_uses_the_broader_root_with_the_same_algorithm() -> None:
+    neoplasm = RunConfig(branch="neoplasm")
+    disease = RunConfig(branch="disease")
+
+    assert disease.scope_root == "C2991"
+    assert disease.scope_root != neoplasm.scope_root
+    assert disease.algorithm == neoplasm.algorithm
+    assert disease.semantic_types == neoplasm.semantic_types
 
 
 @pytest.mark.unit
@@ -1153,14 +1420,43 @@ def test_candidate_result_rejects_minted_without_a_decomposition() -> None:
     with pytest.raises(ValueError, match="minted"):
         _CandidateResult(
             decomposition=None,
+            outcome="atomic-no-op",
+            semantic_types=("Neoplastic Process",),
             minted=[MintedConcept(axis="op:Laterality", label="Left")],
         )
 
 
 @pytest.mark.unit
-def test_candidate_result_allows_none_with_no_minted() -> None:
-    result = _CandidateResult(decomposition=None)
+def test_candidate_result_enforces_outcome_specific_shapes() -> None:
+    empty = Decomposition(code="C1", semantic_type="Neoplastic Process")
+    populated = _decomp("C1", "C2")
+    minted = [MintedConcept(axis="op:Laterality", label="Left")]
+
+    with pytest.raises(ValueError, match=r"decomposed.*constituent"):
+        _CandidateResult(empty, "decomposed", ("Neoplastic Process",))
+    with pytest.raises(ValueError, match=r"residual.*zero constituents"):
+        _CandidateResult(populated, "residual", ("Neoplastic Process",))
+    with pytest.raises(ValueError, match=r"minted.*decomposed"):
+        _CandidateResult(empty, "residual", ("Neoplastic Process",), minted)
+    # A non-decomposition outcome has, by definition, produced no decomposition;
+    # carrying one would contradict the outcome the row is about to record.
+    for outcome in ("semantic-excluded", "atomic-no-op", "unknown"):
+        with pytest.raises(
+            ValueError, match="non-decomposition outcomes cannot carry a decomposition"
+        ):
+            _CandidateResult(populated, cast("Any", outcome), ("Neoplastic Process",))
+
+
+@pytest.mark.unit
+def test_candidate_result_preserves_typed_atomic_no_op() -> None:
+    result = _CandidateResult(
+        decomposition=None,
+        outcome="atomic-no-op",
+        semantic_types=("Neoplastic Process",),
+    )
     assert result.decomposition is None
+    assert result.outcome == "atomic-no-op"
+    assert result.semantic_types == ("Neoplastic Process",)
     assert result.minted == []
 
 
@@ -1205,6 +1501,7 @@ async def test_fresh_run_materializes_zero_output_and_rechecks_source() -> None:
     assert isinstance(fingerprint, RunFingerprint)
     assert fingerprint.worklist == ("C0",)
     assert fingerprint.source_identity == "a" * 64
+    assert fingerprint.config_version == "nested-definition-v2"
     assert fingerprint.output_mode == "none"
     assert fingerprint.load_mode == "none"
     provenance.complete_work_item.assert_awaited_once()
@@ -1220,6 +1517,8 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
         branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
         semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
         worklist=("C0", "C1"),
         total_limit=None,
@@ -1260,8 +1559,58 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
 
 
 @pytest.mark.unit
+async def test_sample_resume_revalidates_scope_and_manifest_identity(
+    tmp_path: Path,
+) -> None:
+    sample = _sample_manifest("C2", "C1")
+    fingerprint = RunFingerprint(
+        schema_version=3,
+        source_identity="a" * 64,
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+        worklist=sample.codes,
+        total_limit=None,
+        sample_manifest_identity=sample.identity,
+        algorithm_version="axis-qualified-v1",
+        config_version="nested-definition-v2",
+        walker_max_depth=5,
+        output_mode="file",
+        load_mode="none",
+        emitted_at=datetime(2026, 7, 30, 12, 0, tzinfo=UTC),
+    )
+    client = _FakeClient(pages=[["C1", "C2", "C3"]])
+    provenance = _mock_provenance()
+    provenance._test_state["fingerprint"] = fingerprint
+    provenance._test_state["pending"] = ["C1"]
+    provenance._test_state["semantic_excluded"] = 1
+    provenance.resume_run = AsyncMock(return_value=fingerprint)
+
+    metrics = await run_pipeline(
+        RunConfig(
+            branch="neoplasm",
+            out=tmp_path / "review.ttl",
+            resume_from="review-run-1",
+            sample_manifest=sample,
+        ),
+        client,
+        provenance,
+    )
+
+    expected = provenance.resume_run.await_args.args[1]
+    assert metrics.total_in_scope == 2
+    assert expected.schema_version == 3
+    assert expected.sample_manifest_identity == sample.identity
+    assert expected.config_version == "nested-definition-v2"
+    assert any("SELECT DISTINCT ?child ?parent" in query for query in client.queries)
+    provenance.create_run.assert_not_awaited()
+    assert provenance.complete_work_item.await_args.args[1] == "C1"
+
+
+@pytest.mark.unit
 async def test_source_swap_after_work_leaves_run_failed_and_incomplete() -> None:
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -1323,6 +1672,7 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
                         axis="op:PrimarySite",
                         filler_code="C12345",
                         axis_source="role",
+                        source_role="R101",
                     )
                 ],
             )
@@ -1359,10 +1709,10 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
 
 
 @pytest.mark.unit
-async def test_failed_completion_leaves_no_publishable_artifact(
+async def test_final_status_failure_surfaces_marker_ahead_for_reconciliation(
     tmp_path: Path,
 ) -> None:
-    """A run that cannot be marked complete must not publish its artifact."""
+    """External publication may lead the DB; that state must fail visibly."""
     out = tmp_path / "decomposed.ttl"
     client = _FakeClient(pages=[["C1"]])
     provenance = _mock_provenance()
@@ -1379,9 +1729,7 @@ async def test_failed_completion_leaves_no_publishable_artifact(
     )
     _mark_run_row_missing(provenance, provenance._test_state)
 
-    with pytest.raises(
-        RuntimeError, match="finish_run found no decomp_run row"
-    ) as exc_info:
+    with pytest.raises(RunPublicationError, match="remains retryable") as exc_info:
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
             client,
@@ -1389,13 +1737,11 @@ async def test_failed_completion_leaves_no_publishable_artifact(
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )
 
-    assert not out.exists()
-    assert list(tmp_path.iterdir()) == []
-    # The run row is gone, so `fail_run` records nothing: the operator must be told.
-    assert any(
-        "Run failure was NOT recorded" in note for note in exc_info.value.__notes__
-    )
-    assert list(tmp_path.iterdir()) == []
+    assert out.exists()
+    assert not list(tmp_path.glob("*.staging-*"))
+    assert isinstance(exc_info.value.__cause__, RunStateError)
+    provenance.record_publication_failure.assert_awaited_once()
+    provenance.fail_run.assert_not_awaited()
 
 
 @pytest.mark.unit
@@ -1405,7 +1751,7 @@ async def test_surviving_partial_results_are_reported_on_the_raised_error() -> N
     Dropping that result would leave the operator with only a drift error and no
     indication that mixed-source constituents are still in PostgreSQL.
     """
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -1481,21 +1827,244 @@ async def test_non_positive_total_limit_is_rejected_before_a_run_exists() -> Non
 
 
 @pytest.mark.unit
-async def test_duplicate_enumerated_codes_are_rejected_before_a_run_exists() -> None:
-    """A duplicated code would make the worklist and its fingerprint disagree."""
-    client = _FakeClient(pages=[["C1", "C1"]])
+async def test_limited_run_cannot_replace_the_public_graph(tmp_path: Path) -> None:
     provenance = _mock_provenance()
-    provenance.create_run = AsyncMock()
+    source = AsyncMock(side_effect=AssertionError("source was inspected"))
 
-    with pytest.raises(RuntimeError, match="duplicate concept codes"):
+    with pytest.raises(ValueError, match=r"total_limit.*load_to_store"):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "partial.ttl",
+                load_to_store=True,
+            ),
+            _FakeClient(pages=[["C1", "C2"]]),
+            provenance,
+            get_source_snapshot=source,
+            total_limit=1,
+        )
+
+    source.assert_not_awaited()
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_empty_standard_scope_is_rejected_before_run_creation() -> None:
+    provenance = _mock_provenance()
+
+    with pytest.raises(RuntimeError, match="scope enumeration returned no concepts"):
         await run_pipeline(
             RunConfig(branch="neoplasm"),
-            client,
+            _FakeClient(pages=[[]]),
             provenance,
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )
 
     provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_sample_and_total_limit_are_rejected_before_source_or_provenance(
+    tmp_path: Path,
+) -> None:
+    provenance = _mock_provenance()
+    source = AsyncMock(side_effect=AssertionError("source was inspected"))
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "review.ttl",
+                sample_manifest=_sample_manifest("C1"),
+            ),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+            get_source_snapshot=source,
+            total_limit=1,
+        )
+
+    source.assert_not_awaited()
+    provenance.create_run.assert_not_awaited()
+    provenance.resume_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("sample", "message"),
+    [
+        (_sample_manifest("C1", source_identity="b" * 64), "source identity"),
+        (_sample_manifest("C1", ontology_version="26.05d"), "ontology version"),
+    ],
+)
+async def test_sample_source_drift_is_rejected_before_provenance(
+    tmp_path: Path,
+    sample: DecompositionSampleManifest,
+    message: str,
+) -> None:
+    provenance = _mock_provenance()
+
+    with pytest.raises(SourceIdentityChangedError, match=message):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "review.ttl",
+                sample_manifest=sample,
+            ),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    provenance.create_run.assert_not_awaited()
+    provenance.resume_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_sample_rejects_out_of_scope_code_before_provenance(
+    tmp_path: Path,
+) -> None:
+    provenance = _mock_provenance()
+
+    with pytest.raises(
+        ValueError,
+        match=r"outside the configured hierarchy scope.*C9",
+    ):
+        await run_pipeline(
+            RunConfig(
+                branch="neoplasm",
+                out=tmp_path / "review.ttl",
+                sample_manifest=_sample_manifest("C1", "C9"),
+            ),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_sample_order_and_identity_are_persisted_as_exact_worklist(
+    tmp_path: Path,
+) -> None:
+    sample = _sample_manifest("C2", "C1")
+    provenance = _mock_provenance()
+
+    metrics = await run_pipeline(
+        RunConfig(
+            branch="neoplasm",
+            out=tmp_path / "review.ttl",
+            sample_manifest=sample,
+        ),
+        _FakeClient(pages=[["C1", "C2", "C3"]]),
+        provenance,
+    )
+
+    fingerprint = provenance._test_state["fingerprint"]
+    assert metrics.total_in_scope == 2
+    assert fingerprint.schema_version == 3
+    assert fingerprint.worklist == ("C2", "C1")
+    assert fingerprint.sample_manifest_identity == sample.identity
+    assert fingerprint.total_limit is None
+
+
+@pytest.mark.unit
+async def test_duplicate_hierarchy_edges_materialize_one_work_item() -> None:
+    """Polyhierarchy/duplicate source edges cannot duplicate the exact worklist."""
+    client = _FakeClient(pages=[["C1", "C1"]])
+    provenance = _mock_provenance()
+
+    await run_pipeline(
+        RunConfig(branch="neoplasm"),
+        client,
+        provenance,
+        get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+    )
+
+    fingerprint = provenance._test_state["fingerprint"]
+    assert fingerprint.worklist == ("C1",)
+
+
+@pytest.mark.unit
+async def test_duplicate_scope_enumeration_is_rejected_before_run_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The final materialization guard must remain live even if enumeration regresses.
+
+    The hierarchy walker currently deduplicates edges itself, but the immutable
+    worklist must not depend on that collaborator continuing to do so.
+    """
+    provenance = _mock_provenance()
+    monkeypatch.setattr(
+        run_module,
+        "enumerate_in_scope_codes",
+        AsyncMock(return_value=["C1", "C1"]),
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate concept codes"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(),
+            provenance,
+        )
+
+    provenance.create_run.assert_not_awaited()
+
+
+@pytest.mark.unit
+async def test_work_item_failure_recording_error_is_attached_to_primary_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provenance = _mock_provenance()
+    provenance.fail_work_item = AsyncMock(
+        side_effect=RuntimeError("work-item journal unavailable")
+    )
+
+    async def fail_decomposition(*_args: object, **_kwargs: object) -> object:
+        raise ValueError("malformed stated definition")
+
+    monkeypatch.setattr(run_module, "_decompose_one", fail_decomposition)
+
+    with pytest.raises(ValueError, match="malformed stated definition") as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm"),
+            _FakeClient(pages=[["C1"]]),
+            provenance,
+        )
+
+    assert any(
+        "work-item journal unavailable" in note for note in exc_info.value.__notes__
+    )
+    provenance.fail_run.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_serialization_and_run_journal_double_fault_preserves_primary_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "decomposed.ttl"
+    provenance = _mock_provenance()
+    provenance.fail_run = AsyncMock(side_effect=RuntimeError("run journal unavailable"))
+
+    async def fail_write(
+        _decompositions: object,
+        dest: Path,
+        **_kwargs: object,
+    ) -> None:
+        dest.write_text("partial artifact", encoding="utf-8")
+        raise OSError("serialization interrupted")
+
+    monkeypatch.setattr(run_module, "write_ttl", fail_write)
+
+    with pytest.raises(OSError, match="serialization interrupted") as exc_info:
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+        )
+
+    assert any("run journal unavailable" in note for note in exc_info.value.__notes__)
+    assert not out.exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.unit
@@ -1509,7 +2078,7 @@ async def test_staging_cleanup_failure_never_replaces_the_drift_error(
     the drifted run's mixed-source rows would survive in PostgreSQL.
     """
     out = tmp_path / "decomposed.ttl"
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -1546,13 +2115,13 @@ async def test_staging_cleanup_failure_never_replaces_the_drift_error(
 
 
 @pytest.mark.unit
-async def test_publication_failure_reports_the_completed_unpublished_run(
+async def test_publication_failure_is_recorded_as_retryable_before_completion(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A rename failure after completion must not read as an unrecorded failure."""
+    """A rename failure remains a publication retry, not a completed run."""
     out = tmp_path / "decomposed.ttl"
-    client = _FakeClient(pages=[[]])
+    client = _FakeClient(pages=[["C0"]])
     provenance = _mock_provenance()
     provenance.create_run = AsyncMock()
     provenance.pending_codes = AsyncMock(return_value=[])
@@ -1563,12 +2132,12 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
         )
     )
 
-    def explode(self: Path, _target: object) -> None:
+    def explode(_source: object, _target: object) -> None:
         raise OSError("is a directory")
 
-    monkeypatch.setattr(Path, "replace", explode)
+    monkeypatch.setattr(os, "replace", explode)
 
-    with pytest.raises(RunPublicationError, match="was not published") as exc_info:
+    with pytest.raises(RunPublicationError, match="remains retryable") as exc_info:
         await run_pipeline(
             RunConfig(branch="neoplasm", out=out),
             client,
@@ -1576,26 +2145,94 @@ async def test_publication_failure_reports_the_completed_unpublished_run(
             get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
         )
 
-    provenance.finish_run.assert_awaited_once()
+    provenance.finish_run.assert_not_awaited()
+    provenance.record_publication_failure.assert_awaited_once()
     provenance.fail_run.assert_not_awaited()
     assert isinstance(exc_info.value.__cause__, OSError)
     assert not getattr(exc_info.value, "__notes__", [])
-    # The message promises the rendered output survives; it is the only copy,
-    # because the completed run can no longer be resumed.
+    # The complete staging artifact survives so a matching resume can reconcile it.
     staging = next(path for path in tmp_path.iterdir() if ".staging-" in path.name)
-    assert str(staging) in str(exc_info.value)
+    assert staging.exists()
     assert not out.exists()
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("branch", ["", "neo/plasm", "neo\\plasm"])
-def test_run_config_rejects_a_path_unsafe_branch(branch: str) -> None:
-    """`branch` reaches the staging filename through the run id.
+async def test_artifact_validation_failure_fails_the_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "decomposed.ttl"
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
 
-    Rejecting it at construction avoids failing only at publication, after the whole
-    worklist has been processed and under a run id that can no longer be resumed.
-    """
-    with pytest.raises(ValueError, match="path separators"):
+    monkeypatch.setattr(
+        "ontolib.decomposition.publication._validated_artifact_payload",
+        MagicMock(side_effect=PublicationPreflightError("invalid artifact")),
+    )
+
+    with pytest.raises(PublicationPreflightError, match="invalid artifact"):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    provenance.fail_run.assert_awaited_once()
+    provenance.record_publication_failure.assert_not_awaited()
+    assert not out.exists()
+
+
+@pytest.mark.unit
+async def test_publication_cancellation_is_not_wrapped_as_retryable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = tmp_path / "decomposed.ttl"
+    provenance = _mock_provenance()
+    provenance.create_run = AsyncMock()
+    provenance.pending_codes = AsyncMock(return_value=[])
+    provenance.decompositions_for_run = AsyncMock(return_value=[])
+    provenance.outcome_counts = AsyncMock(
+        return_value=RunOutcomeCounts(
+            total_in_scope=0, decomposed=0, residual=0, minted_count=0
+        )
+    )
+    monkeypatch.setattr(
+        run_module,
+        "publish_artifact",
+        AsyncMock(side_effect=asyncio.CancelledError()),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_pipeline(
+            RunConfig(branch="neoplasm", out=out),
+            _FakeClient(pages=[["C0"]]),
+            provenance,
+            get_source_snapshot=AsyncMock(return_value=_source_snapshot()),
+        )
+
+    provenance.fail_run.assert_awaited_once()
+    assert not out.exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "branch",
+    ["", "regimen", "experimental", "neo/plasm", "neo\\plasm"],
+)
+def test_run_config_rejects_every_unsupported_branch_before_a_run_exists(
+    branch: str,
+) -> None:
+    """Cosmetic and unimplemented branch labels must not create provenance."""
+    with pytest.raises(ValueError, match="unsupported decomposition branch"):
         RunConfig(branch=branch)
 
 

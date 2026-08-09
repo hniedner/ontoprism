@@ -7,7 +7,6 @@ from ontolib.decomposition.extract import (
     PartOfPair,
     ancestor_pairs_from_rows,
     concepts_from_rows,
-    genus_walk_rows_to_roles_and_genuses,
     make_is_ancestor,
     part_of_pairs_from_rows,
     roles_from_rows,
@@ -190,98 +189,6 @@ def _restriction_row(
     if label is not None:
         row["roleLabel"] = label
     return row
-
-
-@pytest.mark.unit
-def test_genus_walk_rows_to_roles_and_genuses_classifies() -> None:
-    rows = [
-        _genus_row("C141041"),
-        _restriction_row("R88", "C27970", "Disease_Is_Stage"),
-    ]
-    roles, genuses = genus_walk_rows_to_roles_and_genuses(rows)
-    assert genuses == ["C141041"]
-    assert len(roles) == 1
-    assert roles[0].role_code == "R88"
-    assert roles[0].filler_code == "C27970"
-    assert roles[0].role_label == "Disease_Is_Stage"
-
-
-@pytest.mark.unit
-def test_genus_walk_rows_deduplicates_roles() -> None:
-    rows = [
-        _restriction_row("R88", "C27970"),
-        _restriction_row("R88", "C27970"),  # duplicate
-        _restriction_row("R88", "C90530"),
-    ]
-    roles, _ = genus_walk_rows_to_roles_and_genuses(rows)
-    assert len(roles) == 2
-    assert ("R88", "C27970") in [(r.role_code, r.filler_code) for r in roles]
-    assert ("R88", "C90530") in [(r.role_code, r.filler_code) for r in roles]
-
-
-@pytest.mark.unit
-def test_genus_walk_rows_deduplicates_genuses() -> None:
-    rows = [
-        _genus_row("C141041"),
-        _genus_row("C141041"),  # duplicate
-        _genus_row("C3879"),
-    ]
-    _, genuses = genus_walk_rows_to_roles_and_genuses(rows)
-    assert genuses == ["C141041", "C3879"]
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("member", "message"),
-    [
-        ("https://example.org/vocab#C1", "member is not an NCIt IRI"),
-        (_iri("R82"), "member is not an NCIt concept code"),
-        (_iri("Cfoo"), "member is not an NCIt concept code"),
-    ],
-)
-def test_genus_walk_rows_rejects_non_ncit_concept(
-    member: str,
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        genus_walk_rows_to_roles_and_genuses([{"member": member, "type": None}])
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("binding", "value", "message"),
-    [
-        ("role", "https://example.org/vocab#R1", "role is not an NCIt IRI"),
-        ("role", _iri("Rfoo"), "role is not an NCIt role code"),
-        ("target", "https://example.org/vocab#C1", "target is not an NCIt IRI"),
-        ("target", _iri("Cfoo"), "target is not an NCIt concept code"),
-    ],
-)
-def test_genus_walk_rows_rejects_invalid_restriction_codes(
-    binding: str,
-    value: str,
-    message: str,
-) -> None:
-    row = _restriction_row("R88", "C27970")
-    row[binding] = value
-    with pytest.raises(ValueError, match=message):
-        genus_walk_rows_to_roles_and_genuses([row])
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "row",
-    [
-        {},
-        {"member": "_:b", "type": _OWL_RESTRICTION},
-        {"member": "_:b", "type": _OWL_RESTRICTION, "role": _iri("R88")},
-    ],
-)
-def test_genus_walk_rejects_missing_required_binding(
-    row: dict[str, str | None],
-) -> None:
-    with pytest.raises(ValueError, match="missing required"):
-        genus_walk_rows_to_roles_and_genuses([row])
 
 
 @pytest.mark.unit

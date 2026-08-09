@@ -116,8 +116,48 @@ tests = ["test_decomposition_run_lifecycle_migration_roundtrip"]
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_complete_definition_migration_roundtrip"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_definition_presence_migration_roundtrip"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_nested_definition_group_migration_roundtrip"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "backend/tests/test_migrations_integration.py"
+tests = ["test_outcome_migration_backfills_unknown_and_rejects_invalid_shape"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_provenance_integration.py"
 fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_oxigraph_update_is_transactional_and_empty_replacement_is_clean"]
+fixtures = ["isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_postgres_advisory_lock_excludes_and_then_admits_a_publisher"]
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_production_publication_reconciles_marker_ahead_and_clears_stale_graph"]
+fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_publication_integration.py"
+tests = ["test_concurrent_publishers_are_serialized_and_readers_see_complete_graphs"]
+fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_run_lifecycle_integration.py"
@@ -134,6 +174,21 @@ fixtures = ["isolated_oxigraph_settings"]
 [[mutator]]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
 tests = ["test_part_of_closure_rejects_row_sentinel_and_malformed_target"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_genus_traversal_matches_disposable_owl_list_shape"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_nested_intersection_groups_and_late_members_match_real_oxigraph"]
+fixtures = ["isolated_oxigraph_url"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_scope_integration.py"
+tests = ["test_scope_fails_closed_when_named_genus_follows_bounded_prefix"]
 fixtures = ["isolated_oxigraph_url"]
 
 [[mutator]]

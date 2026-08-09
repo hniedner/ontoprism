@@ -1,7 +1,6 @@
 """Behavioral tests for platform hardening: rate limiting, version check, readiness."""
 
 import logging
-import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -79,8 +78,14 @@ def test_rate_limit_429_has_retry_after_and_envelope(
 def test_rate_limit_window_resets_after_expiry() -> None:
     # After the window elapses the counter resets — a capped client is not blocked
     # forever (guards the reset branch).
+    now = [0.0]
     app = FastAPI()
-    app.add_middleware(RateLimitMiddleware, limit=1, window_sec=0.05)
+    app.add_middleware(
+        RateLimitMiddleware,
+        limit=1,
+        window_sec=0.05,
+        monotonic=lambda: now[0],
+    )
     app.add_middleware(RequestContextMiddleware)
 
     @app.get("/ping")
@@ -90,7 +95,7 @@ def test_rate_limit_window_resets_after_expiry() -> None:
     with TestClient(app) as client:
         assert client.get("/ping").status_code == 200
         assert client.get("/ping").status_code == 429  # over cap within the window
-        time.sleep(0.08)  # let the window expire
+        now[0] = 0.08  # let the window expire deterministically
         assert client.get("/ping").status_code == 200  # reset
 
 

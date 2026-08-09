@@ -1,0 +1,847 @@
+{
+  "concepts": [
+    {
+      "code": "C27262",
+      "constituents": [
+        {
+          "axis": "op:CellType",
+          "filler": "C41063",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C36220",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C41397",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C35501",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12431",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C102870",
+      "constituents": [
+        {
+          "axis": "op:CellType",
+          "filler": "C12917",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:CellType",
+          "filler": "C36903",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C121619",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C162770",
+      "constituents": [],
+      "outcome": "semantic-excluded",
+      "semantic_types": [
+        "Finding"
+      ]
+    },
+    {
+      "code": "C102883",
+      "constituents": [],
+      "outcome": "atomic-no-op",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C115057",
+      "constituents": [
+        {
+          "axis": "op:CellType",
+          "filler": "C36771",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C42690",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C54224",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90529",
+          "needs_review": false,
+          "relationship_group": "op:StageSystem"
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90530",
+          "needs_review": false,
+          "relationship_group": "op:StageSystem"
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-d104509874ed",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27966",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C101539",
+      "constituents": [
+        {
+          "axis": "op:CellType",
+          "filler": "C36836",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C7153",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90530",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-8512b41a844d",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C140961",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27966",
+          "needs_review": true,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C132677",
+      "constituents": [
+        {
+          "axis": "op:MetastaticSite",
+          "filler": "C32298",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C8566",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C132248",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-4563e6974906",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27970",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C181564",
+      "constituents": [
+        {
+          "axis": "op:Morphology",
+          "filler": "C9039",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12311",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C180901",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-27f8060dd413",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27966",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C186620",
+      "constituents": [
+        {
+          "axis": "op:Morphology",
+          "filler": "C9039",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12311",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C186618",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27966",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C162226",
+      "constituents": [
+        {
+          "axis": "op:Morphology",
+          "filler": "C9039",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12311",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C186617",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C96244",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C206219",
+      "constituents": [
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C12402",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C32514",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C7558",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C206211",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C96244",
+          "needs_review": true,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C198031",
+      "constituents": [
+        {
+          "axis": "op:CellType",
+          "filler": "C12914",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C4005",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C198023",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C100054",
+      "constituents": [
+        {
+          "axis": "op:AssociatedSite",
+          "filler": "C137974",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:CellType",
+          "filler": "C36862",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C36027",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C8326",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C204977",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:NormalTissueOrigin",
+          "filler": "C32365",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12341",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C100051",
+      "constituents": [
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C12413",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C49274",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:CellType",
+          "filler": "C36773",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C9385",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:WithFinding",
+          "filler": "MINT-e7a70a54f6ff",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "R126",
+          "filler": "C3270",
+          "needs_review": true,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C6135",
+      "constituents": [
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C12418",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C13063",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:MolecularAbnormality",
+          "filler": "C129702",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C3879",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12400",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90530",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-8512b41a844d",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27970",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C4791",
+      "constituents": [
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C12905",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C13004",
+          "needs_review": false,
+          "relationship_group": "op:AssociatedRegion"
+        },
+        {
+          "axis": "op:AssociatedSite",
+          "filler": "C13004",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:CellType",
+          "filler": "C36899",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:CellType",
+          "filler": "C36954",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Laterality",
+          "filler": "MINT-77bd086d7877",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C3499",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12869",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C35756",
+      "constituents": [
+        {
+          "axis": "op:CellType",
+          "filler": "C36820",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:ClinicalFinding",
+          "filler": "C3331",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C4878",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12468",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12683",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90530",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-8512b41a844d",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27978",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C28064",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:WithFinding",
+          "filler": "MINT-a60f42d6b2d0",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C89995",
+      "constituents": [
+        {
+          "axis": "op:AssociatedRegion",
+          "filler": "C54189",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C2955",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12382",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90530",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-8512b41a844d",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27970",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C27787",
+      "constituents": [
+        {
+          "axis": "op:CellType",
+          "filler": "C12917",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:CellType",
+          "filler": "C36903",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C5027",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12412",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90529",
+          "needs_review": false,
+          "relationship_group": "op:StageSystem"
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90530",
+          "needs_review": false,
+          "relationship_group": "op:StageSystem"
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-d104509874ed",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27970",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    },
+    {
+      "code": "C115118",
+      "constituents": [
+        {
+          "axis": "op:Morphology",
+          "filler": "C3513",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C12389",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:PrimarySite",
+          "filler": "C203674",
+          "needs_review": true,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "C90530",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageSystem",
+          "filler": "MINT-8512b41a844d",
+          "needs_review": false,
+          "relationship_group": null
+        },
+        {
+          "axis": "op:StageValue",
+          "filler": "C27976",
+          "needs_review": false,
+          "relationship_group": null
+        }
+      ],
+      "outcome": "decomposed",
+      "semantic_types": [
+        "Neoplastic Process"
+      ]
+    }
+  ],
+  "detector_identity": "d2f8da71466ef46865de9d3411b7c30481449800e7627b41554d01d8f836c5d5",
+  "engine_artifact_identity": "2c0a569f4bfd269ccf276dda36e9fffb0740fea356f68b025dd48c4d092361d5",
+  "evidence_identity": "2d5bd0b610fc214eac807d6fa215628f73e7c1dededca7b8726d3b57c92bee8c",
+  "ncit_version": "26.07d",
+  "residual_precoordinated_codes": [
+    "C27262",
+    "C102870",
+    "C115057",
+    "C101539",
+    "C132677",
+    "C181564",
+    "C186620",
+    "C162226",
+    "C206219",
+    "C198031",
+    "C100054",
+    "C100051",
+    "C6135",
+    "C4791",
+    "C35756",
+    "C89995",
+    "C27787",
+    "C115118"
+  ],
+  "run_fingerprint_identity": "44a493dff9dea8eb7aab2dcd1e828a6491ab757829b15b7a36989943c6b7d09c",
+  "run_id": "neoplasm-3981f4d1-28fe-446e-b63a-0db81c80963b",
+  "sample_manifest_identity": "9c32b36c482879f030aca0ec8f2bd84542a3f53fe541c9a4372cfe050b94b87c",
+  "schema_version": 1,
+  "source_identity": "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+}

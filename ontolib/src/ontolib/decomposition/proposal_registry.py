@@ -1,0 +1,614 @@
+"""Strict, source-bound governance records for missing concepts and relations."""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import os
+import re
+import tempfile
+from io import StringIO
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from ontolib.decomposition.minting import MintedConcept, normalize_label
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+ProposalStatus = Literal[
+    "proposed",
+    "locally-approved",
+    "submitted",
+    "accepted",
+    "rejected",
+]
+DuplicateResult = Literal["no-equivalent", "equivalent-found", "possible-match"]
+MappingPredicate = Literal[
+    "exactMatch",
+    "closeMatch",
+    "broadMatch",
+    "narrowMatch",
+    "relatedMatch",
+]
+_NCIT_CODE = re.compile(r"C[0-9]+")
+_ROLE_CODE = re.compile(r"R[0-9]+")
+_OP_AXIS = re.compile(r"op:[A-Za-z][A-Za-z0-9]*")
+_ABSOLUTE_IRI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:[^\s<>\"{}|\\^`]+")
+
+
+def _identity(value: object) -> str:
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _text(value: str, field: str) -> str:
+    if not value or value != value.strip():
+        raise ValueError(f"{field} must be non-empty without outer whitespace")
+    return value
+
+
+def _canonical(values: tuple[str, ...], field: str) -> tuple[str, ...]:
+    if not values:
+        raise ValueError(f"{field} must not be empty")
+    for value in values:
+        _text(value, field)
+    if len(values) != len(set(values)):
+        raise ValueError(f"{field} must be unique")
+    return values
+
+
+def _require_unique(values: Sequence[object], field: str) -> None:
+    if len(values) != len(set(values)):
+        raise ValueError(f"{field} must be unique")
+
+
+def _require_matches(
+    values: Sequence[str], pattern: re.Pattern[str], field: str
+) -> None:
+    if any(pattern.fullmatch(value) is None for value in values):
+        raise ValueError(f"{field} contains an invalid identifier")
+
+
+def _require_replacement_shape(
+    status: ProposalStatus, replacement_ncit_code: str | None
+) -> None:
+    if status == "accepted" and replacement_ncit_code is None:
+        raise ValueError("accepted concept requires replacement NCIt code")
+    if status != "accepted" and replacement_ncit_code is not None:
+        raise ValueError("only accepted concept may carry replacement NCIt code")
+
+
+def _require_concept_id(axis: str, preferred_name: str, actual_id: str) -> None:
+    expected_id = MintedConcept(axis=axis, label=preferred_name).id
+    if actual_id != expected_id:
+        raise ValueError(
+            "concept proposal must use its deterministic concept proposal id"
+        )
+
+
+def _require_axis(axis: str) -> None:
+    _text(axis, "axis")
+    if _OP_AXIS.fullmatch(axis) is None:
+        raise ValueError("axis must be a safe op: identifier")
+
+
+def _require_relation_id(preferred_name: str, actual_id: str) -> None:
+    if actual_id != relation_proposal_id(preferred_name):
+        raise ValueError(
+            "relation proposal must use its deterministic relation proposal id"
+        )
+
+
+def _require_relation_replacement_shape(
+    status: ProposalStatus,
+    replacement_iri: str | None,
+    replacement_version: str | None,
+) -> None:
+    replacements = (replacement_iri, replacement_version)
+    if status == "accepted":
+        if any(value is None for value in replacements):
+            raise ValueError("accepted relation requires replacement IRI and version")
+    elif any(value is not None for value in replacements):
+        raise ValueError("only accepted relation may carry a replacement identity")
+
+
+def _validate_relation_replacement(
+    replacement_iri: str | None, replacement_version: str | None
+) -> None:
+    if replacement_iri is not None and _ABSOLUTE_IRI.fullmatch(replacement_iri) is None:
+        raise ValueError("replacement relation IRI must be an absolute IRI")
+    if replacement_version is not None:
+        _text(replacement_version, "replacement relation version")
+
+
+class _StrictModel(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+
+class DuplicateCheck(_StrictModel):
+    """One resource- and version-labelled search for an existing equivalent."""
+
+    resource: str
+    version: str
+    query: str
+    result: DuplicateResult
+    candidates: tuple[str, ...] = ()
+    evidence_url: str
+
+    @model_validator(mode="after")
+    def _validate_text_and_uniqueness(self) -> Self:
+        for field in ("resource", "version", "query", "evidence_url"):
+            _text(getattr(self, field), field)
+        if len(self.candidates) != len(set(self.candidates)):
+            raise ValueError("duplicate-check candidates must be unique")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_result_shape(self) -> Self:
+        if self.result == "no-equivalent" and self.candidates:
+            raise ValueError("no-equivalent must not carry candidates")
+        if self.result != "no-equivalent" and not self.candidates:
+            raise ValueError(f"{self.result} requires at least one candidate")
+        return self
+
+
+class CrossOntologyMapping(_StrictModel):
+    """One version-pinned external concept mapping with explicit match strength."""
+
+    system: str
+    version: str
+    concept_id: str
+    label: str
+    predicate: MappingPredicate
+    evidence_url: str
+
+    @model_validator(mode="after")
+    def _validate_mapping(self) -> Self:
+        for field in (
+            "system",
+            "version",
+            "concept_id",
+            "label",
+            "evidence_url",
+        ):
+            _text(getattr(self, field), f"mapping {field}")
+        if self.system == "SNOMED CT US":
+            valid_identifier = self.concept_id.isdigit()
+        elif self.system == "NCIt":
+            valid_identifier = _NCIT_CODE.fullmatch(self.concept_id) is not None
+        else:
+            valid_identifier = _ABSOLUTE_IRI.fullmatch(self.concept_id) is not None
+        if not valid_identifier:
+            raise ValueError("mapping concept_id is not a safe identifier or IRI")
+        return self
+
+
+def _validate_duplicate_checks(
+    checks: tuple[DuplicateCheck, ...],
+    status: ProposalStatus,
+) -> None:
+    resources = [check.resource for check in checks]
+    if len(resources) != len(set(resources)):
+        raise ValueError("duplicate checks must use unique resources")
+    if any(check.result == "equivalent-found" for check in checks) and status != (
+        "rejected"
+    ):
+        raise ValueError("equivalent-found proposals must be rejected")
+
+
+class _Proposal(_StrictModel):
+    id: str
+    preferred_name: str
+    definition: str
+    source_roles: tuple[str, ...]
+    rationale: str
+    duplicate_checks: tuple[DuplicateCheck, ...] = Field(min_length=1)
+    submission_target: str
+    status: ProposalStatus = "proposed"
+
+    @model_validator(mode="after")
+    def _validate_common(self) -> Self:
+        for field in (
+            "id",
+            "preferred_name",
+            "definition",
+            "rationale",
+            "submission_target",
+        ):
+            _text(getattr(self, field), field)
+        _canonical(self.source_roles, "source_roles")
+        _require_matches(self.source_roles, _ROLE_CODE, "source_roles")
+        _validate_duplicate_checks(self.duplicate_checks, self.status)
+        return self
+
+
+class ConceptProposal(_Proposal):
+    """A proposed NCIt class that is not accepted ontology content."""
+
+    kind: Literal["concept"] = "concept"
+    axis: str
+    parent_concepts: tuple[str, ...]
+    semantic_types: tuple[str, ...]
+    synonyms: tuple[str, ...] = ()
+    source_concepts: tuple[str, ...]
+    mappings: tuple[CrossOntologyMapping, ...] = Field(min_length=1)
+    replacement_ncit_code: str | None = Field(default=None, pattern=r"^C[0-9]+$")
+
+    @model_validator(mode="after")
+    def _validate_concept(self) -> Self:
+        _require_axis(self.axis)
+        _canonical(self.parent_concepts, "parent_concepts")
+        _require_matches(self.parent_concepts, _NCIT_CODE, "parent_concepts")
+        _canonical(self.semantic_types, "semantic_types")
+        _canonical(self.source_concepts, "source_concepts")
+        _require_matches(self.source_concepts, _NCIT_CODE, "source_concepts")
+        _require_unique(list(self.synonyms), "synonyms")
+        mapping_keys = [(item.system, item.concept_id) for item in self.mappings]
+        _require_unique(mapping_keys, "cross-ontology mappings")
+        _require_replacement_shape(self.status, self.replacement_ncit_code)
+        _require_concept_id(self.axis, self.preferred_name, self.id)
+        return self
+
+
+class RelationProposal(_Proposal):
+    """A versioned governance record for one normalized univocal relation."""
+
+    kind: Literal["relation"] = "relation"
+    axis: str
+    domain: str
+    range: str
+    source_examples: tuple[str, ...]
+    replacement_relation_iri: str | None = None
+    replacement_relation_version: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_relation(self) -> Self:
+        _require_axis(self.axis)
+        _text(self.domain, "domain")
+        _text(self.range, "range")
+        _require_matches((self.domain,), _NCIT_CODE, "domain")
+        _require_matches((self.range,), _NCIT_CODE, "range")
+        _canonical(self.source_examples, "source_examples")
+        _require_relation_id(self.preferred_name, self.id)
+        _require_relation_replacement_shape(
+            self.status,
+            self.replacement_relation_iri,
+            self.replacement_relation_version,
+        )
+        _validate_relation_replacement(
+            self.replacement_relation_iri,
+            self.replacement_relation_version,
+        )
+        return self
+
+
+Proposal = Annotated[ConceptProposal | RelationProposal, Field(discriminator="kind")]
+
+
+class ProposalRegistry(_StrictModel):
+    """One immutable proposal set bound to an identified NCIt source."""
+
+    schema_version: Literal[1] = 1
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ontology_version: str
+    proposals: tuple[Proposal, ...]
+    registry_identity: str = Field(default="", pattern=r"^$|^[0-9a-f]{64}$")
+
+    def model_post_init(self, _context: object) -> None:
+        if not self.registry_identity:
+            object.__setattr__(self, "registry_identity", self._expected_identity())
+
+    @model_validator(mode="after")
+    def _validate_registry(self) -> Self:
+        _text(self.ontology_version, "ontology_version")
+        ids = [proposal.id for proposal in self.proposals]
+        if len(ids) != len(set(ids)):
+            raise ValueError("proposal ids must be unique")
+        if self.registry_identity != self._expected_identity():
+            raise ValueError("proposal registry identity does not match its payload")
+        return self
+
+    def _expected_identity(self) -> str:
+        return _identity(self.model_dump(mode="json", exclude={"registry_identity"}))
+
+    def filter(
+        self,
+        *,
+        kind: Literal["concept", "relation"] | None = None,
+        status: ProposalStatus | None = None,
+    ) -> tuple[Proposal, ...]:
+        """Return proposals matching both supplied governance filters."""
+        return tuple(
+            proposal
+            for proposal in self.proposals
+            if (kind is None or proposal.kind == kind)
+            and (status is None or proposal.status == status)
+        )
+
+    def ncit_submission_rows(self) -> tuple[dict[str, str], ...]:
+        """Render proposed NCIt classes as deterministic flat submission rows."""
+        return tuple(
+            {
+                "proposal_id": proposal.id,
+                "preferred_name": proposal.preferred_name,
+                "definition": proposal.definition,
+                "parent_concepts": "|".join(proposal.parent_concepts),
+                "semantic_types": "|".join(proposal.semantic_types),
+                "synonyms": "|".join(proposal.synonyms),
+                "source_concepts": "|".join(proposal.source_concepts),
+                "source_roles": "|".join(proposal.source_roles),
+                "rationale": proposal.rationale,
+                "status": proposal.status,
+            }
+            for proposal in self.proposals
+            if isinstance(proposal, ConceptProposal)
+            and proposal.submission_target == "NCIt"
+            and proposal.status == "proposed"
+        )
+
+    def relation_submission_rows(self) -> tuple[dict[str, str], ...]:
+        """Render relation proposals as deterministic flat governance rows."""
+        return tuple(
+            {
+                "proposal_id": proposal.id,
+                "axis": proposal.axis,
+                "preferred_name": proposal.preferred_name,
+                "definition": proposal.definition,
+                "domain": proposal.domain,
+                "range": proposal.range,
+                "source_roles": "|".join(proposal.source_roles),
+                "source_examples": "|".join(proposal.source_examples),
+                "rationale": proposal.rationale,
+                "status": proposal.status,
+                "submission_target": proposal.submission_target,
+            }
+            for proposal in self.proposals
+            if isinstance(proposal, RelationProposal) and proposal.status == "proposed"
+        )
+
+
+def relation_proposal_id(preferred_name: str) -> str:
+    """Return a deterministic relation-proposal identifier from its preferred name."""
+    normalized = normalize_label(preferred_name)
+    digest = hashlib.sha1(f"relation|{normalized}".encode()).hexdigest()[:12]  # noqa: S324
+    return f"RELPROP-{digest}"
+
+
+def resolve_proposal_identifier(registry: ProposalRegistry, identifier: str) -> str:
+    """Resolve an accepted placeholder to its assigned ontology identifier."""
+    for proposal in registry.proposals:
+        if proposal.id != identifier:
+            continue
+        if isinstance(proposal, ConceptProposal) and proposal.replacement_ncit_code:
+            return proposal.replacement_ncit_code
+        if isinstance(proposal, RelationProposal) and proposal.replacement_relation_iri:
+            return proposal.replacement_relation_iri
+        return identifier
+    return identifier
+
+
+def _mapping_iri(mapping: CrossOntologyMapping) -> str:
+    if mapping.system == "SNOMED CT US":
+        return f"http://snomed.info/id/{mapping.concept_id}"
+    if mapping.system == "NCIt":
+        return (
+            f"http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{mapping.concept_id}"
+        )
+    return mapping.concept_id
+
+
+def _augmented_ttl(registry: ProposalRegistry) -> str:
+    lines = [
+        "@prefix ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> .",
+        "@prefix op: <https://w3id.org/ontoprism/vocab#> .",
+        "@prefix owl: <http://www.w3.org/2002/07/owl#> .",
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
+        "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .",
+        "",
+    ]
+    for proposal in registry.proposals:
+        if not isinstance(proposal, ConceptProposal) or proposal.status not in {
+            "locally-approved",
+            "submitted",
+            "accepted",
+        }:
+            continue
+        subject = f"op:{proposal.id}"
+        lines.extend(
+            [
+                f"{subject} a owl:Class ;",
+                f"  rdfs:label {json.dumps(proposal.preferred_name)} ;",
+                f"  op:proposalStatus {json.dumps(proposal.status)} ;",
+                *(
+                    f"  rdfs:subClassOf ncit:{parent} ;"
+                    for parent in proposal.parent_concepts
+                ),
+            ]
+        )
+        for index, mapping in enumerate(proposal.mappings):
+            suffix = ";" if index < len(proposal.mappings) - 1 else "."
+            lines.append(
+                f"  skos:{mapping.predicate} <{_mapping_iri(mapping)}> {suffix}"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _csv_text(rows: tuple[dict[str, str], ...], fields: tuple[str, ...]) -> str:
+    target = StringIO(newline="")
+    writer = csv.DictWriter(target, fieldnames=fields, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return target.getvalue()
+
+
+def _accepted_replacement(proposal: Proposal) -> tuple[str, object] | None:
+    if proposal.status != "accepted":
+        return None
+    if isinstance(proposal, ConceptProposal):
+        return proposal.id, proposal.replacement_ncit_code
+    return proposal.id, {
+        "identifier": proposal.replacement_relation_iri,
+        "version": proposal.replacement_relation_version,
+    }
+
+
+def write_submission_exports(registry: ProposalRegistry, directory: str | Path) -> None:
+    """Stage one export generation and promote its hash manifest last."""
+    root = Path(directory)
+    concept_fields = (
+        "proposal_id",
+        "preferred_name",
+        "definition",
+        "parent_concepts",
+        "semantic_types",
+        "synonyms",
+        "source_concepts",
+        "source_roles",
+        "rationale",
+        "status",
+    )
+    relation_fields = (
+        "proposal_id",
+        "axis",
+        "preferred_name",
+        "definition",
+        "domain",
+        "range",
+        "source_roles",
+        "source_examples",
+        "rationale",
+        "status",
+        "submission_target",
+    )
+    concept_rows = registry.ncit_submission_rows()
+    relation_rows = registry.relation_submission_rows()
+    replacement_items = map(_accepted_replacement, registry.proposals)
+    replacements = dict(item for item in replacement_items if item is not None)
+    payloads = {
+        "ncit-concept-proposals.csv": _csv_text(concept_rows, concept_fields),
+        "relation-proposals.csv": _csv_text(relation_rows, relation_fields),
+        "augmented-ncit-proposals.ttl": _augmented_ttl(registry),
+        "accepted-replacements.json": (
+            json.dumps(replacements, indent=2, sort_keys=True) + "\n"
+        ),
+    }
+    manifest = {
+        "ontology_version": registry.ontology_version,
+        "registry_identity": registry.registry_identity,
+        "relation_proposals": len(relation_rows),
+        "source_identity": registry.source_identity,
+        "status": "proposed",
+        "concept_proposals": len(concept_rows),
+        "files": {
+            name: hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            for name, payload in payloads.items()
+        },
+    }
+    payloads["submission-manifest.json"] = (
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
+
+    root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{root.name}-staging-",
+        dir=root.parent,
+    ) as temporary:
+        staging = Path(temporary)
+        for name, payload in payloads.items():
+            (staging / name).write_text(payload, encoding="utf-8")
+        root.mkdir(parents=True, exist_ok=True)
+        for name in payloads:
+            if name != "submission-manifest.json":
+                os.replace(staging / name, root / name)
+        os.replace(
+            staging / "submission-manifest.json",
+            root / "submission-manifest.json",
+        )
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+_TUPLE_FIELDS = (
+    "parent_concepts",
+    "semantic_types",
+    "synonyms",
+    "source_concepts",
+    "source_roles",
+    "source_examples",
+    "mappings",
+)
+
+
+def _tuple_value(value: object) -> object:
+    return tuple(value) if isinstance(value, list) else value
+
+
+def _normalize_duplicate_check(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    normalized["candidates"] = _tuple_value(normalized.get("candidates", ()))
+    return normalized
+
+
+def _normalize_proposal(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    for field in _TUPLE_FIELDS:
+        if field in normalized:
+            normalized[field] = _tuple_value(normalized[field])
+    checks = normalized.get("duplicate_checks", ())
+    normalized["duplicate_checks"] = tuple(
+        _normalize_duplicate_check(check) for check in checks
+    )
+    if "mappings" in normalized:
+        normalized["mappings"] = tuple(normalized["mappings"])
+    return normalized
+
+
+def _normalize_registry_json(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    proposals = normalized.get("proposals", ())
+    normalized["proposals"] = tuple(
+        _normalize_proposal(proposal) for proposal in proposals
+    )
+    return normalized
+
+
+def load_proposal_registry(path: str | Path) -> ProposalRegistry:
+    """Load one strict registry while rejecting duplicate JSON object keys."""
+    value = json.loads(
+        Path(path).read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+    )
+    if not isinstance(value, dict):
+        raise ValueError("proposal registry must be a JSON object")
+    for field in ("schema_version", "registry_identity"):
+        if field not in value:
+            raise ValueError(f"proposal registry is missing {field}")
+    registry_identity = value["registry_identity"]
+    if (
+        not isinstance(registry_identity, str)
+        or re.fullmatch(r"[0-9a-f]{64}", registry_identity) is None
+    ):
+        raise ValueError(
+            "persisted proposal registry_identity must be a SHA-256 digest"
+        )
+    return ProposalRegistry.model_validate(_normalize_registry_json(value))

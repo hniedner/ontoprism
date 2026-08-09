@@ -31,9 +31,22 @@ Mapped to the issue's checklist:
 
 ## 2. Scope
 
-**In scope (by NCIt semantic type):** Neoplastic Process (16,467 role-bearing), Disease or Syndrome (5,808), Cell or Molecular Dysfunction (3,911), and — secondary — Therapeutic/Preventive Procedure regimens (Chemotherapy_Regimen_Has_Component). These are the families where pre-coordination drives combinatorial concept explosion.
+**Hierarchy populations:** `neoplasm` is rooted at NCIt Neoplasm (`C3262`);
+`disease` is rooted at Disease or Disorder (`C2991`) and therefore includes the
+neoplasm population. Both are strict descendant closures of the stated named-class DAG:
+direct named `rdfs:subClassOf` edges plus named genus members in
+`owl:equivalentClass/owl:intersectionOf`. A bounded definition-list reader detects and
+fails on a named genus beyond its supported prefix instead of silently truncating the
+hierarchy. The branch fingerprint includes both root and scope algorithm version.
 
-**Out of scope:** the molecular-biology role families — Gene (14,662), Amino Acid/Peptide/Protein (9,942), Enzyme, Receptor. Their roles (`Gene_Plays_Role_In_Process`, etc.) express genuine biology, not label-level aggregation; decomposing them yields no benefit. Enforced by a semantic-type gate in the detector (§5), which is also the guard against scope creep.
+**Algorithm applicability (by NCIt semantic type):** the shared axis-qualified
+decomposer accepts Neoplastic Process, Disease or Syndrome, and Cell or Molecular
+Dysfunction. These types do not define either population: they gate whether this
+algorithm applies after a hierarchy member has been selected. This distinction is
+empirically necessary because NCIt has hierarchy members outside those types and
+same-typed concepts outside the disease hierarchy.
+
+**Out of scope:** the molecular-biology role families — Gene (14,662), Amino Acid/Peptide/Protein (9,942), Enzyme, Receptor. Their roles (`Gene_Plays_Role_In_Process`, etc.) express genuine biology, not label-level aggregation; decomposing them yields no benefit. The hierarchy population excludes unrelated families; the detector's semantic-type applicability gate is defense in depth. Regimens remain unavailable until their distinct component-bag algorithm is implemented.
 
 **Input graph:** the **stated** NCIt OWL, already loaded into the named graph `http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl` (`STATED_GRAPH_IRI`, `ontolib/terminologies/ncit/owl_load.py`). The inferred default graph is used only for validation (§10), never for extraction — this avoids the ancestor-closure bleed and the `Excludes_*` negative axioms documented in assessment §4.
 
@@ -46,14 +59,14 @@ New package `ontolib/decomposition/`, pure/deterministic, no FastAPI or DB coupl
 ```
 ontolib/src/ontolib/decomposition/
 ├── __init__.py
-├── axes.py             # axis catalogue: role-code → semantic axis, defining vs excluded
+├── axes.py             # axis catalogue: role-code → semantic axis; projected/defining/excluded
 ├── detector.py         # is-pre-coordinated scorer + semantic-type gate
 ├── stated_queries.py   # SPARQL against the stated named graph (no inferred closure)
-├── filler_selection.py # most-specific filler per axis; Excludes_* filter; morphology-from-parent
+├── filler_selection.py # routed-axis specificity; co-equal preservation; morphology-from-parent
 ├── nlp_fallback.py     # label/synonym parser: laterality, with/without, staging version
 ├── constituent_index.py# resolve constituents to existing concepts; flag the mint tail
 ├── minting.py          # deterministic synthetic-id proposals for missing qualifiers
-├── legacy_writer.py    # additive RDF builder → ncit_decomposed named graph / TTL
+├── legacy_writer.py    # deterministic RDF builder → ncit_decomposed named graph / TTL
 ├── models.py           # Constituent, Decomposition, DecompRun, MintedConcept, CoverageReport
 ├── provenance.py       # Postgres persistence for run manifest + constituents + minted
 └── run.py              # orchestrator + CLI (`pdm run decompose --branch neoplasm`)
@@ -67,13 +80,16 @@ The engine reads through the stated graph via a thin query layer (`stated_querie
 
 ### 4.1 Named graph output
 
-All engine output goes to a single named graph, kept separate from both the inferred default graph and the stated input graph:
+The active published representation occupies one named graph, kept separate from both
+the inferred default graph and the stated input graph:
 
 ```
 DECOMPOSED_GRAPH_IRI = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-decomposed.owl"
 ```
 
-Loaded via the existing `OxigraphHttpClient.load(..., graph_iri=DECOMPOSED_GRAPH_IRI, replace=True)`. Serialized to `data/ncit_decomposed.ttl` as the portable artifact (so #9 / CI can load it without re-running the engine).
+Publication loads sealed bytes into a run-scoped staging graph and atomically replaces
+`DECOMPOSED_GRAPH_IRI` with a marker-guarded SPARQL update. The same bytes are serialized
+to `data/ncit_decomposed.ttl` as the portable artifact.
 
 ### 4.2 Vocabulary (ontoprism namespace)
 
@@ -85,47 +101,60 @@ A small ontoprism vocabulary, `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#
 | `op:decomposedOn` | xsd:date of the run that produced the decomposition |
 | `op:decomposedBy` | literal run id (joins to `decomp_run.id`) |
 | `op:hasConstituent` | source concept → a constituent node (blank node) |
-| `op:axis` | constituent node → the axis IRI (reuse the NCIt role IRI where one exists, else an `op:` axis like `op:Morphology`, `op:Laterality`, `op:AssociatedLineageClassification`, `op:AssociatedRegion` — the last two carry `R101` senses split off per D20/§6.6) |
-| `op:group` | constituent node → a relationship-group id (D19). The writer can serialize supplied groups; #153 must persist and read back complete groups before round-trip claims are possible. |
+| `op:axis` | constituent node → the normalized `op:` axis IRI; only unknown roles retain their raw NCIt role code |
+| `op:group` | constituent node → a relationship-group id (D19), persisted and read back unchanged |
 | `op:filler` | constituent node → the filler concept IRI (existing NCIt concept or minted `op:` concept) |
 | `op:axisSource` | literal `"role"` \| `"nlp"` \| `"parent"` — provenance of *how* the axis was recovered |
-| `op:mostSpecific` | boolean — filler is the hierarchy leaf chosen over ancestors (audit aid) |
+| `op:mostSpecific` | boolean — filler was chosen over an is-a ancestor (audit aid; R82-only collapse is not encoded by this flag) |
+| `op:needsReview` | boolean — unresolved ordinary-axis ambiguity requiring curation |
+| `op:sourceDefinitionFact` | role-/parent-derived constituent node → one or more deterministic complete-definition fact IRIs; minted NLP fallback uses proposal provenance instead |
+| `op:hasDefinitionFact` | source concept → a typed complete-definition fact |
+| `op:factKind`, `op:anchor`, `op:definitionGroup`, `op:definitionDepth` | fact type, anchoring genus, source-expression group, and DAG depth |
+| `op:genus`, `op:isDefined`, `op:role`, `op:filler` | typed genus/restriction fact payload |
+| `op:completeDefinitionIdentity`, `op:completeFactCount`, `op:projectedFactCount`, `op:projectionLossCount` | stable complete-record identity and projection-loss evidence |
 
-Example (`C6135`, matching assessment §5). **Superseded in detail by D15/D19/D20** — the
-authoritative constituent set is now `ontolib/tests/decomposition/golden/neoplasm.json`
-(`R105→C36825` per D15; `R101`'s raw candidates split across `R101`/`op:AssociatedLineageClassification`/`op:AssociatedRegion` per D20, with co-equal non-nested fillers carrying `op:group` per D19). The shape below still illustrates the predicate vocabulary:
+Example (`C6135`, matching assessment §5). **Superseded in detail by D15/D19/D20** —
+`ontolib/tests/decomposition/golden/neoplasm.json` is currently an `AUTO-DRAFT` for #57,
+not an authoritative SME oracle. Its questions include the D15 cell-type choice and
+D20's split of raw R101 candidates across primary-site, lineage, and region senses, with
+co-equal non-nested fillers carrying groups per D19. The shape below illustrates the
+predicate vocabulary but does not assert the pending adjudication:
 
 ```turtle
 ncit:C6135 op:representationStatus "legacy-precoordinated" ;
            op:decomposedOn "2026-07-06"^^xsd:date ;
-           op:hasConstituent [ op:axis ncit:R88  ; op:filler ncit:C27970 ; op:axisSource "role" ] ;  # Stage III
-           op:hasConstituent [ op:axis op:StageSystem ; op:filler ncit:C90530 ; op:axisSource "role" ] ;  # AJCC v7
-           op:hasConstituent [ op:axis ncit:R101 ; op:filler ncit:C12400 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Thyroid Gland
-           op:hasConstituent [ op:axis ncit:R105 ; op:filler ncit:C36761 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Neoplastic Neuroendocrine Cell
+           op:hasConstituent [ op:axis op:StageValue ; op:sourceRole ncit:R88 ; op:filler ncit:C27970 ; op:axisSource "role" ] ;  # Stage III
+           op:hasConstituent [ op:axis op:StageSystem ; op:sourceRole ncit:R88 ; op:filler ncit:C90530 ; op:axisSource "role" ] ;  # AJCC v7
+           op:hasConstituent [ op:axis op:PrimarySite ; op:sourceRole ncit:R101 ; op:filler ncit:C12400 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Thyroid Gland
+           op:hasConstituent [ op:axis op:CellType ; op:sourceRole ncit:R105 ; op:filler ncit:C36761 ; op:axisSource "role" ; op:mostSpecific true ] ;  # Neoplastic Neuroendocrine Cell
            op:hasConstituent [ op:axis op:Morphology ; op:filler ncit:C… ; op:axisSource "parent" ] .  # Medullary Carcinoma
 ```
 
 ### 4.3 Reversibility & caDSR preservation
 
-- **Additive:** the engine writes *only* to `DECOMPOSED_GRAPH_IRI`. The stated and inferred graphs are never targets of a write. A consumer that ignores the new graph sees today's NCIt unchanged.
+- **Source-preserving:** the engine never writes to the stated or inferred graphs. It
+  atomically replaces only `DECOMPOSED_GRAPH_IRI`, so a consumer that ignores the output
+  graph sees NCIt unchanged while consumers of that graph see one complete publication.
 - **caDSR reachability:** CDE→concept mappings key on the NCIt concept IRI (`ncit:Cxxxxx`), which is untouched — the legacy code keeps its label, definition, and all axioms and stays fully resolvable. Every constituent filler is itself an existing active NCIt IRI (100% coverage on the roles path), so a decomposed concept remains reachable from its CDEs and every constituent is a valid navigation target.
 
-### 4.4 Proof-bearing equivalence (quarantined; future #153)
+### 4.4 Complete representation and proof-bearing equivalence quarantine
 
-The current single-valued, allowlist-filtered output (§6) cannot prove that it preserves
+The current allowlist-filtered projection (§6) cannot prove that it preserves
 the source's complete multi-parent and grouped definition. It is an explicitly lossy
 curated projection and never asserts `owl:equivalentClass`. The reserved
 `--emit-equivalence` option fails closed before settings, clients, provenance, stdout, or
 filesystem effects; the writer independently refuses the same request.
 
-Issue #153 owns the future proof-bearing representation: the full multi-parent-DAG
-unfolding with genuinely multi-valued axes preserved in relationship groups (D19). Only
-that complete representation may reintroduce successful equivalence emission and a
-measured `roundtrip_fidelity`. The quarantine does not block the additive constituent
-view or future post-coordination grammar; it prevents the curated view from being
-misrepresented as an exact definition.
+The complete representation is now materialized independently of the projection (D50):
+a bounded stated-only DAG of typed genus/restriction facts, with deterministic identities,
+source-expression groups, anchoring genera, and role-/parent-projection trace links. Only this record
+may feed future equivalence emission or measured `roundtrip_fidelity`. Its existence alone
+does not prove those semantics, so D43's quarantine remains. The quarantine does not block
+the additive constituent view or future post-coordination grammar; it prevents either the
+curated view or an unvalidated structural capture from being misrepresented as an exact
+definition.
 
-### 4.5 Postgres provenance (Alembic migrations `0003_decomposition` + `0008_decomposition_run_lifecycle`)
+### 4.5 Postgres provenance (Alembic migrations `0003`, `0008`–`0014`)
 
 The graph is the queryable artifact; Postgres holds an exact, source-bound run manifest,
 the materialized worklist, transactional results, metrics, and the minted-concept
@@ -134,7 +163,7 @@ governance list.
 ```
 decomp_run
   id            text PRIMARY KEY        -- branch + UUID; collision-safe
-  branch        text NOT NULL           -- "neoplasm" | "disease" | "regimen"
+  branch        text NOT NULL           -- "neoplasm" | "disease" (regimen reserved)
   status        text NOT NULL CHECK (...) -- "running" | "complete" | "failed"
   ncit_version  text NOT NULL
   source_identity text NOT NULL          -- D47 candidate identity
@@ -152,18 +181,30 @@ decomp_work_item
   state         text NOT NULL CHECK (...) -- pending | running | failed | complete
   attempt_count integer NOT NULL
   claim_token   uuid                     -- fences stale workers
-  outcome/error/timestamps               -- state-shape constrained
+  outcome       text                     -- closed D56 classification; historical unknown
+  semantic_type text                     -- compatibility projection of source P106
+  semantic_types jsonb                   -- complete canonical source P106 value set
+  flags/counts/error/timestamps           -- state/outcome-shape constrained
 
 decomp_constituent
   run_id        text NOT NULL REFERENCES decomp_run(id)
   concept_code  text NOT NULL           -- the decomposed (source) concept
-  axis          text NOT NULL           -- role code or op: axis
+  axis          text NOT NULL           -- normalized op: axis (or unknown role)
+  source_role   text                    -- NCIt role that produced the projection
   filler_code   text NOT NULL           -- constituent concept (may be minted)
   axis_source   text NOT NULL           -- "role" | "nlp" | "parent"
   most_specific boolean NOT NULL
   needs_review  boolean NOT NULL
   relationship_group text
+  source_definition_ids jsonb NOT NULL
   PRIMARY KEY (run_id, concept_code, axis, filler_code)
+
+decomp_definition_fact
+  run_id/concept_code/fact_id PRIMARY KEY
+  anchor_code/group_id/depth
+  fact_kind     text NOT NULL            -- genus | restriction
+  genus_code/is_defined                  -- genus shape
+  role_code/filler_code                  -- restriction shape
 
 decomp_minted_proposal
   run_id/concept_code/proposal_id PRIMARY KEY
@@ -182,7 +223,7 @@ Creating a run and its ordered worklist is one transaction. A claim-token-fenced
 per-concept transaction replaces its constituents/proposals and marks it complete;
 failures roll back before bounded failure evidence is recorded. Resume accepts only a
 matching running/failed fingerprint and processes exactly non-complete items. If the
-source changes before completion, all partial result rows are invalidated before a retry.
+source changes before publication, all partial result rows are invalidated before a retry.
 Only successful run completion promotes run-scoped proposals into `minted_concept`, whose
 status is the governance hook: minting never silently creates a clinical entity.
 
@@ -192,37 +233,47 @@ status is the governance hook: minting never silently creates a clinical entity.
 
 Deterministic scorer, config-driven thresholds. A concept is a decomposition candidate when **all** hold:
 
-1. **Semantic-type gate** — its `P106` semantic type is in the in-scope set (§2). This is the hard scope boundary; gene/protein concepts fail here.
-2. **Defining-role count ≥ 2** — it carries ≥2 defining role restrictions in the *stated* graph (assessment: 55,044 concepts corpus-wide). Exactly-1-role concepts (12,818) are borderline and gated by config `min_defining_roles` (default 2); single-axis concepts are largely already atomic-adjacent.
+1. **Semantic-type applicability gate** — its `P106` semantic type is supported by the
+   branch's algorithm (§2). Hierarchy membership is the population boundary; this gate
+   rejects members the axis-qualified algorithm does not claim to decompose.
+2. **Decomposable-axis count ≥ 2** — distinct defining stated roles, a
+   morphology-bearing parent, and a multi-aspect label each contribute axes. The default
+   threshold is 2; a one-role concept can therefore qualify when it also has morphology
+   or a label-signalled axis, while a truly single-axis concept does not.
 3. Not itself a pure qualifier/value-set node (excluded by semantic type).
 
 Output: `DetectionResult(code, is_precoordinated: bool, defining_role_count: int, semantic_type: str, label_multi_aspect: bool)`. The `label_multi_aspect` flag (from the FLAT NLP scan markers: hyphens, "of the", "with", "stage/grade", parentheses) is advisory — it routes a concept to the NLP fallback even when roles already cover it, to catch label-only axes.
 
-`Excludes_*` roles (`Disease_Excludes_Abnormal_Cell`, `Disease_Excludes_Finding` — 35,662 + 30,009 negative axioms) are **not** counted as defining roles; they're filtered in `axes.py`.
+`Excludes_*` roles (`Disease_Excludes_Abnormal_Cell`, `Disease_Excludes_Finding` — 35,662 + 30,009 negative axioms) are neither defining nor projected. Positive `R103` is
+projected but deliberately does not contribute a defining detector axis; optional
+`May_Have_*` roles are retained only in the complete structural record.
 
 ---
 
 ## 6. Filler selection — routed-axis specificity (`filler_selection.py`)
 
-The core engineering. For each defining axis of a candidate, choose the intended
+The core engineering. For each projectable positive source restriction of a candidate,
+route it to an axis and choose the intended
 filler or preserve unresolved co-equal fillers without silently discarding them.
 
 - **Working from the stated graph eliminates most ancestor bleed** — the stated form asserts only the intended filler, not the closure. This is why §2 mandates the stated input.
-- **Defense-in-depth most-specific selection:** on hierarchy-comparable, non-lineage
-  axes, use NCIt's stated `rdfs:subClassOf` hierarchy plus bounded transitive `R82`
-  containment. A filler is dropped only when it is strictly broader than another
+- **Defense-in-depth most-specific selection:** use NCIt's stated `rdfs:subClassOf`
+  hierarchy on every non-lineage axis and bounded transitive `R82` containment only on
+  location axes. A filler is dropped only when it is strictly broader than another
   returned filler; unrelated or mutually broader fillers remain.
-- **Non-defining filter:** `Excludes_*` negative axioms and optional R114/R115 roles are
-  removed before selection (§5).
+- **Projection filter:** `Excludes_*` negative axioms and optional R89/R111–R116
+  `May_Have_*` roles are removed before selection (§5). Projectable non-defining `R103`
+  is retained in the curated projection but does not help a concept pass the detector.
 - **Morphology-from-parent:** morphology is not a role; it is carried by the taxonomic parent (e.g. `C6135`'s parent *Medullary Carcinoma*). The `op:Morphology` axis filler is derived from the nearest named parent whose semantic type is a morphology/neoplasm-by-morphology type, tagged `op:axisSource "parent"`.
-- **Anatomy validation:** specificity uses NCIt's own is-a + bounded transitive `R82`
-  part-of hierarchy. Unresolved ordinary axes receive `needs_review`; ambiguous routed
-  region, lineage, and stage-system values are retained as grouped, review-exempt facts.
+- **Anatomy validation:** location specificity uses NCIt's own is-a plus bounded
+  transitive `R82` part-of hierarchy. Unresolved ordinary axes receive `needs_review`;
+  ambiguous routed region and stage-system values are retained as grouped,
+  review-exempt facts, while lineage classifiers remain ungrouped.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
-- **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `R101`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are kept as relationship-group members (D19), never collapsed to one leaf.
+- **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are retained; selected routed region/stage axes may receive synthetic groups, while lineage classifiers remain ungrouped.
 
-Output per concept: `list[Constituent(axis, filler_code, axis_source, most_specific, needs_review, group)]`.
+Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 
 ### 6.1 Stated encoding is *layered defined classes* (verified 2026-07-06)
 
@@ -242,10 +293,12 @@ C3879   owl:equivalentClass [ owl:intersectionOf ( …genus… [ …site / abnor
 
 Each level intersects a **genus** (a named class) with one or a few **restrictions**;
 the axes are distributed **up the genus chain**, not all present on `C6135`. So the
-merged 5a query (`build_role_restrictions_query`, direct `rdfs:subClassOf` only) returns
-**nothing** for `C6135` — its integration test is marked `xfail` pending this fix.
+former merged 5a query (`build_role_restrictions_query`, direct `rdfs:subClassOf` only)
+returned **nothing** for `C6135`. The implemented application-level walker now follows
+the layered stated definitions, and its C6135 integration contract is active rather than
+`xfail`.
 
-**Implication for extraction (next #4 increment):** collect restrictions by **recursively
+**Implemented extraction:** collect restrictions by **recursively
 walking the genus chain** — from the concept, follow
 `owl:equivalentClass/owl:intersectionOf/(rdf:rest*/rdf:first)` to its members; a member
 that is a **restriction** yields a role; a member that is a **defined** named class (has
@@ -279,15 +332,17 @@ filtered first. The real problem this example exposed was over-collection (the ~
 classes and their non-defining roles), not most-specific selection itself.
 
 **Conclusion.** Correct stated extraction is **not** a mechanical genus-walk + most-specific
-over the *unfiltered* result set. It needs (a) defining-role classification (keep `Has_*`/`Is_*`
-axes; drop `May_Have_*`, `Excludes_*`, `Mapped_To_Gene`), (b) a principled boundary that
+over the *unfiltered* result set. It needs (a) explicit projectable-role classification
+(including retained positive non-defining roles while dropping optional, negative, and
+unmapped roles), (b) a principled boundary that
 distinguishes a concept's *own differentia* from axes it merely *inherits* from its genus
 (per-level differentia diffing against the genus — validated in §6.3), and (c) curation of
 axes that remain genuinely ambiguous after (a)+(b) (§6.3's R101 example). This is exactly
 the **filler-selection tooling + curation** effort the assessment scoped at multiple
 person-months (§6–§7); §6.3 reports the first concrete, measured progress against it. The
-C6135 integration test stays `xfail` until issue #44's SME-validated golden set clears its
-precision/recall threshold — §6.3's numbers are the current state, not the finish line.
+The C6135 walker and extraction integration contracts now run normally. Authoritative
+precision/recall acceptance still depends on the SME-validated golden set; §6.3's numbers
+are evidence, not the finish line.
 
 ### 6.3 Resolution direction, validated against C6135 (issue #44, 2026-07-08)
 
@@ -338,8 +393,9 @@ this deployment against which defined-class-to-defined-class subsumption can be 
 `rdfs:subClassOf+` (only role-restriction flattening is materialized).
 `filler_selection.py`'s most-specific selection, which relies on `rdfs:subClassOf+`, is
 therefore blind to some genuine subsumptions between defined classes. The current curated
-projection can therefore over-report co-equal values. D19's future complete record must
-preserve uncertain pairs rather than collapse them, but it does not yet exist. This also
+projection can therefore over-report co-equal values. D50's materialized complete record
+preserves the source facts independently of whether the curated projection collapses
+them. This also
 caps precision against a single-valued oracle, and it
 means §10's `roundtrip_fidelity` **must not** use the inferred graph as its closure oracle
 (D21.3); this did not affect the C6135 result above (both `R101` and
@@ -347,8 +403,9 @@ means §10's `roundtrip_fidelity` **must not** use the inferred graph as its clo
 `rdfs:subClassOf+` edges) but is a risk for other concepts and worth keeping in mind if
 most-specific selection ever silently under-collapses an axis.
 
-Research code: `ontolib/src/ontolib/decomposition/walker.py` (the multi-parent DAG walker);
-the defining-axis-filtered extractor + scorer were prototyped in local, untracked scratch.
+Implementation: `ontolib/src/ontolib/decomposition/walker.py` and
+`stated_queries.py` provide the multi-parent DAG walk; the routed extractor and scorer
+live in the tracked decomposition package.
 Full narrative: this §6 and DECISIONS D14–D20.
 
 ### 6.4 R101 anatomy resolution — validated against 4 concepts: real improvement, not a full fix (2026-07-08)
@@ -440,9 +497,9 @@ vocabulary gap:
    (every branch, every role, nothing dropped, multi-valued axes kept multi-valued) is
    *always* achievable and *always* exact — that's definitionally what the pre-coordinated
    concept's semantics already are. **The only reason decomposition can lose fidelity is
-   that this project deliberately simplifies**: a small curated defining-axis allowlist
-   (`R88`/`R101`/`R105`, dropping `R103`/`R104`/`R106`/`R108`/etc.) plus (until now)
-   collapsing each axis to one filler. That simplification is the right trade-off for
+   that this project deliberately simplifies**: a curated projectable-role policy and
+   specificity collapse for genuinely nested candidates, while preserving unresolved
+   co-equal fillers. That simplification is the right trade-off for
    producing something a curator can read — but it is a chosen trade-off, not a discovery
    about NCIt's expressiveness.
 2. **NCIt's role vocabulary is coarser than a clean single-valued axis model needs.**
@@ -467,9 +524,10 @@ D19)** as this project's target axis model, over either "pick one" (loses inform
 D15's most-specific rule with README goal 4: most-specific collapse is correct **only**
 within a nested (is-a/part-of) candidate set, where the coarser fact stays derivable by
 subsumption; genuinely co-equal, non-nested values (site vs. lineage, organ vs. region) are
-kept as distinct grouped facts and never collapsed, so #153's complete representation can
-be lossless and round-trippable. The current single-valued projection predates that record;
-#153 must make it derived and traceable rather than a replacement (§6.6, D19).
+kept as distinct facts and never collapsed. Selected routed region/stage axes may receive
+synthetic groups, while lineage classifiers remain ungrouped. D50 materializes the complete
+representation and makes the single-valued projection derived and traceable rather than
+a replacement (§6.6, D19).
 
 ### 6.6 Strategy: classify role-bearing *genus concepts* by sense, additively, before axis assignment — validated direction, refined from a stronger initial proposal
 
@@ -510,7 +568,7 @@ additional metadata on a node *already visited*, not a new traversal.
    non-destructive principle (README goal 2) rather than introducing a second kind of mutation
    risk alongside it.
 3. During per-level role extraction, consult that classification to route a restriction to
-   its raw role code (site-specific / default) or to a new `op:` axis such as
+   its univocal `op:` axis (site-specific / default) or a contextual `op:` axis such as
    `op:AssociatedLineageClassification` (lineage-generic) — the same pattern already used
    for `R88`'s stage-value/stage-system split, generalized from a per-filler label check to
    a per-genus classification lookup.
@@ -536,11 +594,45 @@ is. The resolution:
 
 Order matters because semantic type *fails* on the lineage case (both `Lung` and `Endocrine
 Gland` type as "…Organ…") — which is exactly why (1) must carve off the lineage sense before
-(2) is applied. The current curated projection can report one primary site and serialize
-supplied groups, but it is not round-trippable. The future D19/#153 representation must
-preserve every literal site and associated region/lineage as distinct grouped facts. Both
-refinements are additive (new `op:` axes, never rewriting `R101` triples).
+(2) is applied. The curated projection can report one primary site and serialize supplied
+groups, while the D50 complete record preserves every stated site and associated
+region/lineage fact even when projection policy omits it. Both refinements are additive
+(new `op:` axes, never rewriting `R101` triples).
+The D23 morphology-to-organ lookup selects the primary organ but does not bypass this
+split: region/tissue fillers are taken from the pre-collapse R101 set and routed to
+`op:AssociatedRegion`, so an R82 whole/part comparison never deletes a fact merely
+because it belongs on a different normalized axis (#156).
+
+The resulting `Decomposition` model enforces `op:PrimarySite 0..1` for resolved
+constituents; this is not a total relation.
+No-site classes are not thereby cancers of unknown primary, and neither a Finding such as
+`C48322` nor a minted "unknown anatomy" sentinel may enter the anatomy-valued axis. D58
+defines a separate future occurrence-level `primarySiteStatus` with values `known`,
+`unknown-cup`, `undetermined`, and `not-applicable`. No current extractor field computes or
+persists that status. D58 specifies a future class-level derivation in which a site means
+`known`, explicit unknown-primary evidence means `unknown-cup`, and otherwise no site means
+`not-applicable`; `undetermined` requires patient-level workup state. A future class-level
+`not-applicable` summary MUST NOT propagate to an occurrence; a solid-tumour occurrence
+from a site-agnostic class starts `undetermined` until occurrence evidence establishes a
+site or CUP state.
+Occurrence individuation is upstream: this cardinality must never turn a possible second
+primary into a metastasis merely to satisfy the projection.
+Issue #263 owns the future occurrence/status implementation; it does not change this
+class extractor or the issue #57 class-level pair oracle.
 Validate via the D14/D15/D17 golden-set methodology.
+
+The certified 26.07d audit extended inherited production projection to R103 and R108.
+Their recurrent generic fillers are suppressed only through
+`contracted-role-generic-v2`. R103 is source-annotated as non-defining and the contract
+propagates that modality without removing its 12 expectations from scoring;
+`ncit-26.07d-unsupported-filler-v1` excludes C54105 for the two concepts whose definitions
+contradict that filler. The 10 R104 and one R107 survivors stay held until axis
+adjudication and remain visible as complete-record scope omissions. Filler selection
+receives is-a and R82 as separate predicates: is-a licenses collapse on routed axes except
+`op:AssociatedLineageClassification`, whereas R82 licenses collapse only for location
+axes. `ncit-26.07d-stage-kind-v1` routes R88 systems/frameworks through a reviewed code
+allowlist; definitions informed curation but are not consulted at runtime because semantic
+type does not separate systems from values (D59).
 
 Full narrative and the confirmed-shared-ancestor evidence: this §6 and DECISIONS D17.
 
@@ -557,7 +649,10 @@ Rule/pattern-based (not a model) for determinism and testability: a small typed 
 When an NLP aspect has no existing NCIt concept (e.g. an explicit *absent/excluded* qualifier, or a laterality value not modelled), emit a **deterministic** proposal:
 
 - **Stable synthetic id:** `op:MINT-{sha1(axis + '|' + normalized_label)[:12]}` — same input always yields the same id, so reruns are idempotent and diffable.
-- Written to `minted_concept` with `status='proposed'` + `source_signal`, and linked in the graph exactly like any other constituent (`op:filler op:MINT-…`).
+- Persisted first in the run-scoped `decomp_minted_proposal` table with
+  `status='proposed'` + `source_signal`, and linked in that run's additive graph exactly
+  like any other constituent (`op:filler op:MINT-…`). Only successful run completion
+  promotes it into the global `minted_concept` curator queue (D48).
 - The mint tail is expected to be **low hundreds**, concentrated in qualifier/value-set nodes, not clinical entities (assessment §3.4).
 
 `test_missing_constituent_minting` pins that an NLP-only aspect produces a proposal record — never a silent create.
@@ -566,7 +661,11 @@ When an NLP aspect has no existing NCIt concept (e.g. an explicit *absent/exclud
 
 ## 8. Legacy writer (`legacy_writer.py`)
 
-Pure function: `(source_code, list[Constituent], run) → RDF triples` in `DECOMPOSED_GRAPH_IRI`. Emits only the additive §4.2 vocabulary. Buffers to a `data/ncit_decomposed.ttl` file and bulk-loads via `client.load(..., graph_iri=DECOMPOSED_GRAPH_IRI)`. No `DELETE`, no write to any other graph, and no `owl:equivalentClass`. A reserved equivalence request is rejected before stdout or filesystem effects.
+Pure function: `(source_code, list[Constituent], run) → RDF triples`. Emits only the
+additive §4.2 vocabulary into a durable staging file; D53's publisher validates and
+promotes it to `DECOMPOSED_GRAPH_IRI`. The writer emits no `DELETE`, names no graph, and
+emits no `owl:equivalentClass`. A reserved equivalence request is rejected before stdout
+or filesystem effects.
 
 ---
 
@@ -576,6 +675,11 @@ Pure function: `(source_code, list[Constituent], run) → RDF triples` in `DECOM
 pdm run decompose \
   --source-manifest /path/to/.ontoprism-ncit-candidate.json \
   --branch neoplasm --out data/ncit_decomposed.ttl [--load] [--resume RUN_ID]
+
+pdm run decompose \
+  --source-manifest /path/to/.ontoprism-ncit-candidate.json \
+  --branch neoplasm --sample-manifest samples/ncit-26.07d-m1-review.json \
+  --out data/ncit-26.07d-m1-review.ttl
 ```
 
 The required D47 candidate manifest is revalidated and its full live-endpoint observation
@@ -584,14 +688,33 @@ ordered worklist and immutable fingerprint, then processes every item, including
 zero-output concepts. Resume never re-enumerates: it validates all caller-controlled
 fingerprint dimensions and processes exactly unfinished items. Metrics and a normalized
 TTL are reconstructed from the full persisted run, making fresh and resumed execution
-equivalent. Source identity is rechecked before completion; drift fails the run and
-invalidates every persisted result row. The `--out` TTL is rendered to a staging sibling
-and atomically moved into place only after that recheck and completion succeed, so a
-drifted or failed run never publishes an artifact. `--load` remains the separate
-generated-graph publication boundary owned by #147.
+equivalent. Source identity is rechecked before publication; drift fails the run and
+invalidates every persisted result row. The `--out` TTL is rendered to a durable staging
+sibling and validated against the exact run. With `--load`, a unique staging graph is
+transactionally promoted with its source/representation marker; the file is then
+atomically replaced and directory-synced. Only after both requested publications succeed
+is the run complete. Failures after publication intent is journaled but before completion
+remain separately visible and retryable; a matching marker-ahead retry is idempotent.
+Preflight failures fail the run, while post-completion lock-release failures only surface
+cleanup failure (D53).
 
 `--emit-equivalence` remains a reserved compatibility seam for #153 but always refuses
 before configuration loads or clients are constructed.
+
+`--branch neoplasm` materializes strict descendants of `C3262`;
+`--branch disease` materializes strict descendants of `C2991`, including `C3262` and
+its descendants. Both use `stated-genus-subclass-v1` and the axis-qualified algorithm.
+Changing a root or scope algorithm version invalidates resume just like a source change.
+
+The optional D55 sample manifest replaces hierarchy-order truncation with an explicit
+source-bound review worklist. It is validated before provenance: branch/root/scope,
+source identity and ontology version must match, and every selected code must occur in
+the freshly enumerated hierarchy closure. Its exact order and canonical digest are part
+of schema-v3 run/resume identity. Sample execution is file-only: it requires `--out` and
+is mutually exclusive with `--total-limit`, `--load`, and equivalence emission. The
+tracked 26.07d M1 sample covers the applicable and excluded semantic-type paths, deep
+genus/morphology, every observed staging family, multi-parent and grouped/multi-value
+definitions, NLP/mint, region/organ, known-hard, and atomic/no-op cases.
 
 **Source pinning:** the run records both `owl:versionInfo` and D47's stable source
 identity, which binds the exact stated/inferred artifact pair, loader, layout, policy,
@@ -604,14 +727,16 @@ and candidate observation. Version or identity mismatch fails closed.
 | Metric | Status | Definition |
 |---|---|---|
 | `pct_decomposed` | stored in `decomp_run.metrics` | cumulative decomposed concepts / exact persisted worklist size; identical after fresh or resumed completion |
-| `residual_precoordination` | computed property; `residual_precoordinated_count` is stored | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37) |
+| `decomposed`, `residual`, `semantic_excluded`, `atomic_noop`, `unknown_outcome` | stored in `decomp_run.metrics` | closed D56 work-item classifications; a completed current run reconciles these exactly to `total_in_scope`, while `unknown_outcome` identifies migrated history whose original reason cannot be recovered |
+| `residual_precoordination`, `residual_precoordinated_count` | stored together in `decomp_run.metrics` | decomposed concepts with at least one emitted constituent that the same detector classifies as pre-coordinated, divided by all decomposed concepts (D37); storing numerator and rate gives fresh, resumed, CLI, and API reads one schema |
 | `minted_count` | stored in `decomp_run.metrics` | size of the mint tail (governance signal — should stay low hundreds) |
-| `roundtrip_fidelity` | unavailable (`null`) for new runs | #153 may measure this only from a complete proof-bearing representation, never from the curated projection; historical numeric values remain readable |
+| `roundtrip_fidelity` | unavailable (`null`) for new runs | a future proof/validation step may measure this only from D50's complete representation, never from the curated projection; historical numeric values remain readable |
 | `constituent_existence_rate` | future | fillers resolving to an existing active concept / all fillers (target ≈100% on roles path) |
-| `projection_lossiness` | future #153 | concepts where the curated projection drops a non-nested co-equal value retained by the complete representation (D19) |
+| `complete_definition_count`, `complete_fact_count` | stored in `decomp_run.metrics` | decompositions with a complete record and total stated definition facts |
+| `projected_fact_count`, `projection_loss_count`, `projection_loss_rate` | stored in `decomp_run.metrics` | distinct complete facts referenced by the curated view, omitted fact count, and omitted / complete ratio |
 | `needs_review_count` | future | ambiguous anatomy / multi-filler axes flagged for curation |
 
-The inferred default graph may validate constituent existence even though extraction never reads from it. No current round-trip closure or projection-loss metric is claimed or measured. Future fidelity and `projection_lossiness` are properties of the **complete** representation (D19/#153); the curated single-valued projection is not expected to round-trip.
+The inferred default graph may validate constituent existence even though extraction never reads from it. Projection loss is measured against the stated complete record; no round-trip closure or fidelity is claimed. Future fidelity is a property of the **complete** representation (D19/D50); the curated projection is not expected to round-trip.
 
 ---
 
@@ -619,7 +744,15 @@ The inferred default graph may validate constituent existence even though extrac
 
 Strict TDD (repo standard): failing test → minimum code → green → ruff + basedpyright clean → commit. RED tests, with fixtures captured from the running stated store:
 
-- `test_detect_precoordination` — `C6135` (≥2 roles, in-scope type) flagged; `C12400` (Thyroid Gland, atomic) not; a gene concept fails the semantic-type gate.
+- `test_hierarchy_scope` — the disease closure contains the neoplasm closure; defined
+  classes such as `C9305`, `C2916`, and `C6135` are reached through named genus edges;
+  unrelated `C12400` is rejected; cycles and duplicate edges terminate deterministically.
+- `test_hierarchy_scope_source_contract` — rebuild the cached, same-release-bound NCIt
+  pair into a certified inactive sibling and prove the hierarchy contract against that
+  exact source identity. It also proves the tracked D55 sample is bound to that source
+  and every selected code is in the certified neoplasm hierarchy. This explicit
+  `full_build` test is excluded from automatic suites.
+- `test_detect_precoordination` — `C6135` (≥2 roles, supported type) flagged; `C12400` (Thyroid Gland, atomic) not; a hierarchy member with an unsupported type fails the algorithm-applicability gate.
 - `test_extract_constituents_roles_first` — `C6135` → {stage C27970, stage-system C90530, primary-site C12400, abnormal-cell C36761, morphology-from-parent}; `Excludes_*` filtered; most-specific filler chosen over ancestors.
 - `test_constituent_existence` — every roles-path constituent resolves to an existing active `owl:Class` (≈100%).
 - `test_most_specific_filler` — given an axis result set {Thyroid Gland, Endocrine Gland, …Neck}, selection returns only Thyroid Gland.
@@ -641,7 +774,8 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 - **PR 5a — detect + extract:** `axes.py`, `detector.py`, `stated_queries.py`, `filler_selection.py`, `models.py`, the golden-file spike over ~200 neoplasm concepts. Deliverable: a pure decomposition function + coverage numbers, no writes.
 - **PR 5b — write + persist + CLI:** `nlp_fallback.py`, `minting.py`, `constituent_index.py`, `legacy_writer.py`, `provenance.py`, migration `0003_decomposition`, `run.py` + CLI, additivity test, run manifest. Deliverable: `ncit_decomposed.ttl` + `decomp_run` for the neoplasm branch.
 
-#9 (M6 API/UI) starts once 5b lands the named graph.
+The #9 read surface is implemented through the concept decomposition API, frontend API
+client, and `DecompositionPanel`; it reads only the published decomposition graph.
 
 ---
 
@@ -652,9 +786,10 @@ Split M5 into two PRs (matches the plan's 5a/5b split), each `/pr-review-toolkit
 | Inferred-vs-stated confusion (ancestor bleed, `Excludes_*`) | Extract from the **stated** graph only; most-specific selection as defense-in-depth; inferred used solely as validation oracle |
 | Most-specific errors on multi-parent anatomy | NCIt-hierarchy (is-a + `R82` part-of) cross-check, validated §6.4 as a real-but-partial fix; ambiguous cases flagged `needs_review`, not silently resolved; Uberon not validated as a general fix |
 | Semantic loss on "without/excludes" | Model absence explicitly as a minted qualifier + `polarity`; never drop the negation |
-| Consumer breakage | Additive-only by construction (single output graph, no deletions), proven by `test_additive_no_deletions` |
-| Scope creep into gene/protein | Semantic-type gate in the detector is the hard boundary |
+| Consumer breakage | Stated and inferred NCIt remain untouched (`test_additive_no_deletions`); the output graph is marker-guarded and atomically replaced as one complete publication |
+| Scope drift or semantic-type/hierarchy conflation | Rooted stated-DAG closure is fingerprinted; semantic type remains an explicit algorithm-applicability gate |
 | NCIt version bump silently changes roles | Version-pinned run manifest + guard test that fails on a build mismatch |
+| A deep filler superclass cone exhausts R82 safety bounds | Constant-subject closure permits the certified C27262 minimum of 14 inherited-superclass hops while retaining the independent 8-hop R82, 64-request, 256-code, and 4,096-row caps (D54) |
 
 ---
 
@@ -665,7 +800,7 @@ resolved below (grounded in the assessment data, the code, and the issue tracker
 records the call and the rationale.
 
 1. **`min_defining_roles` — keep default 2, but gate on ≥2 *decomposable axes*, not raw roles.**
-   First, a correction: **55,044 is the corpus-wide count** (all 204K classes, incl. the out-of-scope gene/protein families). It must **not** be used as the in-scope candidate figure — the semantic-type gate (§5.1) fires first, so the true candidate set is measured *after* the gate over the ~26K in-scope role-bearing concepts (Neoplastic Process 16,467 + Disease or Syndrome 5,808 + Cell/Molecular Dysfunction 3,911). The golden spike must report that gated number, not 55,044.
+   First, a correction: **55,044 is the corpus-wide count** (all 204K classes, incl. the out-of-scope gene/protein families). It must **not** be used as a branch population figure. The hierarchy root selects the population, then the semantic-type applicability gate (§5.1) selects concepts handled by the axis-qualified algorithm. Reports must expose both the hierarchy worklist and post-gate results rather than presenting the canonical three-type total as branch scope.
    Second, the gate itself: count **decomposable axes** = stated defining roles **+** morphology-from-parent (§6) **+** label-signalled axes (`label_multi_aspect`, §5). A concept with a single site role but a morphology-bearing taxonomic parent is genuinely 2-axis (site + morphology) and must qualify; a raw `role_count ≥ 2` test would wrongly drop it, while truly single-axis nodes (one role, atomic parent, no label signal) are still excluded. Config key stays `min_defining_roles` (default 2) for the role component; the axis-count framing is the detector's actual predicate.
 
 2. **Regimen branch — deferred, and it needs its own mini-design (not just a later run).**
@@ -674,14 +809,14 @@ records the call and the rationale.
 3. **Vocabulary namespace — `https://w3id.org/ontoprism/vocab#` (prefix `op:`).**
    Nothing in-repo pins `ontoprism.org`; the only canonical identifier is `github.com/hniedner/ontoprism`. A **w3id.org persistent identifier** is the right choice: it is community-standard for linked-data/OBO vocabularies, is made resolvable via a one-line redirect PR to the w3id registry, and does **not** depend on owning (or keeping) the `ontoprism.org` domain — matching the repo's existing use of a purl persistent identifier for `UBERON_NS` (`namespaces.py`). Set `ONTOPRISM_NS = "https://w3id.org/ontoprism/vocab#"`. *Only* switch to `https://ontoprism.org/vocab#` if that domain is actually owned and committed to long-term; a namespace IRI need not resolve to be valid, but a stable, controllable one avoids a future migration of every `op:` triple.
 
-4. **`owl:equivalentClass` emission — reserved and fail-closed until #153.**
-   Issue **#6 ("Post-coordination expression syntax for observations & findings")** still owns the *user-facing post-coordination grammar*. Issue #153 owns the proof-bearing complete representation that must precede any exact axiom or fidelity measurement. The CLI flag remains reserved but rejects every request before effects (D43); the current curated projection cannot authorize equivalence.
+4. **`owl:equivalentClass` emission — reserved and fail-closed pending proof validation.**
+   Issue **#6 ("Post-coordination expression syntax for observations & findings")** still owns the *user-facing post-coordination grammar*. D50 provides the complete structural record that must precede any exact axiom or fidelity measurement, but does not by itself prove equivalence. The CLI flag remains reserved and rejects every request before effects (D43); the curated projection cannot authorize equivalence.
 
 5. **Most-specific filler selection applies *across alternate DAG branches*, not just within one branch's collected candidates. Resolved 2026-07-08 — see DECISIONS D14/D15 and §6.3.**
    §6.2 originally recorded `C6135`'s `R105` axis resolving to `C36825` (one level more specific than the assessment's expected `C36761`) as a bug ("the wrong constituent"). It is not: `C36825` and `C36761` are both genuinely stated, on different multi-inheritance branches of the same DAG, and `C36825 ⊑ C36761` — i.e. both are simultaneously true, and something must decide which one a single-valued axis reports. Decision: prefer the most-specific, per SNOMED CT's Necessary Normal Form precedent (production algorithm, decades of use, same multi-parent-DAG problem class) and the peer-reviewed normal-forms literature it implements (Spackman 2001, PMID 11825261) — full citations in D15. This also serves this project's own round-trip-fidelity goal (§10): the specific filler is needed to exactly reconstruct the original concept; the coarser one only reconstructs an ancestor. Nothing is lost by preferring the specific fact — the coarser one remains derivable via ordinary subsumption. **Scope-corrected by decision 6 below:** this "nothing is lost" reasoning holds only for *nested* (is-a/part-of) candidate sets; non-nested co-equal values must not be collapsed.
 
-6. **The reversible representation of record is the complete lossless unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 — see DECISIONS D19 and §6.5.**
-   §6.5 established that a defined concept's full `owl:equivalentClass` unfolding is exact and lossless, and that the *only* fidelity loss comes from this project's own simplifications (the defining-axis allowlist + single-valued collapse). Because README goal 4 requires round-tripping back to the original pre-coordinated concept, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG unfolding (all defining axes, multi-valued preserved via SNOMED-style **relationship groups**) is the future representation of record and basis for `roundtrip_fidelity`; the single-most-specific, allowlist-filtered output is the current explicitly-lossy projection, not the source of truth. Most-specific collapse (decision 5 / D15) is scoped to *nested* candidate sets only; genuinely co-equal non-nested values (site vs. lineage, organ vs. region) are kept as grouped facts. #153 must materialize the complete layer before the reserved emission seam can succeed.
+6. **The structural representation of record is the complete unfolding; the single-valued view is a lossy curated projection. Resolved 2026-07-08 and materialized by D50 — see DECISIONS D19/D50 and §6.5.**
+   Because README goal 4 requires eventual round-tripping, the single-valued/allowlist output cannot be the artifact of record. Decision: the complete multi-parent-DAG record contains all stated named genera and existential restrictions, including non-defining and excluded roles, with source-expression groups. D50 materializes it and makes the single-most-specific, allowlist-filtered output explicitly derived and traceable. This structural record may support a future reversibility proof, but exactness, equivalence, and round-trip fidelity remain unproven and quarantined pending separate validation.
 
 7. **`R101` primary-site disambiguation uses two independent, composable refinements. Resolved 2026-07-08 — see DECISIONS D20 and §6.6.**
    D17 left open whether the region-vs-organ ties (`Colon`/`Colorectal Region`, `Left Atrium`/`Endocardium`) need a second mechanism beyond genus-sense classification. They do. Decision: (1) genus-sense classification (D17) runs first and routes lineage-generic restrictions to `op:AssociatedLineageClassification`, then (2) filler-semantic-type ranking orders the residual non-lineage ties (organ-level "Body Part, Organ, or Organ Component" wins the `R101` site; region/tissue is routed to `op:AssociatedRegion`). Order matters — semantic type fails on the lineage case both fillers type as organs, so (1) must carve off lineage before (2). Both additive; under decision 6's groups model each tie becomes distinct grouped facts rather than a forced single value.
