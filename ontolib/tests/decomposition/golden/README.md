@@ -207,10 +207,11 @@ oracle. `export-row-decisions` keeps every row. It runs the workbook-level tampe
 (sheet contract, sheet visibility, hidden reviewer rows and columns, formula cells,
 attestation, required evidence keys), the shared constituent row reader (row identity,
 row type, SME action vocabulary, no `PENDING` engine suggestion, `Row Complete?` — waived
-only for a `not-needed` *candidate* row — and canonical `Expected Axis`/`Expected Filler`),
-the rejection of a `not-needed` engine suggestion as unrepresentable, and the
-`Concept Decisions` header and orphan-row checks, so a row referencing an unadjudicated
-concept cannot inflate the denominator.
+for a `not-needed` row, which an engine suggestion can never be — and canonical
+`Expected Axis`/`Expected Filler`), the requirement that a `not-needed` row leave both
+`Expected Axis` and `Expected Filler` blank, and the `Concept Decisions` header and
+orphan-row checks, so a row referencing an unadjudicated concept cannot inflate the
+denominator.
 
 It does **not** run the kept-constituent gates — `Expected Provenance Status`,
 `Expected needs_review`, `Expected Group`, `Expected Proposal ID` — nor the cohort or
@@ -222,7 +223,19 @@ after generation per D61 and checked at load, and `_meta` binds the rows to the 
 measure via `source_identity`, `run_id` and `engine_evidence_identity`. Together with the
 per-concept row-count assertion in `test_m1_baseline.py`, that closes the hole where
 deleting, relabelling or duplicating rows moved the published acceptance rate to 53%, 40%
-and 38% with every test still green. `schema_version` is 2.
+and 38% with every test still green. `schema_version` is 3.
+
+A row is one of three shapes, discriminated on `sme_action`, so the invariants are carried
+by the type rather than by a validator: a **kept** row (`include`/`revise`) must have both
+an axis and a filler; an **excluded** row may name the expectation withdrawn or leave it
+blank; an **unused candidate** row (`not-needed`) is `ADD IF MISSING` only and carries no
+pair fields at all. The combination `ENGINE SUGGESTION` + `not-needed` therefore has no
+inhabitant — an engine suggestion the reviewer never ruled on cannot reach the
+denominator.
+
+`cross_tab()` returns a typed result, not a grid of dictionaries, and
+`EngineAcceptance.accepted_unchanged_rate` computes the published figure — 0.4528 — which
+`test_m1_baseline.py` asserts. Before this, 45% was arithmetic no code performed.
 
 The tracked export was produced by:
 
