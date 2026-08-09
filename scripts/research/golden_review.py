@@ -459,10 +459,13 @@ def _require_decision_rows(
 ) -> tuple[ConstituentRowDecision, ...]:
     """Reject an empty row set as a *field* failure, not a whole-model one.
 
-    A model-level check reports the entire validated input, so pydantic renders
-    the reviewer's `_meta` block — name, qualification, attestation date — into an
-    exception that is then printed by the CLI and captured in CI logs. None of it
-    is evidence about an empty row set. Failing on the field reports the field.
+    A model-level check reports the entire validated input, so the refusal that
+    reaches the CLI and the CI log is `input_value={'_meta': {'engine_eviden...`
+    -- the reviewer's provenance block, truncated mid-word by pydantic, and no
+    part of it evidence about an empty row set. (The truncation is why the
+    reviewer's name does not in fact appear; nothing in the code arranges that,
+    and a shorter `_meta` would surface more of it.) Failing on the field reports
+    `input_value=()`.
     """
     if not value:
         raise ValueError("row decisions must not be empty")

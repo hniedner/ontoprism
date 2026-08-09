@@ -2560,9 +2560,9 @@ def test_row_decision_loader_rejects_an_empty_row_set(tmp_path: Path) -> None:
     The rejection is reachable only through the JSON loader: a workbook with no
     populated constituent row is a real possibility, but `export_row_decisions`
     reaches this gate with whatever the sheet held, so the empty case has to be
-    provoked here. The message must not drag `_meta` into the failure text — these
-    land verbatim in CI logs, and the metadata block carries the reviewer's name
-    and attestation date, none of which is evidence about an empty row set.
+    provoked here. The message must not drag `_meta` into the failure text — a
+    model-level check reported the whole validated input, and these land verbatim
+    in a CLI error and a CI log.
     """
     export_path, payload = _row_decision_payload(tmp_path)
     payload["rows"] = []
