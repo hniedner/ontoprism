@@ -19,7 +19,7 @@ from ontolib.decomposition.models import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import safe_iri
+from ontolib.terminologies.sparql_transport import safe_iri
 
 _MAX_INTERSECTION_MEMBERS = 64
 _MAX_NESTING_DEPTH = 4
@@ -54,48 +54,64 @@ class _DefinitionSlice:
     root_group_ids: tuple[str, ...]
 
 
-def _nested_expression_branches(concept_iri: str) -> str:
-    branches = [f"{{ <{concept_iri}> owl:equivalentClass ?expression . }}"]
-    for depth in range(1, _MAX_NESTING_DEPTH + 1):
-        lines = [f"<{concept_iri}> owl:equivalentClass ?rootExpression ."]
-        parent = "?rootExpression"
-        for level in range(1, depth + 1):
-            member = f"?pathMember{level}"
-            expression = f"?pathExpression{level}"
+def _expression_pattern(concept_iri: str, nesting_depth: int) -> str:
+    if nesting_depth == 0:
+        return (
+            f"<{concept_iri}> owl:equivalentClass ?expression .\n"
+            "BIND(0 AS ?nestingDepth)"
+        )
+    lines = [f"<{concept_iri}> owl:equivalentClass ?rootExpression ."]
+    parent = "?rootExpression"
+    for level in range(1, nesting_depth + 1):
+        member = f"?pathMember{level}"
+        expression = f"?pathExpression{level}"
+        lines.extend(
+            (
+                f"{parent} owl:intersectionOf/rdf:rest*/rdf:first {member} .",
+                f"FILTER(isBlank({member}))",
+                f"{member} owl:equivalentClass? {expression} .",
+                f"{expression} owl:intersectionOf ?pathList{level} .",
+            )
+        )
+        if level == nesting_depth:
             lines.extend(
                 (
-                    f"{parent} owl:intersectionOf/rdf:rest*/rdf:first {member} .",
-                    f"FILTER(isBlank({member}))",
-                    f"{member} owl:equivalentClass? {expression} .",
-                    f"{expression} owl:intersectionOf ?pathList{level} .",
+                    f"BIND({parent} AS ?parentExpression)",
+                    f"BIND({expression} AS ?expression)",
+                    f"BIND({nesting_depth} AS ?nestingDepth)",
                 )
             )
-            if level == depth:
-                lines.extend(
-                    (
-                        f"BIND({parent} AS ?parentExpression)",
-                        f"BIND({expression} AS ?expression)",
-                    )
-                )
-            parent = expression
-        branches.append("{\n" + "\n".join(lines) + "\n}")
-    return "\nUNION\n".join(branches)
+        parent = expression
+    return "\n".join(lines)
 
 
-def build_complete_definition_query(concept_code: str) -> str:
-    """Read the anchored nested RDF-list graph for bounded validation in Python."""
+def build_complete_definition_query(
+    concept_code: str,
+    *,
+    nesting_depth: int = 0,
+) -> str:
+    """Read the proven prefix through one requested stated-OWL nesting level."""
+    if nesting_depth < 0 or nesting_depth > _MAX_NESTING_DEPTH:
+        raise ValueError(f"nesting depth must be between 0 and {_MAX_NESTING_DEPTH}")
     concept_iri = safe_iri(concept_code, NCIT_NS)
-    expression_branches = _nested_expression_branches(concept_iri)
+    expression_pattern = "\nUNION\n".join(
+        "{\n" + _expression_pattern(concept_iri, depth) + "\n}"
+        for depth in range(nesting_depth + 1)
+    )
     return f"""{_PREFIXES}
-SELECT ?expression ?parentExpression ?list ?cell ?next ?member ?role ?target
-       ?childExpression ?nestedExpression WHERE {{
+SELECT DISTINCT ?expression ?parentExpression ?nestingDepth ?requestedNestingDepth
+       ?list ?cell ?next ?member ?role ?target ?childExpression ?nestedExpression
+WHERE {{
     GRAPH <{STATED_GRAPH_IRI}> {{
         {{
-        {expression_branches}
+        {expression_pattern}
         }}
+        BIND({nesting_depth} AS ?requestedNestingDepth)
         ?expression owl:intersectionOf ?list .
         ?list rdf:rest* ?cell .
-        FILTER(?cell != rdf:nil)
+        {{ ?cell rdf:first ?cellWitness }}
+        UNION
+        {{ ?cell rdf:rest ?cellWitness }}
         OPTIONAL {{ ?cell rdf:first ?member }}
         OPTIONAL {{ ?cell rdf:rest ?next }}
         OPTIONAL {{
@@ -738,14 +754,7 @@ async def read_complete_definition(
     root_group_ids: list[str] = []
     while queue:
         anchor_code, depth = queue.popleft()
-        rows = await select_fn(
-            build_complete_definition_query(anchor_code),
-            required_variables={
-                "expression",
-                "list",
-                "cell",
-            },
-        )
+        rows = await _read_anchor_definition_rows(select_fn, anchor_code)
         definition_slice = _definition_slice_from_rows(
             anchor_code,
             depth=depth,
@@ -770,6 +779,54 @@ async def read_complete_definition(
         facts=tuple(facts),
         groups=tuple(groups),
         root_group_ids=tuple(root_group_ids),
+    )
+
+
+async def _read_anchor_definition_rows(
+    select_fn: SelectRows,
+    anchor_code: str,
+) -> list[Row]:
+    rows: list[Row] = []
+    for nesting_depth in range(_MAX_NESTING_DEPTH + 1):
+        current = await select_fn(
+            build_complete_definition_query(
+                anchor_code,
+                nesting_depth=nesting_depth,
+            ),
+            required_variables={
+                "expression",
+                "list",
+                "cell",
+            },
+        )
+        _validate_requested_nesting_depth(current, nesting_depth)
+        rows = list(current)
+        if not _level_requires_nested_query(current, nesting_depth):
+            break
+        if nesting_depth == _MAX_NESTING_DEPTH:
+            raise CompleteDefinitionError(
+                f"definition exceeds nesting depth bound {_MAX_NESTING_DEPTH}"
+            )
+    return rows
+
+
+def _validate_requested_nesting_depth(rows: Iterable[Row], expected: int) -> None:
+    requested_depths = {
+        value
+        for row in rows
+        if (value := row.get("requestedNestingDepth")) not in {None, ""}
+    }
+    if requested_depths not in (set(), {str(expected)}):
+        raise CompleteDefinitionError(
+            "complete-definition response has a mismatched requested nesting depth"
+        )
+
+
+def _level_requires_nested_query(rows: Iterable[Row], depth: int) -> bool:
+    return any(
+        row.get("nestedExpression") not in {None, ""}
+        for row in rows
+        if _nesting_depth(row) == depth
     )
 
 

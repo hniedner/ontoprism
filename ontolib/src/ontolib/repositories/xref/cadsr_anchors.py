@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+    from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -129,7 +129,7 @@ def overlap_with_roles(
 
 async def filter_in_scope(
     codes: frozenset[str],
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
 ) -> frozenset[str]:
     """Keep only codes that are subclasses of ``C3262`` (Neoplasm).
 
@@ -138,7 +138,7 @@ async def filter_in_scope(
 
     Args:
         codes: Candidate anchor codes.
-        client: An ``OxigraphHttpClient`` connected to the NCIt store.
+        client: An ``SparqlHttpClient`` connected to the NCIt store.
 
     Returns:
         Subset of *codes* that are in the neoplasm branch.
@@ -173,7 +173,7 @@ async def filter_in_scope(
 
 async def check_liveness(
     codes: frozenset[str],
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
 ) -> dict[str, str]:
     """Check which codes are live (exist as ``owl:Class``) in the NCIt store.
 
@@ -185,7 +185,7 @@ async def check_liveness(
 
     Args:
         codes: Codes to check.
-        client: An ``OxigraphHttpClient`` connected to the NCIt store.
+        client: An ``SparqlHttpClient`` connected to the NCIt store.
 
     Returns:
         Dict mapping each code to ``"live"`` or ``"unresolved"``.

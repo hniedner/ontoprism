@@ -14,10 +14,13 @@ from typing import TYPE_CHECKING
 from xml.etree.ElementTree import ParseError
 
 import pytest
+from scripts import data_build
 from scripts.data_build import (
     _build_cadsr,
+    _build_initial_ncit,
     _build_ncit_sibling,
     _build_owl,
+    _build_uberon_store,
     _code_commit,
     _dispose_cadsr_engine,
     _prepare_owl_artifacts,
@@ -34,6 +37,56 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _CADSR_URL = "https://example.test/releasedCDEsXML-OD.zip"
+
+
+@pytest.mark.unit
+def test_build_all_starts_and_migrates_services_before_online_build_steps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    async def step(name: str) -> None:
+        events.append(name)
+
+    monkeypatch.setattr(data_build, "_build_owl", lambda: step("owl"))
+    monkeypatch.setattr(data_build, "_build_initial_ncit", lambda: step("ncit"))
+    monkeypatch.setattr(data_build, "_build_uberon_store", lambda: step("uberon"))
+    monkeypatch.setattr(data_build, "_build_cadsr", lambda: events.append("cadsr"))
+    monkeypatch.setattr(
+        data_build,
+        "_build_embeddings",
+        lambda **_kwargs: step("embeddings"),
+    )
+    monkeypatch.setattr(
+        data_build,
+        "get_settings",
+        lambda: SimpleNamespace(ncit_store_dir=str(tmp_path / "qlever-ncit")),
+    )
+    monkeypatch.setattr(data_build.shutil, "which", lambda name: f"/tools/{name}")
+
+    def run(command: list[str], *, check: bool) -> None:
+        assert check is True
+        if command[:2] == ["/tools/docker", "compose"]:
+            events.append("services")
+        elif command[:2] == ["/tools/alembic", "upgrade"]:
+            events.append("migrate")
+        else:
+            pytest.fail(f"unexpected command: {command}")
+
+    monkeypatch.setattr(data_build.subprocess, "run", run)
+
+    data_build.build_all()
+
+    assert events == [
+        "owl",
+        "ncit",
+        "uberon",
+        "services",
+        "migrate",
+        "cadsr",
+        "embeddings",
+    ]
 
 
 @pytest.mark.unit
@@ -266,7 +319,7 @@ async def test_ncit_sibling_command_uses_certified_pair_and_configured_active_st
     pair = tmp_path / "ncit-owl" / "ncit-artifact-pair.json"
     pair.parent.mkdir()
     pair.write_text("pair")
-    active = tmp_path / "oxigraph-ncit"
+    active = tmp_path / "qlever-ncit"
     active.mkdir()
     calls: list[tuple[Path, Path]] = []
 
@@ -296,6 +349,133 @@ async def test_ncit_sibling_command_uses_certified_pair_and_configured_active_st
 
     assert calls == [(pair, active)]
     assert result.candidate_path == str(tmp_path / "candidate")
+
+
+@pytest.mark.unit
+async def test_ncit_bootstrap_command_refuses_implicit_existing_store_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pair = tmp_path / "ncit-owl" / "ncit-artifact-pair.json"
+    pair.parent.mkdir()
+    pair.write_text("pair")
+    target = tmp_path / "qlever-ncit"
+    calls: list[tuple[Path, Path]] = []
+
+    async def build(
+        pair_manifest_path: Path,
+        *,
+        active_store_path: Path,
+        runtime: object,
+    ) -> SimpleNamespace:
+        del runtime
+        calls.append((pair_manifest_path, active_store_path))
+        return SimpleNamespace(
+            candidate_path=str(target),
+            source_identity="source-identity",
+        )
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            ncit_owl_dir=str(pair.parent),
+            ncit_store_dir=str(target),
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.build_initial_ncit_store", build)
+
+    result = await _build_initial_ncit()
+
+    assert calls == [(pair, target)]
+    assert result.candidate_path == str(target)
+
+
+@pytest.mark.unit
+async def test_uberon_store_command_downloads_certifies_and_builds_configured_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_dir = tmp_path / "uberon-source"
+    target = tmp_path / "qlever-uberon"
+    source_url = "https://example.test/uberon/releases/2026-06-19/uberon.owl"
+    version_iri = "http://example.test/releases/2026-06-19/uberon.owl"
+    source_sha256 = "9" * 64
+    artifact_manifest = source_dir / "uberon-artifact.json"
+    calls: list[tuple[object, ...]] = []
+
+    async def download(
+        output_dir: Path,
+        *,
+        source_url: str,
+        expected_version_iri: str,
+        expected_sha256: str,
+        max_retries: int,
+    ) -> SimpleNamespace:
+        calls.append(
+            (
+                "download",
+                output_dir,
+                source_url,
+                expected_version_iri,
+                expected_sha256,
+                max_retries,
+            )
+        )
+        return SimpleNamespace(
+            artifact_identity="artifact",
+            file_path=str(source_dir / "uberon.owl"),
+        )
+
+    class Runtime:
+        def __init__(self, **kwargs: object) -> None:
+            calls.append(("runtime", kwargs))
+
+    async def build(
+        manifest_path: Path,
+        target_path: Path,
+        *,
+        runtime: object,
+    ) -> SimpleNamespace:
+        calls.append(("build", manifest_path, target_path, runtime))
+        return SimpleNamespace(source_identity="index-source", target_path=str(target))
+
+    monkeypatch.setattr(
+        "scripts.data_build.get_settings",
+        lambda: SimpleNamespace(
+            uberon_owl_dir=str(source_dir),
+            uberon_owl_url=source_url,
+            uberon_expected_version_iri=version_iri,
+            uberon_expected_sha256=source_sha256,
+            uberon_owl_max_retries=5,
+            uberon_store_dir=str(target),
+        ),
+    )
+    monkeypatch.setattr("scripts.data_build.download_uberon_artifact", download)
+    monkeypatch.setattr("scripts.data_build.DockerQleverRuntime", Runtime)
+    monkeypatch.setattr("scripts.data_build.build_uberon_index", build)
+
+    result = await _build_uberon_store()
+
+    assert result.source_identity == "index-source"
+    assert calls[0] == (
+        "download",
+        source_dir,
+        source_url,
+        version_iri,
+        source_sha256,
+        5,
+    )
+    assert calls[1] == (
+        "runtime",
+        {
+            "index_basename": "uberon",
+            "owner_marker_filename": ".ontoprism-uberon-owner",
+            "server_memory": "2G",
+            "server_cache": "256M",
+            "server_allocator": "256M",
+        },
+    )
+    assert calls[2][0:3] == ("build", artifact_manifest, target)
 
 
 @pytest.mark.unit

@@ -17,7 +17,7 @@ from ontolib.repositories.xref.cadsr_anchors import (
     filter_in_scope,
     overlap_with_roles,
 )
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -224,14 +224,14 @@ def test_null_concept_code_ignored(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-async def test_in_scope_filter(isolated_oxigraph_url: str) -> None:
+async def test_in_scope_filter(isolated_qlever_url: str) -> None:
     """Only neoplasm descendant codes survive the scope gate.
 
     C3262 (Neoplasm) is the root — kept.
     C12345 is not a descendant of C3262 — dropped.
     """
     codes = frozenset({"C3262", "C12345"})
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with SparqlHttpClient(isolated_qlever_url) as client:
         in_scope = await filter_in_scope(codes, client)
 
     assert "C3262" in in_scope
@@ -240,11 +240,11 @@ async def test_in_scope_filter(isolated_oxigraph_url: str) -> None:
 
 @pytest.mark.integration
 async def test_unresolved_code_reported_not_dropped(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
 ) -> None:
     """A bogus code is flagged 'unresolved' but not dropped from the output."""
     codes = frozenset({"C3262", "FOOBAR"})
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with SparqlHttpClient(isolated_qlever_url) as client:
         statuses = await check_liveness(codes, client)
 
     assert statuses["C3262"] == "live"

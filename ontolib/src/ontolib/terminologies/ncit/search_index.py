@@ -1,7 +1,7 @@
 """Materialized full-text search over NCIt concepts (Postgres tsvector + GIN).
 
 Serves NCIt search/browse from an index rather than a live SPARQL ``CONTAINS`` scan
-over ~204k classes per request. The Oxigraph store stays the source of truth: this
+over ~204k classes per request. The QLever store stays the source of truth: this
 cache is (re)populated from it via :func:`populate_from_store`, and callers fall back
 to the store's SPARQL search when the cache is empty (see the NCIt search endpoint).
 """

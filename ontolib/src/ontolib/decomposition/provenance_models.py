@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from datetime import UTC, datetime
 from typing import Literal, Self, cast
 
 from pydantic import (
@@ -59,6 +60,13 @@ class PublicationMarkerSnapshot(BaseModel):
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     built_at: AwareDatetime
+
+    @field_validator("built_at")
+    @classmethod
+    def canonicalize_graph_timestamp(cls, value: datetime) -> datetime:
+        """Use the millisecond precision preserved by QLever ``xsd:dateTime``."""
+        utc = value.astimezone(UTC)
+        return utc.replace(microsecond=(utc.microsecond // 1000) * 1000)
 
 
 class RunFingerprint(BaseModel):

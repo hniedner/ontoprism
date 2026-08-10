@@ -23,7 +23,7 @@ not lower a gate to make a change pass — raise coverage instead.
   that assert a mock was called; no snapshotting internal state to pad numbers. (The
   `check test quality` pre-commit hook guards this — do not evade it.)
 - Prefer behavioral tests against real collaborators (local HTTP doubles, ephemeral
-  Oxigraph/pgvector, real SQLite) over mocking the unit under test.
+  QLever/pgvector, real SQLite) over mocking the unit under test.
 - Tests must be resilient to reasonable refactoring — assert contracts and outputs,
   not implementation details.
 
@@ -58,7 +58,7 @@ out explicitly in the PR; never silently drop the gate.
 ### Documented coverage exceptions (current)
 
 - **`backend`/`ontolib` `graph_store.py`** — the NCIt SPARQL-parsing layer is exercised
-  by the live-Oxigraph `integration` suite (excluded from the hermetic `test-ci` gate);
+  by the disposable-QLever `integration` suite (combined into the strict `test-ci` gate);
   the gate still passes comfortably (~95%) on everything else.
 - **Frontend `GraphExplorer.svelte` / `GraphMinimap.svelte`** — imperative sigma
   (WebGL) / 2d-canvas rendering shells that cannot mount in jsdom. Their pure logic is

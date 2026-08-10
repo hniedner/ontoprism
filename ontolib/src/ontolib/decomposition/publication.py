@@ -227,7 +227,7 @@ def build_replacement_update(marker: PublicationMarker, staging_graph: str) -> s
     public = vocab.DECOMPOSED_GRAPH_IRI
     marker_subject = vocab.PUBLICATION_MARKER
     return f"""
-CLEAR GRAPH <{public}>;
+CLEAR SILENT GRAPH <{public}>;
 ADD GRAPH <{staging_graph}> TO GRAPH <{public}>;
 DROP GRAPH <{staging_graph}>;
 INSERT DATA {{
@@ -422,7 +422,8 @@ async def _replace_graph(
     if current not in (marker, predecessor):
         raise PublicationValidationError(
             "public decomposition marker is neither this publication intent nor "
-            "its persisted predecessor"
+            "its persisted predecessor: "
+            f"current={current!r}, intent={marker!r}, predecessor={predecessor!r}"
         )
     staging_graph = staging_graph_iri(marker.run_id)
     await client.load(

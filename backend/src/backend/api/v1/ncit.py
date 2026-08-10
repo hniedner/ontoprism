@@ -26,7 +26,7 @@ from ontolib.terminologies.ncit.models import (
     SearchPage,
     SimilarConcept,
 )
-from ontolib.terminologies.oxigraph_http_client import safe_iri
+from ontolib.terminologies.sparql_transport import safe_iri
 
 logger = get_logger(__name__)
 

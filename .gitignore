@@ -50,8 +50,9 @@ pnpm-debug.log*
 .vscode/
 *.swp
 
-# Local isolated Oxigraph stores (CoW clones; not tracked)
+# Local ontology indexes and data-build tool installations (not tracked)
 /data/
+/.tools/
 
 # Test fixtures — *not* ignored
 !ontolib/tests/data/

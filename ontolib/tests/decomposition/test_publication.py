@@ -396,7 +396,7 @@ def test_replacement_update_is_run_scoped_and_replaces_marker_atomically() -> No
 
     assert staging.startswith(f"{vocab.DECOMPOSED_GRAPH_IRI}/staging/")
     assert marker.run_id not in staging
-    assert f"CLEAR GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}>" in update
+    assert f"CLEAR SILENT GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}>" in update
     assert f"ADD GRAPH <{staging}> TO GRAPH <{vocab.DECOMPOSED_GRAPH_IRI}>" in update
     assert f"DROP GRAPH <{staging}>" in update
     assert marker.run_id in update

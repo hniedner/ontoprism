@@ -1,6 +1,6 @@
 """Hermetic behavioral tests for the NCIt read API (fake store / index / embeddings).
 
-These pin the endpoint contracts without a live Oxigraph: the FTS-cache-vs-SPARQL
+These pin the endpoint contracts without a live QLever: the FTS-cache-vs-SPARQL
 fallback, 404 mapping for unknown/malformed codes, the similar-concepts label join,
 and the 503 mapping when the embedding backend is unavailable. The live-store
 variants live in ``test_ncit_api_integration.py``.

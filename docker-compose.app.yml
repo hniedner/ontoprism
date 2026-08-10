@@ -14,8 +14,8 @@ services:
     container_name: ontoprism-api
     environment:
       # Point at the compose-network service names, not the host-published ports.
-      NCIT_SPARQL_URL: http://oxigraph-ncit:7878
-      UBERON_SPARQL_URL: http://oxigraph-uberon:7878
+      NCIT_SPARQL_URL: http://qlever-ncit:7001
+      UBERON_SPARQL_URL: http://qlever-uberon:7001
       DATABASE_URL: postgresql+asyncpg://ontoprism:ontoprism@postgres:5432/ontoprism
       CADSR_DB_PATH: /app/data/cadsr/cde_repository.db
       CORS_ALLOW_ORIGINS: '["http://localhost:8080"]'
@@ -33,7 +33,9 @@ services:
       - ./data/cadsr:/app/data/cadsr:ro
       - ontoprism_refresh:/app/refresh
     depends_on:
-      oxigraph-ncit:
+      qlever-ncit:
+        condition: service_healthy
+      qlever-uberon:
         condition: service_healthy
       postgres:
         condition: service_healthy

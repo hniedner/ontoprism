@@ -1,1 +1,1 @@
-"""Terminology graph stores (Oxigraph HTTP) and SPARQL query builders."""
+"""Terminology graph stores (QLever HTTP) and SPARQL query builders."""

@@ -13,7 +13,7 @@ from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 
 def get_ncit_store(request: Request) -> NcitGraphStore:
@@ -21,7 +21,7 @@ def get_ncit_store(request: Request) -> NcitGraphStore:
     return request.app.state.ncit_store
 
 
-def get_ncit_client(request: Request) -> OxigraphHttpClient:
+def get_ncit_client(request: Request) -> SparqlHttpClient:
     """Return the process-wide NCIt SPARQL client."""
     return request.app.state.ncit_client
 

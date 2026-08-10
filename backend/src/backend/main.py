@@ -1,6 +1,6 @@
 """FastAPI application entrypoint.
 
-Owns the process-wide Oxigraph SPARQL client (opened for the app lifespan) and the
+Owns the process-wide QLever SPARQL client (opened for the app lifespan) and the
 NCIt repository read model; the frontend talks only to this backend.
 """
 
@@ -39,14 +39,15 @@ from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 logger = get_logger(__name__)
 
 
-async def check_ncit_version(client: OxigraphHttpClient, expected: str) -> None:
+async def check_ncit_version(client: SparqlHttpClient, expected: str) -> None:
     """Warn (don't fail) at startup if the store version differs from the pin.
 
     Roles are version-pinned (DECISIONS D5); a silent build bump would break them, so
@@ -83,7 +84,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "API_KEY is not set — refresh/reload endpoints run unauthenticated "
             "(open mode). Set api_key to require X-API-Key."
         )
-    client = OxigraphHttpClient(settings.ncit_sparql_url)
+    client = ncit_sparql_client(settings.ncit_sparql_url)
     engine = make_engine(settings.database_url)
     app.state.ncit_client = client
     app.state.ncit_store = NcitGraphStore(client)

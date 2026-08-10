@@ -76,7 +76,7 @@ def _old_role_to_genus_walk_row(
 
 class _FakeClient:
     """Branches on query-text markers, matching the repo's fake-client convention
-    (see ``test_oxigraph_client_http.py``).
+    (see ``test_qlever_client_http.py``).
 
     The complete-definition query returns one canonical root group per concept and
     preserves every configured role. The older direct member rows remain only for the
@@ -183,7 +183,10 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
-        if "SELECT ?expression ?parentExpression ?list ?cell" in query:
+        if (
+            "SELECT DISTINCT ?expression ?parentExpression" in query
+            and "?requestedNestingDepth" in query
+        ):
             code = self._code_in(query)
             return self._complete_rows.get(code or "", [])
         if "SELECT ?role ?roleLabel" in query:

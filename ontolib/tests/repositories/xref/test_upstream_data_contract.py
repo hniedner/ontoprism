@@ -47,7 +47,7 @@ from ontolib.repositories.xref.promotion import (
 )
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
 from ontolib.repositories.xref.vocab import COMPOSITE_MATCHING
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 pytestmark = [pytest.mark.integration, pytest.mark.full_store]
 
@@ -57,8 +57,8 @@ _RESPIRATORY_SYSTEM = f"{_OBO}UBERON_0001004"
 _RESPIRATION_ORGAN = f"{_OBO}UBERON_0000171"
 
 
-async def _uberon() -> OxigraphHttpClient | None:
-    client = OxigraphHttpClient(get_settings().uberon_sparql_url)
+async def _uberon() -> SparqlHttpClient | None:
+    client = SparqlHttpClient.for_qlever(get_settings().uberon_sparql_url)
     try:
         if await client.count() == 0:
             await client.aclose()
@@ -69,8 +69,8 @@ async def _uberon() -> OxigraphHttpClient | None:
     return client
 
 
-async def _ncit() -> OxigraphHttpClient | None:
-    client = OxigraphHttpClient(get_settings().ncit_sparql_url)
+async def _ncit() -> SparqlHttpClient | None:
+    client = SparqlHttpClient.for_qlever(get_settings().ncit_sparql_url)
     try:
         if await client.count() == 0:
             await client.aclose()

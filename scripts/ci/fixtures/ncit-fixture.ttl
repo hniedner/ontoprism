@@ -12,7 +12,7 @@
 # Ontology header → version() pin test.
 <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl>
     a owl:Ontology ;
-    owl:versionInfo "26.02d" .
+    owl:versionInfo "26.07d" .
 
 # C3262 Neoplasm — full metadata (P108 preferred name, P97 definition, P106 semantic
 # type, P90 synonym), a named parent, a named child, and the R105 role restriction.

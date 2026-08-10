@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     _ContainerInspector = Callable[
         [IntegrationResourceOwner, str, _DockerRunner], dict[str, object]
     ]
-    _OxigraphOwnerVerifier = Callable[
+    _QLeverOwnerVerifier = Callable[
         [IntegrationResourceOwner, str, Path, _DockerRunner], None
     ]
 
@@ -123,8 +123,8 @@ def test_owner_builds_collision_resistant_scoped_resource_names() -> None:
         "ontoprism-postgres-test-019f8d64b0e274e2931a15452959797a"
     )
     assert (
-        owner.oxigraph_container_name
-        == "ontoprism-oxigraph-test-019f8d64b0e274e2931a15452959797a"
+        owner.qlever_container_name
+        == "ontoprism-qlever-test-019f8d64b0e274e2931a15452959797a"
     )
     assert owner.graph_iri("decomposition") == (
         "urn:ontoprism:test:019f8d64b0e274e2931a15452959797a:decomposition"
@@ -232,7 +232,7 @@ def test_safe_lane_separates_provisioning_credentials_from_application_targets(
     assert environment["CADSR_DB_PATH"] == str(data_root / "cadsr/cde_repository.db")
     assert environment["CADSR_DATA_DIR"] == str(data_root / "cadsr")
     assert environment["NCIT_OWL_DIR"] == str(data_root / "ncit-owl")
-    assert environment["NCIT_STORE_DIR"] == str(data_root / "oxigraph-ncit")
+    assert environment["NCIT_STORE_DIR"] == str(data_root / "qlever-ncit")
     assert environment["ONTOPRISM_SAFE_INTEGRATION"] == "1"
 
 
@@ -359,7 +359,7 @@ def test_registered_unregisters_even_when_the_context_body_raises() -> None:
                 path="backend/tests/test_mixed.py",
                 name="test_write",
                 markers=frozenset({"integration", "mutating_integration"}),
-                fixtures=frozenset({"isolated_oxigraph_settings"}),
+                fixtures=frozenset({"isolated_qlever_settings"}),
             ),
             (
                 MutatorManifestEntry(
@@ -400,8 +400,8 @@ def test_registered_unregisters_even_when_the_context_body_raises() -> None:
                     fixtures=frozenset({"unrelated_fixture"}),
                 ),
             ),
-            ("Oxigraph write",),
-            "Oxigraph write without an owned store",
+            ("QLever write",),
+            "QLever write without an owned store",
         ),
         (
             IntegrationTestDeclaration(
@@ -527,34 +527,44 @@ def test_manifest_files_reject_missing_paths_and_uncollected_selectors(
 
 
 @pytest.mark.unit
-def test_oxigraph_command_is_loopback_disposable_and_digest_pinned() -> None:
+def test_qlever_command_is_loopback_disposable_and_digest_pinned() -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
     data_dir = Path(
-        "/private/tmp/ontoprism-oxigraph-019f8d64b0e274e2931a15452959797a-fixture"
+        "/Users/hannes/Documents/coding/ontoprism/data/"
+        "ontoprism-qlever-019f8d64b0e274e2931a15452959797a-fixture"
     )
 
-    assert owner.oxigraph_run_command(data_dir) == [
+    assert owner.qlever_run_command(data_dir) == [
         "docker",
         "run",
         "--detach",
+        "--user",
+        "0:0",
         "--name",
-        "ontoprism-oxigraph-test-019f8d64b0e274e2931a15452959797a",
+        "ontoprism-qlever-test-019f8d64b0e274e2931a15452959797a",
         "--label",
         "org.ontoprism.test-owner=019f8d64b0e274e2931a15452959797a",
         "--publish",
-        "127.0.0.1::7878",
+        "127.0.0.1::7001",
         "--volume",
         f"{data_dir}:/data",
-        "ghcr.io/oxigraph/oxigraph@sha256:"
-        "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3",
-        "serve",
-        "--location",
+        "--workdir",
         "/data",
-        "--bind",
-        "0.0.0.0:7878",
+        "--entrypoint",
+        "/bin/sh",
+        "docker.io/adfreiburg/qlever@sha256:"
+        "abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a03747bf7e56165cb0ca6",
+        "-c",
+        "set -eu; /qlever/qlever-index -i test -f default.nt -g - "
+        "-f stated.nt -g "
+        "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl "
+        "-F nt -F nt -p true -p true -m 512M; "
+        "exec /qlever/qlever-server -i test -p 7001 --no-access-check "
+        "--persist-updates --service-allowed-iri-prefixes - "
+        "-j 2 -m 4G -c 512M -e 256M -s 30s",
     ]
     with pytest.raises(ResourceOwnershipError, match="data directory"):
-        owner.oxigraph_run_command(
+        owner.qlever_run_command(
             Path("/private/tmp/prefix-019f8d64b0e274e2931a15452959797a-suffix")
         )
 
@@ -582,44 +592,44 @@ def test_oxigraph_command_is_loopback_disposable_and_digest_pinned() -> None:
 
 
 @pytest.mark.unit
-def test_oxigraph_ownership_requires_label_mount_and_file_marker() -> None:
+def test_qlever_ownership_requires_label_mount_and_file_marker() -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
     data_dir = Path(
-        "/private/tmp/ontoprism-oxigraph-019f8d64b0e274e2931a15452959797a-fixture"
+        "/private/tmp/ontoprism-qlever-019f8d64b0e274e2931a15452959797a-fixture"
     )
 
     owner.verify_container_label(owner.nonce)
     with pytest.raises(ResourceOwnershipError, match="label"):
         owner.verify_container_label("another-run")
-    owner.verify_oxigraph(
+    owner.verify_qlever(
         mounted_data_dir=data_dir,
         expected_data_dir=data_dir,
         file_marker=owner.nonce,
     )
     with pytest.raises(ResourceOwnershipError, match="mount"):
-        owner.verify_oxigraph(
+        owner.verify_qlever(
             mounted_data_dir=Path("/private/tmp/familiar-prefix-decoy"),
             expected_data_dir=data_dir,
             file_marker=owner.nonce,
         )
     with pytest.raises(ResourceOwnershipError, match="file marker"):
-        owner.verify_oxigraph(
+        owner.verify_qlever(
             mounted_data_dir=data_dir,
             expected_data_dir=data_dir,
             file_marker="another-run",
         )
-    owner.verify_oxigraph_data_dir(data_dir, owner.nonce)
+    owner.verify_qlever_data_dir(data_dir, owner.nonce)
     with pytest.raises(ResourceOwnershipError, match="directory owner"):
-        owner.verify_oxigraph_data_dir(
+        owner.verify_qlever_data_dir(
             Path("/private/tmp/ontoprism-test-another-run"), owner.nonce
         )
     with pytest.raises(ResourceOwnershipError, match="directory owner"):
-        owner.verify_oxigraph_data_dir(
+        owner.verify_qlever_data_dir(
             Path("/private/tmp/prefix-019f8d64b0e274e2931a15452959797a-suffix"),
             owner.nonce,
         )
     with pytest.raises(ResourceOwnershipError, match="file marker"):
-        owner.verify_oxigraph_data_dir(data_dir, "another-run")
+        owner.verify_qlever_data_dir(data_dir, "another-run")
 
 
 @pytest.mark.unit
@@ -639,7 +649,7 @@ def test_cleanup_does_not_treat_a_docker_daemon_error_as_absence() -> None:
 
     with pytest.raises(RuntimeError, match="Docker inspect failed"):
         remove_owned_container_by_name(
-            owner, owner.oxigraph_container_name, docker_run=failed_inspect
+            owner, owner.qlever_container_name, docker_run=failed_inspect
         )
 
 
@@ -663,10 +673,10 @@ def test_cleanup_treats_a_genuinely_absent_container_as_a_clean_no_op() -> None:
         )
 
     remove_owned_container_by_name(
-        owner, owner.oxigraph_container_name, docker_run=absent_inspect
+        owner, owner.qlever_container_name, docker_run=absent_inspect
     )
 
-    assert calls == [("inspect", owner.oxigraph_container_name)]
+    assert calls == [("inspect", owner.qlever_container_name)]
 
 
 @pytest.mark.unit
@@ -725,8 +735,8 @@ def test_inspect_owned_container_rejects_a_malformed_config(
 
 
 @pytest.mark.unit
-def test_verify_oxigraph_owner_rejects_malformed_mounts(
-    oxigraph_owner_verifier: _OxigraphOwnerVerifier,
+def test_verify_qlever_owner_rejects_malformed_mounts(
+    qlever_owner_verifier: _QLeverOwnerVerifier,
     tmp_path: Path,
 ) -> None:
     owner = IntegrationResourceOwner(nonce="019f8d64b0e274e2931a15452959797a")
@@ -752,7 +762,7 @@ def test_verify_oxigraph_owner_rejects_malformed_mounts(
         )
 
     with pytest.raises(ResourceOwnershipError, match="mounts are malformed"):
-        oxigraph_owner_verifier(owner, container_id, tmp_path, malformed_mounts)
+        qlever_owner_verifier(owner, container_id, tmp_path, malformed_mounts)
 
 
 @pytest.mark.unit
@@ -774,10 +784,10 @@ def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> Non
             f"{entry['path']} does not request {entry['fixtures']}"
         )
         reasons = set(detected.get(entry["path"], ()))
-        if reasons & {"Oxigraph write", "HTTP write"}:
-            assert "isolated_oxigraph_settings" in fixtures or (
-                "isolated_oxigraph_url" in fixtures
-            ), f"{entry['path']} has an Oxigraph write without an owned store"
+        if reasons & {"QLever write", "HTTP write"}:
+            assert "isolated_qlever_settings" in fixtures or (
+                "isolated_qlever_url" in fixtures
+            ), f"{entry['path']} has an QLever write without an owned store"
         if reasons & {
             "persistent SQL write",
             "repository write",
@@ -789,7 +799,7 @@ def test_mutating_integration_manifest_requires_owned_resource_fixtures() -> Non
         if "persistent API write" in reasons:
             assert {
                 "isolated_postgres_settings",
-                "isolated_oxigraph_settings",
+                "isolated_qlever_settings",
             } <= fixtures, (
                 f"{entry['path']} has a persistent API write without both services"
             )
@@ -838,7 +848,7 @@ async def test_unowned_writes(connection, client):
 
     assert find_persistent_mutators(tmp_path) == {
         "backend/tests/test_mixed_integration.py": (
-            "Oxigraph write",
+            "QLever write",
             "persistent SQL write",
         )
     }
@@ -1205,7 +1215,7 @@ def test_ci_integration_job_has_no_serving_resources_to_open() -> None:
     }
     assert "env" not in test_step
     step_names = {step.get("name") for step in steps}
-    assert "Start Oxigraph" not in step_names
+    assert "Start QLever" not in step_names
     assert "Provision Postgres schema (Alembic migrations)" not in step_names
-    assert "Seed the fixture (Oxigraph graph + caDSR DB)" not in step_names
+    assert "Seed the fixture (QLever graph + caDSR DB)" not in step_names
     assert "services" not in job

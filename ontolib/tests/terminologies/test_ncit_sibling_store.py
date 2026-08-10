@@ -10,6 +10,11 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+from ontolib.core.data_build_tools import (
+    JENA_JRE_IMAGE,
+    JENA_RIOT_ARTIFACT,
+    QLEVER_TOOL,
+)
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.owl_download import (
     OwlContentError,
@@ -19,17 +24,18 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
     CANDIDATE_MANIFEST_FILENAME,
     OWNER_MARKER_FILENAME,
-    OXIGRAPH_IMAGE,
+    QLEVER_IMAGE,
     REJECTED_CANDIDATE_FILENAME,
     CandidateGraph,
     CandidateObservation,
     CandidateValidationPolicy,
-    DockerOxigraphRuntime,
+    DockerQleverRuntime,
     LoaderIdentity,
     SiblingStoreValidationError,
     _select_int,
     _select_version,
     _wait_until_ready,
+    build_initial_ncit_store,
     build_ncit_sibling_store,
     run_docker,
     validate_ncit_sibling_manifest,
@@ -143,12 +149,12 @@ class _Runtime:
 
     def identify_loader(self) -> LoaderIdentity:
         return LoaderIdentity(
-            image=(
-                "ghcr.io/oxigraph/oxigraph@sha256:"
-                "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
-            ),
+            image=QLEVER_IMAGE,
             image_id="sha256:" + "1" * 64,
-            cli_version="oxigraph 0.5.3",
+            cli_version="/qlever/qlever-index 65f84b4",
+            tool=QLEVER_TOOL,
+            converter=JENA_RIOT_ARTIFACT.identity,
+            converter_runtime_image=JENA_JRE_IMAGE,
         )
 
     def load(
@@ -176,7 +182,7 @@ async def test_build_persists_owned_validated_candidate_without_touching_active(
     tmp_path: Path,
 ) -> None:
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     active_sentinel = active / "active"
     active_sentinel.write_text("unchanged")
@@ -221,7 +227,7 @@ async def test_source_identity_excludes_candidate_owner_and_paths(
     identities = []
     for suffix, owner in (("one", "1" * 32), ("two", "2" * 32)):
         pair_path = _write_pair(tmp_path / suffix / "pair")
-        active = tmp_path / suffix / "stores" / "oxigraph-ncit"
+        active = tmp_path / suffix / "stores" / "qlever-ncit"
         active.mkdir(parents=True)
         result = await build_ncit_sibling_store(
             pair_path,
@@ -240,7 +246,7 @@ async def test_candidate_manifest_revalidation_rejects_identity_or_owner_drift(
     tmp_path: Path,
 ) -> None:
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     owner = "4" * 32
     manifest = await build_ncit_sibling_store(
@@ -284,7 +290,7 @@ async def test_candidate_manifest_revalidation_rejects_proof_drift(
     message: str,
 ) -> None:
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     manifest = await build_ncit_sibling_store(
         pair_path,
@@ -306,7 +312,7 @@ async def test_candidate_manifest_revalidation_rejects_proof_drift(
     elif mutation == "marker":
         (path.parent / OWNER_MARKER_FILENAME).unlink()
     elif mutation == "loader":
-        document["loader"]["image"] = "example.invalid/oxigraph@sha256:" + "0" * 64
+        document["loader"]["image"] = "example.invalid/qlever@sha256:" + "0" * 64
         path.write_text(json.dumps(document))
     elif mutation == "stated-variant":
         document["stated_artifact"]["variant"] = "inferred"
@@ -333,7 +339,7 @@ async def test_revalidation_refuses_a_manifest_that_supplies_its_own_bounds(
     manifest could certify a near-empty store to the decomposition CLI.
     """
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     manifest = await build_ncit_sibling_store(
         pair_path,
@@ -353,7 +359,7 @@ async def test_revalidation_refuses_a_manifest_that_supplies_its_own_bounds(
 async def test_rejected_candidate_is_never_revalidatable(tmp_path: Path) -> None:
     """A rejection marker disqualifies the directory even beside a valid manifest."""
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     manifest = await build_ncit_sibling_store(
         pair_path,
@@ -397,7 +403,7 @@ async def test_candidate_manifest_revalidation_rejects_malformed_shapes(
     mutation: str,
 ) -> None:
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     manifest = await build_ncit_sibling_store(
         pair_path,
@@ -427,7 +433,7 @@ async def test_pair_is_revalidated_before_candidate_or_runtime_effects(
     pair_path = _write_pair(tmp_path / "pair")
     pair = json.loads(pair_path.read_text())
     Path(pair["stated"]["file_path"]).write_bytes(b"corrupt")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     runtime = _Runtime()
 
@@ -449,7 +455,7 @@ async def test_invalid_owner_is_rejected_before_runtime_effects(
     tmp_path: Path,
 ) -> None:
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     runtime = _Runtime()
 
@@ -541,7 +547,7 @@ async def test_every_candidate_invariant_rejects_and_marks_inactive(
     message: str,
 ) -> None:
     pair_path = _write_pair(tmp_path / "pair")
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     owner = "c" * 32
     candidate = active.parent / f".{active.name}.candidate-{owner}"
@@ -575,7 +581,7 @@ async def test_candidate_path_cannot_preexist_or_target_missing_active(
             runtime=_Runtime(),
         )
 
-    active = tmp_path / "stores" / "oxigraph-ncit"
+    active = tmp_path / "stores" / "qlever-ncit"
     active.mkdir(parents=True)
     candidate = active.parent / f".{active.name}.candidate-{'d' * 32}"
     candidate.mkdir()
@@ -587,6 +593,77 @@ async def test_candidate_path_cannot_preexist_or_target_missing_active(
             policy=_policy(),
             runtime=_Runtime(),
         )
+
+
+@pytest.mark.unit
+async def test_initial_build_installs_only_when_no_active_qlever_index_exists(
+    tmp_path: Path,
+) -> None:
+    pair_path = _write_pair(tmp_path / "pair")
+    active = tmp_path / "stores" / "qlever-ncit"
+    runtime = _Runtime()
+
+    manifest = await build_initial_ncit_store(
+        pair_path,
+        active_store_path=active,
+        owner="0" * 32,
+        policy=_policy(),
+        runtime=runtime,
+    )
+
+    assert active.is_dir()
+    assert manifest.active_store_path == str(active.resolve())
+    assert manifest.candidate_path == str(active.resolve())
+    assert (active / OWNER_MARKER_FILENAME).read_text() == "0" * 32 + "\n"
+    assert (
+        validate_ncit_sibling_manifest(
+            active / CANDIDATE_MANIFEST_FILENAME, expected_policy=_policy()
+        )
+        == manifest
+    )
+    assert runtime.calls[0][0] == "load"
+    assert runtime.calls[1][0] == "observe"
+
+    with pytest.raises(SiblingStoreValidationError, match="already exists"):
+        await build_initial_ncit_store(
+            pair_path,
+            active_store_path=active,
+            owner="1" * 32,
+            policy=_policy(),
+            runtime=_Runtime(),
+        )
+
+
+@pytest.mark.unit
+async def test_initial_build_preserves_primary_failure_when_placeholder_cleanup_fails(
+    tmp_path: Path,
+) -> None:
+    pair_path = _write_pair(tmp_path / "pair")
+    active = tmp_path / "stores" / "qlever-ncit"
+
+    class _RacingRuntime(_Runtime):
+        def load(
+            self,
+            pair: OwlArtifactPairManifest,
+            candidate_path: Path,
+            owner: str,
+        ) -> None:
+            super().load(pair, candidate_path, owner)
+            (active / "concurrent-write").write_text("preserve")
+
+    with pytest.raises(
+        SiblingStoreValidationError, match="default graph triple count"
+    ) as raised:
+        await build_initial_ncit_store(
+            pair_path,
+            active_store_path=active,
+            owner="2" * 32,
+            policy=_policy(),
+            runtime=_RacingRuntime(_observation(default_triples=99)),
+        )
+
+    assert "placeholder cleanup also failed" in " ".join(raised.value.__notes__).lower()
+    assert (active / "concurrent-write").read_text() == "preserve"
 
 
 class _DockerDouble:
@@ -673,7 +750,7 @@ async def test_default_readiness_probe_times_out_loudly(
             raise StorageError("not ready")
 
     monkeypatch.setattr(
-        "ontolib.terminologies.ncit.sibling_store.OxigraphHttpClient",
+        "ontolib.terminologies.ncit.sibling_store.ncit_sparql_client",
         _UnavailableClient,
     )
     with pytest.raises(SiblingStoreValidationError, match="did not become ready"):
@@ -694,7 +771,7 @@ def test_run_docker_requires_installed_executable(
 
 
 @pytest.mark.unit
-def test_runtime_requires_exact_pinned_image_and_cli_identity() -> None:
+def test_runtime_requires_exact_pinned_image_and_cli_identity(tmp_path: Path) -> None:
     image_id = "sha256:" + "9" * 64
     docker = _DockerDouble(
         [
@@ -703,33 +780,75 @@ def test_runtime_requires_exact_pinned_image_and_cli_identity() -> None:
                     [
                         {
                             "Id": image_id,
-                            "RepoDigests": [OXIGRAPH_IMAGE],
+                            "RepoDigests": [QLEVER_IMAGE],
                         }
                     ]
                 )
             ),
-            _completed("oxigraph 0.5.3\n"),
+            _completed("/qlever/qlever-index 65f84b4\n"),
         ]
     )
 
-    identity = DockerOxigraphRuntime(docker_run=docker).identify_loader()
+    identity = DockerQleverRuntime(
+        docker_run=docker,
+        jena_install_dir=tmp_path,
+        identify_converter=lambda _path: JENA_RIOT_ARTIFACT.identity,
+    ).identify_loader()
 
     assert identity == LoaderIdentity(
-        image=OXIGRAPH_IMAGE,
+        image=QLEVER_IMAGE,
         image_id=image_id,
-        cli_version="oxigraph 0.5.3",
+        cli_version="/qlever/qlever-index 65f84b4",
+        tool=QLEVER_TOOL,
+        converter=JENA_RIOT_ARTIFACT.identity,
+        converter_runtime_image=JENA_JRE_IMAGE,
     )
     assert docker.calls == [
-        (("image", "inspect", OXIGRAPH_IMAGE), True),
-        (("run", "--rm", OXIGRAPH_IMAGE, "--version"), True),
+        (("image", "inspect", QLEVER_IMAGE), True),
+        (
+            (
+                "run",
+                "--rm",
+                "--entrypoint",
+                "/qlever/qlever-index",
+                QLEVER_IMAGE,
+                "--version",
+            ),
+            True,
+        ),
     ]
 
 
 @pytest.mark.unit
-def test_runtime_rejects_malformed_image_inspection() -> None:
+def test_runtime_accepts_docker_hubs_canonical_repo_digest(tmp_path: Path) -> None:
+    image_id = "sha256:" + "8" * 64
+    canonical = QLEVER_IMAGE.removeprefix("docker.io/")
+    docker = _DockerDouble(
+        [
+            _completed(json.dumps([{"Id": image_id, "RepoDigests": [canonical]}])),
+            _completed("/qlever/qlever-index 65f84b4\n"),
+        ]
+    )
+
+    identity = DockerQleverRuntime(
+        docker_run=docker,
+        jena_install_dir=tmp_path,
+        identify_converter=lambda _path: JENA_RIOT_ARTIFACT.identity,
+    ).identify_loader()
+
+    assert identity.image == QLEVER_IMAGE
+    assert identity.image_id == image_id
+
+
+@pytest.mark.unit
+def test_runtime_rejects_malformed_image_inspection(tmp_path: Path) -> None:
     docker = _DockerDouble([_completed("{}")])
     with pytest.raises(SiblingStoreValidationError, match="malformed"):
-        DockerOxigraphRuntime(docker_run=docker).identify_loader()
+        DockerQleverRuntime(
+            docker_run=docker,
+            jena_install_dir=tmp_path,
+            identify_converter=lambda _path: JENA_RIOT_ARTIFACT.identity,
+        ).identify_loader()
 
 
 @pytest.mark.unit
@@ -738,17 +857,18 @@ def test_runtime_rejects_malformed_image_inspection() -> None:
     [
         (
             [{"Id": "sha256:" + "9" * 64, "RepoDigests": ["example/wrong@sha256:1"]}],
-            "oxigraph 0.5.3",
+            "/qlever/qlever-index 65f84b4",
             "pinned digest",
         ),
         (
-            [{"Id": "sha256:" + "9" * 64, "RepoDigests": [OXIGRAPH_IMAGE]}],
-            "oxigraph 0.6.0",
-            "CLI version",
+            [{"Id": "sha256:" + "9" * 64, "RepoDigests": [QLEVER_IMAGE]}],
+            "/qlever/qlever-index drift",
+            "version drift",
         ),
     ],
 )
 def test_runtime_rejects_loader_identity_drift(
+    tmp_path: Path,
     details: list[dict[str, object]],
     version: str,
     message: str,
@@ -758,7 +878,11 @@ def test_runtime_rejects_loader_identity_drift(
     )
 
     with pytest.raises(SiblingStoreValidationError, match=message):
-        DockerOxigraphRuntime(docker_run=docker).identify_loader()
+        DockerQleverRuntime(
+            docker_run=docker,
+            jena_install_dir=tmp_path,
+            identify_converter=lambda _path: JENA_RIOT_ARTIFACT.identity,
+        ).identify_loader()
 
 
 @pytest.mark.unit
@@ -767,36 +891,52 @@ def test_runtime_loads_inferred_default_then_stated_named_offline(
 ) -> None:
     pair_path = _write_pair(tmp_path / "pair")
     pair = validate_ncit_owl_pair(pair_path)
-    candidate = tmp_path / "stores" / f".oxigraph-ncit.candidate-{'e' * 32}"
+    candidate = tmp_path / "stores" / f".qlever-ncit.candidate-{'e' * 32}"
     candidate.mkdir(parents=True)
-    docker = _DockerDouble([_completed(), _completed()])
+    docker = _DockerDouble([_completed(), _completed(), _completed()])
 
-    DockerOxigraphRuntime(docker_run=docker).load(pair, candidate, "e" * 32)
+    DockerQleverRuntime(
+        docker_run=docker,
+        jena_install_dir=tmp_path / "jena",
+    ).load(pair, candidate, "e" * 32)
 
-    inferred, stated = (call[0] for call in docker.calls)
+    inferred, stated, indexed = (call[0] for call in docker.calls)
     for command, artifact in (
         (inferred, Path(pair.inferred.file_path)),
         (stated, Path(pair.stated.file_path)),
     ):
-        assert command[:3] == ("run", "--rm", "--label")
-        assert f"org.ontoprism.candidate-owner={'e' * 32}" in command
+        assert command[:6] == (
+            "run",
+            "--rm",
+            "--memory",
+            "12g",
+            "--memory-swap",
+            "12g",
+        )
         assert f"type=bind,src={candidate.resolve()},dst=/data" in command
         assert f"type=bind,src={artifact.resolve()},dst=/input.owl,readonly" in command
-        load = command.index("load")
-        assert command[load : load + 7] == (
-            "load",
-            "--location",
-            "/data",
-            "--file",
-            "/input.owl",
-            "--format",
-            "application/rdf+xml",
-        )
-        assert command[-1] == "--non-atomic"
-        assert "--lenient" not in command
-    assert "--graph" not in inferred
-    assert stated[-3:-1] == ("--graph", STATED_GRAPH_IRI)
-    assert stated.index("load") < stated.index("--graph")
+        assert command[-2] == "-c"
+        assert "--syntax=RDFXML --stream=NTRIPLES" in command[-1]
+    assert inferred[-1].endswith("/data/inferred.nt")
+    assert stated[-1].endswith("/data/stated.nt")
+    assert indexed[indexed.index("-f") : indexed.index("-m")] == (
+        "-f",
+        "inferred.nt",
+        "-g",
+        "-",
+        "-f",
+        "stated.nt",
+        "-g",
+        STATED_GRAPH_IRI,
+        "-F",
+        "nt",
+        "-F",
+        "nt",
+        "-p",
+        "true",
+        "-p",
+        "true",
+    )
 
 
 @pytest.mark.unit
@@ -807,7 +947,10 @@ def test_runtime_surfaces_offline_loader_failure(tmp_path: Path) -> None:
     docker = _DockerDouble([_completed(returncode=2, stderr="RDF parse failed")])
 
     with pytest.raises(SiblingStoreValidationError, match="RDF parse failed"):
-        DockerOxigraphRuntime(docker_run=docker).load(pair, candidate, "e" * 32)
+        DockerQleverRuntime(
+            docker_run=docker,
+            jena_install_dir=tmp_path / "jena",
+        ).load(pair, candidate, "e" * 32)
 
 
 @pytest.mark.unit
@@ -855,7 +998,7 @@ async def test_runtime_serves_on_loopback_and_verifies_owner_before_teardown(
         assert url == "http://127.0.0.1:49152"
         return _observation()
 
-    runtime = DockerOxigraphRuntime(
+    runtime = DockerQleverRuntime(
         docker_run=docker,
         connection_scope=connection_scope,
         wait_until_ready=ready,
@@ -874,7 +1017,7 @@ async def test_runtime_serves_on_loopback_and_verifies_owner_before_teardown(
     assert (
         start[start.index("--publish")],
         start[start.index("--publish") + 1],
-    ) == ("--publish", "127.0.0.1::7878")
+    ) == ("--publish", "127.0.0.1::7001")
     assert docker.calls[-2:] == [
         (("inspect", container_id), True),
         (("rm", "--force", container_id), True),
@@ -924,7 +1067,7 @@ async def test_runtime_propagates_observer_failure_after_owned_teardown(
     async def fail(_url: str) -> CandidateObservation:
         raise StorageError("malformed candidate response")
 
-    runtime = DockerOxigraphRuntime(
+    runtime = DockerQleverRuntime(
         docker_run=docker,
         wait_until_ready=ready,
     )
@@ -957,7 +1100,7 @@ async def test_runtime_preserves_primary_failure_when_teardown_also_fails(
     async def fail(_url: str) -> CandidateObservation:
         raise StorageError("primary observation failure")
 
-    runtime = DockerOxigraphRuntime(
+    runtime = DockerQleverRuntime(
         docker_run=docker,
         wait_until_ready=ready,
     )
@@ -1026,7 +1169,7 @@ async def test_runtime_rejects_ambiguous_container_startup_identity(
             ]
         )
     docker = _DockerDouble(results)
-    runtime = DockerOxigraphRuntime(docker_run=docker)
+    runtime = DockerQleverRuntime(docker_run=docker)
 
     with pytest.raises(SiblingStoreValidationError, match=message):
         await runtime.observe(candidate, owner, lambda _url: _never_observe())
@@ -1085,7 +1228,7 @@ async def test_runtime_refuses_unverifiable_container_teardown(
     async def observer(_url: str) -> CandidateObservation:
         return _observation()
 
-    runtime = DockerOxigraphRuntime(
+    runtime = DockerQleverRuntime(
         docker_run=docker,
         wait_until_ready=ready,
     )

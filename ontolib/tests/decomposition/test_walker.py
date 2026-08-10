@@ -463,7 +463,7 @@ class TestMain:
         client = self._mock_client()
         with monkeypatch.context() as mp:
             mp.setattr(
-                "ontolib.decomposition.walker.OxigraphHttpClient",
+                "ontolib.decomposition.walker.SparqlHttpClient",
                 lambda *a, **kw: client,
             )
             mp.setattr(
@@ -480,7 +480,7 @@ class TestMain:
         client = self._mock_client()
         with monkeypatch.context() as mp:
             mp.setattr(
-                "ontolib.decomposition.walker.OxigraphHttpClient",
+                "ontolib.decomposition.walker.SparqlHttpClient",
                 lambda *a, **kw: client,
             )
             mp.setattr(

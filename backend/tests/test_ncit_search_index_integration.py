@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 pytestmark = [
     pytest.mark.mutating_integration,
-    pytest.mark.usefixtures("isolated_postgres_settings", "isolated_oxigraph_settings"),
+    pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings"),
 ]
 
 
@@ -15,7 +15,7 @@ pytestmark = [
 def test_populate_search_index_then_search_from_cache(
     isolated_api_client: TestClient,
 ) -> None:
-    # Rebuild the cache from the bounded disposable Oxigraph fixture.
+    # Rebuild the cache from the bounded disposable QLever fixture.
     built = isolated_api_client.post("/api/v1/refresh/ncit/search-index")
     assert built.status_code == HTTPStatus.OK, built.text
     assert 1 <= built.json()["concepts_indexed"] <= 11

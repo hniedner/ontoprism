@@ -15,6 +15,8 @@ from urllib.parse import urlsplit
 
 from sqlalchemy.engine import make_url
 
+from ontolib.core.data_build_tools import POSTGRES_IMAGE, QLEVER_IMAGE
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
     from pathlib import Path
@@ -51,20 +53,14 @@ _REPOSITORY_WRITES: Final = frozenset(
         "upsert_run",
     }
 )
-_OXIGRAPH_IMAGE = (
-    "ghcr.io/oxigraph/oxigraph@sha256:"
-    "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
-)
-_POSTGRES_IMAGE = (
-    "pgvector/pgvector@sha256:"
-    "7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742"
-)
+_QLEVER_IMAGE = QLEVER_IMAGE
+_POSTGRES_IMAGE = POSTGRES_IMAGE
 _DEAD_DATABASE_URL: Final = (
     "postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/"
     "ontoprism_test_forbidden"
 )
 _DEAD_HTTP_URL: Final = "http://127.0.0.1:9"
-_OXIGRAPH_DATA_DIR_PREFIX: Final = "ontoprism-oxigraph-"
+_QLEVER_DATA_DIR_PREFIX: Final = "ontoprism-qlever-"
 
 
 class ResourceOwnershipError(RuntimeError):
@@ -238,9 +234,9 @@ class IntegrationResourceOwner:
         return f"ontoprism-test-owner:{self.nonce}"
 
     @property
-    def oxigraph_container_name(self) -> str:
-        """Return the exact disposable Oxigraph container name."""
-        return f"ontoprism-oxigraph-test-{self.nonce}"
+    def qlever_container_name(self) -> str:
+        """Return the exact disposable QLever container name."""
+        return f"ontoprism-qlever-test-{self.nonce}"
 
     @property
     def postgres_container_name(self) -> str:
@@ -276,29 +272,29 @@ class IntegrationResourceOwner:
         if label != self.nonce:
             raise ResourceOwnershipError("container owner label mismatch")
 
-    def verify_oxigraph(
+    def verify_qlever(
         self,
         *,
         mounted_data_dir: Path | None,
         expected_data_dir: Path,
         file_marker: str,
     ) -> None:
-        """Refuse an Oxigraph target unless all independent owner signals match."""
+        """Refuse an QLever target unless all independent owner signals match."""
         if (
             mounted_data_dir is None
             or mounted_data_dir.resolve() != expected_data_dir.resolve()
         ):
-            raise ResourceOwnershipError("Oxigraph container data mount mismatch")
+            raise ResourceOwnershipError("QLever container data mount mismatch")
         if file_marker != self.nonce:
-            raise ResourceOwnershipError("Oxigraph data file marker mismatch")
+            raise ResourceOwnershipError("QLever data file marker mismatch")
 
-    def verify_oxigraph_data_dir(self, data_dir: Path, file_marker: str) -> None:
+    def verify_qlever_data_dir(self, data_dir: Path, file_marker: str) -> None:
         """Refuse filesystem cleanup unless the exact run-owned directory matches."""
-        expected_prefix = f"{_OXIGRAPH_DATA_DIR_PREFIX}{self.nonce}-"
+        expected_prefix = f"{_QLEVER_DATA_DIR_PREFIX}{self.nonce}-"
         if not data_dir.is_absolute() or not data_dir.name.startswith(expected_prefix):
-            raise ResourceOwnershipError("Oxigraph data directory owner mismatch")
+            raise ResourceOwnershipError("QLever data directory owner mismatch")
         if file_marker != self.nonce:
-            raise ResourceOwnershipError("Oxigraph data file marker mismatch")
+            raise ResourceOwnershipError("QLever data file marker mismatch")
 
     def postgres_admin_url(self, configured_url: str) -> str:
         """Derive an administrative connection without touching the configured DB."""
@@ -327,31 +323,41 @@ class IntegrationResourceOwner:
             .render_as_string(hide_password=False)
         )
 
-    def oxigraph_run_command(self, data_dir: Path) -> list[str]:
-        """Build the pinned, loopback-only disposable Oxigraph command."""
-        expected_prefix = f"{_OXIGRAPH_DATA_DIR_PREFIX}{self.nonce}-"
+    def qlever_run_command(self, data_dir: Path) -> list[str]:
+        """Build and serve a pinned, loopback-only disposable QLever index."""
+        expected_prefix = f"{_QLEVER_DATA_DIR_PREFIX}{self.nonce}-"
         if not data_dir.is_absolute() or not data_dir.name.startswith(expected_prefix):
             raise ResourceOwnershipError(
-                "Oxigraph data directory is not an absolute current-run-owned path"
+                "QLever data directory is not an absolute current-run-owned path"
             )
         return [
             "docker",
             "run",
             "--detach",
+            "--user",
+            "0:0",
             "--name",
-            self.oxigraph_container_name,
+            self.qlever_container_name,
             "--label",
             f"org.ontoprism.test-owner={self.nonce}",
             "--publish",
-            "127.0.0.1::7878",
+            "127.0.0.1::7001",
             "--volume",
-            f"{data_dir}:/data",
-            _OXIGRAPH_IMAGE,
-            "serve",
-            "--location",
+            f"{data_dir.resolve()}:/data",
+            "--workdir",
             "/data",
-            "--bind",
-            "0.0.0.0:7878",
+            "--entrypoint",
+            "/bin/sh",
+            _QLEVER_IMAGE,
+            "-c",
+            "set -eu; "
+            "/qlever/qlever-index -i test -f default.nt -g - "
+            "-f stated.nt -g "
+            "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl "
+            "-F nt -F nt -p true -p true -m 512M; "
+            "exec /qlever/qlever-server -i test -p 7001 --no-access-check "
+            "--persist-updates --service-allowed-iri-prefixes - "
+            "-j 2 -m 4G -c 512M -e 256M -s 30s",
         ]
 
     def postgres_run_command(self) -> list[str]:
@@ -473,12 +479,12 @@ def validate_integration_test_declaration(
         "postgres_resource_provisioner",
         "postgres_setup_failure_provisioner",
     }
-    oxigraph_fixtures = {
-        "oxigraph_sibling_store_root",
-        "isolated_oxigraph_settings",
-        "isolated_oxigraph_url",
-        "oxigraph_resource_provisioner",
-        "oxigraph_setup_failure_provisioner",
+    qlever_fixtures = {
+        "qlever_sibling_store_root",
+        "isolated_qlever_settings",
+        "isolated_qlever_url",
+        "qlever_resource_provisioner",
+        "qlever_setup_failure_provisioner",
     }
     if reasons & {
         "persistent SQL write",
@@ -486,13 +492,13 @@ def validate_integration_test_declaration(
         "schema migration",
     } and not (postgres_fixtures & declaration.fixtures):
         errors.append(f"{identity} has a Postgres write without an owned database")
-    if reasons & {"HTTP write", "Oxigraph write"} and not (
-        oxigraph_fixtures & declaration.fixtures
+    if reasons & {"HTTP write", "QLever write"} and not (
+        qlever_fixtures & declaration.fixtures
     ):
-        errors.append(f"{identity} has an Oxigraph write without an owned store")
+        errors.append(f"{identity} has an QLever write without an owned store")
     if "persistent API write" in reasons and not (
         postgres_fixtures & declaration.fixtures
-        and oxigraph_fixtures & declaration.fixtures
+        and qlever_fixtures & declaration.fixtures
     ):
         errors.append(
             f"{identity} has a persistent API write without both owned services"
@@ -546,7 +552,7 @@ def build_safe_integration_environment(
     safe["CADSR_DB_PATH"] = str(root / "cadsr/cde_repository.db")
     safe["CADSR_DATA_DIR"] = str(root / "cadsr")
     safe["NCIT_OWL_DIR"] = str(root / "ncit-owl")
-    safe["NCIT_STORE_DIR"] = str(root / "oxigraph-ncit")
+    safe["NCIT_STORE_DIR"] = str(root / "qlever-ncit")
     return safe
 
 
@@ -617,7 +623,7 @@ def _call_mutation_reasons(node: ast.Call) -> set[str]:  # noqa: C901
         function_name = node.func.id
 
     if function_name == "load":
-        reasons.add("Oxigraph write")
+        reasons.add("QLever write")
     if function_name in {"downgrade", "upgrade", "_alembic"}:
         reasons.add("schema migration")
     if function_name in _REPOSITORY_WRITES:

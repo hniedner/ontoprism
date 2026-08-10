@@ -13,10 +13,9 @@ authors = [{ name = "Hannes Niedner" }]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
-    "httpx[socks]>=0.28.1",       # Oxigraph HTTP client + Starlette TestClient
+    "httpx[socks]>=0.28.1",       # SPARQL HTTP client + Starlette TestClient
     "pydantic>=2.8.0",
     "pydantic-settings>=2.14.2",
-    "pyoxigraph>=0.5.2",          # embedded Oxigraph / pyoxigraph_compat
     "rdflib>=7.0.0",
     "sqlalchemy>=2.0.0",
     "alembic>=1.11.0",
@@ -108,7 +107,7 @@ migrate-stamp = { shell = "alembic stamp 0001_embedding_tables && alembic upgrad
 migrate-rev = "alembic revision -m"
 
 # --- Standalone data build (issue #7): needs `pdm install -G data-build` for the ---
-# --- embedding step. `data-build all` runs owl -> cadsr -> embeddings (migrate first). ---
+# --- embedding step. Build ontology indexes before starting QLever; see DATA_SETUP. ---
 data-build = "python scripts/data_build.py"
 # Decomposition extraction research spike (#4): score a candidate stated-extraction
 # against the curated golden set. Needs the stated NCIt graph loaded. Manual, not CI.

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ontolib.repositories.xref.store import XrefStore
-    from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+    from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 from ontolib.decomposition import vocab as decomp_vocab
 from ontolib.repositories.xref.cadsr_anchors import check_liveness, filter_in_scope
@@ -208,7 +208,7 @@ def build_coverage_report(
 
 async def _filter_scope(
     anchor_map: dict[tuple[str, str], CdeAnchors],
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
 ) -> tuple[dict[tuple[str, str], CdeAnchors], frozenset[str]]:
     all_codes = frozenset(c for cde in anchor_map.values() for c in cde.codes)
     keep = await filter_in_scope(all_codes, client)
@@ -217,7 +217,7 @@ async def _filter_scope(
     return filtered, scoped_codes
 
 
-async def fetch_role_codes(client: OxigraphHttpClient) -> frozenset[str]:
+async def fetch_role_codes(client: SparqlHttpClient) -> frozenset[str]:
     """Return all distinct role-target filler codes from the decomposed graph.
 
     Queries ``ncit_decomposed`` for every ``op:filler`` value, strips the
@@ -264,7 +264,7 @@ def detect_coverage_regression(
 async def generate_coverage_report(
     db_path: str | Path,
     store: XrefStore,
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
     *,
     role_codes: frozenset[str],
     in_scope_only: bool = True,

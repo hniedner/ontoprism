@@ -10,7 +10,7 @@
       --branch neoplasm --resume neoplasm-7bb8b360-a2ec-45d0-b06d-a79ae18c3689
 
 Wires the pure orchestrator (`ontolib.decomposition.run.run_pipeline`) to the real
-Oxigraph client, the Postgres provenance store, and `NcitGraphStore` for the concept
+QLever client, the Postgres provenance store, and `NcitGraphStore` for the concept
 labels the NLP fallback needs. See ``run.py``'s module docstring for the documented
 scope boundaries (genus-DAG role extraction, morphology-from-parent, source-bound
 exact resume).
@@ -39,13 +39,13 @@ from ontolib.decomposition.run import (
 )
 from ontolib.decomposition.sampling import load_sample_manifest
 from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.sibling_store import (
     observation_without_graphs,
     observe_ncit_candidate,
     validate_ncit_sibling_manifest,
 )
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 logger = get_logger(__name__)
 
@@ -129,7 +129,7 @@ async def _run(
     try:
         try:
             try:
-                async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+                async with ncit_sparql_client(settings.ncit_sparql_url) as client:
                     store = NcitGraphStore(client)
                     try:
                         metrics = await run_pipeline(
