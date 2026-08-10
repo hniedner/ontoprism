@@ -640,7 +640,10 @@ selection method and optional seed, plus an exactly ordered unique code list. Ev
 has sorted overlapping stratum tags and a non-empty rationale; the schema requires the
 complete review-stratum catalogue. The canonical 26.07d M1 manifest is
 `samples/ncit-26.07d-m1-review.json`, identity
-`729c6c73ec3367bfacaa93ee34d961c74deef2268f48b308d81051b3a01ddbc1`.
+`01df2e8803d3e8cea0c3c364bbd60581f7464261b8541fa9816bb4fdeb8ed430`
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.sampling import load_sample_manifest; print(load_sample_manifest(Path("samples/ncit-26.07d-m1-review.json")).identity)'`,
+2026-08-10). The worklist is bound to the QLever-backed D47 source; the separately
+adjudicated SME sample and its derived evidence retain their original source binding.
 
 Every invocation revalidates the live D47 source, proves the manifest release and source
 identity match, enumerates the complete hierarchy scope, and rejects any selected code
