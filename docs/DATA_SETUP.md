@@ -122,8 +122,11 @@ pdm run data-build owl
 pdm run data-build ncit-bootstrap
 
 # 2b. On an existing installation, build and certify an inactive sibling instead.
-#     This command never replaces the active index; #148 owns refresh activation.
+#     This command never replaces the active index.
 pdm run data-build ncit-store
+
+# 2c. Activate the exact emitted candidate with the journaled maintenance workflow.
+pdm run data-build ncit-activate --candidate-manifest /exact/emitted/manifest/path
 
 # 3. Download, certify, and initially install the Uberon/CL index.
 pdm run data-build uberon-store
@@ -167,14 +170,71 @@ stable source identity. A rejected candidate contains
 `.ontoprism-ncit-rejected.json` and is not eligible for activation. Keep it for diagnosis
 or remove only after independently verifying its owner marker.
 
+### Journaled NCIt maintenance activation
+
+`ncit-store` prints the exact absolute path of the certified candidate it built. Pass
+that emitted manifest path unchanged to the activation command; do not discover a
+candidate with a glob, rename either store, or edit the manifest:
+
+```bash
+pdm run data-build ncit-store
+pdm run data-build ncit-activate --candidate-manifest /exact/emitted/.qlever-ncit.candidate-OWNER/.ontoprism-ncit-candidate.json
+```
+
+The serving contract is QLever index basename `ncit`, revision `65f84b4`, in
+`docker.io/adfreiburg/qlever@sha256:abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a03747bf7e56165cb0ca6`
+(`docker compose config qlever-ncit`, then `docker inspect ontoprism-qlever-ncit`,
+2026-08-10). The command verifies that executable/index identity, the exact configured
+active and manifest paths, both independent owner markers, same-filesystem rename
+support, store-format identity, complete QLever file inventory, and free-space headroom
+before it stops `qlever-ncit` (`pdm run pytest
+ontolib/tests/terminologies/test_ncit_activation.py -q`, exit 0, 2026-08-10).
+It holds NCIt embedding-source publication coordination while it stops the service,
+fsyncs `data/.qlever-ncit.activation.json` and the containing directory, moves the old
+active directory to the journal's one exact rollback path, activates the candidate,
+force-recreates the service, restores the PostgreSQL-bound projection, and runs the
+release/graph/count/restriction/stated-differential plus composed-definition and browse
+health workload (`pdm run pytest ontolib/tests/terminologies/test_ncit_activation.py
+ontolib/tests/terminologies/test_ncit_activation_integration.py -q`, exit 0,
+2026-08-10).
+
+**Activation refusal.** A mismatched path, owner, filesystem, sidecar, store format,
+executable identity, headroom check, or a different candidate while a nonterminal
+journal exists fails before an unsafe rename. Preserve the journal and every named path;
+do not run a prefix cleanup or an in-place QLever load. Correct the reported condition
+and retry the identical `ncit-activate --candidate-manifest ...` command.
+
+**Automatic rollback.** If service recreation, projection reconciliation, or health
+validation fails before cleanup, the command preserves the failed candidate at its
+exact journaled path, restores the complete prior active directory, recreates QLever,
+and reruns the same health workload before reporting a rolled-back activation. A cleanup
+failure after successful health leaves the accepted active store and rollback directory
+bound by the journal for a safe retry; never delete that directory manually.
+
+**Interrupted recovery.** Inspect the durable phase without changing it, then retry the
+identical command with the identical manifest argument:
+
+```bash
+jq . data/.qlever-ncit.activation.json
+pdm run data-build ncit-activate \
+  --candidate-manifest /the/same/path/passed/to/the/interrupted/command
+```
+
+The retry reconciles an ambiguous successful rename or cleanup from exact owner markers
+and continues or rolls back from the persisted phase. Terminal journals are retained;
+when a later, different certified candidate starts, the command moves the exact terminal
+journal to `.qlever-ncit.activation-OWNER-complete.json` (or `-rolled-back.json`) before
+fsyncing a new preflight journal. If rollback recovery itself cannot recreate and
+validate the old service, stop: preserve all exact paths and the journal for diagnosis.
+
 ### Source-bound decomposition runs
 
 Run decomposition only against an endpoint serving the certified index described by
 the required manifest. On a first installation, `ncit-bootstrap` creates the active
 index and its manifest, so decomposition is usable end to end. During a later refresh,
 `ncit-store` deliberately leaves the new certified candidate inactive; keep using the
-active manifest until #148 provides crash-safe replacement. Do not promote a refresh
-candidate by hand.
+active manifest until `ncit-activate` completes. Do not promote a refresh candidate by
+hand.
 
 ```bash
 pdm run decompose \

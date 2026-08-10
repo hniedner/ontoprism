@@ -219,3 +219,7 @@ fixtures = ["isolated_qlever_url"]
 [[mutator]]
 path = "ontolib/tests/terminologies/test_ncit_sibling_store_integration.py"
 fixtures = ["qlever_sibling_store_root", "integration_connection_scope"]
+
+[[mutator]]
+path = "ontolib/tests/terminologies/test_ncit_activation_integration.py"
+fixtures = ["qlever_sibling_store_root", "integration_connection_scope"]

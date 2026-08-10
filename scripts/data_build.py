@@ -6,6 +6,7 @@ One command to stand ontoprism up on a machine with no fairdata dependency:
   pdm run data-build all          # ontology indexes -> caDSR -> embeddings
   pdm run data-build owl          # certify inferred + stated release pair (#180)
   pdm run data-build ncit-store   # build + validate an inactive sibling (#181)
+  pdm run data-build ncit-activate --candidate-manifest PATH  # activate (#148)
   pdm run data-build ncit-bootstrap # first install only; refuses an existing target
   pdm run data-build uberon-store # download + build the Uberon/CL QLever index
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite
@@ -33,6 +34,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
+from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
@@ -51,6 +53,7 @@ from ontolib.repositories.embeddings.publication import (
     EmbeddingCorpusPublisher,
     coordinate_corpus_source_replacement,
     corpus_manifests,
+    replacing_corpus_source,
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
@@ -64,6 +67,17 @@ from ontolib.repositories.xref.mapping_score import load_golden_mappings
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.terminologies.ncit.activation import (
+    ActivationJournal,
+    DockerComposeNcitService,
+    QleverServiceContract,
+    bind_projection_plan,
+    capture_projection_plan,
+    prepare_activation_journal,
+    reconcile_projection_at_endpoint,
+    run_journaled_activation,
+    validate_active_store_health,
+)
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.owl_download import (
@@ -203,6 +217,75 @@ async def _build_initial_ncit() -> NcitSiblingStoreManifest:
         f"source_identity={manifest.source_identity}"
     )
     return manifest
+
+
+async def _activate_ncit(candidate_manifest_path: Path) -> ActivationJournal:
+    """Activate one certified sibling through the durable #148 journal."""
+    settings = get_settings()
+    active_path = Path(settings.ncit_store_dir).resolve()
+    journal_path, journal = prepare_activation_journal(
+        candidate_manifest_path.resolve(),
+        expected_active_path=active_path,
+    )
+    engine = make_engine(settings.database_url)
+    sf = make_sessionmaker(engine)
+    try:
+        if journal.phase == "preflight":
+            projection = await capture_projection_plan(
+                settings.ncit_sparql_url,
+                ProvenanceStore(sf),
+            )
+            journal = bind_projection_plan(journal_path, journal, projection)
+
+        def pause_publication():
+            return replacing_corpus_source(sf, Corpus.NCIT)
+
+        async def reconcile_projection(current: ActivationJournal) -> None:
+            await reconcile_projection_at_endpoint(
+                settings.ncit_sparql_url,
+                current,
+            )
+
+        async def validate_candidate(current: ActivationJournal) -> None:
+            await validate_active_store_health(
+                settings.ncit_sparql_url,
+                current,
+                expected_source_identity=current.candidate_source_identity,
+            )
+
+        async def validate_rollback(current: ActivationJournal) -> None:
+            await validate_active_store_health(
+                settings.ncit_sparql_url,
+                current,
+                expected_source_identity=current.active_source_identity,
+            )
+
+        activated = await run_journaled_activation(
+            journal_path,
+            service=DockerComposeNcitService(
+                project_directory=Path(__file__).resolve().parents[1],
+                contract=QleverServiceContract(
+                    service_name="qlever-ncit",
+                    container_name="ontoprism-qlever-ncit",
+                    image=journal.qlever_image,
+                    image_id=journal.qlever_image_id,
+                    index_version=journal.qlever_index_version,
+                    index_basename=journal.qlever_index_basename,
+                ),
+            ),
+            pause_publication=pause_publication,
+            reconcile_projection=reconcile_projection,
+            validate_health=validate_candidate,
+            validate_rollback_health=validate_rollback,
+        )
+    finally:
+        await dispose_engine(engine)
+    typer.echo(
+        "Activated certified NCIt sibling: "
+        f"phase={activated.phase}, "
+        f"source_identity={activated.candidate_source_identity}"
+    )
+    return activated
 
 
 async def _build_uberon_store() -> UberonIndexManifest:
@@ -766,6 +849,19 @@ def cadsr() -> None:
 def ncit_store() -> None:
     """Build and validate an inactive NCIt sibling; never activate it."""
     asyncio.run(_build_ncit_sibling())
+
+
+@app.command(name="ncit-activate")
+def ncit_activate(
+    candidate_manifest: Path = typer.Option(  # noqa: B008 - typer option factory
+        ...,
+        "--candidate-manifest",
+        help="Exact #181 candidate manifest to activate or resume.",
+        metavar="PATH",
+    ),
+) -> None:
+    """Journal, activate, validate, and recover one certified NCIt sibling."""
+    asyncio.run(_activate_ncit(candidate_manifest))
 
 
 @app.command(name="ncit-bootstrap")
