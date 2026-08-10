@@ -19,7 +19,7 @@ ontoprism/
 ├── ontolib/                  # LIFTED library — import name `ontolib`
 │   ├── pyproject.toml        #   editable package (src layout)
 │   ├── src/ontolib/
-│   │   ├── storage/          #   Oxigraph HTTP store base, pyoxigraph compat
+│   │   ├── storage/          #   SPARQL HTTP storage boundary, pyoxigraph compat
 │   │   ├── terminologies/    #   ncit (graph store, role/restriction queries), uberon
 │   │   ├── repositories/     #   cadsr read model
 │   │   ├── core/  common/    #   shared primitives
@@ -37,21 +37,26 @@ ontoprism/
 
 ## Data planes
 
-- **QLever (selected NCIt read index; D65)** — immutable publisher-inferred NCIt in
-  the default graph and publisher-stated NCIt in its protected named graph. Runtime
-  reasoning is disabled. #163 packages the pinned index/server and #148 owns validated
-  sibling activation; until those land, the development compose file still starts the
-  incumbent NCIt Oxigraph service on :7888.
+- **QLever (selected immutable ontology index; D65)** — publisher-inferred NCIt in
+  the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL
+  in a separate default-graph index. Runtime reasoning is disabled. #163 packages the
+  pinned index/server pair and removes both Oxigraph services; #148 owns validated NCIt
+  sibling activation. Until those land, the development compose file still starts the
+  two incumbent Oxigraph services on :7888/:7889 as a migration state, not the target
+  architecture.
 - **PostgreSQL (selected mutable authority)** — concept metadata/FTS cache, decomposition run
   state, provenance (`decomp_run`, `decomp_constituent`, `minted_concept`), caDSR read
   tables, and, when the curation API lands, the authoritative
   identity/revision/evidence/lifecycle/RDF projection for proposed NCIt content.
   Graph-explorer curation reads will compose this overlay with the identified QLever base
   so a committed edit does not wait for index rebuilding.
-- **Oxigraph (remaining development/terminology uses)** — the Uberon service remains on
-  :7889, and the incumbent NCIt container remains available during the #163 transition.
-  Decomposition RDF and proposal RDF are additive named-graph projections, never source
-  graph mutations.
+- **No target Oxigraph plane** — QLever passed the seven real Uberon/NCIt data-shape
+  contracts unchanged, so retaining a second SPARQL implementation has no demonstrated
+  product benefit (`env UBERON_SPARQL_URL=http://127.0.0.1:7303 pdm run pytest
+  ontolib/tests/repositories/xref/test_upstream_data_contract.py -m 'integration and
+  full_store' -v`, 2026-08-09). The current Oxigraph containers are removed by #163.
+  Decomposition RDF and proposal RDF remain additive projections, never source graph
+  mutations.
 
 The frontend talks only to the FastAPI backend; the backend owns all SPARQL/Postgres
 access. The application exposes no caller-supplied raw SPARQL route: typed endpoints

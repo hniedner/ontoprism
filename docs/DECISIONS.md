@@ -2,9 +2,9 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
-## 2026-08-09 — bounded NCIt query and curation storage topology
+## 2026-08-09 — bounded ontology query and NCIt curation storage topology
 
-### D65. QLever indexes immutable publisher NCIt; Postgres owns mutable proposed NCIt
+### D65. QLever indexes immutable publisher ontologies; Postgres owns mutable proposed NCIt
 
 The store decision is based on OntoPrism's queries, not on whether a product includes a
 reasoner or a generic graph editor. The tracked workload now binds 330 query-bearing
@@ -26,6 +26,22 @@ http://127.0.0.1:7301/ncit`, 2026-08-09). On those runs QLever completed scope/s
 1.90/0.97 seconds and Jena in 11.04/5.50 seconds; Jena completed detail/neighborhood in
 0.02/0.49 seconds and QLever in 0.28/5.10 seconds (same commands, 2026-08-09).
 
+The engine-consolidation check exported the incumbent Uberon default graph as 1,194,919
+N-Triples with identity
+`96598b4807b62e6ee0407853b86957c5992f865272af8a2a733db40aea20f1ae`
+(`wc -l tmp/bakeoff/uberon-export/uberon.nt` and `shasum -a 256
+tmp/bakeoff/uberon-export/uberon.nt`, 2026-08-09). The selected QLever image indexed the
+corpus in about two seconds of index work and produced a 32 MiB index whose sampled build
+RSS peaked at 1,827,479,552 bytes (`docker run --rm --memory 10g ... qlever-index -i
+uberon ...`; `du -sh tmp/bakeoff/qlever-uberon`; `awk 'NR > 1 && $3 > max {max = $3}
+END {print max}' tmp/bakeoff/qlever-uberon/uberon.index.resource-usage-log.tsv`,
+2026-08-09). All seven real upstream data contracts passed unchanged with QLever and with
+the incumbent Oxigraph endpoint (`env UBERON_SPARQL_URL=http://127.0.0.1:7303 pdm run
+pytest ontolib/tests/repositories/xref/test_upstream_data_contract.py -m 'integration
+and full_store' -v`; same command with port `7889`, 2026-08-09). Those contracts exercise
+the real version header, subclass and mixed subclass/part-of walks, NCIt xrefs, supported
+CURIE boundaries, and combined NCIt/Uberon candidate generation.
+
 The pathological complete-definition query was an application-query defect, not proof that
 all open-source stores were unsuitable. The reader now queries the root first, then re-queries
 the complete root-to-depth prefix only when the previous result proves a nested group exists.
@@ -38,10 +54,11 @@ every limited edge query orders before `LIMIT`; the repository contract passes 2
 
 **Decision.** Use a split topology:
 
-1. **QLever is the read authority for the immutable publisher planes.** The inferred publisher
-   artifact is the default graph and stated OWL is the protected stated named graph. Runtime
-   entailment remains off. NCIt refresh builds a new immutable index and activates it only after
-   validation; #163 owns the pinned packaging and #148 owns crash-safe activation.
+1. **QLever is the read authority for all immutable publisher planes.** The inferred NCIt
+   artifact is one index's default graph, stated NCIt is its protected named graph, and
+   Uberon/CL is a separate default-graph index. Runtime entailment remains off. NCIt refresh
+   builds a new immutable index and activates it only after validation; #163 owns the pinned
+   packaging and complete Oxigraph cutover, while #148 owns crash-safe NCIt activation.
 2. **Postgres is authoritative for mutable proposed NCIt.** Proposal identity, optimistic
    revision, complete lifecycle (`proposed → locally-approved → submitted → accepted-in-ncit`),
    publication/trial evidence, history, idempotent operation identity, and the exact RDF
@@ -54,6 +71,11 @@ every limited edge query orders before `LIMIT`; the repository contract passes 2
 4. **The Svelte graph explorer remains the curation UI.** A vendor workbench may help engineers
    inspect data, but it does not replace OntoPrism's evidence, lifecycle, conflict, filtering,
    and proposal semantics. The frontend continues to access both planes only through FastAPI.
+5. **Oxigraph is not part of the target stack.** Its current NCIt and Uberon containers are
+   transition inputs only. Because the production-shaped Uberon contracts passed without query
+   or data changes, retaining a second SPARQL engine would add packaging, patching, transport,
+   activation, and operator surface without a demonstrated capability benefit. #163 removes
+   both services and the `fairdata-oxigraph:local` dependency.
 
 The transport seam declares Query, Update, and Graph Store endpoints independently and selects
 Oxigraph, Fuseki, or QLever profiles without scattering path assumptions
@@ -90,6 +112,9 @@ docker.io/adfreiburg/qlever@sha256:abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a0
 its slower scope/search path does not buy authority over the richer Postgres proposal model.
 QLever's update and Graph Store endpoints may serve replaceable projections; the publisher
 graphs remain immutable by architectural contract.
+Oxigraph is rejected from the completed runtime rather than retained for Uberon: the exact
+Uberon contracts above passed on QLever, so a permanent exception would be operational
+duplication without observed benefit.
 ROBOT plus a reasoner does not become a third canonical NCIt source; explicit ROBOT/ELK checks
 remain validation boundaries. GraphDB Free remains an optional blocked reconsideration, not a
 selected dependency: do not request or accept its license unless the owner explicitly reopens
