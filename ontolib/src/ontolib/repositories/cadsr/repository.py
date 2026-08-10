@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+from ontolib.repositories.cadsr.archive import CadsrSource
 from ontolib.repositories.cadsr.models import (
     CdeDetail,
     CdeSearchPage,
@@ -23,6 +24,7 @@ from ontolib.repositories.cadsr.models import (
     ConceptLink,
     PermissibleValue,
 )
+from ontolib.repositories.embeddings.generate import cadsr_source_fingerprint
 
 _SUMMARY_COLS = "public_id, version, short_name, long_name, context, datatype"
 # Same columns qualified with the table name, for the FTS join (both cdes and cdes_fts
@@ -172,6 +174,26 @@ class CdeRepository:
         """Total number of CDE rows (used by the refresh/status report)."""
         with self._connect() as conn:
             return conn.execute("SELECT COUNT(*) AS n FROM cdes").fetchone()["n"]
+
+    def source_provenance(self) -> CadsrSource:
+        """Return the single authoritative archive record persisted by the builder."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT url, downloaded_at, etag, last_modified, archive_size, "
+                "archive_sha256, member_count, member_names_sha256, "
+                "first_member_timestamp, last_member_timestamp FROM cadsr_source"
+            ).fetchall()
+        if len(rows) != 1:
+            raise sqlite3.OperationalError(
+                "caDSR repository must contain exactly one source provenance row"
+            )
+        return CadsrSource(**dict(rows[0]))
+
+    def certification(self) -> tuple[CadsrSource, int, str]:
+        """Return persisted archive provenance and the exact serving-row identity."""
+        source = self.source_provenance()
+        item_count, fingerprint = cadsr_source_fingerprint(str(self._path))
+        return source, item_count, fingerprint
 
     def list_cdes(self, *, limit: int = 25, offset: int = 0) -> CdeSearchPage:
         """List all CDEs in natural (public_id) order — the no-search browse mode."""

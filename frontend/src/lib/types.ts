@@ -148,19 +148,81 @@ export interface SimilarCde extends CdeSummary {
 	score: number;
 }
 
-// Refresh / status.
+// Manifest-bound repository certification.
 
-export interface RepoStatus {
-	name: string;
-	healthy: boolean;
-	version: string | null;
-	item_count: number | null;
-	error: string | null;
+export interface CandidateGraphObservation {
+	graph_iri: string;
+	triples: number;
 }
+
+export interface NcitObservation {
+	default_triples: number;
+	stated_triples: number;
+	named_graphs: CandidateGraphObservation[];
+	default_version: string | null;
+	stated_version: string | null;
+	restriction_count: number;
+	has_required_restriction: boolean;
+	default_has_stated_only_sentinel: boolean;
+	stated_has_stated_only_sentinel: boolean;
+}
+
+export interface NcitRepositoryReady {
+	state: 'ready';
+	repository: 'ncit';
+	source_identity: string;
+	manifest_identity: string;
+	release: string;
+	activated_at: string;
+	observation: NcitObservation;
+}
+
+export interface CadsrSourceMetadata {
+	url: string;
+	downloaded_at: string;
+	etag: string | null;
+	last_modified: string | null;
+	archive_size: number;
+	archive_sha256: string;
+	member_count: number;
+	member_names_sha256: string;
+	first_member_timestamp: string;
+	last_member_timestamp: string;
+}
+
+export interface CadsrRepositoryReady {
+	state: 'ready';
+	repository: 'cadsr';
+	source_identity: string;
+	manifest_identity: string;
+	item_count: number;
+	source: CadsrSourceMetadata;
+}
+
+export type RepositoryUnhealthyReason =
+	| 'manifest-missing'
+	| 'manifest-invalid'
+	| 'activation-incomplete'
+	| 'activation-mismatch'
+	| 'release-mismatch'
+	| 'observation-mismatch'
+	| 'repository-unreachable';
+
+export interface RepositoryUnhealthy {
+	state: 'unhealthy';
+	repository: 'ncit' | 'cadsr';
+	reason: RepositoryUnhealthyReason;
+	message: string;
+}
+
+export type RepositoryMetadata =
+	| NcitRepositoryReady
+	| CadsrRepositoryReady
+	| RepositoryUnhealthy;
 
 export interface RefreshReport {
 	refreshed_at: string;
-	repositories: RepoStatus[];
+	repositories: RepositoryMetadata[];
 }
 
 // ClinicalTrials.gov v2 read models (backend ontolib.repositories.clinicaltrials.models).

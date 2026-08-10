@@ -2,6 +2,41 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-10 — repositories and derived indexes publish certified identities
+
+### D68. Readiness is a discriminated certification result; search and embeddings bind both proxy and content identities
+
+**Decision:** a repository is either a typed `ready` value carrying certified identity
+or a typed `unhealthy` value carrying a reason and message. The unhealthy variant has no
+`source_identity` or `manifest_identity` fields. NCIt readiness binds the exact active
+candidate-manifest bytes, its source identity and release, a completed journal with a
+durable activation timestamp, and a live default/stated graph observation. caDSR
+readiness binds persisted archive provenance to the canonical serving-row fingerprint
+and count. The API and refresh UI render these variants rather than inferring identity
+from reachability (`pdm run test --all`, 2,516 passed and zero skipped, 2026-08-10).
+
+Derived NCIt search and NCIt/caDSR embedding publications record two distinct digests:
+`source_identity` names the certified active proxy and `source_hash` names its canonical
+ordered serving content. Readers require the active proxy identity before using a
+derived index; migration 0015 deactivates legacy embedding manifests whose source proxy
+cannot be proven and adds a singleton NCIt search manifest (`pdm run python
+scripts/run_safe_integration.py backend/tests/test_embedding_publication_integration.py
+-q`, 58 passed, 2026-08-10; `ONTOPRISM_JENA_DIR=$PWD/.tools/jena-6.1.0 pdm run python
+scripts/run_safe_integration.py backend/tests/test_data_build_integration.py -q`, 10
+passed, 2026-08-10).
+
+Hierarchy browsing reads only stated direct `rdfs:subClassOf` and named genus members of
+`owl:equivalentClass` intersections. It does not ask the inferred default graph for a
+transitive subclass closure. Hierarchy neighbors are expanded before high-fanout roles
+so the bounded graph retains its structural backbone (`pdm run
+test-integration-full-store -k defined_disease_hierarchy_and_anatomy_control -v`, 1
+passed against the configured 26.07d corpus, 2026-08-10).
+
+**Why:** reachability, a release label, or a non-empty cache can each be true while the
+serving proxy and its derivative refer to different builds. Keeping proxy identity and
+content fingerprint separate makes both failure modes explicit and prevents a degraded
+repository from emitting a plausible but unbound identity.
+
 ## 2026-08-10 — completed QLever ontology-store migration
 
 ### D67. All publisher ontology resources use certified QLever indexes

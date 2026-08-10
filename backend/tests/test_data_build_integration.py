@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import zipfile
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -82,6 +83,16 @@ _CADSR_XML = """<DataElementsList><DataElement>
 </DataElement></DataElementsList>"""
 
 _CADSR_SOURCE_URL = "https://example.test/cadsr.zip"
+_NCIT_SOURCE_IDENTITY = "b" * 64
+
+
+def _certify_disposable_ncit_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Supply the source identity certified by the sibling-store test boundary."""
+    monkeypatch.setattr(
+        data_build,
+        "validate_ncit_sibling_manifest",
+        lambda _path: SimpleNamespace(source_identity=_NCIT_SOURCE_IDENTITY),
+    )
 
 
 def _publisher(
@@ -95,6 +106,7 @@ def _publisher(
         CorpusBuild(
             build_id=uuid4(),
             corpus=corpus,
+            source_identity="f" * 64,
             source_version="test-source",
             source_hash="a" * 64,
             model_id=embedder.model_id,
@@ -249,6 +261,7 @@ async def test_embedding_operator_inspects_then_refuses_implicit_write(
 async def test_production_ncit_publisher_records_source_and_refreshes_fts(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _certify_disposable_ncit_manifest(monkeypatch)
     url = get_settings().ncit_sparql_url
     async with SparqlHttpClient.for_qlever(url) as client:
         count = await NcitGraphStore(client).embedding_record_count()
@@ -268,7 +281,8 @@ async def test_production_ncit_publisher_records_source_and_refreshes_fts(
         manifest = (
             await session.execute(
                 text(
-                    "SELECT source_version, source_hash, actual_row_count, "
+                    "SELECT source_identity, source_version, source_hash, "
+                    "actual_row_count, "
                     "model_revision, is_active FROM embedding_corpus_manifest "
                     "WHERE build_id = :build_id"
                 ),
@@ -276,6 +290,7 @@ async def test_production_ncit_publisher_records_source_and_refreshes_fts(
             )
         ).one()
         search_count = await session.scalar(text("SELECT count(*) FROM ncit_search"))
+    assert manifest.source_identity == _NCIT_SOURCE_IDENTITY
     assert manifest.source_version == "26.07d"
     assert len(manifest.source_hash) == 64
     assert manifest.actual_row_count == count
@@ -325,6 +340,7 @@ async def test_production_cadsr_publisher_records_file_provenance(
 async def test_production_ncit_source_drift_fails_candidate_and_preserves_active(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _certify_disposable_ncit_manifest(monkeypatch)
     url = get_settings().ncit_sparql_url
     async with SparqlHttpClient.for_qlever(url) as client:
         store = NcitGraphStore(client)
@@ -384,6 +400,7 @@ async def test_production_ncit_source_drift_fails_candidate_and_preserves_active
 async def test_production_ncit_staged_fingerprint_mismatch_skips_fts_and_activation(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _certify_disposable_ncit_manifest(monkeypatch)
     url = get_settings().ncit_sparql_url
     async with SparqlHttpClient.for_qlever(url) as client:
         store = NcitGraphStore(client)
@@ -437,6 +454,7 @@ async def test_production_ncit_staged_fingerprint_mismatch_skips_fts_and_activat
 async def test_production_ncit_fts_failure_preserves_active_corpus(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _certify_disposable_ncit_manifest(monkeypatch)
     url = get_settings().ncit_sparql_url
     async with SparqlHttpClient.for_qlever(url) as client:
         store = NcitGraphStore(client)

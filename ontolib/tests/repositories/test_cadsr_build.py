@@ -30,6 +30,7 @@ from ontolib.repositories.cadsr.build import (
     validate_database,
 )
 from ontolib.repositories.cadsr.repository import CdeRepository
+from ontolib.repositories.embeddings.generate import cadsr_source_fingerprint
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -197,6 +198,22 @@ def test_built_db_contains_exact_source_provenance(
     forged.write_bytes(b"not sqlite")
     with pytest.raises(TypeError, match="InitVar '_seal'"):
         replace(built_candidate, path=forged)
+
+
+@pytest.mark.unit
+def test_repository_certification_binds_source_rows_and_content(
+    built_candidate: ValidatedCadsrCandidate,
+) -> None:
+    source, item_count, fingerprint = CdeRepository(
+        built_candidate.path
+    ).certification()
+
+    assert source == built_candidate.source
+    assert CdeRepository(built_candidate.path).source_provenance() == source
+    assert item_count == built_candidate.cde_count
+    assert (item_count, fingerprint) == cadsr_source_fingerprint(
+        str(built_candidate.path)
+    )
 
 
 @pytest.mark.unit

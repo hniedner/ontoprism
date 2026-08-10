@@ -5,7 +5,6 @@
 the same-release stated/inferred NCIt pair without touching a running store.
 """
 
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -15,15 +14,16 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
 from backend.dependencies import (
-    CadsrRepo,
     NcitSearch,
-    NcitStatus,
     NcitStore,
+    RepositoryMetadataReads,
 )
+from backend.repository_metadata import RepositoryMetadata, RepositoryUnhealthy
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
+from ontolib.repositories.embeddings.generate import ncit_source_fingerprint
 from ontolib.terminologies.ncit.owl_download import (
     OwlPairDownloadResult,
     download_ncit_owl_pair,
@@ -35,21 +35,11 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/refresh", tags=["refresh"])
 
 
-class RepoStatus(BaseModel):
-    """Live status of one repository after a refresh probe."""
-
-    name: str
-    healthy: bool
-    version: str | None = None
-    item_count: int | None = None
-    error: str | None = None
-
-
 class RefreshReport(BaseModel):
-    """Result of a repository refresh: per-repository status."""
+    """Result of a repository refresh: certified identity or typed refusal."""
 
     refreshed_at: str
-    repositories: list[RepoStatus]
+    repositories: list[RepositoryMetadata]
 
 
 class ReloadRequest(BaseModel):
@@ -61,29 +51,16 @@ class ReloadRequest(BaseModel):
 
 @router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
 async def refresh(
-    store: NcitStore, client: NcitStatus, cadsr: CadsrRepo
+    metadata: RepositoryMetadataReads,
 ) -> RefreshReport:
-    """Re-probe NCIt and caDSR and return their current version/counts."""
-    repos = [await _ncit_status(client), _cadsr_status(cadsr)]
-    _ = store  # store is wired for symmetry / future cache rebuilds
-    return RefreshReport(refreshed_at=datetime.now(UTC).isoformat(), repositories=repos)
-
-
-async def _ncit_status(client: NcitStatus) -> RepoStatus:
-    try:
-        count = await client.count()
-        version = await client.version()
-    except StorageError as exc:
-        return RepoStatus(name="ncit", healthy=False, error=str(exc))
-    return RepoStatus(name="ncit", healthy=True, version=version, item_count=count)
-
-
-def _cadsr_status(cadsr: CadsrRepo) -> RepoStatus:
-    try:
-        count = cadsr.count()
-    except sqlite3.OperationalError as exc:
-        return RepoStatus(name="cadsr", healthy=False, error=str(exc))
-    return RepoStatus(name="cadsr", healthy=True, item_count=count)
+    """Re-certify NCIt and caDSR and return their exact active identities."""
+    repositories: list[RepositoryMetadata] = [
+        await metadata.ncit(),
+        metadata.cadsr(),
+    ]
+    return RefreshReport(
+        refreshed_at=datetime.now(UTC).isoformat(), repositories=repositories
+    )
 
 
 @router.post("/ncit/reload", dependencies=[RequireApiKey])
@@ -193,15 +170,32 @@ class SearchIndexReport(BaseModel):
     dependencies=[RequireApiKey],
 )
 async def rebuild_ncit_search_index(
-    store: NcitStore, index: NcitSearch
+    store: NcitStore,
+    index: NcitSearch,
+    metadata: RepositoryMetadataReads,
 ) -> SearchIndexReport:
     """Rebuild the NCIt FTS cache from the live store (materialize label + synonyms).
 
     Run after an NCIt store (re)load: search then serves from the tsvector index
     instead of a live SPARQL scan. A store or DB failure returns 502.
     """
+    repository = await metadata.ncit()
+    if isinstance(repository, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            repository.model_dump(mode="json"),
+        )
     try:
-        count = await populate_from_store(store, index)
+        source_before = await ncit_source_fingerprint(store)
+        count = await populate_from_store(
+            store,
+            index,
+            source_identity=repository.source_identity,
+            source_hash=source_before[1],
+        )
+        source_after = await ncit_source_fingerprint(store)
+        if source_after != source_before:
+            raise StorageError("NCIt source changed during search-index rebuild")
     except (StorageError, SQLAlchemyError) as exc:
         logger.exception("NCIt search-index rebuild failed")
         raise HTTPException(

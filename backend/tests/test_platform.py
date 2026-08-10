@@ -2,14 +2,12 @@
 
 import logging
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_ncit_client
 from backend.main import check_ncit_version, create_app
 from backend.middleware import RateLimitMiddleware, RequestContextMiddleware
 from ontolib.core.exceptions import StorageError
@@ -147,25 +145,3 @@ async def test_unexpected_error_in_version_check_is_non_fatal(
     with caplog.at_level(logging.ERROR):
         await check_ncit_version(client, "26.02d")  # must not raise
     assert any("unexpectedly" in r.getMessage() for r in caplog.records)
-
-
-# ------------------------------------------------------------------- readiness
-
-
-@pytest.mark.api
-def test_ready_reports_store_version(app_client: TestClient) -> None:
-    app: Any = app_client.app
-    app.dependency_overrides[get_ncit_client] = lambda: _FakeClient(version="26.02d")
-    resp = app_client.get("/ready")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["ready"] is True
-    assert body["ncit_version"] == "26.02d"
-
-
-@pytest.mark.api
-def test_ready_is_503_when_store_unreachable(app_client: TestClient) -> None:
-    app: Any = app_client.app
-    app.dependency_overrides[get_ncit_client] = lambda: _FakeClient(fail=True)
-    resp = app_client.get("/ready")
-    assert resp.status_code == 503

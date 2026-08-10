@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -10,9 +11,41 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_cadsr_repo
+from backend.dependencies import get_cadsr_repo, get_repository_metadata
 from backend.main import create_app
+from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from ontolib.repositories.cadsr.repository import CdeRepository
+from ontolib.terminologies.ncit.sibling_store import CandidateObservation
+
+
+class _IsolatedRepositoryMetadata:
+    """Certified identity seam for run-owned disposable repository fixtures."""
+
+    async def ncit(self) -> NcitRepositoryReady:
+        return NcitRepositoryReady(
+            source_identity="f" * 64,
+            manifest_identity="e" * 64,
+            release="26.07d",
+            activated_at=datetime(2026, 8, 10, tzinfo=UTC),
+            observation=CandidateObservation(
+                default_triples=1,
+                stated_triples=1,
+                named_graphs=(),
+                default_version="26.07d",
+                stated_version="26.07d",
+                restriction_count=1,
+                has_required_restriction=True,
+                default_has_stated_only_sentinel=False,
+                stated_has_stated_only_sentinel=True,
+            ),
+        )
+
+    def cadsr(self) -> RepositoryUnhealthy:
+        return RepositoryUnhealthy(
+            repository="cadsr",
+            reason="manifest-missing",
+            message="disposable API fixture has no caDSR certification",
+        )
 
 
 def _store_reachable(url: str) -> bool:
@@ -54,7 +87,9 @@ def isolated_api_client(
     isolated_qlever_settings: None,
 ) -> Iterator[TestClient]:
     """API client whose persistent services are current-run-owned disposables."""
-    with TestClient(create_app()) as client:
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = _IsolatedRepositoryMetadata
+    with TestClient(app) as client:
         yield client
 
 

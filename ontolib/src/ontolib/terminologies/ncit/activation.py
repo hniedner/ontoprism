@@ -12,6 +12,7 @@ import time
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
@@ -503,6 +504,7 @@ class ActivationJournal(BaseModel):
     qlever_index_version: str
     qlever_index_basename: str
     projection: ProjectionPlan | None = None
+    activated_at: AwareDatetime | None = None
 
     @field_validator(
         "active_path",
@@ -1175,7 +1177,10 @@ def transition_activation_journal(
         raise ActivationTransitionError(
             f"activation phase {journal.phase!r} cannot transition to {phase!r}"
         )
-    transitioned = journal.model_copy(update={"phase": phase})
+    updates: dict[str, object] = {"phase": phase}
+    if phase == "health-validated" and journal.activated_at is None:
+        updates["activated_at"] = datetime.now(UTC)
+    transitioned = journal.model_copy(update=updates)
     write_activation_journal(path, transitioned)
     return transitioned
 

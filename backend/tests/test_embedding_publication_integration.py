@@ -100,6 +100,7 @@ def _build(
     return CorpusBuild(
         build_id=build_id,
         corpus=corpus,
+        source_identity="f" * 64,
         source_version="26.02d" if corpus is Corpus.NCIT else "sha256:test-cadsr",
         source_hash="a" * 64,
         model_id="sentence-transformers/all-mpnet-base-v2",
@@ -408,6 +409,7 @@ async def test_cross_batch_duplicate_identifier_is_rejected_by_real_postgres(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("source_identity", "d" * 64),
         ("source_version", "changed"),
         ("source_hash", "d" * 64),
         ("model_id", "changed-model"),
@@ -1418,10 +1420,12 @@ async def test_manifest_constraints_reject_invalid_lifecycle_evidence(
             await session.execute(
                 text(
                     "INSERT INTO embedding_corpus_manifest (build_id,corpus,state,"
-                    "is_active,source_version,source_hash,model_id,model_revision,"
+                    "is_active,source_identity,source_version,source_hash,"
+                    "model_id,model_revision,"
                     "vector_dimension,expected_row_count,actual_row_count,code_commit,"
                     "required_doc_ids,error_message,completed_at) VALUES ("
-                    ":build_id,'ncit',:state,:is_active,'v',:hash,'m',:revision,768,"
+                    ":build_id,'ncit',:state,:is_active,:source_identity,'v',"
+                    ":hash,'m',:revision,768,"
                     ":expected,:actual,:commit,:sentinels,:error,"
                     "CASE WHEN CAST(:completed AS text) IS NULL "
                     "THEN NULL ELSE now() END)"
@@ -1430,6 +1434,7 @@ async def test_manifest_constraints_reject_invalid_lifecycle_evidence(
                     "build_id": UUID("00000000-0000-0000-0000-000000000099"),
                     "state": state,
                     "is_active": is_active,
+                    "source_identity": "f" * 64,
                     "hash": "a" * 64,
                     "revision": "b" * 40,
                     "expected": expected,
@@ -1459,16 +1464,18 @@ async def test_manifest_provenance_cannot_be_rewritten(
 
 
 @pytest.mark.parametrize(
-    ("source_hash", "model_revision", "code_commit"),
+    ("source_identity", "source_hash", "model_revision", "code_commit"),
     [
-        ("A" * 64, "b" * 40, "c" * 40),
-        ("a" * 63, "b" * 40, "c" * 40),
-        ("a" * 64, "z" * 40, "c" * 40),
-        ("a" * 64, "b" * 40, "c" * 39),
+        ("F" * 64, "a" * 64, "b" * 40, "c" * 40),
+        ("f" * 64, "A" * 64, "b" * 40, "c" * 40),
+        ("f" * 64, "a" * 63, "b" * 40, "c" * 40),
+        ("f" * 64, "a" * 64, "z" * 40, "c" * 40),
+        ("f" * 64, "a" * 64, "b" * 40, "c" * 39),
     ],
 )
 async def test_database_rejects_malformed_provenance(
     session_factory: async_sessionmaker[AsyncSession],
+    source_identity: str,
     source_hash: str,
     model_revision: str,
     code_commit: str,
@@ -1478,13 +1485,15 @@ async def test_database_rejects_malformed_provenance(
             await session.execute(
                 text(
                     "INSERT INTO embedding_corpus_manifest (build_id,corpus,state,"
-                    "source_version,source_hash,model_id,model_revision,"
+                    "source_identity,source_version,source_hash,model_id,model_revision,"
                     "vector_dimension,expected_row_count,code_commit,required_doc_ids) "
-                    "VALUES (:build_id,'ncit','building','v',:source_hash,'m',"
+                    "VALUES (:build_id,'ncit','building',:source_identity,'v',"
+                    ":source_hash,'m',"
                     ":model_revision,768,1,:code_commit,ARRAY['C3262'])"
                 ),
                 {
                     "build_id": uuid4(),
+                    "source_identity": source_identity,
                     "source_hash": source_hash,
                     "model_revision": model_revision,
                     "code_commit": code_commit,

@@ -26,7 +26,7 @@ def test_expected_embedding_counts_are_release_specific() -> None:
     settings = get_settings()
     assert settings.ncit_expected_version == "26.07d"
     assert settings.ncit_embedding_expected_rows == 212_475
-    assert settings.cadsr_embedding_expected_rows == 79_827
+    assert settings.cadsr_embedding_expected_rows == 79_835
 
 
 def _require_published_corpus(corpus: str, table: str, required_doc_id: str) -> None:

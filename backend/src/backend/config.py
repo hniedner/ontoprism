@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # Independent release evidence for embedding completeness. The data-build workflow
     # requires exact agreement with the enumerated source; update on source bump.
     ncit_embedding_expected_rows: Annotated[int, Field(gt=0)] = 212_475
-    cadsr_embedding_expected_rows: Annotated[int, Field(gt=0)] = 79_827
+    cadsr_embedding_expected_rows: Annotated[int, Field(gt=0)] = 79_835
 
     # CORS: browser origins allowed to call the API (the SvelteKit dev/prod hosts).
     cors_allow_origins: list[str] = [

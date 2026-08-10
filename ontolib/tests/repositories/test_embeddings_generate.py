@@ -70,6 +70,7 @@ class _LifecyclePublisher(_FakeSink):
         self.build = CorpusBuild(
             build_id=UUID("00000000-0000-0000-0000-000000000001"),
             corpus=corpus,
+            source_identity="f" * 64,
             source_version="test",
             source_hash="a" * 64,
             model_id=model_id,

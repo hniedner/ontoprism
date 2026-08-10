@@ -81,12 +81,15 @@ async def test_count_coerces_scalar_to_int() -> None:
 
 @pytest.mark.unit
 async def test_is_populated_reflects_existence_probe() -> None:
-    assert await NcitSearchIndex(  # type: ignore[arg-type]
-        _SessionFactory({"EXISTS": _Result(scalar=True)})
-    ).is_populated()
-    assert not await NcitSearchIndex(  # type: ignore[arg-type]
-        _SessionFactory({"EXISTS": _Result(scalar=False)})
-    ).is_populated()
+    identity = "a" * 64
+    ready = _SessionFactory({"EXISTS": _Result(scalar=True)})
+    stale = _SessionFactory({"EXISTS": _Result(scalar=False)})
+
+    assert await NcitSearchIndex(ready).is_populated(identity)  # type: ignore[arg-type]
+    assert not await NcitSearchIndex(stale).is_populated(identity)  # type: ignore[arg-type]
+    sql, params = ready.executed[0]
+    assert "ncit_search_manifest" in sql
+    assert params == {"source_identity": identity}
 
 
 @pytest.mark.unit
@@ -133,15 +136,25 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
                 {"code": "C2", "label": "b", "semantic_type": None, "synonyms": None},
                 {"code": "C3", "label": "c", "semantic_type": None, "synonyms": None},
             ],
-        )
+        ),
+        source_identity="a" * 64,
+        source_hash="b" * 64,
     )
 
     assert total == 3
     statements = [sql for sql, _ in sf.executed]
-    # First statement clears the cache; only the two non-empty batches insert.
-    assert "DELETE FROM ncit_search" in statements[0]
-    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search" in sql]
+    # Manifest invalidation, row replacement, and recertification share one transaction.
+    assert "DELETE FROM ncit_search_manifest" in statements[0]
+    assert "DELETE FROM ncit_search" in statements[1]
+    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search (" in sql]
     assert [len(p) for p in inserts] == [1, 2]
+    manifest_sql, manifest_params = sf.executed[-1]
+    assert "INSERT INTO ncit_search_manifest" in manifest_sql
+    assert manifest_params == {
+        "source_identity": "a" * 64,
+        "source_hash": "b" * 64,
+        "row_count": 3,
+    }
 
 
 class _FakeStore:
@@ -166,10 +179,16 @@ async def test_populate_from_store_pages_and_feeds_rebuild() -> None:
     sf = _SessionFactory({})
     index = NcitSearchIndex(sf)  # type: ignore[arg-type]
 
-    total = await populate_from_store(store, index, batch_size=2)  # type: ignore[arg-type]
+    total = await populate_from_store(  # type: ignore[arg-type]
+        store,
+        index,
+        source_identity="a" * 64,
+        source_hash="b" * 64,
+        batch_size=2,
+    )
 
     assert total == 3
     # Paged 0, 2, then 4 (empty) -> stop.
     assert store.pages == [(2, 0), (2, 2), (2, 4)]
-    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search" in sql]
+    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search (" in sql]
     assert [len(p) for p in inserts] == [2, 1]
