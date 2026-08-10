@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.core.data_build_tools import DataBuildToolIdentity
 from ontolib.repositories.xref.evidence import (
     LABEL_AGREEMENT,
     SME_CURATION,
@@ -37,6 +38,12 @@ if TYPE_CHECKING:
 
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
+_REASONER_TOOL = DataBuildToolIdentity(
+    name="test-reasoner",
+    source="test://ontolib.tests.repositories.xref",
+    version="1",
+    digest="sha256:" + "1" * 64,
+)
 
 pytestmark = [
     pytest.mark.mutating_integration,
@@ -409,6 +416,7 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
         source_version=_UBERON_VERSION,
         source="promotion",
         run_id=run_id,
+        tool_identity=_REASONER_TOOL,
     )
     quarantined = await xref_store.quarantine_stale(
         ncit_version=_NCIT_VERSION,
@@ -448,6 +456,7 @@ async def test_a_failed_run_is_persisted_as_failed_not_completed(
         source_version=_UBERON_VERSION,
         source="promotion",
         run_id=run_id,
+        tool_identity=_REASONER_TOOL,
     )
 
     engine = make_engine(get_settings().database_url)
@@ -469,6 +478,7 @@ async def test_a_failed_run_is_persisted_as_failed_not_completed(
 
     assert row["status"] == "failed"
     assert row["metrics"]["reasoner_errors"] == 2
+    assert row["metrics"]["tools"] == [_REASONER_TOOL.as_dict()]
 
 
 class _StubClient:
@@ -551,6 +561,7 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
         source="test-promotion",
+        tool_identity=_REASONER_TOOL,
         curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
         reasoner=_echo_reasoner,
     )
@@ -563,6 +574,7 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
     # …and the run says plainly that curation, not the machinery, earned it
     assert report["promoted_on_curation_alone"] == 1
     assert report["promoted_with_structural_corroboration"] == 0
+    assert report["tools"] == [_REASONER_TOOL.as_dict()]
 
     # GATE LIVENESS for #122: the evidence that curation earned it survived the ENTIRE
     # real path (validate_candidate → promote_candidate → _settle_contests → persist),

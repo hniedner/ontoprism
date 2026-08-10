@@ -57,6 +57,9 @@ class ReasonerUnavailableError(RuntimeError):
 
 def _robot_cmd() -> str:
     """Return the resolved ``robot`` executable path."""
+    configured = os.environ.get("ONTOPRISM_ROBOT_DIR")
+    if configured:
+        return str(Path(configured).resolve() / "robot")
     return _ROBOT
 
 

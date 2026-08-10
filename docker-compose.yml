@@ -1,5 +1,5 @@
-# ONTOPRISM's OWN data services — isolated from the sibling fairdata app so both can
-# run simultaneously with zero interference.
+# ONTOPRISM's own data services. Every image is an immutable upstream digest, so a
+# fresh checkout needs neither a sibling repository nor a locally built base image.
 #
 #   ontoprism            fairdata (do not touch)
 #   ---------            ----------------------
@@ -8,13 +8,11 @@
 #   postgres       5433    fairdata-postgres         5432
 #   backend        8011    (fairdata backend)        8001
 #
-# The Oxigraph stores under ./data/ are copy-on-write clones of fairdata's stores
-# (see README/QUICKSTART), so ontoprism has its own writable copy — a reload or a
-# decomposition write here never affects fairdata. Uses the same oxigraph 0.5.3 image
-# for store-format compatibility with the clones.
+# The two Oxigraph services use the same official 0.5.3 image as the offline loader in
+# `sibling_store.py`; that exact identity is persisted in each candidate manifest.
 services:
   oxigraph-ncit:
-    image: fairdata-oxigraph:local
+    image: ghcr.io/oxigraph/oxigraph@sha256:cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3
     container_name: ontoprism-oxigraph-ncit
     command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
     ports:
@@ -22,13 +20,13 @@ services:
     volumes:
       - ./data/oxigraph-ncit:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7878/ || exit 1"]
+      test: ["CMD", "/usr/local/bin/oxigraph", "query", "--location", "/data", "--query", "ASK {}", "--results-format", "json"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   oxigraph-uberon:
-    image: fairdata-oxigraph:local
+    image: ghcr.io/oxigraph/oxigraph@sha256:cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3
     container_name: ontoprism-oxigraph-uberon
     command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
     ports:
@@ -36,13 +34,13 @@ services:
     volumes:
       - ./data/oxigraph-uberon:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7878/ || exit 1"]
+      test: ["CMD", "/usr/local/bin/oxigraph", "query", "--location", "/data", "--query", "ASK {}", "--results-format", "json"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   postgres:
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector@sha256:7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742
     container_name: ontoprism-postgres
     environment:
       POSTGRES_USER: ontoprism

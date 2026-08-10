@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+from ontolib.core.data_build_tools import OXIGRAPH_TOOL
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.owl_download import (
     OwlContentError,
@@ -149,6 +150,7 @@ class _Runtime:
             ),
             image_id="sha256:" + "1" * 64,
             cli_version="oxigraph 0.5.3",
+            tool=OXIGRAPH_TOOL,
         )
 
     def load(
@@ -718,6 +720,7 @@ def test_runtime_requires_exact_pinned_image_and_cli_identity() -> None:
         image=OXIGRAPH_IMAGE,
         image_id=image_id,
         cli_version="oxigraph 0.5.3",
+        tool=OXIGRAPH_TOOL,
     )
     assert docker.calls == [
         (("image", "inspect", OXIGRAPH_IMAGE), True),

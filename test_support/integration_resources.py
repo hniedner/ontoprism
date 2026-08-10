@@ -15,6 +15,8 @@ from urllib.parse import urlsplit
 
 from sqlalchemy.engine import make_url
 
+from ontolib.core.data_build_tools import OXIGRAPH_IMAGE, POSTGRES_IMAGE
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
     from pathlib import Path
@@ -51,14 +53,8 @@ _REPOSITORY_WRITES: Final = frozenset(
         "upsert_run",
     }
 )
-_OXIGRAPH_IMAGE = (
-    "ghcr.io/oxigraph/oxigraph@sha256:"
-    "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
-)
-_POSTGRES_IMAGE = (
-    "pgvector/pgvector@sha256:"
-    "7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742"
-)
+_OXIGRAPH_IMAGE = OXIGRAPH_IMAGE
+_POSTGRES_IMAGE = POSTGRES_IMAGE
 _DEAD_DATABASE_URL: Final = (
     "postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/"
     "ontoprism_test_forbidden"

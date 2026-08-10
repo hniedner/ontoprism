@@ -29,6 +29,7 @@ import typer
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
@@ -642,6 +643,7 @@ async def _build_xref_promote(
     that could not reason is a *failed* run, not a run that conservatively promoted
     nothing, and the two must never look alike from the outside.
     """
+    _robot_dir, robot_identity = configured_robot_installation()
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
@@ -662,6 +664,7 @@ async def _build_xref_promote(
                 # Named explicitly: the D29 sweep is scoped by source, and a shared
                 # default would let a Uberon run quarantine every Mondo bridge.
                 source="uberon-cl-promotion",
+                tool_identity=robot_identity,
                 curated_pairs=_curated_pairs(golden, trust_unsigned=trust_unsigned),
             )
     finally:
