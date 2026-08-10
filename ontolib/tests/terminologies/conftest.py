@@ -146,7 +146,7 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
         ],
     ),
     (
-        "ORDER BY ?label",
+        "SAMPLE(?synValue) AS ?syn",
         [
             {
                 "concept": f"{NS}C3262",

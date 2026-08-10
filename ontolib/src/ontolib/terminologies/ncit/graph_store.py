@@ -179,7 +179,7 @@ class NcitGraphStore:
             {pattern} .
             FILTER(isIRI(?node) && STRSTARTS(STR(?node), "{self._ns}"))
             OPTIONAL {{ ?node rdfs:label ?label }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        }} ORDER BY STR(?node) STR(?label) LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         rows = await self._client.select(query)
         refs = (_ref(r.get("node"), r.get("label")) for r in rows)
@@ -195,7 +195,8 @@ class NcitGraphStore:
             FILTER(STRSTARTS(STR(?target), "{self._ns}"))
             OPTIONAL {{ ?rel rdfs:label ?rellabel }}
             OPTIONAL {{ ?target rdfs:label ?tlabel }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        }} ORDER BY STR(?rel) STR(?target) STR(?rellabel) STR(?tlabel)
+        LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         return self._as_relationships(await self._client.select(query))
 
@@ -207,7 +208,8 @@ class NcitGraphStore:
             FILTER(?rel != rdfs:subClassOf)
             OPTIONAL {{ ?rel rdfs:label ?rellabel }}
             OPTIONAL {{ ?target rdfs:label ?tlabel }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        }} ORDER BY STR(?rel) STR(?target) STR(?rellabel) STR(?tlabel)
+        LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         return self._as_relationships(await self._client.select(query))
 
@@ -221,7 +223,8 @@ class NcitGraphStore:
             FILTER(STRSTARTS(STR(?src), "{self._ns}"))
             OPTIONAL {{ ?rel rdfs:label ?rellabel }}
             OPTIONAL {{ ?src rdfs:label ?slabel }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        }} ORDER BY STR(?rel) STR(?src) STR(?rellabel) STR(?slabel)
+        LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         rows = await self._client.select(query)
         rels = (
@@ -248,22 +251,23 @@ class NcitGraphStore:
         term = _escape_literal(query_text)
         where = f"""
             ?concept a owl:Class ; rdfs:label ?label .
-            OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+            OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
             OPTIONAL {{
-                ?concept ncit:{pc.FULL_SYNONYM} ?syn .
-                FILTER(CONTAINS(LCASE(?syn), LCASE("{term}")))
+                ?concept ncit:{pc.FULL_SYNONYM} ?synValue .
+                FILTER(CONTAINS(LCASE(?synValue), LCASE("{term}")))
             }}
-            FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?syn))
+            FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?synValue))
         """
         # GROUP BY concept so a concept with several matching synonyms / semantic
         # types yields exactly one result row (not one row per synonym).
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label
-                   (SAMPLE(?semtype) AS ?semtype) (SAMPLE(?syn) AS ?syn)
+                   (SAMPLE(?semtypeValue) AS ?semtype)
+                   (SAMPLE(?synValue) AS ?syn)
             WHERE {{{where}}}
             GROUP BY ?concept ?label
-            ORDER BY ?label LIMIT {limit} OFFSET {offset}
+            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
             """
         )
         count_rows = await self._client.select(
@@ -314,10 +318,10 @@ class NcitGraphStore:
         """
         rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT ?concept ?label (SAMPLE(?semtype) AS ?semtype)
+            SELECT ?concept ?label (SAMPLE(?semtypeValue) AS ?semtype)
             WHERE {{
                 ?concept a owl:Class ; rdfs:label ?label .
-                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
             }}
             GROUP BY ?concept ?label
@@ -360,12 +364,13 @@ class NcitGraphStore:
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label
-                   (SAMPLE(?semtype) AS ?semtype)
-                   (GROUP_CONCAT(DISTINCT ?syn; separator="{_LIST_SEP}") AS ?synonyms)
+                   (SAMPLE(?semtypeValue) AS ?semtype)
+                   (GROUP_CONCAT(DISTINCT
+                       ?synValue; separator="{_LIST_SEP}") AS ?synonyms)
             WHERE {{
                 ?concept a owl:Class ; rdfs:label ?label .
-                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
-                OPTIONAL {{ ?concept ncit:{pc.FULL_SYNONYM} ?syn }}
+                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
+                OPTIONAL {{ ?concept ncit:{pc.FULL_SYNONYM} ?synValue }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
             }}
             GROUP BY ?concept ?label
@@ -478,8 +483,16 @@ class NcitGraphStore:
         )
         return Neighborhood(
             center=code,
-            nodes=list(nodes.values()),
-            edges=list(edges.values()),
+            nodes=sorted(nodes.values(), key=lambda node: node.code),
+            edges=sorted(
+                edges.values(),
+                key=lambda edge: (
+                    edge.source,
+                    edge.target,
+                    edge.relation,
+                    edge.kind,
+                ),
+            ),
             truncated=truncated,
         )
 
@@ -529,7 +542,7 @@ class NcitGraphStore:
     def _neighbor_codes(detail: ConceptDetail) -> list[str]:
         refs = [*detail.parents, *detail.children]
         rels = [*detail.roles, *detail.associations]
-        return [r.code for r in refs] + [rel.target.code for rel in rels]
+        return sorted({r.code for r in refs} | {rel.target.code for rel in rels})
 
     @staticmethod
     def _add_edges(
@@ -539,74 +552,101 @@ class NcitGraphStore:
         edges: dict[tuple[str, str, str, str], GraphEdge],
     ) -> bool:
         """Add *detail*'s edges/nodes; return True if a node was dropped at the cap."""
-        dropped = False
-
-        def add_node(node_code: str, label: str | None) -> None:
-            # Hard cap: never grow past the bound. A single densely-connected concept
-            # would otherwise add all of its (up to 4x _DEFAULT_EDGE_LIMIT) neighbors
-            # at once, blowing past a between-nodes-only check.
-            nonlocal dropped
-            if node_code in nodes:
-                return
-            if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
-                dropped = True
-                return
-            nodes[node_code] = GraphNode(code=node_code, label=label)
-
-        def add_edge(edge: GraphEdge) -> None:
-            # Only connect nodes that survived the cap — no dangling edge endpoints.
-            if edge.source not in nodes or edge.target not in nodes:
-                return
-            edges.setdefault((edge.source, edge.target, edge.relation, edge.kind), edge)
-
-        add_node(code, detail.label)
-        for parent in detail.parents:
-            add_node(parent.code, parent.label)
-            add_edge(
+        dropped_count = int(NcitGraphStore._add_node(nodes, code, detail.label))
+        for parent in sorted(detail.parents, key=_ref_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, parent.code, parent.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=code,
                     target=parent.code,
                     relation="subClassOf",
                     kind="subClassOf",
-                )
+                ),
             )
-        for child in detail.children:
-            add_node(child.code, child.label)
-            add_edge(
+        for child in sorted(detail.children, key=_ref_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, child.code, child.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=child.code,
                     target=code,
                     relation="subClassOf",
                     kind="subClassOf",
-                )
+                ),
             )
-        for rel in detail.roles:
-            add_node(rel.target.code, rel.target.label)
-            add_edge(
+        for rel in sorted(detail.roles, key=_relationship_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, rel.target.code, rel.target.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=code,
                     target=rel.target.code,
                     relation=rel.relation,
                     relation_label=rel.relation_label,
                     kind="role",
-                )
+                ),
             )
-        for rel in detail.associations:
-            add_node(rel.target.code, rel.target.label)
-            add_edge(
+        for rel in sorted(detail.associations, key=_relationship_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, rel.target.code, rel.target.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=code,
                     target=rel.target.code,
                     relation=rel.relation,
                     relation_label=rel.relation_label,
                     kind="association",
-                )
+                ),
             )
-        return dropped
+        return bool(dropped_count)
+
+    @staticmethod
+    def _add_node(
+        nodes: dict[str, GraphNode], node_code: str, label: str | None
+    ) -> bool:
+        """Add one node; return whether the hard cap dropped it."""
+        if node_code in nodes:
+            return False
+        if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+            return True
+        nodes[node_code] = GraphNode(code=node_code, label=label)
+        return False
+
+    @staticmethod
+    def _add_edge(
+        nodes: dict[str, GraphNode],
+        edges: dict[tuple[str, str, str, str], GraphEdge],
+        edge: GraphEdge,
+    ) -> None:
+        """Add an edge only when both capped node endpoints survived."""
+        if edge.source not in nodes or edge.target not in nodes:
+            return
+        edges.setdefault((edge.source, edge.target, edge.relation, edge.kind), edge)
 
 
 def _split_list(value: str | None) -> list[str]:
     return [item for item in value.split(_LIST_SEP) if item] if value else []
+
+
+def _ref_sort_key(ref: ConceptRef) -> tuple[str, str]:
+    return ref.code, ref.label or ""
+
+
+def _relationship_sort_key(value: Relationship) -> tuple[str, str, str]:
+    return value.target.code, value.relation, value.relation_label or ""
 
 
 def _first(items: list[str]) -> str | None:

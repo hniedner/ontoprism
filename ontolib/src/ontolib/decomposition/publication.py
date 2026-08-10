@@ -227,7 +227,7 @@ def build_replacement_update(marker: PublicationMarker, staging_graph: str) -> s
     public = vocab.DECOMPOSED_GRAPH_IRI
     marker_subject = vocab.PUBLICATION_MARKER
     return f"""
-CLEAR GRAPH <{public}>;
+CLEAR SILENT GRAPH <{public}>;
 ADD GRAPH <{staging_graph}> TO GRAPH <{public}>;
 DROP GRAPH <{staging_graph}>;
 INSERT DATA {{

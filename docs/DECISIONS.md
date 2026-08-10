@@ -2,6 +2,100 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-09 — bounded NCIt query and curation storage topology
+
+### D65. QLever indexes immutable publisher NCIt; Postgres owns mutable proposed NCIt
+
+The store decision is based on OntoPrism's queries, not on whether a product includes a
+reasoner or a generic graph editor. The tracked workload now binds 330 query-bearing
+production definitions/constants and 99 transport operations into an executable inventory
+(`jq '{query_shape_count,transport_operation_count}'
+scripts/validation/sparql-inventory.json`, 2026-08-09).
+Changing, adding, or removing one of those shapes changes the committed inventory digest.
+
+The corrected exact-corpus workload returned the same NCIt release, stated restriction count,
+role observation, complete-definition identity, genus walks, R82 controls, scope, detail,
+search page, and neighborhood from QLever and Jena. QLever returned C27262 as 28 facts in 8
+groups with identity
+`9ce79377f03d6f15130d065567509a435ccb2793920c19c8846292cbf8685b5c`, enumerated
+15,633 C3262 scope codes, and returned 400 neighborhood nodes/555 edges
+(`pdm run python scripts/research/ncit_store_bakeoff.py qlever
+http://127.0.0.1:7302`, 2026-08-09). Jena returned the identical values and identity
+(`pdm run python scripts/research/ncit_store_bakeoff.py fuseki
+http://127.0.0.1:7301/ncit`, 2026-08-09). On those runs QLever completed scope/search in
+1.90/0.97 seconds and Jena in 11.04/5.50 seconds; Jena completed detail/neighborhood in
+0.02/0.49 seconds and QLever in 0.28/5.10 seconds (same commands, 2026-08-09).
+
+The pathological complete-definition query was an application-query defect, not proof that
+all open-source stores were unsuitable. The reader now queries the root first, then re-queries
+the complete root-to-depth prefix only when the previous result proves a nested group exists.
+It keeps every blank-node relationship inside one SPARQL result set, witnesses non-terminal
+RDF list cells without comparing blank nodes to `rdf:nil`, and retains a live depth-four reject
+gate (`pdm run pytest ontolib/tests/decomposition/test_complete_definition.py -v`,
+2026-08-09). Search aggregates no longer reuse an input variable as their output alias, and
+every limited edge query orders before `LIMIT`; the repository contract passes 21 cases
+(`pdm run pytest ontolib/tests/terminologies/test_ncit_graph_store.py -v`, 2026-08-09).
+
+**Decision.** Use a split topology:
+
+1. **QLever is the read authority for the immutable publisher planes.** The inferred publisher
+   artifact is the default graph and stated OWL is the protected stated named graph. Runtime
+   entailment remains off. NCIt refresh builds a new immutable index and activates it only after
+   validation; #163 owns the pinned packaging and #148 owns crash-safe activation.
+2. **Postgres is authoritative for mutable proposed NCIt.** Proposal identity, optimistic
+   revision, complete lifecycle (`proposed → locally-approved → submitted → accepted-in-ncit`),
+   publication/trial evidence, history, idempotent operation identity, and the exact RDF
+   projection belong in one transactional plane. A committed revision and its projection are
+   one transaction.
+3. **Backend reads compose the planes.** List, detail, and graph-explorer reads identify both the
+   QLever base source and Postgres overlay revision. A newly committed proposal is visible from
+   the overlay immediately; rebuilding QLever is never the freshness mechanism for UI edits.
+   An optional QLever copy is a replaceable query projection, not lifecycle authority.
+4. **The Svelte graph explorer remains the curation UI.** A vendor workbench may help engineers
+   inspect data, but it does not replace OntoPrism's evidence, lifecycle, conflict, filtering,
+   and proposal semantics. The frontend continues to access both planes only through FastAPI.
+
+The transport seam declares Query, Update, and Graph Store endpoints independently and selects
+Oxigraph, Fuseki, or QLever profiles without scattering path assumptions
+(`pdm run pytest ontolib/tests/terminologies/test_sparql_http_client.py -v`, 2026-08-09).
+The tracked mutation workload completed Graph Store staging replacement, atomic decomposition
+replacement, concurrent optimistic revisions, and immediate reads on both candidates
+(`pdm run python scripts/research/ncit_store_mutation_bakeoff.py qlever
+http://127.0.0.1:7302` and `pdm run python
+scripts/research/ncit_store_mutation_bakeoff.py fuseki
+http://127.0.0.1:7301/ncit`, 2026-08-09). The tracked split-topology workload produced exactly
+one concurrent revision winner, reconciled revision 3 after a simulated lost response,
+preserved publication and clinical-trial evidence, and emitted an 11-triple RDF projection
+with combined identity
+`40fd56a324c504855e9f9dd32770999683e77f60cb1c756a94881729ad5abfe0`
+(`ISSUE283_POSTGRES_DSN=postgresql://ontoprism:ontoprism@127.0.0.1:7433/ontoprism
+ISSUE283_QLEVER_URL=http://127.0.0.1:7302 pdm run python
+scripts/research/ncit_curation_bakeoff.py`, 2026-08-09). Its `verify-only` mode returned the
+same identity and lifecycle after both isolated services were force-stopped and restarted
+(`docker kill ontoprism-bakeoff-qlever-ncit ontoprism-bakeoff-postgres-curation`; `docker
+start ontoprism-bakeoff-qlever-ncit ontoprism-bakeoff-postgres-curation`; same curation command
+with `verify-only`, 2026-08-09).
+
+QLever must run with a server-side query timeout. The deliberately pathological depth-four
+query was rejected by the selected server as HTTP 429 after 30.09 seconds
+(`pdm run python scripts/research/ncit_store_bakeoff.py qlever
+http://127.0.0.1:7302 --timeout-proof`, 2026-08-09); #163 must preserve that bounded server
+configuration and must not rely on a client disconnect to stop work.
+The pinned QLever image used by the bake-off publishes both `linux/amd64` and `linux/arm64`
+manifests (`docker buildx imagetools inspect
+docker.io/adfreiburg/qlever@sha256:abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a03747bf7e56165cb0ca6`,
+2026-08-09).
+
+**Alternatives.** Retain Jena/TDB2 as the RDF fallback: it achieved exact semantic parity, but
+its slower scope/search path does not buy authority over the richer Postgres proposal model.
+QLever's update and Graph Store endpoints may serve replaceable projections; the publisher
+graphs remain immutable by architectural contract.
+ROBOT plus a reasoner does not become a third canonical NCIt source; explicit ROBOT/ELK checks
+remain validation boundaries. GraphDB Free remains an optional blocked reconsideration, not a
+selected dependency: do not request or accept its license unless the owner explicitly reopens
+this decision. The solid open-source split removes the reason to spend that license decision
+now.
+
 ## 2026-08-08 — the M1 measurement landed, and what it cost to get there
 
 ### D61. Identities are bound after generation, never pre-declared

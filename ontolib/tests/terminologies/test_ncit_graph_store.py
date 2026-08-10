@@ -13,6 +13,19 @@ from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 pytestmark = pytest.mark.xdist_group(name="ncit_graph_store")
 
 
+class _RecordingClient:
+    def __init__(self, *, metadata: bool = False) -> None:
+        self.queries: list[str] = []
+        self._metadata = metadata
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if self._metadata and "GROUP_CONCAT" in query:
+            self._metadata = False
+            return [{"label": "Center"}]
+        return []
+
+
 @pytest.mark.unit
 def test_rel_returns_none_when_rel_or_target_missing() -> None:
     assert _rel(None, "label", "http://ncit#C1", "Target") is None
@@ -65,6 +78,37 @@ async def test_search_returns_hits_and_total(ncit_stub_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_aggregate_queries_do_not_reuse_source_variables_as_aliases() -> None:
+    client = _RecordingClient()
+    store = NcitGraphStore(client)  # type: ignore[arg-type]
+
+    await store.search("neoplasm")
+    await store.list_concepts()
+    await store.search_records(limit=25, offset=0)
+
+    compact_queries = [" ".join(query.split()) for query in client.queries]
+    aggregate_queries = [query for query in compact_queries if "SAMPLE(" in query]
+    assert len(aggregate_queries) == 3
+    assert all(
+        "SAMPLE(?semtypeValue) AS ?semtype" in query
+        and "SAMPLE(?semtype) AS ?semtype" not in query
+        for query in aggregate_queries
+    )
+    search_query = next(
+        query
+        for query in compact_queries
+        if "SAMPLE(?syn" in query and "GROUP_CONCAT" not in query
+    )
+    records_query = next(
+        query for query in compact_queries if "GROUP_CONCAT(DISTINCT ?syn" in query
+    )
+    assert "SAMPLE(?synValue) AS ?syn" in search_query
+    assert "SAMPLE(?syn) AS ?syn" not in search_query
+    assert "ORDER BY ?concept" in search_query
+    assert "GROUP_CONCAT(DISTINCT ?synValue" in records_query
+
+
+@pytest.mark.unit
 async def test_labels_for_batch(ncit_stub_url: str) -> None:
     async with OxigraphHttpClient(ncit_stub_url) as client:
         labels = await NcitGraphStore(client).labels_for(["C9305", "C2991"])
@@ -99,6 +143,42 @@ async def test_neighborhood_depth_expands_beyond_one_hop(ncit_stub_url: str) -> 
 
     assert len(two.edges) > len(one.edges)
     assert {n.code for n in one.nodes} <= {n.code for n in two.nodes}
+
+
+@pytest.mark.unit
+async def test_edge_queries_order_before_limit() -> None:
+    client = _RecordingClient(metadata=True)
+    detail = await NcitGraphStore(client).get_concept_detail("C1")  # type: ignore[arg-type]
+
+    assert detail is not None
+    edge_queries = [query for query in client.queries if "LIMIT 200" in query]
+    assert len(edge_queries) == 5
+    assert all(
+        query.index("ORDER BY") < query.index("LIMIT 200") for query in edge_queries
+    )
+
+
+@pytest.mark.unit
+async def test_neighborhood_cap_is_independent_of_store_result_order(
+    ncit_stub_url: str,
+) -> None:
+    refs = [ConceptRef(code=f"C{i:04}", label=f"n{i}") for i in range(600)]
+
+    async def graph_for(parents: list[ConceptRef]):
+        detail = ConceptDetail(code="CROOT", label="Root", parents=parents)
+
+        async def only_center(code: str) -> ConceptDetail | None:
+            return detail if code == "CROOT" else None
+
+        async with OxigraphHttpClient(ncit_stub_url) as client:
+            store = NcitGraphStore(client)
+            store.get_concept_detail = only_center  # type: ignore[method-assign]
+            return await store.get_neighborhood("CROOT")
+
+    forward = await graph_for(refs)
+    reverse = await graph_for(list(reversed(refs)))
+
+    assert forward == reverse
 
 
 @pytest.mark.unit

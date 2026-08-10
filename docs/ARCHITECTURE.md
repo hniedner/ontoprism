@@ -37,14 +37,23 @@ ontoprism/
 
 ## Data planes
 
-- **Oxigraph (SPARQL)** — the ontology graph. Source NCIt graph is read-only; the
-  decomposition engine writes a separate `ncit_decomposed` named graph (additive, never
-  mutating the source). NCIt on :7888, Uberon on :7889 (Postgres :5433) — ports are
-  offset from the sibling `fairdata` app so both can run at once.
-- **PostgreSQL** — concept metadata/FTS cache, decomposition run state, provenance
-  (`decomp_run`, `decomp_constituent`, `minted_concept`), and the caDSR read tables.
+- **QLever (selected NCIt read index; D65)** — immutable publisher-inferred NCIt in
+  the default graph and publisher-stated NCIt in its protected named graph. Runtime
+  reasoning is disabled. #163 packages the pinned index/server and #148 owns validated
+  sibling activation; until those land, the development compose file still starts the
+  incumbent NCIt Oxigraph service on :7888.
+- **PostgreSQL (selected mutable authority)** — concept metadata/FTS cache, decomposition run
+  state, provenance (`decomp_run`, `decomp_constituent`, `minted_concept`), caDSR read
+  tables, and, when the curation API lands, the authoritative
+  identity/revision/evidence/lifecycle/RDF projection for proposed NCIt content.
+  Graph-explorer curation reads will compose this overlay with the identified QLever base
+  so a committed edit does not wait for index rebuilding.
+- **Oxigraph (remaining development/terminology uses)** — the Uberon service remains on
+  :7889, and the incumbent NCIt container remains available during the #163 transition.
+  Decomposition RDF and proposal RDF are additive named-graph projections, never source
+  graph mutations.
 
-The frontend talks only to the FastAPI backend; the backend owns all Oxigraph/Postgres
+The frontend talks only to the FastAPI backend; the backend owns all SPARQL/Postgres
 access. The application exposes no caller-supplied raw SPARQL route: typed endpoints
 construct the supported store queries. Re-enabling raw execution requires a separately
 reviewed executor with proven store-side cancellation and resource bounds (D44).

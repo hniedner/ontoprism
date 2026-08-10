@@ -183,7 +183,10 @@ class _FakeClient:
             )
         if "rdfs:subClassOf+" in query:
             return self._ancestors
-        if "SELECT ?expression ?parentExpression ?list ?cell" in query:
+        if (
+            "SELECT DISTINCT ?expression ?parentExpression" in query
+            and "?requestedNestingDepth" in query
+        ):
             code = self._code_in(query)
             return self._complete_rows.get(code or "", [])
         if "SELECT ?role ?roleLabel" in query:
