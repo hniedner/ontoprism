@@ -323,7 +323,7 @@ Run `pdm run data-build embeddings` first. It prints persisted build provenance 
 lifecycle evidence (completed builds include actual counts), then refuses
 to mutate without `--publish`. A valid NCIt publication requires exact source-count
 agreement with both the enumerated source and the configured release expectation
-(`NCIT_EMBEDDING_EXPECTED_ROWS=212475` for 26.07d /
+(`NCIT_EMBEDDING_EXPECTED_ROWS=206860` for the 26.07d inferred default graph /
 `CADSR_EMBEDDING_EXPECTED_ROWS=79835`) plus C3262;
 caDSR likewise requires exact source/release count agreement and `2517527:4`.
 

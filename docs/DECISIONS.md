@@ -69,8 +69,11 @@ UBERON_SPARQL_URL=http://127.0.0.1:7889 NCIT_SPARQL_URL=http://127.0.0.1:7888 pd
 pytest ontolib/tests/repositories/xref/test_upstream_data_contract.py -m 'integration
 and full_store' -v`, 2026-08-10).
 
-The serving 26.07d index exposes 212,475 labelled NCIt embedding records through the
-application's production query (`curl -fsS -G --data-urlencode 'query=PREFIX owl:
+The serving 26.07d index exposes 206,860 labelled NCIt embedding records through the
+application's inferred-default dataset. The stated graph and QLever's unconstrained
+union each expose 212,475, which is not the runtime embedding plane (`curl -fsS -G
+--data-urlencode 'default-graph-uri=http://qlever.cs.uni-freiburg.de/builtin-functions/default-graph'
+--data-urlencode 'query=PREFIX owl:
 <http://www.w3.org/2002/07/owl#> PREFIX rdfs:
 <http://www.w3.org/2000/01/rdf-schema#> SELECT (COUNT(DISTINCT ?concept) AS ?count)
 WHERE { ?concept a owl:Class ; rdfs:label ?label . FILTER(STRSTARTS(STR(?concept),
