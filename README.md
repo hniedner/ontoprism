@@ -253,9 +253,16 @@ proof-bearing contract (#153), not a property claimed by this projection.
 ## Quickstart
 
 ```bash
-pdm install                      # Python 3.13 deps
+pdm install --dev                # Python 3.13 deps
 npm ci --prefix frontend         # SvelteKit deps
-pdm run up                       # data services (Oxigraph + Postgres)
+cp .env.example .env
+pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
+export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
+pdm run data-build owl           # download and certify the NCIt OWL pair
+pdm run data-build ncit-bootstrap # build the first NCIt QLever index
+pdm run data-build uberon-store  # build the Uberon/CL QLever index
+pdm run up                       # start QLever + Postgres
+pdm run migrate
 pdm run start-all                # backend :8011 + frontend :5175
 ```
 
@@ -290,7 +297,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 
 | Category | Technologies |
 |---|---|
-| Backend | Python 3.13 · PDM · FastAPI · Oxigraph (SPARQL) · PostgreSQL + pgvector |
+| Backend | Python 3.13 · PDM · FastAPI · QLever (SPARQL) · PostgreSQL + pgvector |
 | Frontend | SvelteKit 5 · Tailwind 4 · Sigma + graphology · TypeScript |
 | Quality | ruff · basedpyright · pytest · vitest · pre-commit · >90% coverage |
 
@@ -300,7 +307,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layout and data-fl
 
 | Command | Action |
 |---|---|
-| `pdm run up` / `down` | Start/stop data containers (Oxigraph, Postgres) |
+| `pdm run up` / `down` | Start/stop data containers (QLever, Postgres) |
 | `pdm run start-all` / `stop-all` / `restart-all` | Backend + frontend process supervision |
 | `pdm run start-backend` / `stop-backend` / `restart-backend` | FastAPI on :8011 |
 | `pdm run start-frontend` / `stop-frontend` / `restart-frontend` | SvelteKit on :5175 |
@@ -314,7 +321,7 @@ Background logs go to `.dev-logs/`. Ports are offset from the sibling `fairdata`
 ```bash
 pdm run test               # Hermetic: ontolib unit + backend unit/api/security + frontend vitest
 pdm run test-unit          # Unit-marked only
-pdm run test-integration   # Safe default: nonce-owned disposable Postgres/Oxigraph
+pdm run test-integration   # Safe default: nonce-owned disposable Postgres/QLever
 pdm run test-integration-full-store  # Explicit read-only contracts against configured corpora
 pdm run test-ci            # CI gate with ≥90% coverage
 pdm run pre-commit run --all-files  # Local quality gate

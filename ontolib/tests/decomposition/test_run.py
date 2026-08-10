@@ -76,7 +76,7 @@ def _old_role_to_genus_walk_row(
 
 class _FakeClient:
     """Branches on query-text markers, matching the repo's fake-client convention
-    (see ``test_oxigraph_client_http.py``).
+    (see ``test_qlever_client_http.py``).
 
     The complete-definition query returns one canonical root group per concept and
     preserves every configured role. The older direct member rows remain only for the

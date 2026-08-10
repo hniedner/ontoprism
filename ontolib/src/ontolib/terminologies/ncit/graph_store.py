@@ -1,4 +1,4 @@
-"""NCIt repository read model over an Oxigraph SPARQL endpoint.
+"""NCIt repository read model over a QLever SPARQL endpoint.
 
 Assembles concept detail (metadata + hierarchy + roles + associations + incoming
 roles), search, and expand-on-demand neighborhoods. Roles are recovered by OWL
@@ -29,7 +29,7 @@ from ontolib.terminologies.ncit.models import (
     SearchHit,
     SearchPage,
 )
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_iri
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
 
 _PREFIXES = (
     f"PREFIX rdfs: <{RDFS_NS}>\nPREFIX owl: <{OWL_NS}>\nPREFIX ncit: <{NCIT_NS}>"
@@ -120,9 +120,9 @@ def _rel(
 
 
 class NcitGraphStore:
-    """Read-only NCIt repository backed by an Oxigraph SPARQL endpoint."""
+    """Read-only NCIt repository backed by a QLever SPARQL endpoint."""
 
-    def __init__(self, client: OxigraphHttpClient, *, namespace: str = NCIT_NS) -> None:
+    def __init__(self, client: SparqlHttpClient, *, namespace: str = NCIT_NS) -> None:
         """Wrap a SPARQL *client*; concept IRIs are ``{namespace}{code}``."""
         self._client = client
         self._ns = namespace

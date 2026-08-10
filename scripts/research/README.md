@@ -18,7 +18,7 @@ A prototype extractor implementing a specific "axis-selection" strategy (filteri
 
 ## Usage
 
-Most scripts require an active Oxigraph instance running on `:7888` and arguments representing NCIt concept codes (e.g., `C6135`).
+Most scripts require an active QLever instance running on `:7888` and arguments representing NCIt concept codes (e.g., `C6135`).
 
 ```bash
 python scripts/research/anatomy_resolve.py C6135

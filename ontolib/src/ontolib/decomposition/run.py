@@ -110,7 +110,7 @@ class RunPublicationError(RuntimeError):
 class SparqlClient(Protocol):
     """The minimal client surface this orchestrator needs (structural typing).
 
-    ``OxigraphHttpClient`` satisfies this; tests supply a lightweight fake.
+    ``SparqlHttpClient`` satisfies this; tests supply a lightweight fake.
     """
 
     async def select(

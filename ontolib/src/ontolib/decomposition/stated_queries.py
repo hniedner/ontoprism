@@ -26,7 +26,7 @@ from ontolib.decomposition.models import (
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
-from ontolib.terminologies.oxigraph_http_client import safe_iri
+from ontolib.terminologies.sparql_transport import safe_iri
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
@@ -43,7 +43,7 @@ _PREFIXES = f"""
 _MAX_INTERSECTION_HOPS = 6
 
 # The 16 x 16 request was measured against a disposable clone of the full store:
-# 43 KB, 3.3 ms, with both endpoints bound before traversal in Oxigraph's plan.
+# 43 KB, 3.3 ms, with both endpoints bound before traversal in the measured plan.
 _PART_OF_QUERY_CODE_LIMIT = 16
 _PART_OF_EXPANSION_ROW_LIMIT = 256
 _PART_OF_MAX_R82_HOPS = 8
@@ -148,7 +148,7 @@ def _safe_literal(value: str) -> str:
 def _intersection_hop_pattern(concept_uri: str, hop: int) -> str:
     """Return triple patterns for Nth member of each intersectionOf list.
 
-    Uses ONLY individual triple patterns (no property paths) so Oxigraph
+    Uses ONLY individual triple patterns (no property paths) so the store
     binds the subject correctly rather than doing a graph-wide scan.
     """
     if hop == 0:
@@ -180,7 +180,7 @@ def build_genus_walk_members_query(
     member at that hop position across ALL ``owl:equivalentClass`` paths.
 
     Uses individual triple patterns per hop rather than property paths to keep
-    Oxigraph's query planner anchored on the subject concept.
+    the query planner anchored on the subject concept.
 
     Raises:
         ValueError: if *concept_code* is not injection-safe.
@@ -263,7 +263,7 @@ def build_part_of_pairs_query(
 ) -> str:
     """Build one bounded R82 restriction query for two endpoint tiles.
 
-    Every requested part-whole combination is emitted as an IRI tuple so Oxigraph
+    Every requested part-whole combination is emitted as an IRI tuple so QLever
     binds both endpoints before traversing the part's stated superclass path. A
     request is limited to 16 codes per endpoint (256 combinations); callers handling
     larger sets must tile both dimensions with :func:`build_part_of_pairs_queries`.
@@ -337,7 +337,7 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
     """Build one constant-anchored superclass/R82 expansion request.
 
     Each code is embedded as the subject of its own branches. This follows the safe
-    constant-subject form established against Oxigraph 0.5.3; a direct one-step query
+    constant-subject form established against the preflight corpus; a direct query
     using ``VALUES ?node`` exceeded the owned preflight store's 10-second watchdog.
     """
     code_list = _part_of_codes(codes)

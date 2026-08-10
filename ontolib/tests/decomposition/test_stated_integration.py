@@ -1,4 +1,4 @@
-"""Integration tests for the decomposition query layer against real Oxigraph.
+"""Integration tests for the decomposition query layer against real QLever.
 
 Two explicit tiers:
 - SPARQL builders parse against the bounded disposable engine.
@@ -49,9 +49,9 @@ from ontolib.decomposition.stated_queries import (
     walk_genus_chain,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import (
-    OxigraphHttpClient,
+from ontolib.terminologies.sparql_http_client import (
     flatten_bindings,
     parse_ask_result,
 )
@@ -161,9 +161,9 @@ class _SingleAttemptClient:
 
 @pytest.mark.integration
 async def test_stated_query_builders_parse_against_disposable_store(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
 ) -> None:
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         assert isinstance(
             await client.select(build_role_restrictions_query("C6135")), list
         )
@@ -185,7 +185,7 @@ async def test_stated_query_builders_parse_against_disposable_store(
 @pytest.mark.integration
 @pytest.mark.mutating_integration
 async def test_genus_traversal_matches_disposable_owl_list_shape(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
 ) -> None:
     fixture = f"""
         @prefix ncit: <{NCIT_NS}> .
@@ -225,7 +225,7 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
         ncit:C99992 rdfs:label "Unrelated Default Label Two" .
     """
 
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         await client.load(
             fixture.encode(),
             content_type="text/turtle",
@@ -342,8 +342,8 @@ async def test_genus_traversal_matches_disposable_owl_list_shape(
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-async def test_nested_intersection_groups_and_late_members_match_real_oxigraph(
-    isolated_oxigraph_url: str,
+async def test_nested_intersection_groups_and_late_members_match_real_qlever(
+    isolated_qlever_url: str,
 ) -> None:
     fixture = f"""
         @prefix ncit: <{NCIT_NS}> .
@@ -411,7 +411,7 @@ async def test_nested_intersection_groups_and_late_members_match_real_oxigraph(
         ncit:R142 rdfs:label "Disease_Has_Late_Member" .
     """
 
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         await client.load(
             fixture.encode(),
             content_type="text/turtle",
@@ -463,7 +463,7 @@ async def test_nested_intersection_groups_and_late_members_match_real_oxigraph(
 
 @pytest.mark.integration
 async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
 ) -> None:
     # Sorting puts C12510 and C20000-C20014 in the first tile and C32291 in the
     # second, exercising all four tile combinations.
@@ -480,7 +480,7 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
         "C99250",
         "C99251",
     ]
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         rows = []
         for query in build_part_of_pairs_queries(codes):
             rows.extend(await client.select(query))
@@ -515,17 +515,19 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
     )
     assert empty_rows == []
     assert direct_rows == [{"part": f"{NCIT_NS}C32291", "whole": f"{NCIT_NS}C12510"}]
-    assert direct_raw == {
-        "head": {"vars": ["part", "whole"]},
-        "results": {
-            "bindings": [
-                {
-                    "part": {"type": "uri", "value": f"{NCIT_NS}C32291"},
-                    "whole": {"type": "uri", "value": f"{NCIT_NS}C12510"},
-                }
-            ]
-        },
+    assert direct_raw["head"] == {"vars": ["part", "whole"]}
+    assert direct_raw["results"] == {
+        "bindings": [
+            {
+                "part": {"type": "uri", "value": f"{NCIT_NS}C32291"},
+                "whole": {"type": "uri", "value": f"{NCIT_NS}C12510"},
+            }
+        ]
     }
+    # QLever adds timing/result-size metadata to a standards-compliant result.
+    # The timing is intentionally not pinned, but its real envelope is.
+    assert direct_raw["meta"]["result-size-total"] == 1
+    assert isinstance(direct_raw["meta"]["query-time-ms"], int)
     assert reverse_rows == []
     assert health
     assert health[0].get("s")
@@ -533,7 +535,7 @@ async def test_part_of_pairs_queries_cover_production_shaped_disposable_store(
 
 @pytest.mark.integration
 async def test_part_of_closure_matches_double_on_production_shaped_store(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
 ) -> None:
     codes = [
         "C20003",
@@ -579,7 +581,7 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
     double_pairs = await stated_queries.resolve_part_of_pairs(
         _SingleAttemptClient(double_select), codes
     )
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         actual_pairs = await stated_queries.resolve_part_of_pairs(client, codes)
 
         async def counted_select(
@@ -622,7 +624,7 @@ async def test_part_of_closure_matches_double_on_production_shaped_store(
 @pytest.mark.integration
 @pytest.mark.mutating_integration
 async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
 ) -> None:
     fanout = "\n".join(
         f"<{NCIT_NS}C99300> <{RDFS_NS}subClassOf> [ "
@@ -640,7 +642,7 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
         f'<{NCIT_NS}C99304> <{RDFS_NS}subClassOf> "{NCIT_NS}C99305" .'
     )
 
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         await client.load(
             f"{fanout}\n{malformed}".encode(),
             content_type="text/turtle",
@@ -668,11 +670,11 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
 async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> None:
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url) as client:
+    async with ncit_sparql_client(url) as client:
         version_rows = await client.select(
             f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
             f"?ontology a <{OWL_NS}Ontology> ; "
@@ -711,12 +713,12 @@ async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> Non
 async def test_part_of_closure_matches_version_pinned_full_store() -> None:
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
     codes = ["C12400", "C13063", "C12418"]
-    async with OxigraphHttpClient(url) as client:
+    async with ncit_sparql_client(url) as client:
         version_rows = await client.select(
             f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
             f"?ontology a <{OWL_NS}Ontology> ; "
@@ -750,11 +752,11 @@ async def test_part_of_closure_matches_version_pinned_full_store() -> None:
 async def test_in_scope_concepts_query_pages_over_the_live_stated_graph() -> None:
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url) as client:
+    async with ncit_sparql_client(url) as client:
         rows = await client.select(
             build_in_scope_concepts_query(["Neoplastic Process"], limit=5, offset=0)
         )
@@ -771,11 +773,11 @@ async def test_c6135_genus_walk_finds_roles() -> None:
     for this defined class — the walker is the fix."""
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url, query_timeout=180.0) as client:
+    async with ncit_sparql_client(url, query_timeout=180.0) as client:
         roles = await walk_genus_chain(client.select, "C6135", max_depth=6)
 
     # The walker should find at minimum these core roles from the genus chain:
@@ -801,8 +803,8 @@ async def test_c6135_genus_walk_finds_roles() -> None:
 async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
-    async with OxigraphHttpClient(url) as client:
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+    async with ncit_sparql_client(url) as client:
         assert await client.version() == "26.07d"
         closure = await stated_queries.resolve_part_of_pairs(
             client, ["C12704", "C12705"]
@@ -826,8 +828,8 @@ async def test_2607d_lineage_partonomy_does_not_remove_classifiers() -> None:
 async def test_2607d_only_r103_role_annotation_declares_non_defining() -> None:
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
-    async with OxigraphHttpClient(url) as client:
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+    async with ncit_sparql_client(url) as client:
         assert await client.version() == "26.07d"
         rows = await client.select(
             f"SELECT ?role ?note WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
@@ -857,12 +859,12 @@ async def test_2607d_unsupported_r103_fact_is_conserved_but_not_projected(
 ) -> None:
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
 
     async def no_label_match(_surface_form: str) -> str | None:
         return None
 
-    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
         assert await client.version() == "26.07d"
         result = await _decompose_one(
             concept_code,
@@ -894,7 +896,7 @@ async def test_2607d_unsupported_r103_fact_is_conserved_but_not_projected(
 async def test_2607d_m1_complete_role_audit_remains_source_complete() -> None:
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     concept_codes = (
         "C27262",
         "C102870",
@@ -935,7 +937,7 @@ async def test_2607d_m1_complete_role_audit_remains_source_complete() -> None:
     )
     actual: Counter[str] = Counter()
 
-    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
         assert await client.version() == "26.07d"
         for concept_code in concept_codes:
             complete, _roles = await stated_queries.read_complete_genus_chain(
@@ -964,11 +966,11 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
     """
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url) as client:
+    async with ncit_sparql_client(url) as client:
         roles = await walk_genus_chain(client.select, "C6135", max_depth=6)
 
         filler_codes = {r.filler_code for r in roles}
@@ -1030,11 +1032,11 @@ async def test_resolve_morphology_filler_for_c6135() -> None:
     """
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url) as client:
+    async with ncit_sparql_client(url) as client:
         morphology = await resolve_morphology_filler(
             client.select, "C6135", max_depth=6
         )
@@ -1050,11 +1052,11 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
     op:Morphology constituent with axis_source='parent'."""
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url) as client:
+    async with ncit_sparql_client(url) as client:
         roles = await walk_genus_chain(client.select, "C6135", max_depth=6)
         morphology = await resolve_morphology_filler(
             client.select, "C6135", max_depth=6
@@ -1096,14 +1098,14 @@ async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
     """Pin the D59 projection while preserving both stated region facts."""
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
     async def no_label_match(_surface_form: str) -> str | None:
         return None
 
-    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
         stated_version = await client.select(
             f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
             f"?ontology a <{OWL_NS}Ontology> ; "
@@ -1167,14 +1169,14 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
     """Pin the production shapes that #153 must preserve, not fixture assumptions."""
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
     async def no_label_match(_surface_form: str) -> str | None:
         return None
 
-    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
         stated_version = await client.select(
             f"SELECT ?version WHERE {{ GRAPH <{STATED_GRAPH_IRI}> {{ "
             f"?ontology a <{OWL_NS}Ontology> ; "
@@ -1258,11 +1260,11 @@ async def test_ncit_role_metadata_contract_matches_normalization() -> None:
     """Pin the real role identities that distinguish Has from May_Have."""
     url = _url()
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     if not _stated_loaded(url):
         pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
 
-    async with OxigraphHttpClient(url, query_timeout=120.0) as client:
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
         rows = await client.select(
             f"""
             SELECT ?role ?label WHERE {{

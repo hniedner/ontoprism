@@ -58,10 +58,10 @@ def test_cde_neighborhood_unknown_cde_is_404(cadsr_client: TestClient) -> None:
 
 
 @pytest.mark.integration
-def test_cde_neighborhood_against_real_oxigraph(
+def test_cde_neighborhood_against_real_qlever(
     isolated_cadsr_client: TestClient,
 ) -> None:
-    # No store override: bounded real Oxigraph answers for the temporary CDE mapping.
+    # No store override: bounded real QLever answers for the temporary CDE mapping.
     resp = isolated_cadsr_client.get("/api/v1/cadsr/cdes/100/neighborhood")
     assert resp.status_code == 200
     body = resp.json()

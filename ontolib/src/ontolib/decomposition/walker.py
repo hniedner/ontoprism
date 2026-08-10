@@ -5,7 +5,7 @@ carried across separate HTTP requests — re-querying a returned blank node's la
 in a follow-up request produced a multi-hundred-MB runaway match against this store,
 almost certainly because blank node identifiers are not stable/meaningful to reuse
 across separate protocol requests). Also avoids `rest*` inside owl:intersectionOf
-(DECISIONS D13 — Oxigraph cannot evaluate that), using incrementing exact-hop paths
+(DECISIONS D13 — the incumbent store could not evaluate that), using exact-hop paths
 (`rdf:rest/rdf:first`, `rdf:rest/rdf:rest/rdf:first`, ...) instead, each anchored at
 the concept itself, until a hop returns nothing.
 
@@ -23,8 +23,9 @@ import sys
 from dataclasses import dataclass, field
 
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_iri
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
 
 _PREFIXES = f"""
 PREFIX rdfs: <{RDFS_NS}>
@@ -52,7 +53,7 @@ def _code(iri: str) -> str:
     return iri.rsplit("#", 1)[-1]
 
 
-async def _hop_first(client: OxigraphHttpClient, code: str, hops: int) -> list[dict]:
+async def _hop_first(client: SparqlHttpClient, code: str, hops: int) -> list[dict]:
     c = safe_iri(code, NCIT_NS)
     path = "/".join(["rdf:rest"] * hops + ["rdf:first"]) if hops else "rdf:first"
     return await client.select(
@@ -79,7 +80,7 @@ async def _hop_first(client: OxigraphHttpClient, code: str, hops: int) -> list[d
     )
 
 
-async def one_level(client: OxigraphHttpClient, code: str) -> Level | None:
+async def one_level(client: SparqlHttpClient, code: str) -> Level | None:
     """The direct (one-hop) intersectionOf members of *code* — None if not defined.
 
     NCIt's stated pre-coordination hierarchy is a multi-parent DAG, not a linear
@@ -115,7 +116,7 @@ async def one_level(client: OxigraphHttpClient, code: str) -> Level | None:
 
 
 async def _process_frontier(
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
     current: str,
     visited: set[str],
     next_frontier: list[str],
@@ -131,7 +132,7 @@ async def _process_frontier(
 
 
 async def walk_chain(
-    client: OxigraphHttpClient, code: str, *, max_depth: int = 10
+    client: SparqlHttpClient, code: str, *, max_depth: int = 10
 ) -> list[Level]:
     """Walk the full genus DAG breadth-first: recurse into every DEFINED genus member.
 
@@ -156,7 +157,7 @@ async def walk_chain(
 
 async def main() -> None:
     code = sys.argv[1] if len(sys.argv) > 1 else "C6135"
-    async with OxigraphHttpClient("http://localhost:7888") as client:
+    async with ncit_sparql_client("http://localhost:7888") as client:
         levels = await walk_chain(client, code)
         print(f"{code}: {len(levels)} level(s) visited in the genus DAG\n")
         for i, level in enumerate(levels):

@@ -30,7 +30,7 @@ from ontolib.repositories.xref.vocab import (
 
 
 class _MockClient:
-    """Mock ``OxigraphHttpClient`` returning canned SPARQL results.
+    """Mock ``SparqlHttpClient`` returning canned SPARQL results.
 
     ``select`` matches each query against *responses* keys by containment;
     the first matching key wins.

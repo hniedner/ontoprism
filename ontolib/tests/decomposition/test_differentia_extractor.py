@@ -342,7 +342,7 @@ class TestMain:
         client.__aexit__ = AsyncMock(return_value=False)
         with monkeypatch.context() as mp:
             mp.setattr(
-                "scripts.research.differentia_extractor.OxigraphHttpClient",
+                "scripts.research.differentia_extractor.ncit_sparql_client",
                 lambda *a, **kw: client,
             )
             mp.setattr(
@@ -365,7 +365,7 @@ class TestMain:
         client.__aexit__ = AsyncMock(return_value=False)
         with monkeypatch.context() as mp:
             mp.setattr(
-                "scripts.research.differentia_extractor.OxigraphHttpClient",
+                "scripts.research.differentia_extractor.ncit_sparql_client",
                 lambda *a, **kw: client,
             )
             mp.setattr(

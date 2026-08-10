@@ -8,7 +8,7 @@ from ontolib.terminologies.ncit.graph_store import (
     _rel,
 )
 from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef, Relationship
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 pytestmark = pytest.mark.xdist_group(name="ncit_graph_store")
 
@@ -37,7 +37,7 @@ def test_rel_returns_none_when_rel_or_target_missing() -> None:
 async def test_get_concept_detail_unknown_returns_none(
     ncit_stub_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
 
         async def _empty_select(_query: str) -> list[dict[str, str]]:
@@ -50,7 +50,7 @@ async def test_get_concept_detail_unknown_returns_none(
 
 @pytest.mark.unit
 async def test_concept_detail_assembles_all_sections(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         detail = await NcitGraphStore(client).get_concept_detail("C3262")
 
     assert detail is not None
@@ -69,7 +69,7 @@ async def test_concept_detail_assembles_all_sections(ncit_stub_url: str) -> None
 
 @pytest.mark.unit
 async def test_search_returns_hits_and_total(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         page = await NcitGraphStore(client).search("neoplasm", limit=10)
 
     assert page.total == 2
@@ -110,20 +110,20 @@ async def test_aggregate_queries_do_not_reuse_source_variables_as_aliases() -> N
 
 @pytest.mark.unit
 async def test_labels_for_batch(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         labels = await NcitGraphStore(client).labels_for(["C9305", "C2991"])
     assert labels == {"C9305": "Malignant Neoplasm", "C2991": "Disease or Disorder"}
 
 
 @pytest.mark.unit
 async def test_labels_for_empty_is_noop(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         assert await NcitGraphStore(client).labels_for([]) == {}
 
 
 @pytest.mark.unit
 async def test_neighborhood_builds_typed_edges(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         graph = await NcitGraphStore(client).get_neighborhood("C3262")
 
     node_codes = {n.code for n in graph.nodes}
@@ -136,7 +136,7 @@ async def test_neighborhood_builds_typed_edges(ncit_stub_url: str) -> None:
 async def test_neighborhood_depth_expands_beyond_one_hop(ncit_stub_url: str) -> None:
     # depth=2 expands each depth-1 neighbor, so more edges are discovered than at
     # depth=1 (regression: `depth` used to be ignored). Node set stays deduped.
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         one = await store.get_neighborhood("C3262", depth=1)
         two = await store.get_neighborhood("C3262", depth=2)
@@ -170,7 +170,7 @@ async def test_neighborhood_cap_is_independent_of_store_result_order(
         async def only_center(code: str) -> ConceptDetail | None:
             return detail if code == "CROOT" else None
 
-        async with OxigraphHttpClient(ncit_stub_url) as client:
+        async with SparqlHttpClient(ncit_stub_url) as client:
             store = NcitGraphStore(client)
             store.get_concept_detail = only_center  # type: ignore[method-assign]
             return await store.get_neighborhood("CROOT")
@@ -196,7 +196,7 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
     async def only_center(code: str) -> ConceptDetail | None:
         return dense if code == "C1" else None
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = only_center  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=1)
@@ -214,7 +214,7 @@ async def test_neighborhood_unknown_center_returns_empty(
     async def _none_for_any(_code: str) -> None:
         return None
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = _none_for_any  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C999999")
@@ -243,7 +243,7 @@ async def test_neighborhood_skips_already_expanded(ncit_stub_url: str) -> None:
             return center
         return ConceptDetail(code=code, label=code, parents=[])
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = detail  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=2)
@@ -271,7 +271,7 @@ async def test_neighborhood_skips_missing_neighbor(ncit_stub_url: str) -> None:
             return None
         return ConceptDetail(code=code, label=code, parents=[])
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = detail  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=2)
@@ -284,7 +284,7 @@ async def test_neighborhood_skips_missing_neighbor(ncit_stub_url: str) -> None:
 
 @pytest.mark.unit
 async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         page = await NcitGraphStore(client).list_concepts(limit=25, offset=0)
 
     assert page.total == 2
@@ -297,7 +297,7 @@ async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
 async def test_search_records_returns_records_with_synonyms(
     ncit_stub_url: str,
 ) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         records = await NcitGraphStore(client).search_records(limit=100, offset=0)
 
     assert len(records) == 1
@@ -311,7 +311,7 @@ async def test_search_records_returns_records_with_synonyms(
 async def test_embedding_records_returns_records_with_all_fields(
     ncit_stub_url: str,
 ) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         records = await NcitGraphStore(client).embedding_records(limit=200)
 
     assert len(records) == 1
@@ -324,7 +324,7 @@ async def test_embedding_records_returns_records_with_all_fields(
 
 @pytest.mark.unit
 async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         page1 = await store.list_concepts(limit=25, offset=0)
         assert page1.total == 2
@@ -335,7 +335,7 @@ async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
 @pytest.mark.unit
 async def test_neighborhood_not_truncated_when_under_cap(ncit_stub_url: str) -> None:
     # A small neighborhood that fits under the cap must report truncated=False.
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         graph = await NcitGraphStore(client).get_neighborhood("C3262")
     assert graph.truncated is False
 
@@ -358,7 +358,7 @@ async def test_neighborhood_truncated_when_cap_filled_exactly(
     async def detail(code: str) -> ConceptDetail:
         return center if code == "C1" else ConceptDetail(code=code, label=code)
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = detail  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=2)

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from ontolib.repositories.xref.store import XrefStore
-    from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+    from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.ttl_writer import render_ttl
@@ -103,7 +103,7 @@ SELECT DISTINCT ?fillerCode WHERE {{
 """
 
 
-async def get_filler_codes(client: OxigraphHttpClient) -> set[str]:
+async def get_filler_codes(client: SparqlHttpClient) -> set[str]:
     """Query the NCIt store for distinct filler codes on target axes."""
     rows = await client.select(build_filler_codes_query())
     result: set[str] = set()
@@ -129,7 +129,7 @@ SELECT ?upstream ?xref WHERE {{
 
 
 async def fetch_uberon_xrefs(
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
 ) -> list[dict[str, str]]:
     """Fetch Uberon/CL concepts that have ``NCIT:`` xref annotations."""
     rows = await client.select(build_uberon_xref_query())
@@ -175,7 +175,7 @@ SELECT ?code ?label WHERE {{
 
 
 async def fetch_ncit_labels(
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
     codes: Iterable[str],
     *,
     batch_size: int = _LABEL_BATCH_SIZE,
@@ -204,7 +204,7 @@ SELECT ?concept ?label WHERE {{
 
 
 async def fetch_upstream_labels(
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
 ) -> dict[str, set[str]]:
     """Fetch all Uberon/CL ``rdfs:label`` values.
 
@@ -309,8 +309,8 @@ def _build_label_index(
 
 
 async def generate_candidates(
-    ncit_client: OxigraphHttpClient,
-    uberon_client: OxigraphHttpClient,
+    ncit_client: SparqlHttpClient,
+    uberon_client: SparqlHttpClient,
     ncit_version: str,
     uberon_version: str,
     *,
@@ -357,8 +357,8 @@ async def generate_candidates(
 
 async def ingest_candidates(
     store: XrefStore,
-    ncit_client: OxigraphHttpClient,
-    uberon_client: OxigraphHttpClient,
+    ncit_client: SparqlHttpClient,
+    uberon_client: SparqlHttpClient,
     ncit_version: str,
     uberon_version: str,
     *,

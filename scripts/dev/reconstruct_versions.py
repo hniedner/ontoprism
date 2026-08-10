@@ -45,7 +45,7 @@ MILESTONES: tuple[Milestone, ...] = (
         "v0.1.0",
         "acb66e5",
         "2026-07-03",
-        "NCIt + caDSR explorer: Oxigraph storage, read APIs, SvelteKit UI, "
+        "NCIt + caDSR explorer: SPARQL storage, read APIs, SvelteKit UI, "
         "refresh, isolated services, pgvector embeddings + semantic search",
     ),
     Milestone(

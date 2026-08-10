@@ -37,7 +37,7 @@ class _ProfileHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         self._record(body)
-        if self.path == "/fuseki/ncit/sparql":
+        if self.headers.get("Content-Type") == "application/sparql-query":
             payload = json.dumps(
                 {"head": {"vars": []}, "results": {"bindings": []}}
             ).encode()
@@ -175,55 +175,144 @@ def test_qlever_profile_isolates_default_and_declares_allowed_named_graphs() -> 
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    ("factory", "paths"),
-    [
-        (
-            SparqlEndpointProfile.for_oxigraph,
-            ("/query", "/update", "/store"),
-        ),
-        (
-            SparqlEndpointProfile.for_fuseki,
-            ("/sparql", "/update", "/data"),
-        ),
-    ],
-)
-def test_engine_profile_factory_declares_real_protocol_paths(
-    factory: Any,
-    paths: tuple[str, str, str],
+def test_qlever_profile_admits_constant_graphs_named_by_each_query() -> None:
+    """Run-scoped publication graphs remain visible without restoring union reads."""
+    profile = SparqlEndpointProfile.for_qlever(
+        "http://example.test:7001",
+        named_graphs=("urn:ontoprism:ncit:stated",),
+    )
+
+    query_url = urlsplit(
+        profile.query_url_for(
+            "SELECT ?s WHERE { "
+            "GRAPH <urn:ontoprism:ncit:decomposed/staging/abc> { ?s ?p ?o } "
+            "GRAPH <urn:ontoprism:ncit:stated> { ?s ?p ?o } "
+            "}"
+        )
+    )
+
+    assert parse_qs(query_url.query) == {
+        "default-graph-uri": [
+            "http://qlever.cs.uni-freiburg.de/builtin-functions/default-graph"
+        ],
+        "named-graph-uri": [
+            "urn:ontoprism:ncit:stated",
+            "urn:ontoprism:ncit:decomposed/staging/abc",
+        ],
+    }
+    # A variable graph cannot silently widen the dataset. Only the declared base
+    # graph remains available, preserving the isolation contract.
+    assert profile.query_url_for("SELECT ?g WHERE { GRAPH ?g { ?s ?p ?o } }") == (
+        profile.query_url
+    )
+
+
+@pytest.mark.unit
+async def test_qlever_client_dispatches_with_query_named_graphs(
+    endpoint_origin: str,
 ) -> None:
-    profile = factory("http://example.test/service/")
+    async with SparqlHttpClient.for_qlever(
+        endpoint_origin,
+        named_graphs=("urn:ontoprism:ncit:stated",),
+    ) as client:
+        assert (
+            await client.select_once(
+                "SELECT ?s WHERE { GRAPH <urn:ontoprism:run:abc> { ?s ?p ?o } }"
+            )
+            == []
+        )
+
+    assert _ProfileHandler.requests == [
+        (
+            "POST",
+            "/",
+            {
+                "default-graph-uri": [
+                    "http://qlever.cs.uni-freiburg.de/builtin-functions/default-graph"
+                ],
+                "named-graph-uri": [
+                    "urn:ontoprism:ncit:stated",
+                    "urn:ontoprism:run:abc",
+                ],
+            },
+            "application/sparql-query",
+            b"SELECT ?s WHERE { GRAPH <urn:ontoprism:run:abc> { ?s ?p ?o } }",
+        )
+    ]
+
+
+@pytest.mark.unit
+async def test_qlever_client_normalizes_turtle_collections_before_upload(
+    endpoint_origin: str,
+) -> None:
+    turtle = b"""
+        @prefix ex: <urn:example:> .
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        ex:Class owl:intersectionOf ( ex:Genus ex:Restriction ) .
+    """
+
+    async with SparqlHttpClient.for_qlever(
+        endpoint_origin,
+        named_graphs=(),
+    ) as client:
+        await client.load(
+            turtle,
+            content_type="text/turtle",
+            graph_iri="urn:ontoprism:test:stated",
+        )
+
+    method, path, parameters, content_type, payload = _ProfileHandler.requests[0]
+    assert (method, path, parameters, content_type) == (
+        "PUT",
+        "/",
+        {"graph": ["urn:ontoprism:test:stated"]},
+        "application/n-triples",
+    )
+    assert b"http://www.w3.org/1999/02/22-rdf-syntax-ns#first" in payload
+    assert b"http://www.w3.org/1999/02/22-rdf-syntax-ns#rest" in payload
+
+
+@pytest.mark.unit
+def test_standard_profile_factory_declares_three_protocol_paths() -> None:
+    profile = SparqlEndpointProfile.for_standard_paths("http://example.test/service/")
 
     assert profile.service_url == "http://example.test/service"
     assert (
         urlsplit(profile.query_url).path,
         urlsplit(profile.update_url).path,
         urlsplit(profile.graph_store_url).path,
-    ) == tuple(f"/service{path}" for path in paths)
+    ) == ("/service/query", "/service/update", "/service/store")
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("engine", ["oxigraph", "fuseki", "qlever"])
-def test_engine_selection_has_one_validated_profile_factory(engine: str) -> None:
+def test_engine_selection_has_one_validated_qlever_profile() -> None:
     named_graphs = (
         "urn:ontoprism:ncit:stated",
         "urn:ontoprism:ncit:decomposed",
     )
 
     selected = SparqlEndpointProfile.for_engine(
-        engine,
+        "qlever",
         "http://example.test/ncit",
         named_graphs=named_graphs,
     )
-    expected = (
-        SparqlEndpointProfile.for_qlever(
-            "http://example.test/ncit", named_graphs=named_graphs
-        )
-        if engine == "qlever"
-        else getattr(SparqlEndpointProfile, f"for_{engine}")("http://example.test/ncit")
+    expected = SparqlEndpointProfile.for_qlever(
+        "http://example.test/ncit", named_graphs=named_graphs
     )
 
     assert selected == expected
+
+
+@pytest.mark.unit
+def test_qlever_profile_without_dataset_parameters_keeps_all_named_graphs_visible() -> (
+    None
+):
+    profile = SparqlEndpointProfile.for_qlever(
+        "http://example.test:7001",
+        named_graphs=None,
+    )
+
+    assert profile.query_url == "http://example.test:7001/"
 
 
 @pytest.mark.unit

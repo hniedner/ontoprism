@@ -15,7 +15,7 @@ from backend.main import create_app
 from ontolib.core.exceptions import StorageError
 from ontolib.decomposition import vocab
 from ontolib.terminologies.namespaces import NCIT_NS
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 
 def _row(**kw: str) -> dict[str, str | None]:
@@ -50,7 +50,7 @@ class _FakeClient:
         ]
 
 
-class _MissingProjectionClient(OxigraphHttpClient):
+class _MissingProjectionClient(SparqlHttpClient):
     async def select_raw(self, query: str) -> dict[str, object]:
         _ = query
         return {"head": {"vars": []}, "results": {"bindings": []}}

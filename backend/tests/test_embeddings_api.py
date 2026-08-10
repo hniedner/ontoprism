@@ -24,8 +24,8 @@ pytestmark = pytest.mark.full_store
 @pytest.mark.integration
 def test_expected_embedding_counts_are_release_specific() -> None:
     settings = get_settings()
-    assert settings.ncit_expected_version == "26.02d"
-    assert settings.ncit_embedding_expected_rows == 204_373
+    assert settings.ncit_expected_version == "26.07d"
+    assert settings.ncit_embedding_expected_rows == 212_475
     assert settings.cadsr_embedding_expected_rows == 79_827
 
 

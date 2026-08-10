@@ -1,4 +1,4 @@
-"""Async SPARQL transport client for an Oxigraph HTTP endpoint.
+"""Async SPARQL transport client for an SPARQL HTTP endpoint.
 
 Focused on transport only — issuing SPARQL over HTTP and shaping results. Store
 lifecycle (load/reload/health polling) and terminology semantics live elsewhere.
@@ -182,8 +182,8 @@ def parse_ask_result(data: object) -> bool:
     return result
 
 
-class OxigraphHttpClient:
-    """Minimal async SPARQL client over an Oxigraph HTTP endpoint."""
+class SparqlTransportClient:
+    """Minimal async SPARQL client over an SPARQL HTTP endpoint."""
 
     def __init__(
         self,
@@ -221,6 +221,14 @@ class OxigraphHttpClient:
             self._client = httpx.AsyncClient(timeout=self._timeout)
         return self._client
 
+    def _query_endpoint(self, _query: str) -> str:
+        """Return the endpoint for one query.
+
+        Store-specific subclasses may bind a protocol dataset to the query while
+        retaining the transport, retry, and response-validation behavior here.
+        """
+        return self._query_url
+
     async def aclose(self) -> None:
         """Close the underlying HTTP client and its connection pool."""
         if self._client is not None:
@@ -229,7 +237,7 @@ class OxigraphHttpClient:
 
     async def _post_once(self, query: str) -> httpx.Response:
         return await self._get_client().post(
-            self._query_url,
+            self._query_endpoint(query),
             content=query.encode("utf-8"),
             headers={"Content-Type": _SPARQL_QUERY, "Accept": _SPARQL_JSON},
         )

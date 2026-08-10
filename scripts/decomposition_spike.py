@@ -30,8 +30,9 @@ from ontolib.decomposition.models import RoleRestriction
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.score import score
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_iri
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
 
 _GOLDEN = Path(__file__).resolve().parents[1] / (
     "ontolib/tests/decomposition/golden/neoplasm.json"
@@ -91,7 +92,7 @@ def _defining(role_label: str | None) -> bool:
 
 
 async def _extract(
-    client: OxigraphHttpClient, code: str, *, max_nodes: int = 80
+    client: SparqlHttpClient, code: str, *, max_nodes: int = 80
 ) -> set[_Pair]:
     """Experimental genus-chain extraction → set of (axis_code, filler_code) pairs."""
     seen: set[str] = set()
@@ -120,7 +121,7 @@ async def main() -> None:
         load_proposal_registry(_PROPOSAL_REGISTRY),
     )
     settings = get_settings()
-    async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+    async with ncit_sparql_client(settings.ncit_sparql_url) as client:
         agg_tp = agg_exp = agg_act = 0
         for code, expected_pairs in golden.expected.items():
             expected = set(expected_pairs)

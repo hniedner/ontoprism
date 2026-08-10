@@ -1,4 +1,4 @@
-"""Integration test for the decomposition read path against disposable Oxigraph.
+"""Integration test for the decomposition read path against disposable QLever.
 
 Seeds a tiny ``op:`` graph into DECOMPOSED_GRAPH_IRI and reads it back through the real
 query + assembly — validating the read layer end-to-end without the (not-yet-built)
@@ -24,7 +24,7 @@ from ontolib.decomposition.models import (
 )
 from ontolib.decomposition.read import decomposition_from_rows
 from ontolib.decomposition.read_queries import build_decomposition_query
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,7 +34,7 @@ _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 
 pytestmark = [
     pytest.mark.mutating_integration,
-    pytest.mark.usefixtures("isolated_oxigraph_settings"),
+    pytest.mark.usefixtures("isolated_qlever_settings"),
 ]
 
 # A hand-written decomposed-graph fixture (what the engine will emit for C6135).
@@ -58,7 +58,7 @@ def _url() -> str:
 @pytest.mark.integration
 async def test_decomposition_round_trips_through_the_decomposed_graph() -> None:
     url = _url()
-    async with OxigraphHttpClient(url) as client:
+    async with ncit_sparql_client(url) as client:
         # Seed the decomposed graph (replace=True isolates the test to its own graph).
         await client.load(
             _SEED_TTL,
@@ -79,7 +79,7 @@ async def test_decomposition_round_trips_through_the_decomposed_graph() -> None:
 
 
 @pytest.mark.integration
-async def test_writer_projection_trace_round_trips_through_real_oxigraph(
+async def test_writer_projection_trace_round_trips_through_real_qlever(
     tmp_path: Path,
 ) -> None:
     group_id = canonical_definition_group_id("C6135", ("restriction:R101:C12400",))
@@ -118,7 +118,7 @@ async def test_writer_projection_trace_round_trips_through_real_oxigraph(
     artifact = tmp_path / "complete.ttl"
     await write_ttl([expected], dest=artifact)
 
-    async with OxigraphHttpClient(_url()) as client:
+    async with ncit_sparql_client(_url()) as client:
         await client.load(
             artifact.read_bytes(),
             content_type="text/turtle",

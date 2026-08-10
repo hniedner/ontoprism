@@ -1,4 +1,4 @@
-"""OxigraphHttpClient.load against a real local Graph-Store-Protocol stub server."""
+"""SparqlHttpClient.load against a real local Graph-Store-Protocol stub server."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from ontolib.core.exceptions import StorageError
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -85,7 +85,7 @@ def rejecting_store() -> Iterator[str]:
 @pytest.mark.unit
 async def test_load_puts_to_store_with_content_type(store_stub: str) -> None:
     _received.clear()
-    async with OxigraphHttpClient(store_stub) as client:
+    async with SparqlHttpClient(store_stub) as client:
         await client.load(b"<a> <b> <c> .", content_type="text/turtle")
     assert _received["method"] == "PUT"
     assert _received["content_type"] == "text/turtle"
@@ -96,7 +96,7 @@ async def test_load_puts_to_store_with_content_type(store_stub: str) -> None:
 @pytest.mark.unit
 async def test_load_named_graph_uses_graph_param(store_stub: str) -> None:
     _received.clear()
-    async with OxigraphHttpClient(store_stub) as client:
+    async with SparqlHttpClient(store_stub) as client:
         await client.load(
             b"", content_type="text/turtle", graph_iri="urn:g", replace=False
         )
@@ -106,7 +106,7 @@ async def test_load_named_graph_uses_graph_param(store_stub: str) -> None:
 
 @pytest.mark.unit
 async def test_load_error_status_raises(rejecting_store: str) -> None:
-    async with OxigraphHttpClient(rejecting_store) as client:
+    async with SparqlHttpClient(rejecting_store) as client:
         with pytest.raises(StorageError, match="Store load failed"):
             await client.load(b"x", content_type="text/turtle")
 
@@ -118,7 +118,7 @@ async def test_load_streams_a_binary_file_object(store_stub: str) -> None:
     # AsyncClient. Chunk boundaries must reassemble to the exact bytes.
     payload = b"<a> <b> <c> ." * 100_000  # ~1.3 MB → spans multiple 1 MB chunks
     _received.clear()
-    async with OxigraphHttpClient(store_stub) as client:
+    async with SparqlHttpClient(store_stub) as client:
         await client.load(io.BytesIO(payload), content_type="application/rdf+xml")
     assert _received["method"] == "PUT"
     assert _received["body"] == payload

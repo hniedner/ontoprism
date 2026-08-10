@@ -34,7 +34,7 @@ from ontolib.repositories.embeddings.publication import (
     EmbeddingCorpusPublisher,
 )
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 pytestmark = [
     pytest.mark.mutating_integration,
-    pytest.mark.usefixtures("isolated_postgres_settings", "isolated_oxigraph_settings"),
+    pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings"),
 ]
 
 
@@ -145,7 +145,7 @@ async def test_generate_ncit_embeddings_from_store(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     url = get_settings().ncit_sparql_url
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url) as client:
         store = NcitGraphStore(client)
         count = await store.embedding_record_count()
         embedder = _StubEmbedder()
@@ -179,7 +179,7 @@ async def test_interrupted_ncit_build_does_not_change_serving_corpus(
         )
 
     url = get_settings().ncit_sparql_url
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url) as client:
         embedder = _FailAfterOneBatchEmbedder()
         publisher = _publisher(
             session_factory,
@@ -250,7 +250,7 @@ async def test_production_ncit_publisher_records_source_and_refreshes_fts(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = get_settings().ncit_sparql_url
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url) as client:
         count = await NcitGraphStore(client).embedding_record_count()
     monkeypatch.setenv("NCIT_EMBEDDING_EXPECTED_ROWS", str(count))
     monkeypatch.setattr("scripts.data_build._code_commit", lambda: "d" * 40)
@@ -276,7 +276,7 @@ async def test_production_ncit_publisher_records_source_and_refreshes_fts(
             )
         ).one()
         search_count = await session.scalar(text("SELECT count(*) FROM ncit_search"))
-    assert manifest.source_version == "26.02d"
+    assert manifest.source_version == "26.07d"
     assert len(manifest.source_hash) == 64
     assert manifest.actual_row_count == count
     assert manifest.model_revision
@@ -326,7 +326,7 @@ async def test_production_ncit_source_drift_fails_candidate_and_preserves_active
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = get_settings().ncit_sparql_url
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url) as client:
         store = NcitGraphStore(client)
         count, fingerprint = await data_build.ncit_source_fingerprint(store)
         embedder = _StubEmbedder()
@@ -385,7 +385,7 @@ async def test_production_ncit_staged_fingerprint_mismatch_skips_fts_and_activat
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = get_settings().ncit_sparql_url
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url) as client:
         store = NcitGraphStore(client)
         count, fingerprint = await data_build.ncit_source_fingerprint(store)
         embedder = _StubEmbedder()
@@ -438,7 +438,7 @@ async def test_production_ncit_fts_failure_preserves_active_corpus(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = get_settings().ncit_sparql_url
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url) as client:
         store = NcitGraphStore(client)
         count = await store.embedding_record_count()
         embedder = _StubEmbedder()

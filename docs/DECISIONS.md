@@ -2,6 +2,65 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-10 — completed QLever ontology-store migration
+
+### D67. All publisher ontology resources use certified QLever indexes
+
+**Decision:** the application has one SPARQL implementation. Inferred and stated NCIt
+share the certified NCIt QLever index; Uberon and its Cell Ontology content use a
+separate certified QLever index. Postgres remains authoritative for mutable proposed
+NCIt identity, revisions, lifecycle, evidence, and RDF projections (D65). There is no
+runtime Oxigraph dependency (`pdm run pytest
+backend/tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
+-q`, 2026-08-10).
+
+The official EVS 26.07d folder exposes flat text plus stated and inferred RDF/XML OWL,
+but no Turtle, N-Triples, or N-Quads (`curl -sS
+'https://api-evsrest.nci.nih.gov/api/v1/ftp1/folder?folder=NCI_Thesaurus%2F'`,
+inspected with `jq`, 2026-08-10). The selected build input remains the OWL pair so the
+application does not substitute a different source representation. Pinned Apache Jena RIOT performs only the
+streaming RDF/XML-to-N-Triples serialization step; the pinned QLever offline indexer
+then builds the serving indexes.
+
+The active NCIt proof records release 26.07d, 12,980,813 default triples, 10,855,010
+stated triples, and 149,694 stated restrictions (`jq
+'{ontology_version,source_identity,observation,loader}'
+data/qlever-ncit/.ontoprism-ncit-candidate.json`, 2026-08-10). The active Uberon/CL
+proof records 1,161,591 triples plus its Uberon, CL, and NCIt-xref sentinels (`jq
+'{source_identity,observation,loader}'
+data/qlever-uberon/.ontoprism-uberon-index.json`, 2026-08-10). All seven real
+cross-terminology data-shape contracts pass against the two serving indexes (`env
+UBERON_SPARQL_URL=http://127.0.0.1:7889 NCIT_SPARQL_URL=http://127.0.0.1:7888 pdm run
+pytest ontolib/tests/repositories/xref/test_upstream_data_contract.py -m 'integration
+and full_store' -v`, 2026-08-10).
+
+The serving 26.07d index exposes 212,475 labelled NCIt embedding records through the
+application's production query (`curl -fsS -G --data-urlencode 'query=PREFIX owl:
+<http://www.w3.org/2002/07/owl#> PREFIX rdfs:
+<http://www.w3.org/2000/01/rdf-schema#> SELECT (COUNT(DISTINCT ?concept) AS ?count)
+WHERE { ?concept a owl:Class ; rdfs:label ?label . FILTER(STRSTARTS(STR(?concept),
+"http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#")) }' -H 'Accept:
+application/sparql-results+json' http://127.0.0.1:7888/`, 2026-08-10). The readiness
+release guard and embedding publication count are bound to that serving release.
+
+Three QLever-specific contracts are part of the adapter rather than caller convention:
+
+1. QLever's unconstrained default dataset is the union of default and named graphs, so
+   NCIt queries bind the internal default graph explicitly and enumerate only their
+   declared plus query-referenced constant named graphs. That keeps default reads
+   isolated while allowing per-run publication staging graphs.
+2. QLever's Turtle upload path does not preserve RDF collection structure as the
+   `rdf:first`/`rdf:rest` triples the OWL readers require. Incremental Turtle writes are
+   therefore normalized to N-Triples before Graph Store upload; the disposable contract
+   uses the same pinned Jena conversion as the production source build.
+3. QLever returns `xsd:dateTime` at millisecond precision, so publication-marker time is
+   millisecond-canonical at the type boundary. PostgreSQL intent, RDF marker, and
+   crash-safe retry therefore compare one identity.
+
+The first-install bootstrap refuses an existing target and atomically installs a
+validated index. Future replacement of an existing NCIt target remains #148's
+crash-safe activation responsibility; migration does not weaken that boundary.
+
 ## 2026-08-09 — standalone build-tool identity
 
 ### D66. Data-build executables are content-addressed and recorded where their output is certified
@@ -33,10 +92,10 @@ inside the artifact's own proof makes that drift visible to every later validato
 ### D65. QLever indexes immutable publisher ontologies; Postgres owns mutable proposed NCIt
 
 The store decision is based on OntoPrism's queries, not on whether a product includes a
-reasoner or a generic graph editor. The tracked workload now binds 330 query-bearing
-production definitions/constants and 99 transport operations into an executable inventory
+reasoner or a generic graph editor. The tracked workload now binds 336 query-bearing
+production definitions/constants and 103 transport operations into an executable inventory
 (`jq '{query_shape_count,transport_operation_count}'
-scripts/validation/sparql-inventory.json`, 2026-08-09).
+scripts/validation/sparql-inventory.json`, 2026-08-10).
 Changing, adding, or removing one of those shapes changes the committed inventory digest.
 
 The corrected exact-corpus workload returned the same NCIt release, stated restriction count,
@@ -84,7 +143,7 @@ every limited edge query orders before `LIMIT`; the repository contract passes 2
    artifact is one index's default graph, stated NCIt is its protected named graph, and
    Uberon/CL is a separate default-graph index. Runtime entailment remains off. NCIt refresh
    builds a new immutable index and activates it only after validation; #163 owns the pinned
-   packaging and complete Oxigraph cutover, while #148 owns crash-safe NCIt activation.
+   packaging and migration implementation, while #148 owns crash-safe NCIt activation.
 2. **Postgres is authoritative for mutable proposed NCIt.** Proposal identity, optimistic
    revision, complete lifecycle (`proposed → locally-approved → submitted → accepted-in-ncit`),
    publication/trial evidence, history, idempotent operation identity, and the exact RDF
@@ -97,21 +156,19 @@ every limited edge query orders before `LIMIT`; the repository contract passes 2
 4. **The Svelte graph explorer remains the curation UI.** A vendor workbench may help engineers
    inspect data, but it does not replace OntoPrism's evidence, lifecycle, conflict, filtering,
    and proposal semantics. The frontend continues to access both planes only through FastAPI.
-5. **Oxigraph is not part of the target stack.** Its current NCIt and Uberon containers are
-   transition inputs only. Because the production-shaped Uberon contracts passed without query
-   or data changes, retaining a second SPARQL engine would add packaging, patching, transport,
-   activation, and operator surface without a demonstrated capability benefit. #163 removes
-   both services and the `fairdata-oxigraph:local` dependency.
+5. **Oxigraph is not part of the target stack.** Because the production-shaped Uberon
+   contracts passed without query or data changes, retaining a second SPARQL engine
+   would add packaging, patching, transport, activation, and operator surface without a
+   demonstrated capability benefit. D67 records the completed runtime migration.
 
-The transport seam declares Query, Update, and Graph Store endpoints independently and selects
-Oxigraph, Fuseki, or QLever profiles without scattering path assumptions
+The transport seam declares Query, Update, and Graph Store endpoints independently;
+QLever is the one production profile and the standard-path profile is retained for
+bounded protocol test peers
 (`pdm run pytest ontolib/tests/terminologies/test_sparql_http_client.py -v`, 2026-08-09).
 The tracked mutation workload completed Graph Store staging replacement, atomic decomposition
 replacement, concurrent optimistic revisions, and immediate reads on both candidates
-(`pdm run python scripts/research/ncit_store_mutation_bakeoff.py qlever
-http://127.0.0.1:7302` and `pdm run python
-scripts/research/ncit_store_mutation_bakeoff.py fuseki
-http://127.0.0.1:7301/ncit`, 2026-08-09). The tracked split-topology workload produced exactly
+(`pdm run python scripts/research/ncit_store_mutation_bakeoff.py
+http://127.0.0.1:7302`, 2026-08-09). The tracked split-topology workload produced exactly
 one concurrent revision winner, reconciled revision 3 after a simulated lost response,
 preserved publication and clinical-trial evidence, and emitted an 11-triple RDF projection
 with combined identity
@@ -126,8 +183,8 @@ with `verify-only`, 2026-08-09).
 
 QLever must run with a server-side query timeout. The deliberately pathological depth-four
 query was rejected by the selected server as HTTP 429 after 30.09 seconds
-(`pdm run python scripts/research/ncit_store_bakeoff.py qlever
-http://127.0.0.1:7302 --timeout-proof`, 2026-08-09); #163 must preserve that bounded server
+(`pdm run python scripts/research/ncit_store_bakeoff.py
+http://127.0.0.1:7302 --timeout-proof`, 2026-08-09); the serving configuration preserves that bounded server
 configuration and must not rely on a client disconnect to stop work.
 The pinned QLever image used by the bake-off publishes both `linux/amd64` and `linux/arm64`
 manifests (`docker buildx imagetools inspect

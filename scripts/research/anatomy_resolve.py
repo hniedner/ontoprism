@@ -23,13 +23,14 @@ from ontolib.decomposition.extract import (
 from ontolib.decomposition.filler_selection import most_specific
 from ontolib.decomposition.stated_queries import build_ancestor_pairs_query
 from ontolib.terminologies.namespaces import NCIT_NS
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_iri
+from ontolib.terminologies.ncit.client import ncit_sparql_client
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
 
 _R82 = "R82"
 _MAX_HOPS = 8
 
 
-async def _part_of_targets(client: OxigraphHttpClient, code: str) -> list[str]:
+async def _part_of_targets(client: SparqlHttpClient, code: str) -> list[str]:
     c = safe_iri(code, NCIT_NS)
     rows = await client.select(
         f"""
@@ -46,7 +47,7 @@ async def _part_of_targets(client: OxigraphHttpClient, code: str) -> list[str]:
 
 
 async def part_of_ancestor_pairs(
-    client: OxigraphHttpClient, codes: set[str]
+    client: SparqlHttpClient, codes: set[str]
 ) -> set[AncestorPair]:
     """(ancestor, descendant) pairs among *codes* reachable via transitive R82, walked
     hop-by-hop from each code (R82 is not materialized transitively in this build)."""
@@ -69,7 +70,7 @@ async def part_of_ancestor_pairs(
     return pairs
 
 
-async def resolve(client: OxigraphHttpClient, codes: set[str]) -> tuple[set[str], dict]:
+async def resolve(client: SparqlHttpClient, codes: set[str]) -> tuple[set[str], dict]:
     """Return (leaves, debug) using is-a UNION transitive part-of as 'is_ancestor'."""
     isa_rows = await client.select(build_ancestor_pairs_query(codes))
     isa_pairs = ancestor_pairs_from_rows(isa_rows)
@@ -81,7 +82,7 @@ async def resolve(client: OxigraphHttpClient, codes: set[str]) -> tuple[set[str]
 
 async def main() -> None:
     codes = set(sys.argv[1:])
-    async with OxigraphHttpClient("http://localhost:7888") as client:
+    async with ncit_sparql_client("http://localhost:7888") as client:
         leaves, debug = await resolve(client, codes)
         print(f"candidates: {sorted(codes)}")
         print(

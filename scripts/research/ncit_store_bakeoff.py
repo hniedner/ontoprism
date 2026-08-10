@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+
 from ontolib.core.exceptions import StorageError
 from ontolib.decomposition.complete_definition import (
     build_complete_definition_query,
@@ -22,13 +24,10 @@ from ontolib.decomposition.stated_queries import (
     walk_genus_chain,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.role_queries import build_role_relationships_query
-from ontolib.terminologies.sparql_http_client import (
-    SparqlEndpointProfile,
-    SparqlHttpClient,
-)
 
 
 async def _timed[T](name: str, operation: Callable[[], Awaitable[T]]) -> T:
@@ -47,17 +46,6 @@ async def _timed[T](name: str, operation: Callable[[], Awaitable[T]]) -> T:
         flush=True,
     )
     return result
-
-
-def _profile(
-    engine: str,
-    endpoint: str,
-) -> SparqlEndpointProfile:
-    return SparqlEndpointProfile.for_engine(
-        engine,
-        endpoint,
-        named_graphs=(STATED_GRAPH_IRI,),
-    )
 
 
 async def _complete_summary(client: SparqlHttpClient) -> dict[str, object]:
@@ -133,19 +121,14 @@ async def _timeout_summary(client: SparqlHttpClient) -> dict[str, object]:
 
 
 async def run(
-    engine: str,
     endpoint: str,
     *,
     concurrent: bool,
     timeout_proof: bool,
 ) -> None:
-    async with SparqlHttpClient(
-        _profile(engine, endpoint), query_timeout=40.0
-    ) as client:
+    async with ncit_sparql_client(endpoint, query_timeout=40.0) as client:
         store = NcitGraphStore(client)
         if timeout_proof:
-            if engine != "qlever":
-                raise ValueError("the selected timeout proof is QLever-specific")
             await _timed("server-timeout", lambda: _timeout_summary(client))
             return
         if concurrent:
@@ -210,7 +193,6 @@ async def run(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("engine", choices=("oxigraph", "fuseki", "qlever"))
     parser.add_argument("endpoint")
     parser.add_argument("--concurrent", action="store_true")
     parser.add_argument("--timeout-proof", action="store_true")
@@ -221,7 +203,6 @@ if __name__ == "__main__":
     args = _parse_args()
     asyncio.run(
         run(
-            args.engine,
             args.endpoint,
             concurrent=args.concurrent,
             timeout_proof=args.timeout_proof,

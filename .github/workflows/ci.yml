@@ -283,7 +283,7 @@ jobs:
         run: npm run test:e2e
 
   # Behavioral integration tests against current-run-owned disposable resources.
-  # Both Postgres and Oxigraph are started as pinned, nonce-owned containers by the
+  # Both Postgres and QLever are started as pinned, nonce-owned containers by the
   # test harness; application endpoints remain dead sentinels until a test opts in.
   integration-tests:
     name: integration tests (services)
@@ -327,6 +327,17 @@ jobs:
 
       - name: Verify ROBOT
         run: robot --version
+
+      - name: Install Apache Jena RIOT
+        env:
+          ONTOPRISM_JENA_DIR: ${{ runner.temp }}/ontoprism-jena
+        run: |
+          pdm run python scripts/install_jena.py --install-dir "$ONTOPRISM_JENA_DIR"
+          echo "ONTOPRISM_JENA_DIR=$ONTOPRISM_JENA_DIR" >> "$GITHUB_ENV"
+
+      - name: Verify Apache Jena RIOT
+        run: |
+          "$ONTOPRISM_JENA_DIR/bin/riot" --version
 
       - name: Integration tests (disposable resources)
         run: pdm run test-integration-ci-coverage

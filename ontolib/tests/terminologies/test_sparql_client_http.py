@@ -1,4 +1,4 @@
-"""Client success/error paths against a real local HTTP server stubbing Oxigraph.
+"""Client success/error paths against a real local HTTP server stubbing QLever.
 
 Not a mock of our code: a genuine ``http.server`` returns canned SPARQL-JSON over a
 real socket, so the client's request/parse/count/version/ask paths are exercised
@@ -18,7 +18,7 @@ import pytest
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.namespaces import NCIT_NS
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -202,19 +202,19 @@ def stub_url() -> Iterator[str]:
 
 @pytest.mark.unit
 async def test_count_parses_integer(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         assert await client.count() == 7
 
 
 @pytest.mark.unit
 async def test_version_parses_value(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         assert await client.version() == "26.02d"
 
 
 @pytest.mark.unit
 async def test_version_rejects_missing_projected_variable(stub_url: str) -> None:
-    async with OxigraphHttpClient(f"{stub_url}/missing-version") as client:
+    async with SparqlHttpClient(f"{stub_url}/missing-version") as client:
         with pytest.raises(
             StorageError, match=r"missing required projected variable.*v"
         ):
@@ -223,40 +223,40 @@ async def test_version_rejects_missing_projected_variable(stub_url: str) -> None
 
 @pytest.mark.unit
 async def test_version_returns_none_for_valid_empty_result(stub_url: str) -> None:
-    async with OxigraphHttpClient(f"{stub_url}/empty-version") as client:
+    async with SparqlHttpClient(f"{stub_url}/empty-version") as client:
         assert await client.version() is None
 
 
 @pytest.mark.unit
 async def test_version_rejects_unbound_result_row(stub_url: str) -> None:
-    async with OxigraphHttpClient(f"{stub_url}/unbound-version") as client:
+    async with SparqlHttpClient(f"{stub_url}/unbound-version") as client:
         with pytest.raises(StorageError, match="no 'v' binding"):
             await client.version()
 
 
 @pytest.mark.unit
 async def test_version_rejects_ambiguous_values(stub_url: str) -> None:
-    async with OxigraphHttpClient(f"{stub_url}/ambiguous-version") as client:
+    async with SparqlHttpClient(f"{stub_url}/ambiguous-version") as client:
         with pytest.raises(StorageError, match="multiple"):
             await client.version()
 
 
 @pytest.mark.unit
 async def test_ask_returns_boolean(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         assert await client.ask("ASK { ?s ?p ?o }") is True
 
 
 @pytest.mark.unit
 async def test_select_flattens_rows(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         rows = await client.select("SELECT ?rel ?target WHERE { ?s ?p ?o }")
     assert rows == [{"rel": f"{NCIT_NS}R105", "target": f"{NCIT_NS}C12922"}]
 
 
 @pytest.mark.unit
 async def test_select_forwards_required_projected_variables(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="target"):
             await client.select(
                 f"SELECT ?rel ?target WHERE {{ ?s ?p ?o }} # {_MISSING_PROJECTION}",
@@ -266,7 +266,7 @@ async def test_select_forwards_required_projected_variables(stub_url: str) -> No
 
 @pytest.mark.unit
 async def test_select_once_does_not_retry_transport_failure(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="transport error"):
             await client.select_once(f"SELECT ?x WHERE {{}} # {_CLOSE_CONNECTION}")
 
@@ -280,7 +280,7 @@ async def test_ask_once_does_not_retry_transport_failure(stub_url: str) -> None:
     ``ask`` retries, so certifying a store through it would let an intermittently
     answering store pass a gate it did not actually satisfy on demand.
     """
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="transport error"):
             await client.ask_once(f"ASK {{}} # {_CLOSE_CONNECTION}")
 
@@ -289,13 +289,13 @@ async def test_ask_once_does_not_retry_transport_failure(stub_url: str) -> None:
 
 @pytest.mark.unit
 async def test_ask_once_returns_the_boolean_result(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         assert await client.ask_once("ASK { ?s ?p ?o }") is True
 
 
 @pytest.mark.unit
 async def test_select_retries_transport_failure(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         rows = await client.select(
             f"SELECT ?rel ?target WHERE {{ ?s ?p ?o }} # {_CLOSE_FIRST_CONNECTION}"
         )
@@ -306,14 +306,14 @@ async def test_select_retries_transport_failure(stub_url: str) -> None:
 
 @pytest.mark.unit
 async def test_non_200_status_raises_storage_error(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="HTTP 400"):
             await client.select("SELECT boom WHERE { ?s ?p ?o }")
 
 
 @pytest.mark.unit
 async def test_count_no_binding_raises_storage_error(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="no 'count' binding"):
             await client.count(
                 "SELECT (COUNT(*) AS ?c) WHERE { ?s ?p ?o }  # count_none"
@@ -322,7 +322,7 @@ async def test_count_no_binding_raises_storage_error(stub_url: str) -> None:
 
 @pytest.mark.unit
 async def test_count_bad_integer_raises_storage_error(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="did not parse as int"):
             await client.count(
                 "SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }  # count_bad"
@@ -331,27 +331,27 @@ async def test_count_bad_integer_raises_storage_error(stub_url: str) -> None:
 
 @pytest.mark.unit
 async def test_select_raw_non_json_raises_storage_error(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="not valid JSON"):
             await client.select_raw("SELECT ?x WHERE { ?s ?p ?o }  # non_json")
 
 
 @pytest.mark.unit
 async def test_select_raw_non_object_json_raises_storage_error(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="root was not an object"):
             await client.select_raw("SELECT ?x WHERE { ?s ?p ?o }  # non_object_json")
 
 
 @pytest.mark.unit
 async def test_endpoint_url_property(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         assert client.endpoint_url == stub_url.rstrip("/")
 
 
 @pytest.mark.unit
 async def test_load_server_error_raises_storage_error(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="Store load failed"):
             await client.load(b"<a> <b> <c> .", content_type="text/turtle")
 
@@ -362,7 +362,7 @@ async def test_update_posts_sparql_update_to_the_update_endpoint(
 ) -> None:
     update = "CLEAR GRAPH <urn:public>"
 
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         await client.update(update)
 
     assert _Handler.update_requests == [
@@ -372,7 +372,7 @@ async def test_update_posts_sparql_update_to_the_update_endpoint(
 
 @pytest.mark.unit
 async def test_update_rejects_http_error_without_replay(stub_url: str) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="SPARQL update failed: HTTP 400"):
             await client.update("CLEAR GRAPH <urn:public> # boom")
 
@@ -383,7 +383,7 @@ async def test_update_rejects_http_error_without_replay(stub_url: str) -> None:
 async def test_update_does_not_replay_ambiguous_transport_failure(
     stub_url: str,
 ) -> None:
-    async with OxigraphHttpClient(stub_url) as client:
+    async with SparqlHttpClient(stub_url) as client:
         with pytest.raises(StorageError, match="update transport error"):
             await client.update(f"CLEAR GRAPH <urn:public> # {_CLOSE_CONNECTION}")
 
@@ -393,9 +393,9 @@ async def test_update_does_not_replay_ambiguous_transport_failure(
 
 @pytest.mark.integration
 @pytest.mark.mutating_integration
-async def test_version_cardinality_verdict_matches_real_oxigraph_and_http_double(
+async def test_version_cardinality_verdict_matches_real_qlever_and_http_double(
     stub_url: str,
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
     integration_connection_scope: Callable[[str], AbstractContextManager[None]],
 ) -> None:
     query = (
@@ -403,9 +403,11 @@ async def test_version_cardinality_verdict_matches_real_oxigraph_and_http_double
         "SELECT DISTINCT ?v WHERE { "
         "?ont a owl:Ontology ; owl:versionInfo ?v } LIMIT 2"
     )
-    async with OxigraphHttpClient(isolated_oxigraph_url) as real_client:
+    async with SparqlHttpClient.for_qlever(
+        isolated_qlever_url, named_graphs=()
+    ) as real_client:
         assert await real_client.select(query, required_variables={"v"}) == [
-            {"v": "26.02d"}
+            {"v": "26.07d"}
         ]
         second_version = (
             b"@prefix owl: <http://www.w3.org/2002/07/owl#> . "
@@ -425,7 +427,7 @@ async def test_version_cardinality_verdict_matches_real_oxigraph_and_http_double
             await real_client.load(seed, content_type="text/turtle", replace=True)
 
     with integration_connection_scope(stub_url):
-        async with OxigraphHttpClient(f"{stub_url}/ambiguous-version") as double_client:
+        async with SparqlHttpClient(f"{stub_url}/ambiguous-version") as double_client:
             with pytest.raises(StorageError, match="multiple") as double_error:
                 await double_client.version()
 

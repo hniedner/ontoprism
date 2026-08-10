@@ -19,7 +19,7 @@ from ontolib.decomposition.models import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import safe_iri
+from ontolib.terminologies.sparql_transport import safe_iri
 
 _MAX_INTERSECTION_MEMBERS = 64
 _MAX_NESTING_DEPTH = 4

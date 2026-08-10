@@ -23,27 +23,13 @@ from ontolib.decomposition.vocab import (
     REPRESENTATION_STATUS,
 )
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.sparql_http_client import (
-    SparqlEndpointProfile,
-    SparqlHttpClient,
-)
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 CAS_GRAPH = "urn:ontoprism:bakeoff:283:cas"
 PROPOSAL = "urn:ontoprism:proposal:283"
 REVISION = "urn:ontoprism:proposal:revision"
 LABEL = "urn:ontoprism:proposal:label"
 RUN_ID = "issue-283-bakeoff"
-
-
-def profile(engine: str, endpoint: str) -> SparqlEndpointProfile:
-    if engine == "fuseki":
-        return SparqlEndpointProfile.for_fuseki(endpoint)
-    if engine == "qlever":
-        return SparqlEndpointProfile.for_qlever(
-            endpoint,
-            named_graphs=(STATED_GRAPH_IRI, DECOMPOSED_GRAPH_IRI, CAS_GRAPH),
-        )
-    raise ValueError(f"unknown engine: {engine}")
 
 
 async def measured(name: str, operation: object) -> object:
@@ -77,9 +63,11 @@ async def measured(name: str, operation: object) -> object:
     return result
 
 
-async def run(engine: str, endpoint: str, *, verify_only: bool) -> None:
-    async with SparqlHttpClient(
-        profile(engine, endpoint), query_timeout=40.0
+async def run(endpoint: str, *, verify_only: bool) -> None:
+    async with SparqlHttpClient.for_qlever(
+        endpoint,
+        named_graphs=(STATED_GRAPH_IRI, DECOMPOSED_GRAPH_IRI, CAS_GRAPH),
+        query_timeout=40.0,
     ) as client:
         if not verify_only:
             staging = staging_graph_iri(RUN_ID)
@@ -156,7 +144,6 @@ async def run(engine: str, endpoint: str, *, verify_only: bool) -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("engine", choices=("fuseki", "qlever"))
     parser.add_argument("endpoint")
     parser.add_argument("--verify-only", action="store_true")
     return parser.parse_args()
@@ -164,4 +151,4 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    asyncio.run(run(args.engine, args.endpoint, verify_only=args.verify_only))
+    asyncio.run(run(args.endpoint, verify_only=args.verify_only))

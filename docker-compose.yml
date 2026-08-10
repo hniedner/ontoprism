@@ -1,40 +1,52 @@
-# ONTOPRISM's own data services. Every image is an immutable upstream digest, so a
-# fresh checkout needs neither a sibling repository nor a locally built base image.
-#
-#   ontoprism            fairdata (do not touch)
-#   ---------            ----------------------
-#   oxigraph-ncit  7888    fairdata-oxigraph         7878
-#   oxigraph-uberon 7889   fairdata-oxigraph-uberon  7879
-#   postgres       5433    fairdata-postgres         5432
-#   backend        8011    (fairdata backend)        8001
-#
-# The two Oxigraph services use the same official 0.5.3 image as the offline loader in
-# `sibling_store.py`; that exact identity is persisted in each candidate manifest.
+# OntoPrism data services. Immutable ontology indexes are served by bounded QLever
+# processes; mutable curation and application state live in PostgreSQL.
 services:
-  oxigraph-ncit:
-    image: ghcr.io/oxigraph/oxigraph@sha256:cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3
-    container_name: ontoprism-oxigraph-ncit
-    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
+  qlever-ncit:
+    image: docker.io/adfreiburg/qlever@sha256:abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a03747bf7e56165cb0ca6
+    container_name: ontoprism-qlever-ncit
+    working_dir: /data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        exec qlever-server -i ncit -p 7001 --no-access-check
+        --persist-updates --service-allowed-iri-prefixes -
+        -j 2 -m 8G -c 1G -e 512M -s 30s
     ports:
-      - "127.0.0.1:7888:7878"
+      - "127.0.0.1:7888:7001"
     volumes:
-      - ./data/oxigraph-ncit:/data
+      - ./data/qlever-ncit:/data
     healthcheck:
-      test: ["CMD", "/usr/local/bin/oxigraph", "query", "--location", "/data", "--query", "ASK {}", "--results-format", "json"]
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -G --data-urlencode 'query=ASK {}'
+          -H 'Accept: application/sparql-results+json'
+          http://127.0.0.1:7001/ >/dev/null
       interval: 10s
       timeout: 5s
       retries: 10
 
-  oxigraph-uberon:
-    image: ghcr.io/oxigraph/oxigraph@sha256:cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3
-    container_name: ontoprism-oxigraph-uberon
-    command: ["serve", "--location", "/data", "--bind", "0.0.0.0:7878"]
+  qlever-uberon:
+    image: docker.io/adfreiburg/qlever@sha256:abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a03747bf7e56165cb0ca6
+    container_name: ontoprism-qlever-uberon
+    working_dir: /data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        exec qlever-server -i uberon -p 7001 --no-access-check
+        --service-allowed-iri-prefixes -
+        -j 2 -m 2G -c 256M -e 256M -s 30s
     ports:
-      - "127.0.0.1:7889:7878"
+      - "127.0.0.1:7889:7001"
     volumes:
-      - ./data/oxigraph-uberon:/data
+      - ./data/qlever-uberon:/data
     healthcheck:
-      test: ["CMD", "/usr/local/bin/oxigraph", "query", "--location", "/data", "--query", "ASK {}", "--results-format", "json"]
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -G --data-urlencode 'query=ASK {}'
+          -H 'Accept: application/sparql-results+json'
+          http://127.0.0.1:7001/ >/dev/null
       interval: 10s
       timeout: 5s
       retries: 10

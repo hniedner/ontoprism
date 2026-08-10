@@ -51,6 +51,11 @@ from test_support.integration_resources import (  # noqa: E402
 )
 
 from backend.config import get_settings  # noqa: E402
+from ontolib.core.data_build_tools import (  # noqa: E402
+    JENA_INSTALL_DIR_ENV,
+    JENA_JRE_IMAGE,
+    identify_jena_installation,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -299,13 +304,13 @@ def _migrate_database(database_url: str) -> None:
         get_settings.cache_clear()
 
 
-def _wait_for_oxigraph(url: str) -> None:
+def _wait_for_qlever(url: str) -> None:
     deadline = time.monotonic() + 30
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
             response = httpx.post(
-                f"{url}/query",
+                f"{url}/",
                 content=b"ASK {}",
                 headers={
                     "Content-Type": "application/sparql-query",
@@ -318,7 +323,7 @@ def _wait_for_oxigraph(url: str) -> None:
         except httpx.HTTPError as exc:
             last_error = exc
             time.sleep(0.1)
-    raise RuntimeError("disposable Oxigraph did not become ready") from last_error
+    raise RuntimeError("disposable QLever did not become ready") from last_error
 
 
 def _wait_for_postgres(url: str) -> None:
@@ -382,18 +387,32 @@ def _start_owned_container(
         remove_owned_container_by_name(owner, container_name, docker_run=docker_run)
         raise RuntimeError(f"unexpected container ID: {container_id!r}")
     try:
-        published = docker_run("port", container_id, service_port).stdout.strip()
+        port_deadline = time.monotonic() + 5
+        while True:
+            try:
+                published = docker_run(
+                    "port", container_id, service_port
+                ).stdout.strip()
+                break
+            except subprocess.CalledProcessError:
+                if time.monotonic() >= port_deadline:
+                    raise
+                time.sleep(0.05)
         match = _DOCKER_PORT.fullmatch(published)
         if match is None:
             raise RuntimeError(f"unexpected container port mapping: {published!r}")
-    except BaseException:
+    except BaseException as exc:
+        logs = docker_run("logs", container_id, check=False)
         _inspect_owned_container(owner, container_id, docker_run=docker_run)
         docker_run("rm", "--force", container_id)
-        raise
+        detail = (logs.stderr or logs.stdout).strip()
+        raise RuntimeError(
+            f"{exc}; disposable container never published {service_port}: {detail}"
+        ) from exc
     return container_id, match.group(1)
 
 
-def _verify_oxigraph_owner(
+def _verify_qlever_owner(
     owner: IntegrationResourceOwner,
     container_id: str,
     data_dir: Path,
@@ -403,48 +422,122 @@ def _verify_oxigraph_owner(
     details = _inspect_owned_container(owner, container_id, docker_run=docker_run)
     mounts = details["Mounts"]
     if not isinstance(mounts, list):
-        raise ResourceOwnershipError("Oxigraph container mounts are malformed")
+        raise ResourceOwnershipError("QLever container mounts are malformed")
     mounted_data_dir = next(
         (Path(mount["Source"]) for mount in mounts if mount["Destination"] == "/data"),
         None,
     )
     file_marker = (data_dir / ".ontoprism-test-owner").read_text().strip()
-    owner.verify_oxigraph(
+    owner.verify_qlever(
         mounted_data_dir=mounted_data_dir,
         expected_data_dir=data_dir,
         file_marker=file_marker,
     )
 
 
-def _verify_oxigraph_data_dir(
+def _verify_qlever_data_dir(
     owner: IntegrationResourceOwner,
     data_dir: Path,
 ) -> None:
     marker = (data_dir / ".ontoprism-test-owner").read_text().strip()
-    owner.verify_oxigraph_data_dir(data_dir, marker)
+    owner.verify_qlever_data_dir(data_dir, marker)
 
 
-def _seed_oxigraph(url: str) -> None:
-    fixture = (_ROOT / "scripts/ci/fixtures/ncit-fixture.ttl").read_bytes()
-    response = httpx.put(
-        f"{url}/store?default",
-        content=fixture,
-        headers={"Content-Type": "text/turtle"},
+def _seed_qlever(url: str) -> None:
+    """Verify the fixture compiled by the container startup command is queryable."""
+    response = httpx.post(
+        f"{url}/",
+        content=b"ASK { ?s ?p ?o }",
+        headers={
+            "Content-Type": "application/sparql-query",
+            "Accept": "application/sparql-results+json",
+        },
         timeout=30,
     )
     response.raise_for_status()
+    if response.json().get("boolean") is not True:
+        raise RuntimeError("disposable QLever fixture index is empty")
 
-    stated_fixture = (
-        _ROOT / "scripts/ci/fixtures/ncit-stated-fixture.ttl"
-    ).read_bytes()
-    response = httpx.put(
-        f"{url}/store",
-        params={"graph": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl"},
-        content=stated_fixture,
-        headers={"Content-Type": "text/turtle"},
-        timeout=30,
+
+def _prepare_qlever_ntriples(
+    data_dir: Path,
+    *,
+    docker_run: DockerRun = run_docker,
+) -> None:
+    """Convert test Turtle with the same pinned Jena path as production builds.
+
+    QLever's native Turtle parser expands collection syntax as repeated predicate
+    objects rather than RDF ``first``/``rest`` triples. NCIt's OWL restrictions rely
+    on those list triples, so the disposable fixture must exercise the production
+    Jena-to-N-Triples path instead of certifying a different input pipeline.
+    """
+    configured = os.environ.get(JENA_INSTALL_DIR_ENV)
+    if configured is None:
+        raise RuntimeError(
+            f"{JENA_INSTALL_DIR_ENV} must name an installation created by "
+            "scripts/install_jena.py"
+        )
+    jena_dir = Path(configured).resolve()
+
+    def identify_runner(
+        _args: list[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del capture_output, text, timeout
+        return docker_run(
+            "run",
+            "--rm",
+            "--mount",
+            f"type=bind,src={jena_dir},dst=/jena,readonly",
+            "--entrypoint",
+            "/jena/bin/riot",
+            JENA_JRE_IMAGE,
+            "--version",
+            check=check,
+        )
+
+    identify_jena_installation(jena_dir, runner=identify_runner)
+    sources = (
+        (_ROOT / "scripts/ci/fixtures/ncit-fixture.ttl", "default.nt"),
+        (_ROOT / "scripts/ci/fixtures/ncit-stated-fixture.ttl", "stated.nt"),
     )
-    response.raise_for_status()
+    for source, output_name in sources:
+        converted = docker_run(
+            "run",
+            "--rm",
+            "--memory",
+            "1g",
+            "--memory-swap",
+            "1g",
+            "--mount",
+            f"type=bind,src={jena_dir},dst=/jena,readonly",
+            "--mount",
+            f"type=bind,src={source.resolve()},dst=/input.ttl,readonly",
+            "--mount",
+            f"type=bind,src={data_dir.resolve()},dst=/data",
+            "--entrypoint",
+            "/bin/sh",
+            JENA_JRE_IMAGE,
+            "-c",
+            "exec /jena/bin/riot --syntax=TURTLE --stream=NTRIPLES "
+            f"/input.ttl > /data/{output_name}",
+            check=False,
+        )
+        output = data_dir / output_name
+        if (
+            converted.returncode != 0
+            or not output.is_file()
+            or output.stat().st_size == 0
+        ):
+            detail = (converted.stderr or converted.stdout).strip()
+            raise RuntimeError(
+                f"Jena could not prepare disposable QLever fixture {output_name}: "
+                f"{detail}"
+            )
 
 
 @contextmanager
@@ -493,39 +586,46 @@ def _provision_postgres(
 
 
 @contextmanager
-def _provision_oxigraph(
+def _provision_qlever(
     owner: IntegrationResourceOwner,
     *,
-    seed_store: Callable[[str], None] = _seed_oxigraph,
+    seed_store: Callable[[str], None] = _seed_qlever,
     before_start: Callable[[], None] | None = None,
-    wait_for_oxigraph: Callable[[str], None] = _wait_for_oxigraph,
+    wait_for_qlever: Callable[[str], None] = _wait_for_qlever,
     docker_run: DockerRun = run_docker,
 ) -> Iterator[tuple[str, str]]:
-    """Provision and exactly tear down one pinned disposable Oxigraph container."""
-    prefix = f"ontoprism-oxigraph-{owner.nonce}-"
-    data_dir = Path(tempfile.mkdtemp(prefix=prefix))
+    """Provision and exactly tear down one pinned disposable QLever container."""
+    prefix = f"ontoprism-qlever-{owner.nonce}-"
+    # Colima only shares configured project roots with its Linux VM. macOS's
+    # default tempfile root lives under /private/var/folders, where a bind mount
+    # can exist but appear empty inside the VM. Keep this nonce-owned disposable
+    # index under the repository data root so QLever sees the fixture inputs.
+    data_root = (_ROOT / "data").resolve()
+    data_root.mkdir(exist_ok=True)
+    data_dir = Path(tempfile.mkdtemp(prefix=prefix, dir=data_root))
     (data_dir / ".ontoprism-test-owner").write_text(owner.nonce)
-    run_command = owner.oxigraph_run_command(data_dir)
     container_id: str | None = None
     url: str | None = None
     try:
+        _prepare_qlever_ntriples(data_dir, docker_run=docker_run)
+        run_command = owner.qlever_run_command(data_dir)
         if before_start is not None:
             before_start()
         container_id, port = _start_owned_container(
             owner,
             command_line=run_command,
-            container_name=owner.oxigraph_container_name,
-            service_port="7878/tcp",
+            container_name=owner.qlever_container_name,
+            service_port="7001/tcp",
             docker_run=docker_run,
         )
         url = f"http://127.0.0.1:{port}"
         with _CONNECTION_POLICY.registered(url):
-            wait_for_oxigraph(url)
+            wait_for_qlever(url)
             seed_store(url)
             yield url, container_id
     finally:
         # Each resource is removed only after ITS OWN marker verifies: the container
-        # by `_verify_oxigraph_owner`, the data dir by `_verify_oxigraph_data_dir`.
+        # by `_verify_qlever_owner`, the data dir by `_verify_qlever_data_dir`.
         # Data-dir cleanup runs in a nested `finally` so it happens even if container
         # verification/removal raised — an unverifiable container is left in place
         # (fail-closed) while our own marked data dir is still reclaimed. Both steps
@@ -533,12 +633,12 @@ def _provision_oxigraph(
         # surfaces over the container error, which is a diagnostic-only ordering.
         try:
             if container_id is not None:
-                _verify_oxigraph_owner(
+                _verify_qlever_owner(
                     owner, container_id, data_dir, docker_run=docker_run
                 )
                 docker_run("rm", "--force", container_id)
         finally:
-            _verify_oxigraph_data_dir(owner, data_dir)
+            _verify_qlever_data_dir(owner, data_dir)
             shutil.rmtree(data_dir)
 
 
@@ -569,19 +669,19 @@ def isolated_postgres_url(
 
 
 @pytest.fixture(scope="session")
-def isolated_oxigraph_url(
+def isolated_qlever_url(
     integration_resource_owner: IntegrationResourceOwner,
 ) -> Iterator[str]:
-    """Yield one process-shared disposable Oxigraph on a random loopback port.
+    """Yield one process-shared disposable QLever on a random loopback port.
 
     Mutating tests use exact run-owned graphs or restore the bounded default fixture.
     """
-    with _provision_oxigraph(integration_resource_owner) as (url, _container_id):
+    with _provision_qlever(integration_resource_owner) as (url, _container_id):
         yield url
 
 
 @pytest.fixture
-def oxigraph_sibling_store_root(
+def qlever_sibling_store_root(
     integration_resource_owner: IntegrationResourceOwner,
 ) -> Iterator[Path]:
     """Yield an exact owner-marked workspace path visible to the Docker runtime."""
@@ -713,7 +813,7 @@ def postgres_docker_id_failure_provisioner() -> Callable[
         *args: str, check: bool = True
     ) -> subprocess.CompletedProcess[str]:
         result = run_docker(*args, check=check)
-        if args and args[0] == "run" and result.returncode == 0:
+        if args and args[0] == "run" and "--detach" in args and result.returncode == 0:
             return subprocess.CompletedProcess(
                 args=result.args,
                 returncode=0,
@@ -763,7 +863,7 @@ def owned_container_inspector() -> Callable[
 
 
 @pytest.fixture
-def oxigraph_owner_verifier() -> Callable[
+def qlever_owner_verifier() -> Callable[
     [
         IntegrationResourceOwner,
         str,
@@ -772,7 +872,7 @@ def oxigraph_owner_verifier() -> Callable[
     ],
     None,
 ]:
-    """Attempt exact Oxigraph ownership verification for reject-branch contracts."""
+    """Attempt exact QLever ownership verification for reject-branch contracts."""
 
     def verify(
         owner: IntegrationResourceOwner,
@@ -780,57 +880,57 @@ def oxigraph_owner_verifier() -> Callable[
         data_dir: Path,
         docker_run: DockerRun,
     ) -> None:
-        _verify_oxigraph_owner(owner, container_id, data_dir, docker_run=docker_run)
+        _verify_qlever_owner(owner, container_id, data_dir, docker_run=docker_run)
 
     return verify
 
 
 @pytest.fixture
-def oxigraph_resource_provisioner() -> Callable[
+def qlever_resource_provisioner() -> Callable[
     [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
 ]:
-    """Return a context factory for real Oxigraph lifecycle contracts."""
-    return _provision_oxigraph
+    """Return a context factory for real QLever lifecycle contracts."""
+    return _provision_qlever
 
 
 @pytest.fixture
-def oxigraph_setup_failure_provisioner() -> Callable[
+def qlever_setup_failure_provisioner() -> Callable[
     [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
 ]:
     """Return a context factory that injects failure after store startup."""
 
     def fail_seed(_url: str) -> None:
-        raise RuntimeError("injected Oxigraph seed failure")
+        raise RuntimeError("injected QLever seed failure")
 
-    return lambda owner: _provision_oxigraph(owner, seed_store=fail_seed)
+    return lambda owner: _provision_qlever(owner, seed_store=fail_seed)
 
 
 @pytest.fixture
-def oxigraph_start_failure_provisioner() -> Callable[
+def qlever_start_failure_provisioner() -> Callable[
     [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
 ]:
     """Return a context factory that injects failure before container startup."""
 
     def fail_start() -> None:
-        raise RuntimeError("injected Oxigraph start failure")
+        raise RuntimeError("injected QLever start failure")
 
-    return lambda owner: _provision_oxigraph(owner, before_start=fail_start)
+    return lambda owner: _provision_qlever(owner, before_start=fail_start)
 
 
 @pytest.fixture
-def oxigraph_readiness_failure_provisioner() -> Callable[
+def qlever_readiness_failure_provisioner() -> Callable[
     [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
 ]:
     """Return a context factory that injects failure before the store is ready."""
 
     def fail_readiness(_url: str) -> None:
-        raise RuntimeError("injected Oxigraph readiness failure")
+        raise RuntimeError("injected QLever readiness failure")
 
-    return lambda owner: _provision_oxigraph(owner, wait_for_oxigraph=fail_readiness)
+    return lambda owner: _provision_qlever(owner, wait_for_qlever=fail_readiness)
 
 
 @pytest.fixture
-def oxigraph_docker_id_failure_provisioner() -> Callable[
+def qlever_docker_id_failure_provisioner() -> Callable[
     [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
 ]:
     """Return a context factory that lies about a real `docker run`'s container ID."""
@@ -839,7 +939,7 @@ def oxigraph_docker_id_failure_provisioner() -> Callable[
         *args: str, check: bool = True
     ) -> subprocess.CompletedProcess[str]:
         result = run_docker(*args, check=check)
-        if args and args[0] == "run" and result.returncode == 0:
+        if args and args[0] == "run" and "--detach" in args and result.returncode == 0:
             return subprocess.CompletedProcess(
                 args=result.args,
                 returncode=0,
@@ -848,11 +948,11 @@ def oxigraph_docker_id_failure_provisioner() -> Callable[
             )
         return result
 
-    return lambda owner: _provision_oxigraph(owner, docker_run=fail_at_run_id)
+    return lambda owner: _provision_qlever(owner, docker_run=fail_at_run_id)
 
 
 @pytest.fixture
-def oxigraph_docker_port_failure_provisioner() -> Callable[
+def qlever_docker_port_failure_provisioner() -> Callable[
     [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
 ]:
     """Return a context factory that injects failure at the `docker port` step."""
@@ -866,11 +966,11 @@ def oxigraph_docker_port_failure_provisioner() -> Callable[
             )
         return run_docker(*args, check=check)
 
-    return lambda owner: _provision_oxigraph(owner, docker_run=fail_at_port)
+    return lambda owner: _provision_qlever(owner, docker_run=fail_at_port)
 
 
 @pytest.fixture
-def oxigraph_container_remover() -> Callable[[IntegrationResourceOwner, str], None]:
+def qlever_container_remover() -> Callable[[IntegrationResourceOwner, str], None]:
     """Attempt exact container cleanup for reject-branch lifecycle contracts."""
     return remove_owned_container_by_name
 
@@ -892,10 +992,10 @@ def isolated_postgres_settings(isolated_postgres_url: str) -> Iterator[None]:
 
 
 @pytest.fixture
-def isolated_oxigraph_settings(isolated_oxigraph_url: str) -> Iterator[None]:
+def isolated_qlever_settings(isolated_qlever_url: str) -> Iterator[None]:
     """Point NCIt settings at the disposable store for one mutating test."""
     prior = os.environ.get("NCIT_SPARQL_URL")
-    os.environ["NCIT_SPARQL_URL"] = isolated_oxigraph_url
+    os.environ["NCIT_SPARQL_URL"] = isolated_qlever_url
     get_settings.cache_clear()
     try:
         yield

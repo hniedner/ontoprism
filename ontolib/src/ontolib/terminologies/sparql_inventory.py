@@ -24,7 +24,7 @@ _TRANSPORT_METHODS = frozenset(
     {"ask", "load", "select", "select_once", "select_raw", "update"}
 )
 _SPARQL_FILE_MARKERS = (
-    "OxigraphHttpClient",
+    "SparqlHttpClient",
     "SparqlHttpClient",
     "SPARQL",
 )

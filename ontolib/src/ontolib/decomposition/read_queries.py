@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ontolib.decomposition import vocab
 from ontolib.terminologies.namespaces import NCIT_NS
-from ontolib.terminologies.oxigraph_http_client import safe_iri
+from ontolib.terminologies.sparql_transport import safe_iri
 
 
 def build_decomposition_query(concept_code: str) -> str:

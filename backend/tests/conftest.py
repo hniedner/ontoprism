@@ -43,7 +43,7 @@ def live_api_client() -> Iterator[TestClient]:
     """A TestClient wired to the live NCIt store; skips if the store is unreachable."""
     url = get_settings().ncit_sparql_url
     if not _store_reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     with TestClient(create_app()) as client:
         yield client
 
@@ -51,7 +51,7 @@ def live_api_client() -> Iterator[TestClient]:
 @pytest.fixture
 def isolated_api_client(
     isolated_postgres_settings: None,
-    isolated_oxigraph_settings: None,
+    isolated_qlever_settings: None,
 ) -> Iterator[TestClient]:
     """API client whose persistent services are current-run-owned disposables."""
     with TestClient(create_app()) as client:
@@ -125,7 +125,7 @@ def cadsr_client(tmp_path: Path) -> Iterator[TestClient]:
 @pytest.fixture
 def isolated_cadsr_client(
     tmp_path: Path,
-    isolated_oxigraph_settings: None,
+    isolated_qlever_settings: None,
 ) -> Iterator[TestClient]:
     """Temporary caDSR repository joined to the disposable NCIt service."""
     db = tmp_path / "cde_repository.db"

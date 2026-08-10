@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
-(FastAPI + Oxigraph/SPARQL + Postgres/pgvector backend, SvelteKit 5 frontend). See
+(FastAPI + QLever/SPARQL + Postgres/pgvector backend, SvelteKit 5 frontend). See
 `README.md` for product goals and `docs/ARCHITECTURE.md` for the full layout.
 
 ## Hard rules (never violate)
@@ -124,7 +124,13 @@ decisions — see D60 for the full statement.
 ```bash
 pdm install --dev       # Python 3.13, installs ontolib + backend editable
 npm ci --prefix frontend
-pdm run up               # docker compose: oxigraph-ncit :7888, oxigraph-uberon :7889, postgres :5433
+cp .env.example .env
+pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
+export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
+pdm run data-build owl
+pdm run data-build ncit-bootstrap
+pdm run data-build uberon-store
+pdm run up               # qlever-ncit :7888, qlever-uberon :7889, postgres :5433
 pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
@@ -138,7 +144,7 @@ defaults point at the services above.
 ```bash
 pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
 pdm run test-unit            # unit-marked only, backend+ontolib
-pdm run test-integration     # safe default: nonce-owned disposable PG/Oxigraph
+pdm run test-integration     # safe default: nonce-owned disposable PG/QLever
 pdm run test-integration-full-store  # explicit read-only contracts against configured corpora
 pdm run test-ci              # strict gate: ontolib/src & backend/src each >90% line AND >90% branch (matches CI)
 pdm run test-smoke           # frontend vitest via npm
@@ -228,10 +234,11 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   concepts are flagged (`representationStatus="legacy-precoordinated"`), never deleted;
   decomposed triples go in a separate `ncit_decomposed` named graph. Exact reversibility
   is quarantined until #153 provides a proof-bearing representation (D43). Extraction reads
-  from the **stated** OWL (loaded via Oxigraph's offline bulk loader, not HTTP — the
-  713MB stated build OOM-kills the container over HTTP GSP), not the inferred store.
+  from the **stated** OWL (stream-converted by pinned Jena RIOT and indexed by QLever's
+  offline builder, never uploaded as the 713MB RDF/XML file over HTTP GSP), not the
+  inferred store.
 - The frontend only ever talks to the FastAPI backend; the backend owns all
-  Oxigraph/Postgres access — don't add direct DB/SPARQL access from `frontend/`.
+  QLever/Postgres access — don't add direct DB/SPARQL access from `frontend/`.
 - `pdm run data-build` (owl → cadsr → embeddings) rebuilds all data from public sources
   with no `fairdata` dependency; the embeddings step needs `pdm install -G data-build`
   (heavy ML extra, not installed by default).

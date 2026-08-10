@@ -422,7 +422,8 @@ async def _replace_graph(
     if current not in (marker, predecessor):
         raise PublicationValidationError(
             "public decomposition marker is neither this publication intent nor "
-            "its persisted predecessor"
+            "its persisted predecessor: "
+            f"current={current!r}, intent={marker!r}, predecessor={predecessor!r}"
         )
     staging_graph = staging_graph_iri(marker.run_id)
     await client.load(
