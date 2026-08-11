@@ -1,5 +1,40 @@
 import { expect, test } from '@playwright/test';
 
+test('every repository breadcrumb link resolves and the final crumb remains inert', async ({
+	page
+}) => {
+	const repositoryRoutes = [
+		'/repositories/ncit',
+		'/repositories/ncit/C27262',
+		'/repositories/cadsr',
+		'/repositories/cadsr/2001',
+		'/repositories/clinicaltrials',
+		'/repositories/clinicaltrials/NCT01234567',
+		'/repositories/pubmed',
+		'/repositories/pubmed/12345678'
+	];
+
+	for (const route of repositoryRoutes) {
+		const response = await page.goto(route);
+		expect(response?.status(), route).toBe(200);
+
+		const breadcrumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+		const links = breadcrumbs.getByRole('link');
+		for (const link of await links.all()) {
+			const href = await link.getAttribute('href');
+			expect(href, `${route} breadcrumb link has no href`).not.toBeNull();
+			expect(href, `${route} exposes the layout-only repositories path`).not.toBe('/repositories');
+			const target = await page.request.get(href!);
+			expect(target.status(), `${route} breadcrumb ${href}`).toBeLessThan(400);
+		}
+
+		const finalCrumb = breadcrumbs.locator('span.font-medium');
+		await expect(finalCrumb).toHaveCount(1);
+		expect(await finalCrumb.evaluate((element) => element.tagName)).toBe('SPAN');
+		expect(await finalCrumb.getAttribute('href')).toBeNull();
+	}
+});
+
 test('built adapter-node SSR includes NCIt browse data and hydration does not fetch it twice', async ({
 	page
 }) => {
