@@ -14,7 +14,7 @@
 		"fallow": "node scripts/fallow-gate.mjs",
 		"test:unit": "vitest",
 		"test:e2e": "playwright test",
-		"test:coverage": "vitest run --coverage && python3 ../scripts/validation/strict_coverage_gate.py frontend --coverage-summary coverage/coverage-summary.json",
+		"test:coverage": "vitest run --coverage && cd .. && pdm run coverage-gate frontend --coverage-summary frontend/coverage/coverage-summary.json",
 		"test": "npm run test:unit -- --run"
 	},
 	"devDependencies": {

@@ -33,7 +33,7 @@
 	);
 </script>
 
-<section class="rounded-xl border border-default bg-card p-4 shadow-sm">
+<section class="min-w-0 rounded-xl border border-default bg-card p-4 shadow-sm">
 	<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
 		Similar CDEs
 		<span class="rounded-full bg-subtle px-2 py-0.5 text-xs font-normal text-muted"

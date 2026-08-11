@@ -266,6 +266,7 @@ async def search_cadsr(
 
 @app.get("/api/v1/cadsr/cdes/{public_id}")
 async def get_cde(public_id: str) -> dict[str, object]:
+    concept_count = 14 if public_id == "6686721" else 1
     return {
         "public_id": public_id,
         "version": "1.0",
@@ -282,13 +283,42 @@ async def get_cde(public_id: str) -> dict[str, object]:
         ],
         "concepts": [
             {
-                "concept_code": "C48885",
-                "concept_name": "Tumor Stage",
+                "concept_code": f"C{48885 + index}",
+                "concept_name": (
+                    "Tumor Stage" if index == 0 else f"Mapped concept {index + 1}"
+                ),
                 "concept_type": "objectClass",
-                "is_primary": True,
+                "is_primary": index == 0,
             }
+            for index in range(concept_count)
         ],
     }
+
+
+@app.get("/api/v1/cadsr/cdes/{public_id}/neighborhood")
+async def get_cde_neighborhood(public_id: str) -> dict[str, object]:
+    if public_id == "6686721":
+        await asyncio.sleep(0.4)
+    return _synthetic_neighborhood("C48885", node_count=14, edge_count=13)
+
+
+@app.get("/api/v1/cadsr/cdes/{public_id}/similar")
+async def get_similar_cdes(public_id: str) -> list[dict[str, object]]:
+    return [
+        {
+            "public_id": f"{public_id}{index}",
+            "version": "1.0",
+            "short_name": f"SIMILAR_{index}",
+            "long_name": (
+                "Abdomen and Thoracic Visceral Organs Soft Tissue Sarcoma "
+                f"AJCC Edition 8 Similar Common Data Element {index}"
+            ),
+            "context": "NCIP",
+            "datatype": "CHARACTER",
+            "score": 1.0 - index / 100,
+        }
+        for index in range(10)
+    ]
 
 
 @app.post("/api/v1/clinicaltrials/search")
