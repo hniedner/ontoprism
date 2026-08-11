@@ -1,9 +1,9 @@
 """Manifest-bound repository metadata contracts."""
 
 import hashlib
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -27,6 +27,12 @@ from ontolib.terminologies.ncit.sibling_store import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+@dataclass
+class _Settings:
+    ncit_store_dir: str
+    ncit_sparql_url: str
 
 
 def _observation(**changes: object) -> CandidateObservation:
@@ -219,7 +225,7 @@ async def test_service_certifies_exact_active_ncit_manifest(
         return observation
 
     monkeypatch.setattr("backend.repository_metadata.observe_ncit_candidate", _observe)
-    settings = SimpleNamespace(
+    settings = _Settings(
         ncit_store_dir=str(active), ncit_sparql_url="http://example.test:7888"
     )
     service = RepositoryMetadataService(
@@ -241,7 +247,7 @@ async def test_service_certifies_exact_active_ncit_manifest(
 async def test_service_refuses_identity_when_active_manifest_is_missing(
     tmp_path: Path,
 ) -> None:
-    settings = SimpleNamespace(
+    settings = _Settings(
         ncit_store_dir=str(tmp_path / "missing"),
         ncit_sparql_url="http://example.test:7888",
     )
@@ -254,4 +260,44 @@ async def test_service_refuses_identity_when_active_manifest_is_missing(
 
     assert isinstance(result, RepositoryUnhealthy)
     assert result.reason == "manifest-missing"
+    assert "source_identity" not in result.model_dump()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("symlink", "message"),
+    [
+        ("store", "active store is not an exact directory"),
+        ("manifest", "active manifest is not an exact regular file"),
+    ],
+)
+async def test_service_refuses_identity_from_symlinked_ncit_proof_paths(
+    tmp_path: Path,
+    symlink: str,
+    message: str,
+) -> None:
+    active = tmp_path / "qlever-ncit"
+    if symlink == "store":
+        target = tmp_path / "store-target"
+        target.mkdir()
+        (target / ".ontoprism-ncit-candidate.json").write_text("{}")
+        active.symlink_to(target, target_is_directory=True)
+    else:
+        active.mkdir()
+        target = tmp_path / "manifest-target.json"
+        target.write_text("{}")
+        (active / ".ontoprism-ncit-candidate.json").symlink_to(target)
+    service = RepositoryMetadataService(
+        settings=_Settings(
+            ncit_store_dir=str(active),
+            ncit_sparql_url="http://example.test:7888",
+        ),
+        cadsr=_CertifiedCadsr(),
+    )
+
+    result = await service.ncit()
+
+    assert isinstance(result, RepositoryUnhealthy)
+    assert result.reason == "manifest-invalid"
+    assert message in result.message
     assert "source_identity" not in result.model_dump()
