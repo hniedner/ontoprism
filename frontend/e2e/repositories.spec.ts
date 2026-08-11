@@ -145,3 +145,71 @@ test('active worker layouts are replaced and navigation kills the current owner'
 	await expect(page).toHaveURL('/repositories/ncit/C3262');
 	expect(pageErrors).toEqual([]);
 });
+
+test('graph label colors update in place and preserve selection across themes', async ({ page }) => {
+	await page.addInitScript(() => {
+		const fills: string[] = [];
+		const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+		Object.defineProperty(window, '__sigmaLabelFills', { value: fills });
+		CanvasRenderingContext2D.prototype.fillText = function (
+			text: string,
+			x: number,
+			y: number,
+			maxWidth?: number
+		): void {
+			fills.push(String(this.fillStyle));
+			if (maxWidth === undefined) originalFillText.call(this, text, x, y);
+			else originalFillText.call(this, text, x, y, maxWidth);
+		};
+	});
+
+	await page.goto('/repositories/ncit/CPERF186');
+	const canvas = page.locator('.graph-canvas');
+	await expect(canvas).toHaveAttribute('aria-busy', 'false', { timeout: 3_000 });
+	const mostConnected = page.getByRole('heading', { name: 'Most connected' });
+	const rankedNode = mostConnected.locator('xpath=following-sibling::ul[1]').getByRole('button').first();
+	await rankedNode.click();
+	const selected = page.locator('h4').first();
+	await expect(selected).toBeVisible();
+	const selectedLabel = await selected.innerText();
+
+	await expect
+		.poll(() =>
+			page.evaluate(() =>
+				(
+					window as typeof window & {
+						__sigmaLabelFills: string[];
+					}
+				).__sigmaLabelFills.includes('#fafafa')
+			)
+		)
+		.toBe(true);
+	await page.evaluate(() => {
+		const state = window as typeof window & {
+			__sigmaCanvases?: HTMLCanvasElement[];
+			__sigmaLabelFills: string[];
+		};
+		state.__sigmaCanvases = Array.from(document.querySelectorAll('.graph-canvas canvas'));
+		state.__sigmaLabelFills.length = 0;
+	});
+
+	await page.getByRole('button', { name: 'Toggle theme' }).click();
+	await expect(selected).toHaveText(selectedLabel);
+	await expect
+		.poll(() =>
+			page.evaluate(() => {
+				const state = window as typeof window & {
+					__sigmaCanvases?: HTMLCanvasElement[];
+					__sigmaLabelFills: string[];
+				};
+				const current = Array.from(document.querySelectorAll('.graph-canvas canvas'));
+				return {
+					lightLabelDrawn: state.__sigmaLabelFills.includes('#0d2140'),
+					sameCanvases:
+						state.__sigmaCanvases?.length === current.length &&
+						state.__sigmaCanvases.every((item, index) => item === current[index])
+				};
+			})
+		)
+		.toEqual({ lightLabelDrawn: true, sameCanvases: true });
+});

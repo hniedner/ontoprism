@@ -20,6 +20,21 @@ import { communityColor, type NodeAttrs } from './neighborhood-graph';
 const NO_TYPE_COLOR = '#94a3b8';
 const DIMMED_COLOR = '#cbd5e1';
 
+function relativeLuminance(hex: string): number {
+	const channels = hex
+		.slice(1)
+		.match(/.{2}/g)!
+		.map((value) => Number.parseInt(value, 16) / 255)
+		.map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+	return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+function contrastRatio(first: string, second: string): number {
+	const lighter = Math.max(relativeLuminance(first), relativeLuminance(second));
+	const darker = Math.min(relativeLuminance(first), relativeLuminance(second));
+	return (lighter + 0.05) / (darker + 0.05);
+}
+
 function graphWith(nodes: Array<[string, Partial<NodeAttrs>]>): Graph {
 	const g = new Graph({ multi: true, type: 'directed', allowSelfLoops: false });
 	for (const [code, attrs] of nodes) g.addNode(code, { code, label: code, ...attrs });
@@ -282,6 +297,143 @@ describe('TimedLayoutController', () => {
 		).toThrow('timer scheduling failed');
 		expect(events).toEqual(['start', 'stop', 'kill']);
 		expect(controller.running).toBe(false);
+	});
+});
+
+describe('graph label presentation', () => {
+	it('provides measured AA node and edge label contrast in both themes', () => {
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)['graphLabelTheme'];
+		expect(candidate).toBeTypeOf('function');
+		const graphLabelTheme = candidate as (theme: 'light' | 'dark') => {
+			canvasColor: string;
+			hoverBackgroundColor: string;
+			labelColor: string;
+			edgeLabelColor: string;
+		};
+
+		for (const theme of ['light', 'dark'] as const) {
+			const colors = graphLabelTheme(theme);
+			expect(contrastRatio(colors.labelColor, colors.canvasColor), `${theme} node labels`).toBeGreaterThanOrEqual(
+				4.5
+			);
+			expect(
+				contrastRatio(colors.edgeLabelColor, colors.canvasColor),
+				`${theme} edge labels`
+			).toBeGreaterThanOrEqual(4.5);
+			expect(
+				contrastRatio(colors.labelColor, colors.hoverBackgroundColor),
+				`${theme} hover labels`
+			).toBeGreaterThanOrEqual(4.5);
+		}
+	});
+
+	it('wires theme colors into the existing renderer and refreshes it in place', () => {
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'applyGraphLabelTheme'
+		];
+		expect(candidate).toBeTypeOf('function');
+		const applyGraphLabelTheme = candidate as (
+			renderer: { setSettings(settings: Record<string, unknown>): void; refresh(): void },
+			theme: 'light' | 'dark'
+		) => void;
+		const calls: Array<{ type: string; value?: Record<string, unknown> }> = [];
+		const renderer = {
+			setSettings: (settings: Record<string, unknown>) =>
+				calls.push({ type: 'settings', value: settings }),
+			refresh: () => calls.push({ type: 'refresh' })
+		};
+
+		applyGraphLabelTheme(renderer, 'dark');
+
+		expect(calls).toEqual([
+			{
+				type: 'settings',
+				value: {
+					labelColor: { color: '#fafafa' },
+					edgeLabelColor: { color: '#d4d4d4' }
+				}
+			},
+			{ type: 'refresh' }
+		]);
+	});
+
+	it('reveals more labels as the camera zooms in without shrinking the collision grid', () => {
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'graphLabelPolicy'
+		];
+		expect(candidate).toBeTypeOf('function');
+		const graphLabelPolicy = candidate as (ratio: number) => {
+			labelDensity: number;
+			labelGridCellSize: number;
+			labelRenderedSizeThreshold: number;
+		};
+
+		const defaultZoom = graphLabelPolicy(1);
+		const zoomedIn = graphLabelPolicy(0.5);
+		expect(defaultZoom.labelGridCellSize).toBeGreaterThanOrEqual(120);
+		expect(zoomedIn.labelGridCellSize).toBe(defaultZoom.labelGridCellSize);
+		expect(zoomedIn.labelDensity).toBeGreaterThan(defaultZoom.labelDensity);
+		expect(zoomedIn.labelRenderedSizeThreshold).toBeLessThan(
+			defaultZoom.labelRenderedSizeThreshold
+		);
+	});
+
+	it('ellipsizes long canvas labels without mutating the full source label', () => {
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'ellipsizeGraphLabel'
+		];
+		expect(candidate).toBeTypeOf('function');
+		const ellipsizeGraphLabel = candidate as (label: string) => string;
+		const fullLabel =
+			'Soft Tissue Sarcoma AJCC Edition 8 Pathologic Distant Metastasis M Category';
+
+		expect(ellipsizeGraphLabel('Neoplasm')).toBe('Neoplasm');
+		expect(ellipsizeGraphLabel(fullLabel)).toMatch(/^.{1,42}…$/u);
+		expect(fullLabel).toContain('Distant Metastasis M Category');
+	});
+
+	it('rejects overlapping rendered label bounds and resets between frames', () => {
+		const indexCandidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'GraphLabelCollisionIndex'
+		];
+		const boundsCandidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'graphLabelBounds'
+		];
+		expect(indexCandidate).toBeTypeOf('function');
+		expect(boundsCandidate).toBeTypeOf('function');
+		const CollisionIndex = indexCandidate as new () => {
+			claim(bounds: { left: number; top: number; right: number; bottom: number }): boolean;
+			reset(): void;
+		};
+		const graphLabelBounds = boundsCandidate as (input: {
+			x: number;
+			y: number;
+			nodeSize: number;
+			labelSize: number;
+			labelWidth: number;
+		}) => { left: number; top: number; right: number; bottom: number };
+		const index = new CollisionIndex();
+		const first = graphLabelBounds({ x: 10, y: 20, nodeSize: 5, labelSize: 14, labelWidth: 80 });
+		const overlapping = graphLabelBounds({
+			x: 40,
+			y: 22,
+			nodeSize: 5,
+			labelSize: 14,
+			labelWidth: 80
+		});
+		const separate = graphLabelBounds({
+			x: 140,
+			y: 20,
+			nodeSize: 5,
+			labelSize: 14,
+			labelWidth: 80
+		});
+
+		expect(index.claim(first)).toBe(true);
+		expect(index.claim(overlapping)).toBe(false);
+		expect(index.claim(separate)).toBe(true);
+		index.reset();
+		expect(index.claim(overlapping)).toBe(true);
 	});
 });
 
