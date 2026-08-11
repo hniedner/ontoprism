@@ -345,7 +345,12 @@ def test_repository_wires_strict_gate_into_local_and_ci_entrypoints() -> None:
     assert "coverage report --include=" not in test_ci
 
     package = json.loads((root / "frontend/package.json").read_text(encoding="utf-8"))
-    assert "strict_coverage_gate.py frontend" in package["scripts"]["test:coverage"]
+    frontend_coverage = package["scripts"]["test:coverage"]
+    assert "pdm run coverage-gate frontend" in frontend_coverage
+    assert "python3" not in frontend_coverage
+    assert (
+        scripts["coverage-gate"] == "python scripts/validation/strict_coverage_gate.py"
+    )
 
     workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "strict_coverage_gate.py python" in workflow
