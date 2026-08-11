@@ -38,6 +38,12 @@ export interface GraphLabelRenderer {
 	refresh(): unknown;
 }
 
+export interface GraphLabelPolicyRenderer {
+	getSetting(key: keyof GraphLabelSettings): number;
+	setSettings(settings: GraphLabelSettings): unknown;
+	refresh(): unknown;
+}
+
 export interface GraphLabelBounds {
 	left: number;
 	top: number;
@@ -105,6 +111,23 @@ export function graphLabelPolicy(cameraRatio: number): GraphLabelSettings {
 		labelGridCellSize: 240,
 		labelRenderedSizeThreshold: zoomedIn ? 3 : 9
 	};
+}
+
+/** Apply a changed zoom bucket and immediately rebuild Sigma's program indices. */
+export function applyGraphLabelPolicy(
+	renderer: GraphLabelPolicyRenderer,
+	cameraRatio: number
+): void {
+	const policy = graphLabelPolicy(cameraRatio);
+	const changed = (Object.keys(policy) as Array<keyof GraphLabelSettings>).some(
+		(key) => renderer.getSetting(key) !== policy[key]
+	);
+	if (!changed) return;
+
+	// Sigma's setSettings clears program indices before its scheduled render. A layout
+	// worker can emit a partial repaint in that gap, so rebuild synchronously here.
+	renderer.setSettings(policy);
+	renderer.refresh();
 }
 
 /** Bound canvas label width while leaving the graph's source label untouched. */

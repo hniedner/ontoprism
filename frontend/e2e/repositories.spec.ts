@@ -128,6 +128,10 @@ test('active worker layouts are replaced and navigation kills the current owner'
 	await layoutSelect.selectOption('noverlap');
 	await expect(layoutSelect).toHaveValue('noverlap');
 	await expect(canvas).toHaveAttribute('aria-busy', 'true');
+	// Camera updates change label-density settings while the layout worker mutates
+	// node positions. This used to leave Sigma's program indices empty long enough
+	// for a worker repaint to throw `node "…" can't be repaint`.
+	for (let i = 0; i < 4; i += 1) await page.getByRole('button', { name: 'Zoom in' }).click();
 	await layoutSelect.selectOption('forceatlas2');
 	await expect(layoutSelect).toHaveValue('forceatlas2');
 	await expect(canvas).toHaveAttribute('aria-busy', 'false', { timeout: 3_000 });

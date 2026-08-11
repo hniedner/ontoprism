@@ -378,6 +378,42 @@ describe('graph label presentation', () => {
 		);
 	});
 
+	it('applies zoom policy changes atomically and ignores updates within the same bucket', () => {
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'applyGraphLabelPolicy'
+		];
+		expect(candidate).toBeTypeOf('function');
+		const applyGraphLabelPolicy = candidate as (
+			renderer: {
+				getSetting(key: string): number;
+				setSettings(settings: Record<string, unknown>): void;
+				refresh(): void;
+			},
+			ratio: number
+		) => void;
+		const calls: string[] = [];
+		const settings = {
+			labelDensity: 0.45,
+			labelGridCellSize: 240,
+			labelRenderedSizeThreshold: 9
+		};
+		const renderer = {
+			getSetting: (key: string) => settings[key as keyof typeof settings],
+			setSettings: (next: Record<string, unknown>) => {
+				calls.push('settings');
+				Object.assign(settings, next);
+			},
+			refresh: () => calls.push('refresh')
+		};
+
+		applyGraphLabelPolicy(renderer, 0.9);
+		expect(calls).toEqual([]);
+
+		applyGraphLabelPolicy(renderer, 0.5);
+		expect(calls).toEqual(['settings', 'refresh']);
+		expect(settings.labelRenderedSizeThreshold).toBe(3);
+	});
+
 	it('ellipsizes long canvas labels without mutating the full source label', () => {
 		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
 			'ellipsizeGraphLabel'

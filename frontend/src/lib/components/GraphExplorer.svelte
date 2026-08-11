@@ -36,6 +36,7 @@
 		reduceNodeAppearance,
 		reduceEdgeAppearance,
 		applyGraphLabelTheme,
+		applyGraphLabelPolicy,
 		ellipsizeGraphLabel,
 		forceAtlasLayoutBudget,
 		graphLabelBounds,
@@ -342,7 +343,7 @@
 		// Zoom-scalable labels: reveal more labels as the camera zooms in. Also dismiss
 		// the context menu on any pan/zoom so it never lingers detached from its node.
 		s.getCamera().on('updated', ({ ratio }) => {
-			s.setSettings(graphLabelPolicy(ratio));
+			applyGraphLabelPolicy(s, ratio);
 			menu = null;
 		});
 	}
