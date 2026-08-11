@@ -8,7 +8,7 @@ describe('BrowserGraph', () => {
 		const { container } = render(BrowserGraph, { code: 'C3262', height: '24rem', loader });
 
 		expect(screen.getByRole('status')).toHaveTextContent('Loading concept graph');
-		expect(container.firstElementChild).toHaveStyle({ minHeight: '24rem' });
+		expect((container.firstElementChild as HTMLElement).style.minHeight).toBe('24rem');
 	});
 
 	it('turns a dynamic-import failure into an explicit stable error region', async () => {
@@ -16,6 +16,6 @@ describe('BrowserGraph', () => {
 		render(BrowserGraph, { code: 'C3262', height: '24rem', loader });
 
 		expect(await screen.findByRole('alert')).toHaveTextContent('Concept graph is unavailable');
-		expect(screen.getByRole('alert')).toHaveStyle({ minHeight: '24rem' });
+		expect(screen.getByRole('alert').style.minHeight).toBe('24rem');
 	});
 });
