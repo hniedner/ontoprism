@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Neighborhood } from '$lib/types';
+import type { GraphNode, Neighborhood } from '$lib/types';
 import {
 	createGraph,
 	mergeNeighborhood,
@@ -8,11 +8,48 @@ import {
 	communityColor
 } from './neighborhood-graph';
 
-function nb(partial: Partial<Neighborhood> & { center: string }): Neighborhood {
-	return { nodes: [], edges: [], ...partial };
+type TestGraphNode = Omit<GraphNode, 'representation_status'> &
+	Partial<Pick<GraphNode, 'representation_status'>>;
+
+function nb(
+	partial: Omit<Partial<Neighborhood>, 'nodes'> & {
+		center: string;
+		nodes?: TestGraphNode[];
+	}
+): Neighborhood {
+	const { nodes = [], edges = [], ...rest } = partial;
+	return {
+		...rest,
+		edges,
+		nodes: nodes.map((node) => ({
+			...node,
+			representation_status: node.representation_status ?? null
+		}))
+	};
 }
 
 describe('mergeNeighborhood', () => {
+	it('preserves published representation status as a graph attribute', () => {
+		const g = createGraph();
+		mergeNeighborhood(
+			g,
+			nb({
+				center: 'C1',
+				nodes: [
+					{
+						code: 'C1',
+						label: 'Legacy',
+						semantic_type: null,
+						representation_status: 'legacy-precoordinated'
+					}
+				]
+			})
+		);
+
+		expect(g.getNodeAttribute('C1', 'representationStatus')).toBe(
+			'legacy-precoordinated'
+		);
+	});
 	it('does not overwrite a label when the merged node has no label', () => {
 		const g = createGraph();
 		mergeNeighborhood(g, nb({ center: 'C1', nodes: [{ code: 'C1', label: 'Original', semantic_type: null }] }));

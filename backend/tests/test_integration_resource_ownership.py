@@ -558,7 +558,9 @@ def test_qlever_command_is_loopback_disposable_and_digest_pinned() -> None:
         "set -eu; /qlever/qlever-index -i test -f default.nt -g - "
         "-f stated.nt -g "
         "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl "
-        "-F nt -F nt -p true -p true -m 512M; "
+        "-f decomposed.nt -g "
+        "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-decomposed.owl "
+        "-F nt -F nt -F nt -p true -p true -p true -m 512M; "
         "exec /qlever/qlever-server -i test -p 7001 --no-access-check "
         "--persist-updates --service-allowed-iri-prefixes - "
         "-j 2 -m 4G -c 512M -e 256M -s 30s",

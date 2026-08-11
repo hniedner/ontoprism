@@ -29,4 +29,33 @@ describe('loadRepositoryPage', () => {
 		expect(search).not.toHaveBeenCalled();
 		expect(result.initial.query).toBe('');
 	});
+
+	it('threads repository-specific URL facets through loaders and initial state', async () => {
+		const list = vi.fn().mockResolvedValue({ total: 1 });
+		const readUrlState = vi.fn().mockReturnValue({
+			representationStatus: 'legacy-precoordinated' as const
+		});
+
+		const result = await loadRepositoryPage(
+			new URL(
+				'http://example.test/repository?representation_status=legacy-precoordinated'
+			),
+			vi.fn(),
+			list,
+			readUrlState
+		);
+
+		expect(readUrlState).toHaveBeenCalledWith(
+			expect.any(URLSearchParams)
+		);
+		expect(list).toHaveBeenCalledWith(0, {
+			representationStatus: 'legacy-precoordinated'
+		});
+		expect(result.initial).toEqual({
+			result: { total: 1 },
+			query: '',
+			offset: 0,
+			representationStatus: 'legacy-precoordinated'
+		});
+	});
 });

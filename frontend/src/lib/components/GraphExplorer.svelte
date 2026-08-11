@@ -6,6 +6,8 @@
 	import Sigma from 'sigma';
 	import {
 		DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
+		NodeCircleProgram,
+		createNodeCompoundProgram,
 		drawDiscNodeLabel,
 		drawStraightEdgeLabel
 	} from 'sigma/rendering';
@@ -35,6 +37,7 @@
 		findNode,
 		reduceNodeAppearance,
 		reduceEdgeAppearance,
+		nodeHiddenByFilters,
 		applyGraphLabelTheme,
 		applyGraphLabelPolicy,
 		ellipsizeGraphLabel,
@@ -48,7 +51,7 @@
 	} from '$lib/graph/graph-explorer';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
 	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
-	import LoadingState from '$lib/components/LoadingState.svelte';
+	import GraphCanvasState from '$lib/components/GraphCanvasState.svelte';
 	import { theme } from '$lib/stores/theme.svelte';
 
 	interface Props {
@@ -82,6 +85,8 @@
 	let search = $state('');
 	let fullscreen = $state(false);
 	let hideIsolated = $state(false);
+	let showLegacyOnly = $state(false);
+	let visibleNodeCount = $state(0);
 	// Semantic types the user has toggled off (hidden). A reactive set: the sigma
 	// reducer and the filter chips both read it.
 	const hiddenTypes = new SvelteSet<string>();
@@ -122,6 +127,23 @@
 				drawStraightEdgeLabel(context, edgeData, sourceData, targetData, settings);
 		}
 	});
+	class LegacyStatusRingProgram extends NodeCircleProgram {
+		override processVisibleItem(
+			nodeIndex: number,
+			startIndex: number,
+			data: Parameters<NodeCircleProgram['processVisibleItem']>[2]
+		): void {
+			super.processVisibleItem(nodeIndex, startIndex, {
+				...data,
+				size: data.size + 3,
+				color: '#f59e0b'
+			});
+		}
+	}
+	const LegacyPrecoordNodeProgram = createNodeCompoundProgram([
+		LegacyStatusRingProgram,
+		NodeCircleProgram
+	]);
 
 	function drawThemeAwareNodeHover(
 		context: CanvasRenderingContext2D,
@@ -222,7 +244,30 @@
 		edgeCount = g.size;
 		semanticTypes = collectSemanticTypes(g);
 		restyle(g);
+		refreshVisibility(g);
 		graphVersion += 1;
+	}
+
+	function nodeIsHidden(g: Graph, node: string): boolean {
+		const attrs = g.getNodeAttributes(node) as NodeAttrs;
+		return nodeHiddenByFilters({
+			isCenter: node === code,
+			semanticType: attrs.semanticType,
+			degree: g.degree(node),
+			hiddenTypes,
+			hideIsolated,
+			representationStatus: attrs.representationStatus,
+			showLegacyOnly
+		});
+	}
+
+	function refreshVisibility(g: Graph) {
+		let count = 0;
+		g.forEachNode((node) => {
+			if (!nodeIsHidden(g, node)) count += 1;
+		});
+		visibleNodeCount = count;
+		if (selected && nodeIsHidden(g, selected.code)) selected = null;
 	}
 
 	async function expand(target: string) {
@@ -269,14 +314,30 @@
 					hideIsolated,
 					selectedCode: selected?.code ?? null,
 					hovered,
-					hoveredNeighbors: hovered ? neighbors(hovered) : null
+					hoveredNeighbors: hovered ? neighbors(hovered) : null,
+					representationStatus: g
+						? (g.getNodeAttribute(
+								node,
+								'representationStatus'
+							) as NodeAttrs['representationStatus'])
+						: null,
+					showLegacyOnly
 				})
 			};
 		});
 		s.setSetting('edgeReducer', (edge, data) => {
 			if (!graph) return { ...data };
 			const [src, tgt] = graph.extremities(edge);
-			return { ...data, ...reduceEdgeAppearance({ hovered, source: src, target: tgt }) };
+			return {
+				...data,
+				...reduceEdgeAppearance({
+					hovered,
+					source: src,
+					target: tgt,
+					sourceHidden: nodeIsHidden(graph, src),
+					targetHidden: nodeIsHidden(graph, tgt)
+				})
+			};
 		});
 	}
 
@@ -363,6 +424,9 @@
 			sigma = new Sigma(graph, container, {
 				renderEdgeLabels: true,
 				defaultEdgeType: 'curved',
+				nodeProgramClasses: {
+					'legacy-precoordinated': LegacyPrecoordNodeProgram
+				},
 				edgeProgramClasses: { curved: CollisionAwareCurvedArrowProgram },
 				...graphLabelPolicy(1),
 				labelColor: { color: labelTheme.labelColor },
@@ -444,11 +508,19 @@
 	function toggleType(t: string) {
 		if (hiddenTypes.has(t)) hiddenTypes.delete(t);
 		else hiddenTypes.add(t);
+		if (graph) refreshVisibility(graph);
 		sigma?.refresh();
 	}
 
 	function toggleIsolated() {
 		hideIsolated = !hideIsolated;
+		if (graph) refreshVisibility(graph);
+		sigma?.refresh();
+	}
+
+	function toggleLegacyOnly() {
+		showLegacyOnly = !showLegacyOnly;
+		if (graph) refreshVisibility(graph);
 		sigma?.refresh();
 	}
 
@@ -563,6 +635,16 @@
 		>
 		<button
 			type="button"
+			class="rounded-lg border border-default px-2 py-1 text-xs {showLegacyOnly
+				? 'bg-amber-500 text-neutral-950'
+				: 'text-secondary hover:bg-subtle'}"
+			onclick={toggleLegacyOnly}
+			title="Show only nodes with the published legacy pre-coordinated marker"
+		>
+			Legacy pre-coordinated only
+		</button>
+		<button
+			type="button"
 			class="gx-btn"
 			onclick={exportPng}
 			title="Export as PNG"
@@ -612,22 +694,7 @@
 			<GraphMinimap {graph} {sigma} version={graphVersion} />
 		{/if}
 
-		{#if loading}
-			<div class="absolute inset-0">
-				<LoadingState active label="Building graph" minHeight="100%" />
-			</div>
-		{:else if error}
-			<div class="absolute inset-0 flex items-center justify-center text-sm text-danger">
-				{error}
-			</div>
-		{/if}
-		{#if expanding}
-			<div
-				class="absolute left-3 top-3 rounded-md bg-primary-600 px-2 py-1 text-xs font-medium text-white shadow"
-			>
-				<LoadingState active label="Expanding graph" minHeight="0" />
-			</div>
-		{/if}
+		<GraphCanvasState {loading} {error} {visibleNodeCount} {expanding} />
 
 		{#if menu}
 			<!-- Right-click context menu, positioned over the canvas. -->

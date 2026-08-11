@@ -535,7 +535,9 @@ describe('reduceNodeAppearance', () => {
 		hideIsolated: false,
 		selectedCode: null,
 		hovered: null,
-		hoveredNeighbors: null
+		hoveredNeighbors: null,
+		representationStatus: null,
+		showLegacyOnly: false
 	};
 
 	it('draws the center as a circle and never hides it', () => {
@@ -588,6 +590,43 @@ describe('reduceNodeAppearance', () => {
 		});
 		expect(res.color).toBeUndefined();
 	});
+
+	it('uses the legacy ring program independently of the fill-color mode', () => {
+		const res = reduceNodeAppearance({
+			...base,
+			node: 'N1',
+			representationStatus: 'legacy-precoordinated'
+		});
+
+		expect(res.type).toBe('legacy-precoordinated');
+	});
+
+	it('intersects the legacy filter with semantic-type and isolated filters', () => {
+		expect(
+			reduceNodeAppearance({
+				...base,
+				node: 'LEGACY',
+				representationStatus: 'legacy-precoordinated',
+				showLegacyOnly: true
+			}).hidden
+		).toBeUndefined();
+		expect(
+			reduceNodeAppearance({
+				...base,
+				node: 'UNASSESSED',
+				showLegacyOnly: true
+			}).hidden
+		).toBe(true);
+		expect(
+			reduceNodeAppearance({
+				...base,
+				node: 'LEGACY',
+				representationStatus: 'legacy-precoordinated',
+				showLegacyOnly: true,
+				hiddenTypes: new Set(['Gene'])
+			}).hidden
+		).toBe(true);
+	});
 });
 
 describe('reduceEdgeAppearance', () => {
@@ -603,6 +642,18 @@ describe('reduceEdgeAppearance', () => {
 
 	it('keeps an edge incident to the hovered node', () => {
 		expect(reduceEdgeAppearance({ hovered: 'A', source: 'A', target: 'B' })).toEqual({});
+	});
+
+	it('hides every edge with an endpoint hidden by the intersected filters', () => {
+		expect(
+			reduceEdgeAppearance({
+				hovered: null,
+				source: 'A',
+				target: 'B',
+				sourceHidden: true,
+				targetHidden: false
+			})
+		).toEqual({ hidden: true });
 	});
 });
 

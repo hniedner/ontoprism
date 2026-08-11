@@ -28,6 +28,7 @@ def _synthetic_neighborhood(
             "code": code,
             "label": f"Performance node {index}",
             "semantic_type": "Neoplastic Process",
+            "representation_status": None,
         }
         for index, code in enumerate(node_codes)
     ]
@@ -142,10 +143,11 @@ async def refresh_repositories() -> dict[str, object]:
 async def list_ncit(
     limit: Annotated[int, Query(ge=1)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    representation_status: str | None = None,
 ) -> dict[str, object]:
     return {
         "query": "",
-        "total": 51,
+        "total": 1 if representation_status == "legacy-precoordinated" else 51,
         "limit": limit,
         "offset": offset,
         "hits": [
@@ -154,6 +156,7 @@ async def list_ncit(
                 "label": "SSR Neoplasm",
                 "semantic_type": "Neoplastic Process",
                 "matched_synonym": None,
+                "representation_status": "legacy-precoordinated",
             }
         ],
     }
@@ -164,11 +167,12 @@ async def search_ncit(
     q: str,
     limit: Annotated[int, Query(ge=1)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    representation_status: str | None = None,
 ) -> dict[str, object]:
-    code = "CSLOW" if q == "slow" else "C4005"
+    code = "CSLOW" if q == "slow" else "C3262" if q == "neoplasm" else "C4005"
     return {
         "query": q,
-        "total": 51,
+        "total": 1 if representation_status == "legacy-precoordinated" else 51,
         "limit": limit,
         "offset": offset,
         "hits": [
@@ -177,6 +181,9 @@ async def search_ncit(
                 "label": f"SSR result for {q}",
                 "semantic_type": "Neoplastic Process",
                 "matched_synonym": None,
+                "representation_status": (
+                    "legacy-precoordinated" if code == "C3262" else None
+                ),
             }
         ],
     }
@@ -188,6 +195,20 @@ async def get_ncit_neighborhood(code: str) -> dict[str, object]:
         return _synthetic_neighborhood(code, node_count=186, edge_count=191)
     if code == "CPERF400":
         return _synthetic_neighborhood(code, node_count=400, edge_count=800)
+    if code != "C3262":
+        return {
+            "center": code,
+            "nodes": [
+                {
+                    "code": code,
+                    "label": "SSR Detail Concept",
+                    "semantic_type": "Neoplastic Process",
+                    "representation_status": None,
+                }
+            ],
+            "edges": [],
+            "truncated": False,
+        }
     return {
         "center": code,
         "nodes": [
@@ -195,9 +216,37 @@ async def get_ncit_neighborhood(code: str) -> dict[str, object]:
                 "code": code,
                 "label": "SSR Detail Concept",
                 "semantic_type": "Neoplastic Process",
-            }
+                "representation_status": "legacy-precoordinated",
+            },
+            {
+                "code": "C4005",
+                "label": "Unassessed neighbor",
+                "semantic_type": "Disease",
+                "representation_status": None,
+            },
+            {
+                "code": "C100",
+                "label": "Flagged disease neighbor",
+                "semantic_type": "Disease",
+                "representation_status": "legacy-precoordinated",
+            },
         ],
-        "edges": [],
+        "edges": [
+            {
+                "source": code,
+                "target": "C4005",
+                "relation": "subClassOf",
+                "relation_label": "is a",
+                "kind": "subClassOf",
+            },
+            {
+                "source": "C4005",
+                "target": "C100",
+                "relation": "R1",
+                "relation_label": "related to",
+                "kind": "association",
+            },
+        ],
         "truncated": False,
     }
 
@@ -226,6 +275,9 @@ async def get_ncit_concept(code: str) -> JSONResponse:
             "roles": [],
             "associations": [],
             "incoming_roles": [],
+            "representation_status": (
+                "legacy-precoordinated" if code == "C3262" else None
+            ),
         }
     )
 

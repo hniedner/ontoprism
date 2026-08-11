@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { NodeAttrs } from '$lib/graph/neighborhood-graph';
+	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 
 	interface Props {
 		selected: NodeAttrs | null;
@@ -15,6 +16,11 @@
 	<div class="mb-4">
 		<h4 class="font-semibold text-default">{selected.label}</h4>
 		<p class="mt-0.5 font-mono text-xs text-muted">{selected.code}</p>
+		{#if selected.representationStatus}
+			<div class="mt-1">
+				<RepresentationStatusBadge status={selected.representationStatus} />
+			</div>
+		{/if}
 		{#if selected.semanticType}
 			<span
 				class="mt-1 inline-block rounded-full bg-primary-50 px-2 py-0.5 text-xs text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"

@@ -36,10 +36,18 @@ class _FakeStore:
     """A hand-written NCIt store with a single known concept, C3262."""
 
     def __init__(self) -> None:
-        self.search_calls: list[tuple[str, int, int]] = []
+        self.search_calls: list[tuple[str, int, int, str | None]] = []
+        self.list_calls: list[tuple[int, int, str | None]] = []
 
-    async def search(self, q: str, *, limit: int, offset: int) -> SearchPage:
-        self.search_calls.append((q, limit, offset))
+    async def search(
+        self,
+        q: str,
+        *,
+        limit: int,
+        offset: int,
+        representation_status: str | None = None,
+    ) -> SearchPage:
+        self.search_calls.append((q, limit, offset, representation_status))
         return SearchPage(
             query=q,
             total=1,
@@ -48,7 +56,14 @@ class _FakeStore:
             hits=[SearchHit(code="C3262", label="Neoplasm", matched_synonym="tumor")],
         )
 
-    async def list_concepts(self, *, limit: int, offset: int) -> SearchPage:
+    async def list_concepts(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        representation_status: str | None = None,
+    ) -> SearchPage:
+        self.list_calls.append((limit, offset, representation_status))
         return SearchPage(
             query="",
             total=2,
@@ -88,6 +103,7 @@ class _FakeIndex:
         self._fail = fail
         self.searched = False
         self.source_identities: list[str] = []
+        self.search_calls: list[tuple[str, int, int, str | None]] = []
 
     async def is_populated(self, source_identity: str) -> bool:
         self.source_identities.append(source_identity)
@@ -95,8 +111,16 @@ class _FakeIndex:
             raise OperationalError("cache down", None, Exception())
         return self._populated
 
-    async def search(self, q: str, *, limit: int, offset: int) -> SearchPage:
+    async def search(
+        self,
+        q: str,
+        *,
+        limit: int,
+        offset: int,
+        representation_status: str | None = None,
+    ) -> SearchPage:
         self.searched = True
+        self.search_calls.append((q, limit, offset, representation_status))
         return SearchPage(
             query=q,
             total=1,
@@ -176,7 +200,7 @@ def test_search_falls_back_to_store_when_cache_empty() -> None:
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
     assert resp.status_code == 200
     # Empty cache -> the store (source of truth) answered.
-    assert store.search_calls == [("neoplasm", 25, 0)]
+    assert store.search_calls == [("neoplasm", 25, 0, None)]
     assert resp.json()["hits"][0]["label"] == "Neoplasm"
 
 
@@ -188,7 +212,50 @@ def test_search_falls_back_to_store_when_cache_errors() -> None:
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
     assert resp.status_code == 200
     # A cache failure degrades gracefully to the store rather than 500-ing.
-    assert store.search_calls == [("neoplasm", 25, 0)]
+    assert store.search_calls == [("neoplasm", 25, 0, None)]
+
+
+@pytest.mark.api
+def test_search_status_filter_flows_through_cache_and_fallback() -> None:
+    index = _FakeIndex()
+    cached = next(_client(index=index))
+    params = {
+        "q": "neoplasm",
+        "representation_status": "legacy-precoordinated",
+    }
+
+    assert cached.get("/api/v1/ncit/search", params=params).status_code == 200
+    assert index.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
+
+    store = _FakeStore()
+    fallback = next(_client(store=store, index=_FakeIndex(populated=False)))
+    assert fallback.get("/api/v1/ncit/search", params=params).status_code == 200
+    assert store.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
+
+
+@pytest.mark.api
+def test_list_status_filter_flows_to_store() -> None:
+    store = _FakeStore()
+    client = next(_client(store=store))
+
+    response = client.get(
+        "/api/v1/ncit/list",
+        params={"representation_status": "legacy-precoordinated"},
+    )
+
+    assert response.status_code == 200
+    assert store.list_calls == [(25, 0, "legacy-precoordinated")]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["/api/v1/ncit/search?q=x", "/api/v1/ncit/list"])
+def test_status_filter_rejects_unknown_values(path: str) -> None:
+    client = next(_client())
+
+    separator = "&" if "?" in path else "?"
+    response = client.get(f"{path}{separator}representation_status=atomic")
+
+    assert response.status_code == 422
 
 
 @pytest.mark.api

@@ -110,6 +110,47 @@ test('NCIt: server-loaded concept hydrates the browser-only graph explorer', asy
 	await expect(page.getByText('Network', { exact: true })).toBeVisible();
 });
 
+test('NCIt: published representation status survives browse, search, detail, and graph filters', async ({
+	page
+}) => {
+	await page.goto('/repositories/ncit');
+	await page.getByLabel('Representation status').selectOption('legacy-precoordinated');
+	await expect(page).toHaveURL(
+		'/repositories/ncit?representation_status=legacy-precoordinated'
+	);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toBeVisible();
+
+	await page.getByRole('searchbox', { name: 'Search NCIt' }).fill('neoplasm');
+	await page.getByRole('button', { name: 'Search' }).click();
+	await expect(page).toHaveURL(
+		'/repositories/ncit?representation_status=legacy-precoordinated&q=neoplasm'
+	);
+	await page.getByRole('link', { name: 'SSR result for neoplasm' }).click();
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true }).first()).toBeVisible();
+
+	const graphSearch = page.getByPlaceholder('Find node…');
+	await graphSearch.fill('C3262');
+	await graphSearch.press('Enter');
+	await expect(page.getByRole('heading', { name: 'SSR Detail Concept', level: 4 })).toBeVisible();
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+
+	await page.getByRole('button', { name: 'Semantic type' }).click();
+	await expect(page.locator('html')).toHaveClass(/dark/);
+	await page.getByRole('button', { name: 'Toggle theme' }).click();
+	await expect(page.locator('html')).not.toHaveClass(/dark/);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+	await page.getByRole('button', { name: 'Communities' }).click();
+
+	await page.getByRole('button', { name: 'Legacy pre-coordinated only' }).click();
+	await expect(page.getByText('No graph nodes match the active filters.')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Disease', exact: true }).click();
+	await expect(page.getByText('No graph nodes match the active filters.')).toHaveCount(0);
+
+	await page.goto('/repositories/ncit/C4005');
+	await page.getByRole('button', { name: 'Legacy pre-coordinated only' }).click();
+	await expect(page.getByText('No graph nodes match the active filters.')).toBeVisible();
+});
+
 test('ForceAtlas layout stays below the main-thread Long Task threshold at representative sizes', async ({
 	page
 }, testInfo) => {

@@ -47,3 +47,12 @@ def test_migration_down_revision_chain_has_no_duplicates() -> None:
         "duplicate down_revision — the migration chain has branched or a revision "
         "id collides with another migration's down_revision"
     )
+
+
+@pytest.mark.unit
+def test_migration_head_includes_ncit_representation_status() -> None:
+    modules = [_load_module(path) for path in _migration_files()]
+    referenced = {module.down_revision for module in modules}
+    heads = {module.revision for module in modules} - referenced
+
+    assert heads == {"0016_ncit_representation_status"}

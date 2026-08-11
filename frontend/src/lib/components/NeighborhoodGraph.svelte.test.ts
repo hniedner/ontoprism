@@ -10,8 +10,18 @@ vi.mock('$app/navigation', () => ({ goto: (...a: unknown[]) => goto(...a) }));
 const graph: Neighborhood = {
 	center: 'C3262',
 	nodes: [
-		{ code: 'C3262', label: 'Neoplasm', semantic_type: 'Neoplastic Process' },
-		{ code: 'C9305', label: 'Malignant Neoplasm', semantic_type: null }
+		{
+			code: 'C3262',
+			label: 'Neoplasm',
+			semantic_type: 'Neoplastic Process',
+			representation_status: 'legacy-precoordinated'
+		},
+		{
+			code: 'C9305',
+			label: 'Malignant Neoplasm',
+			semantic_type: null,
+			representation_status: null
+		}
 	],
 	edges: [
 		{
@@ -66,7 +76,14 @@ describe('NeighborhoodGraph', () => {
 		render(NeighborhoodGraph, {
 			graph: {
 				center: 'C3262',
-				nodes: [{ code: 'C3262', label: 'Neoplasm', semantic_type: null }],
+				nodes: [
+					{
+						code: 'C3262',
+						label: 'Neoplasm',
+						semantic_type: null,
+						representation_status: null
+					}
+				],
 				edges: [
 					{
 						source: 'C3262',
@@ -93,8 +110,18 @@ describe('NeighborhoodGraph', () => {
 			graph: {
 				center: 'C3262',
 				nodes: [
-					{ code: 'C3262', label: 'Neoplasm', semantic_type: null },
-					{ code: 'C9305', label: null, semantic_type: null }
+					{
+						code: 'C3262',
+						label: 'Neoplasm',
+						semantic_type: null,
+						representation_status: null
+					},
+					{
+						code: 'C9305',
+						label: null,
+						semantic_type: null,
+						representation_status: null
+					}
 				],
 				edges: [
 					{

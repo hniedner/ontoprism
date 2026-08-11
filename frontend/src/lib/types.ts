@@ -1,5 +1,7 @@
 // Types mirroring the backend NCIt read models (ontolib.terminologies.ncit.models).
 
+export type RepresentationStatus = 'legacy-precoordinated';
+
 export interface ConceptRef {
 	code: string;
 	label: string | null;
@@ -16,6 +18,7 @@ export interface ConceptDetail {
 	label: string | null;
 	preferred_name: string | null;
 	definition: string | null;
+	representation_status: RepresentationStatus | null;
 	semantic_types: string[];
 	synonyms: string[];
 	parents: ConceptRef[];
@@ -30,6 +33,7 @@ export interface SearchHit {
 	label: string | null;
 	semantic_type: string | null;
 	matched_synonym: string | null;
+	representation_status: RepresentationStatus | null;
 }
 
 export interface SearchPage {
@@ -44,6 +48,7 @@ export interface GraphNode {
 	code: string;
 	label: string | null;
 	semantic_type: string | null;
+	representation_status: RepresentationStatus | null;
 }
 
 export type EdgeKind = 'subClassOf' | 'role' | 'association' | 'cde-concept';

@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
-from ontolib.terminologies.ncit.models import SearchHit, SearchPage
+from ontolib.terminologies.ncit.models import (
+    RepresentationStatus,
+    SearchHit,
+    SearchPage,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, AsyncIterator, Sequence
@@ -53,9 +57,12 @@ if TYPE_CHECKING:
 #    is underdetermined and a tied row can appear on two pages of a LIMIT/OFFSET walk,
 #    or on none.
 _SEARCH_SQL = r"""
-    SELECT code, label, semantic_type, COUNT(*) OVER () AS total
+    SELECT code, label, semantic_type, representation_status,
+           COUNT(*) OVER () AS total
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
+      AND (CAST(:representation_status AS text) IS NULL
+           OR representation_status = CAST(:representation_status AS text))
     ORDER BY (lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC,
              ts_rank(tsv, q) DESC,
              length(label), label, code
@@ -63,12 +70,17 @@ _SEARCH_SQL = r"""
 """
 
 _UPSERT_SQL = """
-    INSERT INTO ncit_search (code, label, semantic_type, synonyms)
-    VALUES (:code, :label, :semantic_type, :synonyms)
+    INSERT INTO ncit_search (
+        code, label, semantic_type, synonyms, representation_status
+    )
+    VALUES (
+        :code, :label, :semantic_type, :synonyms, :representation_status
+    )
     ON CONFLICT (code) DO UPDATE SET
         label = EXCLUDED.label,
         semantic_type = EXCLUDED.semantic_type,
-        synonyms = EXCLUDED.synonyms
+        synonyms = EXCLUDED.synonyms,
+        representation_status = EXCLUDED.representation_status
 """
 
 _READY_SQL = """
@@ -118,13 +130,23 @@ class NcitSearchIndex:
             return bool(result.scalar_one())
 
     async def search(
-        self, query: str, *, limit: int = 25, offset: int = 0
+        self,
+        query: str,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        representation_status: RepresentationStatus | None = None,
     ) -> SearchPage:
         """Full-text search the cache; total is the full match count (one query)."""
         async with self._sf() as session:
             result = await session.execute(
                 text(_SEARCH_SQL),
-                {"q": query, "limit": limit, "offset": offset},
+                {
+                    "q": query,
+                    "limit": limit,
+                    "offset": offset,
+                    "representation_status": representation_status,
+                },
             )
             rows = result.all()
         total = int(rows[0].total) if rows else 0
@@ -134,6 +156,7 @@ class NcitSearchIndex:
                 label=row.label,
                 semantic_type=row.semantic_type,
                 matched_synonym=None,
+                representation_status=row.representation_status,
             )
             for row in rows
         ]

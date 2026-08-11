@@ -1,0 +1,6 @@
+# Published decomposition marker used by disposable-store status contracts.
+
+@prefix ncit: <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#> .
+@prefix op: <https://w3id.org/ontoprism/vocab#> .
+
+ncit:C3262 op:representationStatus "legacy-precoordinated" .
