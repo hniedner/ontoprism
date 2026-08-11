@@ -16,6 +16,52 @@ if TYPE_CHECKING:
 
 app = FastAPI()
 _requests: Counter[str] = Counter()
+_NEIGHBORHOOD_NODE_CAP = 400
+
+
+def _synthetic_neighborhood(
+    center: str, *, node_count: int, edge_count: int
+) -> dict[str, object]:
+    node_codes = [center, *(f"{center}_N{index}" for index in range(1, node_count))]
+    nodes = [
+        {
+            "code": code,
+            "label": f"Performance node {index}",
+            "semantic_type": "Neoplastic Process",
+        }
+        for index, code in enumerate(node_codes)
+    ]
+    edges: list[dict[str, str | None]] = []
+    for index in range(1, node_count):
+        edges.append(
+            {
+                "source": node_codes[index],
+                "target": node_codes[(index - 1) // 2],
+                "relation": f"RPERF{index}",
+                "relation_label": "is a",
+                "kind": "subClassOf",
+            }
+        )
+    for index in range(edge_count - len(edges)):
+        source_index = index % node_count
+        target_index = (index * 17 + 7) % node_count
+        if target_index == source_index:
+            target_index = (target_index + 1) % node_count
+        edges.append(
+            {
+                "source": node_codes[source_index],
+                "target": node_codes[target_index],
+                "relation": f"APERF{index}",
+                "relation_label": "related to",
+                "kind": "association",
+            }
+        )
+    return {
+        "center": center,
+        "nodes": nodes,
+        "edges": edges,
+        "truncated": node_count == _NEIGHBORHOOD_NODE_CAP,
+    }
 
 
 @app.middleware("http")
@@ -138,6 +184,10 @@ async def search_ncit(
 
 @app.get("/api/v1/ncit/concepts/{code}/neighborhood")
 async def get_ncit_neighborhood(code: str) -> dict[str, object]:
+    if code == "CPERF186":
+        return _synthetic_neighborhood(code, node_count=186, edge_count=191)
+    if code == "CPERF400":
+        return _synthetic_neighborhood(code, node_count=400, edge_count=800)
     return {
         "center": code,
         "nodes": [

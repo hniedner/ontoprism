@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Graph from 'graphology';
+import * as graphExplorer from './graph-explorer';
 import {
 	makeSemanticColorer,
 	nodeColorForMode,
@@ -63,16 +64,38 @@ describe('nodeColorForMode', () => {
 describe('seedPositions', () => {
 	it('assigns finite coordinates only to nodes that lack them', () => {
 		const g = graphWith([
-			['A', { x: 5, y: 7 }],
+			['A', { x: 5, y: 7, fixed: true }],
 			['B', {}]
 		]);
 		seedPositions(g);
 		// Existing coordinates are preserved.
 		expect(g.getNodeAttribute('A', 'x')).toBe(5);
 		expect(g.getNodeAttribute('A', 'y')).toBe(7);
+		expect(g.getNodeAttribute('A', 'fixed')).toBe(true);
 		// The coordinate-less node now has finite positions.
 		expect(Number.isFinite(g.getNodeAttribute('B', 'x') as number)).toBe(true);
 		expect(Number.isFinite(g.getNodeAttribute('B', 'y') as number)).toBe(true);
+	});
+
+	it('assigns stable positions from node identity rather than random state or insertion order', () => {
+		const first = graphWith([
+			['A', {}],
+			['B', {}],
+			['C', {}]
+		]);
+		const reordered = graphWith([
+			['C', {}],
+			['A', {}],
+			['B', {}]
+		]);
+
+		seedPositions(first);
+		seedPositions(reordered);
+
+		for (const node of ['A', 'B', 'C']) {
+			expect(reordered.getNodeAttribute(node, 'x')).toBe(first.getNodeAttribute(node, 'x'));
+			expect(reordered.getNodeAttribute(node, 'y')).toBe(first.getNodeAttribute(node, 'y'));
+		}
 	});
 });
 
@@ -90,6 +113,175 @@ describe('ensureFinite', () => {
 		}
 		// A finite node is untouched.
 		expect(g.getNodeAttribute('C', 'x')).toBe(1);
+	});
+});
+
+describe('forceAtlasLayoutBudget', () => {
+	it('adapts a bounded wall-clock budget to graph size and density', () => {
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'forceAtlasLayoutBudget'
+		];
+		expect(candidate).toBeTypeOf('function');
+		const budget = candidate as (nodes: number, edges: number) => { durationMs: number };
+
+		const small = budget(20, 19);
+		const reported = budget(186, 191);
+		const dense = budget(186, 600);
+		const nearCap = budget(400, 800);
+
+		expect(small.durationMs).toBeLessThan(reported.durationMs);
+		expect(dense.durationMs).toBeGreaterThan(reported.durationMs);
+		expect(nearCap.durationMs).toBeGreaterThan(dense.durationMs);
+		expect(small.durationMs).toBeGreaterThanOrEqual(250);
+		expect(nearCap.durationMs).toBeLessThanOrEqual(1_500);
+		expect(budget(186, 191)).toEqual(reported);
+	});
+});
+
+describe('TimedLayoutController', () => {
+	it('kills replaced workers and ignores stale timers before settling the current run', () => {
+		interface WorkerDouble {
+			events: string[];
+			start(): void;
+			stop(): void;
+			kill(): void;
+		}
+		interface Controller {
+			start(worker: WorkerDouble, durationMs: number, onSettled: () => void): void;
+			cancel(): void;
+			readonly running: boolean;
+		}
+		type ControllerConstructor = new (timers: {
+			schedule: (callback: () => void, delayMs: number) => number;
+			clear: (handle: number) => void;
+		}) => Controller;
+
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'TimedLayoutController'
+		];
+		expect(candidate).toBeTypeOf('function');
+		const Controller = candidate as ControllerConstructor;
+		const scheduled: Array<{ callback: () => void; delayMs: number }> = [];
+		const cleared: number[] = [];
+		const controller = new Controller({
+			schedule: (callback, delayMs) => {
+				scheduled.push({ callback, delayMs });
+				return scheduled.length;
+			},
+			clear: (handle) => cleared.push(handle)
+		});
+		const worker = (): WorkerDouble => ({
+			events: [],
+			start() {
+				this.events.push('start');
+			},
+			stop() {
+				this.events.push('stop');
+			},
+			kill() {
+				this.events.push('kill');
+			}
+		});
+		const first = worker();
+		const second = worker();
+		const settled: string[] = [];
+
+		controller.start(first, 300, () => settled.push('first'));
+		controller.start(second, 600, () => settled.push('second'));
+
+		expect(first.events).toEqual(['start', 'stop', 'kill']);
+		expect(cleared).toEqual([1]);
+		expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([300, 600]);
+		expect(controller.running).toBe(true);
+
+		// A callback already queued by the replaced run must not stop or settle the new worker.
+		scheduled[0].callback();
+		expect(second.events).toEqual(['start']);
+		expect(settled).toEqual([]);
+
+		scheduled[1].callback();
+		expect(second.events).toEqual(['start', 'stop', 'kill']);
+		expect(settled).toEqual(['second']);
+		expect(controller.running).toBe(false);
+	});
+
+	it('kills an active worker on cancellation and rejects its already-queued timer', () => {
+		let timeout: (() => void) | null = null;
+		const events: string[] = [];
+		let settled = false;
+		const controller = new graphExplorer.TimedLayoutController({
+			schedule: (callback) => {
+				timeout = callback;
+				return 1;
+			},
+			clear: () => events.push('clear')
+		});
+		controller.start(
+			{
+				start: () => events.push('start'),
+				stop: () => events.push('stop'),
+				kill: () => events.push('kill')
+			},
+			500,
+			() => (settled = true)
+		);
+
+		controller.cancel();
+		expect(events).toEqual(['start', 'clear', 'stop', 'kill']);
+		expect(controller.running).toBe(false);
+		expect(timeout).not.toBeNull();
+		(timeout as unknown as () => void)();
+		expect(settled).toBe(false);
+	});
+
+	it('kills a worker that refuses to start and preserves the startup error', () => {
+		const events: string[] = [];
+		const controller = new graphExplorer.TimedLayoutController({
+			schedule: () => {
+				throw new Error('a failed worker must not schedule a timer');
+			},
+			clear: () => events.push('clear')
+		});
+
+		expect(() =>
+			controller.start(
+				{
+					start: () => {
+						throw new Error('worker startup failed');
+					},
+					stop: () => events.push('stop'),
+					kill: () => events.push('kill')
+				},
+				500,
+				() => events.push('settled')
+			)
+		).toThrow('worker startup failed');
+		expect(events).toEqual(['kill']);
+		expect(controller.running).toBe(false);
+	});
+
+	it('kills a started worker if its stop timer cannot be scheduled', () => {
+		const events: string[] = [];
+		const controller = new graphExplorer.TimedLayoutController({
+			schedule: () => {
+				throw new Error('timer scheduling failed');
+			},
+			clear: () => events.push('clear')
+		});
+
+		expect(() =>
+			controller.start(
+				{
+					start: () => events.push('start'),
+					stop: () => events.push('stop'),
+					kill: () => events.push('kill')
+				},
+				500,
+				() => events.push('settled')
+			)
+		).toThrow('timer scheduling failed');
+		expect(events).toEqual(['start', 'stop', 'kill']);
+		expect(controller.running).toBe(false);
 	});
 });
 

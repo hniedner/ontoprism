@@ -34,6 +34,22 @@ const COMMUNITY_PALETTE = [
 	'#3d5a80'
 ];
 
+function identityUnitInterval(identity: string, salt: number): number {
+	let hash = (2166136261 ^ salt) >>> 0;
+	for (let index = 0; index < identity.length; index += 1) {
+		hash ^= identity.charCodeAt(index);
+		hash = Math.imul(hash, 16777619) >>> 0;
+	}
+	return hash / 0xffffffff;
+}
+
+/** A deterministic radial seed derived only from node identity. */
+export function seededNodePosition(identity: string): { x: number; y: number } {
+	const angle = identityUnitInterval(identity, 0x9e3779b9) * 2 * Math.PI;
+	const radius = 0.5 + identityUnitInterval(identity, 0x85ebca6b);
+	return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+}
+
 export interface NodeAttrs {
 	label: string;
 	code: string;
@@ -71,16 +87,15 @@ export function mergeNeighborhood(
 				graph.setNodeAttribute(node.code, 'semanticType', node.semantic_type);
 		} else {
 			// Seed a position at creation so sigma never renders a coordinate-less
-			// node (it throws); the force layout overwrites these immediately after.
-			const angle = Math.random() * 2 * Math.PI;
-			const r = 0.5 + Math.random();
+			// node (it throws); identity stability keeps replacement layouts reproducible.
+			const position = seededNodePosition(node.code);
 			graph.addNode(node.code, {
 				label: node.label ?? node.code,
 				code: node.code,
 				semanticType: node.semantic_type,
 				expanded: false,
-				x: Math.cos(angle) * r,
-				y: Math.sin(angle) * r
+				x: position.x,
+				y: position.y
 			} satisfies NodeAttrs);
 			added += 1;
 		}

@@ -7,7 +7,8 @@
 	import { EdgeCurvedArrowProgram } from '@sigma/edge-curve';
 	import { downloadAsImage } from '@sigma/export-image';
 	import forceAtlas2 from 'graphology-layout-forceatlas2';
-	import noverlap from 'graphology-layout-noverlap';
+	import ForceAtlas2LayoutSupervisor from 'graphology-layout-forceatlas2/worker';
+	import NoverlapLayoutSupervisor from 'graphology-layout-noverlap/worker';
 	import type Graph from 'graphology';
 	import { getNeighborhood } from '$lib/api';
 	import type { Neighborhood } from '$lib/types';
@@ -28,7 +29,10 @@
 		neighborSet,
 		findNode,
 		reduceNodeAppearance,
-		reduceEdgeAppearance
+		reduceEdgeAppearance,
+		forceAtlasLayoutBudget,
+		TimedLayoutController,
+		type LayoutWorker
 	} from '$lib/graph/graph-explorer';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
 	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
@@ -72,8 +76,10 @@
 	let menuEl = $state<HTMLDivElement | null>(null);
 	let semanticTypes = $state<string[]>([]);
 	let showMinimap = $state(true);
+	let layoutRunning = $state(false);
 	// Bumped after any graph mutation so the minimap redraws.
 	let graphVersion = $state(0);
+	const layoutController = new TimedLayoutController();
 
 	// Session-stable semantic-type colorer (read inside the sigma reducer, not markup).
 	const semanticColorer = makeSemanticColorer();
@@ -83,10 +89,14 @@
 	}
 
 	function runLayout(g: Graph) {
+		layoutController.cancel();
+		layoutRunning = false;
 		seedPositions(g);
+		ensureFinite(g);
+
+		let worker: LayoutWorker | null = null;
 		if (g.size > 0 && layoutMode === 'forceatlas2') {
-			forceAtlas2.assign(g, {
-				iterations: 220,
+			worker = new ForceAtlas2LayoutSupervisor(g, {
 				settings: {
 					...forceAtlas2.inferSettings(g),
 					gravity: 1.4,
@@ -96,12 +106,24 @@
 			});
 		}
 		if (g.order > 0 && layoutMode === 'noverlap') {
-			// Spread first (a coordinate-less graph collapses to the origin), then remove
-			// node overlaps — a compact, grid-like alternative to the force layout.
-			forceAtlas2.assign(g, { iterations: 60, settings: forceAtlas2.inferSettings(g) });
-			noverlap.assign(g, { maxIterations: 120, settings: { margin: 4, ratio: 1.2 } });
+			worker = new NoverlapLayoutSupervisor(g, { settings: { margin: 4, ratio: 1.2 } });
 		}
-		ensureFinite(g);
+		if (!worker) return;
+
+		const { durationMs } = forceAtlasLayoutBudget(g.order, g.size);
+		try {
+			layoutController.start(worker, durationMs, () => {
+				layoutRunning = layoutController.running;
+				if (g !== graph) return;
+				ensureFinite(g);
+				graphVersion += 1;
+				sigma?.refresh();
+			});
+			layoutRunning = layoutController.running;
+		} catch (reason) {
+			layoutRunning = false;
+			throw reason;
+		}
 	}
 
 	function restyle(g: Graph) {
@@ -133,9 +155,11 @@
 		error = null; // a prior transient error must not stick across expansions
 		try {
 			const nb = await getNeighborhood(target);
+			layoutController.cancel();
+			layoutRunning = false;
 			mergeNeighborhood(graph, nb);
-			runLayout(graph);
 			refreshStats(graph);
+			runLayout(graph);
 			sigma?.refresh();
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -251,7 +275,7 @@
 		try {
 			const nb = initial ?? (await getNeighborhood(code));
 			mergeNeighborhood(graph, nb);
-			runLayout(graph);
+			seedPositions(graph);
 			refreshStats(graph);
 
 			sigma = new Sigma(graph, container, {
@@ -265,7 +289,12 @@
 			});
 			setupReducers(sigma);
 			setupInteractions(sigma);
+			runLayout(graph);
 		} catch (err) {
+			layoutController.cancel();
+			layoutRunning = false;
+			sigma?.kill();
+			sigma = null;
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
 			loading = false;
@@ -296,9 +325,13 @@
 
 	function relayout() {
 		if (!graph) return;
-		runLayout(graph);
-		sigma?.refresh();
-		fit();
+		error = null;
+		try {
+			runLayout(graph);
+			sigma?.refresh();
+		} catch (reason) {
+			error = reason instanceof Error ? reason.message : String(reason);
+		}
 	}
 
 	function applyLayout(mode: 'forceatlas2' | 'noverlap') {
@@ -367,6 +400,8 @@
 	});
 
 	onDestroy(() => {
+		layoutController.cancel();
+		layoutRunning = false;
 		sigma?.kill();
 		sigma = null;
 	});
@@ -464,7 +499,11 @@
 
 	<div class="relative flex" style:height={fullscreen ? 'calc(100vh - 8rem)' : height}>
 		<!-- Canvas -->
-		<div bind:this={container} class="graph-canvas relative flex-1"></div>
+		<div
+			bind:this={container}
+			class="graph-canvas relative flex-1"
+			aria-busy={layoutRunning}
+		></div>
 
 		{#if !loading && showMinimap && sigma && graph}
 			<GraphMinimap {graph} {sigma} version={graphVersion} />

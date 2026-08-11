@@ -108,6 +108,36 @@ describe('mergeNeighborhood', () => {
 		});
 	});
 
+	it('uses node identity for stable starting positions across payload order', () => {
+		const first = createGraph();
+		const reordered = createGraph();
+		mergeNeighborhood(
+			first,
+			nb({
+				center: 'C1',
+				nodes: [
+					{ code: 'C1', label: 'A', semantic_type: null },
+					{ code: 'C2', label: 'B', semantic_type: null }
+				]
+			})
+		);
+		mergeNeighborhood(
+			reordered,
+			nb({
+				center: 'C1',
+				nodes: [
+					{ code: 'C2', label: 'B', semantic_type: null },
+					{ code: 'C1', label: 'A', semantic_type: null }
+				]
+			})
+		);
+
+		for (const node of ['C1', 'C2']) {
+			expect(reordered.getNodeAttribute(node, 'x')).toBe(first.getNodeAttribute(node, 'x'));
+			expect(reordered.getNodeAttribute(node, 'y')).toBe(first.getNodeAttribute(node, 'y'));
+		}
+	});
+
 	it('falls back to the code as label for a node with no label', () => {
 		const g = createGraph();
 		mergeNeighborhood(g, nb({ center: 'C1', nodes: [{ code: 'C1', label: null, semantic_type: null }] }));

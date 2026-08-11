@@ -8,9 +8,28 @@
  * appearance rules (the sigma reducers), node search, and the minimap projection.
  */
 import type Graph from 'graphology';
-import { communityColor, type NodeAttrs } from '$lib/graph/neighborhood-graph';
+import {
+	communityColor,
+	seededNodePosition,
+	type NodeAttrs
+} from '$lib/graph/neighborhood-graph';
 
 export type ColorMode = 'community' | 'semantic';
+
+export interface ForceAtlasLayoutBudget {
+	durationMs: number;
+}
+
+export interface LayoutWorker {
+	start(): void;
+	stop(): void;
+	kill(): void;
+}
+
+export interface LayoutTimers<Handle> {
+	schedule(callback: () => void, delayMs: number): Handle;
+	clear(handle: Handle): void;
+}
 
 /** Fallback color for a node with no semantic type. */
 const NO_TYPE_COLOR = '#94a3b8';
@@ -27,6 +46,85 @@ const SEMANTIC_PALETTE = [
 	'#d1495b',
 	'#4c956c'
 ];
+
+/**
+ * Return a bounded wall-clock budget for the worker layout.
+ *
+ * Larger and denser graphs get more settling time, while the hard cap keeps a
+ * replacement or navigation from retaining a worker indefinitely.
+ */
+export function forceAtlasLayoutBudget(nodeCount: number, edgeCount: number): ForceAtlasLayoutBudget {
+	const nodes = Math.max(0, Math.floor(nodeCount));
+	const edges = Math.max(0, Math.floor(edgeCount));
+	const boundedEdges = Math.min(edges, nodes * 4);
+	return {
+		durationMs: Math.min(1_500, Math.max(250, Math.round(250 + nodes * 2 + boundedEdges / 2)))
+	};
+}
+
+const BROWSER_LAYOUT_TIMERS: LayoutTimers<ReturnType<typeof setTimeout>> = {
+	schedule: (callback, delayMs) => setTimeout(callback, delayMs),
+	clear: (handle) => clearTimeout(handle)
+};
+
+/** Own one timed worker run and make replacement/destruction cancellation explicit. */
+export class TimedLayoutController<Handle = ReturnType<typeof setTimeout>> {
+	private worker: LayoutWorker | null = null;
+	private timer: Handle | null = null;
+	private generation = 0;
+
+	constructor(
+		private readonly timers: LayoutTimers<Handle> = BROWSER_LAYOUT_TIMERS as LayoutTimers<Handle>
+	) {}
+
+	get running(): boolean {
+		return this.worker !== null;
+	}
+
+	start(worker: LayoutWorker, durationMs: number, onSettled: () => void): void {
+		this.cancel();
+		const generation = this.generation;
+		this.worker = worker;
+		try {
+			worker.start();
+		} catch (error) {
+			this.worker = null;
+			worker.kill();
+			throw error;
+		}
+		try {
+			this.timer = this.timers.schedule(() => {
+				if (generation !== this.generation || worker !== this.worker) return;
+				this.worker = null;
+				this.timer = null;
+				this.terminate(worker);
+				onSettled();
+			}, durationMs);
+		} catch (error) {
+			this.worker = null;
+			this.timer = null;
+			this.terminate(worker);
+			throw error;
+		}
+	}
+
+	cancel(): void {
+		this.generation += 1;
+		if (this.timer !== null) this.timers.clear(this.timer);
+		this.timer = null;
+		const worker = this.worker;
+		this.worker = null;
+		if (worker) this.terminate(worker);
+	}
+
+	private terminate(worker: LayoutWorker): void {
+		try {
+			worker.stop();
+		} finally {
+			worker.kill();
+		}
+	}
+}
 
 /**
  * A stateful semantic-type → color mapper: colors are assigned from the palette in
@@ -59,14 +157,13 @@ export function nodeColorForMode(
 		: semanticColorer(attrs.semanticType);
 }
 
-/** Give every coordinate-less node a random position so a layout has a starting point. */
+/** Give every coordinate-less node an identity-stable position for layout startup. */
 export function seedPositions(graph: Graph): void {
 	graph.forEachNode((n, attrs) => {
 		if (typeof attrs.x !== 'number' || typeof attrs.y !== 'number') {
-			const angle = Math.random() * 2 * Math.PI;
-			const r = 0.5 + Math.random();
-			graph.setNodeAttribute(n, 'x', Math.cos(angle) * r);
-			graph.setNodeAttribute(n, 'y', Math.sin(angle) * r);
+			const position = seededNodePosition(n);
+			graph.setNodeAttribute(n, 'x', position.x);
+			graph.setNodeAttribute(n, 'y', position.y);
 		}
 	});
 }
@@ -75,9 +172,9 @@ export function seedPositions(graph: Graph): void {
 export function ensureFinite(graph: Graph): void {
 	graph.forEachNode((n, attrs) => {
 		if (!Number.isFinite(attrs.x as number) || !Number.isFinite(attrs.y as number)) {
-			const angle = Math.random() * 2 * Math.PI;
-			graph.setNodeAttribute(n, 'x', Math.cos(angle));
-			graph.setNodeAttribute(n, 'y', Math.sin(angle));
+			const position = seededNodePosition(n);
+			graph.setNodeAttribute(n, 'x', position.x);
+			graph.setNodeAttribute(n, 'y', position.y);
 		}
 	});
 }
