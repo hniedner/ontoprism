@@ -1,6 +1,7 @@
 """NcitGraphStore assembly logic against a real local stub server (CI-runnable)."""
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.terminologies.ncit.graph_store import (
     _MAX_NEIGHBORHOOD_NODES,
@@ -54,11 +55,185 @@ class _DefinedHierarchyClient:
         return []
 
 
+class _StatusClient:
+    def __init__(self, *, status: str | None = None) -> None:
+        self.queries: list[str] = []
+        self.status = status
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if "SELECT ?label ?pref ?def" in query:
+            row = {"label": "Legacy concept"}
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        if "COUNT(DISTINCT ?concept)" in query:
+            return [{"count": "1"}]
+        if "SAMPLE(?synValue) AS ?syn" in query:
+            row = {
+                "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                "label": "Legacy concept",
+            }
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        if "GROUP_CONCAT(DISTINCT" in query and "?synonyms" in query:
+            row = {
+                "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                "label": "Legacy concept",
+                "synonyms": "Legacy concept",
+            }
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        if "SELECT ?concept ?label" in query and "SAMPLE(?semtypeValue)" in query:
+            row = {
+                "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                "label": "Legacy concept",
+            }
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        return []
+
+
+class _NeighborhoodStatusClient:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if "VALUES ?concept" in query and "representationStatus" in query:
+            return [
+                {
+                    "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                    "representationStatus": "legacy-precoordinated",
+                }
+            ]
+        return []
+
+
 @pytest.mark.unit
 def test_rel_returns_none_when_rel_or_target_missing() -> None:
     assert _rel(None, "label", "http://ncit#C1", "Target") is None
     assert _rel("http://ncit#R1", "rel", None, "Target") is None
     assert _rel("http://ncit#R1", "rel", "http://ncit#C1", "Target") is not None
+
+
+@pytest.mark.unit
+def test_representation_status_is_nullable_but_closed_to_published_value() -> None:
+    detail = ConceptDetail.model_validate(
+        {"code": "C1", "representation_status": "legacy-precoordinated"}
+    )
+
+    assert detail.representation_status == "legacy-precoordinated"
+    assert ConceptDetail(code="C2").representation_status is None
+    with pytest.raises(ValidationError):
+        ConceptDetail.model_validate(
+            {"code": "C3", "representation_status": "not-precoordinated"}
+        )
+
+
+@pytest.mark.unit
+async def test_detail_reads_published_representation_status_or_none() -> None:
+    flagged_client = _StatusClient(status="legacy-precoordinated")
+    unassessed_client = _StatusClient()
+
+    flagged = await NcitGraphStore(flagged_client).get_concept_detail("C1")  # type: ignore[arg-type]
+    unassessed = await NcitGraphStore(unassessed_client).get_concept_detail("C2")  # type: ignore[arg-type]
+
+    assert flagged is not None
+    assert flagged.representation_status == "legacy-precoordinated"
+    assert unassessed is not None
+    assert unassessed.representation_status is None
+    metadata_query = flagged_client.queries[0]
+    assert "Thesaurus-decomposed.owl" in metadata_query
+    assert "representationStatus" in metadata_query
+
+
+@pytest.mark.unit
+async def test_search_filters_status_before_pagination_and_returns_filtered_total() -> (
+    None
+):
+    client = _StatusClient(status="legacy-precoordinated")
+
+    page = await NcitGraphStore(client).search(  # type: ignore[arg-type]
+        "legacy", limit=10, offset=20, representation_status="legacy-precoordinated"
+    )
+
+    assert page.total == 1
+    assert [hit.representation_status for hit in page.hits] == ["legacy-precoordinated"]
+    page_query = next(query for query in client.queries if "SAMPLE(?synValue)" in query)
+    count_query = next(query for query in client.queries if "COUNT(DISTINCT" in query)
+    assert page_query.index("representationStatus") < page_query.index("LIMIT 10")
+    assert '"legacy-precoordinated"' in page_query
+    assert '"legacy-precoordinated"' in count_query
+    assert "ORDER BY ?concept LIMIT 10 OFFSET 20" in page_query
+
+
+@pytest.mark.unit
+async def test_list_filters_status_before_pagination_with_distinct_total_cache() -> (
+    None
+):
+    client = _StatusClient(status="legacy-precoordinated")
+    store = NcitGraphStore(client)  # type: ignore[arg-type]
+
+    unfiltered = await store.list_concepts(limit=25, offset=0)
+    flagged = await store.list_concepts(
+        limit=5, offset=25, representation_status="legacy-precoordinated"
+    )
+
+    assert unfiltered.total == 1
+    assert flagged.total == 1
+    assert flagged.hits[0].representation_status == "legacy-precoordinated"
+    page_query = next(query for query in client.queries if "LIMIT 5 OFFSET 25" in query)
+    assert page_query.index("representationStatus") < page_query.index("LIMIT 5")
+    count_queries = [query for query in client.queries if "COUNT(DISTINCT" in query]
+    assert len(count_queries) == 2
+    assert "representationStatus" not in count_queries[0]
+    assert "representationStatus" in count_queries[1]
+
+
+@pytest.mark.unit
+async def test_search_records_include_nullable_representation_status() -> None:
+    client = _StatusClient(status="legacy-precoordinated")
+
+    records = await NcitGraphStore(client).search_records(limit=100, offset=0)  # type: ignore[arg-type]
+
+    assert records[0]["representation_status"] == "legacy-precoordinated"
+    query = client.queries[0]
+    assert "Thesaurus-decomposed.owl" in query
+    assert "representationStatus" in query
+
+
+@pytest.mark.unit
+async def test_neighborhood_reads_statuses_once_for_completed_node_batch() -> None:
+    center = ConceptDetail(
+        code="C1", label="Center", parents=[ConceptRef(code="C2", label="Parent")]
+    )
+
+    include_status_values: list[bool] = []
+
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
+        include_status_values.append(include_representation_status)
+        return center if code == "C1" else None
+
+    client = _NeighborhoodStatusClient()
+    store = NcitGraphStore(client)  # type: ignore[arg-type]
+    store.get_concept_detail = detail  # type: ignore[method-assign]
+
+    graph = await store.get_neighborhood("C1")
+
+    statuses = {node.code: node.representation_status for node in graph.nodes}
+    assert statuses == {"C1": "legacy-precoordinated", "C2": None}
+    status_queries = [q for q in client.queries if "representationStatus" in q]
+    assert len(status_queries) == 1
+    assert "VALUES ?concept" in status_queries[0]
+    assert "C1" in status_queries[0]
+    assert "C2" in status_queries[0]
+    assert include_status_values == [False]
 
 
 @pytest.mark.unit
@@ -225,7 +400,9 @@ async def test_neighborhood_expands_hierarchy_before_high_fanout_roles(
         ],
     )
 
-    async def detail(code: str) -> ConceptDetail | None:
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
         return {"C999": center, "C900": parent, "C000": fanout}.get(code)
 
     async with SparqlHttpClient(ncit_stub_url) as client:
@@ -259,7 +436,9 @@ async def test_neighborhood_cap_is_independent_of_store_result_order(
     async def graph_for(parents: list[ConceptRef]):
         detail = ConceptDetail(code="CROOT", label="Root", parents=parents)
 
-        async def only_center(code: str) -> ConceptDetail | None:
+        async def only_center(
+            code: str, *, include_representation_status: bool = True
+        ) -> ConceptDetail | None:
             return detail if code == "CROOT" else None
 
         async with SparqlHttpClient(ncit_stub_url) as client:
@@ -285,7 +464,9 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
         parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(over_cap)],
     )
 
-    async def only_center(code: str) -> ConceptDetail | None:
+    async def only_center(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
         return dense if code == "C1" else None
 
     async with SparqlHttpClient(ncit_stub_url) as client:
@@ -303,7 +484,9 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
 async def test_neighborhood_unknown_center_returns_empty(
     ncit_stub_url: str,
 ) -> None:
-    async def _none_for_any(_code: str) -> None:
+    async def _none_for_any(
+        _code: str, *, include_representation_status: bool = True
+    ) -> None:
         return None
 
     async with SparqlHttpClient(ncit_stub_url) as client:
@@ -330,7 +513,9 @@ async def test_neighborhood_skips_already_expanded(ncit_stub_url: str) -> None:
         ],
     )
 
-    async def detail(code: str) -> ConceptDetail | None:
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
         if code == "C1":
             return center
         return ConceptDetail(code=code, label=code, parents=[])
@@ -356,7 +541,9 @@ async def test_neighborhood_skips_missing_neighbor(ncit_stub_url: str) -> None:
         children=[ConceptRef(code="C2", label="Child")],
     )
 
-    async def detail(code: str) -> ConceptDetail | None:
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
         if code == "C1":
             return center
         if code == "P2":
@@ -447,7 +634,9 @@ async def test_neighborhood_truncated_when_cap_filled_exactly(
         parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(exact)],
     )
 
-    async def detail(code: str) -> ConceptDetail:
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail:
         return center if code == "C1" else ConceptDetail(code=code, label=code)
 
     async with SparqlHttpClient(ncit_stub_url) as client:

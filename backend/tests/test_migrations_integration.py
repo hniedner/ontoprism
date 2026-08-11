@@ -93,6 +93,21 @@ async def _schema_facts(dsn: str) -> dict[str, Any]:
                     "WHERE table_name = 'ncit_search_manifest'"
                 )
             },
+            "search_columns": {
+                row["column_name"]: row["data_type"]
+                for row in await conn.fetch(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_name = 'ncit_search'"
+                )
+            },
+            "search_checks": [
+                row["definition"]
+                for row in await conn.fetch(
+                    "SELECT pg_get_constraintdef(oid) AS definition "
+                    "FROM pg_constraint WHERE conrelid = "
+                    "'ncit_search'::regclass AND contype = 'c'"
+                )
+            ],
             "staging_primary_key": await conn.fetchval(
                 "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
                 "WHERE conrelid = 'embedding_corpus_staging'::regclass "
@@ -500,6 +515,16 @@ def _assert_embedding_schema(facts: dict[str, Any]) -> None:
         "row_count": "bigint",
         "built_at": "timestamp with time zone",
     }
+    assert facts["search_columns"] == {
+        "code": "text",
+        "label": "text",
+        "semantic_type": "text",
+        "synonyms": "text",
+        "tsv": "tsvector",
+        "representation_status": "text",
+    }
+    search_checks = " ".join(facts["search_checks"])
+    assert "representation_status = 'legacy-precoordinated'::text" in search_checks
     assert facts["staging_primary_key"] == "PRIMARY KEY (build_id, doc_id)"
     active_index = facts["active_index"] or ""
     assert "UNIQUE" in active_index
@@ -577,7 +602,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0015_source_manifests"
+    assert revision == "0016_ncit_representation_status"
     assert legacy_rows == 1
     assert publication_tables == 2
 

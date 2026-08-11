@@ -1,6 +1,10 @@
 """Read models for the NCIt repository (pydantic, serialized directly by the API)."""
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+RepresentationStatus = Literal["legacy-precoordinated"]
 
 
 class ConceptRef(BaseModel):
@@ -34,6 +38,7 @@ class ConceptDetail(BaseModel):
     label: str | None = None
     preferred_name: str | None = None
     definition: str | None = None
+    representation_status: RepresentationStatus | None = None
     semantic_types: list[str] = []
     synonyms: list[str] = []
     parents: list[ConceptRef] = []
@@ -58,6 +63,7 @@ class SearchHit(BaseModel):
     label: str | None = None
     semantic_type: str | None = None
     matched_synonym: str | None = None
+    representation_status: RepresentationStatus | None = None
 
 
 class SearchPage(BaseModel):
@@ -76,6 +82,7 @@ class GraphNode(BaseModel):
     code: str
     label: str | None = None
     semantic_type: str | None = None
+    representation_status: RepresentationStatus | None = None
 
 
 class GraphEdge(BaseModel):

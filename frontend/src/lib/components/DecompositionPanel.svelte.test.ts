@@ -58,7 +58,7 @@ describe('DecompositionPanel', () => {
 			constituents: []
 		});
 		render(DecompositionPanel, { code: 'C3262' });
-		await screen.findByText(/Not decomposed/);
+		await screen.findByText('No published decomposition is available.');
 		expect(mock).toHaveBeenCalledWith('C3262');
 	});
 
@@ -66,7 +66,7 @@ describe('DecompositionPanel', () => {
 		mock.mockResolvedValue(decomposed);
 		render(DecompositionPanel, { code: 'C6135' });
 
-		expect(await screen.findByText('legacy pre-coordinated')).toBeInTheDocument();
+		expect(await screen.findByText('Legacy pre-coordinated')).toBeInTheDocument();
 		// Axes shown; fillers link to their own concept pages.
 		expect(screen.getByText('R88')).toBeInTheDocument();
 		expect(screen.getByText('R101')).toBeInTheDocument();
@@ -76,7 +76,7 @@ describe('DecompositionPanel', () => {
 		expect(screen.getByText('leaf')).toBeInTheDocument();
 	});
 
-	it('shows a not-decomposed message for an atomic concept', async () => {
+	it('does not infer atomicity from a missing published marker', async () => {
 		mock.mockResolvedValue({
 			code: 'C12400',
 			is_legacy_precoordinated: false,
@@ -84,8 +84,9 @@ describe('DecompositionPanel', () => {
 			constituents: []
 		});
 		render(DecompositionPanel, { code: 'C12400' });
-		expect(await screen.findByText(/already atomic/)).toBeInTheDocument();
-		expect(screen.queryByText('legacy pre-coordinated')).not.toBeInTheDocument();
+		expect(await screen.findByText('No published decomposition is available.')).toBeInTheDocument();
+		expect(screen.queryByText('Legacy pre-coordinated')).not.toBeInTheDocument();
+		expect(screen.queryByText(/atomic|not pre-coordinated/i)).not.toBeInTheDocument();
 	});
 
 	it('shows the unavailable state when the fetch fails', async () => {
@@ -117,7 +118,7 @@ describe('DecompositionPanel', () => {
 		} as unknown as ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
 		// Legacy badge shown, null constituents treated as empty list → no error.
-		expect(await screen.findByText('legacy pre-coordinated')).toBeInTheDocument();
+		expect(await screen.findByText('Legacy pre-coordinated')).toBeInTheDocument();
 	});
 
 	it('uses the axis label when present and falls back to the code for an unlabeled filler', async () => {

@@ -10,7 +10,7 @@
 import Graph from 'graphology';
 import louvain from 'graphology-communities-louvain';
 import betweenness from 'graphology-metrics/centrality/betweenness';
-import type { EdgeKind, Neighborhood } from '$lib/types';
+import type { EdgeKind, Neighborhood, RepresentationStatus } from '$lib/types';
 
 /** Edge color by ontological kind — reused by the legend. */
 export const KIND_COLOR: Record<EdgeKind, string> = {
@@ -54,6 +54,7 @@ export interface NodeAttrs {
 	label: string;
 	code: string;
 	semanticType: string | null;
+	representationStatus: RepresentationStatus | null;
 	/** Present after `assignAnalytics`. */
 	community?: number;
 	degree?: number;
@@ -85,6 +86,12 @@ export function mergeNeighborhood(
 			if (node.label) graph.setNodeAttribute(node.code, 'label', node.label);
 			if (node.semantic_type)
 				graph.setNodeAttribute(node.code, 'semanticType', node.semantic_type);
+			if (node.representation_status)
+				graph.setNodeAttribute(
+					node.code,
+					'representationStatus',
+					node.representation_status
+				);
 		} else {
 			// Seed a position at creation so sigma never renders a coordinate-less
 			// node (it throws); identity stability keeps replacement layouts reproducible.
@@ -93,6 +100,7 @@ export function mergeNeighborhood(
 				label: node.label ?? node.code,
 				code: node.code,
 				semanticType: node.semantic_type,
+				representationStatus: node.representation_status,
 				expanded: false,
 				x: position.x,
 				y: position.y

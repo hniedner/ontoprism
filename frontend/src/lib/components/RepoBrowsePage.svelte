@@ -24,6 +24,7 @@
 		browseTitle: string;
 		countLabel: (total: number, mode: 'browse' | 'search') => string;
 		results: Snippet<[H[]]>;
+		filters?: Snippet;
 		initial: { result: P; query: string; offset: number };
 	}
 
@@ -39,6 +40,7 @@
 		browseTitle,
 		countLabel,
 		results,
+		filters,
 		initial
 	}: Props = $props();
 
@@ -90,6 +92,10 @@
 		load(0, term);
 	}}
 />
+
+{#if filters}
+	{@render filters()}
+{/if}
 
 <RepoResultsCard title={resultTitle} countLabel={label} {loading} error={null}>
 	{@render results(initial.result.hits)}

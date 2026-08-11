@@ -8,6 +8,7 @@
  * appearance rules (the sigma reducers), node search, and the minimap projection.
  */
 import type Graph from 'graphology';
+import type { RepresentationStatus } from '$lib/types';
 import {
 	communityColor,
 	seededNodePosition,
@@ -363,6 +364,23 @@ export interface NodeAppearance {
 	type?: string;
 }
 
+export function nodeHiddenByFilters(opts: {
+	isCenter: boolean;
+	semanticType: string | null;
+	degree: number;
+	hiddenTypes: ReadonlySet<string>;
+	hideIsolated: boolean;
+	representationStatus: RepresentationStatus | null;
+	showLegacyOnly: boolean;
+}): boolean {
+	if (opts.showLegacyOnly && opts.representationStatus !== 'legacy-precoordinated') {
+		return true;
+	}
+	if (opts.isCenter) return false;
+	if (opts.semanticType && opts.hiddenTypes.has(opts.semanticType)) return true;
+	return opts.hideIsolated && opts.degree === 0;
+}
+
 /**
  * Decide a node's sigma appearance overrides. Mirrors the interactive rules: the
  * center is always shown (and drawn as a circle); nodes of a hidden semantic type or
@@ -379,14 +397,28 @@ export function reduceNodeAppearance(opts: {
 	selectedCode: string | null;
 	hovered: string | null;
 	hoveredNeighbors: ReadonlySet<string> | null;
+	representationStatus: RepresentationStatus | null;
+	showLegacyOnly: boolean;
 }): NodeAppearance {
 	const res: NodeAppearance = {};
 	const isCenter = opts.node === opts.centerCode;
-	if (isCenter) res.type = 'circle';
-	if (!isCenter) {
-		if (opts.semanticType && opts.hiddenTypes.has(opts.semanticType)) res.hidden = true;
-		if (opts.hideIsolated && opts.degree === 0) res.hidden = true;
+	if (opts.representationStatus === 'legacy-precoordinated') {
+		res.type = 'legacy-precoordinated';
+	} else if (isCenter) {
+		res.type = 'circle';
 	}
+	if (
+		nodeHiddenByFilters({
+			isCenter,
+			semanticType: opts.semanticType,
+			degree: opts.degree,
+			hiddenTypes: opts.hiddenTypes,
+			hideIsolated: opts.hideIsolated,
+			representationStatus: opts.representationStatus,
+			showLegacyOnly: opts.showLegacyOnly
+		})
+	)
+		res.hidden = true;
 	if (opts.selectedCode && opts.node === opts.selectedCode) res.highlighted = true;
 	if (opts.hovered && opts.hoveredNeighbors && !opts.hoveredNeighbors.has(opts.node)) {
 		res.color = DIMMED_COLOR;
@@ -400,7 +432,10 @@ export function reduceEdgeAppearance(opts: {
 	hovered: string | null;
 	source: string;
 	target: string;
+	sourceHidden?: boolean;
+	targetHidden?: boolean;
 }): { hidden?: boolean } {
+	if (opts.sourceHidden || opts.targetHidden) return { hidden: true };
 	if (opts.hovered && opts.source !== opts.hovered && opts.target !== opts.hovered) {
 		return { hidden: true };
 	}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { ConceptDetail } from '$lib/types';
+	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 
 	let { detail }: { detail: ConceptDetail } = $props();
 </script>
@@ -9,6 +10,9 @@
 	<h1 class="text-2xl font-semibold text-default">{detail.label ?? detail.code}</h1>
 	<div class="mt-2 flex flex-wrap items-center gap-2">
 		<span class="rounded bg-subtle px-2 py-0.5 font-mono text-xs text-secondary">{detail.code}</span>
+		{#if detail.representation_status}
+			<RepresentationStatusBadge status={detail.representation_status} />
+		{/if}
 		{#each detail.semantic_types as semanticType (semanticType)}
 			<span
 				class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"

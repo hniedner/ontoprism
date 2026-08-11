@@ -2,15 +2,20 @@
 	import { resolve } from '$app/paths';
 	import type { SearchHit } from '$lib/types';
 	import { nextDir, sortBy, type SortDir } from '$lib/sort';
+	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 
 	let { hits }: { hits: SearchHit[] } = $props();
 
-	type Col = 'code' | 'label' | 'semantic_type';
+	type Col = 'code' | 'label' | 'semantic_type' | 'representation_status';
 	let sortKey = $state<Col>('label');
 	let sortDir = $state<SortDir>('asc');
 
-	const value = (h: SearchHit, k: Col): string | null =>
-		k === 'code' ? h.code : k === 'label' ? h.label : h.semantic_type;
+	const value = (h: SearchHit, k: Col): string | null => {
+		if (k === 'code') return h.code;
+		if (k === 'label') return h.label;
+		if (k === 'semantic_type') return h.semantic_type;
+		return h.representation_status;
+	};
 
 	let sorted = $derived(sortBy(hits, (h) => value(h, sortKey), sortDir));
 
@@ -59,6 +64,15 @@
 						Semantic type <span class="text-subtle">{arrow('semantic_type')}</span>
 					</button>
 				</th>
+				<th class={th}>
+					<button
+						type="button"
+						class="inline-flex items-center gap-1 hover:text-default"
+						onclick={() => toggle('representation_status')}
+					>
+						Status <span class="text-subtle">{arrow('representation_status')}</span>
+					</button>
+				</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -83,6 +97,13 @@
 					<td class="px-4 py-2.5 align-top text-muted">
 						{#if hit.semantic_type}
 							<span class="whitespace-nowrap">{hit.semantic_type}</span>
+						{:else}
+							—
+						{/if}
+					</td>
+					<td class="px-4 py-2.5 align-top text-muted">
+						{#if hit.representation_status}
+							<RepresentationStatusBadge status={hit.representation_status} />
 						{:else}
 							—
 						{/if}

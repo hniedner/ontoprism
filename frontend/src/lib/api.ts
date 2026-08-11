@@ -9,6 +9,7 @@ import type {
 	ConceptDetail,
 	ConceptMappings,
 	Neighborhood,
+	RepresentationStatus,
 	RefreshReport,
 	SearchPage,
 	SimilarCde,
@@ -83,24 +84,42 @@ export async function postJsonBody<T>(
 
 export function searchNcit(
 	q: string,
-	opts: { limit?: number; offset?: number; fetch?: typeof fetch } = {}
+	opts: {
+		limit?: number;
+		offset?: number;
+		representationStatus?: RepresentationStatus;
+		fetch?: typeof fetch;
+	} = {}
 ): Promise<SearchPage> {
-	const url = apiUrl('/api/v1/ncit/search', {
+	const params: Record<string, string | number> = {
 		q,
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
-	});
+	};
+	if (opts.representationStatus) {
+		params.representation_status = opts.representationStatus;
+	}
+	const url = apiUrl('/api/v1/ncit/search', params);
 	return getJson<SearchPage>(url, opts.fetch);
 }
 
 /** List NCIt concepts in natural order (no search term) — browse mode. */
 export function listNcit(
-	opts: { limit?: number; offset?: number; fetch?: typeof fetch } = {}
+	opts: {
+		limit?: number;
+		offset?: number;
+		representationStatus?: RepresentationStatus;
+		fetch?: typeof fetch;
+	} = {}
 ): Promise<SearchPage> {
-	const url = apiUrl('/api/v1/ncit/list', {
+	const params: Record<string, string | number> = {
 		limit: opts.limit ?? 25,
 		offset: opts.offset ?? 0
-	});
+	};
+	if (opts.representationStatus) {
+		params.representation_status = opts.representationStatus;
+	}
+	const url = apiUrl('/api/v1/ncit/list', params);
 	return getJson<SearchPage>(url, opts.fetch);
 }
 

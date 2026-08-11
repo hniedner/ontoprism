@@ -16,6 +16,7 @@ def test_concept_detail_renders_metadata_and_roles(
     assert "Neoplastic Process" in body["semantic_types"]
     assert body["definition"]
     assert "Neoplasia" in body["synonyms"]
+    assert body["representation_status"] == "legacy-precoordinated"
     # Roles must render (restriction traversal): C3262 -> R105 -> C12922.
     role_targets = {(r["relation"], r["target"]["code"]) for r in body["roles"]}
     assert ("R105", "C12922") in role_targets
@@ -50,6 +51,9 @@ def test_neighborhood_has_center_and_role_edge(
     body = resp.json()
     node_codes = {n["code"] for n in body["nodes"]}
     assert {"C3262", "C12922"} <= node_codes
+    statuses = {node["code"]: node["representation_status"] for node in body["nodes"]}
+    assert statuses["C3262"] == "legacy-precoordinated"
+    assert statuses["C12922"] is None
     assert any(e["kind"] == "role" for e in body["edges"])
 
 
@@ -78,3 +82,52 @@ def test_list_paginates_disjointly(isolated_api_client: TestClient) -> None:
     first_codes = {h["code"] for h in first["hits"]}
     second_codes = {h["code"] for h in second["hits"]}
     assert first_codes.isdisjoint(second_codes)
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+def test_published_representation_marker_surfaces_across_ncit_reads(
+    live_api_client: TestClient,
+) -> None:
+    status = "legacy-precoordinated"
+    first = live_api_client.get(
+        "/api/v1/ncit/list",
+        params={"limit": 1, "representation_status": status},
+    )
+    assert first.status_code == 200, first.text
+    first_page = first.json()
+    assert first_page["total"] > 0
+    assert first_page["hits"][0]["representation_status"] == status
+
+    last = live_api_client.get(
+        "/api/v1/ncit/list",
+        params={
+            "limit": 1,
+            "offset": first_page["total"] - 1,
+            "representation_status": status,
+        },
+    )
+    assert last.status_code == 200, last.text
+    assert last.json()["hits"][0]["representation_status"] == status
+
+    hit = first_page["hits"][0]
+    detail = live_api_client.get(f"/api/v1/ncit/concepts/{hit['code']}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["representation_status"] == status
+
+    neighborhood = live_api_client.get(
+        f"/api/v1/ncit/concepts/{hit['code']}/neighborhood"
+    )
+    assert neighborhood.status_code == 200, neighborhood.text
+    center = next(
+        node for node in neighborhood.json()["nodes"] if node["code"] == hit["code"]
+    )
+    assert center["representation_status"] == status
+
+    search = live_api_client.get(
+        "/api/v1/ncit/search",
+        params={"q": hit["label"], "limit": 10, "representation_status": status},
+    )
+    assert search.status_code == 200, search.text
+    assert any(row["code"] == hit["code"] for row in search.json()["hits"])
+    assert all(row["representation_status"] == status for row in search.json()["hits"])

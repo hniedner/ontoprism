@@ -3,6 +3,7 @@
 	import type { ConceptDecomposition, DecompositionConstituent } from '$lib/types';
 	import DecompositionAxes from '$lib/components/DecompositionAxes.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
+	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
 
 	let { code }: { code: string } = $props();
 
@@ -53,11 +54,7 @@
 	<h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-default">
 		Decomposition
 		{#if loaded && data?.is_legacy_precoordinated}
-			<span
-				class="rounded-full bg-warning-50 px-2 py-0.5 text-xs font-medium text-warning dark:bg-warning-900/30"
-				title="This concept fuses several semantic axes; its atomic constituents are shown below."
-				>legacy pre-coordinated</span
-			>
+			<RepresentationStatusBadge status="legacy-precoordinated" />
 		{/if}
 	</h3>
 
@@ -66,7 +63,7 @@
 	{:else if !loaded}
 		<LoadingState active label="Loading decomposition" minHeight="4rem" />
 	{:else if !data?.is_legacy_precoordinated}
-		<p class="text-sm italic text-subtle">Not decomposed — this concept is already atomic.</p>
+		<p class="text-sm italic text-subtle">No published decomposition is available.</p>
 	{:else}
 		<DecompositionAxes {axes} />
 	{/if}

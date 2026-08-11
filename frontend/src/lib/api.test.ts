@@ -134,6 +134,19 @@ describe('NCIt endpoints', () => {
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/search?q=neo&limit=25&offset=0');
 	});
 
+	it('searchNcit includes the published representation-status filter', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: 'neo', total: 0, limit: 25, offset: 0, hits: [] }));
+		await searchNcit('neo', {
+			representationStatus: 'legacy-precoordinated',
+			fetch: fetchImpl
+		});
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/ncit/search?q=neo&limit=25&offset=0&representation_status=legacy-precoordinated'
+		);
+	});
+
 	it('listNcit builds the browse URL with explicit paging', async () => {
 		const fetchImpl = vi
 			.fn()
@@ -148,6 +161,19 @@ describe('NCIt endpoints', () => {
 			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] }));
 		await listNcit({ fetch: fetchImpl });
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/list?limit=25&offset=0');
+	});
+
+	it('listNcit includes the published representation-status filter', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] }));
+		await listNcit({
+			representationStatus: 'legacy-precoordinated',
+			fetch: fetchImpl
+		});
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/ncit/list?limit=25&offset=0&representation_status=legacy-precoordinated'
+		);
 	});
 
 	it('getConcept encodes the code in the path', async () => {

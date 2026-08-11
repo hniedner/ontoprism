@@ -504,6 +504,10 @@ def _prepare_qlever_ntriples(
     sources = (
         (_ROOT / "scripts/ci/fixtures/ncit-fixture.ttl", "default.nt"),
         (_ROOT / "scripts/ci/fixtures/ncit-stated-fixture.ttl", "stated.nt"),
+        (
+            _ROOT / "scripts/ci/fixtures/ncit-decomposed-fixture.ttl",
+            "decomposed.nt",
+        ),
     )
     for source, output_name in sources:
         converted = docker_run(
