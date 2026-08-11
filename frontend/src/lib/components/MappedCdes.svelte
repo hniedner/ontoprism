@@ -3,6 +3,7 @@
 	import { cdesForConcept } from '$lib/api';
 	import type { CdeSummary } from '$lib/types';
 	import LoadingState from '$lib/components/LoadingState.svelte';
+	import { handleLatest } from '$lib/latest';
 
 	let { code }: { code: string } = $props();
 
@@ -10,23 +11,21 @@
 	let loadState = $state<'loading' | 'ready' | 'error'>('loading');
 
 	$effect(() => {
-		let cancelled = false;
 		loadState = 'loading';
 		cdes = [];
-		cdesForConcept(code, 25).then(
-			(result) => {
-				if (!cancelled) {
+		const controller = new AbortController();
+		return handleLatest(
+			cdesForConcept(code, 25, undefined, controller.signal),
+			{
+				ready: (result) => {
 					cdes = result;
 					loadState = 'ready';
-				}
+				},
+				failed: () => (loadState = 'error'),
+				settled: () => undefined
 			},
-			() => {
-				if (!cancelled) loadState = 'error';
-			}
+			() => controller.abort()
 		);
-		return () => {
-			cancelled = true;
-		};
 	});
 </script>
 

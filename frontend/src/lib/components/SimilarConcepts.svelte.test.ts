@@ -9,11 +9,42 @@ import { similarConcepts } from '$lib/api';
 const mock = vi.mocked(similarConcepts);
 
 describe('SimilarConcepts', () => {
+	it('aborts replaced requests and ignores their late success and error', async () => {
+		mock.mockClear();
+		const first = Promise.withResolvers<SimilarConcept[]>();
+		const second = Promise.withResolvers<SimilarConcept[]>();
+		const third = Promise.withResolvers<SimilarConcept[]>();
+		const signals: AbortSignal[] = [];
+		for (const request of [first, second, third]) {
+			mock.mockImplementationOnce((_code, _limit, _fetch, signal) => {
+				signals.push(signal!);
+				return request.promise;
+			});
+		}
+
+		const view = render(SimilarConcepts, { code: 'C1' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+		await view.rerender({ code: 'C2' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+		await view.rerender({ code: 'C3' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(3));
+		expect(signals.slice(0, 2).every((signal) => signal.aborted)).toBe(true);
+
+		third.resolve([{ code: 'C30', label: 'Newest concept', score: 0.9 }]);
+		expect(await screen.findByRole('link', { name: 'Newest concept' })).toBeInTheDocument();
+		first.resolve([{ code: 'C10', label: 'Stale concept', score: 0.8 }]);
+		second.reject(new Error('stale failure'));
+		await Promise.allSettled([first.promise, second.promise]);
+		await Promise.resolve();
+		expect(screen.queryByText('Stale concept')).not.toBeInTheDocument();
+		expect(screen.queryByText('Embeddings unavailable.')).not.toBeInTheDocument();
+	});
+
 	it('requests the top-10 similar concepts for the given code', async () => {
 		mock.mockResolvedValue([]);
 		render(SimilarConcepts, { code: 'C3262' });
 		await screen.findByText('None.');
-		expect(mock).toHaveBeenCalledWith('C3262', 10);
+		expect(mock).toHaveBeenCalledWith('C3262', 10, undefined, expect.any(AbortSignal));
 	});
 
 	it('renders each concept with its score, linking to the concept page', async () => {

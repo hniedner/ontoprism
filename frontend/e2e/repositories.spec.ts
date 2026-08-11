@@ -110,6 +110,35 @@ test('NCIt: server-loaded concept hydrates the browser-only graph explorer', asy
 	await expect(page.getByText('Network', { exact: true })).toBeVisible();
 });
 
+test('NCIt: route replacement owns graph state while an expansion is pending', async ({ page }) => {
+	const intercepted = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	await page.route('**/api/v1/ncit/concepts/C4005/neighborhood?*', async (route) => {
+		intercepted.resolve();
+		await release.promise;
+		await route.fulfill({
+			status: 503,
+			contentType: 'application/json',
+			body: JSON.stringify({ detail: 'stale expansion failure' })
+		});
+	});
+
+	await page.goto('/repositories/ncit/C3262');
+	const graphSearch = page.getByPlaceholder('Find node…');
+	await graphSearch.fill('C4005');
+	await graphSearch.press('Enter');
+	await expect(page.getByRole('heading', { name: 'Unassessed neighbor', level: 4 })).toBeVisible();
+	await page.getByRole('button', { name: 'Expand node' }).click();
+	await intercepted.promise;
+	await page.getByRole('button', { name: 'Open concept →' }).click();
+	await expect(page).toHaveURL('/repositories/ncit/C4005');
+	await expect(page.getByTitle('Layout preset')).toBeVisible();
+
+	release.resolve();
+	await expect(page.getByText('stale expansion failure')).toHaveCount(0);
+	await expect(page.getByText('Network', { exact: true })).toBeVisible();
+});
+
 test('NCIt: published representation status survives browse, search, detail, and graph filters', async ({
 	page
 }) => {

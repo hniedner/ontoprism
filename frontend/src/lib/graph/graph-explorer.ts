@@ -67,6 +67,35 @@ export interface LayoutTimers<Handle> {
 	clear(handle: Handle): void;
 }
 
+export interface AsyncRequestLease {
+	readonly signal: AbortSignal;
+	isCurrent(): boolean;
+	release(): void;
+}
+
+/** Own every async graph read for one prop generation. */
+export class AsyncRequestOwner {
+	private generation = 0;
+	private controllers = new Set<AbortController>();
+
+	replace(): void {
+		this.generation += 1;
+		for (const controller of this.controllers) controller.abort();
+		this.controllers.clear();
+	}
+
+	lease(): AsyncRequestLease {
+		const generation = this.generation;
+		const controller = new AbortController();
+		this.controllers.add(controller);
+		return {
+			signal: controller.signal,
+			isCurrent: () => generation === this.generation && !controller.signal.aborted,
+			release: () => this.controllers.delete(controller)
+		};
+	}
+}
+
 /** Fallback color for a node with no semantic type. */
 const NO_TYPE_COLOR = '#94a3b8';
 /** Color applied to nodes/labels dimmed while another node is hovered. */

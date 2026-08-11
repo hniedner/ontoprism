@@ -9,26 +9,41 @@
 	let loading = $state(false);
 	let error = $state<string | null>(null);
 	let generation = 0;
+	let requestController: AbortController | null = null;
 
 	$effect(() => {
 		if (!cde.public_id) return;
 		generation += 1;
+		requestController?.abort();
+		requestController = null;
 		graph = null;
 		loading = false;
 		error = null;
+		return () => {
+			generation += 1;
+			requestController?.abort();
+			requestController = null;
+		};
 	});
 
 	async function load(): Promise<void> {
+		requestController?.abort();
+		const controller = new AbortController();
+		requestController = controller;
 		const current = ++generation;
+		const publicId = cde.public_id;
 		loading = true;
 		error = null;
 		try {
-			const result = await getCdeNeighborhood(cde.public_id);
+			const result = await getCdeNeighborhood(publicId, 1, undefined, controller.signal);
 			if (current === generation) graph = result;
 		} catch (reason) {
 			if (current === generation) error = reason instanceof Error ? reason.message : String(reason);
 		} finally {
-			if (current === generation) loading = false;
+			if (current === generation) {
+				loading = false;
+				requestController = null;
+			}
 		}
 	}
 </script>

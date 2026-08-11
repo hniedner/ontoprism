@@ -4,6 +4,7 @@
 	import DecompositionAxes from '$lib/components/DecompositionAxes.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
 	import RepresentationStatusBadge from '$lib/components/RepresentationStatusBadge.svelte';
+	import { handleLatest } from '$lib/latest';
 
 	let { code }: { code: string } = $props();
 
@@ -12,23 +13,19 @@
 	let unavailable = $state(false);
 
 	$effect(() => {
-		let cancelled = false;
 		loaded = false;
 		unavailable = false;
 		data = null;
-		getDecomposition(code).then(
-			(result) => {
-				if (!cancelled) data = result;
+		const controller = new AbortController();
+		return handleLatest(
+			getDecomposition(code, undefined, controller.signal),
+			{
+				ready: (result) => (data = result),
+				failed: () => (unavailable = true),
+				settled: () => (loaded = true)
 			},
-			() => {
-				if (!cancelled) unavailable = true;
-			}
-		).finally(() => {
-			if (!cancelled) loaded = true;
-		});
-		return () => {
-			cancelled = true;
-		};
+			() => controller.abort()
+		);
 	});
 
 	// Group constituents by axis for display (axes → their fillers), order preserved.

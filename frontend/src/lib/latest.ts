@@ -1,18 +1,22 @@
 export interface LatestHandlers<T> {
 	ready: (value: T) => void;
-	failed: () => void;
+	failed: (reason: unknown) => void;
 	settled: () => void;
 }
 
-export function handleLatest<T>(request: Promise<T>, handlers: LatestHandlers<T>): () => void {
+export function handleLatest<T>(
+	request: Promise<T>,
+	handlers: LatestHandlers<T>,
+	cancelRequest: () => void = () => undefined
+): () => void {
 	let active = true;
 	request
 		.then(
 			(value) => {
 				if (active) handlers.ready(value);
 			},
-			() => {
-				if (active) handlers.failed();
+			(reason) => {
+				if (active) handlers.failed(reason);
 			}
 		)
 		.finally(() => {
@@ -20,5 +24,6 @@ export function handleLatest<T>(request: Promise<T>, handlers: LatestHandlers<T>
 		});
 	return () => {
 		active = false;
+		cancelRequest();
 	};
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -47,6 +47,8 @@
 		graphLabelTheme,
 		GraphLabelCollisionIndex,
 		TimedLayoutController,
+		AsyncRequestOwner,
+		type AsyncRequestLease,
 		type LayoutWorker
 	} from '$lib/graph/graph-explorer';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
@@ -98,6 +100,7 @@
 	// Bumped after any graph mutation so the minimap redraws.
 	let graphVersion = $state(0);
 	const layoutController = new TimedLayoutController();
+	const requestOwner = new AsyncRequestOwner();
 	const labelCollisionIndex = new GraphLabelCollisionIndex();
 	const CollisionAwareCurvedArrowProgram = createEdgeCurveProgram({
 		arrowHead: DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
@@ -270,26 +273,40 @@
 		if (selected && nodeIsHidden(g, selected.code)) selected = null;
 	}
 
-	async function expand(target: string) {
-		if (!graph || expanding) return;
+	function canExpand(candidate: Graph, target: string): boolean {
 		// Pseudo-nodes (e.g. a caDSR "cde:<id>:<ver>" seed) aren't NCIt concepts, so
 		// they have no /neighborhood — skip rather than fetch a guaranteed 404.
-		if (target.includes(':')) return;
-		if (graph.hasNode(target) && graph.getNodeAttribute(target, 'expanded')) return;
+		return (
+			!target.includes(':') &&
+			!(candidate.hasNode(target) && candidate.getNodeAttribute(target, 'expanded'))
+		);
+	}
+
+	function ownsGraph(lease: AsyncRequestLease, candidate: Graph): boolean {
+		return lease.isCurrent() && graph === candidate;
+	}
+
+	async function expand(target: string) {
+		if (!graph || expanding || !canExpand(graph, target)) return;
+		const activeGraph = graph;
+		const lease = requestOwner.lease();
 		expanding = true;
 		error = null; // a prior transient error must not stick across expansions
 		try {
-			const nb = await getNeighborhood(target);
+			const nb = await getNeighborhood(target, 1, undefined, lease.signal);
+			if (!ownsGraph(lease, activeGraph)) return;
 			layoutController.cancel();
 			layoutRunning = false;
-			mergeNeighborhood(graph, nb);
-			refreshStats(graph);
-			runLayout(graph);
+			mergeNeighborhood(activeGraph, nb);
+			refreshStats(activeGraph);
+			runLayout(activeGraph);
 			sigma?.refresh();
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
+			if (ownsGraph(lease, activeGraph))
+				error = err instanceof Error ? err.message : String(err);
 		} finally {
-			expanding = false;
+			if (ownsGraph(lease, activeGraph)) expanding = false;
+			lease.release();
 		}
 	}
 
@@ -409,19 +426,38 @@
 		});
 	}
 
-	async function init() {
-		if (!container) return;
+	function disposeGraph(): void {
+		layoutController.cancel();
+		layoutRunning = false;
+		sigma?.kill();
+		sigma = null;
+		graph = null;
+		expanding = false;
+		selected = null;
+		hovered = null;
+		menu = null;
+	}
+
+	async function init(
+		nextCode: string,
+		nextInitial: Neighborhood | null,
+		targetContainer: HTMLDivElement,
+		lease: AsyncRequestLease
+	) {
 		loading = true;
 		error = null;
-		graph = createGraph();
+		const nextGraph = createGraph();
+		graph = nextGraph;
 		try {
-			const nb = initial ?? (await getNeighborhood(code));
-			mergeNeighborhood(graph, nb);
-			seedPositions(graph);
-			refreshStats(graph);
+			const nb =
+				nextInitial ?? (await getNeighborhood(nextCode, 1, undefined, lease.signal));
+			if (!lease.isCurrent() || graph !== nextGraph) return;
+			mergeNeighborhood(nextGraph, nb);
+			seedPositions(nextGraph);
+			refreshStats(nextGraph);
 			const labelTheme = graphLabelTheme(theme.current);
 
-			sigma = new Sigma(graph, container, {
+			const renderer = new Sigma(nextGraph, targetContainer, {
 				renderEdgeLabels: true,
 				defaultEdgeType: 'curved',
 				nodeProgramClasses: {
@@ -449,17 +485,24 @@
 				minCameraRatio: 0.05,
 				maxCameraRatio: 4
 			});
-			setupReducers(sigma);
-			setupInteractions(sigma);
-			runLayout(graph);
+			if (!lease.isCurrent() || graph !== nextGraph) {
+				renderer.kill();
+				return;
+			}
+			sigma = renderer;
+			setupReducers(renderer);
+			setupInteractions(renderer);
+			runLayout(nextGraph);
 		} catch (err) {
+			if (!lease.isCurrent() || graph !== nextGraph) return;
 			layoutController.cancel();
 			layoutRunning = false;
 			sigma?.kill();
 			sigma = null;
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
-			loading = false;
+			if (lease.isCurrent() && graph === nextGraph) loading = false;
+			lease.release();
 		}
 	}
 
@@ -570,15 +613,23 @@
 		};
 	});
 
-	onMount(() => {
-		void init();
+	$effect(() => {
+		const nextCode = code;
+		const nextInitial = initial;
+		const targetContainer = container;
+		if (!targetContainer) return;
+		requestOwner.replace();
+		const lease = requestOwner.lease();
+		untrack(() => {
+			disposeGraph();
+			void init(nextCode, nextInitial, targetContainer, lease);
+		});
+		return () => requestOwner.replace();
 	});
 
 	onDestroy(() => {
-		layoutController.cancel();
-		layoutRunning = false;
-		sigma?.kill();
-		sigma = null;
+		requestOwner.replace();
+		disposeGraph();
 	});
 </script>
 

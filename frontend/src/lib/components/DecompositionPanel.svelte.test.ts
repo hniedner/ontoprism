@@ -33,6 +33,37 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+	it('aborts replaced requests and ignores their late success and error', async () => {
+		mock.mockClear();
+		const first = Promise.withResolvers<ConceptDecomposition>();
+		const second = Promise.withResolvers<ConceptDecomposition>();
+		const third = Promise.withResolvers<ConceptDecomposition>();
+		const signals: AbortSignal[] = [];
+		for (const request of [first, second, third]) {
+			mock.mockImplementationOnce((_code, _fetch, signal) => {
+				signals.push(signal!);
+				return request.promise;
+			});
+		}
+
+		const view = render(DecompositionPanel, { code: 'C1' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+		await view.rerender({ code: 'C2' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+		await view.rerender({ code: 'C3' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(3));
+		expect(signals.slice(0, 2).every((signal) => signal.aborted)).toBe(true);
+
+		third.resolve({ ...decomposed, code: 'C3', constituents: [{ ...decomposed.constituents[0], filler_label: 'Newest filler' }] });
+		expect(await screen.findByRole('link', { name: 'Newest filler' })).toBeInTheDocument();
+		first.resolve({ ...decomposed, code: 'C1', constituents: [{ ...decomposed.constituents[0], filler_label: 'Stale filler' }] });
+		second.reject(new Error('stale failure'));
+		await Promise.allSettled([first.promise, second.promise]);
+		await Promise.resolve();
+		expect(screen.queryByRole('link', { name: 'Stale filler' })).not.toBeInTheDocument();
+		expect(screen.queryByText('Decomposition unavailable.')).not.toBeInTheDocument();
+	});
+
 	it('shows the loading indicator while waiting for the API', async () => {
 		vi.useFakeTimers();
 		const { promise, resolve } = Promise.withResolvers<ConceptDecomposition>();
@@ -59,7 +90,7 @@ describe('DecompositionPanel', () => {
 		});
 		render(DecompositionPanel, { code: 'C3262' });
 		await screen.findByText('No published decomposition is available.');
-		expect(mock).toHaveBeenCalledWith('C3262');
+		expect(mock).toHaveBeenCalledWith('C3262', undefined, expect.any(AbortSignal));
 	});
 
 	it('renders the legacy badge, axes and filler links for a decomposed concept', async () => {

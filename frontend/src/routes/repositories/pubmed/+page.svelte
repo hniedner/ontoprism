@@ -8,11 +8,10 @@
 	import PubMedResultsTable from '$lib/components/PubMedResultsTable.svelte';
 	import type { PageProps } from './$types';
 
-	const SUGGESTIONS = ['melanoma immunotherapy', 'CRISPR', 'tumor microenvironment', 'BRCA1'];
-
 	let { data }: PageProps = $props();
 	let queryValue = $derived(data.query);
 	const result = $derived(data.result.state === 'ready' ? data.result.data : null);
+	const SUGGESTIONS = ['melanoma immunotherapy', 'CRISPR', 'tumor microenvironment', 'BRCA1'];
 	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
 	const countLabel = $derived(result ? `${result.total.toLocaleString()} articles` : '');
 	const isEmpty = $derived((result?.articles.length ?? 0) === 0);

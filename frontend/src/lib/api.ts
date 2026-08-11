@@ -50,8 +50,12 @@ export function apiUrl(path: string, params: Record<string, string | number> = {
 	return `${BASE}${path}${qs ? `?${qs}` : ''}`;
 }
 
-export async function getJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promise<T> {
-	const resp = await fetchImpl(url);
+export async function getJson<T>(
+	url: string,
+	fetchImpl: typeof fetch = fetch,
+	signal?: AbortSignal
+): Promise<T> {
+	const resp = signal ? await fetchImpl(url, { signal }) : await fetchImpl(url);
 	if (!resp.ok) {
 		throw await failedResponse(resp, url);
 	}
@@ -130,33 +134,39 @@ export function getConcept(code: string, fetchImpl?: typeof fetch): Promise<Conc
 export function getNeighborhood(
 	code: string,
 	depth = 1,
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<Neighborhood> {
 	return getJson<Neighborhood>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/neighborhood`, { depth }),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }
 
 /** The concept's decomposition (constituents by axis + legacy flag) from ncit_decomposed. */
 export function getDecomposition(
 	code: string,
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<ConceptDecomposition> {
 	return getJson<ConceptDecomposition>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/decomposition`),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }
 
 /** All upstream mappings for an NCIt concept (both directions). */
 export function getMappings(
 	code: string,
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<ConceptMappings> {
 	return getJson<ConceptMappings>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/mappings`),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }
 
@@ -164,11 +174,13 @@ export function getMappings(
 export function getCdeNeighborhood(
 	publicId: string,
 	depth = 1,
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<Neighborhood> {
 	return getJson<Neighborhood>(
 		apiUrl(`/api/v1/cadsr/cdes/${encodeURIComponent(publicId)}/neighborhood`, { depth }),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }
 
@@ -213,11 +225,13 @@ export function getCde(
 export function cdesForConcept(
 	conceptCode: string,
 	limit = 25,
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<CdeSummary[]> {
 	return getJson<CdeSummary[]>(
 		apiUrl(`/api/v1/cadsr/concepts/${encodeURIComponent(conceptCode)}/cdes`, { limit }),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }
 
@@ -226,22 +240,26 @@ export function cdesForConcept(
 export function similarConcepts(
 	code: string,
 	limit = 10,
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<SimilarConcept[]> {
 	return getJson<SimilarConcept[]>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/similar`, { limit }),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }
 
 export function similarCdes(
 	publicId: string,
 	limit = 10,
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<SimilarCde[]> {
 	return getJson<SimilarCde[]>(
 		apiUrl(`/api/v1/cadsr/cdes/${encodeURIComponent(publicId)}/similar`, { limit }),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }
 
