@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,9 @@ pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 _ROOT = Path(__file__).resolve().parents[2]
 _DIGEST_PIN = re.compile(r"^[^:@\s]+(?:/[^:@\s]+)+@sha256:[0-9a-f]{64}$")
+_PDM_VERSION = "2.28.0"
+_SETUP_PDM_ACTION = "pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f"
+_ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
 
 
 def _nested_image_values(value: Any) -> list[str]:
@@ -107,6 +113,58 @@ def test_workflow_images_and_robot_install_are_immutable() -> None:
     assert "curl" not in "\n".join(
         line for line in ci.splitlines() if "robot" in line.lower()
     )
+
+
+def test_ci_dependency_environments_are_pinned_clean_and_cached(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    jobs = workflow["jobs"]
+    expected_sync = {
+        "quality": "pdm sync --clean-unselected --dev",
+        "backend-tests": "pdm sync --clean-unselected --dev",
+        "integration-tests": "pdm sync --clean-unselected --dev",
+        "embedding-model-contract": ("pdm sync --clean-unselected --dev -G data-build"),
+    }
+
+    for job_name, sync_command in expected_sync.items():
+        steps = jobs[job_name]["steps"]
+        setup = next(step for step in steps if step.get("uses") == _SETUP_PDM_ACTION)
+        assert setup["with"] == {
+            "python-version": "3.13",
+            "version": _PDM_VERSION,
+            "cache": True,
+        }
+        assert any(step.get("run") == sync_command for step in steps)
+
+    for sync_command in set(expected_sync.values()):
+        args = shlex.split(sync_command)
+        # argv comes only from the fixed expected commands above, never workflow data.
+        completed = subprocess.run(  # noqa: S603
+            [*args[:2], "--dry-run", *args[2:]],
+            cwd=_ROOT,
+            capture_output=True,
+            check=False,
+            env={**os.environ, "PDM_LOG_DIR": str(tmp_path / "pdm-logs")},
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stderr
+
+    quality_steps = jobs["quality"]["steps"]
+    pre_commit_cache = next(
+        step for step in quality_steps if step.get("uses") == _ACTIONS_CACHE_ACTION
+    )
+    assert pre_commit_cache["with"] == {
+        "path": "~/.cache/pre-commit",
+        "key": (
+            "${{ runner.os }}-${{ runner.arch }}-pre-commit-"
+            "${{ steps.setup-pdm.outputs.python-version }}-"
+            "${{ hashFiles('.pre-commit-config.yaml') }}"
+        ),
+    }
+
+    dockerfile = (_ROOT / "backend" / "Dockerfile").read_text()
+    assert f"RUN pip install --no-cache-dir pdm=={_PDM_VERSION}" in dockerfile
 
 
 def test_clean_machine_instructions_do_not_require_a_sibling_checkout() -> None:

@@ -93,10 +93,18 @@ jobs:
           fetch-depth: 0
 
       - name: Set up PDM (cached)
+        id: setup-pdm
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
+
+      - name: Restore pre-commit environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: ${{ runner.os }}-${{ runner.arch }}-pre-commit-${{ steps.setup-pdm.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
@@ -106,7 +114,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Python deps
-        run: pdm install --dev
+        run: pdm sync --clean-unselected --dev
 
       - name: Install frontend deps (eslint/svelte-check hooks need node_modules)
         run: npm ci --prefix frontend
@@ -128,10 +136,11 @@ jobs:
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
 
       - name: Install dependencies
-        run: pdm install --dev
+        run: pdm sync --clean-unselected --dev
 
       - name: Run unit tests with coverage collection (no gate)
         # -n auto (xdist): the suite's stub HTTP servers require parallel workers;
@@ -303,10 +312,11 @@ jobs:
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
 
       - name: Install dependencies
-        run: pdm install --dev
+        run: pdm sync --clean-unselected --dev
 
       # ROBOT + ELK (D28): without these on PATH the non-circular validation tests
       # (EL profile gate -> ELK classification -> promotion, #73) silently skip, and a
@@ -377,10 +387,11 @@ jobs:
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
 
       - name: Install model contract dependencies
-        run: pdm install --dev -G data-build
+        run: pdm sync --clean-unselected --dev -G data-build
 
       - name: Verify pinned sentence-transformers contract
         run: pdm run pytest backend/tests/test_embedding_model_contract.py -v
