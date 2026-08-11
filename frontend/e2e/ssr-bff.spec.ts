@@ -59,7 +59,11 @@ test('BFF preserves upstream failures and bounds slow FastAPI requests', async (
 			'x-real-ip': '198.51.100.1'
 		}
 	});
-	expect(await headers.json()).toEqual({ forwarded: null, x_forwarded_for: null, x_real_ip: null });
+	const receivedHeaders = await headers.json();
+	expect(receivedHeaders.forwarded).toBeNull();
+	expect(receivedHeaders.x_real_ip).toBeNull();
+	expect(receivedHeaders.x_forwarded_for).not.toBe('198.51.100.1');
+	expect(receivedHeaders.x_forwarded_for).toMatch(/127\.0\.0\.1|::1/);
 });
 
 test('caDSR list and detail critical data are present in initial HTML', async ({ request }) => {

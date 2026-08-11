@@ -1,9 +1,9 @@
 import { forwardFastApi } from '$lib/server/fastapi';
 import type { RequestHandler } from './$types';
 
-const proxy: RequestHandler = ({ params, request, url }) => {
+const proxy: RequestHandler = ({ getClientAddress, params, request, url }) => {
 	const path = `/api/${params.path ?? ''}${url.search}`;
-	return forwardFastApi(request, path);
+	return forwardFastApi(request, path, getClientAddress());
 };
 
 export const GET = proxy;

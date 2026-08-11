@@ -45,14 +45,19 @@ describe('FastAPI BFF transport', () => {
 			body: JSON.stringify({ code: 'C3262' })
 		});
 
-		const response = await forwardFastApiWith(request, '/api/v1/example?release=26.07d', transport);
+		const response = await forwardFastApiWith(
+			request,
+			'/api/v1/example?release=26.07d',
+			transport,
+			'203.0.113.9'
+		);
 
 		expect(observed?.url).toBe('http://fastapi.test:8011/api/v1/example?release=26.07d');
 		expect(observed?.init.method).toBe('POST');
 		const headers = new Headers(observed?.init.headers);
 		expect(headers.has('host')).toBe(false);
 		expect(headers.has('forwarded')).toBe(false);
-		expect(headers.has('x-forwarded-for')).toBe(false);
+		expect(headers.get('x-forwarded-for')).toBe('203.0.113.9');
 		expect(headers.has('x-remove-me')).toBe(false);
 		expect(headers.get('content-encoding')).toBe('gzip');
 		expect(observed?.init.redirect).toBe('manual');
@@ -76,7 +81,8 @@ describe('FastAPI BFF transport', () => {
 						headers: { location: 'https://attacker.test/escaped' }
 					});
 				}
-			}
+			},
+			'203.0.113.9'
 		);
 		expect(response.status).toBe(307);
 		expect(response.headers.has('location')).toBe(false);
@@ -101,7 +107,8 @@ describe('FastAPI BFF transport', () => {
 						{ headers: { 'content-type': 'application/json' } }
 					);
 				}
-			}
+			},
+			'203.0.113.9'
 		);
 		expect(response.status).toBe(504);
 		expect(await response.json()).toEqual({ detail: 'FastAPI request timed out' });
@@ -117,7 +124,8 @@ describe('FastAPI BFF transport', () => {
 				fetch: async () => {
 					throw new TypeError('connection refused');
 				}
-			}
+			},
+			'203.0.113.9'
 		);
 		expect(response.status).toBe(503);
 		expect(await response.json()).toEqual({ detail: 'FastAPI is unreachable' });

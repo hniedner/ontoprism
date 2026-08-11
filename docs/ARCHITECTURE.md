@@ -75,7 +75,9 @@ The BFF removes caller-supplied forwarding and hop-by-hop headers, never follows
 upstream redirect, and completes each bounded FastAPI response body (at most 32 MiB)
 before publishing its status and content to the browser. This prevents a loopback-trusted
 client-address header from bypassing FastAPI rate limits and prevents redirects or
-late-stalling bodies from escaping the gateway contract.
+late-stalling bodies from escaping the gateway contract. It replaces the removed address
+with SvelteKit's `getClientAddress()` value, which is socket-derived unless adapter-node
+is explicitly configured to trust an operator-selected `ADDRESS_HEADER` and `XFF_DEPTH`.
 
 In development, Vite and the built Node server exercise the same SvelteKit `/api` route;
 there is no Vite-only proxy path. The supported process wrapper loads the repository

@@ -10,6 +10,10 @@ function configuredTransport(): FastApiTransport {
 	};
 }
 
-export function forwardFastApi(request: Request, apiPath: string): Promise<Response> {
-	return forwardFastApiWith(request, apiPath, configuredTransport());
+export function forwardFastApi(
+	request: Request,
+	apiPath: string,
+	clientAddress: string
+): Promise<Response> {
+	return forwardFastApiWith(request, apiPath, configuredTransport(), clientAddress);
 }

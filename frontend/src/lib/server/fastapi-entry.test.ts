@@ -17,12 +17,20 @@ describe('configured FastAPI entry point', () => {
 		vi.stubGlobal('fetch', fetchMock);
 		const response = await forwardFastApi(
 			new Request('http://node.test/api/v1/configured'),
-			'/api/v1/configured'
+			'/api/v1/configured',
+			'203.0.113.9'
 		);
 
 		expect(fetchMock).toHaveBeenCalledWith(
 			new URL('http://fastapi.test:8011/api/v1/configured'),
-			expect.objectContaining({ method: 'GET', redirect: 'manual' })
+			expect.objectContaining({
+				method: 'GET',
+				redirect: 'manual',
+				headers: expect.objectContaining({})
+			})
+		);
+		expect(new Headers(fetchMock.mock.calls[0][1].headers).get('x-forwarded-for')).toBe(
+			'203.0.113.9'
 		);
 		expect(await response.json()).toEqual({ configured: true });
 	});

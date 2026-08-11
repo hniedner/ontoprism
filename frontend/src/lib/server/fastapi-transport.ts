@@ -49,11 +49,13 @@ function copyHeaders(source: Headers, omitted: ReadonlySet<string>): Headers {
 	return headers;
 }
 
-function requestHeaders(source: Headers): Headers {
-	return copyHeaders(
+function requestHeaders(source: Headers, clientAddress: string): Headers {
+	const headers = copyHeaders(
 		source,
 		new Set(['content-length', 'host', ...UNTRUSTED_FORWARDING_HEADERS])
 	);
+	headers.set('x-forwarded-for', clientAddress);
+	return headers;
 }
 
 function responseHeaders(source: Headers, origin: URL): Headers {
@@ -75,13 +77,14 @@ function gatewayFailure(status: 502 | 503 | 504, detail: string): Response {
 export async function forwardFastApiWith(
 	request: Request,
 	apiPath: string,
-	transport: FastApiTransport
+	transport: FastApiTransport,
+	clientAddress: string
 ): Promise<Response> {
 	const upstream = new URL(apiPath, transport.origin);
 	const method = request.method.toUpperCase();
 	const init: RequestInit = {
 		method,
-		headers: requestHeaders(request.headers),
+		headers: requestHeaders(request.headers, clientAddress),
 		redirect: 'manual',
 		signal: AbortSignal.any([request.signal, AbortSignal.timeout(transport.timeoutMs)])
 	};

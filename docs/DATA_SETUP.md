@@ -38,6 +38,9 @@ when a trusted reverse proxy overwrites them; accepting client-supplied forwarde
 would allow origin spoofing. The SvelteKit BFF strips browser-supplied `Forwarded`,
 `X-Forwarded-*`, `X-Real-IP`, and hop-by-hop headers before calling FastAPI; configure
 the public proxy-to-SvelteKit hop independently from the private SvelteKit-to-FastAPI hop.
+The BFF supplies FastAPI with SvelteKit's socket-derived client address. Behind a trusted
+proxy, set adapter-node `ADDRESS_HEADER` (and `XFF_DEPTH` for `x-forwarded-for`) only when
+that proxy overwrites the selected header; otherwise leave them unset.
 
 NCIt is published by EVS as stated and inferred RDF/XML OWL. QLever indexes
 N-Triples/Turtle/N-Quads, so the build uses Apache Jena RIOT only as a streaming,
