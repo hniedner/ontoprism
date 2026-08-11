@@ -17,6 +17,60 @@ test('caDSR: browse → URL search → open a server-loaded CDE detail', async (
 	await expect(page.getByRole('link', { name: 'Tumor Stage' })).toBeVisible();
 });
 
+test('caDSR: concept graph precedes detail cards without loading eagerly', async ({ page }) => {
+	const graphRequest = 'GET /api/v1/cadsr/cdes/6686721/neighborhood?depth=1';
+	const countsBefore = (await (await page.request.get('/api/v1/__test__/counts')).json()) as Record<
+		string,
+		number
+	>;
+
+	await page.goto('/repositories/cadsr/6686721');
+	const graphHeading = page.getByRole('heading', { name: 'Concept graph' });
+	const cardsHeading = page.getByRole('heading', { name: /NCIt concepts/ });
+	await expect(graphHeading).toBeVisible();
+	await expect(cardsHeading).toBeVisible();
+	expect(
+		await graphHeading.evaluate(
+			(graph, cards) =>
+				Boolean(graph.compareDocumentPosition(cards as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
+			await cardsHeading.elementHandle()
+		)
+	).toBe(true);
+
+	const countsAfter = (await (await page.request.get('/api/v1/__test__/counts')).json()) as Record<
+		string,
+		number
+	>;
+	expect(countsAfter[graphRequest] ?? 0).toBe(countsBefore[graphRequest] ?? 0);
+	await expect(page.getByText('Mapped concept 7')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Show all 14 NCIt concepts' }).click();
+	await expect(page.getByText('Mapped concept 7')).toBeVisible();
+});
+
+test('caDSR: delayed on-demand graph reserves its region while loading', async ({ page }) => {
+	await page.goto('/repositories/cadsr/6686721');
+	const graphSection = page.getByRole('heading', { name: 'Concept graph' }).locator('..').locator('..');
+	await page.getByRole('button', { name: 'Explore in graph' }).click();
+
+	const placeholder = graphSection.locator('[aria-busy="true"]');
+	await expect(placeholder).toBeVisible();
+	expect(await placeholder.evaluate((element) => getComputedStyle(element).minHeight)).toBe('512px');
+	await expect(page.locator('.graph-canvas')).toBeVisible();
+});
+
+test('caDSR: one-column detail cards do not widen the viewport', async ({ page }) => {
+	await page.setViewportSize({ width: 767, height: 900 });
+	await page.goto('/repositories/cadsr/6686721');
+	await expect(page.getByRole('heading', { name: 'Similar CDEs 10' })).toBeVisible();
+
+	expect(
+		await page.evaluate(() => ({
+			documentWidth: document.documentElement.scrollWidth,
+			viewportWidth: innerWidth
+		}))
+	).toEqual({ documentWidth: 767, viewportWidth: 767 });
+});
+
 test('ClinicalTrials: URL search → open a server-loaded trial', async ({ page }) => {
 	await page.goto('/repositories/clinicaltrials');
 	await page.getByRole('searchbox').fill('melanoma');

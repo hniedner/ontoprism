@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import CdeConceptGraph from './CdeConceptGraph.svelte';
+	import CdeDetailCards from './CdeDetailCards.svelte';
 	import CdeSummary from './CdeSummary.svelte';
 	import type { PageProps } from './$types';
 
@@ -19,3 +20,4 @@
 
 <CdeSummary {cde} />
 <CdeConceptGraph {cde} />
+<CdeDetailCards {cde} />

@@ -33,7 +33,7 @@
 	}
 </script>
 
-<section class="mt-6">
+<section class="my-6">
 	<div class="mb-2 flex items-center justify-between">
 		<h2 class="text-sm font-semibold text-default">Concept graph</h2>
 		{#if !graph}
