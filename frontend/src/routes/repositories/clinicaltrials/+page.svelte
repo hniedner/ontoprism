@@ -1,20 +1,25 @@
 <script lang="ts">
-	import { searchClinicalTrials } from '$lib/api.clinicaltrials';
-	import type { CTStudySearchPage } from '$lib/types';
-	import { createRepoBrowse } from '$lib/repo-browse.svelte';
+	import { goto } from '$app/navigation';
+	import { navigating, page } from '$app/state';
+	import { repositorySearchHref } from '$lib/repository-search';
 	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import CtResultsTable from '$lib/components/CtResultsTable.svelte';
+	import type { PageProps } from './$types';
 
 	const SUGGESTIONS = ['melanoma', 'breast cancer', 'immunotherapy', 'CAR-T', 'glioblastoma'];
 
-	const search = createRepoBrowse<CTStudySearchPage>((term) =>
-		searchClinicalTrials({ condition: term, limit: 25 })
-	);
+	let { data }: PageProps = $props();
+	let queryValue = $derived(data.query);
+	const result = $derived(data.result.state === 'ready' ? data.result.data : null);
+	const loading = $derived(navigating.to?.url.pathname === page.url.pathname);
+	const countLabel = $derived(result ? `${result.total.toLocaleString()} trials` : '');
+	const isEmpty = $derived((result?.studies.length ?? 0) === 0);
 
-	const countLabel = $derived(search.result ? `${search.result.total.toLocaleString()} trials` : '');
-	const isEmpty = $derived((search.result?.studies.length ?? 0) === 0);
+	function search(term = queryValue): void {
+		goto(repositorySearchHref('clinicaltrials', page.url, term));
+	}
 </script>
 
 <svelte:head>
@@ -24,7 +29,7 @@
 <RepoPageHeader
 	title="ClinicalTrials.gov"
 	description="Search the ClinicalTrials.gov v2 registry by condition. Open a trial to see its interventions, outcomes, eligibility, sponsors, sites, and publication references."
-	total={search.result?.total ?? null}
+	total={result?.total ?? null}
 >
 	{#snippet help()}
 		Enter a medical condition to search interventional and observational studies. Results are
@@ -33,29 +38,32 @@
 </RepoPageHeader>
 
 <RepoSearchBar
-	bind:value={search.q}
+	bind:value={queryValue}
 	placeholder="Search trials by condition…"
 	ariaLabel="Search ClinicalTrials.gov"
 	suggestions={SUGGESTIONS}
-	loading={search.loading}
-	onsearch={search.search}
-	onsuggestion={search.suggest}
+	{loading}
+	onsearch={search}
+	onsuggestion={(term) => {
+		queryValue = term;
+		search(term);
+	}}
 	suggestionsLabel="Quick:"
 />
 
-{#if search.result || search.error}
+{#if result}
 	<RepoResultsCard
-		title={`Results for “${search.submitted}”`}
+		title={`Results for “${data.query}”`}
 		{countLabel}
-		loading={search.loading}
-		error={search.error}
+		{loading}
+		error={null}
 	>
 		{#if isEmpty}
 			<p class="px-4 py-6 text-center text-sm text-muted">
-				No trials matched “{search.submitted}”.
+				No trials matched “{data.query}”.
 			</p>
 		{:else}
-			<CtResultsTable studies={search.result?.studies ?? []} />
+			<CtResultsTable studies={result.studies} />
 		{/if}
 	</RepoResultsCard>
 {:else}

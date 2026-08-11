@@ -2,6 +2,7 @@
 	import { getDecomposition } from '$lib/api';
 	import type { ConceptDecomposition, DecompositionConstituent } from '$lib/types';
 	import DecompositionAxes from '$lib/components/DecompositionAxes.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 
 	let { code }: { code: string } = $props();
 
@@ -10,13 +11,23 @@
 	let unavailable = $state(false);
 
 	$effect(() => {
+		let cancelled = false;
 		loaded = false;
 		unavailable = false;
 		data = null;
 		getDecomposition(code).then(
-			(d) => (data = d),
-			() => (unavailable = true)
-		).finally(() => (loaded = true));
+			(result) => {
+				if (!cancelled) data = result;
+			},
+			() => {
+				if (!cancelled) unavailable = true;
+			}
+		).finally(() => {
+			if (!cancelled) loaded = true;
+		});
+		return () => {
+			cancelled = true;
+		};
 	});
 
 	// Group constituents by axis for display (axes → their fillers), order preserved.
@@ -53,7 +64,7 @@
 	{#if unavailable}
 		<p class="text-sm italic text-subtle">Decomposition unavailable.</p>
 	{:else if !loaded}
-		<p class="text-sm italic text-subtle">…</p>
+		<LoadingState active label="Loading decomposition" minHeight="4rem" />
 	{:else if !data?.is_legacy_precoordinated}
 		<p class="text-sm italic text-subtle">Not decomposed — this concept is already atomic.</p>
 	{:else}

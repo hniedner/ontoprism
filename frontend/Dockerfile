@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Frontend image (SvelteKit via adapter-node). Build context is the frontend/ dir:
 #   docker build -t ontoprism-web ./frontend
-# Route /api through a reverse proxy in production; set ORIGIN when it cannot be inferred.
+# Inject ONTOPRISM_FASTAPI_ORIGIN for the private BFF target. Set ORIGIN explicitly, or
+# trust forwarded origin headers only when an upstream proxy overwrites them.
 
 FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS builder
 WORKDIR /app

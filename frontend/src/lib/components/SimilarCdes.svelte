@@ -2,6 +2,9 @@
 	import { resolve } from '$app/paths';
 	import { similarCdes } from '$lib/api';
 	import type { SimilarCde } from '$lib/types';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import SimilarityList from '$lib/components/SimilarityList.svelte';
+	import { handleLatest } from '$lib/latest';
 
 	let { publicId }: { publicId: string } = $props();
 
@@ -12,11 +15,22 @@
 	$effect(() => {
 		loaded = false;
 		unavailable = false;
-		similarCdes(publicId, 10).then(
-			(r) => (items = r),
-			() => (unavailable = true)
-		).finally(() => (loaded = true));
+		items = [];
+		return handleLatest(similarCdes(publicId, 10), {
+			ready: (result) => (items = result),
+			failed: () => (unavailable = true),
+			settled: () => (loaded = true)
+		});
 	});
+
+	const links = $derived(
+		items.map((item) => ({
+			key: `${item.public_id}:${item.version}`,
+			href: resolve('/repositories/cadsr/[id]', { id: item.public_id }),
+			label: item.long_name,
+			score: item.score
+		}))
+	);
 </script>
 
 <section class="rounded-xl border border-default bg-card p-4 shadow-sm">
@@ -28,22 +42,11 @@
 	</h3>
 	{#if unavailable}
 		<p class="text-sm italic text-subtle">Embeddings unavailable.</p>
-	{:else if loaded && items.length === 0}
+	{:else if !loaded}
+		<LoadingState active label="Loading similar CDEs" minHeight="4rem" />
+	{:else if items.length === 0}
 		<p class="text-sm italic text-subtle">None.</p>
 	{:else}
-		<ul class="flex flex-col gap-2">
-			{#each items as cde (cde.public_id + cde.version)}
-				<li class="flex items-center justify-between gap-2 text-sm">
-					<a
-						href={resolve('/repositories/cadsr/[id]', { id: cde.public_id })}
-						class="min-w-0 truncate text-secondary no-underline hover:text-primary-600">{cde.long_name}</a
-					>
-					<span
-						class="shrink-0 rounded bg-success-50 px-1.5 py-0.5 font-mono text-xs text-success tabular-nums dark:bg-success-900/30"
-						>{cde.score.toFixed(2)}</span
-					>
-				</li>
-			{/each}
-		</ul>
+		<SimilarityList items={links} />
 	{/if}
 </section>

@@ -1,5 +1,5 @@
-// Typed client for the ontoprism backend. In dev, requests hit `/api/...` and Vite
-// proxies them to the FastAPI backend (see vite.config.ts).
+// Typed same-origin client for the SvelteKit `/api` BFF. The BFF is the only frontend
+// transport to FastAPI in development and in the built adapter-node server.
 
 import type {
 	CdeDetail,
@@ -17,6 +17,30 @@ import type {
 
 const BASE = '';
 
+export class ApiRequestError extends Error {
+	constructor(
+		readonly status: number,
+		message: string
+	) {
+		super(message);
+		this.name = 'ApiRequestError';
+	}
+}
+
+async function failedResponse(response: Response, url: string): Promise<ApiRequestError> {
+	let detail: unknown;
+	try {
+		detail = ((await response.json()) as { detail?: unknown }).detail;
+	} catch {
+		// A non-JSON upstream error still has an unambiguous HTTP status.
+	}
+	const message =
+		typeof detail === 'string' && detail.trim()
+			? detail
+			: `Request failed (${response.status}): ${url}`;
+	return new ApiRequestError(response.status, message);
+}
+
 /** Build an API URL with query params (pure — unit tested). */
 export function apiUrl(path: string, params: Record<string, string | number> = {}): string {
 	const qs = new URLSearchParams(
@@ -28,7 +52,7 @@ export function apiUrl(path: string, params: Record<string, string | number> = {
 export async function getJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promise<T> {
 	const resp = await fetchImpl(url);
 	if (!resp.ok) {
-		throw new Error(`Request failed (${resp.status}): ${url}`);
+		throw await failedResponse(resp, url);
 	}
 	return (await resp.json()) as T;
 }
@@ -36,7 +60,7 @@ export async function getJson<T>(url: string, fetchImpl: typeof fetch = fetch): 
 async function postJson<T>(url: string, fetchImpl: typeof fetch = fetch): Promise<T> {
 	const resp = await fetchImpl(url, { method: 'POST' });
 	if (!resp.ok) {
-		throw new Error(`Request failed (${resp.status}): ${url}`);
+		throw await failedResponse(resp, url);
 	}
 	return (await resp.json()) as T;
 }
@@ -52,16 +76,7 @@ export async function postJsonBody<T>(
 		body: JSON.stringify(body)
 	});
 	if (!resp.ok) {
-		let detail = '';
-		try {
-			// `detail` is a string for our HTTPExceptions; FastAPI validation errors make
-			// it an array — only use it when it's actually a string.
-			const body = (await resp.json()) as { detail?: unknown };
-			if (typeof body.detail === 'string') detail = body.detail;
-		} catch {
-			// non-JSON error body — fall through to the status-code message
-		}
-		throw new Error(detail || `Request failed (${resp.status}): ${url}`);
+		throw await failedResponse(resp, url);
 	}
 	return (await resp.json()) as T;
 }

@@ -427,6 +427,7 @@ jobs:
           set -euo pipefail
           cleanup() {
             docker rm --force ontoprism-api-ci ontoprism-web-ci >/dev/null 2>&1 || true
+            docker network rm ontoprism-ci >/dev/null 2>&1 || true
           }
           wait_for_command() {
             container="$1"
@@ -441,12 +442,18 @@ jobs:
             return 1
           }
           trap cleanup EXIT
-          docker run --detach --name ontoprism-api-ci ontoprism-api:ci
-          docker run --detach --name ontoprism-web-ci --env ORIGIN=http://127.0.0.1:3000 ontoprism-web:ci
+          docker network create ontoprism-ci >/dev/null
+          docker run --detach --name ontoprism-api-ci --network ontoprism-ci ontoprism-api:ci
+          docker run --detach --name ontoprism-web-ci --network ontoprism-ci \
+            --env ORIGIN=http://127.0.0.1:3000 \
+            --env ONTOPRISM_FASTAPI_ORIGIN=http://ontoprism-api-ci:8011 \
+            ontoprism-web:ci
           wait_for_command ontoprism-api-ci python -c \
             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
           wait_for_command ontoprism-web-ci node -e \
             "fetch('http://127.0.0.1:3000/', {signal: AbortSignal.timeout(2000)}).then(r => { if (!r.ok) throw new Error(String(r.status)) })"
+          wait_for_command ontoprism-web-ci node -e \
+            "fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(2000)}).then(r => { if (r.status !== 404) throw new Error(String(r.status)) })"
 
   # Single aggregate status: fails if any job failed/was cancelled; treats skipped
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.

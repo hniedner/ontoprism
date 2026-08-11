@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import RepoResultsCard from './RepoResultsCard.svelte';
@@ -20,7 +20,8 @@ describe('RepoResultsCard', () => {
 		expect(screen.queryByTestId('table')).not.toBeInTheDocument();
 	});
 
-	it('shows a loading message instead of the children while loading', () => {
+	it('uses the shared delayed loading state instead of flashing or exposing stale rows', async () => {
+		vi.useFakeTimers();
 		render(RepoResultsCard, {
 			title: 'Results',
 			countLabel: '',
@@ -28,8 +29,11 @@ describe('RepoResultsCard', () => {
 			error: null,
 			children
 		});
-		expect(screen.getByText('Loading…')).toBeInTheDocument();
 		expect(screen.queryByTestId('table')).not.toBeInTheDocument();
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+		await vi.advanceTimersByTimeAsync(150);
+		expect(screen.getByRole('status')).toHaveTextContent('Loading results');
+		vi.useRealTimers();
 	});
 
 	it('renders the title, count and children when loaded', () => {

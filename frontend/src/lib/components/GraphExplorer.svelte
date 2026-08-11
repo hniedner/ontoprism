@@ -32,6 +32,7 @@
 	} from '$lib/graph/graph-explorer';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
 	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 
 	interface Props {
 		/** Center concept code. */
@@ -470,8 +471,8 @@
 		{/if}
 
 		{#if loading}
-			<div class="absolute inset-0 flex items-center justify-center text-sm text-muted">
-				Building graph…
+			<div class="absolute inset-0">
+				<LoadingState active label="Building graph" minHeight="100%" />
 			</div>
 		{:else if error}
 			<div class="absolute inset-0 flex items-center justify-center text-sm text-danger">
@@ -482,7 +483,7 @@
 			<div
 				class="absolute left-3 top-3 rounded-md bg-primary-600 px-2 py-1 text-xs font-medium text-white shadow"
 			>
-				Expanding…
+				<LoadingState active label="Expanding graph" minHeight="0" />
 			</div>
 		{/if}
 

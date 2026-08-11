@@ -10,6 +10,7 @@ repository or a locally built image:
 | QLever Uberon/CL | `:7889` | `:7879` |
 | PostgreSQL (pgvector) | `:5433` | `:5432` |
 | backend | `:8011` | `:8001` |
+| SvelteKit Node/dev server | `:5175` | `:5173` |
 
 ## 1. Install the pinned data-build tools
 
@@ -20,6 +21,26 @@ cp .env.example .env
 pdm install --dev
 npm ci --prefix frontend
 ```
+
+The copied `.env` also binds the private SvelteKit BFF target:
+
+```dotenv
+ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:8011
+ONTOPRISM_FASTAPI_TIMEOUT_MS=5000
+```
+
+`pdm run start-all` exports that file to both application processes. Direct Vite
+development reads the repository root through `envDir`. A production adapter-node build
+does not load `.env` automatically; inject the same private variables into the process,
+for example `node --env-file=../.env build` from `frontend/`. Also set adapter-node
+`ORIGIN` to the public application origin. Only configure forwarded-protocol/host headers
+when a trusted reverse proxy overwrites them; accepting client-supplied forwarded headers
+would allow origin spoofing. The SvelteKit BFF strips browser-supplied `Forwarded`,
+`X-Forwarded-*`, `X-Real-IP`, and hop-by-hop headers before calling FastAPI; configure
+the public proxy-to-SvelteKit hop independently from the private SvelteKit-to-FastAPI hop.
+The BFF supplies FastAPI with SvelteKit's socket-derived client address. Behind a trusted
+proxy, set adapter-node `ADDRESS_HEADER` (and `XFF_DEPTH` for `x-forwarded-for`) only when
+that proxy overwrites the selected header; otherwise leave them unset.
 
 NCIt is published by EVS as stated and inferred RDF/XML OWL. QLever indexes
 N-Triples/Turtle/N-Quads, so the build uses Apache Jena RIOT only as a streaming,
