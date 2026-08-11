@@ -69,6 +69,7 @@ lint = [
 # the repo root to sys.path, where the outer ontolib/ & backend/ dirs shadow the
 # editable installs. The console script keeps import resolution clean.
 [tool.pdm.scripts]
+_ = { env_file = ".env", env = { PATH = "/opt/homebrew/opt/openjdk/bin:${PATH}" } }
 # Default `test`: the grouped, colored summary runner over the hermetic suites
 # (backend unit/api/security + frontend vitest). `pdm run test --all` adds the slow
 # suites (disposable integration, e2e). Coverage is the separate `test-ci` gate.

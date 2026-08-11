@@ -257,7 +257,7 @@ pdm install --dev                # Python 3.13 deps
 npm ci --prefix frontend         # SvelteKit deps
 cp .env.example .env
 pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
-export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
+pdm run python scripts/install_robot.py --install-dir "$PWD/.tools/robot-1.9.10"
 pdm run data-build owl           # download and certify the NCIt OWL pair
 pdm run data-build ncit-bootstrap # build the first NCIt QLever index
 pdm run data-build uberon-store  # build the Uberon/CL QLever index

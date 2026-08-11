@@ -49,10 +49,11 @@ pinned Apache archive over HTTPS, verifies its SHA-256 digest, and records its e
 identity before the build can use it:
 
 ```bash
-JENA_INSTALL_DIR="$PWD/.tools/jena-6.1.0"
-pdm run python scripts/install_jena.py --install-dir "$JENA_INSTALL_DIR"
-export ONTOPRISM_JENA_DIR="$JENA_INSTALL_DIR"
+pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
 ```
+
+`cp .env.example .env` configures this certified repository-local installation for
+every `pdm run` command; no per-shell export is required.
 
 The pinned converter archive digest is
 `sha256:653108a91fd9b309a89bc756258bae0bca01587cef475942d11852e3beba2ae3`
@@ -399,13 +400,12 @@ requires its SHA-256 identity to match, and only then publishes the JAR, launche
 `robot-tool.json` provenance record:
 
 ```bash
-ROBOT_INSTALL_DIR="$PWD/.tools/robot"
-pdm run python scripts/install_robot.py --install-dir "$ROBOT_INSTALL_DIR"
-export ONTOPRISM_ROBOT_DIR="$ROBOT_INSTALL_DIR"
-export PATH="$ROBOT_INSTALL_DIR:$PATH"
+pdm run python scripts/install_robot.py --install-dir "$PWD/.tools/robot-1.9.10"
 ```
 
-Verify: `robot --version` must print `ROBOT version 1.9.10`. The pinned digest is
+`cp .env.example .env` configures this certified repository-local installation for
+every `pdm run` command. Verify with `pdm run ./.tools/robot-1.9.10/robot --version`;
+it must print `ROBOT version 1.9.10`. The pinned digest is
 `sha256:16a73c074f3df359a7338a84b4e0788785fe06117f931bb9796e9619ea776105`
 (`gh release view v1.9.10 --repo ontodev/robot --json assets`, 2026-08-09); the official
 release exposes that SHA-256 asset digest and no separate signature asset in its asset
@@ -427,7 +427,8 @@ launcher or `JAVA_OPTS`:
 robot reason --reasoner ELK -Xmx32g --input <ontology.owl> --output <inferred.owl>
 ```
 
-`data-build xref-promote` requires `ONTOPRISM_ROBOT_DIR`, revalidates the JAR, launcher,
+`data-build xref-promote` requires `ONTOPRISM_ROBOT_DIR`, supplied by the PDM-loaded
+`.env`; it revalidates the JAR, launcher,
 metadata, and observed version before starting, then persists the source, version, and
 digest in the xref run metrics. Direct library contract tests may use `robot` on `PATH`;
 no Python dependency is added for Java or ROBOT.

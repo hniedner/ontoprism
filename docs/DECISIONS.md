@@ -2,6 +2,30 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-11 — PDM commands own certified local tool configuration
+
+### D70. Every PDM task loads repository-local Jena and ROBOT defaults
+
+**Decision:** PDM's global script options load `.env` for every `pdm run` task and
+prepend Homebrew's keg-only OpenJDK directory while retaining the inherited `PATH`.
+`.env.example` defines repository-relative certified Jena 6.1.0 and ROBOT 1.9.10
+installations; CI-provided variables retain precedence because PDM loads the file
+without override (`sed -n '220,275p' /opt/homebrew/Cellar/pdm/2.28.0/libexec/lib/python3.14/site-packages/pdm/cli/commands/run.py`,
+exit 0, 2026-08-11). A tracked contract pins the PDM option and both example paths
+(`pdm run pytest backend/tests/test_integration_resource_ownership.py::test_pdm_commands_load_repo_local_certified_tool_paths -q`, one passed, 2026-08-11).
+
+The checked local configuration resolves and revalidates both installed tools without
+inline environment prefixes (`pdm run python -c` calling
+`identify_jena_installation` and `configured_robot_installation`, reported `6.1.0` and
+`1.9.10`, exit 0, 2026-08-11). The disposable QLever version contract and ROBOT/ELK
+identity contract likewise pass through plain PDM invocations (their two focused
+commands, one passed each, 2026-08-11).
+
+**Why:** repeated manual prefixes made an omitted shell variable indistinguishable from
+a code failure until deep into the grouped gate. Tool identity is project configuration,
+not session state; one checked template and one task-runner boundary remove that class
+of invocation error while retaining fail-closed identity validation.
+
 ## 2026-08-10 — SvelteKit owns the browser-facing SSR and BFF boundary
 
 ### D69. Route-critical reads are server-loaded through one bounded same-origin gateway

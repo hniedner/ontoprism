@@ -15,6 +15,41 @@ import {
 } from '$lib/graph/neighborhood-graph';
 
 export type ColorMode = 'community' | 'semantic';
+export type GraphTheme = 'light' | 'dark';
+
+export interface GraphLabelColors {
+	canvasColor: string;
+	hoverBackgroundColor: string;
+	labelColor: string;
+	edgeLabelColor: string;
+}
+
+export interface GraphLabelSettings {
+	labelDensity: number;
+	labelGridCellSize: number;
+	labelRenderedSizeThreshold: number;
+}
+
+export interface GraphLabelRenderer {
+	setSettings(settings: {
+		labelColor: { color: string };
+		edgeLabelColor: { color: string };
+	}): unknown;
+	refresh(): unknown;
+}
+
+export interface GraphLabelPolicyRenderer {
+	getSetting(key: keyof GraphLabelSettings): number;
+	setSettings(settings: GraphLabelSettings): unknown;
+	refresh(): unknown;
+}
+
+export interface GraphLabelBounds {
+	left: number;
+	top: number;
+	right: number;
+	bottom: number;
+}
 
 export interface ForceAtlasLayoutBudget {
 	durationMs: number;
@@ -35,6 +70,114 @@ export interface LayoutTimers<Handle> {
 const NO_TYPE_COLOR = '#94a3b8';
 /** Color applied to nodes/labels dimmed while another node is hovered. */
 const DIMMED_COLOR = '#cbd5e1';
+
+const GRAPH_LABEL_THEMES: Record<GraphTheme, GraphLabelColors> = {
+	light: {
+		canvasColor: '#e8f4fc',
+		hoverBackgroundColor: '#ffffff',
+		labelColor: '#0d2140',
+		edgeLabelColor: '#404040'
+	},
+	dark: {
+		canvasColor: '#171717',
+		hoverBackgroundColor: '#262626',
+		labelColor: '#fafafa',
+		edgeLabelColor: '#d4d4d4'
+	}
+};
+
+const GRAPH_LABEL_MAX_CHARACTERS = 32;
+
+/** Canvas and label colors whose contrast is verified by the unit contract. */
+export function graphLabelTheme(theme: GraphTheme): GraphLabelColors {
+	return GRAPH_LABEL_THEMES[theme];
+}
+
+/** Update label colors without replacing the renderer, graph, or camera. */
+export function applyGraphLabelTheme(renderer: GraphLabelRenderer, theme: GraphTheme): void {
+	const colors = graphLabelTheme(theme);
+	renderer.setSettings({
+		labelColor: { color: colors.labelColor },
+		edgeLabelColor: { color: colors.edgeLabelColor }
+	});
+	renderer.refresh();
+}
+
+/** Keep one collision-grid candidate per cell at default zoom and reveal more when closer. */
+export function graphLabelPolicy(cameraRatio: number): GraphLabelSettings {
+	const zoomedIn = cameraRatio < 0.6;
+	return {
+		labelDensity: zoomedIn ? 0.5 : 0.45,
+		labelGridCellSize: 240,
+		labelRenderedSizeThreshold: zoomedIn ? 3 : 9
+	};
+}
+
+/** Apply a changed zoom bucket and immediately rebuild Sigma's program indices. */
+export function applyGraphLabelPolicy(
+	renderer: GraphLabelPolicyRenderer,
+	cameraRatio: number
+): void {
+	const policy = graphLabelPolicy(cameraRatio);
+	const changed = (Object.keys(policy) as Array<keyof GraphLabelSettings>).some(
+		(key) => renderer.getSetting(key) !== policy[key]
+	);
+	if (!changed) return;
+
+	// Sigma's setSettings clears program indices before its scheduled render. A layout
+	// worker can emit a partial repaint in that gap, so rebuild synchronously here.
+	renderer.setSettings(policy);
+	renderer.refresh();
+}
+
+/** Bound canvas label width while leaving the graph's source label untouched. */
+export function ellipsizeGraphLabel(
+	label: string,
+	maxCharacters = GRAPH_LABEL_MAX_CHARACTERS
+): string {
+	if (label.length <= maxCharacters) return label;
+	return `${label.slice(0, maxCharacters)}…`;
+}
+
+/** Axis-aligned bounds matching Sigma's disc-label baseline, with breathing room. */
+export function graphLabelBounds(input: {
+	x: number;
+	y: number;
+	nodeSize: number;
+	labelSize: number;
+	labelWidth: number;
+}): GraphLabelBounds {
+	const left = input.x + input.nodeSize + 3;
+	const baseline = input.y + input.labelSize / 3;
+	return {
+		left: left - 2,
+		top: baseline - input.labelSize - 2,
+		right: left + input.labelWidth + 2,
+		bottom: baseline + 2
+	};
+}
+
+/** Per-render collision guard shared by node and edge canvas labels. */
+export class GraphLabelCollisionIndex {
+	private bounds: GraphLabelBounds[] = [];
+
+	claim(candidate: GraphLabelBounds): boolean {
+		const overlaps = this.bounds.some(
+			(existing) =>
+				candidate.left < existing.right &&
+				candidate.right > existing.left &&
+				candidate.top < existing.bottom &&
+				candidate.bottom > existing.top
+		);
+		if (overlaps) return false;
+		this.bounds.push(candidate);
+		return true;
+	}
+
+	reset(): void {
+		this.bounds = [];
+	}
+}
 
 const SEMANTIC_PALETTE = [
 	'#007bbd',

@@ -1032,6 +1032,20 @@ def test_default_integration_command_excludes_explicit_full_store_contracts() ->
 
 
 @pytest.mark.unit
+def test_pdm_commands_load_repo_local_certified_tool_paths() -> None:
+    """Every PDM entry point must receive the same durable Jena/ROBOT defaults."""
+    root = Path(__file__).resolve().parents[2]
+    with (root / "pyproject.toml").open("rb") as stream:
+        scripts = tomllib.load(stream)["tool"]["pdm"]["scripts"]
+    env_example = (root / ".env.example").read_text()
+
+    assert scripts["_"]["env_file"] == ".env"
+    assert scripts["_"]["env"]["PATH"] == "/opt/homebrew/opt/openjdk/bin:${PATH}"
+    assert "ONTOPRISM_JENA_DIR=.tools/jena-6.1.0" in env_example
+    assert "ONTOPRISM_ROBOT_DIR=.tools/robot-1.9.10" in env_example
+
+
+@pytest.mark.unit
 def test_mutating_integration_commands_actually_invoke_the_safe_wrapper() -> None:
     """Marker filtering alone does not prove the safe lane runs: a regression that
     dropped `scripts/run_safe_integration.py` from these two `pyproject.toml`

@@ -4,7 +4,12 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Sigma from 'sigma';
-	import { EdgeCurvedArrowProgram } from '@sigma/edge-curve';
+	import {
+		DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
+		drawDiscNodeLabel,
+		drawStraightEdgeLabel
+	} from 'sigma/rendering';
+	import { createEdgeCurveProgram } from '@sigma/edge-curve';
 	import { downloadAsImage } from '@sigma/export-image';
 	import forceAtlas2 from 'graphology-layout-forceatlas2';
 	import ForceAtlas2LayoutSupervisor from 'graphology-layout-forceatlas2/worker';
@@ -30,13 +35,21 @@
 		findNode,
 		reduceNodeAppearance,
 		reduceEdgeAppearance,
+		applyGraphLabelTheme,
+		applyGraphLabelPolicy,
+		ellipsizeGraphLabel,
 		forceAtlasLayoutBudget,
+		graphLabelBounds,
+		graphLabelPolicy,
+		graphLabelTheme,
+		GraphLabelCollisionIndex,
 		TimedLayoutController,
 		type LayoutWorker
 	} from '$lib/graph/graph-explorer';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
 	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
+	import { theme } from '$lib/stores/theme.svelte';
 
 	interface Props {
 		/** Center concept code. */
@@ -80,6 +93,73 @@
 	// Bumped after any graph mutation so the minimap redraws.
 	let graphVersion = $state(0);
 	const layoutController = new TimedLayoutController();
+	const labelCollisionIndex = new GraphLabelCollisionIndex();
+	const CollisionAwareCurvedArrowProgram = createEdgeCurveProgram({
+		arrowHead: DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
+		drawLabel: (context, edgeData, sourceData, targetData, settings) => {
+			if (!edgeData.label) return;
+			context.font = `${settings.edgeLabelWeight} ${settings.edgeLabelSize}px ${settings.edgeLabelFont}`;
+			const width = context.measureText(edgeData.label).width;
+			const angle = Math.atan2(targetData.y - sourceData.y, targetData.x - sourceData.x);
+			const halfWidth =
+				(Math.abs(Math.cos(angle)) * width +
+					Math.abs(Math.sin(angle)) * settings.edgeLabelSize) /
+				2;
+			const halfHeight =
+				(Math.abs(Math.sin(angle)) * width +
+					Math.abs(Math.cos(angle)) * settings.edgeLabelSize) /
+				2;
+			const x = (sourceData.x + targetData.x) / 2;
+			const y = (sourceData.y + targetData.y) / 2;
+			if (
+				labelCollisionIndex.claim({
+					left: x - halfWidth - 2,
+					top: y - halfHeight - 2,
+					right: x + halfWidth + 2,
+					bottom: y + halfHeight + 2
+				})
+			)
+				drawStraightEdgeLabel(context, edgeData, sourceData, targetData, settings);
+		}
+	});
+
+	function drawThemeAwareNodeHover(
+		context: CanvasRenderingContext2D,
+		data: Parameters<typeof drawDiscNodeLabel>[1],
+		settings: Parameters<typeof drawDiscNodeLabel>[2]
+	): void {
+		const labelTheme = graphLabelTheme(theme.current);
+		const padding = 3;
+		const labelSize = settings.labelSize;
+		context.save();
+		context.font = `${settings.labelWeight} ${labelSize}px ${settings.labelFont}`;
+		context.fillStyle = labelTheme.hoverBackgroundColor;
+		context.shadowBlur = 8;
+		context.shadowColor = '#000000';
+		if (data.label) {
+			const boxHeight = labelSize + padding * 2;
+			const radius = Math.max(data.size, labelSize / 2) + padding;
+			const halfHeight = boxHeight / 2;
+			const xDelta = Math.sqrt(Math.max(0, radius ** 2 - halfHeight ** 2));
+			const right = data.x + radius + context.measureText(data.label).width + padding * 2;
+			const angle = Math.asin(Math.min(1, halfHeight / radius));
+			context.beginPath();
+			context.moveTo(data.x + xDelta, data.y + halfHeight);
+			context.lineTo(right, data.y + halfHeight);
+			context.lineTo(right, data.y - halfHeight);
+			context.lineTo(data.x + xDelta, data.y - halfHeight);
+			context.arc(data.x, data.y, radius, angle, -angle);
+			context.closePath();
+			context.fill();
+		} else {
+			context.beginPath();
+			context.arc(data.x, data.y, data.size + padding, 0, Math.PI * 2);
+			context.fill();
+		}
+		context.shadowBlur = 0;
+		drawDiscNodeLabel(context, data, settings);
+		context.restore();
+	}
 
 	// Session-stable semantic-type colorer (read inside the sigma reducer, not markup).
 	const semanticColorer = makeSemanticColorer();
@@ -202,6 +282,7 @@
 
 	function setupInteractions(s: Sigma) {
 		let dragged: string | null = null;
+		s.on('beforeRender', () => labelCollisionIndex.reset());
 
 		s.on('clickNode', ({ node }) => {
 			selected = graph?.getNodeAttributes(node) as NodeAttrs;
@@ -262,7 +343,7 @@
 		// Zoom-scalable labels: reveal more labels as the camera zooms in. Also dismiss
 		// the context menu on any pan/zoom so it never lingers detached from its node.
 		s.getCamera().on('updated', ({ ratio }) => {
-			s.setSetting('labelRenderedSizeThreshold', ratio < 0.6 ? 3 : 8);
+			applyGraphLabelPolicy(s, ratio);
 			menu = null;
 		});
 	}
@@ -277,13 +358,30 @@
 			mergeNeighborhood(graph, nb);
 			seedPositions(graph);
 			refreshStats(graph);
+			const labelTheme = graphLabelTheme(theme.current);
 
 			sigma = new Sigma(graph, container, {
 				renderEdgeLabels: true,
 				defaultEdgeType: 'curved',
-				edgeProgramClasses: { curved: EdgeCurvedArrowProgram },
-				labelDensity: 0.5,
-				labelRenderedSizeThreshold: 8,
+				edgeProgramClasses: { curved: CollisionAwareCurvedArrowProgram },
+				...graphLabelPolicy(1),
+				labelColor: { color: labelTheme.labelColor },
+				edgeLabelColor: { color: labelTheme.edgeLabelColor },
+				defaultDrawNodeLabel: (context, data, settings) => {
+					if (!data.label) return;
+					const label = ellipsizeGraphLabel(data.label);
+					context.font = `${settings.labelWeight} ${settings.labelSize}px ${settings.labelFont}`;
+					const bounds = graphLabelBounds({
+						x: data.x,
+						y: data.y,
+						nodeSize: data.size,
+						labelSize: settings.labelSize,
+						labelWidth: context.measureText(label).width
+					});
+					if (labelCollisionIndex.claim(bounds))
+						drawDiscNodeLabel(context, { ...data, label }, settings);
+				},
+				defaultDrawNodeHover: drawThemeAwareNodeHover,
 				minCameraRatio: 0.05,
 				maxCameraRatio: 4
 			});
@@ -375,6 +473,11 @@
 			restyle(graph);
 			sigma?.refresh();
 		}
+	});
+
+	$effect(() => {
+		const currentTheme = theme.current;
+		if (sigma) applyGraphLabelTheme(sigma, currentTheme);
 	});
 
 	$effect(() => {
