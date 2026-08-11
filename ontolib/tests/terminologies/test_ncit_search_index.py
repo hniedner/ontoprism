@@ -133,10 +133,10 @@ async def test_search_maps_rows_and_binds_params() -> None:
         "representation_status": "legacy-precoordinated",
     }
     sql = sf.executed[0][0]
-    assert "representation_status = :representation_status" in sql
-    assert sql.index("representation_status = :representation_status") < sql.index(
-        "LIMIT :limit"
-    )
+    status_filter = "representation_status = CAST(:representation_status AS text)"
+    assert "CAST(:representation_status AS text) IS NULL" in sql
+    assert status_filter in sql
+    assert sql.index(status_filter) < sql.index("LIMIT :limit")
 
 
 @pytest.mark.unit

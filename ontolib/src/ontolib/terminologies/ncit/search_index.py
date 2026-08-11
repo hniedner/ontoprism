@@ -61,8 +61,8 @@ _SEARCH_SQL = r"""
            COUNT(*) OVER () AS total
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
-      AND (:representation_status IS NULL
-           OR representation_status = :representation_status)
+      AND (CAST(:representation_status AS text) IS NULL
+           OR representation_status = CAST(:representation_status AS text))
     ORDER BY (lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC,
              ts_rank(tsv, q) DESC,
              length(label), label, code
