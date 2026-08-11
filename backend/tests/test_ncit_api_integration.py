@@ -3,6 +3,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
+_ALLOW_EMPTY_GRAPH = True
+_REQUIRE_POPULATED_GRAPH = False
+
 
 @pytest.mark.integration
 def test_concept_detail_renders_metadata_and_roles(
@@ -84,22 +87,48 @@ def test_list_paginates_disjointly(isolated_api_client: TestClient) -> None:
     assert first_codes.isdisjoint(second_codes)
 
 
-@pytest.mark.integration
-@pytest.mark.full_store
-def test_published_representation_marker_surfaces_across_ncit_reads(
-    live_api_client: TestClient,
+def _assert_representation_status_matches_published_graph(
+    client: TestClient, *, allow_empty: bool
 ) -> None:
     status = "legacy-precoordinated"
-    first = live_api_client.get(
+    first = client.get(
         "/api/v1/ncit/list",
         params={"limit": 1, "representation_status": status},
     )
     assert first.status_code == 200, first.text
     first_page = first.json()
-    assert first_page["total"] > 0
+    if not allow_empty:
+        assert first_page["total"] > 0
+    if first_page["total"] == 0:
+        assert first_page["hits"] == []
+        unfiltered = client.get("/api/v1/ncit/list", params={"limit": 1})
+        assert unfiltered.status_code == 200, unfiltered.text
+        hit = unfiltered.json()["hits"][0]
+        assert hit["representation_status"] is None
+
+        detail = client.get(f"/api/v1/ncit/concepts/{hit['code']}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["representation_status"] is None
+
+        neighborhood = client.get(f"/api/v1/ncit/concepts/{hit['code']}/neighborhood")
+        assert neighborhood.status_code == 200, neighborhood.text
+        center = next(
+            node for node in neighborhood.json()["nodes"] if node["code"] == hit["code"]
+        )
+        assert center["representation_status"] is None
+
+        search = client.get(
+            "/api/v1/ncit/search",
+            params={"q": hit["label"], "limit": 10, "representation_status": status},
+        )
+        assert search.status_code == 200, search.text
+        assert search.json()["total"] == 0
+        assert search.json()["hits"] == []
+        return
+
     assert first_page["hits"][0]["representation_status"] == status
 
-    last = live_api_client.get(
+    last = client.get(
         "/api/v1/ncit/list",
         params={
             "limit": 1,
@@ -111,23 +140,40 @@ def test_published_representation_marker_surfaces_across_ncit_reads(
     assert last.json()["hits"][0]["representation_status"] == status
 
     hit = first_page["hits"][0]
-    detail = live_api_client.get(f"/api/v1/ncit/concepts/{hit['code']}")
+    detail = client.get(f"/api/v1/ncit/concepts/{hit['code']}")
     assert detail.status_code == 200, detail.text
     assert detail.json()["representation_status"] == status
 
-    neighborhood = live_api_client.get(
-        f"/api/v1/ncit/concepts/{hit['code']}/neighborhood"
-    )
+    neighborhood = client.get(f"/api/v1/ncit/concepts/{hit['code']}/neighborhood")
     assert neighborhood.status_code == 200, neighborhood.text
     center = next(
         node for node in neighborhood.json()["nodes"] if node["code"] == hit["code"]
     )
     assert center["representation_status"] == status
 
-    search = live_api_client.get(
+    search = client.get(
         "/api/v1/ncit/search",
         params={"q": hit["label"], "limit": 10, "representation_status": status},
     )
     assert search.status_code == 200, search.text
     assert any(row["code"] == hit["code"] for row in search.json()["hits"])
     assert all(row["representation_status"] == status for row in search.json()["hits"])
+
+
+@pytest.mark.integration
+def test_disposable_published_representation_marker_surfaces_across_ncit_reads(
+    isolated_api_client: TestClient,
+) -> None:
+    _assert_representation_status_matches_published_graph(
+        isolated_api_client, allow_empty=_REQUIRE_POPULATED_GRAPH
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+def test_configured_representation_status_matches_published_graph(
+    live_api_client: TestClient,
+) -> None:
+    _assert_representation_status_matches_published_graph(
+        live_api_client, allow_empty=_ALLOW_EMPTY_GRAPH
+    )
