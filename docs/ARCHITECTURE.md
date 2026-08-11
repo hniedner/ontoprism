@@ -30,7 +30,7 @@ ontoprism/
 │   │   ├── main.py           #   app factory + /health (M0)
 │   │   └── api/…/routers/    #   repo/graph/search/refresh + decomp (M6)
 │   └── tests/
-├── frontend/                 # LIFTED SvelteKit 5 app (M4)
+├── frontend/                 # SvelteKit 5 SSR/Node BFF + browser UI
 └── docs/  ARCHITECTURE.md  DECISIONS.md  DATA_SETUP.md  design/  postcoordination-literature-review.md
 ```
 
@@ -59,10 +59,34 @@ ontoprism/
   -q`, 2026-08-10). Decomposition RDF and proposal RDF remain additive projections,
   never source graph mutations.
 
-The frontend talks only to the FastAPI backend; the backend owns all SPARQL/Postgres
-access. The application exposes no caller-supplied raw SPARQL route: typed endpoints
-construct the supported store queries. Re-enabling raw execution requires a separately
-reviewed executor with proven store-side cancellation and resource bounds (D44).
+## Web request architecture
+
+```text
+browser → SvelteKit adapter-node (routing, SSR, hydration, same-origin /api BFF)
+        → FastAPI (typed domain API) → QLever / PostgreSQL / certified caDSR
+```
+
+SvelteKit server loads own route-critical reads, so list, search, and detail content is
+in the first HTML response. Browser calls remain same-origin under `/api`; the server-only
+BFF reads `ONTOPRISM_FASTAPI_ORIGIN` and applies a bounded
+`ONTOPRISM_FASTAPI_TIMEOUT_MS`. Neither value is delivered to browser code. FastAPI
+remains the sole owner of domain endpoints and all QLever/Postgres/caDSR access.
+The BFF removes caller-supplied forwarding and hop-by-hop headers, never follows an
+upstream redirect, and completes each bounded FastAPI response body (at most 32 MiB)
+before publishing its status and content to the browser. This prevents a loopback-trusted
+client-address header from bypassing FastAPI rate limits and prevents redirects or
+late-stalling bodies from escaping the gateway contract.
+
+In development, Vite and the built Node server exercise the same SvelteKit `/api` route;
+there is no Vite-only proxy path. The supported process wrapper loads the repository
+`.env`. Production `node build` receives the private origin from its process environment
+(or Node's `--env-file`); `.env` is not loaded implicitly by adapter-node. If adapter-node
+is behind a trusted reverse proxy, configure `ORIGIN` directly or set
+`PROTOCOL_HEADER`/`HOST_HEADER` only for headers overwritten by that trusted proxy.
+
+The application exposes no caller-supplied raw SPARQL route: typed endpoints construct
+the supported store queries. Re-enabling raw execution requires a separately reviewed
+executor with proven store-side cancellation and resource bounds (D44).
 
 Repository readiness is a certification boundary, not a ping. NCIt binds the exact
 active candidate manifest and completed activation journal to a live same-release graph

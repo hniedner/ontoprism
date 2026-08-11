@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 
 	// Shared results wrapper for the repository search pages: the error banner and the
 	// titled results card (header + count + loading state); the concrete results table
@@ -28,7 +29,7 @@
 			<span class="text-xs text-muted">{countLabel}</span>
 		</div>
 		{#if loading}
-			<p class="px-4 py-6 text-center text-sm text-muted">Loading…</p>
+			<LoadingState active label="Loading results" minHeight="6rem" />
 		{:else}
 			{@render children()}
 		{/if}

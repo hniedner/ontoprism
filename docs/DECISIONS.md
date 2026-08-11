@@ -2,6 +2,42 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-10 — SvelteKit owns the browser-facing SSR and BFF boundary
+
+### D69. Route-critical reads are server-loaded through one bounded same-origin gateway
+
+**Decision:** browsers address only the SvelteKit origin. SvelteKit adapter-node owns
+HTML routing, route-critical server loads, hydration, and the same-origin `/api` BFF;
+FastAPI remains the only domain API and the sole owner of QLever, PostgreSQL, and caDSR
+access. NCIt, caDSR, ClinicalTrials.gov, and PubMed list/search/detail routes encode
+search and pagination in the URL and render their critical data into initial HTML. The
+Sigma graph remains an explicit browser-only dynamic-import island inside a stable
+32-rem region (`npm --prefix frontend run test:e2e`, 14 passed, 2026-08-10).
+
+The private BFF origin and timeout are runtime-only environment values. The gateway
+rejects a mutable or credentialed origin, strips caller forwarding and hop-by-hop
+headers, does not follow upstream redirects, consumes each response body within the
+timeout and a 32 MiB bound, and preserves explicit upstream status and content. A built
+adapter pointed at a refused local socket returned HTTP 503 with detail `FastAPI is
+unreachable` (`curl -sS -i http://127.0.0.1:4174/api/v1/ncit/list` against `env
+ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:1 ONTOPRISM_FASTAPI_TIMEOUT_MS=200
+HOST=127.0.0.1 PORT=4174 ORIGIN=http://127.0.0.1:4174 node build`, 2026-08-10).
+
+Loading UI uses one delayed accessible state with a 150 ms threshold and reserved
+space. Route errors preserve HTTP status; secondary similarity, mapping,
+decomposition, and related-article regions distinguish unavailable from empty and
+discard stale completions. The shared-library contract passes at 98.85% lines and
+91.49% branches (`npm --prefix frontend run test:coverage`, 248 passed, 2026-08-10),
+and the cross-file gate reports no introduced dead-code or complexity findings (`npm
+--prefix frontend run fallow`, exit 0, 2026-08-10).
+
+**Why:** the former Vite-only proxy and route-wide SSR opt-outs made development and
+production use different network paths, delayed meaningful content until hydration,
+and allowed critical failures to look like blank or indefinitely loading pages. One
+server-visible path makes first HTML, copied URLs, error status, security policy, and
+production behavior testable as a single contract without moving domain ownership out
+of FastAPI.
+
 ## 2026-08-10 — repositories and derived indexes publish certified identities
 
 ### D68. Readiness is a discriminated certification result; search and embeddings bind both proxy and content identities

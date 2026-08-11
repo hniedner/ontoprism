@@ -4,6 +4,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+	envDir: '..',
 	plugins: [
 		tailwindcss(),
 		sveltekit({
@@ -18,13 +19,6 @@ export default defineConfig({
 			adapter: adapter()
 		})
 	],
-	server: {
-		// Dev: proxy API calls to the FastAPI backend so the browser can use same-origin /api.
-		proxy: {
-			// ontoprism backend dev port (8001 is the sibling fairdata app).
-			'/api': { target: 'http://localhost:8011', changeOrigin: true }
-		}
-	},
 	test: {
 		expect: { requireAssertions: true },
 		coverage: {

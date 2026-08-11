@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getMappings } from '$lib/api';
 	import type { ExternalMapping } from '$lib/types';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 
 	let { code }: { code: string } = $props();
 
@@ -45,7 +46,9 @@
 	</h3>
 	{#if error}
 		<p class="text-sm italic text-red-500">Failed to load: {error}</p>
-	{:else if loaded && mappings.length === 0}
+	{:else if !loaded}
+		<LoadingState active label="Loading mappings" minHeight="4rem" />
+	{:else if mappings.length === 0}
 		<p class="text-sm italic text-subtle">No upstream mappings.</p>
 	{:else}
 		<ul class="flex flex-col gap-2">

@@ -30,7 +30,7 @@
 </script>
 
 <div class="mb-6 rounded-xl border border-default bg-card p-5 shadow-sm">
-	<form onsubmit={submit} class="flex gap-2">
+	<form method="get" onsubmit={submit} class="flex gap-2">
 		<div class="relative flex-1">
 			<svg
 				viewBox="0 0 24 24"
@@ -44,6 +44,7 @@
 			</svg>
 			<input
 				type="search"
+				name="q"
 				bind:value={value}
 				{placeholder}
 				aria-label={ariaLabel}

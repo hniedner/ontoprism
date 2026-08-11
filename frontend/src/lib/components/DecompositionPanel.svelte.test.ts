@@ -34,16 +34,20 @@ const decomposed: ConceptDecomposition = {
 
 describe('DecompositionPanel', () => {
 	it('shows the loading indicator while waiting for the API', async () => {
+		vi.useFakeTimers();
 		const { promise, resolve } = Promise.withResolvers<ConceptDecomposition>();
 		mock.mockReturnValue(promise);
 		render(DecompositionPanel, { code: 'C6135' });
-		expect(screen.getByText('…')).toBeInTheDocument();
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+		await vi.advanceTimersByTimeAsync(150);
+		expect(screen.getByRole('status')).toHaveTextContent('Loading decomposition');
 		resolve({
 			code: 'C6135',
 			is_legacy_precoordinated: false,
 			decomposed_on: null,
 			constituents: []
 		});
+		vi.useRealTimers();
 	});
 
 	it('requests the decomposition for the given code', async () => {

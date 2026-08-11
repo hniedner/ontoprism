@@ -19,7 +19,8 @@ describe('MappedCdes', () => {
 	it('shows the fallback when the fetch fails', async () => {
 		mock.mockRejectedValue(new Error('network error'));
 		render(MappedCdes, { code: 'C3262' });
-		expect(await screen.findByText('No CDEs map to this concept.')).toBeInTheDocument();
+		expect(await screen.findByRole('alert')).toHaveTextContent('Mapped CDEs are unavailable');
+		expect(screen.queryByText('No CDEs map to this concept.')).not.toBeInTheDocument();
 	});
 
 	it('lists mapped CDEs linking to their detail page', async () => {
