@@ -34,7 +34,7 @@ _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 
 pytestmark = [
     pytest.mark.mutating_integration,
-    pytest.mark.usefixtures("isolated_qlever_settings"),
+    pytest.mark.usefixtures("isolated_qlever_settings", "preserved_decomposed_graph"),
 ]
 
 # A hand-written decomposed-graph fixture (what the engine will emit for C6135).

@@ -123,7 +123,7 @@ async def _completion_metrics(
     }
 
 
-@pytest.mark.usefixtures("isolated_qlever_settings")
+@pytest.mark.usefixtures("isolated_qlever_settings", "preserved_decomposed_graph")
 async def test_qlever_update_is_transactional_and_empty_replacement_is_clean(
     isolated_qlever_url: str,
 ) -> None:
@@ -217,7 +217,11 @@ async def test_postgres_advisory_lock_excludes_and_then_admits_a_publisher(
         await second.close()
 
 
-@pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings")
+@pytest.mark.usefixtures(
+    "isolated_postgres_settings",
+    "isolated_qlever_settings",
+    "preserved_decomposed_graph",
+)
 async def test_production_publication_reconciles_marker_ahead_and_clears_stale_graph(
     isolated_qlever_url: str,
     tmp_path: Path,
@@ -314,7 +318,11 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
         await dispose_engine(engine)
 
 
-@pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings")
+@pytest.mark.usefixtures(
+    "isolated_postgres_settings",
+    "isolated_qlever_settings",
+    "preserved_decomposed_graph",
+)
 async def test_concurrent_publishers_are_serialized_and_readers_see_complete_graphs(
     isolated_qlever_url: str,
     tmp_path: Path,

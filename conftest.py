@@ -56,6 +56,7 @@ from ontolib.core.data_build_tools import (  # noqa: E402
     JENA_JRE_IMAGE,
     identify_jena_installation,
 )
+from ontolib.decomposition import vocab as decomp_vocab  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -682,6 +683,35 @@ def isolated_qlever_url(
     """
     with _provision_qlever(integration_resource_owner) as (url, _container_id):
         yield url
+
+
+@pytest.fixture
+def preserved_decomposed_graph(isolated_qlever_url: str) -> Iterator[None]:
+    """Restore the disposable public decomposition graph after a mutating contract."""
+    public = decomp_vocab.DECOMPOSED_GRAPH_IRI
+    backup = f"{public}/test-backup/{uuid.uuid4().hex}"
+
+    def update(statement: str) -> None:
+        response = httpx.post(
+            f"{isolated_qlever_url}/update",
+            content=statement.encode(),
+            headers={"Content-Type": "application/sparql-update"},
+            timeout=30,
+        )
+        response.raise_for_status()
+
+    update(
+        f"CLEAR SILENT GRAPH <{backup}>; "
+        f"ADD SILENT GRAPH <{public}> TO GRAPH <{backup}>"
+    )
+    try:
+        yield
+    finally:
+        update(
+            f"CLEAR SILENT GRAPH <{public}>; "
+            f"ADD SILENT GRAPH <{backup}> TO GRAPH <{public}>; "
+            f"DROP SILENT GRAPH <{backup}>"
+        )
 
 
 @pytest.fixture
