@@ -190,6 +190,15 @@ describe('NCIt endpoints', () => {
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C3262/neighborhood?depth=2');
 	});
 
+	it('getNeighborhood forwards request cancellation to fetch', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ center: 'C3262', nodes: [], edges: [] }));
+		const controller = new AbortController();
+		await getNeighborhood('C3262', 1, fetchImpl, controller.signal);
+		expect(fetchImpl.mock.calls[0][1]).toEqual({ signal: controller.signal });
+	});
+
 	it('similarConcepts requests the similar endpoint with a limit', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
 		await similarConcepts('C3262', 5, fetchImpl);

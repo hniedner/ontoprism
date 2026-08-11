@@ -300,6 +300,62 @@ describe('TimedLayoutController', () => {
 	});
 });
 
+describe('AsyncRequestOwner', () => {
+	it('aborts replaced requests and rejects their late success and error mutations', async () => {
+		interface Lease {
+			readonly signal: AbortSignal;
+			isCurrent(): boolean;
+			release(): void;
+		}
+		interface Owner {
+			replace(): void;
+			lease(): Lease;
+		}
+		type OwnerConstructor = new () => Owner;
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)['AsyncRequestOwner'];
+		expect(candidate).toBeTypeOf('function');
+		const Owner = candidate as OwnerConstructor;
+		const owner = new Owner();
+		const first = Promise.withResolvers<string>();
+		const second = Promise.withResolvers<string>();
+		const third = Promise.withResolvers<string>();
+		const mutations: string[] = [];
+		const signals: AbortSignal[] = [];
+
+		function run(request: Promise<string>): void {
+			const lease = owner.lease();
+			signals.push(lease.signal);
+			void request
+				.then(
+					(value) => {
+						if (lease.isCurrent()) mutations.push(value);
+					},
+					(reason: unknown) => {
+						if (lease.isCurrent()) mutations.push(String(reason));
+					}
+				)
+				.finally(() => lease.release());
+		}
+
+		owner.replace();
+		run(first.promise);
+		owner.replace();
+		run(second.promise);
+		owner.replace();
+		run(third.promise);
+		expect(signals.slice(0, 2).every((signal) => signal.aborted)).toBe(true);
+
+		third.resolve('newest');
+		await third.promise;
+		await Promise.resolve();
+		first.resolve('stale success');
+		second.reject(new Error('stale error'));
+		await Promise.allSettled([first.promise, second.promise]);
+		await Promise.resolve();
+		expect(mutations).toEqual(['newest']);
+	});
+});
+
 describe('graph label presentation', () => {
 	it('provides measured AA node and edge label contrast in both themes', () => {
 		const candidate = (graphExplorer as unknown as Record<string, unknown>)['graphLabelTheme'];

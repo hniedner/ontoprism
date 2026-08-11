@@ -18,8 +18,10 @@ describe('handleLatest', () => {
 
 		const pending = Promise.withResolvers<string>();
 		const cancelled = { ready: vi.fn(), failed: vi.fn(), settled: vi.fn() };
-		const cancel = handleLatest(pending.promise, cancelled);
+		const controller = new AbortController();
+		const cancel = handleLatest(pending.promise, cancelled, () => controller.abort());
 		cancel();
+		expect(controller.signal.aborted).toBe(true);
 		pending.resolve('late');
 		await pending.promise;
 		await Promise.resolve();

@@ -11,9 +11,15 @@
 		let cancelled = false;
 		loadState = 'loading';
 		relatedPmids = [];
+		const controller = new AbortController();
 		async function load(): Promise<void> {
 			try {
-				const result = await getRelatedArticles(pmid, 'similar');
+				const result = await getRelatedArticles(
+					pmid,
+					'similar',
+					undefined,
+					controller.signal
+				);
 				if (cancelled) return;
 				relatedPmids = result.related_pmids.slice(0, 10);
 				loadState = 'ready';
@@ -24,6 +30,7 @@
 		void load();
 		return () => {
 			cancelled = true;
+			controller.abort();
 		};
 	});
 </script>
