@@ -8,6 +8,7 @@ to the store's SPARQL search when the cache is empty (see the NCIt search endpoi
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import text
@@ -70,6 +71,29 @@ _UPSERT_SQL = """
         synonyms = EXCLUDED.synonyms
 """
 
+_READY_SQL = """
+    SELECT EXISTS(
+        SELECT 1 FROM ncit_search_manifest manifest
+        WHERE manifest.singleton = true
+          AND manifest.source_identity = :source_identity
+          AND manifest.row_count > 0
+          AND manifest.row_count = (SELECT COUNT(*) FROM ncit_search)
+    )
+"""
+
+_PUBLISH_MANIFEST_SQL = """
+    INSERT INTO ncit_search_manifest (
+        singleton, source_identity, source_hash, row_count, built_at
+    ) VALUES (true, :source_identity, :source_hash, :row_count, now())
+"""
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _require_source_digest(name: str, value: str) -> None:
+    if _SHA256.fullmatch(value) is None:
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+
 
 class NcitSearchIndex:
     """Read/write access to the ``ncit_search`` FTS cache."""
@@ -84,11 +108,12 @@ class NcitSearchIndex:
             result = await session.execute(text("SELECT COUNT(*) FROM ncit_search"))
             return int(result.scalar_one())
 
-    async def is_populated(self) -> bool:
-        """True if the cache has any rows (cheap existence probe)."""
+    async def is_populated(self, source_identity: str) -> bool:
+        """True only for a complete cache bound to the active proxy identity."""
+        _require_source_digest("source_identity", source_identity)
         async with self._sf() as session:
             result = await session.execute(
-                text("SELECT EXISTS(SELECT 1 FROM ncit_search)")
+                text(_READY_SQL), {"source_identity": source_identity}
             )
             return bool(result.scalar_one())
 
@@ -117,7 +142,11 @@ class NcitSearchIndex:
         )
 
     async def rebuild(
-        self, batches: AsyncIterable[Sequence[dict[str, str | None]]]
+        self,
+        batches: AsyncIterable[Sequence[dict[str, str | None]]],
+        *,
+        source_identity: str,
+        source_hash: str,
     ) -> int:
         """Atomically replace the whole cache from an async stream of record batches.
 
@@ -126,18 +155,36 @@ class NcitSearchIndex:
         back to it — preserving the invariant the fallback relies on (a non-empty cache
         is always a complete cache). DELETE (not TRUNCATE) so readers aren't blocked.
         """
+        _require_source_digest("source_identity", source_identity)
+        _require_source_digest("source_hash", source_hash)
         total = 0
         async with self._sf() as session, session.begin():
+            await session.execute(text("DELETE FROM ncit_search_manifest"))
             await session.execute(text("DELETE FROM ncit_search"))
             async for records in batches:
                 if records:
                     await session.execute(text(_UPSERT_SQL), list(records))
                     total += len(records)
+            if total <= 0:
+                raise ValueError("NCIt search source produced no records")
+            await session.execute(
+                text(_PUBLISH_MANIFEST_SQL),
+                {
+                    "source_identity": source_identity,
+                    "source_hash": source_hash,
+                    "row_count": total,
+                },
+            )
         return total
 
 
 async def populate_from_store(
-    store: NcitGraphStore, index: NcitSearchIndex, *, batch_size: int = 5000
+    store: NcitGraphStore,
+    index: NcitSearchIndex,
+    *,
+    source_identity: str,
+    source_hash: str,
+    batch_size: int = 5000,
 ) -> int:
     """Rebuild the FTS cache from the live store; returns the number of concepts cached.
 
@@ -154,4 +201,6 @@ async def populate_from_store(
             yield records
             offset += batch_size
 
-    return await index.rebuild(_pages())
+    return await index.rebuild(
+        _pages(), source_identity=source_identity, source_hash=source_hash
+    )

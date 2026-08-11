@@ -7,6 +7,7 @@ variants live in ``test_ncit_api_integration.py``.
 """
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -17,6 +18,7 @@ from backend.dependencies import (
     get_embedding_store,
     get_ncit_search_index,
     get_ncit_store,
+    get_repository_metadata,
 )
 from backend.main import create_app
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
@@ -85,8 +87,10 @@ class _FakeIndex:
         self._populated = populated
         self._fail = fail
         self.searched = False
+        self.source_identities: list[str] = []
 
-    async def is_populated(self) -> bool:
+    async def is_populated(self, source_identity: str) -> bool:
+        self.source_identities.append(source_identity)
         if self._fail:
             raise OperationalError("cache down", None, Exception())
         return self._populated
@@ -106,6 +110,10 @@ class _FakeEmbeddings:
     def __init__(self, *, fail: bool = False) -> None:
         self._fail = fail
         self.build_id = UUID("00000000-0000-0000-0000-000000000001")
+        self.source_checks: list[tuple[Corpus, str]] = []
+
+    async def require_active_source(self, corpus: Corpus, source_identity: str) -> None:
+        self.source_checks.append((corpus, source_identity))
 
     async def active_build_id(self, _corpus: Corpus) -> UUID:
         return self.build_id
@@ -122,6 +130,14 @@ class _FakeEmbeddings:
         return [("C9305", 0.92), ("C99999", 0.5)]
 
 
+class _Metadata:
+    async def ncit(self) -> SimpleNamespace:
+        return SimpleNamespace(source_identity="f" * 64)
+
+    def cadsr(self) -> SimpleNamespace:
+        return SimpleNamespace(source_identity="f" * 64)
+
+
 def _client(
     *,
     store: _FakeStore | None = None,
@@ -134,6 +150,7 @@ def _client(
     app.dependency_overrides[get_embedding_store] = lambda: (
         embeddings or _FakeEmbeddings()
     )
+    app.dependency_overrides[get_repository_metadata] = _Metadata
     with TestClient(app) as client:
         yield client
 
@@ -206,14 +223,18 @@ def test_concept_detail_malformed_code_is_404(ncit_client: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_similar_concepts_joins_labels(ncit_client: TestClient) -> None:
-    resp = ncit_client.get("/api/v1/ncit/concepts/C3262/similar")
+def test_similar_concepts_joins_labels_from_matching_proxy() -> None:
+    embeddings = _FakeEmbeddings()
+    gen = _client(embeddings=embeddings)
+    client = next(gen)
+    resp = client.get("/api/v1/ncit/concepts/C3262/similar")
     assert resp.status_code == 200
     body = resp.json()
     assert body[0] == {"code": "C9305", "label": "Malignant Neoplasm", "score": 0.92}
     # A hit with no resolvable label still appears (label is null, not dropped).
     assert body[1]["code"] == "C99999"
     assert body[1]["label"] is None
+    assert embeddings.source_checks == [(Corpus.NCIT, "f" * 64)]
 
 
 @pytest.mark.api

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
-from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit import property_codes as pc
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
@@ -29,10 +29,12 @@ from ontolib.terminologies.ncit.models import (
     SearchHit,
     SearchPage,
 )
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
 
 _PREFIXES = (
-    f"PREFIX rdfs: <{RDFS_NS}>\nPREFIX owl: <{OWL_NS}>\nPREFIX ncit: <{NCIT_NS}>"
+    f"PREFIX rdfs: <{RDFS_NS}>\nPREFIX owl: <{OWL_NS}>\n"
+    f"PREFIX rdf: <{RDF_NS}>\nPREFIX ncit: <{NCIT_NS}>"
 )
 _LIST_SEP = "||"
 _DEFAULT_EDGE_LIMIT = 200
@@ -119,6 +121,20 @@ def _rel(
     )
 
 
+def _hierarchy_patterns(uri: str, *, incoming: bool) -> tuple[str, str]:
+    if incoming:
+        return (
+            f"?node rdfs:subClassOf <{uri}> .",
+            "?node owl:equivalentClass ?expression . "
+            f"?expression owl:intersectionOf/rdf:rest*/rdf:first <{uri}> .",
+        )
+    return (
+        f"<{uri}> rdfs:subClassOf ?node .",
+        f"<{uri}> owl:equivalentClass ?expression . "
+        "?expression owl:intersectionOf/rdf:rest*/rdf:first ?node .",
+    )
+
+
 class NcitGraphStore:
     """Read-only NCIt repository backed by a QLever SPARQL endpoint."""
 
@@ -168,17 +184,15 @@ class NcitGraphStore:
         """
 
     async def _named_neighbors(self, uri: str, *, incoming: bool) -> list[ConceptRef]:
-        """Named parents (``incoming=False``) or children (``incoming=True``)."""
-        pattern = (
-            f"?node rdfs:subClassOf <{uri}>"
-            if incoming
-            else f"<{uri}> rdfs:subClassOf ?node"
-        )
+        """Named stated parents or children, including definition-genus edges."""
+        direct, genus = _hierarchy_patterns(uri, incoming=incoming)
         query = f"""{_PREFIXES}
         SELECT DISTINCT ?node ?label WHERE {{
-            {pattern} .
-            FILTER(isIRI(?node) && STRSTARTS(STR(?node), "{self._ns}"))
-            OPTIONAL {{ ?node rdfs:label ?label }}
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                {{ {direct} }} UNION {{ {genus} }}
+                FILTER(isIRI(?node) && STRSTARTS(STR(?node), "{self._ns}"))
+                OPTIONAL {{ ?node rdfs:label ?label }}
+            }}
         }} ORDER BY STR(?node) STR(?label) LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         rows = await self._client.select(query)
@@ -540,9 +554,13 @@ class NcitGraphStore:
 
     @staticmethod
     def _neighbor_codes(detail: ConceptDetail) -> list[str]:
-        refs = [*detail.parents, *detail.children]
-        rels = [*detail.roles, *detail.associations]
-        return sorted({r.code for r in refs} | {rel.target.code for rel in rels})
+        hierarchy = {ref.code for ref in (*detail.parents, *detail.children)}
+        relations = {
+            rel.target.code for rel in (*detail.roles, *detail.associations)
+        } - hierarchy
+        # Definition-genus/subclass paths are the graph's structural backbone. Expand
+        # them before high-fanout role targets can exhaust the global node cap.
+        return [*sorted(hierarchy), *sorted(relations)]
 
     @staticmethod
     def _add_edges(

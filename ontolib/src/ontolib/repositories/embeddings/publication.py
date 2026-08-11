@@ -76,6 +76,7 @@ class CorpusBuild:
 
     build_id: UUID
     corpus: Corpus
+    source_identity: str
     source_version: str
     source_hash: str
     model_id: str
@@ -91,31 +92,53 @@ class CorpusBuild:
 
 def _validate_build(build: CorpusBuild) -> None:
     _validate_provenance(build)
-    if build.vector_dimension != EMBEDDING_VECTOR_DIMENSION:
+    _validate_contract_shape(
+        build.vector_dimension, build.expected_row_count, build.required_doc_ids
+    )
+
+
+def _validate_contract_shape(
+    vector_dimension: int,
+    expected_row_count: int,
+    required_doc_ids: tuple[str, ...],
+) -> None:
+    if vector_dimension != EMBEDDING_VECTOR_DIMENSION:
         raise ValueError("vector_dimension must match the physical vector(768)")
-    if build.expected_row_count <= 0:
+    if expected_row_count <= 0:
         raise ValueError("expected_row_count must be positive")
-    if not build.required_doc_ids or any(not value for value in build.required_doc_ids):
+    if not required_doc_ids or any(not value for value in required_doc_ids):
         raise ValueError("required_doc_ids must contain non-empty sentinels")
-    if len(build.required_doc_ids) != len(set(build.required_doc_ids)):
+    if len(required_doc_ids) != len(set(required_doc_ids)):
         raise ValueError("required_doc_ids must be unique")
 
 
 def _validate_provenance(build: CorpusBuild) -> None:
-    values = (
+    if re.fullmatch(r"[0-9a-f]{64}", build.source_identity) is None:
+        raise ValueError("source_identity must be a lowercase SHA-256 digest")
+    _validate_provenance_fields(
         build.source_version,
         build.source_hash,
         build.model_id,
         build.model_revision,
         build.code_commit,
     )
+
+
+def _validate_provenance_fields(
+    source_version: str,
+    source_hash: str,
+    model_id: str,
+    model_revision: str,
+    code_commit: str,
+) -> None:
+    values = (source_version, source_hash, model_id, model_revision, code_commit)
     if not all(value.strip() for value in values):
         raise ValueError("embedding build provenance fields must be non-empty")
-    if re.fullmatch(r"[0-9a-f]{64}", build.source_hash) is None:
+    if re.fullmatch(r"[0-9a-f]{64}", source_hash) is None:
         raise ValueError("source_hash must be a lowercase SHA-256 digest")
-    if re.fullmatch(r"[0-9a-f]{40}", build.model_revision) is None:
+    if re.fullmatch(r"[0-9a-f]{40}", model_revision) is None:
         raise ValueError("model_revision must be an immutable 40-hex revision")
-    if re.fullmatch(r"[0-9a-f]{40}", build.code_commit) is None:
+    if re.fullmatch(r"[0-9a-f]{40}", code_commit) is None:
         raise ValueError("code_commit must be a 40-hex Git commit")
 
 
@@ -147,6 +170,7 @@ class CorpusManifest:
     corpus: Corpus
     state: ManifestState
     is_active: bool
+    source_identity: str | None
     source_version: str
     source_hash: str
     model_id: str
@@ -161,10 +185,36 @@ class CorpusManifest:
     completed_at: datetime | None
 
     def __post_init__(self) -> None:
+        self._validate_contract()
+        validators = {
+            "building": _validate_building_manifest,
+            "failed": _validate_failed_manifest,
+            "complete": _validate_complete_manifest,
+        }
+        validators[self.state](self)
+
+    def _validate_contract(self) -> None:
+        if self.source_identity is None:
+            if self.is_active:
+                raise ValueError("active manifest requires source_identity")
+            _validate_provenance_fields(
+                self.source_version,
+                self.source_hash,
+                self.model_id,
+                self.model_revision,
+                self.code_commit,
+            )
+            _validate_contract_shape(
+                self.vector_dimension,
+                self.expected_row_count,
+                self.required_doc_ids,
+            )
+            return
         _validate_build(
             CorpusBuild(
                 build_id=self.build_id,
                 corpus=self.corpus,
+                source_identity=self.source_identity,
                 source_version=self.source_version,
                 source_hash=self.source_hash,
                 model_id=self.model_id,
@@ -175,12 +225,6 @@ class CorpusManifest:
                 required_doc_ids=self.required_doc_ids,
             )
         )
-        validators = {
-            "building": _validate_building_manifest,
-            "failed": _validate_failed_manifest,
-            "complete": _validate_complete_manifest,
-        }
-        validators[self.state](self)
 
 
 def _validate_building_manifest(manifest: CorpusManifest) -> None:
@@ -218,6 +262,7 @@ def _manifest(row: RowMapping) -> CorpusManifest:
         corpus=Corpus(row["corpus"]),
         state=row["state"],
         is_active=row["is_active"],
+        source_identity=row["source_identity"],
         source_version=row["source_version"],
         source_hash=row["source_hash"],
         model_id=row["model_id"],
@@ -373,10 +418,12 @@ class EmbeddingCorpusPublisher:
         await session.execute(
             text(
                 "INSERT INTO embedding_corpus_manifest ("
-                "build_id, corpus, state, source_version, source_hash, "
+                "build_id, corpus, state, source_identity, source_version, "
+                "source_hash, "
                 "model_id, model_revision, vector_dimension, "
                 "expected_row_count, code_commit, required_doc_ids) VALUES ("
-                ":build_id, :corpus, 'building', :source_version, :source_hash, "
+                ":build_id, :corpus, 'building', :source_identity, "
+                ":source_version, :source_hash, "
                 ":model_id, :model_revision, :vector_dimension, "
                 ":expected_row_count, :code_commit, :required_doc_ids)"
             ),
@@ -512,6 +559,7 @@ class EmbeddingCorpusPublisher:
         return {
             "build_id": self.build.build_id,
             "corpus": self.build.corpus.value,
+            "source_identity": self.build.source_identity,
             "source_version": self.build.source_version,
             "source_hash": self.build.source_hash,
             "model_id": self.build.model_id,
@@ -527,6 +575,7 @@ class EmbeddingCorpusPublisher:
         actual: dict[str, object] = {
             "build_id": manifest.build_id,
             "corpus": manifest.corpus.value,
+            "source_identity": manifest.source_identity,
             "source_version": manifest.source_version,
             "source_hash": manifest.source_hash,
             "model_id": manifest.model_id,

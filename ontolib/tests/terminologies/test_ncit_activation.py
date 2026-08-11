@@ -140,6 +140,22 @@ def test_every_forward_journal_transition_is_durable_and_skips_are_rejected(
 
 
 @pytest.mark.unit
+def test_health_validation_transition_records_durable_activation_time(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "activation.json"
+    journal = _journal(tmp_path)
+    write_activation_journal(path, journal)
+    for phase in _PHASES[1:7]:
+        journal = transition_activation_journal(path, journal, phase)
+
+    assert journal.phase == "health-validated"
+    assert journal.activated_at is not None
+    assert journal.activated_at.tzinfo is not None
+    assert read_activation_journal(path).activated_at == journal.activated_at
+
+
+@pytest.mark.unit
 def test_failed_fsync_does_not_report_a_journal_transition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

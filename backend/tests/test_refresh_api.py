@@ -1,7 +1,7 @@
 """Refresh endpoint tests: report (live), and reload guards (no store mutation)."""
 
-import sqlite3
 from collections.abc import AsyncIterator, Iterator, Sequence
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -9,10 +9,10 @@ from fastapi.testclient import TestClient
 
 from backend.config import get_settings
 from backend.dependencies import (
-    get_cadsr_repo,
     get_ncit_client,
     get_ncit_search_index,
     get_ncit_store,
+    get_repository_metadata,
 )
 from backend.main import create_app
 from ontolib.core.exceptions import StorageError
@@ -23,109 +23,6 @@ def _clear_settings_cache() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
-
-
-class _OkClient:
-    async def count(self) -> int:
-        return 42
-
-    async def version(self) -> str:
-        return "26.02d"
-
-    async def load(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-
-class _FailCountClient:
-    async def count(self) -> int:
-        raise StorageError("store unreachable")
-
-    async def version(self) -> str:
-        return "26.02d"
-
-
-class _FailVersionClient:
-    async def count(self) -> int:
-        return 42
-
-    async def version(self) -> str:
-        raise StorageError("store unreachable")
-
-
-class _OkCadsrRepo:
-    def count(self) -> int:
-        return 7
-
-    def find_cdes_by_concept(self, *args: Any, **kwargs: Any) -> list[Any]:
-        return []
-
-    def get_cde(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-    def search(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-    def list_cdes(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-    def summaries_for(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-
-class _FailCadsrRepo:
-    def count(self) -> int:
-        raise sqlite3.OperationalError("database locked")
-
-    def find_cdes_by_concept(self, *args: Any, **kwargs: Any) -> list[Any]:
-        return []
-
-    def get_cde(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-    def search(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-    def list_cdes(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-    def summaries_for(self, *args: Any, **kwargs: Any) -> Any:
-        return None
-
-
-@pytest.mark.api
-def test_refresh_with_failing_ncit_client_reports_unhealthy() -> None:
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _FailCountClient
-    with TestClient(app) as client:
-        resp = client.post("/api/v1/refresh")
-    assert resp.status_code == 200
-    repos = {r["name"]: r for r in resp.json()["repositories"]}
-    assert repos["ncit"]["healthy"] is False
-    assert "store unreachable" in repos["ncit"]["error"]
-
-
-@pytest.mark.api
-def test_refresh_with_version_failure_reports_unhealthy() -> None:
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _FailVersionClient
-    with TestClient(app) as client:
-        resp = client.post("/api/v1/refresh")
-    assert resp.status_code == 200
-    repos = {r["name"]: r for r in resp.json()["repositories"]}
-    assert repos["ncit"]["healthy"] is False
-
-
-@pytest.mark.api
-def test_refresh_with_failing_cadsr_repo_reports_unhealthy() -> None:
-    app = create_app()
-    app.dependency_overrides[get_ncit_client] = _OkClient
-    app.dependency_overrides[get_cadsr_repo] = _FailCadsrRepo
-    with TestClient(app) as client:
-        resp = client.post("/api/v1/refresh")
-    assert resp.status_code == 200
-    repos = {r["name"]: r for r in resp.json()["repositories"]}
-    assert repos["cadsr"]["healthy"] is False
-    assert "database locked" in repos["cadsr"]["error"]
 
 
 @pytest.mark.api
@@ -177,6 +74,9 @@ class _FakeNcitStore:
 
 
 class _FakeSearchIndex:
+    def __init__(self) -> None:
+        self.source: tuple[str, str] | None = None
+
     async def search(self, *args: Any, **kwargs: Any) -> Any:
         return None
 
@@ -187,8 +87,13 @@ class _FakeSearchIndex:
         return 0
 
     async def rebuild(
-        self, batches: AsyncIterator[Sequence[dict[str, str | None]]]
+        self,
+        batches: AsyncIterator[Sequence[dict[str, str | None]]],
+        *,
+        source_identity: str,
+        source_hash: str,
     ) -> int:
+        self.source = (source_identity, source_hash)
         total = 0
         async for records in batches:
             total += len(records) if records else 0
@@ -203,10 +108,19 @@ def test_rebuild_search_index_success() -> None:
     index = _FakeSearchIndex()
     app.dependency_overrides[get_ncit_store] = lambda: store
     app.dependency_overrides[get_ncit_search_index] = lambda: index
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        ncit=_ready_ncit
+    )
     with TestClient(app) as client:
         resp = client.post("/api/v1/refresh/ncit/search-index")
     assert resp.status_code == 200
     assert resp.json() == {"concepts_indexed": 1}
+    assert index.source is not None
+    assert index.source[0] == "f" * 64
+
+
+async def _ready_ncit() -> SimpleNamespace:
+    return SimpleNamespace(source_identity="f" * 64)
 
 
 class _FailingSearchIndex:
@@ -219,6 +133,9 @@ def test_rebuild_search_index_store_error_returns_502() -> None:
     app = create_app()
     app.dependency_overrides[get_ncit_store] = _FakeNcitStore
     app.dependency_overrides[get_ncit_search_index] = _FailingSearchIndex
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        ncit=_ready_ncit
+    )
     with TestClient(app) as client:
         resp = client.post("/api/v1/refresh/ncit/search-index")
     assert resp.status_code == 502
@@ -232,8 +149,12 @@ def test_refresh_reports_ncit_version_and_counts(live_api_client: TestClient) ->
     resp = live_api_client.post("/api/v1/refresh")
     assert resp.status_code == 200
     body = resp.json()
-    repos = {r["name"]: r for r in body["repositories"]}
-    assert repos["ncit"]["healthy"] is True
-    assert repos["ncit"]["version"] == "26.02d"
-    assert repos["ncit"]["item_count"] == 12836426
-    assert "cadsr" in repos
+    repos = {r["repository"]: r for r in body["repositories"]}
+    assert repos["ncit"]["state"] == "ready"
+    assert repos["ncit"]["release"] == "26.07d"
+    assert repos["ncit"]["observation"]["default_triples"] == 12_980_813
+    assert repos["ncit"]["observation"]["stated_triples"] == 10_855_010
+    assert repos["cadsr"]["state"] == "ready"
+    assert (
+        repos["cadsr"]["source_identity"] == repos["cadsr"]["source"]["archive_sha256"]
+    )

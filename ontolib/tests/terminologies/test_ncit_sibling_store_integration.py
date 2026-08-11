@@ -24,6 +24,8 @@ from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
     CANDIDATE_MANIFEST_FILENAME,
+    QLEVER_IMAGE,
+    QLEVER_INDEX_VERSION,
     REJECTED_CANDIDATE_FILENAME,
     CandidateGraph,
     CandidateObservation,
@@ -562,10 +564,8 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     assert manifest.observation.has_required_restriction is True
     assert manifest.observation.default_has_stated_only_sentinel is False
     assert manifest.observation.stated_has_stated_only_sentinel is True
-    assert manifest.loader.cli_version == "qlever 0.5.3"
-    assert manifest.loader.image.endswith(
-        "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
-    )
+    assert manifest.loader.cli_version == QLEVER_INDEX_VERSION
+    assert manifest.loader.image == QLEVER_IMAGE
     runtime = DockerQleverRuntime(
         connection_scope=integration_connection_scope,
     )

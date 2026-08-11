@@ -7,6 +7,7 @@ and the similar-CDE endpoint's embedding join / 404 / 503 behaviour.
 
 import sqlite3
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -14,7 +15,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
-from backend.dependencies import get_cadsr_repo, get_embedding_store
+from backend.dependencies import (
+    get_cadsr_repo,
+    get_embedding_store,
+    get_repository_metadata,
+)
 from backend.main import create_app
 from ontolib.repositories.cadsr.models import CdeSearchPage, CdeSummary
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
@@ -69,6 +74,10 @@ class _FakeEmbeddings:
         self._hits = hits
         self._fail = fail
         self.build_id = UUID("00000000-0000-0000-0000-000000000001")
+        self.source_checks: list[tuple[Corpus, str]] = []
+
+    async def require_active_source(self, corpus: Corpus, source_identity: str) -> None:
+        self.source_checks.append((corpus, source_identity))
 
     async def active_build_id(self, _corpus: Corpus) -> UUID:
         return self.build_id
@@ -87,19 +96,24 @@ class _FakeEmbeddings:
 
 def _with_embeddings(client: TestClient, emb: _FakeEmbeddings) -> None:
     client.app.dependency_overrides[get_embedding_store] = lambda: emb  # type: ignore[attr-defined]
+    client.app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(  # type: ignore[attr-defined]
+        cadsr=lambda: SimpleNamespace(source_identity="f" * 64)
+    )
 
 
 @pytest.mark.api
 def test_similar_cdes_joins_summaries(cadsr_client: TestClient) -> None:
     # The only CDE in the temp DB is 100:2.0; a hit on it resolves to its summary,
     # Every active hit must resolve against the source used by the API.
-    _with_embeddings(cadsr_client, _FakeEmbeddings([("100:2.0", 0.95)]))
+    embeddings = _FakeEmbeddings([("100:2.0", 0.95)])
+    _with_embeddings(cadsr_client, embeddings)
     resp = cadsr_client.get("/api/v1/cadsr/cdes/100/similar")
     assert resp.status_code == 200
     body = resp.json()
     assert len(body) == 1
     assert body[0]["public_id"] == "100"
     assert body[0]["score"] == 0.95
+    assert embeddings.source_checks == [(Corpus.CADSR, "f" * 64)]
 
 
 @pytest.mark.api

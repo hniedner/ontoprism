@@ -17,6 +17,7 @@ def _build() -> CorpusBuild:
     return CorpusBuild(
         build_id=UUID("00000000-0000-0000-0000-000000000001"),
         corpus=Corpus.NCIT,
+        source_identity="f" * 64,
         source_version="26.02d",
         source_hash="a" * 64,
         model_id="sentence-transformers/all-mpnet-base-v2",
@@ -32,6 +33,8 @@ def _build() -> CorpusBuild:
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
+        ("source_identity", "", "source_identity"),
+        ("source_identity", "F" * 64, "source_identity"),
         ("source_version", "", "provenance"),
         ("source_hash", " ", "provenance"),
         ("source_hash", "A" * 64, "SHA-256"),
@@ -69,6 +72,7 @@ def _manifest(state: str, **overrides: object) -> CorpusManifest:
         "corpus": Corpus.NCIT,
         "state": state,
         "is_active": False,
+        "source_identity": "f" * 64,
         "source_version": "26.02d",
         "source_hash": "a" * 64,
         "model_id": "model",
@@ -97,6 +101,26 @@ def test_manifest_accepts_each_valid_lifecycle_state() -> None:
         completed_at=datetime.now(UTC),
     )
     assert complete.is_active
+
+
+@pytest.mark.unit
+def test_only_inactive_historical_manifest_may_lack_source_identity() -> None:
+    historical = _manifest(
+        "complete",
+        source_identity=None,
+        actual_row_count=2,
+        completed_at=datetime.now(UTC),
+    )
+
+    assert historical.source_identity is None
+    with pytest.raises(ValueError, match="source_identity"):
+        _manifest(
+            "complete",
+            source_identity=None,
+            is_active=True,
+            actual_row_count=2,
+            completed_at=datetime.now(UTC),
+        )
 
 
 @pytest.mark.unit

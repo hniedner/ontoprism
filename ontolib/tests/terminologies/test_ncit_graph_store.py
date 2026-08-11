@@ -8,6 +8,7 @@ from ontolib.terminologies.ncit.graph_store import (
     _rel,
 )
 from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef, Relationship
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 pytestmark = pytest.mark.xdist_group(name="ncit_graph_store")
@@ -23,6 +24,33 @@ class _RecordingClient:
         if self._metadata and "GROUP_CONCAT" in query:
             self._metadata = False
             return [{"label": "Center"}]
+        return []
+
+
+class _DefinedHierarchyClient:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if "GROUP_CONCAT" in query:
+            return [{"label": "Defined disease"}]
+        if "owl:equivalentClass" not in query:
+            return []
+        if "C4005> rdfs:subClassOf ?node" in query:
+            return [
+                {
+                    "node": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C198031",
+                    "label": "Defined parent",
+                }
+            ]
+        if "?node rdfs:subClassOf <" in query:
+            return [
+                {
+                    "node": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C4006",
+                    "label": "Defined child",
+                }
+            ]
         return []
 
 
@@ -65,6 +93,27 @@ async def test_concept_detail_assembles_all_sections(ncit_stub_url: str) -> None
     assert detail.roles[0].target.code == "C12922"
     assert detail.associations[0].relation == "A8"
     assert detail.incoming_roles[0].target.code == "C4"
+
+
+@pytest.mark.unit
+async def test_defined_class_hierarchy_combines_stated_subclass_and_genus_edges() -> (
+    None
+):
+    client = _DefinedHierarchyClient()
+
+    detail = await NcitGraphStore(client).get_concept_detail("C4005")  # type: ignore[arg-type]
+
+    assert detail is not None
+    assert [parent.code for parent in detail.parents] == ["C198031"]
+    assert [child.code for child in detail.children] == ["C4006"]
+    hierarchy_queries = [
+        query for query in client.queries if "SELECT DISTINCT ?node" in query
+    ]
+    assert len(hierarchy_queries) == 2
+    assert all(f"GRAPH <{STATED_GRAPH_IRI}>" in query for query in hierarchy_queries)
+    assert all("owl:equivalentClass" in query for query in hierarchy_queries)
+    assert all("rdf:rest*/rdf:first" in query for query in hierarchy_queries)
+    assert all("rdfs:subClassOf+" not in query for query in hierarchy_queries)
 
 
 @pytest.mark.unit
@@ -143,6 +192,49 @@ async def test_neighborhood_depth_expands_beyond_one_hop(ncit_stub_url: str) -> 
 
     assert len(two.edges) > len(one.edges)
     assert {n.code for n in one.nodes} <= {n.code for n in two.nodes}
+
+
+@pytest.mark.unit
+async def test_neighborhood_expands_hierarchy_before_high_fanout_roles(
+    ncit_stub_url: str,
+) -> None:
+    role_targets = [
+        Relationship(
+            relation="R1",
+            target=ConceptRef(code=f"C{i:03}", label=f"role {i}"),
+        )
+        for i in range(200)
+    ]
+    center = ConceptDetail(
+        code="C999",
+        label="Defined center",
+        parents=[ConceptRef(code="C900", label="Defining parent")],
+        roles=role_targets,
+    )
+    parent = ConceptDetail(
+        code="C900",
+        label="Defining parent",
+        parents=[ConceptRef(code="C901", label="Defining ancestor")],
+    )
+    fanout = ConceptDetail(
+        code="C000",
+        label="Role target",
+        children=[
+            ConceptRef(code=f"F{i:03}", label=f"fanout {i}")
+            for i in range(_MAX_NEIGHBORHOOD_NODES)
+        ],
+    )
+
+    async def detail(code: str) -> ConceptDetail | None:
+        return {"C999": center, "C900": parent, "C000": fanout}.get(code)
+
+    async with SparqlHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = detail  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C999", depth=2)
+
+    assert "C901" in {node.code for node in graph.nodes}
+    assert any(edge.source == "C900" and edge.target == "C901" for edge in graph.edges)
 
 
 @pytest.mark.unit

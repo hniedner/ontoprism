@@ -3,6 +3,19 @@
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
+# The disposable serving fixture mirrors production's split: metadata and inferred
+# query surfaces live in the default graph, while hierarchy traversal reads the
+# stated named graph. Keep the same direct hierarchy here so neighborhood tests do
+# not certify a default-graph hierarchy that production never serves.
+ncit:C3262 a owl:Class ;
+    rdfs:subClassOf ncit:C2991 .
+
+ncit:C12922 a owl:Class ;
+    rdfs:subClassOf ncit:C12913 .
+
+ncit:C9305 a owl:Class ;
+    rdfs:subClassOf ncit:C3262 .
+
 # Hierarchy-scope contract: primitive subclass edges plus a defined-class genus
 # member. C99505 is deliberately disconnected to prove the reject path.
 ncit:C99501 a owl:Class ;

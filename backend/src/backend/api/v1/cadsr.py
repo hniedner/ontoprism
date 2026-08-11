@@ -6,7 +6,13 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import CadsrRepo, Embeddings, NcitStore
+from backend.dependencies import (
+    CadsrRepo,
+    Embeddings,
+    NcitStore,
+    RepositoryMetadataReads,
+)
+from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.cadsr.models import (
     CdeDetail,
     CdeSearchPage,
@@ -89,6 +95,7 @@ def cde_detail(
 async def similar_cdes(
     repo: CadsrRepo,
     embeddings: Embeddings,
+    metadata: RepositoryMetadataReads,
     public_id: str,
     version: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
@@ -97,7 +104,14 @@ async def similar_cdes(
     cde = repo.get_cde(public_id, version)  # resolve the concrete version
     if cde is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"CDE not found: {public_id}")
+    repository = metadata.cadsr()
+    if isinstance(repository, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            repository.model_dump(mode="json"),
+        )
     try:
+        await embeddings.require_active_source(Corpus.CADSR, repository.source_identity)
         build_id = await embeddings.active_build_id(Corpus.CADSR)
         hits = await embeddings.similar_cde(cde.public_id, cde.version, limit=limit)
     except (SQLAlchemyError, CorpusUnavailableError) as exc:

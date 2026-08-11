@@ -40,11 +40,12 @@ ontoprism/
   the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL
   in a separate default-graph index. Runtime reasoning is disabled. The compose stack
   runs the digest-pinned QLever index/server pair on :7888/:7889; the first-install
-  bootstrap is implemented, while #148 owns crash-safe replacement of an existing NCIt
-  index after a future refresh.
+  bootstrap and #148's journaled, rollback-capable replacement of an existing NCIt index
+  are implemented.
 - **PostgreSQL (selected mutable authority)** — concept metadata/FTS cache, decomposition run
-  state, provenance (`decomp_run`, `decomp_constituent`, `minted_concept`), caDSR read
-  tables, and, when the curation API lands, the authoritative
+  state, provenance (`decomp_run`, `decomp_constituent`, `minted_concept`), source-bound
+  NCIt search/embedding publication manifests, caDSR embeddings, and, when the curation
+  API lands, the authoritative
   identity/revision/evidence/lifecycle/RDF projection for proposed NCIt content.
   Graph-explorer curation reads will compose this overlay with the identified QLever base
   so a committed edit does not wait for index rebuilding.
@@ -62,6 +63,12 @@ The frontend talks only to the FastAPI backend; the backend owns all SPARQL/Post
 access. The application exposes no caller-supplied raw SPARQL route: typed endpoints
 construct the supported store queries. Re-enabling raw execution requires a separately
 reviewed executor with proven store-side cancellation and resource bounds (D44).
+
+Repository readiness is a certification boundary, not a ping. NCIt binds the exact
+active candidate manifest and completed activation journal to a live same-release graph
+observation; caDSR binds its persisted archive record to canonical row count and
+fingerprint. Search and similarity readers accept derived publications only when their
+persisted `source_identity` matches that certified active proxy (D68).
 
 ## Key inherited mechanism: NCIt roles are OWL restrictions
 

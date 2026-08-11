@@ -38,6 +38,7 @@ from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
+from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.embeddings.generate import (
     EMBED_DIM,
     Embedder,
@@ -89,10 +90,12 @@ from ontolib.terminologies.ncit.search_index import (
     populate_from_store,
 )
 from ontolib.terminologies.ncit.sibling_store import (
+    CANDIDATE_MANIFEST_FILENAME,
     DockerQleverRuntime,
     NcitSiblingStoreManifest,
     build_initial_ncit_store,
     build_ncit_sibling_store,
+    validate_ncit_sibling_manifest,
 )
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 from ontolib.terminologies.uberon.store import (
@@ -472,6 +475,7 @@ async def _show_embedding_manifests() -> None:
         typer.echo(
             f"{manifest.corpus.value}: build={manifest.build_id} "
             f"state={manifest.state} active={manifest.is_active} "
+            f"source_identity={manifest.source_identity} "
             f"source={manifest.source_version} source_hash={manifest.source_hash} "
             f"rows={manifest.actual_row_count}/{manifest.expected_row_count} "
             f"model={manifest.model_id}@{manifest.model_revision} "
@@ -501,6 +505,9 @@ async def _publish_ncit_embeddings(
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     try:
+        active_manifest = validate_ncit_sibling_manifest(
+            Path(settings.ncit_store_dir) / CANDIDATE_MANIFEST_FILENAME
+        )
         async with ncit_sparql_client(settings.ncit_sparql_url) as client:
             store = NcitGraphStore(client)
             expected, source_hash = await ncit_source_fingerprint(store)
@@ -516,6 +523,7 @@ async def _publish_ncit_embeddings(
                 CorpusBuild(
                     build_id=build_id,
                     corpus=Corpus.NCIT,
+                    source_identity=active_manifest.source_identity,
                     source_version=source_version,
                     source_hash=source_hash,
                     model_id=encoder.model_id,
@@ -547,7 +555,12 @@ async def _publish_ncit_embeddings(
                     # Refresh from the validated source while the same advisory lock
                     # excludes source replacement. FTS commits independently before
                     # embedding activation and always matches the current source.
-                    await populate_from_store(store, NcitSearchIndex(sf))
+                    await populate_from_store(
+                        store,
+                        NcitSearchIndex(sf),
+                        source_identity=active_manifest.source_identity,
+                        source_hash=source_hash,
+                    )
 
                 manifest = await publisher.publish(validate_source)
             except BaseException as exc:
@@ -568,6 +581,7 @@ async def _publish_cadsr_embeddings(
     db_path = Path(settings.cadsr_db_path)
     if not db_path.is_file():
         raise RuntimeError(f"caDSR source database is missing: {db_path}")
+    source = CdeRepository(db_path).source_provenance()
     expected, source_hash = cadsr_source_fingerprint(str(db_path))
     if expected != settings.cadsr_embedding_expected_rows:
         raise RuntimeError(
@@ -583,6 +597,7 @@ async def _publish_cadsr_embeddings(
             CorpusBuild(
                 build_id=build_id,
                 corpus=Corpus.CADSR,
+                source_identity=source.archive_sha256,
                 source_version=f"sha256:{source_hash}",
                 source_hash=source_hash,
                 model_id=encoder.model_id,

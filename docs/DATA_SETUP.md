@@ -89,8 +89,10 @@ accepted it as usable.
 
 The migration creates stable corpus-specific serving tables (`ncit_concepts` and
 `cde_repository`), an `embedding_corpus_manifest`, and build-scoped staging. Similarity
-readers return rows only when a completed active manifest exists. Existing pre-migration
-rows are deliberately not auto-certified.
+readers return rows only when a completed active manifest exists for the certified
+repository `source_identity`. The manifest also records `source_hash`, the canonical
+ordered serving-content fingerprint. Existing pre-migration rows are deliberately not
+auto-certified; migration 0015 deactivates manifests whose source proxy is unknowable.
 
 ## Database schema (Alembic)
 
@@ -278,8 +280,9 @@ matching marker-ahead retries reconcile without replaying a committed graph upda
 Preflight failures fail the run, while post-completion lock-release failures surface
 without demoting it (D53).
 
-Every manifest records source version/hash, immutable model revision, vector dimension,
-expected unique-row count, code commit, build ID, sentinels, state, and timestamps;
+Every manifest records source version/hash, certified proxy `source_identity`, immutable
+model revision, vector dimension, expected unique-row count, code commit, build ID,
+sentinels, state, and timestamps;
 completed manifests additionally record the validated actual count. The pinned model is
 `sentence-transformers/all-mpnet-base-v2@e8c3b32edf5434bc2275fc9bab85f82640a19130`.
 NCIt fingerprints every ordered source record and recomputes version/count/fingerprint
@@ -320,8 +323,8 @@ Run `pdm run data-build embeddings` first. It prints persisted build provenance 
 lifecycle evidence (completed builds include actual counts), then refuses
 to mutate without `--publish`. A valid NCIt publication requires exact source-count
 agreement with both the enumerated source and the configured release expectation
-(`NCIT_EMBEDDING_EXPECTED_ROWS=212475` for 26.07d /
-`CADSR_EMBEDDING_EXPECTED_ROWS=79827`) plus C3262;
+(`NCIT_EMBEDDING_EXPECTED_ROWS=206860` for the 26.07d inferred default graph /
+`CADSR_EMBEDDING_EXPECTED_ROWS=79835`) plus C3262;
 caDSR likewise requires exact source/release count agreement and `2517527:4`.
 
 Build batches commit only to build-scoped staging. If encoding, validation, or
@@ -333,6 +336,20 @@ version/count/configuration failures occur before candidate creation. Repair the
 again, then run a new explicit `--publish`; no wildcard cleanup or implicit promotion
 is performed. Activation holds a per-corpus PostgreSQL advisory transaction lock and
 replaces stable rows plus the active manifest in one transaction.
+
+### Repository readiness and refresh metadata
+
+`GET /ready` returns HTTP 200 only when the active NCIt manifest, completed activation
+journal (including `activated_at`), release, and live default/stated observation agree.
+Its ready value includes `source_identity`, exact manifest-byte `manifest_identity`,
+release, activation time, and observation. A refusal is HTTP 503 with a typed reason such
+as `manifest-missing`, `activation-incomplete`, `release-mismatch`, or
+`observation-mismatch`; the unhealthy value deliberately contains no identity fields.
+
+The refresh report returns the same discriminated metadata for NCIt and caDSR. caDSR's
+ready value identifies the persisted source archive and the canonical serving-row
+fingerprint/count. The refresh page displays these values and the exact unhealthy reason;
+it does not turn endpoint reachability into a ready claim (D68).
 
 ## Validation tools (ROBOT + ELK)
 
