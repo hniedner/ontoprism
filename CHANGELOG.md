@@ -19,6 +19,161 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.19.0 (2026-08-12)
+
+### Bug Fixes
+
+- **build**: Load certified tools for pdm tasks
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **build**: Run frontend coverage with pdm
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ci**: Install pdm where the web job needs it and de-fang two CI-only defects
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **embeddings**: Bind NCIt to inferred default graph
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Cancel stale reactive requests
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Make graph labels accessible
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Omit layout-only breadcrumb segments
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Preserve trusted client addresses
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Serialize graph label refreshes
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Surface caDSR concept graph
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Build the QLever index as the bind-mount owner and resolve Jena from its env var
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Run the activation test service as the index owner on Linux
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Separate the multi-arch image pin from the platform runtime ID
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Serve candidate indexes as their build owner and expose startup logs
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Type nullable status search bind
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **review**: Enforce activation-journal time/phase coupling and refine docstrings
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **review**: Enforce sparql graph-isolation coupling and correct docstrings
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+### Build System
+
+- Bump jsdom from 29.1.1 to 30.0.1 in /frontend
+  ([#276](https://github.com/hniedner/ontoprism/pull/276),
+  [`b8992db`](https://github.com/hniedner/ontoprism/commit/b8992db94c68d23670a34743de1e0a55bfe17f14))
+
+### Chores
+
+- Ignore local Omnigent metadata
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **validation**: Refresh SPARQL inventory
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **validation**: Refresh SPARQL inventory for docstring edits
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+### Continuous Integration
+
+- Make the local gate CI-equivalent so CI is the last bar, not the discovery step
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- Optimize PDM dependency setup
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+### Documentation
+
+- Update README code line-count table
+  ([`2987a25`](https://github.com/hniedner/ontoprism/commit/2987a25d2b2916fd1fa5d5043d29541ba004658d))
+
+- Update README code line-count table
+  ([`4874bd2`](https://github.com/hniedner/ontoprism/commit/4874bd256022f5f9d6076c627cca75ac3a21cd84))
+
+- **agents**: Capture mutation-restore and Dependabot ref rules
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **architecture**: Remove oxigraph from target stack
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **data-build**: Describe the real install_robot crash-detection mechanism
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+### Features
+
+- **app**: Inspect and verify NCIt on a certified QLever stack with SSR routing
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Add SSR BFF loading architecture
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Add crash-safe store activation
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Expose pre-coordination status
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **repositories**: Certify active source proxies
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **storage**: Migrate ontology resources to qlever
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+### Performance Improvements
+
+- **frontend**: Run graph layouts in workers
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Select bounded query and curation topology
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+### Testing
+
+- **backend**: Cover repository proof symlinks
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **build**: Require pdm coverage interpreter
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **frontend**: Support jest-dom 7 style normalization
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **integration**: Restore decomposed graph fixture
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Bind full build to QLever source
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **ncit**: Support empty configured marker graph
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **review**: Close pr-test-analyzer gate-liveness and behavioral gaps
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **review**: Cover the BFF bodyless-status guard
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+- **review**: Cover the exactMatch predicate conjunct of is_identity
+  ([`3c7edf5`](https://github.com/hniedner/ontoprism/commit/3c7edf55f27379d9844bdc006174b0d2c559907d))
+
+
 ## v0.18.0 (2026-08-09)
 
 ### Bug Fixes
