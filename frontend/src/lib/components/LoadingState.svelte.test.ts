@@ -17,7 +17,7 @@ describe('LoadingState', () => {
 			minHeight: '12rem'
 		});
 
-		expect(container.firstElementChild).toHaveStyle({ minHeight: '12rem' });
+		expect((container.firstElementChild as HTMLElement).style.minHeight).toBe('12rem');
 		expect(screen.queryByRole('status')).not.toBeInTheDocument();
 		await vi.advanceTimersByTimeAsync(149);
 		expect(screen.queryByRole('status')).not.toBeInTheDocument();
