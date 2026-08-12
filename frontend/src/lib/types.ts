@@ -69,6 +69,60 @@ export interface Neighborhood {
 	truncated?: boolean;
 }
 
+export type UberonSource = 'uberon' | 'cl';
+
+export interface UberonConceptRef {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+}
+
+export interface UberonRelationship {
+	relation: string;
+	relation_label: string | null;
+	kind: 'subClassOf' | 'part_of' | 'other-restriction';
+	target: UberonConceptRef;
+}
+
+export interface UberonConceptDetail {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+	definition: string | null;
+	synonyms: string[];
+	parents: UberonConceptRef[];
+	children: UberonConceptRef[];
+	relations: UberonRelationship[];
+}
+
+export interface UberonSearchHit {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+	matched_synonym: string | null;
+}
+
+export interface UberonSearchPage {
+	query: string;
+	total: number;
+	limit: number;
+	offset: number;
+	hits: UberonSearchHit[];
+}
+
+export interface UberonNeighborhood {
+	center: string;
+	nodes: Array<{ code: string; source: UberonSource; label: string | null }>;
+	edges: Array<{
+		source: string;
+		target: string;
+		relation: string;
+		relation_label: string | null;
+		kind: 'subClassOf' | 'part_of' | 'other-restriction';
+	}>;
+	truncated?: boolean;
+}
+
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
 
 export interface ConceptLink {
@@ -204,6 +258,16 @@ export interface CadsrRepositoryReady {
 	source: CadsrSourceMetadata;
 }
 
+export interface UberonRepositoryReady {
+	state: 'ready';
+	repository: 'uberon';
+	source_identity: string;
+	manifest_identity: string;
+	source_sha256: string;
+	version_iri: string;
+	class_counts: { uberon: number; cl: number };
+}
+
 export type RepositoryUnhealthyReason =
 	| 'manifest-missing'
 	| 'manifest-invalid'
@@ -215,7 +279,7 @@ export type RepositoryUnhealthyReason =
 
 export interface RepositoryUnhealthy {
 	state: 'unhealthy';
-	repository: 'ncit' | 'cadsr';
+	repository: 'ncit' | 'cadsr' | 'uberon';
 	reason: RepositoryUnhealthyReason;
 	message: string;
 }
@@ -223,6 +287,7 @@ export interface RepositoryUnhealthy {
 export type RepositoryMetadata =
 	| NcitRepositoryReady
 	| CadsrRepositoryReady
+	| UberonRepositoryReady
 	| RepositoryUnhealthy;
 
 export interface RefreshReport {

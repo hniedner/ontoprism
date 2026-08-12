@@ -8,6 +8,7 @@
 		code: string;
 		initial?: Neighborhood | null;
 		height?: string;
+		repository?: 'ncit' | 'uberon';
 		loader?: () => Promise<{ default: Component<GraphProps> }>;
 	}
 	type GraphProps = Omit<Props, 'loader'>;
@@ -16,6 +17,7 @@
 		code,
 		initial = null,
 		height = '32rem',
+		repository = 'ncit',
 		loader = () => import('$lib/components/GraphExplorer.svelte')
 	}: Props = $props();
 	let GraphComponent = $state<Component<GraphProps> | null>(null);
@@ -31,7 +33,7 @@
 </script>
 
 {#if GraphComponent}
-	<GraphComponent {code} {initial} {height} />
+		<GraphComponent {code} {initial} {height} {repository} />
 {:else if failed}
 	<div
 		role="alert"

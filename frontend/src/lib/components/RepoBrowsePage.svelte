@@ -15,7 +15,7 @@
 	interface Props {
 		title: string;
 		description: string;
-		route: '/repositories/ncit' | '/repositories/cadsr';
+		route: '/repositories/ncit' | '/repositories/cadsr' | '/repositories/uberon';
 		helpText: Snippet;
 		placeholder: string;
 		ariaLabel: string;
@@ -56,10 +56,11 @@
 		if (nextOffset) params.set('offset', String(nextOffset));
 		else params.delete('offset');
 		const search: '' | `?${string}` = params.size ? `?${params}` : '';
-		const target =
-			route === '/repositories/ncit'
-				? resolve(`/repositories/ncit${search}`)
-				: resolve(`/repositories/cadsr${search}`);
+		const target = route === '/repositories/ncit'
+			? resolve(`/repositories/ncit${search}`)
+			: route === '/repositories/cadsr'
+				? resolve(`/repositories/cadsr${search}`)
+				: resolve(`/repositories/uberon${search}`);
 		await goto(target);
 	}
 

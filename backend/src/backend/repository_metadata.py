@@ -27,11 +27,19 @@ from ontolib.terminologies.ncit.sibling_store import (
     observe_ncit_candidate,
     validate_ncit_sibling_manifest,
 )
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.uberon.store import (
+    UBERON_INDEX_MANIFEST_FILENAME,
+    UberonArtifactError,
+    UberonIndexManifest,
+    validate_uberon_artifact,
+    validate_uberon_index_manifest,
+)
 
 if TYPE_CHECKING:
     from ontolib.repositories.cadsr.archive import CadsrSource
 
-RepositoryName = Literal["ncit", "cadsr"]
+RepositoryName = Literal["ncit", "cadsr", "uberon"]
 RepositoryUnhealthyReason = Literal[
     "manifest-missing",
     "manifest-invalid",
@@ -94,6 +102,18 @@ class CadsrRepositoryReady(_RepositoryModel):
     source: CadsrSourceMetadata
 
 
+class UberonRepositoryReady(_RepositoryModel):
+    """Certified immutable Uberon/CL index identity without an activation claim."""
+
+    state: Literal["ready"] = "ready"
+    repository: Literal["uberon"] = "uberon"
+    source_identity: str = Field(pattern=_SHA256_PATTERN)
+    manifest_identity: str = Field(pattern=_SHA256_PATTERN)
+    source_sha256: str = Field(pattern=_SHA256_PATTERN)
+    version_iri: str
+    class_counts: dict[Literal["uberon", "cl"], int]
+
+
 class RepositoryUnhealthy(_RepositoryModel):
     """Typed refusal with no fields that could be mistaken for an active identity."""
 
@@ -103,12 +123,19 @@ class RepositoryUnhealthy(_RepositoryModel):
     message: str
 
 
-RepositoryMetadata = NcitRepositoryReady | CadsrRepositoryReady | RepositoryUnhealthy
+RepositoryMetadata = (
+    NcitRepositoryReady
+    | CadsrRepositoryReady
+    | UberonRepositoryReady
+    | RepositoryUnhealthy
+)
 
 
 class _MetadataSettings(Protocol):
     ncit_store_dir: str
     ncit_sparql_url: str
+    uberon_store_dir: str
+    uberon_sparql_url: str
 
 
 class _CadsrCertification(Protocol):
@@ -211,6 +238,32 @@ def bind_cadsr_repository_metadata(
     )
 
 
+def bind_uberon_repository_metadata(
+    manifest: UberonIndexManifest,
+    *,
+    manifest_identity: str,
+    source_sha256: str,
+    uberon_class_count: int,
+    cl_class_count: int,
+) -> UberonRepositoryReady:
+    """Bind one ready claim to immutable index, source, and class observations."""
+    if manifest.observation.version_iri is None:
+        raise RepositoryMetadataError(
+            "release-mismatch", "Uberon index has no certified version IRI"
+        )
+    if uberon_class_count <= 0 or cl_class_count <= 0:
+        raise RepositoryMetadataError(
+            "observation-mismatch", "Uberon/CL class observations must be non-empty"
+        )
+    return UberonRepositoryReady(
+        source_identity=manifest.source_identity,
+        manifest_identity=manifest_identity,
+        source_sha256=source_sha256,
+        version_iri=manifest.observation.version_iri,
+        class_counts={"uberon": uberon_class_count, "cl": cl_class_count},
+    )
+
+
 def _active_store_path(configured: str) -> Path:
     path = Path(configured)
     return path if path.is_absolute() else Path.cwd() / path
@@ -244,6 +297,55 @@ def _load_ncit_journal(active: Path) -> ActivationJournal:
         return read_activation_journal(journal_path)
     except ActivationJournalError as exc:
         raise RepositoryMetadataError("activation-incomplete", str(exc)) from exc
+
+
+def _load_uberon_manifest(active: Path) -> tuple[UberonIndexManifest, str]:
+    manifest_path = active / UBERON_INDEX_MANIFEST_FILENAME
+    if not manifest_path.exists():
+        raise RepositoryMetadataError(
+            "manifest-missing", "Uberon active store has no index manifest"
+        )
+    if active.is_symlink() or not active.is_dir():
+        raise RepositoryMetadataError(
+            "manifest-invalid", "Uberon active store is not an exact directory"
+        )
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise RepositoryMetadataError(
+            "manifest-invalid", "Uberon index manifest is not an exact regular file"
+        )
+    try:
+        payload = manifest_path.read_bytes()
+        manifest = validate_uberon_index_manifest(manifest_path)
+    except (OSError, UberonArtifactError) as exc:
+        raise RepositoryMetadataError("manifest-invalid", str(exc)) from exc
+    return manifest, hashlib.sha256(payload).hexdigest()
+
+
+async def observe_uberon_repository(endpoint_url: str) -> tuple[str | None, int, int]:
+    """Return live version and labelled Uberon/CL class counts."""
+    async with SparqlHttpClient.for_qlever(endpoint_url) as client:
+        versions = await client.select_once(
+            "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+            "SELECT ?version WHERE { ?ontology a owl:Ontology ; "
+            "owl:versionIRI ?version } "
+            "LIMIT 2",
+            required_variables={"version"},
+        )
+        version = versions[0].get("version") if len(versions) == 1 else None
+        rows = await client.select_once(
+            "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+            "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> "
+            "SELECT ?source (COUNT(DISTINCT ?concept) AS ?count) WHERE { "
+            "?concept a owl:Class ; rdfs:label ?label . "
+            "{ FILTER(STRSTARTS(STR(?concept), "
+            "'http://purl.obolibrary.org/obo/UBERON_')) "
+            "BIND('uberon' AS ?source) } UNION { "
+            "FILTER(STRSTARTS(STR(?concept), 'http://purl.obolibrary.org/obo/CL_')) "
+            "BIND('cl' AS ?source) } } GROUP BY ?source",
+            required_variables={"source", "count"},
+        )
+        counts = {row["source"]: int(row["count"]) for row in rows}
+        return version, counts.get("uberon", 0), counts.get("cl", 0)
 
 
 def _unhealthy(
@@ -301,3 +403,31 @@ class RepositoryMetadataService:
             return _unhealthy("cadsr", "repository-unreachable", exc)
         except (OSError, ValueError) as exc:
             return _unhealthy("cadsr", "manifest-invalid", exc)
+
+    async def uberon(self) -> UberonRepositoryReady | RepositoryUnhealthy:
+        """Return an immutable-manifest/live-observation-bound Uberon/CL identity."""
+        active = _active_store_path(self._settings.uberon_store_dir)
+        try:
+            manifest, manifest_identity = _load_uberon_manifest(active)
+            artifact = validate_uberon_artifact(Path(manifest.artifact_manifest_path))
+            version, uberon_count, cl_count = await observe_uberon_repository(
+                self._settings.uberon_sparql_url
+            )
+            if version != manifest.observation.version_iri:
+                raise RepositoryMetadataError(
+                    "release-mismatch",
+                    "live Uberon version does not match the immutable index manifest",
+                )
+            return bind_uberon_repository_metadata(
+                manifest,
+                manifest_identity=manifest_identity,
+                source_sha256=artifact.sha256,
+                uberon_class_count=uberon_count,
+                cl_class_count=cl_count,
+            )
+        except RepositoryMetadataError as exc:
+            return _unhealthy("uberon", exc.reason, exc)
+        except UberonArtifactError as exc:
+            return _unhealthy("uberon", "manifest-invalid", exc)
+        except StorageError as exc:
+            return _unhealthy("uberon", "repository-unreachable", exc)

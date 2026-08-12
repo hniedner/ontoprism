@@ -1,0 +1,189 @@
+"""Uberon/CL graph read-model contracts."""
+
+import pytest
+
+from ontolib.terminologies.uberon.graph_store import UberonGraphStore
+
+pytestmark = pytest.mark.unit
+
+
+class _ShapeClient:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if "SELECT ?label ?definition" in query:
+            return [{"label": "lung", "definition": "Respiratory organ."}]
+        if "?node rdfs:subClassOf <" in query:
+            return [
+                {
+                    "node": "http://purl.obolibrary.org/obo/UBERON_0000104",
+                    "label": "life cycle",
+                }
+            ]
+        if (
+            "<http://purl.obolibrary.org/obo/UBERON_0002048> "
+            "rdfs:subClassOf ?node" in query
+        ):
+            return [
+                {
+                    "node": "http://purl.obolibrary.org/obo/UBERON_0001004",
+                    "label": "respiratory system",
+                }
+            ]
+        if "owl:onProperty" in query and "someValuesFrom" in query:
+            return [
+                {
+                    "restriction": "http://example.test/r1",
+                    "rel": "http://purl.obolibrary.org/obo/BFO_0000050",
+                    "rellabel": "part of",
+                    "target": "http://purl.obolibrary.org/obo/UBERON_0001004",
+                    "tlabel": "respiratory system",
+                },
+                {
+                    "restriction": "http://example.test/r2",
+                    "rel": "http://purl.obolibrary.org/obo/RO_0002202",
+                    "rellabel": "develops from",
+                    "target": "http://purl.obolibrary.org/obo/CL_0000000",
+                    "tlabel": "cell",
+                },
+            ]
+        return []
+
+
+@pytest.mark.asyncio
+async def test_detail_carries_source_and_reads_part_of_as_restriction() -> None:
+    client = _ShapeClient()
+
+    detail = await UberonGraphStore(client).get_concept_detail("UBERON:0002048")  # type: ignore[arg-type]
+
+    assert detail is not None
+    assert detail.source == "uberon"
+    assert detail.code == "UBERON:0002048"
+    assert detail.label == "lung"
+    observed = [
+        (edge.kind, edge.target.code, edge.target.source) for edge in detail.relations
+    ]
+    assert observed == [
+        ("part_of", "UBERON:0001004", "uberon"),
+        ("other-restriction", "CL:0000000", "cl"),
+    ]
+    restriction_query = next(
+        query for query in client.queries if "owl:onProperty" in query
+    )
+    assert "rdfs:subClassOf ?restriction" in restriction_query
+    assert "owl:someValuesFrom ?target" in restriction_query
+    direct_pattern = "?concept <http://purl.obolibrary.org/obo/BFO_0000050> ?target"
+    assert direct_pattern not in restriction_query
+
+
+@pytest.mark.asyncio
+async def test_list_filters_source_before_page_and_memoizes_total() -> None:
+    class _ListClient:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def select(self, query: str) -> list[dict[str, str]]:
+            self.queries.append(query)
+            if "COUNT(DISTINCT ?concept)" in query:
+                return [{"count": "1"}]
+            return [
+                {
+                    "concept": "http://purl.obolibrary.org/obo/CL_0000000",
+                    "label": "cell",
+                }
+            ]
+
+    client = _ListClient()
+    store = UberonGraphStore(client)  # type: ignore[arg-type]
+
+    first = await store.list_concepts(source="cl", limit=25, offset=0)
+    second = await store.list_concepts(source="cl", limit=25, offset=25)
+
+    assert first.total == second.total == 1
+    assert first.hits[0].source == "cl"
+    page_query = next(query for query in client.queries if "LIMIT 25 OFFSET 0" in query)
+    assert page_query.index("CL_") < page_query.index("LIMIT 25")
+    assert len([q for q in client.queries if "COUNT(DISTINCT ?concept)" in q]) == 1
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_drops_edges_whose_capped_endpoint_was_dropped() -> None:
+    store = UberonGraphStore(_ShapeClient())  # type: ignore[arg-type]
+
+    graph = await store.get_neighborhood("UBERON:0002048", depth=1, node_limit=2)
+
+    assert graph.truncated is True
+    assert len(graph.nodes) == 2
+    node_codes = {node.code for node in graph.nodes}
+    assert all(
+        edge.source in node_codes and edge.target in node_codes for edge in graph.edges
+    )
+
+
+@pytest.mark.asyncio
+async def test_invalid_code_and_unknown_concept_fail_with_distinct_contracts() -> None:
+    store = UberonGraphStore(_ShapeClient())  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="CURIE"):
+        await store.get_concept_detail("not-a-curie")
+
+    class _EmptyClient:
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            return []
+
+    unknown_store = UberonGraphStore(_EmptyClient())  # type: ignore[arg-type]
+    assert await unknown_store.get_concept_detail("CL:9999999") is None
+    unknown = await unknown_store.get_neighborhood("CL:9999999")
+    assert unknown.model_dump() == {
+        "center": "CL:9999999",
+        "nodes": [],
+        "edges": [],
+        "truncated": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_search_and_cache_records_preserve_cl_source_and_synonyms() -> None:
+    class _SearchClient:
+        async def select(self, query: str) -> list[dict[str, str]]:
+            if "COUNT(DISTINCT ?concept)" in query:
+                return [{"count": "1"}]
+            return [
+                {
+                    "concept": "http://purl.obolibrary.org/obo/CL_0000000",
+                    "label": "cell",
+                    "matched": "native cell",
+                    "synonyms": "native cell||cellular unit",
+                }
+            ]
+
+    store = UberonGraphStore(_SearchClient())  # type: ignore[arg-type]
+
+    page = await store.search("cell", source="cl", limit=5, offset=10)
+    records = await store.search_records(limit=5, offset=0)
+
+    assert page.total == 1
+    assert page.hits[0].model_dump() == {
+        "code": "CL:0000000",
+        "source": "cl",
+        "label": "cell",
+        "matched_synonym": "native cell",
+    }
+    assert records == [
+        {
+            "code": "CL:0000000",
+            "source": "cl",
+            "label": "cell",
+            "synonyms": "native cell||cellular unit",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_rejects_node_limit_outside_supported_range() -> None:
+    store = UberonGraphStore(_ShapeClient())  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="node_limit"):
+        await store.get_neighborhood("UBERON:0002048", node_limit=0)

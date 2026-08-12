@@ -14,6 +14,10 @@ import type {
 	SearchPage,
 	SimilarCde,
 	SimilarConcept
+	, UberonConceptDetail
+	, UberonNeighborhood
+	, UberonSearchPage
+	, UberonSource
 } from './types';
 
 const BASE = '';
@@ -139,6 +143,53 @@ export function getNeighborhood(
 ): Promise<Neighborhood> {
 	return getJson<Neighborhood>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/neighborhood`, { depth }),
+		fetchImpl,
+		signal
+	);
+}
+
+export function searchUberon(
+	q: string,
+	opts: { limit?: number; offset?: number; source?: UberonSource; fetch?: typeof fetch } = {}
+): Promise<UberonSearchPage> {
+	const params: Record<string, string | number> = {
+		q,
+		limit: opts.limit ?? 25,
+		offset: opts.offset ?? 0
+	};
+	if (opts.source) params.source = opts.source;
+	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/search', params), opts.fetch);
+}
+
+export function listUberon(
+	opts: { limit?: number; offset?: number; source?: UberonSource; fetch?: typeof fetch } = {}
+): Promise<UberonSearchPage> {
+	const params: Record<string, string | number> = {
+		limit: opts.limit ?? 25,
+		offset: opts.offset ?? 0
+	};
+	if (opts.source) params.source = opts.source;
+	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);
+}
+
+export function getUberonConcept(
+	code: string,
+	fetchImpl?: typeof fetch
+): Promise<UberonConceptDetail> {
+	return getJson<UberonConceptDetail>(
+		apiUrl(`/api/v1/uberon/concepts/${encodeURIComponent(code)}`),
+		fetchImpl
+	);
+}
+
+export function getUberonNeighborhood(
+	code: string,
+	depth = 1,
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
+): Promise<UberonNeighborhood> {
+	return getJson<UberonNeighborhood>(
+		apiUrl(`/api/v1/uberon/concepts/${encodeURIComponent(code)}/neighborhood`, { depth }),
 		fetchImpl,
 		signal
 	);

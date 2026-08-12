@@ -13,6 +13,8 @@ from backend.dependencies import (
     get_ncit_search_index,
     get_ncit_store,
     get_repository_metadata,
+    get_uberon_search_index,
+    get_uberon_store,
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
@@ -101,6 +103,27 @@ class _FakeSearchIndex:
         return total
 
 
+class _FakeUberonStore:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def search_records(
+        self, *, limit: int, offset: int
+    ) -> list[dict[str, str | None]]:
+        del limit, offset
+        self.calls += 1
+        if self.calls > 1:
+            return []
+        return [
+            {
+                "code": "UBERON:0002048",
+                "source": "uberon",
+                "label": "lung",
+                "synonyms": "",
+            }
+        ]
+
+
 @pytest.mark.api
 def test_rebuild_search_index_success() -> None:
 
@@ -122,6 +145,29 @@ def test_rebuild_search_index_success() -> None:
 
 async def _ready_ncit() -> SimpleNamespace:
     return SimpleNamespace(source_identity="f" * 64)
+
+
+async def _ready_uberon() -> SimpleNamespace:
+    return SimpleNamespace(source_identity="a" * 64, source_sha256="b" * 64)
+
+
+@pytest.mark.api
+def test_rebuild_uberon_search_index_binds_certified_source() -> None:
+    app = create_app()
+    store = _FakeUberonStore()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = lambda: store
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=_ready_uberon
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh/uberon/search-index")
+
+    assert response.status_code == 200
+    assert response.json() == {"concepts_indexed": 1}
+    assert index.source == ("a" * 64, "b" * 64)
 
 
 class _FailingSearchIndex:

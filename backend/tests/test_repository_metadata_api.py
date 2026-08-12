@@ -13,6 +13,7 @@ from backend.repository_metadata import (
     CadsrSourceMetadata,
     NcitRepositoryReady,
     RepositoryUnhealthy,
+    UberonRepositoryReady,
 )
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 
@@ -57,15 +58,33 @@ def _cadsr_ready() -> CadsrRepositoryReady:
     )
 
 
+def _uberon_ready() -> UberonRepositoryReady:
+    return UberonRepositoryReady(
+        source_identity="f" * 64,
+        manifest_identity="1" * 64,
+        source_sha256="2" * 64,
+        version_iri="http://example.test/uberon/2026-06-19",
+        class_counts={"uberon": 16_071, "cl": 1_484},
+    )
+
+
 class _Metadata:
-    def __init__(self, ncit: NcitRepositoryReady | RepositoryUnhealthy) -> None:
+    def __init__(
+        self,
+        ncit: NcitRepositoryReady | RepositoryUnhealthy,
+        uberon: UberonRepositoryReady | RepositoryUnhealthy | None = None,
+    ) -> None:
         self._ncit = ncit
+        self._uberon = uberon or _uberon_ready()
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         return self._ncit
 
     def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
         return _cadsr_ready()
+
+    async def uberon(self) -> UberonRepositoryReady | RepositoryUnhealthy:
+        return self._uberon
 
 
 @pytest.mark.api
@@ -80,6 +99,10 @@ def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
     assert response.json() == {
         "ready": True,
         "repository": _ncit_ready().model_dump(mode="json"),
+        "repositories": [
+            _ncit_ready().model_dump(mode="json"),
+            _uberon_ready().model_dump(mode="json"),
+        ],
     }
 
 
@@ -104,7 +127,26 @@ def test_ready_returns_typed_503_without_claiming_an_active_identity() -> None:
 
 
 @pytest.mark.api
-def test_refresh_returns_discriminated_ncit_and_cadsr_metadata() -> None:
+def test_ready_refuses_when_uberon_release_is_unhealthy() -> None:
+    unhealthy = RepositoryUnhealthy(
+        repository="uberon",
+        reason="release-mismatch",
+        message="live and indexed Uberon releases differ",
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(
+        _ncit_ready(), unhealthy
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == unhealthy.model_dump(mode="json")
+
+
+@pytest.mark.api
+def test_refresh_returns_discriminated_local_repository_metadata() -> None:
     app = create_app()
     app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(_ncit_ready())
 
@@ -116,6 +158,8 @@ def test_refresh_returns_discriminated_ncit_and_cadsr_metadata() -> None:
     assert [(item["repository"], item["state"]) for item in repositories] == [
         ("ncit", "ready"),
         ("cadsr", "ready"),
+        ("uberon", "ready"),
     ]
     assert repositories[0]["source_identity"] == "a" * 64
     assert repositories[1]["manifest_identity"] == "d" * 64
+    assert repositories[2]["source_sha256"] == "2" * 64

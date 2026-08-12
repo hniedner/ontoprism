@@ -134,7 +134,16 @@ async def refresh_repositories() -> dict[str, object]:
                 "repository": "ncit",
                 "reason": "repository-unreachable",
                 "message": "fixture metadata",
-            }
+            },
+            {
+                "state": "ready",
+                "repository": "uberon",
+                "source_identity": "a" * 64,
+                "manifest_identity": "b" * 64,
+                "source_sha256": "c" * 64,
+                "version_iri": "http://example.test/uberon/2026-06-19",
+                "class_counts": {"uberon": 16071, "cl": 1484},
+            },
         ],
     }
 
@@ -186,6 +195,64 @@ async def search_ncit(
                 ),
             }
         ],
+    }
+
+
+@app.get("/api/v1/uberon/list")
+async def list_uberon(
+    limit: Annotated[int, Query(ge=1)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    source: str | None = None,
+) -> dict[str, object]:
+    return {
+        "query": "",
+        "total": 1,
+        "limit": limit,
+        "offset": offset,
+        "hits": [
+            {
+                "code": "UBERON:0002048",
+                "source": source or "uberon",
+                "label": "SSR lung",
+                "matched_synonym": None,
+            }
+        ],
+    }
+
+
+@app.get("/api/v1/uberon/search")
+async def search_uberon(
+    q: str,
+    limit: Annotated[int, Query(ge=1)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    source: str | None = None,
+) -> dict[str, object]:
+    result = await list_uberon(limit, offset, source)
+    result["query"] = q
+    return result
+
+
+@app.get("/api/v1/uberon/concepts/{code}/neighborhood")
+async def get_uberon_neighborhood(code: str) -> dict[str, object]:
+    return {
+        "center": code,
+        "nodes": [{"code": code, "source": "uberon", "label": "SSR lung"}],
+        "edges": [],
+        "truncated": False,
+    }
+
+
+@app.get("/api/v1/uberon/concepts/{code}")
+async def get_uberon_concept(code: str) -> dict[str, object]:
+    return {
+        "code": code,
+        "source": "uberon",
+        "label": "SSR lung",
+        "definition": "SSR Uberon concept definition from FastAPI.",
+        "synonyms": ["pulmo"],
+        "parents": [],
+        "children": [],
+        "relations": [],
     }
 
 

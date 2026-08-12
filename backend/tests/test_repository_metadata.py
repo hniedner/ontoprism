@@ -13,8 +13,10 @@ from backend.repository_metadata import (
     RepositoryMetadataError,
     RepositoryMetadataService,
     RepositoryUnhealthy,
+    UberonRepositoryReady,
     bind_cadsr_repository_metadata,
     bind_ncit_repository_metadata,
+    bind_uberon_repository_metadata,
 )
 from ontolib.repositories.cadsr.archive import CadsrSource
 from ontolib.terminologies.ncit.activation import ActivationJournal
@@ -25,6 +27,12 @@ from ontolib.terminologies.ncit.sibling_store import (
     CandidateObservation,
     NcitSiblingStoreManifest,
 )
+from ontolib.terminologies.uberon.store import (
+    UBERON_INDEX_MANIFEST_FILENAME,
+    UberonArtifactManifest,
+    UberonIndexManifest,
+    UberonIndexObservation,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -33,6 +41,8 @@ pytestmark = pytest.mark.unit
 class _Settings:
     ncit_store_dir: str
     ncit_sparql_url: str
+    uberon_store_dir: str = "/missing/uberon"
+    uberon_sparql_url: str = "http://example.test:7889"
 
 
 def _observation(**changes: object) -> CandidateObservation:
@@ -179,6 +189,41 @@ def test_cadsr_ready_and_unhealthy_variants_do_not_share_identity_shape() -> Non
     assert "manifest_identity" not in unhealthy.model_dump()
 
 
+def test_uberon_ready_metadata_has_no_fabricated_activation_timestamp() -> None:
+    manifest = UberonIndexManifest.model_construct(
+        owner="a" * 32,
+        target_path="/data/qlever-uberon",
+        artifact_manifest_path="/data/uberon/uberon-artifact.json",
+        artifact_identity="b" * 64,
+        source_identity="c" * 64,
+        loader={},
+        observation=UberonIndexObservation(
+            version_iri=(
+                "http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl"
+            ),
+            triples=900_000,
+            has_uberon_lung=True,
+            has_cell_class=True,
+            has_ncit_xref=True,
+        ),
+    )
+
+    ready = bind_uberon_repository_metadata(
+        manifest,
+        manifest_identity="d" * 64,
+        source_sha256="e" * 64,
+        uberon_class_count=16_071,
+        cl_class_count=1_484,
+    )
+
+    assert isinstance(ready, UberonRepositoryReady)
+    assert ready.repository == "uberon"
+    assert ready.source_identity == "c" * 64
+    assert ready.version_iri.endswith("/2026-06-19/uberon.owl")
+    assert ready.class_counts == {"uberon": 16_071, "cl": 1_484}
+    assert "activated_at" not in ready.model_dump()
+
+
 class _CertifiedCadsr:
     def certification(self) -> tuple[CadsrSource, int, str]:
         return (
@@ -260,6 +305,114 @@ async def test_service_refuses_identity_when_active_manifest_is_missing(
 
     assert isinstance(result, RepositoryUnhealthy)
     assert result.reason == "manifest-missing"
+    assert "source_identity" not in result.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_service_binds_uberon_identity_to_manifest_artifact_and_live_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "qlever-uberon"
+    store.mkdir()
+    manifest_path = store / UBERON_INDEX_MANIFEST_FILENAME
+    manifest_path.write_bytes(b'{"exact":"uberon-index"}\n')
+    artifact_path = tmp_path / "uberon-artifact.json"
+    artifact_path.write_text("{}")
+    manifest = UberonIndexManifest.model_construct(
+        owner="a" * 32,
+        target_path=str(store),
+        artifact_manifest_path=str(artifact_path),
+        artifact_identity="b" * 64,
+        source_identity="c" * 64,
+        loader={},
+        observation=UberonIndexObservation(
+            version_iri=(
+                "http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl"
+            ),
+            triples=900_000,
+            has_uberon_lung=True,
+            has_cell_class=True,
+            has_ncit_xref=True,
+        ),
+    )
+    artifact = UberonArtifactManifest.model_construct(sha256="d" * 64)
+    monkeypatch.setattr(
+        "backend.repository_metadata.validate_uberon_index_manifest",
+        lambda path: manifest,
+    )
+    monkeypatch.setattr(
+        "backend.repository_metadata.validate_uberon_artifact", lambda path: artifact
+    )
+
+    async def _observe(_url: str) -> tuple[str | None, int, int]:
+        return manifest.observation.version_iri, 16_071, 1_484
+
+    monkeypatch.setattr(
+        "backend.repository_metadata.observe_uberon_repository", _observe
+    )
+    settings = _Settings(
+        ncit_store_dir=str(tmp_path / "ncit"), ncit_sparql_url="http://ncit.test"
+    )
+    settings.uberon_store_dir = str(store)
+    settings.uberon_sparql_url = "http://uberon.test"
+    service = RepositoryMetadataService(settings=settings, cadsr=_CertifiedCadsr())
+
+    result = await service.uberon()
+
+    assert isinstance(result, UberonRepositoryReady)
+    assert (
+        result.manifest_identity
+        == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    )
+    assert result.source_sha256 == "d" * 64
+    assert result.class_counts == {"uberon": 16_071, "cl": 1_484}
+
+
+@pytest.mark.asyncio
+async def test_service_refuses_uberon_release_skew_without_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "qlever-uberon"
+    store.mkdir()
+    (store / UBERON_INDEX_MANIFEST_FILENAME).write_text("{}")
+    manifest = UberonIndexManifest.model_construct(
+        source_identity="c" * 64,
+        observation=UberonIndexObservation(
+            version_iri="expected",
+            triples=900_000,
+            has_uberon_lung=True,
+            has_cell_class=True,
+            has_ncit_xref=True,
+        ),
+        artifact_manifest_path=str(tmp_path / "artifact.json"),
+    )
+    monkeypatch.setattr(
+        "backend.repository_metadata.validate_uberon_index_manifest",
+        lambda path: manifest,
+    )
+    monkeypatch.setattr(
+        "backend.repository_metadata.validate_uberon_artifact",
+        lambda path: UberonArtifactManifest.model_construct(sha256="d" * 64),
+    )
+
+    async def _observe(_url: str) -> tuple[str | None, int, int]:
+        return "different", 16_071, 1_484
+
+    monkeypatch.setattr(
+        "backend.repository_metadata.observe_uberon_repository", _observe
+    )
+    settings = _Settings(
+        ncit_store_dir=str(tmp_path / "ncit"), ncit_sparql_url="http://ncit.test"
+    )
+    settings.uberon_store_dir = str(store)
+    settings.uberon_sparql_url = "http://uberon.test"
+
+    result = await RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr()
+    ).uberon()
+
+    assert isinstance(result, RepositoryUnhealthy)
+    assert result.reason == "release-mismatch"
     assert "source_identity" not in result.model_dump()
 
 

@@ -15,6 +15,7 @@
 	const nav = [
 		{ href: resolve('/repositories/ncit'), path: '/repositories/ncit', label: 'NCIt' },
 		{ href: resolve('/repositories/cadsr'), path: '/repositories/cadsr', label: 'caDSR' },
+		{ href: resolve('/repositories/uberon'), path: '/repositories/uberon', label: 'Uberon/CL' },
 		{
 			href: resolve('/repositories/clinicaltrials'),
 			path: '/repositories/clinicaltrials',

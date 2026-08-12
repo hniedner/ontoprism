@@ -9,6 +9,7 @@ from backend.repository_metadata import (
     CadsrRepositoryReady,
     NcitRepositoryReady,
     RepositoryUnhealthy,
+    UberonRepositoryReady,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
@@ -19,6 +20,8 @@ from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.uberon.graph_store import UberonGraphStore
+from ontolib.terminologies.uberon.search_index import UberonSearchIndex
 
 
 def get_ncit_store(request: Request) -> NcitGraphStore:
@@ -29,6 +32,14 @@ def get_ncit_store(request: Request) -> NcitGraphStore:
 def get_ncit_client(request: Request) -> SparqlHttpClient:
     """Return the process-wide NCIt SPARQL client."""
     return request.app.state.ncit_client
+
+
+def get_uberon_store(request: Request) -> UberonGraphStore:
+    return request.app.state.uberon_store
+
+
+def get_uberon_search_index(request: Request) -> UberonSearchIndex:
+    return request.app.state.uberon_search_index
 
 
 def get_decomposition_reader(request: Request) -> DecompositionReader:
@@ -86,6 +97,8 @@ class RepositoryMetadataReader(Protocol):
 
     def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy: ...
 
+    async def uberon(self) -> UberonRepositoryReady | RepositoryUnhealthy: ...
+
 
 def get_repository_metadata(request: Request) -> RepositoryMetadataReader:
     """Return the process-wide repository certification service."""
@@ -106,6 +119,8 @@ Embeddings = Annotated[EmbeddingStore, Depends(get_embedding_store)]
 ClinicalTrials = Annotated[ClinicalTrialsClient, Depends(get_clinicaltrials_client)]
 PubMed = Annotated[PubMedClient, Depends(get_pubmed_client)]
 NcitSearch = Annotated[NcitSearchIndex, Depends(get_ncit_search_index)]
+UberonStore = Annotated[UberonGraphStore, Depends(get_uberon_store)]
+UberonSearch = Annotated[UberonSearchIndex, Depends(get_uberon_search_index)]
 ProvenanceReads = Annotated[ProvenanceStore, Depends(get_provenance_store)]
 XrefReads = Annotated[XrefStore, Depends(get_xref_store)]
 RepositoryMetadataReads = Annotated[
