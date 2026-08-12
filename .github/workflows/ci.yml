@@ -5,9 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # On-demand full CI for a feature branch that has no pull request yet. Without this,
+  # `ci.yml` never runs during branch development, so defects batch up and are first
+  # discovered when the PR opens. CI must be the last bar, not the discovery mechanism.
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Keyed by event as well as ref, so a dispatched branch run cannot cancel the pull
+  # request's run on the same ref and leave a `cancelled` check that blocks the merge.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 # Least privilege: CI only reads the repo (tests + coverage upload need no write
@@ -125,7 +131,7 @@ jobs:
   backend-tests:
     name: backend tests
     needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -237,7 +243,7 @@ jobs:
   web-tests:
     name: web tests + coverage
     needs: [changes]
-    if: ${{ needs.changes.outputs.frontend == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.frontend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -306,7 +312,7 @@ jobs:
   integration-tests:
     name: integration tests (services)
     needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/ontoprism_test_forbidden

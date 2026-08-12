@@ -85,6 +85,15 @@ test-integration-ci = "python scripts/run_safe_integration.py ontolib/tests back
 test-integration-ci-coverage = { shell = "COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report=" }
 test-ci = { shell = "COVERAGE_FILE=.coverage.unit pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=term-missing --cov-report=xml -n auto && COVERAGE_FILE=.coverage.integration python scripts/run_safe_integration.py ontolib/tests backend/tests -m 'integration and not full_store and not full_build and not slow' --cov=ontolib/src --cov=backend/src --cov-branch --cov-report= && coverage combine .coverage.unit .coverage.integration && python scripts/validation/strict_coverage_gate.py python --coverage-data .coverage --root ." }
 test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov --cov-report=xml -n auto"
+# The single pre-PR gate: everything CI enforces, in CI's own commands. Run this before
+# opening or updating a pull request, and before each merge into a milestone branch.
+# "Gates green" means this command exited 0 — not a subset of it. Three defects reached
+# CI on PR #290 because targeted substitutes (a single vitest file, a narrowed pytest
+# selection) were run instead of the real gate commands.
+# The one gate this cannot reproduce is CodeQL, which is GitHub default setup and runs
+# only on pull requests and pushes to main; `workflow_dispatch` on ci.yml covers the
+# other nine jobs for a branch that has no PR yet.
+verify = { shell = "pdm run pre-commit run --all-files && pdm run test-ci && npm --prefix frontend run test:coverage" }
 coverage-manifest = "python scripts/validation/coverage_hierarchy.py validate"
 coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest backend/tests/test_coverage_hierarchy.py -q" }
 coverage-identity = "python scripts/validation/coverage_hierarchy.py identity"

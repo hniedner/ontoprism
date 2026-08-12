@@ -142,6 +142,7 @@ defaults point at the services above.
 ## Testing
 
 ```bash
+pdm run verify              # THE pre-PR gate: everything CI enforces, in CI's own commands
 pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
 pdm run test-unit            # unit-marked only, backend+ontolib
 pdm run test-integration     # safe default: nonce-owned disposable PG/QLever
@@ -149,6 +150,16 @@ pdm run test-integration-full-store  # explicit read-only contracts against conf
 pdm run test-ci              # strict gate: ontolib/src & backend/src each >90% line AND >90% branch (matches CI)
 pdm run test-smoke           # frontend vitest via npm
 ```
+
+- **CI is the last bar, never the discovery mechanism. "Gates green" means `pdm run verify`
+  exited 0** — not a subset of it. On PR #290 three defects reached CI because targeted
+  substitutes were run instead of the real gate commands: a test asserting raw Rich `--help`
+  output (CI enables colour, which injects ANSI escapes inside an option name), a
+  `package.json` script that grew a `pdm` dependency the CI job never installed (invisible
+  locally, where pdm is on PATH), and a ReDoS regex only CodeQL evaluates. A targeted
+  `npx vitest run <file>` or a narrowed pytest selection is a debugging tool, not a gate.
+- CodeQL is the one gate `verify` cannot reproduce (GitHub default setup, pull requests and
+  `main` pushes only). Everything else is covered locally.
 
 - **Single test / focused run**: use the `pytest` console script via pdm —
   `pdm run pytest ontolib/tests/path/test_x.py::test_name -v`. Do **not** run
@@ -310,11 +321,17 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   includes `pr-test-analyzer`, it still runs by itself, after the others). Every review round must
   inspect a clean worktree and the committed `main...HEAD` diff. Do not create the
   PR until all five agents have converged and the final local gates pass. **Pushing the
-  feature branch is a separate matter and is encouraged at any point** — `ci.yml` triggers only
-  on `main` pushes and pull requests, so a branch push runs no workflows. It costs nothing, and
-  it is the only backup for work that otherwise exists on one machine. The PR is what is delayed,
+  feature branch is a separate matter and is encouraged at any point** — a branch push does not
+  itself run `ci.yml` (it triggers on `main` pushes, pull requests, and manual dispatch). It costs
+  nothing, and it is the only backup for work that otherwise exists on one machine. The PR is what
+  is delayed,
   for two reasons: a PR should present finished work rather than a moving target, and opening one
-  early triggers the full check matrix repeatedly on every subsequent push. An agent converges
+  early triggers the full check matrix repeatedly on every subsequent push. **Do not let that
+  delay mean the branch never sees CI.** PR #290 accumulated 48 commits with zero CI runs and
+  then failed three checks at once. Run `pdm run verify` before each merge into a milestone
+  branch, and exercise real CI on the branch with
+  `gh workflow run ci.yml --ref <branch>` (the `workflow_dispatch` trigger runs all nine CI jobs
+  on a branch with no PR; only CodeQL still waits for the PR). An agent converges
   only when a
   successfully completed full-diff review
   explicitly reports no unresolved actionable verified findings. An agent that reports

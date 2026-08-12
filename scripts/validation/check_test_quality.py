@@ -196,6 +196,43 @@ def check_module_docstring(filepath: Path, tree: ast.Module) -> str | None:
     return None
 
 
+def check_cli_output_assertions(
+    filepath: Path, tree: ast.Module, content: str
+) -> list[str]:
+    """FAIL on substring assertions against raw CLI output.
+
+    Typer/Click render `--help` through Rich, whose output depends on the environment:
+    colour injects ANSI escapes *inside* an option name, and a terminal under 80 columns
+    wraps it. Either splits the token, so `"--flag" in result.stdout` passes on a
+    developer machine and fails in CI while the CLI contract is intact. This exact test
+    reached CI red on PR #290. Strip ANSI and pin a wide width, then assert on that.
+    """
+    if "CliRunner" not in content:
+        return []
+    strips_ansi = r"\x1b" in content or "\\x1b" in content
+    if strips_ansi:
+        return []
+    failures: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare) or not node.ops:
+            continue
+        if not isinstance(node.ops[0], ast.In):
+            continue
+        for comparator in node.comparators:
+            if isinstance(comparator, ast.Attribute) and comparator.attr in {
+                "stdout",
+                "output",
+                "stderr",
+            }:
+                failures.append(
+                    f"{filepath}:{node.lineno}: substring assertion against raw CLI "
+                    f"output `.{comparator.attr}` is environment-dependent (Rich "
+                    f"colour and terminal width split tokens) — strip ANSI escapes "
+                    f"and render at a pinned width, then assert on the plain text"
+                )
+    return failures
+
+
 def check_file(filepath: Path) -> tuple[list[str], list[str]]:
     """Check a test file for quality anti-patterns."""
     try:
@@ -217,6 +254,8 @@ def check_file(filepath: Path) -> tuple[list[str], list[str]]:
     docstring_failure = check_module_docstring(filepath, tree)
     if docstring_failure:
         failures.append(docstring_failure)
+
+    failures.extend(check_cli_output_assertions(filepath, tree, content))
 
     source_lines = content.splitlines()
     visitor = TestQualityVisitor(str(filepath), source_lines)
