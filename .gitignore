@@ -1,6 +1,9 @@
 # Project scratch / handover material (not part of the codebase)
 tmp/
 
+# Local Omnigent workspace metadata
+.omnigent/
+
 # macOS
 .DS_Store
 
