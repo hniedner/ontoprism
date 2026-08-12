@@ -347,7 +347,14 @@ def install_robot(
     artifact: PinnedArtifact = ROBOT_ARTIFACT,
     downloader: Callable[[str, Path], None] = _download_https,
 ) -> DataBuildToolIdentity:
-    """Download ROBOT, verify it, then atomically publish its JAR and launcher."""
+    """Download ROBOT, verify it, then publish its JAR (atomic rename) and its
+    launcher/metadata (each an atomic write).
+
+    Unlike :func:`install_jena`, the JAR and launcher are published as separate
+    atomic operations rather than a single directory swap, so a crash between them
+    yields a detectably-inconsistent install that :func:`identify_robot_installation`
+    rejects (its launcher text will not match the JAR).
+    """
     destination = install_dir.resolve()
     destination.mkdir(parents=True, exist_ok=True)
     jar_path = destination / artifact.filename

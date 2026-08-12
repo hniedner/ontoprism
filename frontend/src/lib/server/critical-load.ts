@@ -2,11 +2,15 @@ import { error } from '@sveltejs/kit';
 import { ApiRequestError } from '$lib/api';
 import { failed, ready, type LoadResult } from '$lib/load-result';
 
-async function capture<T>(operation: Promise<T>): Promise<LoadResult<T>> {
+/** A settled critical load is either ready or an HTTP error — never empty/loading. */
+type SettledResult<T> = Extract<LoadResult<T>, { state: 'ready' | 'error' }>;
+
+async function capture<T>(operation: Promise<T>): Promise<SettledResult<T>> {
 	try {
-		return ready(await operation);
+		return ready(await operation) as SettledResult<T>;
 	} catch (reason) {
-		if (reason instanceof ApiRequestError) return failed(reason.status, reason.message);
+		if (reason instanceof ApiRequestError)
+			return failed(reason.status, reason.message) as SettledResult<T>;
 		throw reason;
 	}
 }
@@ -14,6 +18,5 @@ async function capture<T>(operation: Promise<T>): Promise<LoadResult<T>> {
 export async function critical<T>(operation: Promise<T>): Promise<T> {
 	const result = await capture(operation);
 	if (result.state === 'ready') return result.data;
-	if (result.state === 'error') error(result.status, result.message);
-	throw new Error(`Critical load reached invalid ${result.state} state`);
+	error(result.status, result.message);
 }

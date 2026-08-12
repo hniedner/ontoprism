@@ -152,6 +152,14 @@ class SparqlEndpointProfile:
             parsed = urlsplit(value)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 raise ValueError(f"{field} must be an absolute HTTP(S) URL")
+        # Graph isolation is all-or-nothing: a constrained QLever dataset must declare
+        # both the internal default graph and its allowed named graphs, or neither. A
+        # half-configured profile would silently expose QLever's union default graph in
+        # ``query_url_for`` — the exact leak this profile exists to prevent.
+        if (self.dataset_default_graph is None) != (self.dataset_named_graphs is None):
+            raise ValueError(
+                "dataset_default_graph and dataset_named_graphs must be set together"
+            )
 
 
 class SparqlHttpClient(SparqlTransportClient):

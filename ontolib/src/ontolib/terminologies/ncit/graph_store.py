@@ -462,10 +462,12 @@ class NcitGraphStore:
     async def search_records(
         self, *, limit: int, offset: int
     ) -> list[dict[str, str | None]]:
-        """A page of ``{code,label,semantic_type,synonyms}`` for the FTS-cache build.
+        """A page of ``{code,label,semantic_type,synonyms,representation_status}``
+        for the FTS-cache build.
 
         Enumerates named concepts (code order) with their label, one semantic type,
-        and pipe-joined synonyms — the fields the ``ncit_search`` cache indexes.
+        pipe-joined synonyms, and pre-coordination representation status — the fields
+        the ``ncit_search`` cache indexes.
         """
         status_pattern = _representation_status_pattern(
             "?concept", None, include_unfiltered=True
