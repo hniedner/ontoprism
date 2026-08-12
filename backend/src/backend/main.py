@@ -1,7 +1,7 @@
 """FastAPI application entrypoint.
 
-Owns the process-wide QLever SPARQL client (opened for the app lifespan) and the
-NCIt repository read model; the frontend talks only to this backend.
+Owns process-wide QLever clients and repository read models; the frontend talks
+only to this backend.
 """
 
 import asyncio
@@ -79,7 +79,7 @@ async def check_ncit_version(client: SparqlHttpClient, expected: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Open the SPARQL client, NCIt store, caDSR repo, and embedding store."""
+    """Open terminology clients, repository stores, and publication stores."""
     settings = get_settings()
     if not settings.api_key:
         # Surface an intended-auth misconfiguration (blank/unset key) instead of

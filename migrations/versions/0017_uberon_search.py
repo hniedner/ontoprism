@@ -17,7 +17,10 @@ def upgrade() -> None:
     op.execute(
         """CREATE TABLE uberon_search (
           code text PRIMARY KEY,
-          source text NOT NULL CHECK (source IN ('uberon', 'cl')),
+          source text NOT NULL CHECK (
+            (source = 'uberon' AND code ~ '^UBERON:[0-9]+$') OR
+            (source = 'cl' AND code ~ '^CL:[0-9]+$')
+          ),
           label text NOT NULL,
           synonyms text NOT NULL DEFAULT '',
           tsv tsvector GENERATED ALWAYS AS (

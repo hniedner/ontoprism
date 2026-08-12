@@ -1,4 +1,4 @@
-"""FastAPI dependencies: access to the shared NCIt store held on app state."""
+"""FastAPI dependencies for process-wide repository stores and clients."""
 
 from typing import Annotated, Protocol
 

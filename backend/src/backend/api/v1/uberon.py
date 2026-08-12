@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import RepositoryMetadataReads, UberonSearch, UberonStore
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
 from ontolib.core.logging_config import get_logger
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
@@ -19,14 +19,14 @@ router = APIRouter(prefix="/api/v1/uberon", tags=["uberon"])
 logger = get_logger(__name__)
 
 
-async def _ready(metadata: RepositoryMetadataReads) -> str:
+async def _ready(metadata: RepositoryMetadataReads) -> UberonRepositoryReady:
     repository = await metadata.uberon()
     if isinstance(repository, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             repository.model_dump(mode="json"),
         )
-    return repository.source_identity
+    return repository
 
 
 @router.get("/search", response_model=UberonSearchPage)
@@ -39,9 +39,11 @@ async def search(
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> UberonSearchPage:
-    source_identity = await _ready(metadata)
+    repository = await _ready(metadata)
     try:
-        if await index.is_populated(source_identity):
+        if await index.is_populated(
+            repository.source_identity, repository.source_sha256
+        ):
             return await index.search(q, source=source, limit=limit, offset=offset)
     except SQLAlchemyError as exc:
         logger.warning("Uberon/CL FTS unavailable; using QLever: %s", exc)
@@ -67,8 +69,9 @@ async def concept_detail(
     await _ready(metadata)
     try:
         detail = await store.get_concept_detail(code)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+    except (ValueError, LookupError) as exc:
+        message = "Invalid code" if isinstance(exc, ValueError) else "Concept not found"
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Concept not found: {code}")
     return detail
@@ -84,5 +87,6 @@ async def neighborhood(
     await _ready(metadata)
     try:
         return await store.get_neighborhood(code, depth=depth)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
+    except (ValueError, LookupError) as exc:
+        message = "Invalid code" if isinstance(exc, ValueError) else "Concept not found"
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc

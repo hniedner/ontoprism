@@ -20,7 +20,12 @@ from backend.dependencies import (
     UberonSearch,
     UberonStore,
 )
-from backend.repository_metadata import RepositoryMetadata, RepositoryUnhealthy
+from backend.repository_metadata import (
+    RepositoryMetadata,
+    RepositoryMetadataError,
+    RepositoryUnhealthy,
+    observe_uberon_repository,
+)
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
@@ -203,7 +208,7 @@ async def rebuild_ncit_search_index(
         source_after = await ncit_source_fingerprint(store)
         if source_after != source_before:
             raise StorageError("NCIt source changed during search-index rebuild")
-    except (StorageError, SQLAlchemyError) as exc:
+    except (RepositoryMetadataError, StorageError, SQLAlchemyError) as exc:
         logger.exception("NCIt search-index rebuild failed")
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "NCIt search-index rebuild failed."
@@ -229,11 +234,25 @@ async def rebuild_uberon_search_index(
             repository.model_dump(mode="json"),
         )
     try:
+
+        async def validate_source() -> None:
+            observation_after, counts_after = await observe_uberon_repository(
+                get_settings().uberon_sparql_url
+            )
+            if (
+                observation_after != repository.observation
+                or counts_after != repository.class_counts
+            ):
+                raise StorageError(
+                    "Uberon/CL source changed during search-index rebuild"
+                )
+
         count = await populate_uberon_search(
             store,
             index,
             source_identity=repository.source_identity,
             source_hash=repository.source_sha256,
+            validate_source=validate_source,
         )
     except (StorageError, SQLAlchemyError) as exc:
         logger.exception("Uberon/CL search-index rebuild failed")

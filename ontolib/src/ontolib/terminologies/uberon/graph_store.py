@@ -102,9 +102,9 @@ class UberonGraphStore:
         if not rows:
             return None
         row = rows[0]
-        parents = await self._named_neighbors(iri, incoming=False)
-        children = await self._named_neighbors(iri, incoming=True)
-        relations = await self._restrictions(iri)
+        parents, parents_truncated = await self._named_neighbors(iri, incoming=False)
+        children, children_truncated = await self._named_neighbors(iri, incoming=True)
+        relations, relations_truncated = await self._restrictions(iri)
         return UberonConceptDetail(
             code=code,
             source=_source_for_iri(iri),
@@ -116,11 +116,12 @@ class UberonGraphStore:
             parents=parents,
             children=children,
             relations=relations,
+            truncated=(parents_truncated or children_truncated or relations_truncated),
         )
 
     async def _named_neighbors(
         self, iri: str, *, incoming: bool
-    ) -> list[UberonConceptRef]:
+    ) -> tuple[list[UberonConceptRef], bool]:
         pattern = (
             f"?node rdfs:subClassOf <{iri}>"
             if incoming
@@ -132,15 +133,16 @@ class UberonGraphStore:
               {pattern} . FILTER(isIRI(?node))
               {_source_filter("?node", None)}
               OPTIONAL {{ ?node rdfs:label ?label }}
-            }} ORDER BY ?node ?label LIMIT {_DEFAULT_EDGE_LIMIT}"""
+            }} ORDER BY ?node ?label LIMIT {_DEFAULT_EDGE_LIMIT + 1}"""
         )
-        return [
+        refs = [
             _ref(node, row.get("label"))
-            for row in rows
+            for row in rows[:_DEFAULT_EDGE_LIMIT]
             if (node := row.get("node")) is not None
         ]
+        return refs, len(rows) > _DEFAULT_EDGE_LIMIT
 
-    async def _restrictions(self, iri: str) -> list[UberonRelationship]:
+    async def _restrictions(self, iri: str) -> tuple[list[UberonRelationship], bool]:
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT DISTINCT ?rel ?rellabel ?target ?tlabel WHERE {{
@@ -150,10 +152,11 @@ class UberonGraphStore:
               {_source_filter("?target", None)}
               OPTIONAL {{ ?rel rdfs:label ?rellabel }}
               OPTIONAL {{ ?target rdfs:label ?tlabel }}
-            }} ORDER BY ?rel ?target ?rellabel ?tlabel LIMIT {_DEFAULT_EDGE_LIMIT}"""
+            }} ORDER BY ?rel ?target ?rellabel ?tlabel
+            LIMIT {_DEFAULT_EDGE_LIMIT + 1}"""
         )
         relationships: list[UberonRelationship] = []
-        for row in rows:
+        for row in rows[:_DEFAULT_EDGE_LIMIT]:
             relation = row.get("rel")
             target = row.get("target")
             if relation is None or target is None:
@@ -169,7 +172,7 @@ class UberonGraphStore:
                     target=_ref(target, row.get("tlabel")),
                 )
             )
-        return relationships
+        return relationships, len(rows) > _DEFAULT_EDGE_LIMIT
 
     async def list_concepts(
         self,
@@ -222,7 +225,7 @@ class UberonGraphStore:
             f"""{_PREFIXES}
             SELECT ?concept ?label (SAMPLE(?synonym) AS ?matched) WHERE {{
               {where}
-            }} GROUP BY ?concept ?label ORDER BY ?concept
+            }} GROUP BY ?concept ?label ORDER BY ?concept ?label
             LIMIT {limit} OFFSET {offset}"""
         )
         count_rows = await self._client.select(
@@ -284,7 +287,7 @@ class UberonGraphStore:
             raise ValueError("node_limit is outside the supported range")
         center = await self.get_concept_detail(code)
         if center is None:
-            return UberonNeighborhood(center=code)
+            raise LookupError(f"Uberon/CL concept not found: {code}")
         state = _NeighborhoodState(center=center, node_limit=node_limit)
         for _hop in range(depth):
             await self._expand_neighborhood_hop(state)
@@ -378,7 +381,7 @@ class _NeighborhoodState:
         self.frontier = [center.code]
         self.expanded: set[str] = set()
         self.details = {center.code: center}
-        self.truncated = False
+        self.truncated = center.truncated
 
     @property
     def at_limit(self) -> bool:
@@ -399,7 +402,7 @@ class _NeighborhoodState:
                 self.edges.setdefault(
                     (edge.source, edge.target, edge.relation, edge.kind), edge
                 )
-        self.truncated = dropped or self.truncated
+        self.truncated = detail.truncated or dropped or self.truncated
 
     def _add_node(self, ref: UberonConceptRef) -> bool:
         if ref.code in self.nodes:

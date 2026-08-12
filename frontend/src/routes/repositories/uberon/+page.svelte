@@ -47,7 +47,7 @@
 		</div>
 	{/snippet}
 	{#snippet helpText()}
-		Search labels and synonyms. Each result identifies whether the class is in Uberon or Cell
+		Search labels and exact synonyms. Each result identifies whether the class is in Uberon or Cell
 		Ontology within the certified combined index.
 	{/snippet}
 	{#snippet results(hits: UberonSearchHit[])}

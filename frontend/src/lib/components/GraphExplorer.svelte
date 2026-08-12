@@ -77,10 +77,6 @@
 				...node,
 				semantic_type: node.source === 'cl' ? 'Cell Ontology' : 'Uberon',
 				representation_status: null
-			})),
-			edges: raw.edges.map((edge) => ({
-				...edge,
-				kind: edge.kind === 'subClassOf' ? 'subClassOf' : 'role'
 			}))
 		};
 	}

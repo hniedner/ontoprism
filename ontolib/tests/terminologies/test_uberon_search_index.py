@@ -66,25 +66,28 @@ class _Factory:
 async def test_ready_requires_matching_identity_and_complete_nonempty_rows() -> None:
     factory = _Factory({"EXISTS": _Result(scalar=True)})
 
-    assert await UberonSearchIndex(factory).is_populated("a" * 64)  # type: ignore[arg-type]
+    assert await UberonSearchIndex(factory).is_populated(  # type: ignore[arg-type]
+        "a" * 64, "b" * 64
+    )
 
     sql, params = factory.executed[0]
     assert "row_count > 0" in sql
     assert "row_count = (SELECT COUNT(*) FROM uberon_search)" in sql
-    assert params == {"source_identity": "a" * 64}
+    assert params == {"source_identity": "a" * 64, "source_hash": "b" * 64}
 
 
 @pytest.mark.unit
 async def test_search_filters_source_before_pagination() -> None:
     factory = _Factory(
         {
+            "SELECT COUNT(*)": _Result(scalar=1),
             "FROM uberon_search": _Result(
                 rows=[
                     SimpleNamespace(
                         code="CL:0000000", source="cl", label="cell", total=1
                     )
                 ]
-            )
+            ),
         }
     )
 
@@ -93,9 +96,23 @@ async def test_search_filters_source_before_pagination() -> None:
     )
 
     assert page.hits[0].source == "cl"
-    sql, params = factory.executed[0]
+    sql, params = factory.executed[1]
     assert sql.index("source = CAST(:source AS text)") < sql.index("LIMIT :limit")
     assert params == {"q": "cell", "source": "cl", "limit": 10, "offset": 20}
+
+
+@pytest.mark.unit
+async def test_search_preserves_total_when_offset_page_is_empty() -> None:
+    factory = _Factory(
+        {"SELECT COUNT(*)": _Result(scalar=2), "FROM uberon_search": _Result(rows=[])}
+    )
+
+    page = await UberonSearchIndex(factory).search(  # type: ignore[arg-type]
+        "cell", offset=100
+    )
+
+    assert page.total == 2
+    assert page.hits == []
 
 
 async def _batches():
@@ -124,6 +141,25 @@ async def test_rebuild_publishes_rows_and_manifest_in_one_transaction() -> None:
     assert "DELETE FROM uberon_search" in statements[1]
     assert "INSERT INTO uberon_search" in statements[2]
     assert "INSERT INTO uberon_search_manifest" in statements[3]
+
+
+@pytest.mark.unit
+async def test_rebuild_validates_source_before_manifest_publication() -> None:
+    factory = _Factory({})
+    observed_statement_counts: list[int] = []
+
+    async def validate_source() -> None:
+        observed_statement_counts.append(len(factory.executed))
+
+    await UberonSearchIndex(factory).rebuild(  # type: ignore[arg-type]
+        _batches(),
+        source_identity="a" * 64,
+        source_hash="b" * 64,
+        validate_source=validate_source,
+    )
+
+    assert observed_statement_counts == [3]
+    assert "INSERT INTO uberon_search_manifest" in factory.executed[3][0]
 
 
 @pytest.mark.unit

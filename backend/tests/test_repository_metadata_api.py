@@ -13,9 +13,11 @@ from backend.repository_metadata import (
     CadsrSourceMetadata,
     NcitRepositoryReady,
     RepositoryUnhealthy,
+    UberonClassCounts,
     UberonRepositoryReady,
 )
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
+from ontolib.terminologies.uberon.store import UberonIndexObservation
 
 
 def _ncit_ready() -> NcitRepositoryReady:
@@ -64,7 +66,14 @@ def _uberon_ready() -> UberonRepositoryReady:
         manifest_identity="1" * 64,
         source_sha256="2" * 64,
         version_iri="http://example.test/uberon/2026-06-19",
-        class_counts={"uberon": 16_071, "cl": 1_484},
+        class_counts=UberonClassCounts(uberon=16_071, cl=1_484),
+        observation=UberonIndexObservation(
+            version_iri="http://example.test/uberon/2026-06-19",
+            triples=900_000,
+            has_uberon_lung=True,
+            has_cell_class=True,
+            has_ncit_xref=True,
+        ),
     )
 
 

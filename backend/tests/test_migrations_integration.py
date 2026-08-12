@@ -116,6 +116,14 @@ async def _schema_facts(dsn: str) -> dict[str, Any]:
                     "WHERE table_name = 'uberon_search'"
                 )
             },
+            "uberon_search_checks": [
+                row["definition"]
+                for row in await conn.fetch(
+                    "SELECT pg_get_constraintdef(oid) AS definition "
+                    "FROM pg_constraint WHERE conrelid = "
+                    "'uberon_search'::regclass AND contype = 'c'"
+                )
+            ],
             "uberon_search_manifest_columns": {
                 row["column_name"]: row["data_type"]
                 for row in await conn.fetch(
@@ -547,6 +555,9 @@ def _assert_embedding_schema(facts: dict[str, Any]) -> None:
         "synonyms": "text",
         "tsv": "tsvector",
     }
+    uberon_search_checks = " ".join(facts["uberon_search_checks"])
+    assert "UBERON:" in uberon_search_checks
+    assert "CL:" in uberon_search_checks
     assert facts["uberon_search_manifest_columns"] == {
         "singleton": "boolean",
         "source_identity": "text",

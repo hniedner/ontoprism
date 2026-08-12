@@ -9,7 +9,7 @@
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
 
-	// Full browse/search page for a paginated repository (NCIt, caDSR): header, search
+	// Full browse/search page for a paginated local repository: header, search
 	// bar, results card, and pagination over server-loaded URL state. Each concrete
 	// repository supplies its copy and a `results` snippet for its own table.
 	interface Props {

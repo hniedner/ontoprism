@@ -51,7 +51,13 @@ export interface GraphNode {
 	representation_status: RepresentationStatus | null;
 }
 
-export type EdgeKind = 'subClassOf' | 'role' | 'association' | 'cde-concept';
+export type EdgeKind =
+	| 'subClassOf'
+	| 'role'
+	| 'association'
+	| 'cde-concept'
+	| 'part_of'
+	| 'other-restriction';
 
 export interface GraphEdge {
 	source: string;
@@ -93,6 +99,7 @@ export interface UberonConceptDetail {
 	parents: UberonConceptRef[];
 	children: UberonConceptRef[];
 	relations: UberonRelationship[];
+	truncated: boolean;
 }
 
 export interface UberonSearchHit {
@@ -266,6 +273,13 @@ export interface UberonRepositoryReady {
 	source_sha256: string;
 	version_iri: string;
 	class_counts: { uberon: number; cl: number };
+	observation: {
+		version_iri: string | null;
+		triples: number;
+		has_uberon_lung: boolean;
+		has_cell_class: boolean;
+		has_ncit_xref: boolean;
+	};
 }
 
 export type RepositoryUnhealthyReason =

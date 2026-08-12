@@ -1,8 +1,15 @@
 """Uberon/CL graph read-model contracts."""
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.terminologies.uberon.graph_store import UberonGraphStore
+from ontolib.terminologies.uberon.models import (
+    UberonConceptRef,
+    UberonGraphEdge,
+    UberonRelationship,
+    UberonSearchPage,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -135,13 +142,6 @@ async def test_invalid_code_and_unknown_concept_fail_with_distinct_contracts() -
 
     unknown_store = UberonGraphStore(_EmptyClient())  # type: ignore[arg-type]
     assert await unknown_store.get_concept_detail("CL:9999999") is None
-    unknown = await unknown_store.get_neighborhood("CL:9999999")
-    assert unknown.model_dump() == {
-        "center": "CL:9999999",
-        "nodes": [],
-        "edges": [],
-        "truncated": False,
-    }
 
 
 @pytest.mark.asyncio
@@ -187,3 +187,63 @@ async def test_neighborhood_rejects_node_limit_outside_supported_range() -> None
 
     with pytest.raises(ValueError, match="node_limit"):
         await store.get_neighborhood("UBERON:0002048", node_limit=0)
+
+
+@pytest.mark.asyncio
+async def test_detail_reports_edge_truncation_instead_of_silent_limit() -> None:
+    class _DenseClient:
+        async def select(self, query: str) -> list[dict[str, str]]:
+            if "SELECT ?label ?definition" in query:
+                return [{"label": "dense concept"}]
+            if "?node rdfs:subClassOf <" in query:
+                return [
+                    {
+                        "node": f"http://purl.obolibrary.org/obo/UBERON_{index:07}",
+                        "label": f"child {index}",
+                    }
+                    for index in range(201)
+                ]
+            return []
+
+    detail = await UberonGraphStore(_DenseClient()).get_concept_detail(  # type: ignore[arg-type]
+        "UBERON:0000064"
+    )
+
+    assert detail is not None
+    assert len(detail.children) == 200
+    assert detail.truncated is True
+
+
+@pytest.mark.asyncio
+async def test_unknown_neighborhood_is_not_a_successful_empty_graph() -> None:
+    class _EmptyClient:
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            return []
+
+    store = UberonGraphStore(_EmptyClient())  # type: ignore[arg-type]
+
+    with pytest.raises(LookupError, match="CL:9999999"):
+        await store.get_neighborhood("CL:9999999")
+
+
+@pytest.mark.unit
+def test_models_enforce_curie_source_edge_and_pagination_invariants() -> None:
+    with pytest.raises(ValidationError, match="UBERON:digits"):
+        UberonConceptRef(code="not-a-curie", source="uberon")
+    with pytest.raises(ValidationError):
+        UberonConceptRef(code="CL:0000000", source="uberon")
+    with pytest.raises(ValidationError):
+        UberonGraphEdge(
+            source="UBERON:1",
+            target="UBERON:2",
+            relation="BFO_0000050",
+            kind="other-restriction",
+        )
+    with pytest.raises(ValidationError, match="canonical edge kind"):
+        UberonRelationship(
+            relation="RO_0002202",
+            kind="subClassOf",
+            target=UberonConceptRef(code="CL:0000000", source="cl"),
+        )
+    with pytest.raises(ValidationError):
+        UberonSearchPage(query="x", total=-1, limit=0, offset=-1)

@@ -62,8 +62,9 @@ class _Index:
         self.populated = populated
         self.fail = fail
 
-    async def is_populated(self, source_identity: str) -> bool:
+    async def is_populated(self, source_identity: str, source_hash: str) -> bool:
         assert source_identity == "a" * 64
+        assert source_hash == "b" * 64
         if self.fail:
             raise OperationalError("cache unavailable", None, Exception())
         return self.populated
@@ -86,7 +87,7 @@ class _Metadata:
         return SimpleNamespace(source_identity="c" * 64)
 
     async def uberon(self) -> SimpleNamespace:
-        return SimpleNamespace(source_identity="a" * 64)
+        return SimpleNamespace(source_identity="a" * 64, source_sha256="b" * 64)
 
 
 def _client(
@@ -168,6 +169,23 @@ def test_detail_and_neighborhood_use_curie_path_segment() -> None:
     assert detail.status_code == graph.status_code == 200
     assert detail.json()["source"] == "uberon"
     assert graph.json()["nodes"][0]["source"] == "uberon"
+
+
+@pytest.mark.api
+def test_unknown_neighborhood_is_404_not_empty_success() -> None:
+    class _UnknownStore(_Store):
+        async def get_neighborhood(
+            self, code: str, *, depth: int
+        ) -> UberonNeighborhood:
+            del depth
+            raise LookupError(code)
+
+    response = next(_client(_UnknownStore(), _Index(False))).get(
+        "/api/v1/uberon/concepts/CL:9999999/neighborhood"
+    )
+
+    assert response.status_code == 404
+    assert "Concept not found" in response.json()["detail"]
 
 
 @pytest.mark.api

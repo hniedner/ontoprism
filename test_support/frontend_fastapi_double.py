@@ -143,6 +143,13 @@ async def refresh_repositories() -> dict[str, object]:
                 "source_sha256": "c" * 64,
                 "version_iri": "http://example.test/uberon/2026-06-19",
                 "class_counts": {"uberon": 16071, "cl": 1484},
+                "observation": {
+                    "version_iri": "http://example.test/uberon/2026-06-19",
+                    "triples": 900000,
+                    "has_uberon_lung": True,
+                    "has_cell_class": True,
+                    "has_ncit_xref": True,
+                },
             },
         ],
     }
@@ -253,6 +260,7 @@ async def get_uberon_concept(code: str) -> dict[str, object]:
         "parents": [],
         "children": [],
         "relations": [],
+        "truncated": False,
     }
 
 

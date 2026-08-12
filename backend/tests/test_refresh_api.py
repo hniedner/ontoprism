@@ -1,5 +1,6 @@
 """Refresh endpoint tests: report (live), and reload guards (no store mutation)."""
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator, Sequence
 from types import SimpleNamespace
 from typing import Any
@@ -17,8 +18,9 @@ from backend.dependencies import (
     get_uberon_store,
 )
 from backend.main import create_app
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import RepositoryUnhealthy, UberonClassCounts
 from ontolib.core.exceptions import StorageError
+from ontolib.terminologies.uberon.store import UberonIndexObservation
 
 
 @pytest.fixture(autouse=True)
@@ -95,11 +97,14 @@ class _FakeSearchIndex:
         *,
         source_identity: str,
         source_hash: str,
+        validate_source: Any = None,
     ) -> int:
         self.source = (source_identity, source_hash)
         total = 0
         async for records in batches:
             total += len(records) if records else 0
+        if validate_source is not None:
+            await validate_source()
         return total
 
 
@@ -148,7 +153,18 @@ async def _ready_ncit() -> SimpleNamespace:
 
 
 async def _ready_uberon() -> SimpleNamespace:
-    return SimpleNamespace(source_identity="a" * 64, source_sha256="b" * 64)
+    return SimpleNamespace(
+        source_identity="a" * 64,
+        source_sha256="b" * 64,
+        class_counts=UberonClassCounts(uberon=16_071, cl=1_484),
+        observation=UberonIndexObservation(
+            version_iri="expected",
+            triples=900_000,
+            has_uberon_lung=True,
+            has_cell_class=True,
+            has_ncit_xref=True,
+        ),
+    )
 
 
 @pytest.mark.api
@@ -161,9 +177,23 @@ def test_rebuild_uberon_search_index_binds_certified_source() -> None:
     app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
         uberon=_ready_uberon
     )
+    ready = asyncio.run(_ready_uberon())
 
-    with TestClient(app) as client:
-        response = client.post("/api/v1/refresh/uberon/search-index")
+    async def stable_observation(
+        _url: str,
+    ) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        return ready.observation, ready.class_counts
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        "backend.api.v1.refresh.observe_uberon_repository", stable_observation
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/v1/refresh/uberon/search-index")
+    finally:
+        monkeypatch.undo()
 
     assert response.status_code == 200
     assert response.json() == {"concepts_indexed": 1}

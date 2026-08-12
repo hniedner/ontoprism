@@ -16,10 +16,6 @@ export const load: PageServerLoad = async ({ fetch, params }) => {
 			...node,
 			semantic_type: node.source === 'cl' ? 'Cell Ontology' : 'Uberon',
 			representation_status: null
-		})),
-		edges: rawGraph.edges.map((edge) => ({
-			...edge,
-			kind: edge.kind === 'subClassOf' ? 'subClassOf' : 'role'
 		}))
 	};
 	return { detail, graph };

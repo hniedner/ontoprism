@@ -8,7 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PositiveInt
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.activation import (
@@ -31,7 +31,10 @@ from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 from ontolib.terminologies.uberon.store import (
     UBERON_INDEX_MANIFEST_FILENAME,
     UberonArtifactError,
+    UberonArtifactManifest,
     UberonIndexManifest,
+    UberonIndexObservation,
+    observe_uberon_index,
     validate_uberon_artifact,
     validate_uberon_index_manifest,
 )
@@ -102,6 +105,11 @@ class CadsrRepositoryReady(_RepositoryModel):
     source: CadsrSourceMetadata
 
 
+class UberonClassCounts(_RepositoryModel):
+    uberon: PositiveInt
+    cl: PositiveInt
+
+
 class UberonRepositoryReady(_RepositoryModel):
     """Certified immutable Uberon/CL index identity without an activation claim."""
 
@@ -111,7 +119,8 @@ class UberonRepositoryReady(_RepositoryModel):
     manifest_identity: str = Field(pattern=_SHA256_PATTERN)
     source_sha256: str = Field(pattern=_SHA256_PATTERN)
     version_iri: str
-    class_counts: dict[Literal["uberon", "cl"], int]
+    class_counts: UberonClassCounts
+    observation: UberonIndexObservation
 
 
 class RepositoryUnhealthy(_RepositoryModel):
@@ -136,6 +145,9 @@ class _MetadataSettings(Protocol):
     ncit_sparql_url: str
     uberon_store_dir: str
     uberon_sparql_url: str
+    uberon_owl_url: str
+    uberon_expected_version_iri: str
+    uberon_expected_sha256: str
 
 
 class _CadsrCertification(Protocol):
@@ -243,24 +255,21 @@ def bind_uberon_repository_metadata(
     *,
     manifest_identity: str,
     source_sha256: str,
-    uberon_class_count: int,
-    cl_class_count: int,
+    class_counts: UberonClassCounts,
+    observed: UberonIndexObservation | None = None,
 ) -> UberonRepositoryReady:
     """Bind one ready claim to immutable index, source, and class observations."""
     if manifest.observation.version_iri is None:
         raise RepositoryMetadataError(
             "release-mismatch", "Uberon index has no certified version IRI"
         )
-    if uberon_class_count <= 0 or cl_class_count <= 0:
-        raise RepositoryMetadataError(
-            "observation-mismatch", "Uberon/CL class observations must be non-empty"
-        )
     return UberonRepositoryReady(
         source_identity=manifest.source_identity,
         manifest_identity=manifest_identity,
         source_sha256=source_sha256,
         version_iri=manifest.observation.version_iri,
-        class_counts={"uberon": uberon_class_count, "cl": cl_class_count},
+        class_counts=class_counts,
+        observation=observed or manifest.observation,
     )
 
 
@@ -321,17 +330,17 @@ def _load_uberon_manifest(active: Path) -> tuple[UberonIndexManifest, str]:
     return manifest, hashlib.sha256(payload).hexdigest()
 
 
-async def observe_uberon_repository(endpoint_url: str) -> tuple[str | None, int, int]:
-    """Return live version and labelled Uberon/CL class counts."""
+async def observe_uberon_repository(
+    endpoint_url: str,
+) -> tuple[UberonIndexObservation, UberonClassCounts]:
+    """Return the full live index proof and labelled source class counts."""
+    try:
+        observation = await observe_uberon_index(endpoint_url)
+    except (UberonArtifactError, KeyError, TypeError, ValueError) as exc:
+        raise RepositoryMetadataError(
+            "observation-mismatch", "live Uberon index observation is malformed"
+        ) from exc
     async with SparqlHttpClient.for_qlever(endpoint_url) as client:
-        versions = await client.select_once(
-            "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
-            "SELECT ?version WHERE { ?ontology a owl:Ontology ; "
-            "owl:versionIRI ?version } "
-            "LIMIT 2",
-            required_variables={"version"},
-        )
-        version = versions[0].get("version") if len(versions) == 1 else None
         rows = await client.select_once(
             "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
             "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> "
@@ -344,8 +353,30 @@ async def observe_uberon_repository(endpoint_url: str) -> tuple[str | None, int,
             "BIND('cl' AS ?source) } } GROUP BY ?source",
             required_variables={"source", "count"},
         )
+    try:
         counts = {row["source"]: int(row["count"]) for row in rows}
-        return version, counts.get("uberon", 0), counts.get("cl", 0)
+        class_counts = UberonClassCounts.model_validate(counts)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RepositoryMetadataError(
+            "observation-mismatch", "live Uberon/CL class observation is malformed"
+        ) from exc
+    return observation, class_counts
+
+
+def _require_configured_uberon_artifact(
+    artifact: UberonArtifactManifest, settings: _MetadataSettings
+) -> None:
+    configured = (
+        settings.uberon_owl_url,
+        settings.uberon_expected_version_iri,
+        settings.uberon_expected_sha256,
+    )
+    observed = (artifact.source_url, artifact.version_iri, artifact.sha256)
+    if observed != configured:
+        raise RepositoryMetadataError(
+            "release-mismatch",
+            "Uberon artifact does not match the configured URL, version, and SHA-256",
+        )
 
 
 def _unhealthy(
@@ -410,20 +441,27 @@ class RepositoryMetadataService:
         try:
             manifest, manifest_identity = _load_uberon_manifest(active)
             artifact = validate_uberon_artifact(Path(manifest.artifact_manifest_path))
-            version, uberon_count, cl_count = await observe_uberon_repository(
+            _require_configured_uberon_artifact(artifact, self._settings)
+            observation, class_counts = await observe_uberon_repository(
                 self._settings.uberon_sparql_url
             )
-            if version != manifest.observation.version_iri:
+            if observation.version_iri != manifest.observation.version_iri:
                 raise RepositoryMetadataError(
                     "release-mismatch",
                     "live Uberon version does not match the immutable index manifest",
+                )
+            if observation != manifest.observation:
+                raise RepositoryMetadataError(
+                    "observation-mismatch",
+                    "live Uberon observation does not match the immutable "
+                    "index manifest",
                 )
             return bind_uberon_repository_metadata(
                 manifest,
                 manifest_identity=manifest_identity,
                 source_sha256=artifact.sha256,
-                uberon_class_count=uberon_count,
-                cl_class_count=cl_count,
+                class_counts=class_counts,
+                observed=observation,
             )
         except RepositoryMetadataError as exc:
             return _unhealthy("uberon", exc.reason, exc)
