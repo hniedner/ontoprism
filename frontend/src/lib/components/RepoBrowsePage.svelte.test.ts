@@ -18,11 +18,11 @@ const results = createRawSnippet<[Hit[]]>((getHits) => ({
 	render: () => `<div data-testid="results">${getHits().length} rows</div>`
 }));
 
-function setup(query = '', offset = 0, total = 42) {
+function setup(query = '', offset = 0, total = 42, route = '/repositories/ncit') {
 	return render(RepoBrowsePage, {
 		title: 'NCIt Browser',
 		description: 'Browse concepts',
-		route: '/repositories/ncit',
+		route: route as '/repositories/ncit',
 		helpText,
 		placeholder: 'Search…',
 		ariaLabel: 'Search NCIt',
@@ -72,5 +72,12 @@ describe('RepoBrowsePage', () => {
 		setup();
 		await fireEvent.click(screen.getByRole('button', { name: 'melanoma' }));
 		expect(goto).toHaveBeenCalledWith('/repositories/ncit?q=melanoma');
+	});
+
+	it('navigates within the Uberon repository route', async () => {
+		setup('', 0, 42, '/repositories/uberon');
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'lung' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+		expect(goto).toHaveBeenCalledWith('/repositories/uberon?q=lung');
 	});
 });

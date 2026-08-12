@@ -51,7 +51,13 @@ export interface GraphNode {
 	representation_status: RepresentationStatus | null;
 }
 
-export type EdgeKind = 'subClassOf' | 'role' | 'association' | 'cde-concept';
+export type EdgeKind =
+	| 'subClassOf'
+	| 'role'
+	| 'association'
+	| 'cde-concept'
+	| 'part_of'
+	| 'other-restriction';
 
 export interface GraphEdge {
 	source: string;
@@ -66,6 +72,61 @@ export interface Neighborhood {
 	nodes: GraphNode[];
 	edges: GraphEdge[];
 	/** True when the node cap was hit and some neighbors were dropped (partial graph). */
+	truncated?: boolean;
+}
+
+export type UberonSource = 'uberon' | 'cl';
+
+export interface UberonConceptRef {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+}
+
+export interface UberonRelationship {
+	relation: string;
+	relation_label: string | null;
+	kind: 'subClassOf' | 'part_of' | 'other-restriction';
+	target: UberonConceptRef;
+}
+
+export interface UberonConceptDetail {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+	definition: string | null;
+	synonyms: string[];
+	parents: UberonConceptRef[];
+	children: UberonConceptRef[];
+	relations: UberonRelationship[];
+	truncated: boolean;
+}
+
+export interface UberonSearchHit {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+	matched_synonym: string | null;
+}
+
+export interface UberonSearchPage {
+	query: string;
+	total: number;
+	limit: number;
+	offset: number;
+	hits: UberonSearchHit[];
+}
+
+export interface UberonNeighborhood {
+	center: string;
+	nodes: Array<{ code: string; source: UberonSource; label: string | null }>;
+	edges: Array<{
+		source: string;
+		target: string;
+		relation: string;
+		relation_label: string | null;
+		kind: 'subClassOf' | 'part_of' | 'other-restriction';
+	}>;
 	truncated?: boolean;
 }
 
@@ -204,6 +265,23 @@ export interface CadsrRepositoryReady {
 	source: CadsrSourceMetadata;
 }
 
+export interface UberonRepositoryReady {
+	state: 'ready';
+	repository: 'uberon';
+	source_identity: string;
+	manifest_identity: string;
+	source_sha256: string;
+	version_iri: string;
+	class_counts: { uberon: number; cl: number };
+	observation: {
+		version_iri: string | null;
+		triples: number;
+		has_uberon_lung: boolean;
+		has_cell_class: boolean;
+		has_ncit_xref: boolean;
+	};
+}
+
 export type RepositoryUnhealthyReason =
 	| 'manifest-missing'
 	| 'manifest-invalid'
@@ -215,7 +293,7 @@ export type RepositoryUnhealthyReason =
 
 export interface RepositoryUnhealthy {
 	state: 'unhealthy';
-	repository: 'ncit' | 'cadsr';
+	repository: 'ncit' | 'cadsr' | 'uberon';
 	reason: RepositoryUnhealthyReason;
 	message: string;
 }
@@ -223,6 +301,7 @@ export interface RepositoryUnhealthy {
 export type RepositoryMetadata =
 	| NcitRepositoryReady
 	| CadsrRepositoryReady
+	| UberonRepositoryReady
 	| RepositoryUnhealthy;
 
 export interface RefreshReport {

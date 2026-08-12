@@ -6,6 +6,8 @@ test('every repository breadcrumb link resolves and the final crumb remains iner
 	const repositoryRoutes = [
 		'/repositories/ncit',
 		'/repositories/ncit/C27262',
+		'/repositories/uberon',
+		'/repositories/uberon/UBERON:0002048',
 		'/repositories/cadsr',
 		'/repositories/cadsr/2001',
 		'/repositories/clinicaltrials',
@@ -126,6 +128,16 @@ test('NCIt detail and graph placeholder SSR once before browser-only graph hydra
 	const counts = (await countsResponse.json()) as Record<string, number>;
 	expect(counts[`GET /api/v1/ncit/concepts/${code}`]).toBe(1);
 	expect(counts[`GET /api/v1/ncit/concepts/${code}/neighborhood?depth=1`]).toBe(1);
+});
+
+test('Uberon list and detail critical data are present in initial HTML', async ({ request }) => {
+	const list = await request.get('/repositories/uberon');
+	expect(list.status()).toBe(200);
+	expect(await list.text()).toContain('SSR lung');
+
+	const detail = await request.get('/repositories/uberon/UBERON:0002048');
+	expect(detail.status()).toBe(200);
+	expect(await detail.text()).toContain('SSR Uberon concept definition from FastAPI.');
 });
 
 test('ClinicalTrials and PubMed search URLs and detail routes render initial content', async ({

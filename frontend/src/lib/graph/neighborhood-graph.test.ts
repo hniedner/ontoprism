@@ -2,11 +2,18 @@ import { describe, it, expect } from 'vitest';
 import type { GraphNode, Neighborhood } from '$lib/types';
 import {
 	createGraph,
+	KIND_COLOR,
 	mergeNeighborhood,
 	assignAnalytics,
 	degreeToSize,
 	communityColor
 } from './neighborhood-graph';
+
+describe('edge kinds', () => {
+	it('keeps Uberon restriction kinds distinct', () => {
+		expect(KIND_COLOR.part_of).not.toBe(KIND_COLOR['other-restriction']);
+	});
+});
 
 type TestGraphNode = Omit<GraphNode, 'representation_status'> &
 	Partial<Pick<GraphNode, 'representation_status'>>;

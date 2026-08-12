@@ -28,7 +28,9 @@
 		<td class="px-4 py-2.5 text-muted">
 			{repository.repository === 'ncit'
 				? repository.release
-				: repository.item_count.toLocaleString()}
+				: repository.repository === 'cadsr'
+					? repository.item_count.toLocaleString()
+					: (repository.class_counts.uberon + repository.class_counts.cl).toLocaleString()}
 		</td>
 		<td class="max-w-64 break-all px-4 py-2.5 font-mono text-xs text-muted">
 			{repository.source_identity}

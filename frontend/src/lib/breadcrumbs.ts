@@ -7,6 +7,7 @@ export interface Crumb {
 const LABELS: Record<string, string> = {
 	ncit: 'NCIt Browser',
 	cadsr: 'caDSR CDEs',
+	uberon: 'Uberon/CL Browser',
 	refresh: 'Refresh'
 };
 
