@@ -1012,9 +1012,11 @@ async def test_runtime_serves_on_loopback_and_verifies_owner_before_teardown(
     assert result == _observation()
     assert registered == ["http://127.0.0.1:49152"]
     start = docker.calls[0][0]
-    assert start[:4] == (
+    assert start[:6] == (
         "run",
         "--detach",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
         "--name",
         f"ontoprism-ncit-candidate-{owner}",
     )
@@ -1026,6 +1028,44 @@ async def test_runtime_serves_on_loopback_and_verifies_owner_before_teardown(
         (("inspect", container_id), True),
         (("rm", "--force", container_id), True),
     ]
+
+
+@pytest.mark.unit
+async def test_runtime_reports_state_and_logs_when_candidate_server_exits(
+    tmp_path: Path,
+) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    owner = "9" * 32
+    (candidate / OWNER_MARKER_FILENAME).write_text(owner)
+    container_id = "3" * 64
+    details = [
+        {
+            "Id": container_id,
+            "Config": {"Labels": {"org.ontoprism.candidate-owner": owner}},
+            "Mounts": [{"Source": str(candidate.resolve()), "Destination": "/data"}],
+        }
+    ]
+    docker = _DockerDouble(
+        [
+            _completed(container_id),
+            _completed(returncode=1, stderr="container is not running"),
+            _completed('{"Status":"exited","ExitCode":1}'),
+            _completed(stderr="cannot open index log: Permission denied"),
+            _completed(json.dumps(details)),
+            _completed(),
+        ]
+    )
+
+    runtime = DockerQleverRuntime(docker_run=docker)
+    with pytest.raises(SiblingStoreValidationError) as raised:
+        await runtime.observe(candidate, owner, lambda _url: _never_observe())
+
+    message = str(raised.value)
+    assert "exited before publishing its port" in message
+    assert '"ExitCode":1' in message
+    assert "Permission denied" in message
+    assert docker.calls[-1][0] == ("rm", "--force", container_id)
 
 
 @pytest.mark.unit

@@ -651,6 +651,11 @@ class DockerQleverRuntime:
         return (
             "run",
             "--detach",
+            # Match the index build's user (see `_index_command`). QLever's server
+            # writes into its host-owned index directory, so image uid 999 cannot
+            # start against it on Linux: the container exits before publishing a port.
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
             "--name",
             f"ontoprism-{self._index_basename}-candidate-{owner}",
             "--label",
@@ -751,6 +756,27 @@ class DockerQleverRuntime:
                 f"{type(cleanup_error).__name__}: {cleanup_error}"
             )
 
+    def _published_port(self, container_id: str) -> str:
+        port_result = self._docker_run("port", container_id, "7001/tcp", check=False)
+        if port_result.returncode:
+            state = self._docker_run(
+                "inspect", "--format", "{{json .State}}", container_id, check=False
+            )
+            logs = self._docker_run("logs", container_id, check=False)
+            state_text = state.stdout.strip() or state.stderr.strip() or "unavailable"
+            log_text = logs.stderr.strip() or logs.stdout.strip() or "unavailable"
+            raise SiblingStoreValidationError(
+                "candidate QLever server exited before publishing its port; "
+                f"state={state_text}; logs={log_text}"
+            )
+        published = port_result.stdout.strip()
+        match = _DOCKER_PORT.fullmatch(published)
+        if match is None:
+            raise SiblingStoreValidationError(
+                f"unexpected candidate port mapping: {published!r}"
+            )
+        return match.group(1)
+
     async def observe[T](
         self,
         candidate_path: Path,
@@ -768,15 +794,7 @@ class DockerQleverRuntime:
                 raise SiblingStoreValidationError(
                     f"unexpected candidate container ID: {container_id!r}"
                 )
-            published = self._docker_run(
-                "port", container_id, "7001/tcp"
-            ).stdout.strip()
-            match = _DOCKER_PORT.fullmatch(published)
-            if match is None:
-                raise SiblingStoreValidationError(
-                    f"unexpected candidate port mapping: {published!r}"
-                )
-            endpoint = f"http://127.0.0.1:{match.group(1)}"
+            endpoint = f"http://127.0.0.1:{self._published_port(container_id)}"
             with self._connection_scope(endpoint):
                 await self._wait_until_ready(endpoint)
                 return await observer(endpoint)
