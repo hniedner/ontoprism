@@ -58,4 +58,32 @@ describe('loadRepositoryPage', () => {
 			representationStatus: 'legacy-precoordinated'
 		});
 	});
+
+	it('threads URL facets into the search loader when a query is present', async () => {
+		const search = vi.fn().mockResolvedValue({ total: 3 });
+		const readUrlState = vi.fn().mockReturnValue({
+			representationStatus: 'legacy-precoordinated' as const
+		});
+
+		const result = await loadRepositoryPage(
+			new URL(
+				'http://example.test/repository?q=tumor&representation_status=legacy-precoordinated'
+			),
+			search,
+			vi.fn(),
+			readUrlState
+		);
+
+		// A regression that calls search(query, offset) would silently drop the
+		// active representation-status filter on the search path.
+		expect(search).toHaveBeenCalledWith('tumor', 0, {
+			representationStatus: 'legacy-precoordinated'
+		});
+		expect(result.initial).toEqual({
+			result: { total: 3 },
+			query: 'tumor',
+			offset: 0,
+			representationStatus: 'legacy-precoordinated'
+		});
+	});
 });

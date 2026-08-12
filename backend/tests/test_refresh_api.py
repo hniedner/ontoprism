@@ -15,6 +15,7 @@ from backend.dependencies import (
     get_repository_metadata,
 )
 from backend.main import create_app
+from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.core.exceptions import StorageError
 
 
@@ -138,6 +139,71 @@ def test_rebuild_search_index_store_error_returns_502() -> None:
     )
     with TestClient(app) as client:
         resp = client.post("/api/v1/refresh/ncit/search-index")
+    assert resp.status_code == 502
+    assert "search-index" in resp.json()["detail"]
+
+
+async def _unhealthy_ncit() -> RepositoryUnhealthy:
+    return RepositoryUnhealthy(
+        repository="ncit",
+        reason="activation-incomplete",
+        message="NCIt activation did not complete.",
+    )
+
+
+@pytest.mark.api
+def test_rebuild_search_index_unhealthy_repository_returns_503() -> None:
+    app = create_app()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_ncit_store] = _FakeNcitStore
+    app.dependency_overrides[get_ncit_search_index] = lambda: index
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        ncit=_unhealthy_ncit
+    )
+    with TestClient(app) as client:
+        resp = client.post("/api/v1/refresh/ncit/search-index")
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["reason"] == "activation-incomplete"
+    # An unhealthy proxy must not trigger a rebuild against a stale/absent store.
+    assert index.source is None
+
+
+class _DriftingNcitStore(_FakeNcitStore):
+    """Its embedding fingerprint differs between the pre- and post-rebuild reads."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._fingerprint_pass = 0
+        self._page_served = False
+
+    async def embedding_records(
+        self, *args: Any, **kwargs: Any
+    ) -> list[dict[str, str | None]]:
+        del args
+        if kwargs.get("after") is None:
+            self._fingerprint_pass += 1
+            self._page_served = False
+        if self._page_served:
+            return []
+        self._page_served = True
+        code = "C1" if self._fingerprint_pass == 1 else "C2"
+        return [{"iri": f"http://example.test/{code}", "code": code}]
+
+
+@pytest.mark.api
+def test_rebuild_search_index_source_change_mid_rebuild_returns_502() -> None:
+    app = create_app()
+    store = _DriftingNcitStore()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_ncit_store] = lambda: store
+    app.dependency_overrides[get_ncit_search_index] = lambda: index
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        ncit=_ready_ncit
+    )
+    with TestClient(app) as client:
+        resp = client.post("/api/v1/refresh/ncit/search-index")
+    # The post-rebuild fingerprint differs from the pre-rebuild one, so the built
+    # index would be inconsistent with the store; the concurrency gate must reject it.
     assert resp.status_code == 502
     assert "search-index" in resp.json()["detail"]
 

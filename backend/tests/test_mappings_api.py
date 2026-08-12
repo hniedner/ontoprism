@@ -82,6 +82,20 @@ def test_concept_mappings_returns_forward_mappings() -> None:
 
 
 @pytest.mark.api
+def test_concept_mappings_exact_match_with_nonactive_lifecycle_is_not_identity() -> (
+    None
+):
+    client = next(_client())
+    resp = client.get("/api/v1/ncit/concepts/C50000/mappings")
+    assert resp.status_code == 200
+    entry = resp.json()["mappings"][0]
+    assert entry["predicate"] == EXACT_MATCH
+    assert entry["lifecycle"] == "quarantined"
+    # exactMatch alone is not identity; the lifecycle must be validated/active.
+    assert entry["is_identity"] is False
+
+
+@pytest.mark.api
 def test_concept_mappings_no_mappings_returns_empty() -> None:
     client = next(_client())
     resp = client.get("/api/v1/ncit/concepts/C99999/mappings")

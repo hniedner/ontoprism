@@ -151,6 +151,18 @@ describe('forceAtlasLayoutBudget', () => {
 		expect(nearCap.durationMs).toBeLessThanOrEqual(1_500);
 		expect(budget(186, 191)).toEqual(reported);
 	});
+
+	it('caps edge density so an extreme edge count cannot inflate the budget', () => {
+		const candidate = (graphExplorer as unknown as Record<string, unknown>)[
+			'forceAtlasLayoutBudget'
+		];
+		const budget = candidate as (nodes: number, edges: number) => { durationMs: number };
+
+		// boundedEdges = min(edges, nodes*4); anything beyond nodes*4 is clamped.
+		const atCap = budget(10, 10 * 4);
+		const farBeyondCap = budget(10, 10_000);
+		expect(farBeyondCap).toEqual(atCap);
+	});
 });
 
 describe('TimedLayoutController', () => {

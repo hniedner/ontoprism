@@ -21,6 +21,7 @@ from backend.dependencies import (
     get_repository_metadata,
 )
 from backend.main import create_app
+from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
@@ -162,11 +163,26 @@ class _Metadata:
         return SimpleNamespace(source_identity="f" * 64)
 
 
+class _UnhealthyMetadata:
+    """Metadata reads that certify the NCIt proxy as unhealthy."""
+
+    async def ncit(self) -> RepositoryUnhealthy:
+        return RepositoryUnhealthy(
+            repository="ncit",
+            reason="activation-incomplete",
+            message="NCIt activation did not complete.",
+        )
+
+    def cadsr(self) -> SimpleNamespace:
+        return SimpleNamespace(source_identity="f" * 64)
+
+
 def _client(
     *,
     store: _FakeStore | None = None,
     index: _FakeIndex | None = None,
     embeddings: _FakeEmbeddings | None = None,
+    metadata: type = _Metadata,
 ) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_ncit_store] = lambda: store or _FakeStore()
@@ -174,7 +190,7 @@ def _client(
     app.dependency_overrides[get_embedding_store] = lambda: (
         embeddings or _FakeEmbeddings()
     )
-    app.dependency_overrides[get_repository_metadata] = _Metadata
+    app.dependency_overrides[get_repository_metadata] = metadata
     with TestClient(app) as client:
         yield client
 
@@ -256,6 +272,34 @@ def test_status_filter_rejects_unknown_values(path: str) -> None:
     response = client.get(f"{path}{separator}representation_status=atomic")
 
     assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_search_unhealthy_repository_is_503() -> None:
+    store = _FakeStore()
+    index = _FakeIndex()
+    client = next(_client(store=store, index=index, metadata=_UnhealthyMetadata))
+
+    response = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "activation-incomplete"
+    # The guard short-circuits before touching the store or the cache.
+    assert store.search_calls == []
+    assert index.search_calls == []
+
+
+@pytest.mark.api
+def test_similar_concepts_unhealthy_repository_is_503() -> None:
+    embeddings = _FakeEmbeddings()
+    client = next(_client(embeddings=embeddings, metadata=_UnhealthyMetadata))
+
+    response = client.get("/api/v1/ncit/concepts/C3262/similar")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "activation-incomplete"
+    # No embedding lookup is attempted against an unhealthy proxy.
+    assert embeddings.source_checks == []
 
 
 @pytest.mark.api

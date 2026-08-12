@@ -130,4 +130,66 @@ describe('FastAPI BFF transport', () => {
 		expect(response.status).toBe(503);
 		expect(await response.json()).toEqual({ detail: 'FastAPI is unreachable' });
 	});
+
+	it('rewrites a same-origin /api redirect Location to a relative path', async () => {
+		const response = await forwardFastApiWith(
+			new Request('http://node.test/api/v1/redirect'),
+			'/api/v1/redirect',
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				fetch: async () =>
+					new Response(null, {
+						status: 307,
+						headers: { location: 'http://fastapi.test:8011/api/v1/target?x=1' }
+					})
+			},
+			'203.0.113.9'
+		);
+		expect(response.status).toBe(307);
+		expect(response.headers.get('location')).toBe('/api/v1/target?x=1');
+	});
+
+	it('refuses an upstream response whose declared size exceeds the cap', async () => {
+		const response = await forwardFastApiWith(
+			new Request('http://node.test/api/v1/big'),
+			'/api/v1/big',
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				fetch: async () =>
+					new Response('{}', {
+						status: 200,
+						headers: { 'content-length': String(33 * 1024 * 1024) }
+					})
+			},
+			'203.0.113.9'
+		);
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({ detail: 'FastAPI response is too large' });
+	});
+
+	it('refuses an upstream body that exceeds the cap without a declared size', async () => {
+		const oversized = new Uint8Array(33 * 1024 * 1024);
+		const response = await forwardFastApiWith(
+			new Request('http://node.test/api/v1/big'),
+			'/api/v1/big',
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				fetch: async () =>
+					new Response(
+						new ReadableStream({
+							start(controller) {
+								controller.enqueue(oversized);
+								controller.close();
+							}
+						})
+					)
+			},
+			'203.0.113.9'
+		);
+		expect(response.status).toBe(502);
+		expect(await response.json()).toEqual({ detail: 'FastAPI response is too large' });
+	});
 });
