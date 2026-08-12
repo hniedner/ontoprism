@@ -20,7 +20,10 @@ from backend.dependencies import (
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy, UberonClassCounts
 from ontolib.core.exceptions import StorageError
-from ontolib.terminologies.uberon.store import UberonIndexObservation
+from ontolib.terminologies.uberon.store import (
+    UberonIndexObservation,
+    UberonServingFingerprint,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +101,7 @@ class _FakeSearchIndex:
         source_identity: str,
         source_hash: str,
         validate_source: Any = None,
+        expected_row_count: int | None = None,
     ) -> int:
         self.source = (source_identity, source_hash)
         total = 0
@@ -105,6 +109,7 @@ class _FakeSearchIndex:
             total += len(records) if records else 0
         if validate_source is not None:
             await validate_source()
+        del expected_row_count
         return total
 
 
@@ -163,6 +168,12 @@ async def _ready_uberon() -> SimpleNamespace:
             has_uberon_lung=True,
             has_cell_class=True,
             has_ncit_xref=True,
+            serving=UberonServingFingerprint(
+                rows=100,
+                sha256="f" * 64,
+                uberon_classes=16_071,
+                cl_classes=1_484,
+            ),
         ),
     )
 

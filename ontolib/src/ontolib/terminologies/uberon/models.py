@@ -57,6 +57,7 @@ class UberonConceptDetail(_SourcedConcept):
     label: str | None = None
     definition: str | None = None
     synonyms: list[str] = []
+    xrefs: list[str] = []
     parents: list[UberonConceptRef] = []
     children: list[UberonConceptRef] = []
     relations: list[UberonRelationship] = []

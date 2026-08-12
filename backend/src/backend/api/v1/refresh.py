@@ -253,6 +253,9 @@ async def rebuild_uberon_search_index(
             source_identity=repository.source_identity,
             source_hash=repository.source_sha256,
             validate_source=validate_source,
+            expected_row_count=(
+                repository.class_counts.uberon + repository.class_counts.cl
+            ),
         )
     except (StorageError, SQLAlchemyError) as exc:
         logger.exception("Uberon/CL search-index rebuild failed")

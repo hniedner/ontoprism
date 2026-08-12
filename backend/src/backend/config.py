@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     uberon_expected_sha256: str = (
         "938f51e7c3fc9fcbe5a2863eb346da8033737e568af5836958891c4c6bfb1192"
     )
+    uberon_expected_serving_sha256: str = (
+        "a95beed61f43591bac4b2eee0c23a2e24e2300d6bc4df0dc4b9e1cbd39c8a4c7"
+    )
+    uberon_expected_serving_rows: int = 223_546
+    uberon_expected_uberon_classes: int = 16_071
+    uberon_expected_cl_classes: int = 1_484
     uberon_owl_dir: str = "data/uberon"
     uberon_owl_max_retries: int = 3
     uberon_store_dir: str = "data/qlever-uberon"

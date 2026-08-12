@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
+from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
     UberonConceptRef,
@@ -48,13 +50,19 @@ def _code_for_iri(iri: str) -> str:
     return f"{'UBERON' if source == 'uberon' else 'CL'}:{identifier}"
 
 
+class InvalidUberonCurieError(ValueError):
+    """A path value is not a supported Uberon/CL CURIE."""
+
+
 def _iri_for_code(code: str) -> str:
     try:
         prefix, identifier = code.split(":", 1)
     except ValueError as exc:
-        raise ValueError("Uberon/CL code must be a CURIE") from exc
+        raise InvalidUberonCurieError("Uberon/CL code must be a CURIE") from exc
     if prefix not in {"UBERON", "CL"} or not identifier.isdigit():
-        raise ValueError("Uberon/CL code must use UBERON:digits or CL:digits")
+        raise InvalidUberonCurieError(
+            "Uberon/CL code must use UBERON:digits or CL:digits"
+        )
     return f"{_OBO}{prefix}_{identifier}"
 
 
@@ -68,8 +76,17 @@ def _source_filter(variable: str, source: UberonSource | None) -> str:
     return f'FILTER(STRSTARTS(STR({variable}), "{_OBO}{prefix}_"))'
 
 
-def _escape_literal(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+def _sparql_literal(value: str) -> str:
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _required(row: Mapping[str, str | None], *names: str) -> tuple[str, ...]:
+    values = tuple(row.get(name) for name in names)
+    if any(value is None for value in values):
+        raise StorageError(
+            "Uberon/CL SPARQL result omitted required bindings: " + ", ".join(names)
+        )
+    return tuple(value for value in values if value is not None)
 
 
 def _ref(iri: str, label: str | None) -> UberonConceptRef:
@@ -105,6 +122,7 @@ class UberonGraphStore:
         parents, parents_truncated = await self._named_neighbors(iri, incoming=False)
         children, children_truncated = await self._named_neighbors(iri, incoming=True)
         relations, relations_truncated = await self._restrictions(iri)
+        xrefs = await self._xrefs(iri)
         return UberonConceptDetail(
             code=code,
             source=_source_for_iri(iri),
@@ -116,6 +134,7 @@ class UberonGraphStore:
             parents=parents,
             children=children,
             relations=relations,
+            xrefs=xrefs,
             truncated=(parents_truncated or children_truncated or relations_truncated),
         )
 
@@ -129,38 +148,36 @@ class UberonGraphStore:
         )
         rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT DISTINCT ?node ?label WHERE {{
+            SELECT ?node (MIN(STR(?labelValue)) AS ?label) WHERE {{
               {pattern} . FILTER(isIRI(?node))
               {_source_filter("?node", None)}
-              OPTIONAL {{ ?node rdfs:label ?label }}
-            }} ORDER BY ?node ?label LIMIT {_DEFAULT_EDGE_LIMIT + 1}"""
+              OPTIONAL {{ ?node rdfs:label ?labelValue }}
+            }} GROUP BY ?node ORDER BY ?node LIMIT {_DEFAULT_EDGE_LIMIT + 1}"""
         )
         refs = [
-            _ref(node, row.get("label"))
+            _ref(_required(row, "node")[0], row.get("label"))
             for row in rows[:_DEFAULT_EDGE_LIMIT]
-            if (node := row.get("node")) is not None
         ]
         return refs, len(rows) > _DEFAULT_EDGE_LIMIT
 
     async def _restrictions(self, iri: str) -> tuple[list[UberonRelationship], bool]:
         rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT DISTINCT ?rel ?rellabel ?target ?tlabel WHERE {{
+            SELECT ?rel ?target
+              (MIN(STR(?rellabelValue)) AS ?rellabel)
+              (MIN(STR(?tlabelValue)) AS ?tlabel) WHERE {{
               <{iri}> rdfs:subClassOf ?restriction .
               ?restriction a owl:Restriction ; owl:onProperty ?rel ;
                 owl:someValuesFrom ?target .
               {_source_filter("?target", None)}
-              OPTIONAL {{ ?rel rdfs:label ?rellabel }}
-              OPTIONAL {{ ?target rdfs:label ?tlabel }}
-            }} ORDER BY ?rel ?target ?rellabel ?tlabel
+              OPTIONAL {{ ?rel rdfs:label ?rellabelValue }}
+              OPTIONAL {{ ?target rdfs:label ?tlabelValue }}
+            }} GROUP BY ?rel ?target ORDER BY ?rel ?target
             LIMIT {_DEFAULT_EDGE_LIMIT + 1}"""
         )
         relationships: list[UberonRelationship] = []
         for row in rows[:_DEFAULT_EDGE_LIMIT]:
-            relation = row.get("rel")
-            target = row.get("target")
-            if relation is None or target is None:
-                continue
+            relation, target = _required(row, "rel", "target")
             kind: UberonEdgeKind = (
                 "part_of" if relation == _PART_OF else "other-restriction"
             )
@@ -173,6 +190,15 @@ class UberonGraphStore:
                 )
             )
         return relationships, len(rows) > _DEFAULT_EDGE_LIMIT
+
+    async def _xrefs(self, iri: str) -> list[str]:
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT DISTINCT ?xref WHERE {{
+              <{iri}> oio:hasDbXref ?xref .
+            }} ORDER BY STR(?xref)"""
+        )
+        return sorted({_required(row, "xref")[0] for row in rows})
 
     async def list_concepts(
         self,
@@ -195,8 +221,9 @@ class UberonGraphStore:
                   ?concept a owl:Class ; rdfs:label ?label . {source_filter}
                 }}"""
             )
-            value = count_rows[0].get("count") if count_rows else None
-            self._totals[source] = int(value) if value is not None else 0
+            if len(count_rows) != 1:
+                raise StorageError("Uberon/CL list count was not a single row")
+            self._totals[source] = int(_required(count_rows[0], "count")[0])
         return UberonSearchPage(
             query="",
             total=self._totals[source],
@@ -213,13 +240,13 @@ class UberonGraphStore:
         limit: int = 25,
         offset: int = 0,
     ) -> UberonSearchPage:
-        term = _escape_literal(query_text)
+        term = _sparql_literal(query_text)
         source_filter = _source_filter("?concept", source)
         where = f"""
           ?concept a owl:Class ; rdfs:label ?label . {source_filter}
           OPTIONAL {{ ?concept oio:hasExactSynonym ?synonym .
-            FILTER(CONTAINS(LCASE(?synonym), LCASE("{term}"))) }}
-          FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?synonym))
+            FILTER(CONTAINS(LCASE(?synonym), LCASE({term}))) }}
+          FILTER(CONTAINS(LCASE(?label), LCASE({term})) || BOUND(?synonym))
         """
         rows = await self._client.select(
             f"""{_PREFIXES}
@@ -231,10 +258,11 @@ class UberonGraphStore:
         count_rows = await self._client.select(
             f"{_PREFIXES} SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{{where}}}"
         )
-        value = count_rows[0].get("count") if count_rows else None
+        if len(count_rows) != 1:
+            raise StorageError("Uberon/CL search count was not a single row")
         return UberonSearchPage(
             query=query_text,
-            total=int(value) if value is not None else 0,
+            total=int(_required(count_rows[0], "count")[0]),
             limit=limit,
             offset=offset,
             hits=self._hits(rows),
@@ -253,7 +281,7 @@ class UberonGraphStore:
               ?concept a owl:Class ; rdfs:label ?label .
               {_source_filter("?concept", None)}
               OPTIONAL {{ ?concept oio:hasExactSynonym ?synonym }}
-            }} GROUP BY ?concept ?label ORDER BY ?concept
+            }} GROUP BY ?concept ?label ORDER BY ?concept ?label
             LIMIT {limit} OFFSET {offset}"""
         )
         return [
@@ -264,7 +292,7 @@ class UberonGraphStore:
                 "synonyms": row.get("synonyms") or "",
             }
             for row in rows
-            if (iri := row.get("concept")) is not None
+            for iri in _required(row, "concept", "label")[:1]
         ]
 
     @staticmethod
@@ -277,22 +305,21 @@ class UberonGraphStore:
                 matched_synonym=row.get("matched"),
             )
             for row in rows
-            if (iri := row.get("concept")) is not None
+            for iri in _required(row, "concept", "label")[:1]
         ]
 
     async def get_neighborhood(
         self, code: str, *, depth: int = 1, node_limit: int = _MAX_NEIGHBORHOOD_NODES
     ) -> UberonNeighborhood:
+        if depth != 1:
+            raise ValueError("Uberon/CL neighborhoods support depth=1 expand-on-demand")
         if not 1 <= node_limit <= _MAX_NEIGHBORHOOD_NODES:
             raise ValueError("node_limit is outside the supported range")
         center = await self.get_concept_detail(code)
         if center is None:
             raise LookupError(f"Uberon/CL concept not found: {code}")
         state = _NeighborhoodState(center=center, node_limit=node_limit)
-        for _hop in range(depth):
-            await self._expand_neighborhood_hop(state)
-            if not state.frontier or state.at_limit:
-                break
+        state.add_detail(center)
         return UberonNeighborhood(
             center=code,
             nodes=sorted(state.nodes.values(), key=lambda item: item.code),
@@ -302,29 +329,6 @@ class UberonGraphStore:
             ),
             truncated=state.truncated,
         )
-
-    async def _expand_neighborhood_hop(self, state: _NeighborhoodState) -> None:
-        next_frontier: list[str] = []
-        for current in state.frontier:
-            detail = await self._detail_for_expansion(current, state)
-            if detail is None:
-                continue
-            state.add_detail(detail)
-            next_frontier.extend(state.unexpanded_neighbors(detail))
-            if state.at_limit:
-                state.truncated = True
-                break
-        state.frontier = next_frontier
-
-    async def _detail_for_expansion(
-        self, current: str, state: _NeighborhoodState
-    ) -> UberonConceptDetail | None:
-        if current in state.expanded:
-            return None
-        detail = state.details.get(current) or await self.get_concept_detail(current)
-        if detail is not None:
-            state.expanded.add(current)
-        return detail
 
     @staticmethod
     def _edge_candidates(
@@ -378,19 +382,11 @@ class _NeighborhoodState:
         self.node_limit = node_limit
         self.nodes: dict[str, UberonGraphNode] = {}
         self.edges: dict[tuple[str, str, str, str], UberonGraphEdge] = {}
-        self.frontier = [center.code]
-        self.expanded: set[str] = set()
-        self.details = {center.code: center}
         self.truncated = center.truncated
 
     @property
     def at_limit(self) -> bool:
         return len(self.nodes) >= self.node_limit
-
-    def unexpanded_neighbors(self, detail: UberonConceptDetail) -> list[str]:
-        codes = [ref.code for ref in (*detail.parents, *detail.children)]
-        codes.extend(relation.target.code for relation in detail.relations)
-        return [code for code in codes if code not in self.expanded]
 
     def add_detail(self, detail: UberonConceptDetail) -> None:
         dropped = self._add_node(

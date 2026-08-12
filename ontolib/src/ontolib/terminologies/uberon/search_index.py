@@ -120,6 +120,7 @@ class UberonSearchIndex:
         source_identity: str,
         source_hash: str,
         validate_source: Callable[[], Awaitable[None]] | None = None,
+        expected_row_count: int | None = None,
     ) -> int:
         _require_digest("source_identity", source_identity)
         _require_digest("source_hash", source_hash)
@@ -133,6 +134,10 @@ class UberonSearchIndex:
                     total += len(records)
             if total <= 0:
                 raise ValueError("Uberon/CL search source produced no records")
+            if expected_row_count is not None and total != expected_row_count:
+                raise ValueError(
+                    "Uberon/CL search row count differs from certified class count"
+                )
             if validate_source is not None:
                 await validate_source()
             await session.execute(
@@ -154,6 +159,7 @@ async def populate_from_store(
     source_hash: str,
     batch_size: int = 5000,
     validate_source: Callable[[], Awaitable[None]] | None = None,
+    expected_row_count: int | None = None,
 ) -> int:
     """Atomically rebuild the FTS cache from deterministic QLever pages."""
 
@@ -171,4 +177,5 @@ async def populate_from_store(
         source_identity=source_identity,
         source_hash=source_hash,
         validate_source=validate_source,
+        expected_row_count=expected_row_count,
     )

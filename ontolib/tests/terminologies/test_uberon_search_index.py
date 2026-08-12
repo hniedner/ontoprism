@@ -163,6 +163,24 @@ async def test_rebuild_validates_source_before_manifest_publication() -> None:
 
 
 @pytest.mark.unit
+async def test_rebuild_refuses_incomplete_certified_row_count() -> None:
+    factory = _Factory({})
+
+    with pytest.raises(ValueError, match="certified class count"):
+        await UberonSearchIndex(factory).rebuild(  # type: ignore[arg-type]
+            _batches(),
+            source_identity="a" * 64,
+            source_hash="b" * 64,
+            expected_row_count=3,
+        )
+
+    assert not any(
+        "INSERT INTO uberon_search_manifest" in statement
+        for statement, _params in factory.executed
+    )
+
+
+@pytest.mark.unit
 async def test_populate_pages_store_until_empty() -> None:
     class _Store:
         def __init__(self) -> None:

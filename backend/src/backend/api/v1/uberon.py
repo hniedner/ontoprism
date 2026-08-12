@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.dependencies import RepositoryMetadataReads, UberonSearch, UberonStore
 from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
 from ontolib.core.logging_config import get_logger
+from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
     UberonNeighborhood,
@@ -69,8 +70,12 @@ async def concept_detail(
     await _ready(metadata)
     try:
         detail = await store.get_concept_detail(code)
-    except (ValueError, LookupError) as exc:
-        message = "Invalid code" if isinstance(exc, ValueError) else "Concept not found"
+    except (InvalidUberonCurieError, LookupError) as exc:
+        message = (
+            "Invalid code"
+            if isinstance(exc, InvalidUberonCurieError)
+            else "Concept not found"
+        )
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Concept not found: {code}")
@@ -82,11 +87,15 @@ async def neighborhood(
     store: UberonStore,
     metadata: RepositoryMetadataReads,
     code: str,
-    depth: Annotated[int, Query(ge=1, le=3)] = 1,
+    depth: Annotated[int, Query(ge=1, le=1)] = 1,
 ) -> UberonNeighborhood:
     await _ready(metadata)
     try:
         return await store.get_neighborhood(code, depth=depth)
-    except (ValueError, LookupError) as exc:
-        message = "Invalid code" if isinstance(exc, ValueError) else "Concept not found"
+    except (InvalidUberonCurieError, LookupError) as exc:
+        message = (
+            "Invalid code"
+            if isinstance(exc, InvalidUberonCurieError)
+            else "Concept not found"
+        )
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc

@@ -96,6 +96,7 @@ export interface UberonConceptDetail {
 	label: string | null;
 	definition: string | null;
 	synonyms: string[];
+	xrefs: string[];
 	parents: UberonConceptRef[];
 	children: UberonConceptRef[];
 	relations: UberonRelationship[];
@@ -279,6 +280,12 @@ export interface UberonRepositoryReady {
 		has_uberon_lung: boolean;
 		has_cell_class: boolean;
 		has_ncit_xref: boolean;
+		serving: {
+			rows: number;
+			sha256: string;
+			uberon_classes: number;
+			cl_classes: number;
+		} | null;
 	};
 }
 

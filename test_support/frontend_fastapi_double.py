@@ -149,6 +149,15 @@ async def refresh_repositories() -> dict[str, object]:
                     "has_uberon_lung": True,
                     "has_cell_class": True,
                     "has_ncit_xref": True,
+                    "serving": {
+                        "rows": 223546,
+                        "sha256": (
+                            "a95beed61f43591bac4b2eee0c23a2e24e2300d6bc4df0dc"
+                            "4b9e1cbd39c8a4c7"
+                        ),
+                        "uberon_classes": 16071,
+                        "cl_classes": 1484,
+                    },
                 },
             },
         ],
@@ -257,6 +266,7 @@ async def get_uberon_concept(code: str) -> dict[str, object]:
         "label": "SSR lung",
         "definition": "SSR Uberon concept definition from FastAPI.",
         "synonyms": ["pulmo"],
+        "xrefs": ["NCIT:C12468"],
         "parents": [],
         "children": [],
         "relations": [],

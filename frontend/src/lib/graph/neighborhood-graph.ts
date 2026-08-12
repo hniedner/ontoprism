@@ -1,5 +1,5 @@
 /**
- * Pure, WebGL-free helpers for the interactive NCIt graph explorer.
+ * Pure, WebGL-free helpers for the interactive terminology graph explorer.
  *
  * Builds and grows a graphology graph from the backend `Neighborhood` payloads
  * (expand-on-demand), and derives network-analysis attributes — Louvain

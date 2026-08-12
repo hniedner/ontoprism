@@ -14,6 +14,7 @@ from backend.dependencies import (
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
+from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
     UberonGraphNode,
@@ -45,7 +46,7 @@ class _Store:
 
     async def get_concept_detail(self, code: str) -> UberonConceptDetail | None:
         if code == "bad":
-            raise ValueError("invalid")
+            raise InvalidUberonCurieError("invalid")
         if code != "UBERON:0002048":
             return None
         return UberonConceptDetail(code=code, source="uberon", label="lung")

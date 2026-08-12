@@ -17,7 +17,10 @@ from backend.repository_metadata import (
     UberonRepositoryReady,
 )
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
-from ontolib.terminologies.uberon.store import UberonIndexObservation
+from ontolib.terminologies.uberon.store import (
+    UberonIndexObservation,
+    UberonServingFingerprint,
+)
 
 
 def _ncit_ready() -> NcitRepositoryReady:
@@ -73,6 +76,12 @@ def _uberon_ready() -> UberonRepositoryReady:
             has_uberon_lung=True,
             has_cell_class=True,
             has_ncit_xref=True,
+            serving=UberonServingFingerprint(
+                rows=100,
+                sha256="f" * 64,
+                uberon_classes=16_071,
+                cl_classes=1_484,
+            ),
         ),
     )
 

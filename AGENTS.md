@@ -6,6 +6,23 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
 
 ## Hard rules (never violate)
 
+- **Pre-production carries no dead code or legacy compatibility code.** Transitional
+  compatibility code is permitted only while an active refactor needs it. Remove it
+  before the refactor is considered complete, before local gates are accepted, and
+  before merge. Rebuild internal data/artifacts instead of retaining old-schema readers,
+  adapters, fallbacks, migration shims, or deprecated branches. Do not preserve code for
+  hypothetical rollback or future consumers while the product is pre-production.
+
+- **Implement acceptance semantics end to end on the first pass.** Before production
+  code, enumerate every required output field, semantic variant, refusal, and scale
+  boundary from the issue. Tests must drive each item through storage/query → backend
+  DTO → frontend rendering. Do not erase distinctions to reuse a component (for example,
+  mapping typed edge kinds to a generic kind). For repository work, the certified
+  identity must cover the exact values served, not only release labels, counts, or
+  sentinels. Validate user input separately from source data so only dedicated input
+  errors become 4xx responses; malformed source rows fail closed. Exercise the real
+  highest-fanout record and assert bounded query count before accepting the design.
+
 - **NEVER merge a PR unless CI is green on the target branch (`main`).** Before any
   `gh pr merge`, fetch `origin/main` and verify the newest push-event `CI` run on `main`
   completed successfully. Its head must equal `origin/main` or be its ancestor with only

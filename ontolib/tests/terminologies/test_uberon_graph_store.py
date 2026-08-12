@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.uberon.graph_store import UberonGraphStore
 from ontolib.terminologies.uberon.models import (
     UberonConceptRef,
@@ -185,6 +186,8 @@ async def test_search_and_cache_records_preserve_cl_source_and_synonyms() -> Non
 async def test_neighborhood_rejects_node_limit_outside_supported_range() -> None:
     store = UberonGraphStore(_ShapeClient())  # type: ignore[arg-type]
 
+    with pytest.raises(ValueError, match="depth=1"):
+        await store.get_neighborhood("UBERON:0002048", depth=2)
     with pytest.raises(ValueError, match="node_limit"):
         await store.get_neighborhood("UBERON:0002048", node_limit=0)
 
@@ -224,6 +227,38 @@ async def test_unknown_neighborhood_is_not_a_successful_empty_graph() -> None:
 
     with pytest.raises(LookupError, match="CL:9999999"):
         await store.get_neighborhood("CL:9999999")
+
+
+@pytest.mark.asyncio
+async def test_missing_required_sparql_binding_fails_closed() -> None:
+    class _MalformedClient:
+        async def select(self, query: str) -> list[dict[str, str]]:
+            if "SELECT ?label ?definition" in query:
+                return [{"label": "malformed"}]
+            if "?node rdfs:subClassOf <" in query:
+                return [{"label": "missing node"}]
+            return []
+
+    with pytest.raises(StorageError, match="required bindings"):
+        await UberonGraphStore(_MalformedClient()).get_concept_detail(  # type: ignore[arg-type]
+            "UBERON:0002048"
+        )
+
+
+@pytest.mark.asyncio
+async def test_missing_list_and_search_counts_fail_closed() -> None:
+    class _MissingCountClient:
+        async def select(self, query: str) -> list[dict[str, str]]:
+            if "COUNT(DISTINCT ?concept)" in query:
+                return []
+            return []
+
+    store = UberonGraphStore(_MissingCountClient())  # type: ignore[arg-type]
+
+    with pytest.raises(StorageError, match="list count"):
+        await store.list_concepts(source="uberon")
+    with pytest.raises(StorageError, match="search count"):
+        await store.search("lung", source="uberon")
 
 
 @pytest.mark.unit

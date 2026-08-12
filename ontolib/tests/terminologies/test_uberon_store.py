@@ -30,6 +30,7 @@ from ontolib.terminologies.uberon.store import (
     UberonArtifactError,
     UberonArtifactManifest,
     UberonIndexObservation,
+    UberonServingFingerprint,
     build_uberon_index,
     certify_uberon_artifact,
     download_uberon_artifact,
@@ -111,6 +112,12 @@ def _observation(**updates: object) -> UberonIndexObservation:
         "has_uberon_lung": True,
         "has_cell_class": True,
         "has_ncit_xref": True,
+        "serving": UberonServingFingerprint(
+            rows=100,
+            sha256="f" * 64,
+            uberon_classes=10,
+            cl_classes=5,
+        ),
     }
     values.update(updates)
     return UberonIndexObservation.model_validate(values)
