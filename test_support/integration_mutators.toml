@@ -1,4 +1,8 @@
 [[mutator]]
+path = "ontolib/tests/repositories/xref/test_generation_store_integration.py"
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
+
+[[mutator]]
 path = "backend/tests/test_data_build_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 

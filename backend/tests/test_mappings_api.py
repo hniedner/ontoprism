@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from backend.config import get_settings
 from backend.dependencies import get_ncit_client, get_ncit_store, get_xref_store
 from backend.main import create_app
+from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
 
@@ -23,39 +24,58 @@ class _FakeClient:
 
 class _FakeXrefStore:
     def __init__(self) -> None:
-        self.mappings: dict[str, list[tuple[str, str, str, float]]] = {
+        def mapping(
+            subject: str,
+            obj: str,
+            predicate: str,
+            lifecycle: str,
+            confidence: float,
+        ) -> MappingResult:
+            return MappingResult(
+                subject=EndpointIdentity("ncit", "26.07d", subject),
+                predicate=predicate,
+                object=EndpointIdentity(
+                    "icdo" if obj.startswith("ICD-O-3:") else "uberon",
+                    "3.2" if obj.startswith("ICD-O-3:") else "2026-06-19",
+                    obj,
+                ),
+                lifecycle=lifecycle,
+                confidence=confidence,
+            )
+
+        self.mappings: dict[str, list[MappingResult]] = {
             "C12400": [
-                ("UBERON:0002046", EXACT_MATCH, "validated", 0.95),
-                ("UBERON:0002048", CLOSE_MATCH, "proposed", 0.7),
+                mapping("C12400", "UBERON:0002046", EXACT_MATCH, "validated", 0.95),
+                mapping("C12400", "UBERON:0002048", CLOSE_MATCH, "proposed", 0.7),
             ],
             "C3262": [
-                ("UBERON:0002107", EXACT_MATCH, "active", 1.0),
+                mapping("C3262", "UBERON:0002107", EXACT_MATCH, "active", 1.0),
             ],
             "C12345": [
-                ("ICD-O-3:1234", EXACT_MATCH, "validated", 0.9),
+                mapping("C12345", "ICD-O-3:1234", EXACT_MATCH, "validated", 0.9),
             ],
             "C50000": [
-                ("UBERON:0002107", EXACT_MATCH, "quarantined", 0.5),
+                mapping("C50000", "UBERON:0002107", EXACT_MATCH, "quarantined", 0.5),
             ],
             "C60000": [
-                ("UBERON:0009999", CLOSE_MATCH, "validated", 0.9),
+                mapping("C60000", "UBERON:0009999", CLOSE_MATCH, "validated", 0.9),
             ],
         }
-        self.reverse: dict[str, list[tuple[str, str, str, float]]] = {
+        self.reverse: dict[str, list[MappingResult]] = {
             "UBERON:0002046": [
-                ("C12400", EXACT_MATCH, "validated", 0.95),
-                ("C3262", CLOSE_MATCH, "proposed", 0.6),
+                mapping("C12400", "UBERON:0002046", EXACT_MATCH, "validated", 0.95),
+                mapping("C3262", "UBERON:0002046", CLOSE_MATCH, "proposed", 0.6),
             ],
         }
 
     async def mappings_by_subjects(
         self, codes: set[str]
-    ) -> dict[str, list[tuple[str, str, str, float]]]:
+    ) -> dict[str, list[MappingResult]]:
         return {c: self.mappings.get(c, []) for c in codes if c in self.mappings}
 
     async def mappings_by_objects(
         self, curies: set[str]
-    ) -> dict[str, list[tuple[str, str, str, float]]]:
+    ) -> dict[str, list[MappingResult]]:
         return {c: self.reverse.get(c, []) for c in curies if c in self.reverse}
 
 
@@ -78,6 +98,8 @@ def test_concept_mappings_returns_forward_mappings() -> None:
     assert len(body["mappings"]) == 2
     m0 = body["mappings"][0]
     assert m0["object_id"] == "UBERON:0002046"
+    assert m0["system"] == "uberon"
+    assert m0["version"] == "2026-06-19"
     assert m0["predicate"] == EXACT_MATCH
     assert m0["lifecycle"] == "validated"
     assert m0["confidence"] == 0.95
@@ -144,6 +166,8 @@ def test_translate_ncit_to_upstream() -> None:
     assert "equivalence" in entry
     assert "concept" in entry
     assert entry["concept"]["code"] == "UBERON:0002046"
+    assert entry["concept"]["system"] == "uberon"
+    assert entry["concept"]["version"] == "2026-06-19"
     assert entry["equivalence"] == "equivalent"
     assert entry["confidence"] == 0.95
 

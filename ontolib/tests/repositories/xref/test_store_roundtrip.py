@@ -13,6 +13,8 @@ from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
+from .conftest import activate_records
+
 pytestmark = [
     pytest.mark.mutating_integration,
     pytest.mark.usefixtures("isolated_postgres_settings"),
@@ -29,7 +31,7 @@ async def test_store_roundtrip() -> None:
 
         count = await store.upsert_run(
             run_id=run_id,
-            source="uberon",
+            source=run_id,
             ncit_version="26.02d",
             source_version="uberon-2026-01",
         )
@@ -55,8 +57,9 @@ async def test_store_roundtrip() -> None:
                 object_source_version="cl-2026-01",
             ),
         ]
-        rows_written = await store.upsert_records(run_id, records)
-        assert rows_written == 2
+        assert await activate_records(
+            store, source=run_id, run_id=run_id, records=records
+        )
 
         read_back = await store.records_for_run(run_id)
         assert len(read_back) == 2
@@ -84,7 +87,7 @@ async def test_mapping_strength_by_subject() -> None:
     run_id = f"test-strength-{uuid.uuid4().hex}"
     try:
         store = XrefStore(sf)
-        await store.upsert_run(run_id, "test", "26.02d", "test-1")
+        await store.upsert_run(run_id, run_id, "26.02d", "test-1")
         records = [
             SSSOMRecord(
                 subject_id="C3262",
@@ -115,7 +118,7 @@ async def test_mapping_strength_by_subject() -> None:
                 object_source_version="uberon-2026-01",
             ),
         ]
-        await store.upsert_records(run_id, records)
+        await activate_records(store, source=run_id, run_id=run_id, records=records)
         strength = await store.mapping_strength_by_subject()
         assert "C3262" in strength
         assert (EXACT_MATCH, "validated") in strength["C3262"]
@@ -141,7 +144,7 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
     run_id = f"test-mbs-{uuid.uuid4().hex}"
     try:
         store = XrefStore(sf)
-        await store.upsert_run(run_id, "test", "26.02d", "test-1")
+        await store.upsert_run(run_id, run_id, "26.02d", "test-1")
         records = [
             SSSOMRecord(
                 subject_id="C3262",
@@ -163,16 +166,16 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
                 object_source_version="uberon-2026-01",
             ),
         ]
-        await store.upsert_records(run_id, records)
+        await activate_records(store, source=run_id, run_id=run_id, records=records)
 
         result = await store.mappings_by_subjects({"C3262"})
         assert "C3262" in result
         assert len(result["C3262"]) == 1
-        obj, pred, lifecycle, confidence = result["C3262"][0]
-        assert obj == "UBERON:0002107"
-        assert pred == EXACT_MATCH
-        assert lifecycle == "validated"
-        assert confidence == 1.0
+        mapping = result["C3262"][0]
+        assert mapping.object.identifier == "UBERON:0002107"
+        assert mapping.predicate == EXACT_MATCH
+        assert mapping.lifecycle == "validated"
+        assert mapping.confidence == 1.0
         assert "C12400" not in result
     finally:
         async with sf() as s:
@@ -199,25 +202,13 @@ async def test_mappings_by_subjects_empty_returns_empty() -> None:
 
 
 @pytest.mark.integration
-async def test_upsert_records_empty_is_noop() -> None:
-    engine = make_engine(get_settings().database_url)
-    try:
-        sf = make_sessionmaker(engine)
-        store = XrefStore(sf)
-        count = await store.upsert_records("nonexistent-run", [])
-        assert count == 0
-    finally:
-        await dispose_engine(engine)
-
-
-@pytest.mark.integration
 async def test_mappings_by_objects_reverse_lookup() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-mbo-{uuid.uuid4().hex}"
     try:
         store = XrefStore(sf)
-        await store.upsert_run(run_id, "test", "26.02d", "test-1")
+        await store.upsert_run(run_id, run_id, "26.02d", "test-1")
         records = [
             SSSOMRecord(
                 subject_id="C3262",
@@ -239,16 +230,16 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
                 object_source_version="uberon-2026-01",
             ),
         ]
-        await store.upsert_records(run_id, records)
+        await activate_records(store, source=run_id, run_id=run_id, records=records)
 
         result = await store.mappings_by_objects({"UBERON:0002107"})
         assert "UBERON:0002107" in result
         assert len(result["UBERON:0002107"]) == 1
-        subj, pred, lifecycle, confidence = result["UBERON:0002107"][0]
-        assert subj == "C3262"
-        assert pred == EXACT_MATCH
-        assert lifecycle == "validated"
-        assert confidence == 1.0
+        mapping = result["UBERON:0002107"][0]
+        assert mapping.subject.identifier == "C3262"
+        assert mapping.predicate == EXACT_MATCH
+        assert mapping.lifecycle == "validated"
+        assert mapping.confidence == 1.0
         assert "UBERON:0002046" not in result
     finally:
         async with sf() as s:

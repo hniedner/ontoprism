@@ -95,6 +95,7 @@ from ontolib.repositories.xref.evidence import (
     gather_evidence,
     is_independent,
 )
+from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES, object_iri
 from ontolib.repositories.xref.validation import (
     ReasonerUnavailableError,
@@ -1422,6 +1423,7 @@ def _warn_on_missing_signals(
 
 async def persist_promotions(
     store: XrefStore,
+    ncit_client: SparqlHttpClient,
     promoted: Sequence[SSSOMRecord],
     report: PromotionReport,
     *,
@@ -1459,7 +1461,13 @@ async def persist_promotions(
         )
         for r in promoted
     ]
-    await store.upsert_records(rid, stamped)
+    await publish_generation(
+        store,
+        ncit_client,
+        source=source,
+        run_id=rid,
+        records=stamped,
+    )
     metrics: dict[str, Any] = report.as_dict()
     if tool_identity is not None:
         metrics["tools"] = [tool_identity.as_dict()]
@@ -1539,6 +1547,7 @@ async def run_promotion(
     report = replace(report, skipped_unexpandable=skipped)
     run_id = await persist_promotions(
         store,
+        ncit_client,
         promoted,
         report,
         ncit_version=ncit_version,

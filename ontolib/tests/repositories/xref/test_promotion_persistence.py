@@ -33,6 +33,8 @@ from ontolib.repositories.xref.promotion import (
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH, NARROW_MATCH
 
+from .conftest import activate_records
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -44,6 +46,12 @@ _REASONER_TOOL = DataBuildToolIdentity(
     version="1",
     digest="sha256:" + "1" * 64,
 )
+
+
+class _PublicationClient:
+    async def load(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
 
 pytestmark = [
     pytest.mark.mutating_integration,
@@ -123,6 +131,7 @@ async def test_a_promoted_bridge_persists_the_evidence_the_decision_used(
     )
     await persist_promotions(
         xref_store,
+        _PublicationClient(),  # type: ignore[arg-type]
         [promoted],
         PromotionReport(considered=1, promoted=1, insufficient_evidence=0, refuted=0),
         ncit_version=_NCIT_VERSION,
@@ -164,6 +173,7 @@ async def test_a_curated_promotion_is_distinguishable_from_source_agreement_per_
     )
     await persist_promotions(
         xref_store,
+        _PublicationClient(),  # type: ignore[arg-type]
         [curated, source_agree],
         PromotionReport(considered=2, promoted=2, insufficient_evidence=0, refuted=0),
         ncit_version=_NCIT_VERSION,
@@ -196,7 +206,12 @@ async def test_an_unpromoted_candidate_persists_empty_evidence(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
     )
-    await xref_store.upsert_records(rid, [_candidate("C3", "UBERON:0000003")])
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=rid,
+        records=[_candidate("C3", "UBERON:0000003")],
+    )
 
     by_pair = await xref_store.evidence_by_pair(rid)
     assert by_pair[("C3", "UBERON:0000003")] == []
@@ -216,8 +231,11 @@ async def test_promotion_persists_as_validated_exact_match(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
     )
-    await xref_store.upsert_records(
-        candidate_run, [_candidate("C12468", "UBERON:0002048")]
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=candidate_run,
+        records=[_candidate("C12468", "UBERON:0002048")],
     )
 
     report = PromotionReport(
@@ -225,6 +243,7 @@ async def test_promotion_persists_as_validated_exact_match(
     )
     promotion_run = await persist_promotions(
         xref_store,
+        _PublicationClient(),  # type: ignore[arg-type]
         [_promoted("C12468", "UBERON:0002048")],
         report,
         ncit_version=_NCIT_VERSION,
@@ -255,9 +274,14 @@ async def test_proposed_candidates_returns_only_unvalidated(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
     )
-    await xref_store.upsert_records(
-        run_id,
-        [_candidate("C12468", "UBERON:0002048"), _promoted("C12393", "UBERON:0001264")],
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=run_id,
+        records=[
+            _candidate("C12468", "UBERON:0002048"),
+            _promoted("C12393", "UBERON:0001264"),
+        ],
     )
 
     candidates = await xref_store.proposed_candidates()
@@ -283,9 +307,11 @@ async def test_an_endpoint_release_quarantines_stale_bridges(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
     )
-    await xref_store.upsert_records(
-        run_id,
-        [
+    await activate_records(
+        xref_store,
+        source="promotion",
+        run_id=run_id,
+        records=[
             _promoted("C12377", "UBERON:0002110", object_version="uberon-2025-06"),
             _promoted("C12391", "UBERON:0000945"),
         ],
@@ -319,9 +345,11 @@ async def test_quarantine_is_scoped_to_its_own_upstream_source(
         ncit_version=_NCIT_VERSION,
         source_version="mondo-2026-05",
     )
-    await xref_store.upsert_records(
-        mondo_run,
-        [_promoted("C3262", "UBERON:0002107", object_version="mondo-2026-05")],
+    await activate_records(
+        xref_store,
+        source="mondo-promotion",
+        run_id=mondo_run,
+        records=[_promoted("C3262", "UBERON:0002107", object_version="mondo-2026-05")],
     )
 
     await xref_store.quarantine_stale(
@@ -352,9 +380,11 @@ async def test_a_narrow_match_is_never_offered_up_for_promotion(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
     )
-    await xref_store.upsert_records(
-        run_id,
-        [
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=run_id,
+        records=[
             SSSOMRecord(
                 subject_id="C19184",
                 predicate_id=NARROW_MATCH,
@@ -410,6 +440,7 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
     # … and the run validates against the CURRENT one
     await persist_promotions(
         xref_store,
+        _PublicationClient(),  # type: ignore[arg-type]
         [stale_candidate],
         report,
         ncit_version=_NCIT_VERSION,
@@ -450,6 +481,7 @@ async def test_a_failed_run_is_persisted_as_failed_not_completed(
 
     await persist_promotions(
         xref_store,
+        _PublicationClient(),  # type: ignore[arg-type]
         [],
         report,
         ncit_version=_NCIT_VERSION,
@@ -493,6 +525,9 @@ class _StubClient:
                 return [dict(r) for r in rows]  # type: ignore[misc]
         return []
 
+    async def load(self, *_args: object, **_kwargs: object) -> None:
+        pass
+
 
 def _echo_reasoner(ttl: str) -> set[tuple[str, str]]:
     """Accepts every merge, echoing its stated edges (ELK-shaped: no closure)."""
@@ -529,9 +564,11 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
     )
-    await xref_store.upsert_records(
-        ingest_run,
-        [
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=ingest_run,
+        records=[
             _candidate("C12468", "UBERON:0002048"),  # expandable
             _candidate("C99999", "GO:0110165"),  # NOT expandable — must never be scored
         ],

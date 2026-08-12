@@ -22,13 +22,12 @@ if TYPE_CHECKING:
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 from ontolib.repositories.xref.models import SSSOMRecord
-from ontolib.repositories.xref.ttl_writer import render_ttl
+from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     COMPOSITE_MATCHING,
     DATABASE_CROSS_REFERENCE,
     LEXICAL_MATCHING,
-    NCIT_UPSTREAM_XREF_GRAPH_IRI,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -274,8 +273,10 @@ def _records_for_filler(
         records.append(
             SSSOMRecord(
                 subject_id=filler,
+                subject_system="ncit",
                 predicate_id=CLOSE_MATCH,
                 object_id=curie,
+                object_system="uberon-cl",
                 mapping_justification=justification,
                 confidence=confidence,
                 subject_source_version=ncit_version,
@@ -370,7 +371,7 @@ async def ingest_candidates(
     1. Creates an ``xref_run``.
     2. Generates candidates via :func:`generate_candidates`.
     3. Upserts records via *store*.
-    4. Renders Turtle and loads it into ``NCIT_UPSTREAM_XREF_GRAPH_IRI``.
+    4. Publishes one immutable, source-specific PostgreSQL/RDF generation.
     5. Updates the run with the coverage report (metrics).
 
     Returns the coverage report dict.
@@ -388,19 +389,12 @@ async def ingest_candidates(
         source_version=uberon_version,
     )
 
-    inserted = await store.upsert_records(rid, records)
-    if inserted != len(records):
-        raise RuntimeError(
-            f"expected {len(records)} upserted records, got {inserted}. "
-            "The DB state no longer matches the in-memory report."
-        )
-
-    ttl = render_ttl(records)
-    await ncit_client.load(
-        ttl.encode("utf-8"),
-        content_type="text/turtle",
-        graph_iri=NCIT_UPSTREAM_XREF_GRAPH_IRI,
-        replace=False,
+    await publish_generation(
+        store,
+        ncit_client,
+        source=source,
+        run_id=rid,
+        records=records,
     )
 
     report = candidate_coverage_report(fillers, records, filler_to_source)
