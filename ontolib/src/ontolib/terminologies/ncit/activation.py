@@ -173,8 +173,12 @@ def _require_qlever_identity(
     index_version: str,
     index_basename: str,
 ) -> None:
-    expected_image_id = "sha256:" + QLEVER_IMAGE.rsplit("@sha256:", 1)[1]
-    if image != QLEVER_IMAGE or image_id != expected_image_id:
+    # `image` pins the multi-architecture OCI manifest digest. Docker's `Image`
+    # field is the platform-specific runtime image/config digest and therefore
+    # legitimately differs between amd64 and arm64. Require a valid observed ID
+    # here; candidate/active equality and live-container inspection bind that ID
+    # at the activation boundaries.
+    if image != QLEVER_IMAGE:
         raise ValueError("activation QLever image identity is not pinned")
     if _IMAGE_ID.fullmatch(image_id) is None:
         raise ValueError("activation QLever image ID is invalid")

@@ -123,6 +123,18 @@ def test_activation_phase_and_journal_paths_are_closed_and_exact(
 
 
 @pytest.mark.unit
+def test_activation_accepts_a_platform_specific_runtime_image_id(
+    tmp_path: Path,
+) -> None:
+    runtime_id = "sha256:" + "9" * 64
+
+    journal = _journal(tmp_path, qlever_image_id=runtime_id)
+
+    assert journal.qlever_image == QLEVER_IMAGE
+    assert journal.qlever_image_id == runtime_id
+
+
+@pytest.mark.unit
 def test_every_forward_journal_transition_is_durable_and_skips_are_rejected(
     tmp_path: Path,
 ) -> None:

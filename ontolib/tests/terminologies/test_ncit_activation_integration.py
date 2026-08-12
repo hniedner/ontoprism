@@ -253,7 +253,7 @@ async def test_real_disposable_qlever_activation_rollback_and_interrupted_recove
             service_name=f"qlever-ncit-{nonce}",
             container_name=f"ontoprism-qlever-ncit-{nonce}",
             image=QLEVER_IMAGE,
-            image_id="sha256:" + QLEVER_IMAGE.rsplit("@sha256:", 1)[1],
+            image_id=candidate.loader.image_id,
             index_version=QLEVER_INDEX_VERSION,
             index_basename="ncit",
         )
