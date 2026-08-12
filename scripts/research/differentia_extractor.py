@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 try:
     from scripts.research.golden_review import load_scorable_golden
@@ -28,7 +29,10 @@ except ModuleNotFoundError:  # direct `python scripts/research/differentia_extra
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.score import score
 from ontolib.decomposition.walker import Role, walk_chain
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.ncit.client import ncit_sparql_client
+
+if TYPE_CHECKING:
+    from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 # The axes kept as "own differentia" candidates regardless of which chain level they
 # appear at — everything else is dropped even though it IS part of some
@@ -74,7 +78,7 @@ def extract_defining_axes(roles: list[Role]) -> set[tuple[str, str]]:
     return pairs
 
 
-async def extract(client: OxigraphHttpClient, code: str) -> set[tuple[str, str]]:
+async def extract(client: SparqlHttpClient, code: str) -> set[tuple[str, str]]:
     levels = await walk_chain(client, code)
     pairs: set[tuple[str, str]] = set()
     for level in levels:
@@ -99,7 +103,7 @@ async def main() -> None:
     codes = sys.argv[1:] or ["C6135"]
     golden = _load_golden(str(_GOLDEN))
 
-    async with OxigraphHttpClient("http://localhost:7888") as client:
+    async with ncit_sparql_client("http://localhost:7888") as client:
         for code in codes:
             actual = await extract(client, code)
             print(f"{code}: extracted {sorted(actual)}")

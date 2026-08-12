@@ -5,9 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # On-demand full CI for a feature branch that has no pull request yet. Without this,
+  # `ci.yml` never runs during branch development, so defects batch up and are first
+  # discovered when the PR opens. CI must be the last bar, not the discovery mechanism.
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Keyed by event as well as ref, so a dispatched branch run cannot cancel the pull
+  # request's run on the same ref and leave a `cancelled` check that blocks the merge.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 # Least privilege: CI only reads the repo (tests + coverage upload need no write
@@ -70,6 +76,7 @@ jobs:
               # that the test jobs can't (CI never builds the images otherwise).
               - 'backend/Dockerfile'
               - 'frontend/Dockerfile'
+              - 'docker-compose.yml'
               - 'pyproject.toml'
               - 'pdm.lock'
               - 'ontolib/pyproject.toml'
@@ -92,10 +99,18 @@ jobs:
           fetch-depth: 0
 
       - name: Set up PDM (cached)
+        id: setup-pdm
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
+
+      - name: Restore pre-commit environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: ${{ runner.os }}-${{ runner.arch }}-pre-commit-${{ steps.setup-pdm.outputs.python-version }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
@@ -105,7 +120,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Python deps
-        run: pdm install --dev
+        run: pdm sync --clean-unselected --dev
 
       - name: Install frontend deps (eslint/svelte-check hooks need node_modules)
         run: npm ci --prefix frontend
@@ -116,7 +131,7 @@ jobs:
   backend-tests:
     name: backend tests
     needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -127,10 +142,11 @@ jobs:
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
 
       - name: Install dependencies
-        run: pdm install --dev
+        run: pdm sync --clean-unselected --dev
 
       - name: Run unit tests with coverage collection (no gate)
         # -n auto (xdist): the suite's stub HTTP servers require parallel workers;
@@ -227,7 +243,7 @@ jobs:
   web-tests:
     name: web tests + coverage
     needs: [changes]
-    if: ${{ needs.changes.outputs.frontend == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.frontend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -244,10 +260,19 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - name: Set up PDM (cached)
+        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
+          cache: true
+
+      # `npm run test:coverage` chains `pdm run coverage-gate` (the gate must run on the
+      # pinned project interpreter, not a bare `python3`), so this job needs the project
+      # environment as well as Node.
+      - name: Install dependencies
+        run: pdm sync --clean-unselected --dev
+        working-directory: ${{ github.workspace }}
 
       - name: Install
         run: npm ci
@@ -282,12 +307,12 @@ jobs:
         run: npm run test:e2e
 
   # Behavioral integration tests against current-run-owned disposable resources.
-  # Both Postgres and Oxigraph are started as pinned, nonce-owned containers by the
+  # Both Postgres and QLever are started as pinned, nonce-owned containers by the
   # test harness; application endpoints remain dead sentinels until a test opts in.
   integration-tests:
     name: integration tests (services)
     needs: [changes]
-    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql+asyncpg://ontoprism_test_forbidden:forbidden@127.0.0.1:9/ontoprism_test_forbidden
@@ -302,10 +327,11 @@ jobs:
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
 
       - name: Install dependencies
-        run: pdm install --dev
+        run: pdm sync --clean-unselected --dev
 
       # ROBOT + ELK (D28): without these on PATH the non-circular validation tests
       # (EL profile gate -> ELK classification -> promotion, #73) silently skip, and a
@@ -318,17 +344,25 @@ jobs:
 
       - name: Install ROBOT
         env:
-          ROBOT_VERSION: "1.9.10"
+          ONTOPRISM_ROBOT_DIR: ${{ runner.temp }}/ontoprism-robot
         run: |
-          curl -sSL -o "$HOME/robot.jar" \
-            "https://github.com/ontodev/robot/releases/download/v${ROBOT_VERSION}/robot.jar"
-          printf '#!/usr/bin/env bash\nexec java -Xmx4g -jar %s/robot.jar "$@"\n' "$HOME" \
-            > "$HOME/robot"
-          chmod +x "$HOME/robot"
-          echo "$HOME" >> "$GITHUB_PATH"
+          pdm run python scripts/install_robot.py --install-dir "$ONTOPRISM_ROBOT_DIR"
+          echo "$ONTOPRISM_ROBOT_DIR" >> "$GITHUB_PATH"
+          echo "ONTOPRISM_ROBOT_DIR=$ONTOPRISM_ROBOT_DIR" >> "$GITHUB_ENV"
 
       - name: Verify ROBOT
         run: robot --version
+
+      - name: Install Apache Jena RIOT
+        env:
+          ONTOPRISM_JENA_DIR: ${{ runner.temp }}/ontoprism-jena
+        run: |
+          pdm run python scripts/install_jena.py --install-dir "$ONTOPRISM_JENA_DIR"
+          echo "ONTOPRISM_JENA_DIR=$ONTOPRISM_JENA_DIR" >> "$GITHUB_ENV"
+
+      - name: Verify Apache Jena RIOT
+        run: |
+          "$ONTOPRISM_JENA_DIR/bin/riot" --version
 
       - name: Integration tests (disposable resources)
         run: pdm run test-integration-ci-coverage
@@ -368,10 +402,11 @@ jobs:
         uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
           cache: true
 
       - name: Install model contract dependencies
-        run: pdm install --dev -G data-build
+        run: pdm sync --clean-unselected --dev -G data-build
 
       - name: Verify pinned sentence-transformers contract
         run: pdm run pytest backend/tests/test_embedding_model_contract.py -v
@@ -418,6 +453,7 @@ jobs:
           set -euo pipefail
           cleanup() {
             docker rm --force ontoprism-api-ci ontoprism-web-ci >/dev/null 2>&1 || true
+            docker network rm ontoprism-ci >/dev/null 2>&1 || true
           }
           wait_for_command() {
             container="$1"
@@ -432,12 +468,18 @@ jobs:
             return 1
           }
           trap cleanup EXIT
-          docker run --detach --name ontoprism-api-ci ontoprism-api:ci
-          docker run --detach --name ontoprism-web-ci --env ORIGIN=http://127.0.0.1:3000 ontoprism-web:ci
+          docker network create ontoprism-ci >/dev/null
+          docker run --detach --name ontoprism-api-ci --network ontoprism-ci ontoprism-api:ci
+          docker run --detach --name ontoprism-web-ci --network ontoprism-ci \
+            --env ORIGIN=http://127.0.0.1:3000 \
+            --env ONTOPRISM_FASTAPI_ORIGIN=http://ontoprism-api-ci:8011 \
+            ontoprism-web:ci
           wait_for_command ontoprism-api-ci python -c \
             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=2).read()"
           wait_for_command ontoprism-web-ci node -e \
             "fetch('http://127.0.0.1:3000/', {signal: AbortSignal.timeout(2000)}).then(r => { if (!r.ok) throw new Error(String(r.status)) })"
+          wait_for_command ontoprism-web-ci node -e \
+            "fetch('http://127.0.0.1:3000/api/health', {signal: AbortSignal.timeout(2000)}).then(r => { if (r.status !== 404) throw new Error(String(r.status)) })"
 
   # Single aggregate status: fails if any job failed/was cancelled; treats skipped
   # (path-filtered) jobs as OK. Use this as the branch-protection required check.

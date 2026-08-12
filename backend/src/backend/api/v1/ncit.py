@@ -12,8 +12,10 @@ from backend.dependencies import (
     Embeddings,
     NcitSearch,
     NcitStore,
+    RepositoryMetadataReads,
     XrefReads,
 )
+from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
@@ -23,10 +25,11 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     Neighborhood,
+    RepresentationStatus,
     SearchPage,
     SimilarConcept,
 )
-from ontolib.terminologies.oxigraph_http_client import safe_iri
+from ontolib.terminologies.sparql_transport import safe_iri
 
 logger = get_logger(__name__)
 
@@ -83,21 +86,42 @@ async def _attach_xref_upstream(
 async def search(
     store: NcitStore,
     index: NcitSearch,
+    metadata: RepositoryMetadataReads,
     q: Annotated[str, Query(min_length=1, description="Search term")],
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    representation_status: Annotated[
+        RepresentationStatus | None,
+        Query(description="Published representation status"),
+    ] = None,
 ) -> SearchPage:
     """Search NCIt by label/synonyms; served from the FTS cache when populated.
 
     Falls back to the live SPARQL scan when the cache is empty or unreachable, so
     search always works (the store remains the source of truth).
     """
+    repository = await metadata.ncit()
+    if isinstance(repository, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            repository.model_dump(mode="json"),
+        )
     try:
-        if await index.is_populated():
-            return await index.search(q, limit=limit, offset=offset)
+        if await index.is_populated(repository.source_identity):
+            return await index.search(
+                q,
+                limit=limit,
+                offset=offset,
+                representation_status=representation_status,
+            )
     except SQLAlchemyError as exc:
         logger.warning("NCIt FTS cache unavailable, falling back to SPARQL: %s", exc)
-    return await store.search(q, limit=limit, offset=offset)
+    return await store.search(
+        q,
+        limit=limit,
+        offset=offset,
+        representation_status=representation_status,
+    )
 
 
 @router.get("/list", response_model=SearchPage)
@@ -105,9 +129,17 @@ async def list_concepts(
     store: NcitStore,
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
+    representation_status: Annotated[
+        RepresentationStatus | None,
+        Query(description="Published representation status"),
+    ] = None,
 ) -> SearchPage:
     """List concepts in natural order — powers no-search browse of the repository."""
-    return await store.list_concepts(limit=limit, offset=offset)
+    return await store.list_concepts(
+        limit=limit,
+        offset=offset,
+        representation_status=representation_status,
+    )
 
 
 @router.get("/concepts/{code}", response_model=ConceptDetail)
@@ -126,11 +158,19 @@ async def concept_detail(store: NcitStore, code: str) -> ConceptDetail:
 async def similar_concepts(
     store: NcitStore,
     embeddings: Embeddings,
+    metadata: RepositoryMetadataReads,
     code: str,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> list[SimilarConcept]:
     """Semantically similar concepts via 768-dim embeddings (pgvector cosine)."""
+    repository = await metadata.ncit()
+    if isinstance(repository, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            repository.model_dump(mode="json"),
+        )
     try:
+        await embeddings.require_active_source(Corpus.NCIT, repository.source_identity)
         build_id = await embeddings.active_build_id(Corpus.NCIT)
         hits = await embeddings.similar_ncit(code, limit=limit)
     except (SQLAlchemyError, CorpusUnavailableError) as exc:

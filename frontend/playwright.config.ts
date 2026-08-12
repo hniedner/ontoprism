@@ -1,9 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// End-to-end tests run against the built SvelteKit app (vite preview). The backend is
-// mocked via `page.route` in each spec, so no live API/data is required — the specs
-// exercise the real rendered UI and client-side data flow.
+// End-to-end tests run against the built adapter-node server. A real local FastAPI
+// process supplies server-visible fixtures; browser interception alone cannot test SSR.
 const PORT = 4173;
+const FASTAPI_PORT = 18011;
 
 export default defineConfig({
 	testDir: 'e2e',
@@ -16,10 +16,19 @@ export default defineConfig({
 		trace: 'on-first-retry'
 	},
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-	webServer: {
-		command: 'npm run build && npm run preview',
-		port: PORT,
-		reuseExistingServer: !process.env.CI,
-		timeout: 120_000
-	}
+	webServer: [
+		{
+			command: `pdm run uvicorn test_support.frontend_fastapi_double:app --host 127.0.0.1 --port ${FASTAPI_PORT}`,
+			cwd: '..',
+			url: `http://127.0.0.1:${FASTAPI_PORT}/health`,
+			reuseExistingServer: false,
+			timeout: 120_000
+		},
+		{
+			command: `npm run build && env ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:${FASTAPI_PORT} ONTOPRISM_FASTAPI_TIMEOUT_MS=500 HOST=127.0.0.1 PORT=${PORT} ORIGIN=http://127.0.0.1:${PORT} node build`,
+			port: PORT,
+			reuseExistingServer: !process.env.CI,
+			timeout: 120_000
+		}
+	]
 });

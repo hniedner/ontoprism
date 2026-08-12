@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { getMappings } from '$lib/api';
 	import type { ExternalMapping } from '$lib/types';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import { handleLatest } from '$lib/latest';
 
 	let { code }: { code: string } = $props();
 
@@ -9,14 +11,21 @@
 	let error = $state<string | null>(null);
 
 	$effect(() => {
-		let cancelled = false;
 		loaded = false;
 		error = null;
-		getMappings(code).then(
-			(m) => { if (!cancelled) mappings = m.mappings; },
-			(err: unknown) => { if (!cancelled) { error = err instanceof Error ? err.message : String(err); mappings = []; } }
-		).finally(() => { if (!cancelled) loaded = true; });
-		return () => { cancelled = true; };
+		const controller = new AbortController();
+		return handleLatest(
+			getMappings(code, undefined, controller.signal),
+			{
+				ready: (result) => (mappings = result.mappings),
+				failed: (reason) => {
+					error = reason instanceof Error ? reason.message : String(reason);
+					mappings = [];
+				},
+				settled: () => (loaded = true)
+			},
+			() => controller.abort()
+		);
 	});
 
 	function badgeClass(lifecycle: string): string {
@@ -45,7 +54,9 @@
 	</h3>
 	{#if error}
 		<p class="text-sm italic text-red-500">Failed to load: {error}</p>
-	{:else if loaded && mappings.length === 0}
+	{:else if !loaded}
+		<LoadingState active label="Loading mappings" minHeight="4rem" />
+	{:else if mappings.length === 0}
 		<p class="text-sm italic text-subtle">No upstream mappings.</p>
 	{:else}
 		<ul class="flex flex-col gap-2">

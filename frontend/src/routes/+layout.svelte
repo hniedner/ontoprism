@@ -1,11 +1,12 @@
 <script lang="ts">
 	import '../app.css';
-	import { page } from '$app/state';
+	import { navigating, page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import favicon from '$lib/assets/favicon.svg';
 	import { theme } from '$lib/stores/theme.svelte';
 	import { buildBreadcrumbs } from '$lib/breadcrumbs';
 	import { cn } from '$lib/utils/cn';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 
 	let { children } = $props();
 
@@ -33,6 +34,9 @@
 </svelte:head>
 
 <div class="flex min-h-screen flex-col bg-page-bg-subtle dark:bg-neutral-950">
+	<div class="pointer-events-none fixed inset-x-0 top-24 z-50" aria-live="polite">
+		<LoadingState active={navigating.to !== null} label="Loading page" minHeight="0" />
+	</div>
 	<!-- Branded header -->
 	<header
 		class="bg-gradient-to-r from-primary-800 to-primary-600 text-white shadow-md dark:from-neutral-900 dark:to-primary-900"

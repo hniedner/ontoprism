@@ -1,6 +1,6 @@
 """FastAPI application entrypoint.
 
-Owns the process-wide Oxigraph SPARQL client (opened for the app lifespan) and the
+Owns the process-wide QLever SPARQL client (opened for the app lifespan) and the
 NCIt repository read model; the frontend talks only to this backend.
 """
 
@@ -25,12 +25,13 @@ from backend.api.v1 import (
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from backend.decomposition_reader import DecompositionReader
-from backend.dependencies import NcitStatus
+from backend.dependencies import RepositoryMetadataReads
 from backend.middleware import (
     RateLimitMiddleware,
     RequestContextMiddleware,
     install_error_handlers,
 )
+from backend.repository_metadata import RepositoryMetadataService, RepositoryUnhealthy
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -39,14 +40,15 @@ from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 logger = get_logger(__name__)
 
 
-async def check_ncit_version(client: OxigraphHttpClient, expected: str) -> None:
+async def check_ncit_version(client: SparqlHttpClient, expected: str) -> None:
     """Warn (don't fail) at startup if the store version differs from the pin.
 
     Roles are version-pinned (DECISIONS D5); a silent build bump would break them, so
@@ -83,12 +85,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "API_KEY is not set — refresh/reload endpoints run unauthenticated "
             "(open mode). Set api_key to require X-API-Key."
         )
-    client = OxigraphHttpClient(settings.ncit_sparql_url)
+    client = ncit_sparql_client(settings.ncit_sparql_url)
     engine = make_engine(settings.database_url)
     app.state.ncit_client = client
     app.state.ncit_store = NcitGraphStore(client)
     app.state.decomposition_reader = DecompositionReader(client)
     app.state.cadsr_repo = CdeRepository(settings.cadsr_db_path)
+    app.state.repository_metadata = RepositoryMetadataService(
+        settings=settings,
+        cadsr=app.state.cadsr_repo,
+    )
     app.state.embedding_store = EmbeddingStore(make_sessionmaker(engine))
     app.state.ncit_search_index = NcitSearchIndex(make_sessionmaker(engine))
     app.state.provenance_store = ProvenanceStore(make_sessionmaker(engine))
@@ -141,18 +147,20 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     @app.get("/ready", tags=["meta"])
-    async def ready(client: NcitStatus) -> dict[str, object]:
-        """Readiness — the NCIt store is reachable; 503 if not."""
-        try:
-            version = await client.version()
-        except StorageError as exc:
-            # HTTPException responses aren't logged by the error handler, so log the
-            # root cause here — otherwise a failing readiness probe has no server trace.
-            logger.warning("Readiness check failed — NCIt store unreachable: %s", exc)
+    async def ready(metadata: RepositoryMetadataReads) -> dict[str, object]:
+        """Readiness — certify the live NCIt proxy or return a typed refusal."""
+        repository = await metadata.ncit()
+        if isinstance(repository, RepositoryUnhealthy):
+            logger.warning(
+                "Readiness certification failed — %s: %s",
+                repository.reason,
+                repository.message,
+            )
             raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "NCIt store not ready"
-            ) from exc
-        return {"ready": True, "ncit_version": version}
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                repository.model_dump(mode="json"),
+            )
+        return {"ready": True, "repository": repository.model_dump(mode="json")}
 
     app.include_router(ncit.router)
     app.include_router(mappings.router)

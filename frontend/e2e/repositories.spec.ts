@@ -1,154 +1,84 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 
-// A minimal fake backend: intercept the API calls each flow makes and return canned
-// payloads shaped like the real read models, so the specs exercise the rendered UI
-// end-to-end without a live backend or seeded data.
-
-async function mockCadsr(page: Page): Promise<void> {
-	await page.route('**/api/v1/cadsr/list**', (route) =>
-		route.fulfill({
-			json: {
-				query: '',
-				total: 1,
-				limit: 25,
-				offset: 0,
-				hits: [
-					{
-						public_id: '2001',
-						version: '1.0',
-						short_name: 'TUMOR_STAGE',
-						long_name: 'Tumor Stage Code',
-						context: 'NCIP',
-						datatype: 'CHARACTER'
-					}
-				]
-			}
-		})
-	);
-	await page.route('**/api/v1/cadsr/search**', (route) =>
-		route.fulfill({
-			json: {
-				query: 'tumor',
-				total: 1,
-				limit: 25,
-				offset: 0,
-				hits: [
-					{
-						public_id: '2001',
-						version: '1.0',
-						short_name: 'TUMOR_STAGE',
-						long_name: 'Tumor Stage Code',
-						context: 'NCIP',
-						datatype: 'CHARACTER'
-					}
-				]
-			}
-		})
-	);
-	await page.route('**/api/v1/cadsr/cdes/2001/similar**', (route) =>
-		route.fulfill({ json: [] })
-	);
-	await page.route('**/api/v1/cadsr/cdes/2001', (route) =>
-		route.fulfill({
-			json: {
-				public_id: '2001',
-				version: '1.0',
-				short_name: 'TUMOR_STAGE',
-				long_name: 'Tumor Stage Code',
-				context: 'NCIP',
-				datatype: 'CHARACTER',
-				definition: 'The stage of a tumor.',
-				workflow_status: 'RELEASED',
-				registration_status: 'Standard',
-				value_domain_type: 'Enumerated',
-				permissible_values: [{ value: 'I', meaning: 'Stage I', meaning_code: 'C1' }],
-				concepts: [
-					{
-						concept_code: 'C48885',
-						concept_name: 'Tumor Stage',
-						concept_type: 'objectClass',
-						is_primary: true
-					}
-				]
-			}
-		})
-	);
-}
-
-test('caDSR: browse → search → open a CDE detail', async ({ page }) => {
-	await mockCadsr(page);
+test('caDSR: browse → URL search → open a server-loaded CDE detail', async ({ page }) => {
 	await page.goto('/repositories/cadsr');
-
-	// Browse mode loads on mount.
 	await expect(page.getByRole('link', { name: '2001' })).toBeVisible();
 
-	// Search narrows to the same CDE — assert the results card flips to search mode
-	// (only set after a real search request), not just that the row is present.
 	await page.getByRole('searchbox').fill('tumor');
 	await page.getByRole('button', { name: 'Search' }).click();
+	await expect(page).toHaveURL('/repositories/cadsr?q=tumor');
 	await expect(page.getByText(/Results for .*tumor/)).toBeVisible();
 	await expect(page.getByText('Tumor Stage Code')).toBeVisible();
 
-	// Open the detail page.
 	await page.getByRole('link', { name: 'Tumor Stage Code' }).click();
 	await expect(page).toHaveURL(/\/repositories\/cadsr\/2001/);
 	await expect(page.getByText('The stage of a tumor.')).toBeVisible();
-	await expect(page.getByRole('link', { name: 'Tumor Stage' })).toBeVisible(); // NCIt concept
+	await expect(page.getByRole('link', { name: 'Tumor Stage' })).toBeVisible();
 });
 
-test('ClinicalTrials: search by condition → open a trial', async ({ page }) => {
-	await page.route('**/api/v1/clinicaltrials/search**', (route) =>
-		route.fulfill({
-			json: {
-				condition: 'melanoma',
-				intervention: null,
-				term: null,
-				total: 1,
-				studies: [
-					{
-						nct_id: 'NCT01234567',
-						title: 'A Study of Widgetinib',
-						status: 'RECRUITING',
-						phase: 'PHASE2',
-						conditions: ['Melanoma'],
-						interventions: ['Widgetinib'],
-						start_date: '2024-01-01',
-						enrollment: 100,
-						relevance_score: 1.0
-					}
-				]
-			}
-		})
-	);
-	await page.route('**/api/v1/clinicaltrials/NCT01234567', (route) =>
-		route.fulfill({
-			json: {
-				nct_id: 'NCT01234567',
-				title: 'A Study of Widgetinib',
-				official_title: 'A Phase 2 Study of Widgetinib in Melanoma',
-				status: 'RECRUITING',
-				phase: 'PHASE2',
-				study_type: 'INTERVENTIONAL',
-				primary_purpose: 'TREATMENT',
-				conditions: ['Melanoma'],
-				interventions: [{ type: 'DRUG', name: 'Widgetinib', description: null }],
-				primary_outcomes: [],
-				secondary_outcomes: [],
-				eligibility_criteria: 'Adults with measurable disease',
-				enrollment: 100,
-				start_date: '2024-01-01',
-				sponsors: [{ name: 'Acme Oncology', role: 'lead' }],
-				locations: [],
-				references: [],
-				url: 'https://clinicaltrials.gov/study/NCT01234567'
-			}
-		})
-	);
+test('caDSR: concept graph precedes detail cards without loading eagerly', async ({ page }) => {
+	const graphRequest = 'GET /api/v1/cadsr/cdes/6686721/neighborhood?depth=1';
+	const countsBefore = (await (await page.request.get('/api/v1/__test__/counts')).json()) as Record<
+		string,
+		number
+	>;
 
+	await page.goto('/repositories/cadsr/6686721');
+	const graphHeading = page.getByRole('heading', { name: 'Concept graph' });
+	const cardsHeading = page.getByRole('heading', { name: /NCIt concepts/ });
+	await expect(graphHeading).toBeVisible();
+	await expect(cardsHeading).toBeVisible();
+	expect(
+		await graphHeading.evaluate(
+			(graph, cards) =>
+				Boolean(graph.compareDocumentPosition(cards as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
+			await cardsHeading.elementHandle()
+		)
+	).toBe(true);
+
+	const countsAfter = (await (await page.request.get('/api/v1/__test__/counts')).json()) as Record<
+		string,
+		number
+	>;
+	expect(countsAfter[graphRequest] ?? 0).toBe(countsBefore[graphRequest] ?? 0);
+	await expect(page.getByText('Mapped concept 7')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Show all 14 NCIt concepts' }).click();
+	await expect(page.getByText('Mapped concept 7')).toBeVisible();
+});
+
+test('caDSR: delayed on-demand graph reserves its region while loading', async ({ page }) => {
+	await page.goto('/repositories/cadsr/6686721');
+	const graphSection = page.getByRole('heading', { name: 'Concept graph' }).locator('..').locator('..');
+	await page.getByRole('button', { name: 'Explore in graph' }).click();
+
+	const placeholder = graphSection.locator('[aria-busy="true"]');
+	await expect(placeholder).toBeVisible();
+	expect(await placeholder.evaluate((element) => getComputedStyle(element).minHeight)).toBe('512px');
+	await expect(page.locator('.graph-canvas')).toBeVisible();
+});
+
+test('caDSR: one-column detail cards do not widen the viewport', async ({ page }) => {
+	await page.setViewportSize({ width: 767, height: 900 });
+	await page.goto('/repositories/cadsr/6686721');
+	await expect(page.getByRole('heading', { name: 'Similar CDEs 10' })).toBeVisible();
+
+	expect(
+		await page.evaluate(() => ({
+			documentWidth: document.documentElement.scrollWidth,
+			viewportWidth: innerWidth
+		}))
+	).toEqual({ documentWidth: 767, viewportWidth: 767 });
+});
+
+test('ClinicalTrials: URL search → open a server-loaded trial', async ({ page }) => {
 	await page.goto('/repositories/clinicaltrials');
 	await page.getByRole('searchbox').fill('melanoma');
 	await page.getByRole('button', { name: 'Search' }).click();
+	await expect(page).toHaveURL('/repositories/clinicaltrials?q=melanoma');
 	await expect(page.getByRole('link', { name: 'NCT01234567' })).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('searchbox')).toHaveValue('melanoma');
 
 	await page.getByRole('link', { name: 'A Study of Widgetinib' }).click();
 	await expect(page).toHaveURL(/\/repositories\/clinicaltrials\/NCT01234567/);
@@ -156,52 +86,258 @@ test('ClinicalTrials: search by condition → open a trial', async ({ page }) =>
 	await expect(page.getByText('Adults with measurable disease')).toBeVisible();
 });
 
-test('NCIt: concept page mounts the graph explorer with its controls', async ({ page }) => {
-	await page.route('**/api/v1/ncit/concepts/C3262/neighborhood**', (route) =>
-		route.fulfill({
-			json: {
-				center: 'C3262',
-				nodes: [
-					{ code: 'C3262', label: 'Neoplasm', semantic_type: 'Neoplastic Process' },
-					{ code: 'C12922', label: 'Neoplastic Cell', semantic_type: null }
-				],
-				edges: [
-					{
-						source: 'C3262',
-						target: 'C12922',
-						relation: 'R105',
-						relation_label: 'Disease_Has_Abnormal_Cell',
-						kind: 'role'
-					}
-				],
-				truncated: false
-			}
-		})
-	);
-	await page.route('**/api/v1/ncit/concepts/C3262/similar**', (route) => route.fulfill({ json: [] }));
-	await page.route('**/api/v1/ncit/concepts/C3262', (route) =>
-		route.fulfill({
-			json: {
-				code: 'C3262',
-				label: 'Neoplasm',
-				preferred_name: 'Neoplasm',
-				definition: 'A tissue growth.',
-				semantic_types: ['Neoplastic Process'],
-				synonyms: ['Neoplasia'],
-				parents: [],
-				children: [],
-				roles: [],
-				associations: [],
-				incoming_roles: []
-			}
-		})
-	);
+test('PubMed: copied URL restores search → open a server-loaded article', async ({ page }) => {
+	await page.goto('/repositories/pubmed');
+	await page.getByRole('searchbox').fill('immunotherapy');
+	await page.getByRole('button', { name: 'Search' }).click();
+	await expect(page).toHaveURL('/repositories/pubmed?q=immunotherapy');
+	await expect(page.getByRole('link', { name: 'SSR article for immunotherapy' })).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('searchbox')).toHaveValue('immunotherapy');
 
+	await page.getByRole('link', { name: 'SSR article for immunotherapy' }).click();
+	await expect(page).toHaveURL('/repositories/pubmed/12345678');
+	await expect(page.getByText('SSR abstract from FastAPI.')).toBeVisible();
+});
+
+test('NCIt: server-loaded concept hydrates the browser-only graph explorer', async ({ page }) => {
 	await page.goto('/repositories/ncit/C3262');
-	// Toolbar + panel render regardless of the WebGL canvas: assert the new controls.
+	await expect(page.getByText('SSR concept definition from FastAPI.')).toBeVisible();
 	await expect(page.getByTitle('Layout preset')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Hide isolated' })).toBeVisible();
 	await expect(page.getByTitle('Export as PNG')).toBeVisible();
 	await expect(page.getByTitle('Toggle minimap')).toBeVisible();
 	await expect(page.getByText('Network', { exact: true })).toBeVisible();
+});
+
+test('NCIt: route replacement owns graph state while an expansion is pending', async ({ page }) => {
+	const intercepted = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	await page.route('**/api/v1/ncit/concepts/C4005/neighborhood?*', async (route) => {
+		intercepted.resolve();
+		await release.promise;
+		await route.fulfill({
+			status: 503,
+			contentType: 'application/json',
+			body: JSON.stringify({ detail: 'stale expansion failure' })
+		});
+	});
+
+	await page.goto('/repositories/ncit/C3262');
+	const graphSearch = page.getByPlaceholder('Find node…');
+	await graphSearch.fill('C4005');
+	await graphSearch.press('Enter');
+	await expect(page.getByRole('heading', { name: 'Unassessed neighbor', level: 4 })).toBeVisible();
+	await page.getByRole('button', { name: 'Expand node' }).click();
+	await intercepted.promise;
+	await page.getByRole('button', { name: 'Open concept →' }).click();
+	await expect(page).toHaveURL('/repositories/ncit/C4005');
+	await expect(page.getByTitle('Layout preset')).toBeVisible();
+
+	release.resolve();
+	await expect(page.getByText('stale expansion failure')).toHaveCount(0);
+	await expect(page.getByText('Network', { exact: true })).toBeVisible();
+});
+
+test('NCIt: published representation status survives browse, search, detail, and graph filters', async ({
+	page
+}) => {
+	await page.goto('/repositories/ncit');
+	await page.getByLabel('Representation status').selectOption('legacy-precoordinated');
+	await expect(page).toHaveURL(
+		'/repositories/ncit?representation_status=legacy-precoordinated'
+	);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toBeVisible();
+
+	await page.getByRole('searchbox', { name: 'Search NCIt' }).fill('neoplasm');
+	await page.getByRole('button', { name: 'Search' }).click();
+	await expect(page).toHaveURL(
+		'/repositories/ncit?representation_status=legacy-precoordinated&q=neoplasm'
+	);
+	await page.getByRole('link', { name: 'SSR result for neoplasm' }).click();
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true }).first()).toBeVisible();
+
+	const graphSearch = page.getByPlaceholder('Find node…');
+	await graphSearch.fill('C3262');
+	await graphSearch.press('Enter');
+	await expect(page.getByRole('heading', { name: 'SSR Detail Concept', level: 4 })).toBeVisible();
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+
+	await page.getByRole('button', { name: 'Semantic type' }).click();
+	await expect(page.locator('html')).toHaveClass(/dark/);
+	await page.getByRole('button', { name: 'Toggle theme' }).click();
+	await expect(page.locator('html')).not.toHaveClass(/dark/);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+	await page.getByRole('button', { name: 'Communities' }).click();
+
+	await page.getByRole('button', { name: 'Legacy pre-coordinated only' }).click();
+	await expect(page.getByText('No graph nodes match the active filters.')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Disease', exact: true }).click();
+	await expect(page.getByText('No graph nodes match the active filters.')).toHaveCount(0);
+
+	await page.goto('/repositories/ncit/C4005');
+	await page.getByRole('button', { name: 'Legacy pre-coordinated only' }).click();
+	await expect(page.getByText('No graph nodes match the active filters.')).toBeVisible();
+});
+
+test('ForceAtlas layout stays below the main-thread Long Task threshold at representative sizes', async ({
+	page
+}, testInfo) => {
+	type Timing = {
+		code: string;
+		handlerDurationMs: number;
+		animationFrameDelayMs: number;
+		longestTaskMs: number;
+	};
+	const timings: Timing[] = [];
+
+	for (const code of ['CPERF186', 'CPERF400']) {
+		await page.goto(`/repositories/ncit/${code}`);
+		await expect(page.getByRole('button', { name: 'Re-layout' })).toBeVisible();
+		const timing = await page.evaluate(async (currentCode) => {
+			const longTasks: number[] = [];
+			const observer = new PerformanceObserver((list) => {
+				longTasks.push(...list.getEntries().map(({ duration }) => duration));
+			});
+			observer.observe({ type: 'longtask' });
+			const button = document.querySelector<HTMLButtonElement>('button[aria-label="Re-layout"]');
+			if (!button) throw new Error('Re-layout button is missing');
+			const frameStart = performance.now();
+			const nextFrame = new Promise<number>((resolve) => {
+				requestAnimationFrame(() => resolve(performance.now() - frameStart));
+			});
+			const handlerStart = performance.now();
+			button.click();
+			const handlerDurationMs = performance.now() - handlerStart;
+			const animationFrameDelayMs = await nextFrame;
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			observer.disconnect();
+			return {
+				code: currentCode,
+				handlerDurationMs,
+				animationFrameDelayMs,
+				longestTaskMs: Math.max(0, ...longTasks)
+			};
+		}, code);
+		timings.push(timing);
+	}
+
+	const timingPath = testInfo.outputPath('layout-responsiveness.json');
+	await writeFile(timingPath, `${JSON.stringify(timings, null, 2)}\n`, 'utf8');
+	await testInfo.attach('layout-responsiveness.json', {
+		path: timingPath,
+		contentType: 'application/json'
+	});
+	for (const timing of timings) {
+		expect(timing.handlerDurationMs, timing.code).toBeLessThan(50);
+		expect(timing.longestTaskMs, timing.code).toBeLessThanOrEqual(50);
+		expect(timing.animationFrameDelayMs, timing.code).toBeLessThan(100);
+	}
+});
+
+test('active worker layouts are replaced and navigation kills the current owner', async ({ page }) => {
+	const pageErrors: string[] = [];
+	page.on('pageerror', (error) => pageErrors.push(error.message));
+
+	await page.goto('/repositories/ncit/CPERF400');
+	const canvas = page.locator('.graph-canvas');
+	await expect(canvas).toHaveAttribute('aria-busy', 'true');
+	const mostConnected = page.getByRole('heading', { name: 'Most connected' });
+	const rankedNode = mostConnected.locator('xpath=following-sibling::ul[1]').getByRole('button').first();
+	await rankedNode.click();
+	const selectedCode = await page.locator('p.font-mono').textContent();
+	expect(selectedCode).not.toBeNull();
+
+	const layoutSelect = page.getByTitle('Layout preset');
+	await layoutSelect.selectOption('noverlap');
+	await expect(layoutSelect).toHaveValue('noverlap');
+	await expect(canvas).toHaveAttribute('aria-busy', 'true');
+	// Camera updates change label-density settings while the layout worker mutates
+	// node positions. This used to leave Sigma's program indices empty long enough
+	// for a worker repaint to throw `node "…" can't be repaint`.
+	for (let i = 0; i < 4; i += 1) await page.getByRole('button', { name: 'Zoom in' }).click();
+	await layoutSelect.selectOption('forceatlas2');
+	await expect(layoutSelect).toHaveValue('forceatlas2');
+	await expect(canvas).toHaveAttribute('aria-busy', 'false', { timeout: 3_000 });
+	await expect(page.locator('p.font-mono')).toHaveText(selectedCode!);
+	await page.getByRole('button', { name: 'Re-layout' }).click();
+	await expect(canvas).toHaveAttribute('aria-busy', 'true');
+
+	await page.getByRole('link', { name: 'NCIt Browser' }).click();
+	await expect(page).toHaveURL('/repositories/ncit');
+	await page.getByRole('link', { name: 'SSR Neoplasm' }).click();
+	await expect(page).toHaveURL('/repositories/ncit/C3262');
+	const replacementCanvas = page.locator('.graph-canvas');
+	await expect(replacementCanvas).toHaveAttribute('aria-busy', 'false');
+	await page.waitForTimeout(1_600);
+	await expect(page).toHaveURL('/repositories/ncit/C3262');
+	expect(pageErrors).toEqual([]);
+});
+
+test('graph label colors update in place and preserve selection across themes', async ({ page }) => {
+	await page.addInitScript(() => {
+		const fills: string[] = [];
+		const originalFillText = CanvasRenderingContext2D.prototype.fillText;
+		Object.defineProperty(window, '__sigmaLabelFills', { value: fills });
+		CanvasRenderingContext2D.prototype.fillText = function (
+			text: string,
+			x: number,
+			y: number,
+			maxWidth?: number
+		): void {
+			fills.push(String(this.fillStyle));
+			if (maxWidth === undefined) originalFillText.call(this, text, x, y);
+			else originalFillText.call(this, text, x, y, maxWidth);
+		};
+	});
+
+	await page.goto('/repositories/ncit/CPERF186');
+	const canvas = page.locator('.graph-canvas');
+	await expect(canvas).toHaveAttribute('aria-busy', 'false', { timeout: 3_000 });
+	const mostConnected = page.getByRole('heading', { name: 'Most connected' });
+	const rankedNode = mostConnected.locator('xpath=following-sibling::ul[1]').getByRole('button').first();
+	await rankedNode.click();
+	const selected = page.locator('h4').first();
+	await expect(selected).toBeVisible();
+	const selectedLabel = await selected.innerText();
+
+	await expect
+		.poll(() =>
+			page.evaluate(() =>
+				(
+					window as typeof window & {
+						__sigmaLabelFills: string[];
+					}
+				).__sigmaLabelFills.includes('#fafafa')
+			)
+		)
+		.toBe(true);
+	await page.evaluate(() => {
+		const state = window as typeof window & {
+			__sigmaCanvases?: HTMLCanvasElement[];
+			__sigmaLabelFills: string[];
+		};
+		state.__sigmaCanvases = Array.from(document.querySelectorAll('.graph-canvas canvas'));
+		state.__sigmaLabelFills.length = 0;
+	});
+
+	await page.getByRole('button', { name: 'Toggle theme' }).click();
+	await expect(selected).toHaveText(selectedLabel);
+	await expect
+		.poll(() =>
+			page.evaluate(() => {
+				const state = window as typeof window & {
+					__sigmaCanvases?: HTMLCanvasElement[];
+					__sigmaLabelFills: string[];
+				};
+				const current = Array.from(document.querySelectorAll('.graph-canvas canvas'));
+				return {
+					lightLabelDrawn: state.__sigmaLabelFills.includes('#0d2140'),
+					sameCanvases:
+						state.__sigmaCanvases?.length === current.length &&
+						state.__sigmaCanvases.every((item, index) => item === current[index])
+				};
+			})
+		)
+		.toEqual({ lightLabelDrawn: true, sameCanvases: true });
 });

@@ -1,13 +1,21 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Sigma from 'sigma';
-	import { EdgeCurvedArrowProgram } from '@sigma/edge-curve';
+	import {
+		DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
+		NodeCircleProgram,
+		createNodeCompoundProgram,
+		drawDiscNodeLabel,
+		drawStraightEdgeLabel
+	} from 'sigma/rendering';
+	import { createEdgeCurveProgram } from '@sigma/edge-curve';
 	import { downloadAsImage } from '@sigma/export-image';
 	import forceAtlas2 from 'graphology-layout-forceatlas2';
-	import noverlap from 'graphology-layout-noverlap';
+	import ForceAtlas2LayoutSupervisor from 'graphology-layout-forceatlas2/worker';
+	import NoverlapLayoutSupervisor from 'graphology-layout-noverlap/worker';
 	import type Graph from 'graphology';
 	import { getNeighborhood } from '$lib/api';
 	import type { Neighborhood } from '$lib/types';
@@ -28,10 +36,25 @@
 		neighborSet,
 		findNode,
 		reduceNodeAppearance,
-		reduceEdgeAppearance
+		reduceEdgeAppearance,
+		nodeHiddenByFilters,
+		applyGraphLabelTheme,
+		applyGraphLabelPolicy,
+		ellipsizeGraphLabel,
+		forceAtlasLayoutBudget,
+		graphLabelBounds,
+		graphLabelPolicy,
+		graphLabelTheme,
+		GraphLabelCollisionIndex,
+		TimedLayoutController,
+		AsyncRequestOwner,
+		type AsyncRequestLease,
+		type LayoutWorker
 	} from '$lib/graph/graph-explorer';
 	import GraphSidePanel from '$lib/components/GraphSidePanel.svelte';
 	import GraphMinimap from '$lib/components/GraphMinimap.svelte';
+	import GraphCanvasState from '$lib/components/GraphCanvasState.svelte';
+	import { theme } from '$lib/stores/theme.svelte';
 
 	interface Props {
 		/** Center concept code. */
@@ -64,6 +87,8 @@
 	let search = $state('');
 	let fullscreen = $state(false);
 	let hideIsolated = $state(false);
+	let showLegacyOnly = $state(false);
+	let visibleNodeCount = $state(0);
 	// Semantic types the user has toggled off (hidden). A reactive set: the sigma
 	// reducer and the filter chips both read it.
 	const hiddenTypes = new SvelteSet<string>();
@@ -71,8 +96,95 @@
 	let menuEl = $state<HTMLDivElement | null>(null);
 	let semanticTypes = $state<string[]>([]);
 	let showMinimap = $state(true);
+	let layoutRunning = $state(false);
 	// Bumped after any graph mutation so the minimap redraws.
 	let graphVersion = $state(0);
+	const layoutController = new TimedLayoutController();
+	const requestOwner = new AsyncRequestOwner();
+	const labelCollisionIndex = new GraphLabelCollisionIndex();
+	const CollisionAwareCurvedArrowProgram = createEdgeCurveProgram({
+		arrowHead: DEFAULT_EDGE_ARROW_HEAD_PROGRAM_OPTIONS,
+		drawLabel: (context, edgeData, sourceData, targetData, settings) => {
+			if (!edgeData.label) return;
+			context.font = `${settings.edgeLabelWeight} ${settings.edgeLabelSize}px ${settings.edgeLabelFont}`;
+			const width = context.measureText(edgeData.label).width;
+			const angle = Math.atan2(targetData.y - sourceData.y, targetData.x - sourceData.x);
+			const halfWidth =
+				(Math.abs(Math.cos(angle)) * width +
+					Math.abs(Math.sin(angle)) * settings.edgeLabelSize) /
+				2;
+			const halfHeight =
+				(Math.abs(Math.sin(angle)) * width +
+					Math.abs(Math.cos(angle)) * settings.edgeLabelSize) /
+				2;
+			const x = (sourceData.x + targetData.x) / 2;
+			const y = (sourceData.y + targetData.y) / 2;
+			if (
+				labelCollisionIndex.claim({
+					left: x - halfWidth - 2,
+					top: y - halfHeight - 2,
+					right: x + halfWidth + 2,
+					bottom: y + halfHeight + 2
+				})
+			)
+				drawStraightEdgeLabel(context, edgeData, sourceData, targetData, settings);
+		}
+	});
+	class LegacyStatusRingProgram extends NodeCircleProgram {
+		override processVisibleItem(
+			nodeIndex: number,
+			startIndex: number,
+			data: Parameters<NodeCircleProgram['processVisibleItem']>[2]
+		): void {
+			super.processVisibleItem(nodeIndex, startIndex, {
+				...data,
+				size: data.size + 3,
+				color: '#f59e0b'
+			});
+		}
+	}
+	const LegacyPrecoordNodeProgram = createNodeCompoundProgram([
+		LegacyStatusRingProgram,
+		NodeCircleProgram
+	]);
+
+	function drawThemeAwareNodeHover(
+		context: CanvasRenderingContext2D,
+		data: Parameters<typeof drawDiscNodeLabel>[1],
+		settings: Parameters<typeof drawDiscNodeLabel>[2]
+	): void {
+		const labelTheme = graphLabelTheme(theme.current);
+		const padding = 3;
+		const labelSize = settings.labelSize;
+		context.save();
+		context.font = `${settings.labelWeight} ${labelSize}px ${settings.labelFont}`;
+		context.fillStyle = labelTheme.hoverBackgroundColor;
+		context.shadowBlur = 8;
+		context.shadowColor = '#000000';
+		if (data.label) {
+			const boxHeight = labelSize + padding * 2;
+			const radius = Math.max(data.size, labelSize / 2) + padding;
+			const halfHeight = boxHeight / 2;
+			const xDelta = Math.sqrt(Math.max(0, radius ** 2 - halfHeight ** 2));
+			const right = data.x + radius + context.measureText(data.label).width + padding * 2;
+			const angle = Math.asin(Math.min(1, halfHeight / radius));
+			context.beginPath();
+			context.moveTo(data.x + xDelta, data.y + halfHeight);
+			context.lineTo(right, data.y + halfHeight);
+			context.lineTo(right, data.y - halfHeight);
+			context.lineTo(data.x + xDelta, data.y - halfHeight);
+			context.arc(data.x, data.y, radius, angle, -angle);
+			context.closePath();
+			context.fill();
+		} else {
+			context.beginPath();
+			context.arc(data.x, data.y, data.size + padding, 0, Math.PI * 2);
+			context.fill();
+		}
+		context.shadowBlur = 0;
+		drawDiscNodeLabel(context, data, settings);
+		context.restore();
+	}
 
 	// Session-stable semantic-type colorer (read inside the sigma reducer, not markup).
 	const semanticColorer = makeSemanticColorer();
@@ -82,10 +194,14 @@
 	}
 
 	function runLayout(g: Graph) {
+		layoutController.cancel();
+		layoutRunning = false;
 		seedPositions(g);
+		ensureFinite(g);
+
+		let worker: LayoutWorker | null = null;
 		if (g.size > 0 && layoutMode === 'forceatlas2') {
-			forceAtlas2.assign(g, {
-				iterations: 220,
+			worker = new ForceAtlas2LayoutSupervisor(g, {
 				settings: {
 					...forceAtlas2.inferSettings(g),
 					gravity: 1.4,
@@ -95,12 +211,24 @@
 			});
 		}
 		if (g.order > 0 && layoutMode === 'noverlap') {
-			// Spread first (a coordinate-less graph collapses to the origin), then remove
-			// node overlaps — a compact, grid-like alternative to the force layout.
-			forceAtlas2.assign(g, { iterations: 60, settings: forceAtlas2.inferSettings(g) });
-			noverlap.assign(g, { maxIterations: 120, settings: { margin: 4, ratio: 1.2 } });
+			worker = new NoverlapLayoutSupervisor(g, { settings: { margin: 4, ratio: 1.2 } });
 		}
-		ensureFinite(g);
+		if (!worker) return;
+
+		const { durationMs } = forceAtlasLayoutBudget(g.order, g.size);
+		try {
+			layoutController.start(worker, durationMs, () => {
+				layoutRunning = layoutController.running;
+				if (g !== graph) return;
+				ensureFinite(g);
+				graphVersion += 1;
+				sigma?.refresh();
+			});
+			layoutRunning = layoutController.running;
+		} catch (reason) {
+			layoutRunning = false;
+			throw reason;
+		}
 	}
 
 	function restyle(g: Graph) {
@@ -119,27 +247,66 @@
 		edgeCount = g.size;
 		semanticTypes = collectSemanticTypes(g);
 		restyle(g);
+		refreshVisibility(g);
 		graphVersion += 1;
 	}
 
-	async function expand(target: string) {
-		if (!graph || expanding) return;
+	function nodeIsHidden(g: Graph, node: string): boolean {
+		const attrs = g.getNodeAttributes(node) as NodeAttrs;
+		return nodeHiddenByFilters({
+			isCenter: node === code,
+			semanticType: attrs.semanticType,
+			degree: g.degree(node),
+			hiddenTypes,
+			hideIsolated,
+			representationStatus: attrs.representationStatus,
+			showLegacyOnly
+		});
+	}
+
+	function refreshVisibility(g: Graph) {
+		let count = 0;
+		g.forEachNode((node) => {
+			if (!nodeIsHidden(g, node)) count += 1;
+		});
+		visibleNodeCount = count;
+		if (selected && nodeIsHidden(g, selected.code)) selected = null;
+	}
+
+	function canExpand(candidate: Graph, target: string): boolean {
 		// Pseudo-nodes (e.g. a caDSR "cde:<id>:<ver>" seed) aren't NCIt concepts, so
 		// they have no /neighborhood — skip rather than fetch a guaranteed 404.
-		if (target.includes(':')) return;
-		if (graph.hasNode(target) && graph.getNodeAttribute(target, 'expanded')) return;
+		return (
+			!target.includes(':') &&
+			!(candidate.hasNode(target) && candidate.getNodeAttribute(target, 'expanded'))
+		);
+	}
+
+	function ownsGraph(lease: AsyncRequestLease, candidate: Graph): boolean {
+		return lease.isCurrent() && graph === candidate;
+	}
+
+	async function expand(target: string) {
+		if (!graph || expanding || !canExpand(graph, target)) return;
+		const activeGraph = graph;
+		const lease = requestOwner.lease();
 		expanding = true;
 		error = null; // a prior transient error must not stick across expansions
 		try {
-			const nb = await getNeighborhood(target);
-			mergeNeighborhood(graph, nb);
-			runLayout(graph);
-			refreshStats(graph);
+			const nb = await getNeighborhood(target, 1, undefined, lease.signal);
+			if (!ownsGraph(lease, activeGraph)) return;
+			layoutController.cancel();
+			layoutRunning = false;
+			mergeNeighborhood(activeGraph, nb);
+			refreshStats(activeGraph);
+			runLayout(activeGraph);
 			sigma?.refresh();
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
+			if (ownsGraph(lease, activeGraph))
+				error = err instanceof Error ? err.message : String(err);
 		} finally {
-			expanding = false;
+			if (ownsGraph(lease, activeGraph)) expanding = false;
+			lease.release();
 		}
 	}
 
@@ -164,19 +331,36 @@
 					hideIsolated,
 					selectedCode: selected?.code ?? null,
 					hovered,
-					hoveredNeighbors: hovered ? neighbors(hovered) : null
+					hoveredNeighbors: hovered ? neighbors(hovered) : null,
+					representationStatus: g
+						? (g.getNodeAttribute(
+								node,
+								'representationStatus'
+							) as NodeAttrs['representationStatus'])
+						: null,
+					showLegacyOnly
 				})
 			};
 		});
 		s.setSetting('edgeReducer', (edge, data) => {
 			if (!graph) return { ...data };
 			const [src, tgt] = graph.extremities(edge);
-			return { ...data, ...reduceEdgeAppearance({ hovered, source: src, target: tgt }) };
+			return {
+				...data,
+				...reduceEdgeAppearance({
+					hovered,
+					source: src,
+					target: tgt,
+					sourceHidden: nodeIsHidden(graph, src),
+					targetHidden: nodeIsHidden(graph, tgt)
+				})
+			};
 		});
 	}
 
 	function setupInteractions(s: Sigma) {
 		let dragged: string | null = null;
+		s.on('beforeRender', () => labelCollisionIndex.reset());
 
 		s.on('clickNode', ({ node }) => {
 			selected = graph?.getNodeAttributes(node) as NodeAttrs;
@@ -237,37 +421,88 @@
 		// Zoom-scalable labels: reveal more labels as the camera zooms in. Also dismiss
 		// the context menu on any pan/zoom so it never lingers detached from its node.
 		s.getCamera().on('updated', ({ ratio }) => {
-			s.setSetting('labelRenderedSizeThreshold', ratio < 0.6 ? 3 : 8);
+			applyGraphLabelPolicy(s, ratio);
 			menu = null;
 		});
 	}
 
-	async function init() {
-		if (!container) return;
+	function disposeGraph(): void {
+		layoutController.cancel();
+		layoutRunning = false;
+		sigma?.kill();
+		sigma = null;
+		graph = null;
+		expanding = false;
+		selected = null;
+		hovered = null;
+		menu = null;
+	}
+
+	async function init(
+		nextCode: string,
+		nextInitial: Neighborhood | null,
+		targetContainer: HTMLDivElement,
+		lease: AsyncRequestLease
+	) {
 		loading = true;
 		error = null;
-		graph = createGraph();
+		const nextGraph = createGraph();
+		graph = nextGraph;
 		try {
-			const nb = initial ?? (await getNeighborhood(code));
-			mergeNeighborhood(graph, nb);
-			runLayout(graph);
-			refreshStats(graph);
+			const nb =
+				nextInitial ?? (await getNeighborhood(nextCode, 1, undefined, lease.signal));
+			if (!lease.isCurrent() || graph !== nextGraph) return;
+			mergeNeighborhood(nextGraph, nb);
+			seedPositions(nextGraph);
+			refreshStats(nextGraph);
+			const labelTheme = graphLabelTheme(theme.current);
 
-			sigma = new Sigma(graph, container, {
+			const renderer = new Sigma(nextGraph, targetContainer, {
 				renderEdgeLabels: true,
 				defaultEdgeType: 'curved',
-				edgeProgramClasses: { curved: EdgeCurvedArrowProgram },
-				labelDensity: 0.5,
-				labelRenderedSizeThreshold: 8,
+				nodeProgramClasses: {
+					'legacy-precoordinated': LegacyPrecoordNodeProgram
+				},
+				edgeProgramClasses: { curved: CollisionAwareCurvedArrowProgram },
+				...graphLabelPolicy(1),
+				labelColor: { color: labelTheme.labelColor },
+				edgeLabelColor: { color: labelTheme.edgeLabelColor },
+				defaultDrawNodeLabel: (context, data, settings) => {
+					if (!data.label) return;
+					const label = ellipsizeGraphLabel(data.label);
+					context.font = `${settings.labelWeight} ${settings.labelSize}px ${settings.labelFont}`;
+					const bounds = graphLabelBounds({
+						x: data.x,
+						y: data.y,
+						nodeSize: data.size,
+						labelSize: settings.labelSize,
+						labelWidth: context.measureText(label).width
+					});
+					if (labelCollisionIndex.claim(bounds))
+						drawDiscNodeLabel(context, { ...data, label }, settings);
+				},
+				defaultDrawNodeHover: drawThemeAwareNodeHover,
 				minCameraRatio: 0.05,
 				maxCameraRatio: 4
 			});
-			setupReducers(sigma);
-			setupInteractions(sigma);
+			if (!lease.isCurrent() || graph !== nextGraph) {
+				renderer.kill();
+				return;
+			}
+			sigma = renderer;
+			setupReducers(renderer);
+			setupInteractions(renderer);
+			runLayout(nextGraph);
 		} catch (err) {
+			if (!lease.isCurrent() || graph !== nextGraph) return;
+			layoutController.cancel();
+			layoutRunning = false;
+			sigma?.kill();
+			sigma = null;
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
-			loading = false;
+			if (lease.isCurrent() && graph === nextGraph) loading = false;
+			lease.release();
 		}
 	}
 
@@ -295,9 +530,13 @@
 
 	function relayout() {
 		if (!graph) return;
-		runLayout(graph);
-		sigma?.refresh();
-		fit();
+		error = null;
+		try {
+			runLayout(graph);
+			sigma?.refresh();
+		} catch (reason) {
+			error = reason instanceof Error ? reason.message : String(reason);
+		}
 	}
 
 	function applyLayout(mode: 'forceatlas2' | 'noverlap') {
@@ -312,11 +551,19 @@
 	function toggleType(t: string) {
 		if (hiddenTypes.has(t)) hiddenTypes.delete(t);
 		else hiddenTypes.add(t);
+		if (graph) refreshVisibility(graph);
 		sigma?.refresh();
 	}
 
 	function toggleIsolated() {
 		hideIsolated = !hideIsolated;
+		if (graph) refreshVisibility(graph);
+		sigma?.refresh();
+	}
+
+	function toggleLegacyOnly() {
+		showLegacyOnly = !showLegacyOnly;
+		if (graph) refreshVisibility(graph);
 		sigma?.refresh();
 	}
 
@@ -344,6 +591,11 @@
 	});
 
 	$effect(() => {
+		const currentTheme = theme.current;
+		if (sigma) applyGraphLabelTheme(sigma, currentTheme);
+	});
+
+	$effect(() => {
 		// While the context menu is open, dismiss it on Escape or a pointer down outside
 		// it (clicks on its own buttons are excluded so their action still fires).
 		if (!menu) return;
@@ -361,13 +613,23 @@
 		};
 	});
 
-	onMount(() => {
-		void init();
+	$effect(() => {
+		const nextCode = code;
+		const nextInitial = initial;
+		const targetContainer = container;
+		if (!targetContainer) return;
+		requestOwner.replace();
+		const lease = requestOwner.lease();
+		untrack(() => {
+			disposeGraph();
+			void init(nextCode, nextInitial, targetContainer, lease);
+		});
+		return () => requestOwner.replace();
 	});
 
 	onDestroy(() => {
-		sigma?.kill();
-		sigma = null;
+		requestOwner.replace();
+		disposeGraph();
 	});
 </script>
 
@@ -424,6 +686,16 @@
 		>
 		<button
 			type="button"
+			class="rounded-lg border border-default px-2 py-1 text-xs {showLegacyOnly
+				? 'bg-amber-500 text-neutral-950'
+				: 'text-secondary hover:bg-subtle'}"
+			onclick={toggleLegacyOnly}
+			title="Show only nodes with the published legacy pre-coordinated marker"
+		>
+			Legacy pre-coordinated only
+		</button>
+		<button
+			type="button"
 			class="gx-btn"
 			onclick={exportPng}
 			title="Export as PNG"
@@ -463,28 +735,17 @@
 
 	<div class="relative flex" style:height={fullscreen ? 'calc(100vh - 8rem)' : height}>
 		<!-- Canvas -->
-		<div bind:this={container} class="graph-canvas relative flex-1"></div>
+		<div
+			bind:this={container}
+			class="graph-canvas relative flex-1"
+			aria-busy={layoutRunning}
+		></div>
 
 		{#if !loading && showMinimap && sigma && graph}
 			<GraphMinimap {graph} {sigma} version={graphVersion} />
 		{/if}
 
-		{#if loading}
-			<div class="absolute inset-0 flex items-center justify-center text-sm text-muted">
-				Building graph…
-			</div>
-		{:else if error}
-			<div class="absolute inset-0 flex items-center justify-center text-sm text-danger">
-				{error}
-			</div>
-		{/if}
-		{#if expanding}
-			<div
-				class="absolute left-3 top-3 rounded-md bg-primary-600 px-2 py-1 text-xs font-medium text-white shadow"
-			>
-				Expanding…
-			</div>
-		{/if}
+		<GraphCanvasState {loading} {error} {visibleNodeCount} {expanding} />
 
 		{#if menu}
 			<!-- Right-click context menu, positioned over the canvas. -->

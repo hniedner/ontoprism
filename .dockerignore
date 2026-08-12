@@ -1,5 +1,5 @@
-# Keep the backend build context lean — most importantly the multi-GB Oxigraph
-# stores under data/ must never be sent to the daemon.
+# Keep the backend build context lean — the multi-GB ontology indexes under data/
+# must never be sent to the daemon.
 data/
 .venv/
 .git/

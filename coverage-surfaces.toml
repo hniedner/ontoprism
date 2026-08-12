@@ -17,29 +17,39 @@ required_production_paths = [
   "frontend/src/app.html",
   "frontend/src/routes/+layout.svelte",
   "frontend/src/routes/+page.svelte",
+  "frontend/src/routes/+error.svelte",
+  "frontend/src/routes/api/[...path]/+server.ts",
   "frontend/src/routes/refresh/+page.svelte",
-  "frontend/src/routes/refresh/+page.ts",
-  "frontend/src/routes/repositories/cadsr/+layout.ts",
   "frontend/src/routes/repositories/cadsr/+page.svelte",
+  "frontend/src/routes/repositories/cadsr/+page.server.ts",
   "frontend/src/routes/repositories/cadsr/[id]/+page.svelte",
-  "frontend/src/routes/repositories/clinicaltrials/+layout.ts",
+  "frontend/src/routes/repositories/cadsr/[id]/+page.server.ts",
   "frontend/src/routes/repositories/clinicaltrials/+page.svelte",
+  "frontend/src/routes/repositories/clinicaltrials/+page.server.ts",
   "frontend/src/routes/repositories/clinicaltrials/[nct]/+page.svelte",
-  "frontend/src/routes/repositories/ncit/+layout.ts",
+  "frontend/src/routes/repositories/clinicaltrials/[nct]/+page.server.ts",
   "frontend/src/routes/repositories/ncit/+page.svelte",
+  "frontend/src/routes/repositories/ncit/+page.server.ts",
   "frontend/src/routes/repositories/ncit/[code]/+page.svelte",
-  "frontend/src/routes/repositories/pubmed/+layout.ts",
+  "frontend/src/routes/repositories/ncit/[code]/+page.server.ts",
   "frontend/src/routes/repositories/pubmed/+page.svelte",
+  "frontend/src/routes/repositories/pubmed/+page.server.ts",
   "frontend/src/routes/repositories/pubmed/[pmid]/+page.svelte",
+  "frontend/src/routes/repositories/pubmed/[pmid]/+page.server.ts",
+  "frontend/src/lib/components/BrowserGraph.svelte",
   "frontend/src/lib/components/ExternalMappingsPanel.svelte",
   "frontend/src/lib/components/GraphExplorer.svelte",
   "frontend/src/lib/components/GraphMinimap.svelte",
   "frontend/src/lib/components/GraphSidePanel.svelte",
   "frontend/src/lib/components/NeighborhoodGraph.svelte",
+  "frontend/src/lib/components/LoadingState.svelte",
   "frontend/src/lib/components/RepoBrowsePage.svelte",
   "frontend/src/lib/components/RepoPageHeader.svelte",
   "frontend/src/lib/components/pubmed/PubMedArticleHeader.svelte",
   "frontend/src/lib/components/trial/TrialOutcomes.svelte",
+  "frontend/src/lib/server/fastapi.ts",
+  "frontend/src/lib/server/fastapi-config.ts",
+  "frontend/src/lib/server/fastapi-transport.ts",
   "scripts/data_build.py",
   "scripts/decompose.py",
   "scripts/dev/reconstruct_versions.py",
@@ -342,7 +352,7 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "ontolib/src/ontolib/decomposition/walker.py"
-line = 173
+line = 174
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "This research-only module guard delegates directly to a behaviorally tested async main function."
@@ -372,7 +382,7 @@ review_after = "2027-07-31"
 
 [[exemption]]
 path = "scripts/research/differentia_extractor.py"
-line = 126
+line = 130
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "This research-only module guard delegates directly to the tested async main function."

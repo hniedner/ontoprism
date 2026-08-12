@@ -8,14 +8,206 @@
  * appearance rules (the sigma reducers), node search, and the minimap projection.
  */
 import type Graph from 'graphology';
-import { communityColor, type NodeAttrs } from '$lib/graph/neighborhood-graph';
+import type { RepresentationStatus } from '$lib/types';
+import {
+	communityColor,
+	seededNodePosition,
+	type NodeAttrs
+} from '$lib/graph/neighborhood-graph';
 
 export type ColorMode = 'community' | 'semantic';
+export type GraphTheme = 'light' | 'dark';
+
+export interface GraphLabelColors {
+	canvasColor: string;
+	hoverBackgroundColor: string;
+	labelColor: string;
+	edgeLabelColor: string;
+}
+
+export interface GraphLabelSettings {
+	labelDensity: number;
+	labelGridCellSize: number;
+	labelRenderedSizeThreshold: number;
+}
+
+export interface GraphLabelRenderer {
+	setSettings(settings: {
+		labelColor: { color: string };
+		edgeLabelColor: { color: string };
+	}): unknown;
+	refresh(): unknown;
+}
+
+export interface GraphLabelPolicyRenderer {
+	getSetting(key: keyof GraphLabelSettings): number;
+	setSettings(settings: GraphLabelSettings): unknown;
+	refresh(): unknown;
+}
+
+export interface GraphLabelBounds {
+	left: number;
+	top: number;
+	right: number;
+	bottom: number;
+}
+
+export interface ForceAtlasLayoutBudget {
+	durationMs: number;
+}
+
+export interface LayoutWorker {
+	start(): void;
+	stop(): void;
+	kill(): void;
+}
+
+export interface LayoutTimers<Handle> {
+	schedule(callback: () => void, delayMs: number): Handle;
+	clear(handle: Handle): void;
+}
+
+export interface AsyncRequestLease {
+	readonly signal: AbortSignal;
+	isCurrent(): boolean;
+	release(): void;
+}
+
+/** Own every async graph read for one prop generation. */
+export class AsyncRequestOwner {
+	private generation = 0;
+	private controllers = new Set<AbortController>();
+
+	replace(): void {
+		this.generation += 1;
+		for (const controller of this.controllers) controller.abort();
+		this.controllers.clear();
+	}
+
+	lease(): AsyncRequestLease {
+		const generation = this.generation;
+		const controller = new AbortController();
+		this.controllers.add(controller);
+		return {
+			signal: controller.signal,
+			isCurrent: () => generation === this.generation && !controller.signal.aborted,
+			release: () => this.controllers.delete(controller)
+		};
+	}
+}
 
 /** Fallback color for a node with no semantic type. */
 const NO_TYPE_COLOR = '#94a3b8';
 /** Color applied to nodes/labels dimmed while another node is hovered. */
 const DIMMED_COLOR = '#cbd5e1';
+
+const GRAPH_LABEL_THEMES: Record<GraphTheme, GraphLabelColors> = {
+	light: {
+		canvasColor: '#e8f4fc',
+		hoverBackgroundColor: '#ffffff',
+		labelColor: '#0d2140',
+		edgeLabelColor: '#404040'
+	},
+	dark: {
+		canvasColor: '#171717',
+		hoverBackgroundColor: '#262626',
+		labelColor: '#fafafa',
+		edgeLabelColor: '#d4d4d4'
+	}
+};
+
+const GRAPH_LABEL_MAX_CHARACTERS = 32;
+
+/** Canvas and label colors whose contrast is verified by the unit contract. */
+export function graphLabelTheme(theme: GraphTheme): GraphLabelColors {
+	return GRAPH_LABEL_THEMES[theme];
+}
+
+/** Update label colors without replacing the renderer, graph, or camera. */
+export function applyGraphLabelTheme(renderer: GraphLabelRenderer, theme: GraphTheme): void {
+	const colors = graphLabelTheme(theme);
+	renderer.setSettings({
+		labelColor: { color: colors.labelColor },
+		edgeLabelColor: { color: colors.edgeLabelColor }
+	});
+	renderer.refresh();
+}
+
+/** Keep one collision-grid candidate per cell at default zoom and reveal more when closer. */
+export function graphLabelPolicy(cameraRatio: number): GraphLabelSettings {
+	const zoomedIn = cameraRatio < 0.6;
+	return {
+		labelDensity: zoomedIn ? 0.5 : 0.45,
+		labelGridCellSize: 240,
+		labelRenderedSizeThreshold: zoomedIn ? 3 : 9
+	};
+}
+
+/** Apply a changed zoom bucket and immediately rebuild Sigma's program indices. */
+export function applyGraphLabelPolicy(
+	renderer: GraphLabelPolicyRenderer,
+	cameraRatio: number
+): void {
+	const policy = graphLabelPolicy(cameraRatio);
+	const changed = (Object.keys(policy) as Array<keyof GraphLabelSettings>).some(
+		(key) => renderer.getSetting(key) !== policy[key]
+	);
+	if (!changed) return;
+
+	// Sigma's setSettings clears program indices before its scheduled render. A layout
+	// worker can emit a partial repaint in that gap, so rebuild synchronously here.
+	renderer.setSettings(policy);
+	renderer.refresh();
+}
+
+/** Bound canvas label width while leaving the graph's source label untouched. */
+export function ellipsizeGraphLabel(
+	label: string,
+	maxCharacters = GRAPH_LABEL_MAX_CHARACTERS
+): string {
+	if (label.length <= maxCharacters) return label;
+	return `${label.slice(0, maxCharacters)}…`;
+}
+
+/** Axis-aligned bounds matching Sigma's disc-label baseline, with breathing room. */
+export function graphLabelBounds(input: {
+	x: number;
+	y: number;
+	nodeSize: number;
+	labelSize: number;
+	labelWidth: number;
+}): GraphLabelBounds {
+	const left = input.x + input.nodeSize + 3;
+	const baseline = input.y + input.labelSize / 3;
+	return {
+		left: left - 2,
+		top: baseline - input.labelSize - 2,
+		right: left + input.labelWidth + 2,
+		bottom: baseline + 2
+	};
+}
+
+/** Per-render collision guard shared by node and edge canvas labels. */
+export class GraphLabelCollisionIndex {
+	private bounds: GraphLabelBounds[] = [];
+
+	claim(candidate: GraphLabelBounds): boolean {
+		const overlaps = this.bounds.some(
+			(existing) =>
+				candidate.left < existing.right &&
+				candidate.right > existing.left &&
+				candidate.top < existing.bottom &&
+				candidate.bottom > existing.top
+		);
+		if (overlaps) return false;
+		this.bounds.push(candidate);
+		return true;
+	}
+
+	reset(): void {
+		this.bounds = [];
+	}
+}
 
 const SEMANTIC_PALETTE = [
 	'#007bbd',
@@ -27,6 +219,85 @@ const SEMANTIC_PALETTE = [
 	'#d1495b',
 	'#4c956c'
 ];
+
+/**
+ * Return a bounded wall-clock budget for the worker layout.
+ *
+ * Larger and denser graphs get more settling time, while the hard cap keeps a
+ * replacement or navigation from retaining a worker indefinitely.
+ */
+export function forceAtlasLayoutBudget(nodeCount: number, edgeCount: number): ForceAtlasLayoutBudget {
+	const nodes = Math.max(0, Math.floor(nodeCount));
+	const edges = Math.max(0, Math.floor(edgeCount));
+	const boundedEdges = Math.min(edges, nodes * 4);
+	return {
+		durationMs: Math.min(1_500, Math.max(250, Math.round(250 + nodes * 2 + boundedEdges / 2)))
+	};
+}
+
+const BROWSER_LAYOUT_TIMERS: LayoutTimers<ReturnType<typeof setTimeout>> = {
+	schedule: (callback, delayMs) => setTimeout(callback, delayMs),
+	clear: (handle) => clearTimeout(handle)
+};
+
+/** Own one timed worker run and make replacement/destruction cancellation explicit. */
+export class TimedLayoutController<Handle = ReturnType<typeof setTimeout>> {
+	private worker: LayoutWorker | null = null;
+	private timer: Handle | null = null;
+	private generation = 0;
+
+	constructor(
+		private readonly timers: LayoutTimers<Handle> = BROWSER_LAYOUT_TIMERS as LayoutTimers<Handle>
+	) {}
+
+	get running(): boolean {
+		return this.worker !== null;
+	}
+
+	start(worker: LayoutWorker, durationMs: number, onSettled: () => void): void {
+		this.cancel();
+		const generation = this.generation;
+		this.worker = worker;
+		try {
+			worker.start();
+		} catch (error) {
+			this.worker = null;
+			worker.kill();
+			throw error;
+		}
+		try {
+			this.timer = this.timers.schedule(() => {
+				if (generation !== this.generation || worker !== this.worker) return;
+				this.worker = null;
+				this.timer = null;
+				this.terminate(worker);
+				onSettled();
+			}, durationMs);
+		} catch (error) {
+			this.worker = null;
+			this.timer = null;
+			this.terminate(worker);
+			throw error;
+		}
+	}
+
+	cancel(): void {
+		this.generation += 1;
+		if (this.timer !== null) this.timers.clear(this.timer);
+		this.timer = null;
+		const worker = this.worker;
+		this.worker = null;
+		if (worker) this.terminate(worker);
+	}
+
+	private terminate(worker: LayoutWorker): void {
+		try {
+			worker.stop();
+		} finally {
+			worker.kill();
+		}
+	}
+}
 
 /**
  * A stateful semantic-type → color mapper: colors are assigned from the palette in
@@ -59,14 +330,13 @@ export function nodeColorForMode(
 		: semanticColorer(attrs.semanticType);
 }
 
-/** Give every coordinate-less node a random position so a layout has a starting point. */
+/** Give every coordinate-less node an identity-stable position for layout startup. */
 export function seedPositions(graph: Graph): void {
 	graph.forEachNode((n, attrs) => {
 		if (typeof attrs.x !== 'number' || typeof attrs.y !== 'number') {
-			const angle = Math.random() * 2 * Math.PI;
-			const r = 0.5 + Math.random();
-			graph.setNodeAttribute(n, 'x', Math.cos(angle) * r);
-			graph.setNodeAttribute(n, 'y', Math.sin(angle) * r);
+			const position = seededNodePosition(n);
+			graph.setNodeAttribute(n, 'x', position.x);
+			graph.setNodeAttribute(n, 'y', position.y);
 		}
 	});
 }
@@ -75,9 +345,9 @@ export function seedPositions(graph: Graph): void {
 export function ensureFinite(graph: Graph): void {
 	graph.forEachNode((n, attrs) => {
 		if (!Number.isFinite(attrs.x as number) || !Number.isFinite(attrs.y as number)) {
-			const angle = Math.random() * 2 * Math.PI;
-			graph.setNodeAttribute(n, 'x', Math.cos(angle));
-			graph.setNodeAttribute(n, 'y', Math.sin(angle));
+			const position = seededNodePosition(n);
+			graph.setNodeAttribute(n, 'x', position.x);
+			graph.setNodeAttribute(n, 'y', position.y);
 		}
 	});
 }
@@ -123,6 +393,23 @@ export interface NodeAppearance {
 	type?: string;
 }
 
+export function nodeHiddenByFilters(opts: {
+	isCenter: boolean;
+	semanticType: string | null;
+	degree: number;
+	hiddenTypes: ReadonlySet<string>;
+	hideIsolated: boolean;
+	representationStatus: RepresentationStatus | null;
+	showLegacyOnly: boolean;
+}): boolean {
+	if (opts.showLegacyOnly && opts.representationStatus !== 'legacy-precoordinated') {
+		return true;
+	}
+	if (opts.isCenter) return false;
+	if (opts.semanticType && opts.hiddenTypes.has(opts.semanticType)) return true;
+	return opts.hideIsolated && opts.degree === 0;
+}
+
 /**
  * Decide a node's sigma appearance overrides. Mirrors the interactive rules: the
  * center is always shown (and drawn as a circle); nodes of a hidden semantic type or
@@ -139,14 +426,28 @@ export function reduceNodeAppearance(opts: {
 	selectedCode: string | null;
 	hovered: string | null;
 	hoveredNeighbors: ReadonlySet<string> | null;
+	representationStatus: RepresentationStatus | null;
+	showLegacyOnly: boolean;
 }): NodeAppearance {
 	const res: NodeAppearance = {};
 	const isCenter = opts.node === opts.centerCode;
-	if (isCenter) res.type = 'circle';
-	if (!isCenter) {
-		if (opts.semanticType && opts.hiddenTypes.has(opts.semanticType)) res.hidden = true;
-		if (opts.hideIsolated && opts.degree === 0) res.hidden = true;
+	if (opts.representationStatus === 'legacy-precoordinated') {
+		res.type = 'legacy-precoordinated';
+	} else if (isCenter) {
+		res.type = 'circle';
 	}
+	if (
+		nodeHiddenByFilters({
+			isCenter,
+			semanticType: opts.semanticType,
+			degree: opts.degree,
+			hiddenTypes: opts.hiddenTypes,
+			hideIsolated: opts.hideIsolated,
+			representationStatus: opts.representationStatus,
+			showLegacyOnly: opts.showLegacyOnly
+		})
+	)
+		res.hidden = true;
 	if (opts.selectedCode && opts.node === opts.selectedCode) res.highlighted = true;
 	if (opts.hovered && opts.hoveredNeighbors && !opts.hoveredNeighbors.has(opts.node)) {
 		res.color = DIMMED_COLOR;
@@ -160,7 +461,10 @@ export function reduceEdgeAppearance(opts: {
 	hovered: string | null;
 	source: string;
 	target: string;
+	sourceHidden?: boolean;
+	targetHidden?: boolean;
 }): { hidden?: boolean } {
+	if (opts.sourceHidden || opts.targetHidden) return { hidden: true };
 	if (opts.hovered && opts.source !== opts.hovered && opts.target !== opts.hovered) {
 		return { hidden: true };
 	}

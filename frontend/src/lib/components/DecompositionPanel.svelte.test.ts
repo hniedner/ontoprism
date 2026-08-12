@@ -33,17 +33,52 @@ const decomposed: ConceptDecomposition = {
 };
 
 describe('DecompositionPanel', () => {
+	it('aborts replaced requests and ignores their late success and error', async () => {
+		mock.mockClear();
+		const first = Promise.withResolvers<ConceptDecomposition>();
+		const second = Promise.withResolvers<ConceptDecomposition>();
+		const third = Promise.withResolvers<ConceptDecomposition>();
+		const signals: AbortSignal[] = [];
+		for (const request of [first, second, third]) {
+			mock.mockImplementationOnce((_code, _fetch, signal) => {
+				signals.push(signal!);
+				return request.promise;
+			});
+		}
+
+		const view = render(DecompositionPanel, { code: 'C1' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+		await view.rerender({ code: 'C2' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+		await view.rerender({ code: 'C3' });
+		await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(3));
+		expect(signals.slice(0, 2).every((signal) => signal.aborted)).toBe(true);
+
+		third.resolve({ ...decomposed, code: 'C3', constituents: [{ ...decomposed.constituents[0], filler_label: 'Newest filler' }] });
+		expect(await screen.findByRole('link', { name: 'Newest filler' })).toBeInTheDocument();
+		first.resolve({ ...decomposed, code: 'C1', constituents: [{ ...decomposed.constituents[0], filler_label: 'Stale filler' }] });
+		second.reject(new Error('stale failure'));
+		await Promise.allSettled([first.promise, second.promise]);
+		await Promise.resolve();
+		expect(screen.queryByRole('link', { name: 'Stale filler' })).not.toBeInTheDocument();
+		expect(screen.queryByText('Decomposition unavailable.')).not.toBeInTheDocument();
+	});
+
 	it('shows the loading indicator while waiting for the API', async () => {
+		vi.useFakeTimers();
 		const { promise, resolve } = Promise.withResolvers<ConceptDecomposition>();
 		mock.mockReturnValue(promise);
 		render(DecompositionPanel, { code: 'C6135' });
-		expect(screen.getByText('…')).toBeInTheDocument();
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+		await vi.advanceTimersByTimeAsync(150);
+		expect(screen.getByRole('status')).toHaveTextContent('Loading decomposition');
 		resolve({
 			code: 'C6135',
 			is_legacy_precoordinated: false,
 			decomposed_on: null,
 			constituents: []
 		});
+		vi.useRealTimers();
 	});
 
 	it('requests the decomposition for the given code', async () => {
@@ -54,15 +89,15 @@ describe('DecompositionPanel', () => {
 			constituents: []
 		});
 		render(DecompositionPanel, { code: 'C3262' });
-		await screen.findByText(/Not decomposed/);
-		expect(mock).toHaveBeenCalledWith('C3262');
+		await screen.findByText('No published decomposition is available.');
+		expect(mock).toHaveBeenCalledWith('C3262', undefined, expect.any(AbortSignal));
 	});
 
 	it('renders the legacy badge, axes and filler links for a decomposed concept', async () => {
 		mock.mockResolvedValue(decomposed);
 		render(DecompositionPanel, { code: 'C6135' });
 
-		expect(await screen.findByText('legacy pre-coordinated')).toBeInTheDocument();
+		expect(await screen.findByText('Legacy pre-coordinated')).toBeInTheDocument();
 		// Axes shown; fillers link to their own concept pages.
 		expect(screen.getByText('R88')).toBeInTheDocument();
 		expect(screen.getByText('R101')).toBeInTheDocument();
@@ -72,7 +107,7 @@ describe('DecompositionPanel', () => {
 		expect(screen.getByText('leaf')).toBeInTheDocument();
 	});
 
-	it('shows a not-decomposed message for an atomic concept', async () => {
+	it('does not infer atomicity from a missing published marker', async () => {
 		mock.mockResolvedValue({
 			code: 'C12400',
 			is_legacy_precoordinated: false,
@@ -80,8 +115,9 @@ describe('DecompositionPanel', () => {
 			constituents: []
 		});
 		render(DecompositionPanel, { code: 'C12400' });
-		expect(await screen.findByText(/already atomic/)).toBeInTheDocument();
-		expect(screen.queryByText('legacy pre-coordinated')).not.toBeInTheDocument();
+		expect(await screen.findByText('No published decomposition is available.')).toBeInTheDocument();
+		expect(screen.queryByText('Legacy pre-coordinated')).not.toBeInTheDocument();
+		expect(screen.queryByText(/atomic|not pre-coordinated/i)).not.toBeInTheDocument();
 	});
 
 	it('shows the unavailable state when the fetch fails', async () => {
@@ -113,7 +149,7 @@ describe('DecompositionPanel', () => {
 		} as unknown as ConceptDecomposition);
 		render(DecompositionPanel, { code: 'C6135' });
 		// Legacy badge shown, null constituents treated as empty list → no error.
-		expect(await screen.findByText('legacy pre-coordinated')).toBeInTheDocument();
+		expect(await screen.findByText('Legacy pre-coordinated')).toBeInTheDocument();
 	});
 
 	it('uses the axis label when present and falls back to the code for an unlabeled filler', async () => {

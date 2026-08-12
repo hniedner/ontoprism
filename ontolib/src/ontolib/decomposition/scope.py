@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import safe_iri
+from ontolib.terminologies.sparql_transport import safe_iri
 
 if TYPE_CHECKING:
     from collections.abc import (

@@ -22,7 +22,7 @@ from ontolib.decomposition.publication import (
     read_publication_marker,
     staging_graph_iri,
 )
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -123,15 +123,15 @@ async def _completion_metrics(
     }
 
 
-@pytest.mark.usefixtures("isolated_oxigraph_settings")
-async def test_oxigraph_update_is_transactional_and_empty_replacement_is_clean(
-    isolated_oxigraph_url: str,
+@pytest.mark.usefixtures("isolated_qlever_settings", "preserved_decomposed_graph")
+async def test_qlever_update_is_transactional_and_empty_replacement_is_clean(
+    isolated_qlever_url: str,
 ) -> None:
-    await _put_graph(isolated_oxigraph_url, _PUBLIC, _OLD)
-    await _put_graph(isolated_oxigraph_url, _STAGING, _NEW)
+    await _put_graph(isolated_qlever_url, _PUBLIC, _OLD)
+    await _put_graph(isolated_qlever_url, _STAGING, _NEW)
 
     failed = await _update(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f"""
         CLEAR GRAPH <{_PUBLIC}>;
         ADD GRAPH <{_STAGING}> TO GRAPH <{_PUBLIC}>;
@@ -140,16 +140,16 @@ async def test_oxigraph_update_is_transactional_and_empty_replacement_is_clean(
     )
     assert failed.is_error
     assert await _ask(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f'ASK {{ GRAPH <{_PUBLIC}> {{ <urn:old> <urn:value> "old" }} }}',
     )
     assert await _ask(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f'ASK {{ GRAPH <{_STAGING}> {{ <urn:new> <urn:value> "new" }} }}',
     )
 
     replaced = await _update(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f"""
         CLEAR GRAPH <{_PUBLIC}>;
         ADD GRAPH <{_STAGING}> TO GRAPH <{_PUBLIC}>;
@@ -159,20 +159,20 @@ async def test_oxigraph_update_is_transactional_and_empty_replacement_is_clean(
     )
     replaced.raise_for_status()
     assert not await _ask(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f"ASK {{ GRAPH <{_PUBLIC}> {{ <urn:old> ?p ?o }} }}",
     )
     assert await _ask(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f'ASK {{ GRAPH <{_PUBLIC}> {{ <urn:new> <urn:value> "new" }} }}',
     )
     assert not await _ask(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f"ASK {{ GRAPH <{_STAGING}> {{ ?s ?p ?o }} }}",
     )
 
     emptied = await _update(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f"""
         CLEAR GRAPH <{_PUBLIC}>;
         ADD SILENT GRAPH <urn:missing-empty-staging> TO GRAPH <{_PUBLIC}>;
@@ -181,11 +181,11 @@ async def test_oxigraph_update_is_transactional_and_empty_replacement_is_clean(
     )
     emptied.raise_for_status()
     assert not await _ask(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f"ASK {{ GRAPH <{_PUBLIC}> {{ <urn:new> ?p ?o }} }}",
     )
     assert await _ask(
-        isolated_oxigraph_url,
+        isolated_qlever_url,
         f'ASK {{ GRAPH <{_PUBLIC}> {{ <urn:publication> <urn:run> "preflight" }} }}',
     )
 
@@ -217,9 +217,13 @@ async def test_postgres_advisory_lock_excludes_and_then_admits_a_publisher(
         await second.close()
 
 
-@pytest.mark.usefixtures("isolated_postgres_settings", "isolated_oxigraph_settings")
+@pytest.mark.usefixtures(
+    "isolated_postgres_settings",
+    "isolated_qlever_settings",
+    "preserved_decomposed_graph",
+)
 async def test_production_publication_reconciles_marker_ahead_and_clears_stale_graph(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
     tmp_path: Path,
 ) -> None:
     engine = make_engine(get_settings().database_url)
@@ -246,10 +250,10 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
     try:
         await conn.execute("DELETE FROM decomp_run WHERE id = $1", _RUN_ID)
         await store.create_run(_RUN_ID, "26.07d", fingerprint)
-        await _put_graph(isolated_oxigraph_url, _PUBLIC, _OLD)
+        await _put_graph(isolated_qlever_url, _PUBLIC, _OLD)
         await write_ttl([], artifact, run_id=_RUN_ID)
 
-        async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        async with ncit_sparql_client(isolated_qlever_url) as client:
             with pytest.raises(OSError, match="directory"):
                 await publish_artifact(
                     run_id=_RUN_ID,
@@ -271,7 +275,7 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
             assert first_marker is not None
             assert first_marker.run_id == _RUN_ID
             response = await _update(
-                isolated_oxigraph_url,
+                isolated_qlever_url,
                 f"INSERT DATA {{ GRAPH <{_PUBLIC}> {{ "
                 '<urn:drift> <urn:value> "stale" } }',
             )
@@ -314,9 +318,13 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
         await dispose_engine(engine)
 
 
-@pytest.mark.usefixtures("isolated_postgres_settings", "isolated_oxigraph_settings")
+@pytest.mark.usefixtures(
+    "isolated_postgres_settings",
+    "isolated_qlever_settings",
+    "preserved_decomposed_graph",
+)
 async def test_concurrent_publishers_are_serialized_and_readers_see_complete_graphs(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
     tmp_path: Path,
 ) -> None:
     engine = make_engine(get_settings().database_url)
@@ -370,7 +378,7 @@ async def test_concurrent_publishers_are_serialized_and_readers_see_complete_gra
           op:representationStatus "legacy-precoordinated" ;
           op:decomposedBy "old-run" .
         """
-        await _put_graph(isolated_oxigraph_url, _PUBLIC, old_graph)
+        await _put_graph(isolated_qlever_url, _PUBLIC, old_graph)
         artifacts, destinations = await _write_concurrent_artifacts(
             tmp_path,
             decompositions,
@@ -378,7 +386,7 @@ async def test_concurrent_publishers_are_serialized_and_readers_see_complete_gra
 
         observations: list[frozenset[str]] = []
         stop_reading = asyncio.Event()
-        async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+        async with ncit_sparql_client(isolated_qlever_url) as client:
 
             async def observe() -> None:
                 while not stop_reading.is_set():

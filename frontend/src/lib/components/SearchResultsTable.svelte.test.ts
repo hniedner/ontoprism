@@ -5,8 +5,20 @@ import SearchResultsTable from './SearchResultsTable.svelte';
 import type { SearchHit } from '$lib/types';
 
 const hits: SearchHit[] = [
-	{ code: 'C3', label: 'Melanoma', semantic_type: 'Neoplastic Process', matched_synonym: null },
-	{ code: 'C1', label: 'Adenoma', semantic_type: 'Neoplastic Process', matched_synonym: null }
+	{
+		code: 'C3',
+		label: 'Melanoma',
+		semantic_type: 'Neoplastic Process',
+		matched_synonym: null,
+		representation_status: 'legacy-precoordinated'
+	},
+	{
+		code: 'C1',
+		label: 'Adenoma',
+		semantic_type: 'Neoplastic Process',
+		matched_synonym: null,
+		representation_status: null
+	}
 ];
 
 function rowCodes(): string[] {
@@ -21,6 +33,12 @@ describe('SearchResultsTable', () => {
 		render(SearchResultsTable, { hits });
 		const link = screen.getByRole('link', { name: 'Melanoma' });
 		expect(link).toHaveAttribute('href', '/repositories/ncit/C3');
+	});
+
+	it('shows an accessible legacy badge only for the published marker', () => {
+		render(SearchResultsTable, { hits });
+		expect(screen.getByText('Legacy pre-coordinated')).toBeInTheDocument();
+		expect(screen.queryByText(/atomic|not pre-coordinated/i)).not.toBeInTheDocument();
 	});
 
 	it('sorts by label ascending by default (Adenoma/C1 before Melanoma/C3)', () => {
@@ -45,8 +63,20 @@ describe('SearchResultsTable', () => {
 
 	it('sorts by semantic type when that header is clicked', async () => {
 		const mixed: SearchHit[] = [
-			{ code: 'C3', label: 'Zeta', semantic_type: 'Anatomic Structure', matched_synonym: null },
-			{ code: 'C1', label: 'Alpha', semantic_type: 'Neoplastic Process', matched_synonym: null }
+			{
+				code: 'C3',
+				label: 'Zeta',
+				semantic_type: 'Anatomic Structure',
+				matched_synonym: null,
+				representation_status: null
+			},
+			{
+				code: 'C1',
+				label: 'Alpha',
+				semantic_type: 'Neoplastic Process',
+				matched_synonym: null,
+				representation_status: null
+			}
 		];
 		render(SearchResultsTable, { hits: mixed });
 		screen.getByRole('button', { name: /Semantic type/i }).click();
@@ -57,10 +87,18 @@ describe('SearchResultsTable', () => {
 
 	it('renders a dash for a missing label or semantic type', () => {
 		render(SearchResultsTable, {
-			hits: [{ code: 'C9', label: null, semantic_type: null, matched_synonym: null }]
+			hits: [
+				{
+					code: 'C9',
+					label: null,
+					semantic_type: null,
+					matched_synonym: null,
+					representation_status: null
+				}
+			]
 		});
-		// Both the label cell and the semantic-type cell fall back to an em dash.
-		expect(screen.getAllByText('—').length).toBe(2);
+		// Label, semantic type, and unassessed status are all explicitly unknown.
+		expect(screen.getAllByText('—').length).toBe(3);
 	});
 
 	it('shows a no-results message for an empty hit list', () => {

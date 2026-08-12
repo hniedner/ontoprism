@@ -3,9 +3,12 @@
 
 One command to stand ontoprism up on a machine with no fairdata dependency:
 
-  pdm run data-build all          # OWL pair -> inactive sibling -> caDSR -> embeddings
+  pdm run data-build all          # ontology indexes -> caDSR -> embeddings
   pdm run data-build owl          # certify inferred + stated release pair (#180)
   pdm run data-build ncit-store   # build + validate an inactive sibling (#181)
+  pdm run data-build ncit-activate --candidate-manifest PATH  # activate (#148)
+  pdm run data-build ncit-bootstrap # first install only; refuses an existing target
+  pdm run data-build uberon-store # download + build the Uberon/CL QLever index
   pdm run data-build cadsr        # download + build the caDSR CDE SQLite
   pdm run data-build embeddings --publish  # validate + publish embeddings -> pgvector
 
@@ -29,10 +32,13 @@ import typer
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
+from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.archive import extract_cadsr_archive
 from ontolib.repositories.cadsr.build import build_database
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
+from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.embeddings.generate import (
     EMBED_DIM,
     Embedder,
@@ -48,6 +54,7 @@ from ontolib.repositories.embeddings.publication import (
     EmbeddingCorpusPublisher,
     coordinate_corpus_source_replacement,
     corpus_manifests,
+    replacing_corpus_source,
 )
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
@@ -61,6 +68,18 @@ from ontolib.repositories.xref.mapping_score import load_golden_mappings
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.terminologies.ncit.activation import (
+    ActivationJournal,
+    DockerComposeNcitService,
+    QleverServiceContract,
+    bind_projection_plan,
+    capture_projection_plan,
+    prepare_activation_journal,
+    reconcile_projection_at_endpoint,
+    run_journaled_activation,
+    validate_active_store_health,
+)
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.owl_download import (
     PAIR_MANIFEST_FILENAME,
@@ -71,11 +90,21 @@ from ontolib.terminologies.ncit.search_index import (
     populate_from_store,
 )
 from ontolib.terminologies.ncit.sibling_store import (
-    DockerOxigraphRuntime,
+    CANDIDATE_MANIFEST_FILENAME,
+    DockerQleverRuntime,
     NcitSiblingStoreManifest,
+    build_initial_ncit_store,
     build_ncit_sibling_store,
+    validate_ncit_sibling_manifest,
 )
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.uberon.store import (
+    UBERON_ARTIFACT_MANIFEST_FILENAME,
+    UBERON_OWNER_MARKER_FILENAME,
+    UberonIndexManifest,
+    build_uberon_index,
+    download_uberon_artifact,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -167,11 +196,128 @@ async def _build_ncit_sibling() -> NcitSiblingStoreManifest:
     manifest = await build_ncit_sibling_store(
         Path(settings.ncit_owl_dir) / PAIR_MANIFEST_FILENAME,
         active_store_path=Path(settings.ncit_store_dir),
-        runtime=DockerOxigraphRuntime(),
+        runtime=DockerQleverRuntime(),
     )
     typer.echo(
         "Certified inactive NCIt sibling: "
         f"candidate={manifest.candidate_path}, "
+        f"source_identity={manifest.source_identity}"
+    )
+    return manifest
+
+
+async def _build_initial_ncit() -> NcitSiblingStoreManifest:
+    """Build the first NCIt QLever index, refusing any existing target path."""
+    settings = get_settings()
+    manifest = await build_initial_ncit_store(
+        Path(settings.ncit_owl_dir) / PAIR_MANIFEST_FILENAME,
+        active_store_path=Path(settings.ncit_store_dir),
+        runtime=DockerQleverRuntime(),
+    )
+    typer.echo(
+        "Certified initial NCIt QLever index: "
+        f"target={manifest.candidate_path}, "
+        f"source_identity={manifest.source_identity}"
+    )
+    return manifest
+
+
+async def _activate_ncit(candidate_manifest_path: Path) -> ActivationJournal:
+    """Activate one certified sibling through the durable #148 journal."""
+    settings = get_settings()
+    active_path = Path(settings.ncit_store_dir).resolve()
+    journal_path, journal = prepare_activation_journal(
+        candidate_manifest_path.resolve(),
+        expected_active_path=active_path,
+    )
+    engine = make_engine(settings.database_url)
+    sf = make_sessionmaker(engine)
+    try:
+        if journal.phase == "preflight":
+            projection = await capture_projection_plan(
+                settings.ncit_sparql_url,
+                ProvenanceStore(sf),
+            )
+            journal = bind_projection_plan(journal_path, journal, projection)
+
+        def pause_publication():
+            return replacing_corpus_source(sf, Corpus.NCIT)
+
+        async def reconcile_projection(current: ActivationJournal) -> None:
+            await reconcile_projection_at_endpoint(
+                settings.ncit_sparql_url,
+                current,
+            )
+
+        async def validate_candidate(current: ActivationJournal) -> None:
+            await validate_active_store_health(
+                settings.ncit_sparql_url,
+                current,
+                expected_source_identity=current.candidate_source_identity,
+            )
+
+        async def validate_rollback(current: ActivationJournal) -> None:
+            await validate_active_store_health(
+                settings.ncit_sparql_url,
+                current,
+                expected_source_identity=current.active_source_identity,
+            )
+
+        activated = await run_journaled_activation(
+            journal_path,
+            service=DockerComposeNcitService(
+                project_directory=Path(__file__).resolve().parents[1],
+                contract=QleverServiceContract(
+                    service_name="qlever-ncit",
+                    container_name="ontoprism-qlever-ncit",
+                    image=journal.qlever_image,
+                    image_id=journal.qlever_image_id,
+                    index_version=journal.qlever_index_version,
+                    index_basename=journal.qlever_index_basename,
+                ),
+            ),
+            pause_publication=pause_publication,
+            reconcile_projection=reconcile_projection,
+            validate_health=validate_candidate,
+            validate_rollback_health=validate_rollback,
+        )
+    finally:
+        await dispose_engine(engine)
+    typer.echo(
+        "Activated certified NCIt sibling: "
+        f"phase={activated.phase}, "
+        f"source_identity={activated.candidate_source_identity}"
+    )
+    return activated
+
+
+async def _build_uberon_store() -> UberonIndexManifest:
+    """Download, certify, build, and initially install the Uberon/CL index."""
+    settings = get_settings()
+    source_dir = Path(settings.uberon_owl_dir)
+    artifact = await download_uberon_artifact(
+        source_dir,
+        source_url=settings.uberon_owl_url,
+        expected_version_iri=settings.uberon_expected_version_iri,
+        expected_sha256=settings.uberon_expected_sha256,
+        max_retries=settings.uberon_owl_max_retries,
+    )
+    runtime = DockerQleverRuntime(
+        index_basename="uberon",
+        owner_marker_filename=UBERON_OWNER_MARKER_FILENAME,
+        server_memory="2G",
+        server_cache="256M",
+        server_allocator="256M",
+    )
+    manifest = await build_uberon_index(
+        source_dir / UBERON_ARTIFACT_MANIFEST_FILENAME,
+        Path(settings.uberon_store_dir),
+        runtime=runtime,
+    )
+    typer.echo(
+        "Certified Uberon/CL QLever index: "
+        f"target={manifest.target_path}, "
+        f"artifact_identity={artifact.artifact_identity}, "
         f"source_identity={manifest.source_identity}"
     )
     return manifest
@@ -308,6 +454,13 @@ def _code_commit(repo: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def _required_executable(name: str) -> str:
+    executable = shutil.which(name)
+    if executable is None:
+        raise RuntimeError(f"required executable is not on PATH: {name}")
+    return executable
+
+
 async def _show_embedding_manifests() -> None:
     settings = get_settings()
     engine = make_engine(settings.database_url)
@@ -322,6 +475,7 @@ async def _show_embedding_manifests() -> None:
         typer.echo(
             f"{manifest.corpus.value}: build={manifest.build_id} "
             f"state={manifest.state} active={manifest.is_active} "
+            f"source_identity={manifest.source_identity} "
             f"source={manifest.source_version} source_hash={manifest.source_hash} "
             f"rows={manifest.actual_row_count}/{manifest.expected_row_count} "
             f"model={manifest.model_id}@{manifest.model_revision} "
@@ -351,7 +505,10 @@ async def _publish_ncit_embeddings(
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     try:
-        async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+        active_manifest = validate_ncit_sibling_manifest(
+            Path(settings.ncit_store_dir) / CANDIDATE_MANIFEST_FILENAME
+        )
+        async with ncit_sparql_client(settings.ncit_sparql_url) as client:
             store = NcitGraphStore(client)
             expected, source_hash = await ncit_source_fingerprint(store)
             source_version = _require_ncit_source(
@@ -366,6 +523,7 @@ async def _publish_ncit_embeddings(
                 CorpusBuild(
                     build_id=build_id,
                     corpus=Corpus.NCIT,
+                    source_identity=active_manifest.source_identity,
                     source_version=source_version,
                     source_hash=source_hash,
                     model_id=encoder.model_id,
@@ -397,7 +555,12 @@ async def _publish_ncit_embeddings(
                     # Refresh from the validated source while the same advisory lock
                     # excludes source replacement. FTS commits independently before
                     # embedding activation and always matches the current source.
-                    await populate_from_store(store, NcitSearchIndex(sf))
+                    await populate_from_store(
+                        store,
+                        NcitSearchIndex(sf),
+                        source_identity=active_manifest.source_identity,
+                        source_hash=source_hash,
+                    )
 
                 manifest = await publisher.publish(validate_source)
             except BaseException as exc:
@@ -418,6 +581,7 @@ async def _publish_cadsr_embeddings(
     db_path = Path(settings.cadsr_db_path)
     if not db_path.is_file():
         raise RuntimeError(f"caDSR source database is missing: {db_path}")
+    source = CdeRepository(db_path).source_provenance()
     expected, source_hash = cadsr_source_fingerprint(str(db_path))
     if expected != settings.cadsr_embedding_expected_rows:
         raise RuntimeError(
@@ -433,6 +597,7 @@ async def _publish_cadsr_embeddings(
             CorpusBuild(
                 build_id=build_id,
                 corpus=Corpus.CADSR,
+                source_identity=source.archive_sha256,
                 source_version=f"sha256:{source_hash}",
                 source_hash=source_hash,
                 model_id=encoder.model_id,
@@ -485,8 +650,8 @@ async def _build_xref() -> None:
     sf = make_sessionmaker(engine)
     try:
         async with (
-            OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
-            OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
+            ncit_sparql_client(settings.ncit_sparql_url) as ncit_client,
+            SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
         ):
             store = XrefStore(sf)
             ncit_version = (await ncit_client.version()) or "unknown"
@@ -509,7 +674,7 @@ async def _build_xref_coverage() -> None:
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     try:
-        async with OxigraphHttpClient(settings.ncit_sparql_url) as client:
+        async with ncit_sparql_client(settings.ncit_sparql_url) as client:
             store = XrefStore(sf)
             role_codes = await fetch_role_codes(client)
             report = await generate_coverage_report(
@@ -578,7 +743,7 @@ def _curated_pairs(
     )
 
 
-async def _endpoint_version(client: OxigraphHttpClient) -> str | None:
+async def _endpoint_version(client: SparqlHttpClient) -> str | None:
     """The endpoint's version, from ``owl:versionInfo`` or else ``owl:versionIRI``.
 
     Uberon (and most OBO releases) carry no ``owl:versionInfo`` — they carry a
@@ -605,7 +770,7 @@ async def _endpoint_version(client: OxigraphHttpClient) -> str | None:
 
 
 async def _endpoint_versions(
-    ncit_client: OxigraphHttpClient, uberon_client: OxigraphHttpClient
+    ncit_client: SparqlHttpClient, uberon_client: SparqlHttpClient
 ) -> tuple[str, str]:
     """The endpoint versions this run validates against — never fabricated.
 
@@ -642,13 +807,14 @@ async def _build_xref_promote(
     that could not reason is a *failed* run, not a run that conservatively promoted
     nothing, and the two must never look alike from the outside.
     """
+    _robot_dir, robot_identity = configured_robot_installation()
     settings = get_settings()
     engine = make_engine(settings.database_url)
     sf = make_sessionmaker(engine)
     try:
         async with (
-            OxigraphHttpClient(settings.ncit_sparql_url) as ncit_client,
-            OxigraphHttpClient(settings.uberon_sparql_url) as uberon_client,
+            ncit_sparql_client(settings.ncit_sparql_url) as ncit_client,
+            SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
         ):
             ncit_version, endpoint_uberon = await _endpoint_versions(
                 ncit_client, uberon_client
@@ -662,6 +828,7 @@ async def _build_xref_promote(
                 # Named explicitly: the D29 sweep is scoped by source, and a shared
                 # default would let a Uberon run quarantine every Mondo bridge.
                 source="uberon-cl-promotion",
+                tool_identity=robot_identity,
                 curated_pairs=_curated_pairs(golden, trust_unsigned=trust_unsigned),
             )
     finally:
@@ -697,6 +864,31 @@ def cadsr() -> None:
 def ncit_store() -> None:
     """Build and validate an inactive NCIt sibling; never activate it."""
     asyncio.run(_build_ncit_sibling())
+
+
+@app.command(name="ncit-activate")
+def ncit_activate(
+    candidate_manifest: Path = typer.Option(  # noqa: B008 - typer option factory
+        ...,
+        "--candidate-manifest",
+        help="Exact #181 candidate manifest to activate or resume.",
+        metavar="PATH",
+    ),
+) -> None:
+    """Journal, activate, validate, and recover one certified NCIt sibling."""
+    asyncio.run(_activate_ncit(candidate_manifest))
+
+
+@app.command(name="ncit-bootstrap")
+def ncit_bootstrap() -> None:
+    """Build the first NCIt QLever index; refuse any existing target."""
+    asyncio.run(_build_initial_ncit())
+
+
+@app.command(name="uberon-store")
+def uberon_store() -> None:
+    """Download and build the source-bound Uberon/CL QLever index."""
+    asyncio.run(_build_uberon_store())
 
 
 @app.command()
@@ -756,9 +948,23 @@ def xref_promote(
 
 @app.command(name="all")
 def build_all() -> None:
-    """Run OWL pair -> inactive sibling -> caDSR -> embeddings."""
+    """Build indexes, start/migrate their services, then publish dependent data."""
     asyncio.run(_build_owl())
-    asyncio.run(_build_ncit_sibling())
+    settings = get_settings()
+    ncit_target = Path(settings.ncit_store_dir)
+    if ncit_target.exists() or ncit_target.is_symlink():
+        asyncio.run(_build_ncit_sibling())
+    else:
+        asyncio.run(_build_initial_ncit())
+    asyncio.run(_build_uberon_store())
+    subprocess.run(  # noqa: S603 - resolved executable plus constant arguments
+        [_required_executable("docker"), "compose", "up", "-d", "--wait"],
+        check=True,
+    )
+    subprocess.run(  # noqa: S603 - resolved executable plus constant arguments
+        [_required_executable("alembic"), "upgrade", "head"],
+        check=True,
+    )
     _build_cadsr()
     asyncio.run(_build_embeddings(publish=True, corpus=None, restart=False))
 

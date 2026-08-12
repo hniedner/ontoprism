@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # sibling fairdata app (7878/7879/5432) so both run without interference.
     ncit_sparql_url: str = "http://localhost:7888"
     uberon_sparql_url: str = "http://localhost:7889"
-    ncit_expected_version: str = "26.02d"
+    ncit_expected_version: str = "26.07d"
 
     # caDSR CDE repository SQLite DB (ontoprism-owned CoW clone; read-only).
     cadsr_db_path: str = "data/cadsr/cde_repository.db"
@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     )
     # Independent release evidence for embedding completeness. The data-build workflow
     # requires exact agreement with the enumerated source; update on source bump.
-    ncit_embedding_expected_rows: Annotated[int, Field(gt=0)] = 204_373
-    cadsr_embedding_expected_rows: Annotated[int, Field(gt=0)] = 79_827
+    ncit_embedding_expected_rows: Annotated[int, Field(gt=0)] = 206_860
+    cadsr_embedding_expected_rows: Annotated[int, Field(gt=0)] = 79_835
 
     # CORS: browser origins allowed to call the API (the SvelteKit dev/prod hosts).
     cors_allow_origins: list[str] = [
@@ -47,9 +47,24 @@ class Settings(BaseSettings):
     ncit_owl_base_url: str = "https://evs.nci.nih.gov/ftp1/NCI_Thesaurus"
     ncit_owl_dir: str = "data/ncit-owl"
     ncit_owl_max_retries: int = 3
-    # Serving-store location is read only by M0 sibling construction: candidates are
-    # derived beside it but never activated or renamed by that workflow.
-    ncit_store_dir: str = "data/oxigraph-ncit"
+    # Active serving-store location. Refresh candidates are built beside it but never
+    # activated or renamed by the sibling workflow (#148 owns replacement).
+    ncit_store_dir: str = "data/qlever-ncit"
+
+    # Full Uberon product (including its Cell Ontology dependency) and immutable index.
+    uberon_owl_url: str = (
+        "https://github.com/obophenotype/uberon/releases/download/"
+        "v2026-06-23/uberon.owl"
+    )
+    uberon_expected_version_iri: str = (
+        "http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl"
+    )
+    uberon_expected_sha256: str = (
+        "938f51e7c3fc9fcbe5a2863eb346da8033737e568af5836958891c4c6bfb1192"
+    )
+    uberon_owl_dir: str = "data/uberon"
+    uberon_owl_max_retries: int = 3
+    uberon_store_dir: str = "data/qlever-uberon"
 
     # caDSR CDE refresh: source archive URL + the managed dir the CDE XML zip is cached
     # in. Threaded through to ontolib.repositories.cadsr.download (mirrors NCIt keys).

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { refreshRepositories } from '$lib/api';
+	import LoadingState from '$lib/components/LoadingState.svelte';
+	import RepositoryMetadataRow from '$lib/components/RepositoryMetadataRow.svelte';
 	import type { RefreshReport } from '$lib/types';
 
 	let report = $state<RefreshReport | null>(null);
@@ -28,7 +30,7 @@
 <div class="mb-6">
 	<h1 class="text-2xl font-semibold text-default">Repository Refresh</h1>
 	<p class="mt-1 max-w-3xl text-sm text-muted">
-		Re-probe the NCIt and caDSR repositories and report their current version and size.
+		Re-certify the active NCIt and caDSR proxies and report their manifest-bound identities.
 	</p>
 </div>
 
@@ -40,7 +42,7 @@
 >
 	<svg
 		viewBox="0 0 24 24"
-		class="h-4 w-4 {loading ? 'animate-spin' : ''}"
+		class="h-4 w-4"
 		fill="none"
 		stroke="currentColor"
 		stroke-width="1.8"
@@ -50,52 +52,38 @@
 	{loading ? 'Refreshing…' : 'Refresh repositories'}
 </button>
 
-{#if error}
-	<div
-		class="mb-6 rounded-xl border border-danger-200 bg-danger-50 p-4 text-sm text-danger dark:border-danger-800 dark:bg-danger-900/20"
-	>
-		{error}
-	</div>
-{/if}
 
-{#if report}
-	<p class="mb-2 text-xs text-muted">Refreshed at {report.refreshed_at}</p>
-	<div class="overflow-hidden rounded-xl border border-default bg-card shadow-sm">
-		<div class="overflow-x-auto">
-			<table class="w-full border-collapse text-sm">
-				<thead>
-					<tr class="border-b border-default">
-						<th class={th}>Repository</th>
-						<th class={th}>Status</th>
-						<th class={th}>Version</th>
-						<th class={th}>Items</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each report.repositories as repo (repo.name)}
-						<tr class="border-b border-default/60">
-							<td class="px-4 py-2.5 font-medium text-default">{repo.name}</td>
-							<td class="px-4 py-2.5">
-								{#if repo.healthy}
-									<span
-										class="inline-flex items-center gap-1.5 rounded-full bg-success-50 px-2.5 py-0.5 text-xs font-medium text-success dark:bg-success-900/30"
-									>
-										<span class="h-1.5 w-1.5 rounded-full bg-current"></span> healthy
-									</span>
-								{:else}
-									<span
-										class="inline-flex items-center gap-1.5 rounded-full bg-danger-50 px-2.5 py-0.5 text-xs font-medium text-danger dark:bg-danger-900/30"
-									>
-										<span class="h-1.5 w-1.5 rounded-full bg-current"></span> error: {repo.error}
-									</span>
-								{/if}
-							</td>
-							<td class="px-4 py-2.5 text-muted">{repo.version ?? '—'}</td>
-							<td class="px-4 py-2.5 text-muted">{repo.item_count?.toLocaleString() ?? '—'}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+<div aria-live="polite" class="min-h-16">
+	<LoadingState active={loading} label="Refreshing repositories" minHeight="4rem" />
+	{#if error}
+		<div
+			class="mb-6 rounded-xl border border-danger-200 bg-danger-50 p-4 text-sm text-danger dark:border-danger-800 dark:bg-danger-900/20"
+		>
+			{error}
 		</div>
-	</div>
-{/if}
+	{/if}
+
+	{#if report}
+		<p class="mb-2 text-xs text-muted">Refreshed at {report.refreshed_at}</p>
+		<div class="overflow-hidden rounded-xl border border-default bg-card shadow-sm">
+			<div class="overflow-x-auto">
+				<table class="w-full border-collapse text-sm">
+					<thead>
+						<tr class="border-b border-default">
+							<th class={th}>Repository</th>
+							<th class={th}>Status</th>
+							<th class={th}>Release / Items</th>
+							<th class={th}>Source identity</th>
+							<th class={th}>Manifest identity</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each report.repositories as repo (`${repo.repository}:${repo.state}`)}
+							<RepositoryMetadataRow repository={repo} />
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	{/if}
+</div>

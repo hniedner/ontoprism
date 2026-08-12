@@ -37,17 +37,31 @@ def _iri(code: str) -> str:
 
 @pytest.mark.unit
 def test_complete_definition_query_is_bounded_and_stated_only() -> None:
-    query = build_complete_definition_query("C6135")
+    query = build_complete_definition_query("C6135", nesting_depth=0)
+    nested_query = build_complete_definition_query("C6135", nesting_depth=1)
 
     assert f"GRAPH <{STATED_GRAPH_IRI}>" in query
-    assert f"<{_iri('C6135')}> owl:equivalentClass ?rootExpression" in query
+    assert f"<{_iri('C6135')}> owl:equivalentClass ?expression" in query
     assert "rdf:rest*" in query
     assert "rdf:rest+" not in query
+    assert "?cell != rdf:nil" not in query
+    assert "{ ?cell rdf:first ?cellWitness }" in query
+    assert "{ ?cell rdf:rest ?cellWitness }" in query
+    assert "BIND(0 AS ?nestingDepth)" in query
+    assert "BIND(0 AS ?requestedNestingDepth)" in query
     assert "?cell" in query
     assert "?next" in query
     assert "?childExpression" in query
     assert "?nestedExpression" in query
     assert "?parentExpression" in query
+    assert "?pathMember1" not in query
+    assert f"<{_iri('C6135')}> owl:equivalentClass ?rootExpression" in nested_query
+    assert "?pathMember1" in nested_query
+    assert "?pathMember2" not in nested_query
+    assert f"<{_iri('C6135')}> owl:equivalentClass ?expression" in nested_query
+    assert "UNION" in nested_query
+    assert "BIND(1 AS ?nestingDepth)" in nested_query
+    assert "BIND(1 AS ?requestedNestingDepth)" in nested_query
     assert len(query) < 5_000
 
 
@@ -55,6 +69,115 @@ def test_complete_definition_query_is_bounded_and_stated_only() -> None:
 def test_complete_definition_query_rejects_unsafe_code() -> None:
     with pytest.raises(ValueError, match=r"[Uu]nsafe"):
         build_complete_definition_query("C6135> } UNION {")
+
+
+@pytest.mark.unit
+def test_complete_definition_query_rejects_out_of_range_nesting_depth() -> None:
+    with pytest.raises(ValueError, match="nesting depth"):
+        build_complete_definition_query("C6135", nesting_depth=-1)
+    with pytest.raises(ValueError, match="nesting depth"):
+        build_complete_definition_query("C6135", nesting_depth=5)
+
+
+@pytest.mark.unit
+async def test_complete_definition_queries_only_proven_nested_levels() -> None:
+    calls: list[int] = []
+    outer = {
+        "expression": "_:outer",
+        "parentExpression": None,
+        "nestingDepth": "0",
+        "list": "_:outer-cell",
+        "cell": "_:outer-cell",
+        "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+        "member": "_:inner",
+        "role": None,
+        "target": None,
+        "childExpression": None,
+        "nestedExpression": "_:inner",
+    }
+    inner = {
+        "expression": "_:inner",
+        "parentExpression": "_:outer",
+        "nestingDepth": "1",
+        "list": "_:inner-cell",
+        "cell": "_:inner-cell",
+        "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+        "member": _iri("C35501"),
+        "role": None,
+        "target": None,
+        "childExpression": None,
+        "nestedExpression": None,
+    }
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        assert required_variables == {"expression", "list", "cell"}
+        depth = next(
+            depth
+            for depth in range(5)
+            if f"BIND({depth} AS ?requestedNestingDepth)" in query
+        )
+        calls.append(depth)
+        return [outer] if depth == 0 else [outer, inner]
+
+    complete = await read_complete_definition(select, "C27262")
+
+    assert calls == [0, 1]
+    assert len(complete.groups) == 2
+
+
+@pytest.mark.unit
+async def test_complete_definition_nested_query_bound_has_live_reject_branch() -> None:
+    calls: list[int] = []
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del required_variables
+        depth = next(
+            depth
+            for depth in range(5)
+            if f"BIND({depth} AS ?requestedNestingDepth)" in query
+        )
+        calls.append(depth)
+        expression = f"_:expression-{depth}"
+        nested = f"_:expression-{depth + 1}"
+        return [
+            {
+                "expression": expression,
+                "parentExpression": (f"_:expression-{depth - 1}" if depth else None),
+                "nestingDepth": str(depth),
+                "list": f"_:cell-{depth}",
+                "cell": f"_:cell-{depth}",
+                "next": "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil",
+                "member": nested,
+                "role": None,
+                "target": None,
+                "childExpression": None,
+                "nestedExpression": nested,
+            }
+        ]
+
+    with pytest.raises(CompleteDefinitionError, match="nesting depth bound"):
+        await read_complete_definition(select, "C27262")
+
+    assert calls == [0, 1, 2, 3, 4]
+
+
+@pytest.mark.unit
+async def test_complete_definition_rejects_a_mismatched_query_level() -> None:
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return [
+            _linked_definition_rows(1)[0]
+            | {"requestedNestingDepth": "4", "nestingDepth": "0"}
+        ]
+
+    with pytest.raises(CompleteDefinitionError, match="requested nesting depth"):
+        await read_complete_definition(select, "C27262")
 
 
 @pytest.mark.unit

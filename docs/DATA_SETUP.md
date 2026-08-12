@@ -1,34 +1,90 @@
 # Data provisioning (one-time, dev)
 
-ontoprism runs its **own** isolated data services (see `docker-compose.yml`) so it never
-interferes with the sibling fairdata app:
+ontoprism runs its **own** isolated data services (see `docker-compose.yml`). A fresh
+checkout uses digest-pinned official service images and does not require another
+repository or a locally built image:
 
 | Service | ontoprism | fairdata |
 |---|---|---|
-| Oxigraph NCIt | `:7888` | `:7878` |
-| Oxigraph Uberon | `:7889` | `:7879` |
+| QLever NCIt | `:7888` | `:7878` |
+| QLever Uberon/CL | `:7889` | `:7879` |
 | PostgreSQL (pgvector) | `:5433` | `:5432` |
 | backend | `:8011` | `:8001` |
+| SvelteKit Node/dev server | `:5175` | `:5173` |
 
-The Oxigraph and caDSR source artifacts were initially provisioned from fairdata
-(without re-downloading); embeddings must be rebuilt and validated as described below:
+## 1. Install the pinned data-build tools
 
-## 1. Oxigraph stores (triple store)
-
-APFS copy-on-write clones of fairdata's on-disk RocksDB stores into `./data/`
-(instant, own writable copy; `./data` is gitignored):
+Install the repository dependencies and copy the environment template:
 
 ```bash
-cp -Rc ../fairdata/resources/ncit/graph_store/.   data/oxigraph-ncit/
-cp -Rc ../fairdata/resources/uberon/graph_store/. data/oxigraph-uberon/
-cp -c  ../fairdata/data/cde_repository/cde_repository.db data/cadsr/cde_repository.db
-docker compose up -d      # serves the clones via the same oxigraph 0.5.3 image
+cp .env.example .env
+pdm install --dev
+npm ci --prefix frontend
 ```
 
-Verify: `curl -s localhost:7888/query -H 'Content-Type: application/sparql-query' \
---data 'SELECT (COUNT(*) AS ?n){?s ?p ?o}'` → 12,836,426 triples.
+The copied `.env` also binds the private SvelteKit BFF target:
 
-This loopback request is an operator check against the Oxigraph service itself. The
+```dotenv
+ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:8011
+ONTOPRISM_FASTAPI_TIMEOUT_MS=5000
+```
+
+`pdm run start-all` exports that file to both application processes. Direct Vite
+development reads the repository root through `envDir`. A production adapter-node build
+does not load `.env` automatically; inject the same private variables into the process,
+for example `node --env-file=../.env build` from `frontend/`. Also set adapter-node
+`ORIGIN` to the public application origin. Only configure forwarded-protocol/host headers
+when a trusted reverse proxy overwrites them; accepting client-supplied forwarded headers
+would allow origin spoofing. The SvelteKit BFF strips browser-supplied `Forwarded`,
+`X-Forwarded-*`, `X-Real-IP`, and hop-by-hop headers before calling FastAPI; configure
+the public proxy-to-SvelteKit hop independently from the private SvelteKit-to-FastAPI hop.
+The BFF supplies FastAPI with SvelteKit's socket-derived client address. Behind a trusted
+proxy, set adapter-node `ADDRESS_HEADER` (and `XFF_DEPTH` for `x-forwarded-for`) only when
+that proxy overwrites the selected header; otherwise leave them unset.
+
+NCIt is published by EVS as stated and inferred RDF/XML OWL. QLever indexes
+N-Triples/Turtle/N-Quads, so the build uses Apache Jena RIOT only as a streaming,
+serialization-preserving RDF/XML-to-N-Triples converter. The installer downloads the
+pinned Apache archive over HTTPS, verifies its SHA-256 digest, and records its exact
+identity before the build can use it:
+
+```bash
+pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
+```
+
+`cp .env.example .env` configures this certified repository-local installation for
+every `pdm run` command; no per-shell export is required.
+
+The pinned converter archive digest is
+`sha256:653108a91fd9b309a89bc756258bae0bca01587cef475942d11852e3beba2ae3`
+(`shasum -a 256 .tools/jena-6.1.0/apache-jena-6.1.0.tar.gz`, 2026-08-10).
+RIOT runs inside the digest-pinned Java runtime declared in
+`ontolib.core.data_build_tools`; no host Java installation is required for NCIt index
+construction.
+
+## 2. Build the ontology indexes, then start services
+
+QLever must have an offline index before its server starts. Build the NCIt and
+Uberon/CL indexes first, then launch the services and migrate Postgres:
+
+```bash
+pdm run data-build owl
+pdm run data-build ncit-bootstrap  # first install only; refuses any existing target
+pdm run data-build uberon-store
+docker compose up -d
+pdm run migrate
+```
+
+Verify the pinned processes and service endpoints after the indexes are active:
+
+```bash
+docker compose images
+docker compose ps
+curl -fsS localhost:7888/ -H 'Content-Type: application/sparql-query' \
+  --data 'ASK {}'
+```
+
+This loopback request is an operator check against the QLever service itself. The
 FastAPI application exposes no public raw-SPARQL endpoint; its supported query surface
 is the typed API (D44).
 
@@ -45,7 +101,7 @@ pdm run test-integration-full-store
 `NCIT_STATED_SPARQL_URL` affects only stated-graph full-store contracts and falls back to
 `NCIT_SPARQL_URL` when omitted.
 
-## 2. Embeddings (pgvector)
+## 3. Embeddings (pgvector)
 
 Embeddings are published only by ontoprism's validated build. Do **not** pipe a sibling
 database dump into the serving tables: row presence, vector dimension, and HNSW indexes
@@ -55,8 +111,10 @@ accepted it as usable.
 
 The migration creates stable corpus-specific serving tables (`ncit_concepts` and
 `cde_repository`), an `embedding_corpus_manifest`, and build-scoped staging. Similarity
-readers return rows only when a completed active manifest exists. Existing pre-migration
-rows are deliberately not auto-certified.
+readers return rows only when a completed active manifest exists for the certified
+repository `source_identity`. The manifest also records `source_hash`, the canonical
+ordered serving-content fingerprint. Existing pre-migration rows are deliberately not
+auto-certified; migration 0015 deactivates manifests whose source proxy is unknowable.
 
 ## Database schema (Alembic)
 
@@ -74,35 +132,43 @@ actual predecessor (`0001_embedding_tables`) and then upgrades through every lat
 migration; it never stamps the current head without creating publication schema.
 Legacy embedding rows remain inactive until an explicit validated rebuild.
 
-## Rebuild-from-scratch (standalone, no fairdata)
+## Rebuild from public sources
 
-`pdm run data-build` stands ontoprism up from public sources with no fairdata
-dependency (issue #7). It has five steps, runnable individually or together:
+`pdm run data-build` builds ontoprism from public sources. Its steps are runnable
+individually or together:
 
 ```bash
-# 0. Bring up the empty data services + apply the DB schema.
-pdm run up                      # oxigraph-ncit :7888, postgres :5433
-pdm run migrate                 # pgvector embedding tables + ncit_search FTS cache
-
 # 1. Download, hash, same-release-bind, and revalidate the inferred/stated NCIt pair.
 #    Online full-store loading is disabled (D12/D46).
 pdm run data-build owl
 
-# 2. Revalidate that pair, bulk-load it with the pinned Oxigraph CLI, and certify a
-#    directly queryable inactive sibling beside NCIT_STORE_DIR. This command never
-#    renames or activates the sibling; #148 owns later serving activation (D47).
+# 2a. On a fresh machine, build, validate, and atomically install the first NCIt index.
+pdm run data-build ncit-bootstrap
+
+# 2b. On an existing installation, build and certify an inactive sibling instead.
+#     This command never replaces the active index.
 pdm run data-build ncit-store
 
-# 3. caDSR CDEs → SQLite. Downloads the released CDE XML and builds cde_repository.db
+# 2c. Activate the exact emitted candidate with the journaled maintenance workflow.
+pdm run data-build ncit-activate --candidate-manifest /exact/emitted/manifest/path
+
+# 3. Download, certify, and initially install the Uberon/CL index.
+pdm run data-build uberon-store
+
+# 4. Start the serving indexes and Postgres, then apply the schema.
+pdm run up
+pdm run migrate
+
+# 5. caDSR CDEs → SQLite. Downloads the released CDE XML and builds cde_repository.db
 #    (cdes + cde_concepts + the cdes_fts FTS5 index).
 pdm run data-build cadsr
 
-# 4. Inspect all embedding build manifests. This is read-only and exits non-zero rather
+# 6. Inspect all embedding build manifests. This is read-only and exits non-zero rather
 #    than writing implicitly:
 pdm install -G data-build
 pdm run data-build embeddings
 
-# 5. Explicitly build and validate NCIt, then caDSR. Each corpus has its own atomic
+# 7. Explicitly build and validate NCIt, then caDSR. Each corpus has its own atomic
 #    activation; this is intentionally not one cross-corpus transaction, so a caDSR
 #    failure cannot corrupt or roll back accepted NCIt vectors.
 pdm run data-build embeddings --publish
@@ -111,11 +177,15 @@ pdm run data-build embeddings --publish
 pdm run data-build embeddings --publish --corpus ncit
 pdm run data-build embeddings --publish --corpus cadsr
 
-# …or run 1→5 in one explicitly mutating shot:
+# …or provision a fresh/partially provisioned installation in one mutating shot.
+# `all` builds the offline indexes, starts QLever/Postgres with `docker compose up
+# -d --wait`, applies Alembic, then builds caDSR and publishes embeddings. It refuses
+# replacement of an existing Uberon/CL index; use the individual refresh commands on
+# an established installation.
 pdm run data-build all
 ```
 
-`NCIT_STORE_DIR` defaults to `data/oxigraph-ncit`. The sibling builder resolves that
+`NCIT_STORE_DIR` defaults to `data/qlever-ncit`. The sibling builder resolves that
 directory only to choose the same parent filesystem; the active directory is never
 mounted into a loader or validation container. A successful candidate contains
 `.ontoprism-ncit-candidate.json`, which records the artifact-pair identity and hashes,
@@ -124,19 +194,75 @@ stable source identity. A rejected candidate contains
 `.ontoprism-ncit-rejected.json` and is not eligible for activation. Keep it for diagnosis
 or remove only after independently verifying its owner marker.
 
+### Journaled NCIt maintenance activation
+
+`ncit-store` prints the exact absolute path of the certified candidate it built. Pass
+that emitted manifest path unchanged to the activation command; do not discover a
+candidate with a glob, rename either store, or edit the manifest:
+
+```bash
+pdm run data-build ncit-store
+pdm run data-build ncit-activate --candidate-manifest /exact/emitted/.qlever-ncit.candidate-OWNER/.ontoprism-ncit-candidate.json
+```
+
+The serving contract is QLever index basename `ncit`, revision `65f84b4`, in
+`docker.io/adfreiburg/qlever@sha256:abeb20ae245184cee2991a99c22a9bb0a62f6884bb1a03747bf7e56165cb0ca6`
+(`docker compose config qlever-ncit`, then `docker inspect ontoprism-qlever-ncit`,
+2026-08-10). The command verifies that executable/index identity, the exact configured
+active and manifest paths, both independent owner markers, same-filesystem rename
+support, store-format identity, complete QLever file inventory, and free-space headroom
+before it stops `qlever-ncit` (`pdm run pytest
+ontolib/tests/terminologies/test_ncit_activation.py -q`, exit 0, 2026-08-10).
+It holds NCIt embedding-source publication coordination while it stops the service,
+fsyncs `data/.qlever-ncit.activation.json` and the containing directory, moves the old
+active directory to the journal's one exact rollback path, activates the candidate,
+force-recreates the service, restores the PostgreSQL-bound projection, and runs the
+release/graph/count/restriction/stated-differential plus composed-definition and browse
+health workload (`pdm run pytest ontolib/tests/terminologies/test_ncit_activation.py
+ontolib/tests/terminologies/test_ncit_activation_integration.py -q`, exit 0,
+2026-08-10).
+
+**Activation refusal.** A mismatched path, owner, filesystem, sidecar, store format,
+executable identity, headroom check, or a different candidate while a nonterminal
+journal exists fails before an unsafe rename. Preserve the journal and every named path;
+do not run a prefix cleanup or an in-place QLever load. Correct the reported condition
+and retry the identical `ncit-activate --candidate-manifest ...` command.
+
+**Automatic rollback.** If service recreation, projection reconciliation, or health
+validation fails before cleanup, the command preserves the failed candidate at its
+exact journaled path, restores the complete prior active directory, recreates QLever,
+and reruns the same health workload before reporting a rolled-back activation. A cleanup
+failure after successful health leaves the accepted active store and rollback directory
+bound by the journal for a safe retry; never delete that directory manually.
+
+**Interrupted recovery.** Inspect the durable phase without changing it, then retry the
+identical command with the identical manifest argument:
+
+```bash
+jq . data/.qlever-ncit.activation.json
+pdm run data-build ncit-activate \
+  --candidate-manifest /the/same/path/passed/to/the/interrupted/command
+```
+
+The retry reconciles an ambiguous successful rename or cleanup from exact owner markers
+and continues or rolls back from the persisted phase. Terminal journals are retained;
+when a later, different certified candidate starts, the command moves the exact terminal
+journal to `.qlever-ncit.activation-OWNER-complete.json` (or `-rolled-back.json`) before
+fsyncing a new preflight journal. If rollback recovery itself cannot recreate and
+validate the old service, stop: preserve all exact paths and the journal for diagnosis.
+
 ### Source-bound decomposition runs
 
-Run decomposition only against an endpoint serving the certified candidate described by
-the required manifest.
-
-> **Not usable end to end until #148 lands.** `data-build ncit-store` deliberately leaves
-> the certified candidate inactive and there is no supported activation step yet, so an
-> endpoint configured against the active store will not match the candidate observation
-> and `decompose` fails closed. Do not promote a candidate by hand.
+Run decomposition only against an endpoint serving the certified index described by
+the required manifest. On a first installation, `ncit-bootstrap` creates the active
+index and its manifest, so decomposition is usable end to end. During a later refresh,
+`ncit-store` deliberately leaves the new certified candidate inactive; keep using the
+active manifest until `ncit-activate` completes. Do not promote a refresh candidate by
+hand.
 
 ```bash
 pdm run decompose \
-  --source-manifest /absolute/candidate/path/.ontoprism-ncit-candidate.json \
+  --source-manifest /absolute/active/or/candidate/path/.ontoprism-ncit-candidate.json \
   --branch neoplasm \
   --out data/ncit_decomposed.ttl
 ```
@@ -145,7 +271,7 @@ For the deterministic, review-only 26.07d M1 slice:
 
 ```bash
 pdm run decompose \
-  --source-manifest /absolute/candidate/path/.ontoprism-ncit-candidate.json \
+  --source-manifest /absolute/active/or/candidate/path/.ontoprism-ncit-candidate.json \
   --branch neoplasm \
   --sample-manifest samples/ncit-26.07d-m1-review.json \
   --out data/ncit-26.07d-m1-review.ttl
@@ -176,8 +302,9 @@ matching marker-ahead retries reconcile without replaying a committed graph upda
 Preflight failures fail the run, while post-completion lock-release failures surface
 without demoting it (D53).
 
-Every manifest records source version/hash, immutable model revision, vector dimension,
-expected unique-row count, code commit, build ID, sentinels, state, and timestamps;
+Every manifest records source version/hash, certified proxy `source_identity`, immutable
+model revision, vector dimension, expected unique-row count, code commit, build ID,
+sentinels, state, and timestamps;
 completed manifests additionally record the validated actual count. The pinned model is
 `sentence-transformers/all-mpnet-base-v2@e8c3b32edf5434bc2275fc9bab85f82640a19130`.
 NCIt fingerprints every ordered source record and recomputes version/count/fingerprint
@@ -218,8 +345,8 @@ Run `pdm run data-build embeddings` first. It prints persisted build provenance 
 lifecycle evidence (completed builds include actual counts), then refuses
 to mutate without `--publish`. A valid NCIt publication requires exact source-count
 agreement with both the enumerated source and the configured release expectation
-(`NCIT_EMBEDDING_EXPECTED_ROWS=204373` for 26.02d /
-`CADSR_EMBEDDING_EXPECTED_ROWS=79827`) plus C3262;
+(`NCIT_EMBEDDING_EXPECTED_ROWS=206860` for the 26.07d inferred default graph /
+`CADSR_EMBEDDING_EXPECTED_ROWS=79835`) plus C3262;
 caDSR likewise requires exact source/release count agreement and `2517527:4`.
 
 Build batches commit only to build-scoped staging. If encoding, validation, or
@@ -231,6 +358,20 @@ version/count/configuration failures occur before candidate creation. Repair the
 again, then run a new explicit `--publish`; no wildcard cleanup or implicit promotion
 is performed. Activation holds a per-corpus PostgreSQL advisory transaction lock and
 replaces stable rows plus the active manifest in one transaction.
+
+### Repository readiness and refresh metadata
+
+`GET /ready` returns HTTP 200 only when the active NCIt manifest, completed activation
+journal (including `activated_at`), release, and live default/stated observation agree.
+Its ready value includes `source_identity`, exact manifest-byte `manifest_identity`,
+release, activation time, and observation. A refusal is HTTP 503 with a typed reason such
+as `manifest-missing`, `activation-incomplete`, `release-mismatch`, or
+`observation-mismatch`; the unhealthy value deliberately contains no identity fields.
+
+The refresh report returns the same discriminated metadata for NCIt and caDSR. caDSR's
+ready value identifies the persisted source archive and the canonical serving-row
+fingerprint/count. The refresh page displays these values and the exact unhealthy reason;
+it does not turn endpoint reachability into a ready claim (D68).
 
 ## Validation tools (ROBOT + ELK)
 
@@ -254,28 +395,21 @@ Verify: `java -version` → `openjdk version "21" …`.
 
 ### Install ROBOT
 
-Download the latest `.jar` from the [releases page](https://github.com/ontodev/robot/releases)
-and place a wrapper script on PATH:
+Use the repository installer. It downloads the pinned release to a temporary file,
+requires its SHA-256 identity to match, and only then publishes the JAR, launcher, and
+`robot-tool.json` provenance record:
 
 ```bash
-ROBOT_VERSION=1.9.6   # check latest at the releases page
-curl -sSLO "https://github.com/ontodev/robot/releases/download/v$ROBOT_VERSION/robot.jar"
-chmod +x robot.jar
-
-# Create a small launcher script (adjust JAVA_HOME as needed):
-cat > /usr/local/bin/robot << 'SCRIPT'
-#!/bin/bash
-exec java -jar /path/to/robot.jar "$@"
-SCRIPT
-chmod +x /usr/local/bin/robot
+pdm run python scripts/install_robot.py --install-dir "$PWD/.tools/robot-1.9.10"
 ```
 
-Alternatively, on macOS with Homebrew:
-```bash
-brew install robot
-```
-
-Verify: `robot --version` → prints a version string.
+`cp .env.example .env` configures this certified repository-local installation for
+every `pdm run` command. Verify with `pdm run ./.tools/robot-1.9.10/robot --version`;
+it must print `ROBOT version 1.9.10`. The pinned digest is
+`sha256:16a73c074f3df359a7338a84b4e0788785fe06117f931bb9796e9619ea776105`
+(`gh release view v1.9.10 --repo ontodev/robot --json assets`, 2026-08-09); the official
+release exposes that SHA-256 asset digest and no separate signature asset in its asset
+list (same command, 2026-08-09).
 
 ### Usage
 
@@ -293,8 +427,11 @@ launcher or `JAVA_OPTS`:
 robot reason --reasoner ELK -Xmx32g --input <ontology.owl> --output <inferred.owl>
 ```
 
-The harness defaults to the standard `robot` executable on PATH; no Python dependency is
-added for Java or ROBOT.
+`data-build xref-promote` requires `ONTOPRISM_ROBOT_DIR`, supplied by the PDM-loaded
+`.env`; it revalidates the JAR, launcher,
+metadata, and observed version before starting, then persists the source, version, and
+digest in the xref run metrics. Direct library contract tests may use `robot` on `PATH`;
+no Python dependency is added for Java or ROBOT.
 
 ### Running the promotion pass (#73)
 
@@ -337,14 +474,13 @@ Notes:
   `Thesaurus-stated.owl`, their distinct cached archives, and
   `ncit-artifact-pair.json`. Revalidate that manifest before use. The *stated* build alone
   expands beyond 700 MB; D12 records why HTTP loading is unsafe, D46 makes the prohibition
-  executable, and D47 constructs and certifies a separate inactive store with the pinned
-  CLI.
+  executable, and D67 records the pinned streaming Jena-to-N-Triples plus offline QLever
+  index path.
 - The embedding step is heavy (multi-GB model + compute over ~200k concepts + ~80k
   CDEs) and is a batch/offline operation. CI runs deterministic encoders against
   disposable pgvector to prove staged-batch invisibility, failure rollback, validation,
   retry, independent corpora, and atomic activation. Explicit `full_build` contracts
   verify the real encoder shape and inspect configured full-build artifacts; the
   expensive end-to-end build remains an operator run.
-- The Oxigraph store, caDSR SQLite, and pgvector rows produced are the same shapes the
-  running app reads, so a standalone build is a drop-in replacement for the fairdata
-  clone described above. See [DECISIONS.md](DECISIONS.md).
+- The QLever indexes, caDSR SQLite, and pgvector rows produced are the same shapes the
+  running app reads. See [DECISIONS.md](DECISIONS.md).

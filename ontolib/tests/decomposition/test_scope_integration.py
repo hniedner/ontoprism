@@ -8,8 +8,8 @@ import pytest
 
 from ontolib.decomposition.scope import ScopeHierarchyError, enumerate_scope_codes
 from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
@@ -48,10 +48,10 @@ class _ScopeRowsDouble:
         return self._responses.pop(0)
 
 
-async def test_scope_double_matches_disposable_oxigraph_for_defined_genus_dag(
-    isolated_oxigraph_url: str,
+async def test_scope_double_matches_disposable_qlever_for_defined_genus_dag(
+    isolated_qlever_url: str,
 ) -> None:
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         real_neoplasm = await enumerate_scope_codes(client, "C99501")
         real_disease = await enumerate_scope_codes(client, "C99500")
     double_neoplasm = await enumerate_scope_codes(_ScopeRowsDouble(), "C99501")
@@ -73,7 +73,7 @@ async def test_scope_double_matches_disposable_oxigraph_for_defined_genus_dag(
 
 @pytest.mark.mutating_integration
 async def test_scope_fails_closed_when_named_genus_follows_bounded_prefix(
-    isolated_oxigraph_url: str,
+    isolated_qlever_url: str,
 ) -> None:
     restrictions = "\n".join(
         (
@@ -89,7 +89,7 @@ async def test_scope_fails_closed_when_named_genus_follows_bounded_prefix(
         "<http://www.w3.org/2002/07/owl#intersectionOf> ( "
         f"{restrictions} <{NCIT_NS}C99502> ) ] ."
     )
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with ncit_sparql_client(isolated_qlever_url) as client:
         await client.load(
             turtle.encode(),
             content_type="text/turtle",

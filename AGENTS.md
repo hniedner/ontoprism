@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
-(FastAPI + Oxigraph/SPARQL + Postgres/pgvector backend, SvelteKit 5 frontend). See
+(FastAPI + QLever/SPARQL + Postgres/pgvector backend, SvelteKit 5 frontend). See
 `README.md` for product goals and `docs/ARCHITECTURE.md` for the full layout.
 
 ## Hard rules (never violate)
@@ -124,7 +124,13 @@ decisions — see D60 for the full statement.
 ```bash
 pdm install --dev       # Python 3.13, installs ontolib + backend editable
 npm ci --prefix frontend
-pdm run up               # docker compose: oxigraph-ncit :7888, oxigraph-uberon :7889, postgres :5433
+cp .env.example .env
+pdm run python scripts/install_jena.py --install-dir "$PWD/.tools/jena-6.1.0"
+export ONTOPRISM_JENA_DIR="$PWD/.tools/jena-6.1.0"
+pdm run data-build owl
+pdm run data-build ncit-bootstrap
+pdm run data-build uberon-store
+pdm run up               # qlever-ncit :7888, qlever-uberon :7889, postgres :5433
 pdm run migrate          # Alembic — fresh DB only; use `migrate-stamp` on a pre-existing cloned DB
 pdm run start-all        # backend :8011 + frontend :5175 in background, logs in .dev-logs/
 ```
@@ -136,13 +142,24 @@ defaults point at the services above.
 ## Testing
 
 ```bash
+pdm run verify              # THE pre-PR gate: everything CI enforces, in CI's own commands
 pdm run test                # grouped hermetic suites (backend unit/api/security + frontend vitest)
 pdm run test-unit            # unit-marked only, backend+ontolib
-pdm run test-integration     # safe default: nonce-owned disposable PG/Oxigraph
+pdm run test-integration     # safe default: nonce-owned disposable PG/QLever
 pdm run test-integration-full-store  # explicit read-only contracts against configured corpora
 pdm run test-ci              # strict gate: ontolib/src & backend/src each >90% line AND >90% branch (matches CI)
 pdm run test-smoke           # frontend vitest via npm
 ```
+
+- **CI is the last bar, never the discovery mechanism. "Gates green" means `pdm run verify`
+  exited 0** — not a subset of it. On PR #290 three defects reached CI because targeted
+  substitutes were run instead of the real gate commands: a test asserting raw Rich `--help`
+  output (CI enables colour, which injects ANSI escapes inside an option name), a
+  `package.json` script that grew a `pdm` dependency the CI job never installed (invisible
+  locally, where pdm is on PATH), and a ReDoS regex only CodeQL evaluates. A targeted
+  `npx vitest run <file>` or a narrowed pytest selection is a debugging tool, not a gate.
+- CodeQL is the one gate `verify` cannot reproduce (GitHub default setup, pull requests and
+  `main` pushes only). Everything else is covered locally.
 
 - **Single test / focused run**: use the `pytest` console script via pdm —
   `pdm run pytest ontolib/tests/path/test_x.py::test_name -v`. Do **not** run
@@ -228,10 +245,11 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   concepts are flagged (`representationStatus="legacy-precoordinated"`), never deleted;
   decomposed triples go in a separate `ncit_decomposed` named graph. Exact reversibility
   is quarantined until #153 provides a proof-bearing representation (D43). Extraction reads
-  from the **stated** OWL (loaded via Oxigraph's offline bulk loader, not HTTP — the
-  713MB stated build OOM-kills the container over HTTP GSP), not the inferred store.
+  from the **stated** OWL (stream-converted by pinned Jena RIOT and indexed by QLever's
+  offline builder, never uploaded as the 713MB RDF/XML file over HTTP GSP), not the
+  inferred store.
 - The frontend only ever talks to the FastAPI backend; the backend owns all
-  Oxigraph/Postgres access — don't add direct DB/SPARQL access from `frontend/`.
+  QLever/Postgres access — don't add direct DB/SPARQL access from `frontend/`.
 - `pdm run data-build` (owl → cadsr → embeddings) rebuilds all data from public sources
   with no `fairdata` dependency; the embeddings step needs `pdm install -G data-build`
   (heavy ML extra, not installed by default).
@@ -245,6 +263,8 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   bot commits pushed by CI (with `GITHUB_TOKEN`).
 - Branches: `feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`; PRs merge into
   `main`.
+- **Dependabot PRs: fetch into exactly one ref name and delete it when the PR closes.** A
+  previous session left 22 stray local branches by minting a new ref prefix per retry.
 - **PR bodies must only reference issues they fully resolve.** Use `Closes #X` /
   `Fixes #X` only when the PR completely resolves the issue (see D35). Issues labeled
   `epic` must never be referenced in a `Closes` keyword.
@@ -285,7 +305,10 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   is unchanged before accepting its verdict or starting another round — a mutation that
   was committed or amended into `HEAD` leaves the tree clean while the reviewed diff has
   moved. If either check fails, restore the tree yourself and treat that run as
-  inconclusive, hence non-converged. The full set otherwise matters because they find different classes of
+  inconclusive, hence non-converged. **Never restore a review mutation with
+  `git checkout -- <path>`.** Copy each file you are about to mutate to an out-of-repo backup
+  first (session temp dir, e.g. `$TMPDIR/opencode/`) and restore from that copy, so
+  restoration is byte-exact and never depends on index/HEAD state. The full set otherwise matters because they find different classes of
   defect and do not substitute for one another. On #73 the five caught, respectively: a
   vacuous satisfiability gate, an environment failure laundered into a verdict, a test
   double that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
@@ -298,11 +321,17 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   includes `pr-test-analyzer`, it still runs by itself, after the others). Every review round must
   inspect a clean worktree and the committed `main...HEAD` diff. Do not create the
   PR until all five agents have converged and the final local gates pass. **Pushing the
-  feature branch is a separate matter and is encouraged at any point** — `ci.yml` triggers only
-  on `main` pushes and pull requests, so a branch push runs no workflows. It costs nothing, and
-  it is the only backup for work that otherwise exists on one machine. The PR is what is delayed,
+  feature branch is a separate matter and is encouraged at any point** — a branch push does not
+  itself run `ci.yml` (it triggers on `main` pushes, pull requests, and manual dispatch). It costs
+  nothing, and it is the only backup for work that otherwise exists on one machine. The PR is what
+  is delayed,
   for two reasons: a PR should present finished work rather than a moving target, and opening one
-  early triggers the full check matrix repeatedly on every subsequent push. An agent converges
+  early triggers the full check matrix repeatedly on every subsequent push. **Do not let that
+  delay mean the branch never sees CI.** PR #290 accumulated 48 commits with zero CI runs and
+  then failed three checks at once. Run `pdm run verify` before each merge into a milestone
+  branch, and exercise real CI on the branch with
+  `gh workflow run ci.yml --ref <branch>` (the `workflow_dispatch` trigger runs all nine CI jobs
+  on a branch with no PR; only CodeQL still waits for the PR). An agent converges
   only when a
   successfully completed full-diff review
   explicitly reports no unresolved actionable verified findings. An agent that reports

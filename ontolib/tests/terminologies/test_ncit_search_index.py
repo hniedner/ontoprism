@@ -81,28 +81,62 @@ async def test_count_coerces_scalar_to_int() -> None:
 
 @pytest.mark.unit
 async def test_is_populated_reflects_existence_probe() -> None:
-    assert await NcitSearchIndex(  # type: ignore[arg-type]
-        _SessionFactory({"EXISTS": _Result(scalar=True)})
-    ).is_populated()
-    assert not await NcitSearchIndex(  # type: ignore[arg-type]
-        _SessionFactory({"EXISTS": _Result(scalar=False)})
-    ).is_populated()
+    identity = "a" * 64
+    ready = _SessionFactory({"EXISTS": _Result(scalar=True)})
+    stale = _SessionFactory({"EXISTS": _Result(scalar=False)})
+
+    assert await NcitSearchIndex(ready).is_populated(identity)  # type: ignore[arg-type]
+    assert not await NcitSearchIndex(stale).is_populated(identity)  # type: ignore[arg-type]
+    sql, params = ready.executed[0]
+    assert "ncit_search_manifest" in sql
+    assert params == {"source_identity": identity}
 
 
 @pytest.mark.unit
 async def test_search_maps_rows_and_binds_params() -> None:
     rows = [
-        SimpleNamespace(code="C3262", label="Neoplasm", semantic_type="Neo", total=2),
-        SimpleNamespace(code="C9305", label="Malignant", semantic_type=None, total=2),
+        SimpleNamespace(
+            code="C3262",
+            label="Neoplasm",
+            semantic_type="Neo",
+            representation_status="legacy-precoordinated",
+            total=2,
+        ),
+        SimpleNamespace(
+            code="C9305",
+            label="Malignant",
+            semantic_type=None,
+            representation_status=None,
+            total=2,
+        ),
     ]
     sf = _SessionFactory({"ncit_search": _Result(rows=rows)})
-    page = await NcitSearchIndex(sf).search("tumor", limit=10, offset=5)  # type: ignore[arg-type]
+    page = await NcitSearchIndex(sf).search(  # type: ignore[arg-type]
+        "tumor",
+        limit=10,
+        offset=5,
+        representation_status="legacy-precoordinated",
+    )
 
     assert page.total == 2
     assert [h.code for h in page.hits] == ["C3262", "C9305"]
+    assert [h.representation_status for h in page.hits] == [
+        "legacy-precoordinated",
+        None,
+    ]
     assert page.limit == 10
     _sql, params = sf.executed[0]
-    assert params == {"q": "tumor", "limit": 10, "offset": 5}
+    assert params == {
+        "q": "tumor",
+        "limit": 10,
+        "offset": 5,
+        "representation_status": "legacy-precoordinated",
+    }
+    sql = sf.executed[0][0]
+    status_filter = "representation_status = CAST(:representation_status AS text)"
+    assert "CAST(:representation_status AS text) IS NULL" in sql
+    assert status_filter in sql
+    assert sql.index(status_filter) < sql.index("LIMIT :limit")
 
 
 @pytest.mark.unit
@@ -127,21 +161,52 @@ async def test_rebuild_deletes_then_inserts_nonempty_batches() -> None:
 
     total = await index.rebuild(
         _batches(
-            [{"code": "C1", "label": "a", "semantic_type": None, "synonyms": None}],
+            [
+                {
+                    "code": "C1",
+                    "label": "a",
+                    "semantic_type": None,
+                    "synonyms": None,
+                    "representation_status": "legacy-precoordinated",
+                }
+            ],
             [],  # empty batch is skipped, not inserted
             [
-                {"code": "C2", "label": "b", "semantic_type": None, "synonyms": None},
-                {"code": "C3", "label": "c", "semantic_type": None, "synonyms": None},
+                {
+                    "code": "C2",
+                    "label": "b",
+                    "semantic_type": None,
+                    "synonyms": None,
+                    "representation_status": None,
+                },
+                {
+                    "code": "C3",
+                    "label": "c",
+                    "semantic_type": None,
+                    "synonyms": None,
+                    "representation_status": None,
+                },
             ],
-        )
+        ),
+        source_identity="a" * 64,
+        source_hash="b" * 64,
     )
 
     assert total == 3
     statements = [sql for sql, _ in sf.executed]
-    # First statement clears the cache; only the two non-empty batches insert.
-    assert "DELETE FROM ncit_search" in statements[0]
-    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search" in sql]
+    # Manifest invalidation, row replacement, and recertification share one transaction.
+    assert "DELETE FROM ncit_search_manifest" in statements[0]
+    assert "DELETE FROM ncit_search" in statements[1]
+    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search (" in sql]
     assert [len(p) for p in inserts] == [1, 2]
+    assert inserts[0][0]["representation_status"] == "legacy-precoordinated"
+    manifest_sql, manifest_params = sf.executed[-1]
+    assert "INSERT INTO ncit_search_manifest" in manifest_sql
+    assert manifest_params == {
+        "source_identity": "a" * 64,
+        "source_hash": "b" * 64,
+        "row_count": 3,
+    }
 
 
 class _FakeStore:
@@ -159,17 +224,30 @@ class _FakeStore:
 @pytest.mark.unit
 async def test_populate_from_store_pages_and_feeds_rebuild() -> None:
     records = [
-        {"code": f"C{i}", "label": f"n{i}", "semantic_type": None, "synonyms": None}
+        {
+            "code": f"C{i}",
+            "label": f"n{i}",
+            "semantic_type": None,
+            "synonyms": None,
+            "representation_status": ("legacy-precoordinated" if i == 1 else None),
+        }
         for i in range(3)
     ]
     store = _FakeStore(records)
     sf = _SessionFactory({})
     index = NcitSearchIndex(sf)  # type: ignore[arg-type]
 
-    total = await populate_from_store(store, index, batch_size=2)  # type: ignore[arg-type]
+    total = await populate_from_store(  # type: ignore[arg-type]
+        store,
+        index,
+        source_identity="a" * 64,
+        source_hash="b" * 64,
+        batch_size=2,
+    )
 
     assert total == 3
     # Paged 0, 2, then 4 (empty) -> stop.
     assert store.pages == [(2, 0), (2, 2), (2, 4)]
-    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search" in sql]
+    inserts = [p for sql, p in sf.executed if "INSERT INTO ncit_search (" in sql]
     assert [len(p) for p in inserts] == [2, 1]
+    assert inserts[0][1]["representation_status"] == "legacy-precoordinated"

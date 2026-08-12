@@ -1,4 +1,4 @@
-"""Unit tests for the Oxigraph SPARQL client's pure logic and error behavior.
+"""Unit tests for the QLever SPARQL client's pure logic and error behavior.
 
 No mocks: pure helpers are exercised on real SPARQL-JSON data, and the transport
 error path is driven against a genuinely closed port.
@@ -8,8 +8,8 @@ import pytest
 
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.namespaces import NCIT_NS
-from ontolib.terminologies.oxigraph_http_client import (
-    OxigraphHttpClient,
+from ontolib.terminologies.sparql_http_client import (
+    SparqlHttpClient,
     flatten_bindings,
     parse_ask_result,
     safe_iri,
@@ -225,13 +225,13 @@ def test_parse_ask_result_rejects_mixed_result_forms() -> None:
 @pytest.mark.unit
 async def test_select_against_closed_port_raises_storage_error() -> None:
     # Port 1 has no listener → connection refused → retried → StorageError.
-    async with OxigraphHttpClient("http://localhost:1", connect_timeout=0.5) as client:
+    async with SparqlHttpClient("http://localhost:1", connect_timeout=0.5) as client:
         with pytest.raises(StorageError, match="transport error"):
             await client.select("ASK {}")
 
 
 @pytest.mark.unit
 async def test_load_against_closed_port_raises_storage_error() -> None:
-    async with OxigraphHttpClient("http://localhost:1", connect_timeout=0.5) as client:
+    async with SparqlHttpClient("http://localhost:1", connect_timeout=0.5) as client:
         with pytest.raises(StorageError, match="transport error"):
             await client.load(_TTL, content_type="text/turtle")

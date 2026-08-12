@@ -1,4 +1,4 @@
-"""NCIt repository read model over an Oxigraph SPARQL endpoint.
+"""NCIt repository read model over a QLever SPARQL endpoint.
 
 Assembles concept detail (metadata + hierarchy + roles + associations + incoming
 roles), search, and expand-on-demand neighborhoods. Roles are recovered by OWL
@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 
     from ontolib.repositories.embeddings.generate import NcitEmbeddingRecord
 
-from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDFS_NS
+from ontolib.decomposition import vocab as decomp_vocab
+from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit import property_codes as pc
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
@@ -26,19 +27,39 @@ from ontolib.terminologies.ncit.models import (
     GraphNode,
     Neighborhood,
     Relationship,
+    RepresentationStatus,
     SearchHit,
     SearchPage,
 )
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient, safe_iri
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
 
 _PREFIXES = (
-    f"PREFIX rdfs: <{RDFS_NS}>\nPREFIX owl: <{OWL_NS}>\nPREFIX ncit: <{NCIT_NS}>"
+    f"PREFIX rdfs: <{RDFS_NS}>\nPREFIX owl: <{OWL_NS}>\n"
+    f"PREFIX rdf: <{RDF_NS}>\nPREFIX ncit: <{NCIT_NS}>"
 )
 _LIST_SEP = "||"
 _DEFAULT_EDGE_LIMIT = 200
 # Upper bound on nodes returned by a multi-hop neighborhood expansion, so a deep
 # request cannot pull an unbounded closure out of the store.
 _MAX_NEIGHBORHOOD_NODES = 400
+
+
+def _representation_status_pattern(
+    concept: str,
+    representation_status: RepresentationStatus | None,
+    *,
+    include_unfiltered: bool = False,
+) -> str:
+    marker = (
+        f"{concept} <{decomp_vocab.REPRESENTATION_STATUS}> "
+        f'"{decomp_vocab.LEGACY_PRECOORDINATED}" . '
+        f'BIND("{decomp_vocab.LEGACY_PRECOORDINATED}" AS ?representationStatusValue)'
+    )
+    graph = f"GRAPH <{decomp_vocab.DECOMPOSED_GRAPH_IRI}> {{ {marker} }}"
+    if representation_status is not None:
+        return graph
+    return f"OPTIONAL {{ {graph} }}" if include_unfiltered else ""
 
 
 def _code_of(uri: str) -> str:
@@ -98,6 +119,20 @@ def _concept_iris(rows: Iterable[Mapping[str, str | None]]) -> list[str]:
     return [concept for row in rows if (concept := row.get("concept")) is not None]
 
 
+def _published_representation_statuses(
+    rows: Iterable[Mapping[str, str | None]],
+) -> dict[str, RepresentationStatus]:
+    statuses: dict[str, RepresentationStatus] = {}
+    for row in rows:
+        concept = row.get("concept")
+        if concept is None:
+            continue
+        if row.get("representationStatus") != decomp_vocab.LEGACY_PRECOORDINATED:
+            continue
+        statuses[_code_of(concept)] = "legacy-precoordinated"
+    return statuses
+
+
 def _ref(uri: str | None, label: str | None) -> ConceptRef | None:
     """Build a ConceptRef from a possibly-unbound node URI."""
     return ConceptRef(code=_code_of(uri), label=label) if uri else None
@@ -119,21 +154,45 @@ def _rel(
     )
 
 
-class NcitGraphStore:
-    """Read-only NCIt repository backed by an Oxigraph SPARQL endpoint."""
+def _hierarchy_patterns(uri: str, *, incoming: bool) -> tuple[str, str]:
+    if incoming:
+        return (
+            f"?node rdfs:subClassOf <{uri}> .",
+            "?node owl:equivalentClass ?expression . "
+            f"?expression owl:intersectionOf/rdf:rest*/rdf:first <{uri}> .",
+        )
+    return (
+        f"<{uri}> rdfs:subClassOf ?node .",
+        f"<{uri}> owl:equivalentClass ?expression . "
+        "?expression owl:intersectionOf/rdf:rest*/rdf:first ?node .",
+    )
 
-    def __init__(self, client: OxigraphHttpClient, *, namespace: str = NCIT_NS) -> None:
+
+class NcitGraphStore:
+    """Read-only NCIt repository backed by a QLever SPARQL endpoint."""
+
+    def __init__(self, client: SparqlHttpClient, *, namespace: str = NCIT_NS) -> None:
         """Wrap a SPARQL *client*; concept IRIs are ``{namespace}{code}``."""
         self._client = client
         self._ns = namespace
-        self._total_concepts: int | None = None
+        self._total_concepts: dict[RepresentationStatus | None, int] = {}
 
     # ------------------------------------------------------------------ detail
 
-    async def get_concept_detail(self, code: str) -> ConceptDetail | None:
-        """Return full detail for *code*, or ``None`` if the concept does not exist."""
+    async def get_concept_detail(
+        self, code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
+        """Return full detail for *code*, or ``None`` if the concept does not exist.
+
+        Neighborhood assembly disables the per-detail marker join and performs one
+        bounded status query after its completed node set is known.
+        """
         uri = safe_iri(code, self._ns)
-        meta = await self._client.select(self._metadata_query(uri))
+        meta = await self._client.select(
+            self._metadata_query(
+                uri, include_representation_status=include_representation_status
+            )
+        )
         if not meta:
             return None
         row = meta[0]
@@ -142,6 +201,7 @@ class NcitGraphStore:
             label=row.get("label"),
             preferred_name=row.get("pref"),
             definition=row.get("def"),
+            representation_status=row.get("representationStatus"),  # type: ignore[arg-type]
             semantic_types=_split_list(row.get("semtypes")),
             synonyms=_split_list(row.get("synonyms")),
             parents=await self._named_neighbors(uri, incoming=False),
@@ -151,9 +211,22 @@ class NcitGraphStore:
             incoming_roles=await self._incoming_roles(uri),
         )
 
-    def _metadata_query(self, uri: str) -> str:
+    def _metadata_query(
+        self, uri: str, *, include_representation_status: bool = True
+    ) -> str:
+        status_select = (
+            "(SAMPLE(?representationStatusValue) AS ?representationStatus)"
+            if include_representation_status
+            else ""
+        )
+        status_pattern = (
+            _representation_status_pattern(f"<{uri}>", None, include_unfiltered=True)
+            if include_representation_status
+            else ""
+        )
         return f"""{_PREFIXES}
         SELECT ?label ?pref ?def
+               {status_select}
                (GROUP_CONCAT(DISTINCT ?semtype; separator="{_LIST_SEP}") AS ?semtypes)
                (GROUP_CONCAT(DISTINCT ?syn; separator="{_LIST_SEP}") AS ?synonyms)
         WHERE {{
@@ -163,23 +236,22 @@ class NcitGraphStore:
             OPTIONAL {{ <{uri}> ncit:{pc.DEFINITION} ?def }}
             OPTIONAL {{ <{uri}> ncit:{pc.SEMANTIC_TYPE} ?semtype }}
             OPTIONAL {{ <{uri}> ncit:{pc.FULL_SYNONYM} ?syn }}
+            {status_pattern}
         }}
         GROUP BY ?label ?pref ?def
         """
 
     async def _named_neighbors(self, uri: str, *, incoming: bool) -> list[ConceptRef]:
-        """Named parents (``incoming=False``) or children (``incoming=True``)."""
-        pattern = (
-            f"?node rdfs:subClassOf <{uri}>"
-            if incoming
-            else f"<{uri}> rdfs:subClassOf ?node"
-        )
+        """Named stated parents or children, including definition-genus edges."""
+        direct, genus = _hierarchy_patterns(uri, incoming=incoming)
         query = f"""{_PREFIXES}
         SELECT DISTINCT ?node ?label WHERE {{
-            {pattern} .
-            FILTER(isIRI(?node) && STRSTARTS(STR(?node), "{self._ns}"))
-            OPTIONAL {{ ?node rdfs:label ?label }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+            GRAPH <{STATED_GRAPH_IRI}> {{
+                {{ {direct} }} UNION {{ {genus} }}
+                FILTER(isIRI(?node) && STRSTARTS(STR(?node), "{self._ns}"))
+                OPTIONAL {{ ?node rdfs:label ?label }}
+            }}
+        }} ORDER BY STR(?node) STR(?label) LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         rows = await self._client.select(query)
         refs = (_ref(r.get("node"), r.get("label")) for r in rows)
@@ -195,7 +267,8 @@ class NcitGraphStore:
             FILTER(STRSTARTS(STR(?target), "{self._ns}"))
             OPTIONAL {{ ?rel rdfs:label ?rellabel }}
             OPTIONAL {{ ?target rdfs:label ?tlabel }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        }} ORDER BY STR(?rel) STR(?target) STR(?rellabel) STR(?tlabel)
+        LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         return self._as_relationships(await self._client.select(query))
 
@@ -207,7 +280,8 @@ class NcitGraphStore:
             FILTER(?rel != rdfs:subClassOf)
             OPTIONAL {{ ?rel rdfs:label ?rellabel }}
             OPTIONAL {{ ?target rdfs:label ?tlabel }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        }} ORDER BY STR(?rel) STR(?target) STR(?rellabel) STR(?tlabel)
+        LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         return self._as_relationships(await self._client.select(query))
 
@@ -221,7 +295,8 @@ class NcitGraphStore:
             FILTER(STRSTARTS(STR(?src), "{self._ns}"))
             OPTIONAL {{ ?rel rdfs:label ?rellabel }}
             OPTIONAL {{ ?src rdfs:label ?slabel }}
-        }} LIMIT {_DEFAULT_EDGE_LIMIT}
+        }} ORDER BY STR(?rel) STR(?src) STR(?rellabel) STR(?slabel)
+        LIMIT {_DEFAULT_EDGE_LIMIT}
         """
         rows = await self._client.select(query)
         rels = (
@@ -242,33 +317,45 @@ class NcitGraphStore:
     # ------------------------------------------------------------------ search
 
     async def search(
-        self, query_text: str, *, limit: int = 25, offset: int = 0
+        self,
+        query_text: str,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        representation_status: RepresentationStatus | None = None,
     ) -> SearchPage:
         """Case-insensitive search over preferred label and synonyms."""
         term = _escape_literal(query_text)
         where = f"""
             ?concept a owl:Class ; rdfs:label ?label .
-            OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+            OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
             OPTIONAL {{
-                ?concept ncit:{pc.FULL_SYNONYM} ?syn .
-                FILTER(CONTAINS(LCASE(?syn), LCASE("{term}")))
+                ?concept ncit:{pc.FULL_SYNONYM} ?synValue .
+                FILTER(CONTAINS(LCASE(?synValue), LCASE("{term}")))
             }}
-            FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?syn))
+            FILTER(CONTAINS(LCASE(?label), LCASE("{term}")) || BOUND(?synValue))
         """
+        page_status = _representation_status_pattern(
+            "?concept", representation_status, include_unfiltered=True
+        )
+        count_status = _representation_status_pattern("?concept", representation_status)
         # GROUP BY concept so a concept with several matching synonyms / semantic
         # types yields exactly one result row (not one row per synonym).
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label
-                   (SAMPLE(?semtype) AS ?semtype) (SAMPLE(?syn) AS ?syn)
-            WHERE {{{where}}}
+                   (SAMPLE(?semtypeValue) AS ?semtype)
+                   (SAMPLE(?synValue) AS ?syn)
+                   (SAMPLE(?representationStatusValue) AS ?representationStatus)
+            WHERE {{{where}{page_status}}}
             GROUP BY ?concept ?label
-            ORDER BY ?label LIMIT {limit} OFFSET {offset}
+            ORDER BY ?concept LIMIT {limit} OFFSET {offset}
             """
         )
         count_rows = await self._client.select(
             f"{_PREFIXES}\n"
-            f"SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{{where}}}"
+            f"SELECT (COUNT(DISTINCT ?concept) AS ?count) "
+            f"WHERE {{{where}{count_status}}}"
         )
         count_val = count_rows[0].get("count") if count_rows else None
         total = int(count_val) if count_val is not None else 0
@@ -278,6 +365,7 @@ class NcitGraphStore:
                 label=r.get("label"),
                 semantic_type=r.get("semtype"),
                 matched_synonym=r.get("syn"),
+                representation_status=r.get("representationStatus"),  # type: ignore[arg-type]
             )
             for r in rows
             if (concept := r.get("concept")) is not None
@@ -306,66 +394,96 @@ class NcitGraphStore:
 
     # -------------------------------------------------------------------- browse
 
-    async def list_concepts(self, *, limit: int = 25, offset: int = 0) -> SearchPage:
+    async def list_concepts(
+        self,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        representation_status: RepresentationStatus | None = None,
+    ) -> SearchPage:
         """List all named concepts in natural (code) order — the no-search browse mode.
 
         The total class count is expensive to compute over the full store, so it is
         memoized after the first call (the concept universe is static between reloads).
         """
+        page_status = _representation_status_pattern(
+            "?concept", representation_status, include_unfiltered=True
+        )
         rows = await self._client.select(
             f"""{_PREFIXES}
-            SELECT ?concept ?label (SAMPLE(?semtype) AS ?semtype)
+            SELECT ?concept ?label (SAMPLE(?semtypeValue) AS ?semtype)
+                   (SAMPLE(?representationStatusValue) AS ?representationStatus)
             WHERE {{
                 ?concept a owl:Class ; rdfs:label ?label .
-                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
+                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+                {page_status}
             }}
             GROUP BY ?concept ?label
             ORDER BY ?concept LIMIT {limit} OFFSET {offset}
             """
         )
-        if self._total_concepts is None:
+        if representation_status not in self._total_concepts:
+            count_status = _representation_status_pattern(
+                "?concept", representation_status
+            )
             count_rows = await self._client.select(
                 f"""{_PREFIXES}
                 SELECT (COUNT(DISTINCT ?concept) AS ?count) WHERE {{
                     ?concept a owl:Class ; rdfs:label ?label .
                     FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
+                    {count_status}
                 }}
                 """
             )
             count_val = count_rows[0].get("count") if count_rows else None
-            self._total_concepts = int(count_val) if count_val is not None else 0
+            self._total_concepts[representation_status] = (
+                int(count_val) if count_val is not None else 0
+            )
         hits = [
             SearchHit(
                 code=_code_of(concept),
                 label=r.get("label"),
                 semantic_type=r.get("semtype"),
                 matched_synonym=None,
+                representation_status=r.get("representationStatus"),  # type: ignore[arg-type]
             )
             for r in rows
             if (concept := r.get("concept")) is not None
         ]
         return SearchPage(
-            query="", total=self._total_concepts, limit=limit, offset=offset, hits=hits
+            query="",
+            total=self._total_concepts[representation_status],
+            limit=limit,
+            offset=offset,
+            hits=hits,
         )
 
     async def search_records(
         self, *, limit: int, offset: int
     ) -> list[dict[str, str | None]]:
-        """A page of ``{code,label,semantic_type,synonyms}`` for the FTS-cache build.
+        """A page of ``{code,label,semantic_type,synonyms,representation_status}``
+        for the FTS-cache build.
 
         Enumerates named concepts (code order) with their label, one semantic type,
-        and pipe-joined synonyms — the fields the ``ncit_search`` cache indexes.
+        pipe-joined synonyms, and pre-coordination representation status — the fields
+        the ``ncit_search`` cache indexes.
         """
+        status_pattern = _representation_status_pattern(
+            "?concept", None, include_unfiltered=True
+        )
         rows = await self._client.select(
             f"""{_PREFIXES}
             SELECT ?concept ?label
-                   (SAMPLE(?semtype) AS ?semtype)
-                   (GROUP_CONCAT(DISTINCT ?syn; separator="{_LIST_SEP}") AS ?synonyms)
+                   (SAMPLE(?semtypeValue) AS ?semtype)
+                   (GROUP_CONCAT(DISTINCT
+                       ?synValue; separator="{_LIST_SEP}") AS ?synonyms)
+                   (SAMPLE(?representationStatusValue) AS ?representationStatus)
             WHERE {{
                 ?concept a owl:Class ; rdfs:label ?label .
-                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtype }}
-                OPTIONAL {{ ?concept ncit:{pc.FULL_SYNONYM} ?syn }}
+                OPTIONAL {{ ?concept ncit:{pc.SEMANTIC_TYPE} ?semtypeValue }}
+                OPTIONAL {{ ?concept ncit:{pc.FULL_SYNONYM} ?synValue }}
+                {status_pattern}
                 FILTER(STRSTARTS(STR(?concept), "{self._ns}"))
             }}
             GROUP BY ?concept ?label
@@ -378,6 +496,7 @@ class NcitGraphStore:
                 "label": r.get("label"),
                 "semantic_type": r.get("semtype"),
                 "synonyms": r.get("synonyms") or "",
+                "representation_status": r.get("representationStatus"),
             }
             for r in rows
             if (concept := r.get("concept")) is not None
@@ -448,7 +567,9 @@ class NcitGraphStore:
         hop *n* is itself expanded at hop *n+1*, up to ``depth``. Growth is bounded by
         ``_MAX_NEIGHBORHOOD_NODES`` so a deep request cannot pull a huge closure.
         """
-        center_detail = await self.get_concept_detail(code)
+        center_detail = await self.get_concept_detail(
+            code, include_representation_status=False
+        )
         if center_detail is None:
             return Neighborhood(center=code)
 
@@ -476,12 +597,47 @@ class NcitGraphStore:
             label=center_detail.label,
             semantic_type=_first(center_detail.semantic_types),
         )
+        statuses = await self._representation_statuses(list(nodes))
+        for node_code, node in nodes.items():
+            node.representation_status = statuses.get(node_code)  # type: ignore[assignment]
         return Neighborhood(
             center=code,
-            nodes=list(nodes.values()),
-            edges=list(edges.values()),
+            nodes=sorted(nodes.values(), key=lambda node: node.code),
+            edges=sorted(
+                edges.values(),
+                key=lambda edge: (
+                    edge.source,
+                    edge.target,
+                    edge.relation,
+                    edge.kind,
+                ),
+            ),
             truncated=truncated,
         )
+
+    async def _representation_statuses(
+        self, codes: list[str]
+    ) -> dict[str, RepresentationStatus]:
+        ncit_codes = [
+            code for code in codes if code.startswith("C") and code[1:].isdigit()
+        ]
+        if not ncit_codes:
+            return {}
+        values = " ".join(f"<{safe_iri(code, self._ns)}>" for code in ncit_codes)
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT DISTINCT ?concept ?representationStatus WHERE {{
+                VALUES ?concept {{ {values} }}
+                GRAPH <{decomp_vocab.DECOMPOSED_GRAPH_IRI}> {{
+                    ?concept <{decomp_vocab.REPRESENTATION_STATUS}>
+                        "{decomp_vocab.LEGACY_PRECOORDINATED}" .
+                    BIND("{decomp_vocab.LEGACY_PRECOORDINATED}"
+                        AS ?representationStatus)
+                }}
+            }} ORDER BY ?concept
+            """
+        )
+        return _published_representation_statuses(rows)
 
     async def _expand_hop(
         self,
@@ -519,7 +675,9 @@ class NcitGraphStore:
         """Return *current*'s detail to expand (None if already seen or missing)."""
         if current in expanded:
             return None
-        detail = details.get(current) or await self.get_concept_detail(current)
+        detail = details.get(current) or await self.get_concept_detail(
+            current, include_representation_status=False
+        )
         if detail is None:
             return None
         expanded.add(current)
@@ -527,9 +685,13 @@ class NcitGraphStore:
 
     @staticmethod
     def _neighbor_codes(detail: ConceptDetail) -> list[str]:
-        refs = [*detail.parents, *detail.children]
-        rels = [*detail.roles, *detail.associations]
-        return [r.code for r in refs] + [rel.target.code for rel in rels]
+        hierarchy = {ref.code for ref in (*detail.parents, *detail.children)}
+        relations = {
+            rel.target.code for rel in (*detail.roles, *detail.associations)
+        } - hierarchy
+        # Definition-genus/subclass paths are the graph's structural backbone. Expand
+        # them before high-fanout role targets can exhaust the global node cap.
+        return [*sorted(hierarchy), *sorted(relations)]
 
     @staticmethod
     def _add_edges(
@@ -539,74 +701,101 @@ class NcitGraphStore:
         edges: dict[tuple[str, str, str, str], GraphEdge],
     ) -> bool:
         """Add *detail*'s edges/nodes; return True if a node was dropped at the cap."""
-        dropped = False
-
-        def add_node(node_code: str, label: str | None) -> None:
-            # Hard cap: never grow past the bound. A single densely-connected concept
-            # would otherwise add all of its (up to 4x _DEFAULT_EDGE_LIMIT) neighbors
-            # at once, blowing past a between-nodes-only check.
-            nonlocal dropped
-            if node_code in nodes:
-                return
-            if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
-                dropped = True
-                return
-            nodes[node_code] = GraphNode(code=node_code, label=label)
-
-        def add_edge(edge: GraphEdge) -> None:
-            # Only connect nodes that survived the cap — no dangling edge endpoints.
-            if edge.source not in nodes or edge.target not in nodes:
-                return
-            edges.setdefault((edge.source, edge.target, edge.relation, edge.kind), edge)
-
-        add_node(code, detail.label)
-        for parent in detail.parents:
-            add_node(parent.code, parent.label)
-            add_edge(
+        dropped_count = int(NcitGraphStore._add_node(nodes, code, detail.label))
+        for parent in sorted(detail.parents, key=_ref_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, parent.code, parent.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=code,
                     target=parent.code,
                     relation="subClassOf",
                     kind="subClassOf",
-                )
+                ),
             )
-        for child in detail.children:
-            add_node(child.code, child.label)
-            add_edge(
+        for child in sorted(detail.children, key=_ref_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, child.code, child.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=child.code,
                     target=code,
                     relation="subClassOf",
                     kind="subClassOf",
-                )
+                ),
             )
-        for rel in detail.roles:
-            add_node(rel.target.code, rel.target.label)
-            add_edge(
+        for rel in sorted(detail.roles, key=_relationship_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, rel.target.code, rel.target.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=code,
                     target=rel.target.code,
                     relation=rel.relation,
                     relation_label=rel.relation_label,
                     kind="role",
-                )
+                ),
             )
-        for rel in detail.associations:
-            add_node(rel.target.code, rel.target.label)
-            add_edge(
+        for rel in sorted(detail.associations, key=_relationship_sort_key):
+            dropped_count += int(
+                NcitGraphStore._add_node(nodes, rel.target.code, rel.target.label)
+            )
+            NcitGraphStore._add_edge(
+                nodes,
+                edges,
                 GraphEdge(
                     source=code,
                     target=rel.target.code,
                     relation=rel.relation,
                     relation_label=rel.relation_label,
                     kind="association",
-                )
+                ),
             )
-        return dropped
+        return bool(dropped_count)
+
+    @staticmethod
+    def _add_node(
+        nodes: dict[str, GraphNode], node_code: str, label: str | None
+    ) -> bool:
+        """Add one node; return whether the hard cap dropped it."""
+        if node_code in nodes:
+            return False
+        if len(nodes) >= _MAX_NEIGHBORHOOD_NODES:
+            return True
+        nodes[node_code] = GraphNode(code=node_code, label=label)
+        return False
+
+    @staticmethod
+    def _add_edge(
+        nodes: dict[str, GraphNode],
+        edges: dict[tuple[str, str, str, str], GraphEdge],
+        edge: GraphEdge,
+    ) -> None:
+        """Add an edge only when both capped node endpoints survived."""
+        if edge.source not in nodes or edge.target not in nodes:
+            return
+        edges.setdefault((edge.source, edge.target, edge.relation, edge.kind), edge)
 
 
 def _split_list(value: str | None) -> list[str]:
     return [item for item in value.split(_LIST_SEP) if item] if value else []
+
+
+def _ref_sort_key(ref: ConceptRef) -> tuple[str, str]:
+    return ref.code, ref.label or ""
+
+
+def _relationship_sort_key(value: Relationship) -> tuple[str, str, str]:
+    return value.target.code, value.relation, value.relation_label or ""
 
 
 def _first(items: list[str]) -> str | None:

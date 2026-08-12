@@ -201,7 +201,7 @@ def test_tracked_m1_sample_is_source_bound_and_covers_every_review_stratum() -> 
     assert sample.branch == "neoplasm"
     assert sample.scope_root == "C3262"
     assert sample.source_identity == (
-        "f54dd2910a31245a30cea094dc72ce6a5c8d7b5a9c4e484007a35a1c343624c8"
+        "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
     assert sample.ontology_version == "26.07d"
     assert sample.seed is None

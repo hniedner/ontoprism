@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
-import tempfile
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,13 +19,18 @@ from test_support.integration_resources import (
 )
 
 from backend.db import dispose_engine, make_engine
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractContextManager
 
 pytestmark = pytest.mark.mutating_integration
+
+
+def _qlever_data_dirs(owner: IntegrationResourceOwner) -> list[Path]:
+    data_root = Path(__file__).resolve().parents[2] / "data"
+    return list(data_root.glob(f"ontoprism-qlever-{owner.nonce}-*"))
 
 
 @pytest.mark.integration
@@ -64,14 +68,14 @@ async def test_isolated_postgres_is_migrated_and_owner_marked(
 
 
 @pytest.mark.integration
-async def test_isolated_oxigraph_accepts_owned_graph_data(
-    isolated_oxigraph_url: str,
+async def test_isolated_qlever_accepts_owned_graph_data(
+    isolated_qlever_url: str,
     integration_resource_owner: IntegrationResourceOwner,
 ) -> None:
     graph_iri = integration_resource_owner.graph_iri("ownership-contract")
     ttl = b"<urn:subject> <urn:predicate> <urn:object> ."
 
-    async with OxigraphHttpClient(isolated_oxigraph_url) as client:
+    async with SparqlHttpClient.for_qlever(isolated_qlever_url) as client:
         await client.load(
             ttl,
             content_type="text/turtle",
@@ -165,14 +169,14 @@ def test_postgres_readiness_failure_removes_owned_container(
 
 
 @pytest.mark.integration
-def test_oxigraph_lifecycle_removes_exact_container_after_context(
-    oxigraph_resource_provisioner: Callable[
+def test_qlever_lifecycle_removes_exact_container_after_context(
+    qlever_resource_provisioner: Callable[
         [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
     ],
 ) -> None:
     owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
 
-    with oxigraph_resource_provisioner(owner) as (_url, container_id):
+    with qlever_resource_provisioner(owner) as (_url, container_id):
         assert container_id
 
     docker = shutil.which("docker")
@@ -345,74 +349,72 @@ def test_create_database_preserves_a_foreign_role_it_cannot_verify(
 
 
 @pytest.mark.integration
-def test_oxigraph_cleanup_does_not_touch_a_familiar_prefix_decoy(
-    oxigraph_resource_provisioner: Callable[
+def test_qlever_cleanup_does_not_touch_a_familiar_prefix_decoy(
+    qlever_resource_provisioner: Callable[
         [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
     ],
-    oxigraph_container_remover: Callable[[IntegrationResourceOwner, str], None],
+    qlever_container_remover: Callable[[IntegrationResourceOwner, str], None],
 ) -> None:
     protected = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
     other_run = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
 
-    with oxigraph_resource_provisioner(protected) as (url, _container_id):
+    with qlever_resource_provisioner(protected) as (url, _container_id):
         with pytest.raises(ResourceOwnershipError, match="label mismatch"):
-            oxigraph_container_remover(other_run, protected.oxigraph_container_name)
+            qlever_container_remover(other_run, protected.qlever_container_name)
 
         async def store_is_alive() -> bool:
-            async with OxigraphHttpClient(url) as client:
+            async with SparqlHttpClient.for_qlever(url) as client:
                 return await client.ask("ASK { ?s ?p ?o }")
 
         assert asyncio.run(store_is_alive()) is True
 
 
 @pytest.mark.integration
-def test_oxigraph_setup_failure_removes_owned_container_and_directory(
-    oxigraph_setup_failure_provisioner: Callable[
+def test_qlever_setup_failure_removes_owned_container_and_directory(
+    qlever_setup_failure_provisioner: Callable[
         [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
     ],
 ) -> None:
     owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
 
     with (
-        pytest.raises(RuntimeError, match="injected Oxigraph seed failure"),
-        oxigraph_setup_failure_provisioner(owner),
+        pytest.raises(RuntimeError, match="injected QLever seed failure"),
+        qlever_setup_failure_provisioner(owner),
     ):
-        pytest.fail("a failing seed must not yield an Oxigraph endpoint")
+        pytest.fail("a failing seed must not yield an QLever endpoint")
 
     docker = shutil.which("docker")
     assert docker is not None
     inspected = subprocess.run(  # noqa: S603
-        [docker, "inspect", owner.oxigraph_container_name],
+        [docker, "inspect", owner.qlever_container_name],
         check=False,
         capture_output=True,
         text=True,
     )
     assert inspected.returncode != 0
-    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
-    assert list(data_dirs) == []
+    assert _qlever_data_dirs(owner) == []
 
 
 @pytest.mark.integration
-def test_oxigraph_start_failure_removes_owned_directory(
-    oxigraph_start_failure_provisioner: Callable[
+def test_qlever_start_failure_removes_owned_directory(
+    qlever_start_failure_provisioner: Callable[
         [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
     ],
 ) -> None:
     owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
 
     with (
-        pytest.raises(RuntimeError, match="injected Oxigraph start failure"),
-        oxigraph_start_failure_provisioner(owner),
+        pytest.raises(RuntimeError, match="injected QLever start failure"),
+        qlever_start_failure_provisioner(owner),
     ):
-        pytest.fail("a start failure must not yield an Oxigraph endpoint")
+        pytest.fail("a start failure must not yield an QLever endpoint")
 
-    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
-    assert list(data_dirs) == []
+    assert _qlever_data_dirs(owner) == []
 
 
 @pytest.mark.integration
-def test_oxigraph_docker_port_failure_removes_container_and_directory(
-    oxigraph_docker_port_failure_provisioner: Callable[
+def test_qlever_docker_port_failure_removes_container_and_directory(
+    qlever_docker_port_failure_provisioner: Callable[
         [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
     ],
 ) -> None:
@@ -420,53 +422,51 @@ def test_oxigraph_docker_port_failure_removes_container_and_directory(
 
     with (
         pytest.raises(RuntimeError, match="unexpected container port mapping"),
-        oxigraph_docker_port_failure_provisioner(owner),
+        qlever_docker_port_failure_provisioner(owner),
     ):
-        pytest.fail("an unparseable port mapping must not yield an Oxigraph endpoint")
+        pytest.fail("an unparseable port mapping must not yield an QLever endpoint")
 
     docker = shutil.which("docker")
     assert docker is not None
     inspected = subprocess.run(  # noqa: S603
-        [docker, "inspect", owner.oxigraph_container_name],
+        [docker, "inspect", owner.qlever_container_name],
         check=False,
         capture_output=True,
         text=True,
     )
     assert inspected.returncode != 0
-    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
-    assert list(data_dirs) == []
+    assert _qlever_data_dirs(owner) == []
 
 
 @pytest.mark.integration
-def test_oxigraph_readiness_failure_removes_owned_container_and_directory(
-    oxigraph_readiness_failure_provisioner: Callable[
+def test_qlever_readiness_failure_removes_owned_container_and_directory(
+    qlever_readiness_failure_provisioner: Callable[
         [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
     ],
 ) -> None:
     owner = IntegrationResourceOwner(nonce=uuid.uuid4().hex)
 
     with (
-        pytest.raises(RuntimeError, match="injected Oxigraph readiness failure"),
-        oxigraph_readiness_failure_provisioner(owner),
+        pytest.raises(RuntimeError, match="injected QLever readiness failure"),
+        qlever_readiness_failure_provisioner(owner),
     ):
-        pytest.fail("a readiness failure must not yield an Oxigraph endpoint")
+        pytest.fail("a readiness failure must not yield an QLever endpoint")
 
     docker = shutil.which("docker")
     assert docker is not None
     inspected = subprocess.run(  # noqa: S603
-        [docker, "inspect", owner.oxigraph_container_name],
+        [docker, "inspect", owner.qlever_container_name],
         check=False,
         capture_output=True,
         text=True,
     )
     assert inspected.returncode != 0
-    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
-    assert list(data_dirs) == []
+    assert _qlever_data_dirs(owner) == []
 
 
 @pytest.mark.integration
-def test_oxigraph_docker_id_failure_removes_the_real_started_container(
-    oxigraph_docker_id_failure_provisioner: Callable[
+def test_qlever_docker_id_failure_removes_the_real_started_container(
+    qlever_docker_id_failure_provisioner: Callable[
         [IntegrationResourceOwner], AbstractContextManager[tuple[str, str]]
     ],
 ) -> None:
@@ -476,21 +476,20 @@ def test_oxigraph_docker_id_failure_removes_the_real_started_container(
 
     with (
         pytest.raises(RuntimeError, match="unexpected container ID"),
-        oxigraph_docker_id_failure_provisioner(owner),
+        qlever_docker_id_failure_provisioner(owner),
     ):
-        pytest.fail("a malformed container ID must not yield an Oxigraph endpoint")
+        pytest.fail("a malformed container ID must not yield an QLever endpoint")
 
     docker = shutil.which("docker")
     assert docker is not None
     inspected = subprocess.run(  # noqa: S603
-        [docker, "inspect", owner.oxigraph_container_name],
+        [docker, "inspect", owner.qlever_container_name],
         check=False,
         capture_output=True,
         text=True,
     )
     assert inspected.returncode != 0
-    data_dirs = Path(tempfile.gettempdir()).glob(f"ontoprism-oxigraph-{owner.nonce}-*")
-    assert list(data_dirs) == []
+    assert _qlever_data_dirs(owner) == []
 
 
 @pytest.mark.integration

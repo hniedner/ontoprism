@@ -110,7 +110,7 @@ def _install_run_collaborators(
     )
     monkeypatch.setattr(
         decompose,
-        "OxigraphHttpClient",
+        "ncit_sparql_client",
         lambda url: client if url == settings.ncit_sparql_url else None,
     )
     monkeypatch.setattr(
@@ -191,7 +191,7 @@ async def test_load_is_coordinated_inside_pipeline_before_run_completion(
     client.load = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=None)
-    monkeypatch.setattr(decompose, "OxigraphHttpClient", lambda _url: client)
+    monkeypatch.setattr(decompose, "ncit_sparql_client", lambda _url: client)
     store = SimpleNamespace(labels_for=AsyncMock())
     monkeypatch.setattr(decompose, "NcitGraphStore", lambda _client: store)
     pipeline = AsyncMock(return_value=decompose.RunMetrics())

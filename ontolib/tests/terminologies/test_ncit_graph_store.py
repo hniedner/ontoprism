@@ -1,6 +1,7 @@
 """NcitGraphStore assembly logic against a real local stub server (CI-runnable)."""
 
 import pytest
+from pydantic import ValidationError
 
 from ontolib.terminologies.ncit.graph_store import (
     _MAX_NEIGHBORHOOD_NODES,
@@ -8,9 +9,108 @@ from ontolib.terminologies.ncit.graph_store import (
     _rel,
 )
 from ontolib.terminologies.ncit.models import ConceptDetail, ConceptRef, Relationship
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 pytestmark = pytest.mark.xdist_group(name="ncit_graph_store")
+
+
+class _RecordingClient:
+    def __init__(self, *, metadata: bool = False) -> None:
+        self.queries: list[str] = []
+        self._metadata = metadata
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if self._metadata and "GROUP_CONCAT" in query:
+            self._metadata = False
+            return [{"label": "Center"}]
+        return []
+
+
+class _DefinedHierarchyClient:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if "GROUP_CONCAT" in query:
+            return [{"label": "Defined disease"}]
+        if "owl:equivalentClass" not in query:
+            return []
+        if "C4005> rdfs:subClassOf ?node" in query:
+            return [
+                {
+                    "node": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C198031",
+                    "label": "Defined parent",
+                }
+            ]
+        if "?node rdfs:subClassOf <" in query:
+            return [
+                {
+                    "node": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C4006",
+                    "label": "Defined child",
+                }
+            ]
+        return []
+
+
+class _StatusClient:
+    def __init__(self, *, status: str | None = None) -> None:
+        self.queries: list[str] = []
+        self.status = status
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if "SELECT ?label ?pref ?def" in query:
+            row = {"label": "Legacy concept"}
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        if "COUNT(DISTINCT ?concept)" in query:
+            return [{"count": "1"}]
+        if "SAMPLE(?synValue) AS ?syn" in query:
+            row = {
+                "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                "label": "Legacy concept",
+            }
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        if "GROUP_CONCAT(DISTINCT" in query and "?synonyms" in query:
+            row = {
+                "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                "label": "Legacy concept",
+                "synonyms": "Legacy concept",
+            }
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        if "SELECT ?concept ?label" in query and "SAMPLE(?semtypeValue)" in query:
+            row = {
+                "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                "label": "Legacy concept",
+            }
+            if self.status is not None:
+                row["representationStatus"] = self.status
+            return [row]
+        return []
+
+
+class _NeighborhoodStatusClient:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def select(self, query: str) -> list[dict[str, str]]:
+        self.queries.append(query)
+        if "VALUES ?concept" in query and "representationStatus" in query:
+            return [
+                {
+                    "concept": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1",
+                    "representationStatus": "legacy-precoordinated",
+                }
+            ]
+        return []
 
 
 @pytest.mark.unit
@@ -21,10 +121,126 @@ def test_rel_returns_none_when_rel_or_target_missing() -> None:
 
 
 @pytest.mark.unit
+def test_representation_status_is_nullable_but_closed_to_published_value() -> None:
+    detail = ConceptDetail.model_validate(
+        {"code": "C1", "representation_status": "legacy-precoordinated"}
+    )
+
+    assert detail.representation_status == "legacy-precoordinated"
+    assert ConceptDetail(code="C2").representation_status is None
+    with pytest.raises(ValidationError):
+        ConceptDetail.model_validate(
+            {"code": "C3", "representation_status": "not-precoordinated"}
+        )
+
+
+@pytest.mark.unit
+async def test_detail_reads_published_representation_status_or_none() -> None:
+    flagged_client = _StatusClient(status="legacy-precoordinated")
+    unassessed_client = _StatusClient()
+
+    flagged = await NcitGraphStore(flagged_client).get_concept_detail("C1")  # type: ignore[arg-type]
+    unassessed = await NcitGraphStore(unassessed_client).get_concept_detail("C2")  # type: ignore[arg-type]
+
+    assert flagged is not None
+    assert flagged.representation_status == "legacy-precoordinated"
+    assert unassessed is not None
+    assert unassessed.representation_status is None
+    metadata_query = flagged_client.queries[0]
+    assert "Thesaurus-decomposed.owl" in metadata_query
+    assert "representationStatus" in metadata_query
+
+
+@pytest.mark.unit
+async def test_search_filters_status_before_pagination_and_returns_filtered_total() -> (
+    None
+):
+    client = _StatusClient(status="legacy-precoordinated")
+
+    page = await NcitGraphStore(client).search(  # type: ignore[arg-type]
+        "legacy", limit=10, offset=20, representation_status="legacy-precoordinated"
+    )
+
+    assert page.total == 1
+    assert [hit.representation_status for hit in page.hits] == ["legacy-precoordinated"]
+    page_query = next(query for query in client.queries if "SAMPLE(?synValue)" in query)
+    count_query = next(query for query in client.queries if "COUNT(DISTINCT" in query)
+    assert page_query.index("representationStatus") < page_query.index("LIMIT 10")
+    assert '"legacy-precoordinated"' in page_query
+    assert '"legacy-precoordinated"' in count_query
+    assert "ORDER BY ?concept LIMIT 10 OFFSET 20" in page_query
+
+
+@pytest.mark.unit
+async def test_list_filters_status_before_pagination_with_distinct_total_cache() -> (
+    None
+):
+    client = _StatusClient(status="legacy-precoordinated")
+    store = NcitGraphStore(client)  # type: ignore[arg-type]
+
+    unfiltered = await store.list_concepts(limit=25, offset=0)
+    flagged = await store.list_concepts(
+        limit=5, offset=25, representation_status="legacy-precoordinated"
+    )
+
+    assert unfiltered.total == 1
+    assert flagged.total == 1
+    assert flagged.hits[0].representation_status == "legacy-precoordinated"
+    page_query = next(query for query in client.queries if "LIMIT 5 OFFSET 25" in query)
+    assert page_query.index("representationStatus") < page_query.index("LIMIT 5")
+    count_queries = [query for query in client.queries if "COUNT(DISTINCT" in query]
+    assert len(count_queries) == 2
+    assert "representationStatus" not in count_queries[0]
+    assert "representationStatus" in count_queries[1]
+
+
+@pytest.mark.unit
+async def test_search_records_include_nullable_representation_status() -> None:
+    client = _StatusClient(status="legacy-precoordinated")
+
+    records = await NcitGraphStore(client).search_records(limit=100, offset=0)  # type: ignore[arg-type]
+
+    assert records[0]["representation_status"] == "legacy-precoordinated"
+    query = client.queries[0]
+    assert "Thesaurus-decomposed.owl" in query
+    assert "representationStatus" in query
+
+
+@pytest.mark.unit
+async def test_neighborhood_reads_statuses_once_for_completed_node_batch() -> None:
+    center = ConceptDetail(
+        code="C1", label="Center", parents=[ConceptRef(code="C2", label="Parent")]
+    )
+
+    include_status_values: list[bool] = []
+
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
+        include_status_values.append(include_representation_status)
+        return center if code == "C1" else None
+
+    client = _NeighborhoodStatusClient()
+    store = NcitGraphStore(client)  # type: ignore[arg-type]
+    store.get_concept_detail = detail  # type: ignore[method-assign]
+
+    graph = await store.get_neighborhood("C1")
+
+    statuses = {node.code: node.representation_status for node in graph.nodes}
+    assert statuses == {"C1": "legacy-precoordinated", "C2": None}
+    status_queries = [q for q in client.queries if "representationStatus" in q]
+    assert len(status_queries) == 1
+    assert "VALUES ?concept" in status_queries[0]
+    assert "C1" in status_queries[0]
+    assert "C2" in status_queries[0]
+    assert include_status_values == [False]
+
+
+@pytest.mark.unit
 async def test_get_concept_detail_unknown_returns_none(
     ncit_stub_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
 
         async def _empty_select(_query: str) -> list[dict[str, str]]:
@@ -37,7 +253,7 @@ async def test_get_concept_detail_unknown_returns_none(
 
 @pytest.mark.unit
 async def test_concept_detail_assembles_all_sections(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         detail = await NcitGraphStore(client).get_concept_detail("C3262")
 
     assert detail is not None
@@ -55,8 +271,29 @@ async def test_concept_detail_assembles_all_sections(ncit_stub_url: str) -> None
 
 
 @pytest.mark.unit
+async def test_defined_class_hierarchy_combines_stated_subclass_and_genus_edges() -> (
+    None
+):
+    client = _DefinedHierarchyClient()
+
+    detail = await NcitGraphStore(client).get_concept_detail("C4005")  # type: ignore[arg-type]
+
+    assert detail is not None
+    assert [parent.code for parent in detail.parents] == ["C198031"]
+    assert [child.code for child in detail.children] == ["C4006"]
+    hierarchy_queries = [
+        query for query in client.queries if "SELECT DISTINCT ?node" in query
+    ]
+    assert len(hierarchy_queries) == 2
+    assert all(f"GRAPH <{STATED_GRAPH_IRI}>" in query for query in hierarchy_queries)
+    assert all("owl:equivalentClass" in query for query in hierarchy_queries)
+    assert all("rdf:rest*/rdf:first" in query for query in hierarchy_queries)
+    assert all("rdfs:subClassOf+" not in query for query in hierarchy_queries)
+
+
+@pytest.mark.unit
 async def test_search_returns_hits_and_total(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         page = await NcitGraphStore(client).search("neoplasm", limit=10)
 
     assert page.total == 2
@@ -65,21 +302,52 @@ async def test_search_returns_hits_and_total(ncit_stub_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_aggregate_queries_do_not_reuse_source_variables_as_aliases() -> None:
+    client = _RecordingClient()
+    store = NcitGraphStore(client)  # type: ignore[arg-type]
+
+    await store.search("neoplasm")
+    await store.list_concepts()
+    await store.search_records(limit=25, offset=0)
+
+    compact_queries = [" ".join(query.split()) for query in client.queries]
+    aggregate_queries = [query for query in compact_queries if "SAMPLE(" in query]
+    assert len(aggregate_queries) == 3
+    assert all(
+        "SAMPLE(?semtypeValue) AS ?semtype" in query
+        and "SAMPLE(?semtype) AS ?semtype" not in query
+        for query in aggregate_queries
+    )
+    search_query = next(
+        query
+        for query in compact_queries
+        if "SAMPLE(?syn" in query and "GROUP_CONCAT" not in query
+    )
+    records_query = next(
+        query for query in compact_queries if "GROUP_CONCAT(DISTINCT ?syn" in query
+    )
+    assert "SAMPLE(?synValue) AS ?syn" in search_query
+    assert "SAMPLE(?syn) AS ?syn" not in search_query
+    assert "ORDER BY ?concept" in search_query
+    assert "GROUP_CONCAT(DISTINCT ?synValue" in records_query
+
+
+@pytest.mark.unit
 async def test_labels_for_batch(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         labels = await NcitGraphStore(client).labels_for(["C9305", "C2991"])
     assert labels == {"C9305": "Malignant Neoplasm", "C2991": "Disease or Disorder"}
 
 
 @pytest.mark.unit
 async def test_labels_for_empty_is_noop(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         assert await NcitGraphStore(client).labels_for([]) == {}
 
 
 @pytest.mark.unit
 async def test_neighborhood_builds_typed_edges(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         graph = await NcitGraphStore(client).get_neighborhood("C3262")
 
     node_codes = {n.code for n in graph.nodes}
@@ -92,13 +360,96 @@ async def test_neighborhood_builds_typed_edges(ncit_stub_url: str) -> None:
 async def test_neighborhood_depth_expands_beyond_one_hop(ncit_stub_url: str) -> None:
     # depth=2 expands each depth-1 neighbor, so more edges are discovered than at
     # depth=1 (regression: `depth` used to be ignored). Node set stays deduped.
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         one = await store.get_neighborhood("C3262", depth=1)
         two = await store.get_neighborhood("C3262", depth=2)
 
     assert len(two.edges) > len(one.edges)
     assert {n.code for n in one.nodes} <= {n.code for n in two.nodes}
+
+
+@pytest.mark.unit
+async def test_neighborhood_expands_hierarchy_before_high_fanout_roles(
+    ncit_stub_url: str,
+) -> None:
+    role_targets = [
+        Relationship(
+            relation="R1",
+            target=ConceptRef(code=f"C{i:03}", label=f"role {i}"),
+        )
+        for i in range(200)
+    ]
+    center = ConceptDetail(
+        code="C999",
+        label="Defined center",
+        parents=[ConceptRef(code="C900", label="Defining parent")],
+        roles=role_targets,
+    )
+    parent = ConceptDetail(
+        code="C900",
+        label="Defining parent",
+        parents=[ConceptRef(code="C901", label="Defining ancestor")],
+    )
+    fanout = ConceptDetail(
+        code="C000",
+        label="Role target",
+        children=[
+            ConceptRef(code=f"F{i:03}", label=f"fanout {i}")
+            for i in range(_MAX_NEIGHBORHOOD_NODES)
+        ],
+    )
+
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
+        return {"C999": center, "C900": parent, "C000": fanout}.get(code)
+
+    async with SparqlHttpClient(ncit_stub_url) as client:
+        store = NcitGraphStore(client)
+        store.get_concept_detail = detail  # type: ignore[method-assign]
+        graph = await store.get_neighborhood("C999", depth=2)
+
+    assert "C901" in {node.code for node in graph.nodes}
+    assert any(edge.source == "C900" and edge.target == "C901" for edge in graph.edges)
+
+
+@pytest.mark.unit
+async def test_edge_queries_order_before_limit() -> None:
+    client = _RecordingClient(metadata=True)
+    detail = await NcitGraphStore(client).get_concept_detail("C1")  # type: ignore[arg-type]
+
+    assert detail is not None
+    edge_queries = [query for query in client.queries if "LIMIT 200" in query]
+    assert len(edge_queries) == 5
+    assert all(
+        query.index("ORDER BY") < query.index("LIMIT 200") for query in edge_queries
+    )
+
+
+@pytest.mark.unit
+async def test_neighborhood_cap_is_independent_of_store_result_order(
+    ncit_stub_url: str,
+) -> None:
+    refs = [ConceptRef(code=f"C{i:04}", label=f"n{i}") for i in range(600)]
+
+    async def graph_for(parents: list[ConceptRef]):
+        detail = ConceptDetail(code="CROOT", label="Root", parents=parents)
+
+        async def only_center(
+            code: str, *, include_representation_status: bool = True
+        ) -> ConceptDetail | None:
+            return detail if code == "CROOT" else None
+
+        async with SparqlHttpClient(ncit_stub_url) as client:
+            store = NcitGraphStore(client)
+            store.get_concept_detail = only_center  # type: ignore[method-assign]
+            return await store.get_neighborhood("CROOT")
+
+    forward = await graph_for(refs)
+    reverse = await graph_for(list(reversed(refs)))
+
+    assert forward == reverse
 
 
 @pytest.mark.unit
@@ -113,10 +464,12 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
         parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(over_cap)],
     )
 
-    async def only_center(code: str) -> ConceptDetail | None:
+    async def only_center(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
         return dense if code == "C1" else None
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = only_center  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=1)
@@ -131,10 +484,12 @@ async def test_neighborhood_node_count_is_hard_capped(ncit_stub_url: str) -> Non
 async def test_neighborhood_unknown_center_returns_empty(
     ncit_stub_url: str,
 ) -> None:
-    async def _none_for_any(_code: str) -> None:
+    async def _none_for_any(
+        _code: str, *, include_representation_status: bool = True
+    ) -> None:
         return None
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = _none_for_any  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C999999")
@@ -158,12 +513,14 @@ async def test_neighborhood_skips_already_expanded(ncit_stub_url: str) -> None:
         ],
     )
 
-    async def detail(code: str) -> ConceptDetail | None:
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
         if code == "C1":
             return center
         return ConceptDetail(code=code, label=code, parents=[])
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = detail  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=2)
@@ -184,14 +541,16 @@ async def test_neighborhood_skips_missing_neighbor(ncit_stub_url: str) -> None:
         children=[ConceptRef(code="C2", label="Child")],
     )
 
-    async def detail(code: str) -> ConceptDetail | None:
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail | None:
         if code == "C1":
             return center
         if code == "P2":
             return None
         return ConceptDetail(code=code, label=code, parents=[])
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = detail  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=2)
@@ -204,7 +563,7 @@ async def test_neighborhood_skips_missing_neighbor(ncit_stub_url: str) -> None:
 
 @pytest.mark.unit
 async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         page = await NcitGraphStore(client).list_concepts(limit=25, offset=0)
 
     assert page.total == 2
@@ -217,7 +576,7 @@ async def test_list_concepts_returns_ordered_page(ncit_stub_url: str) -> None:
 async def test_search_records_returns_records_with_synonyms(
     ncit_stub_url: str,
 ) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         records = await NcitGraphStore(client).search_records(limit=100, offset=0)
 
     assert len(records) == 1
@@ -231,7 +590,7 @@ async def test_search_records_returns_records_with_synonyms(
 async def test_embedding_records_returns_records_with_all_fields(
     ncit_stub_url: str,
 ) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         records = await NcitGraphStore(client).embedding_records(limit=200)
 
     assert len(records) == 1
@@ -244,7 +603,7 @@ async def test_embedding_records_returns_records_with_all_fields(
 
 @pytest.mark.unit
 async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         page1 = await store.list_concepts(limit=25, offset=0)
         assert page1.total == 2
@@ -255,7 +614,7 @@ async def test_list_concepts_memoizes_total(ncit_stub_url: str) -> None:
 @pytest.mark.unit
 async def test_neighborhood_not_truncated_when_under_cap(ncit_stub_url: str) -> None:
     # A small neighborhood that fits under the cap must report truncated=False.
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         graph = await NcitGraphStore(client).get_neighborhood("C3262")
     assert graph.truncated is False
 
@@ -275,10 +634,12 @@ async def test_neighborhood_truncated_when_cap_filled_exactly(
         parents=[ConceptRef(code=f"P{i}", label=f"p{i}") for i in range(exact)],
     )
 
-    async def detail(code: str) -> ConceptDetail:
+    async def detail(
+        code: str, *, include_representation_status: bool = True
+    ) -> ConceptDetail:
         return center if code == "C1" else ConceptDetail(code=code, label=code)
 
-    async with OxigraphHttpClient(ncit_stub_url) as client:
+    async with SparqlHttpClient(ncit_stub_url) as client:
         store = NcitGraphStore(client)
         store.get_concept_detail = detail  # type: ignore[method-assign]
         graph = await store.get_neighborhood("C1", depth=2)

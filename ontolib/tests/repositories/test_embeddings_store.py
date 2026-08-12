@@ -34,6 +34,7 @@ class _FakeSession:
         available: bool,
         source_exists: bool,
         active_id: UUID | None,
+        source_identity: str | None,
     ) -> None:
         self._calls = calls
         self._rows = rows
@@ -41,6 +42,7 @@ class _FakeSession:
         self._source_exists = source_exists
         self._scalar_calls = 0
         self._active_id = active_id
+        self._source_identity = source_identity
 
     async def __aenter__(self) -> "_FakeSession":
         return self
@@ -64,6 +66,8 @@ class _FakeSession:
         self._calls.append((str(sql), params))
         if "SELECT build_id" in str(sql):
             return self._active_id
+        if "SELECT source_identity" in str(sql):
+            return self._source_identity
         self._scalar_calls += 1
         return self._available if self._scalar_calls == 1 else self._source_exists
 
@@ -76,12 +80,14 @@ class _FakeSessionFactory:
         available: bool = True,
         source_exists: bool = True,
         active_id: UUID | None = _ACTIVE_BUILD,
+        source_identity: str | None = "f" * 64,
     ) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self._rows = rows
         self.available = available
         self.source_exists = source_exists
         self.active_id = active_id
+        self.source_identity = source_identity
 
     def __call__(self) -> _FakeSession:
         return _FakeSession(
@@ -90,6 +96,7 @@ class _FakeSessionFactory:
             available=self.available,
             source_exists=self.source_exists,
             active_id=self.active_id,
+            source_identity=self.source_identity,
         )
 
 
@@ -163,3 +170,12 @@ async def test_active_build_guard_rejects_missing_or_changed_build() -> None:
         await store.require_same_active_build(
             Corpus.NCIT, UUID("00000000-0000-0000-0000-000000000002")
         )
+
+
+@pytest.mark.unit
+async def test_active_source_guard_rejects_a_different_proxy_identity() -> None:
+    store = EmbeddingStore(_FakeSessionFactory(rows=[]))  # type: ignore[arg-type]
+
+    await store.require_active_source(Corpus.NCIT, "f" * 64)
+    with pytest.raises(CorpusUnavailableError, match="does not match active ncit"):
+        await store.require_active_source(Corpus.NCIT, "e" * 64)

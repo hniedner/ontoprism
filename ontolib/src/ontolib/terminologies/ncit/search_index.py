@@ -1,18 +1,23 @@
 """Materialized full-text search over NCIt concepts (Postgres tsvector + GIN).
 
 Serves NCIt search/browse from an index rather than a live SPARQL ``CONTAINS`` scan
-over ~204k classes per request. The Oxigraph store stays the source of truth: this
+over ~204k classes per request. The QLever store stays the source of truth: this
 cache is (re)populated from it via :func:`populate_from_store`, and callers fall back
 to the store's SPARQL search when the cache is empty (see the NCIt search endpoint).
 """
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
-from ontolib.terminologies.ncit.models import SearchHit, SearchPage
+from ontolib.terminologies.ncit.models import (
+    RepresentationStatus,
+    SearchHit,
+    SearchPage,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, AsyncIterator, Sequence
@@ -52,9 +57,12 @@ if TYPE_CHECKING:
 #    is underdetermined and a tied row can appear on two pages of a LIMIT/OFFSET walk,
 #    or on none.
 _SEARCH_SQL = r"""
-    SELECT code, label, semantic_type, COUNT(*) OVER () AS total
+    SELECT code, label, semantic_type, representation_status,
+           COUNT(*) OVER () AS total
     FROM ncit_search, websearch_to_tsquery('english', :q) AS q
     WHERE tsv @@ q
+      AND (CAST(:representation_status AS text) IS NULL
+           OR representation_status = CAST(:representation_status AS text))
     ORDER BY (lower(label) = lower(btrim(:q, E' \t\r\n"'))) DESC,
              ts_rank(tsv, q) DESC,
              length(label), label, code
@@ -62,13 +70,41 @@ _SEARCH_SQL = r"""
 """
 
 _UPSERT_SQL = """
-    INSERT INTO ncit_search (code, label, semantic_type, synonyms)
-    VALUES (:code, :label, :semantic_type, :synonyms)
+    INSERT INTO ncit_search (
+        code, label, semantic_type, synonyms, representation_status
+    )
+    VALUES (
+        :code, :label, :semantic_type, :synonyms, :representation_status
+    )
     ON CONFLICT (code) DO UPDATE SET
         label = EXCLUDED.label,
         semantic_type = EXCLUDED.semantic_type,
-        synonyms = EXCLUDED.synonyms
+        synonyms = EXCLUDED.synonyms,
+        representation_status = EXCLUDED.representation_status
 """
+
+_READY_SQL = """
+    SELECT EXISTS(
+        SELECT 1 FROM ncit_search_manifest manifest
+        WHERE manifest.singleton = true
+          AND manifest.source_identity = :source_identity
+          AND manifest.row_count > 0
+          AND manifest.row_count = (SELECT COUNT(*) FROM ncit_search)
+    )
+"""
+
+_PUBLISH_MANIFEST_SQL = """
+    INSERT INTO ncit_search_manifest (
+        singleton, source_identity, source_hash, row_count, built_at
+    ) VALUES (true, :source_identity, :source_hash, :row_count, now())
+"""
+
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def _require_source_digest(name: str, value: str) -> None:
+    if _SHA256.fullmatch(value) is None:
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
 
 
 class NcitSearchIndex:
@@ -84,22 +120,33 @@ class NcitSearchIndex:
             result = await session.execute(text("SELECT COUNT(*) FROM ncit_search"))
             return int(result.scalar_one())
 
-    async def is_populated(self) -> bool:
-        """True if the cache has any rows (cheap existence probe)."""
+    async def is_populated(self, source_identity: str) -> bool:
+        """True only for a complete cache bound to the active proxy identity."""
+        _require_source_digest("source_identity", source_identity)
         async with self._sf() as session:
             result = await session.execute(
-                text("SELECT EXISTS(SELECT 1 FROM ncit_search)")
+                text(_READY_SQL), {"source_identity": source_identity}
             )
             return bool(result.scalar_one())
 
     async def search(
-        self, query: str, *, limit: int = 25, offset: int = 0
+        self,
+        query: str,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        representation_status: RepresentationStatus | None = None,
     ) -> SearchPage:
         """Full-text search the cache; total is the full match count (one query)."""
         async with self._sf() as session:
             result = await session.execute(
                 text(_SEARCH_SQL),
-                {"q": query, "limit": limit, "offset": offset},
+                {
+                    "q": query,
+                    "limit": limit,
+                    "offset": offset,
+                    "representation_status": representation_status,
+                },
             )
             rows = result.all()
         total = int(rows[0].total) if rows else 0
@@ -109,6 +156,7 @@ class NcitSearchIndex:
                 label=row.label,
                 semantic_type=row.semantic_type,
                 matched_synonym=None,
+                representation_status=row.representation_status,
             )
             for row in rows
         ]
@@ -117,7 +165,11 @@ class NcitSearchIndex:
         )
 
     async def rebuild(
-        self, batches: AsyncIterable[Sequence[dict[str, str | None]]]
+        self,
+        batches: AsyncIterable[Sequence[dict[str, str | None]]],
+        *,
+        source_identity: str,
+        source_hash: str,
     ) -> int:
         """Atomically replace the whole cache from an async stream of record batches.
 
@@ -126,18 +178,36 @@ class NcitSearchIndex:
         back to it — preserving the invariant the fallback relies on (a non-empty cache
         is always a complete cache). DELETE (not TRUNCATE) so readers aren't blocked.
         """
+        _require_source_digest("source_identity", source_identity)
+        _require_source_digest("source_hash", source_hash)
         total = 0
         async with self._sf() as session, session.begin():
+            await session.execute(text("DELETE FROM ncit_search_manifest"))
             await session.execute(text("DELETE FROM ncit_search"))
             async for records in batches:
                 if records:
                     await session.execute(text(_UPSERT_SQL), list(records))
                     total += len(records)
+            if total <= 0:
+                raise ValueError("NCIt search source produced no records")
+            await session.execute(
+                text(_PUBLISH_MANIFEST_SQL),
+                {
+                    "source_identity": source_identity,
+                    "source_hash": source_hash,
+                    "row_count": total,
+                },
+            )
         return total
 
 
 async def populate_from_store(
-    store: NcitGraphStore, index: NcitSearchIndex, *, batch_size: int = 5000
+    store: NcitGraphStore,
+    index: NcitSearchIndex,
+    *,
+    source_identity: str,
+    source_hash: str,
+    batch_size: int = 5000,
 ) -> int:
     """Rebuild the FTS cache from the live store; returns the number of concepts cached.
 
@@ -154,4 +224,6 @@ async def populate_from_store(
             yield records
             offset += batch_size
 
-    return await index.rebuild(_pages())
+    return await index.rebuild(
+        _pages(), source_identity=source_identity, source_hash=source_hash
+    )

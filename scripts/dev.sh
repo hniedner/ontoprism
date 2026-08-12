@@ -4,8 +4,18 @@
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+if [ -f .env ]; then
+  set -a
+  # The supported local environment is intentionally user-owned.
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 BACKEND_PORT="${BACKEND_PORT:-8011}"    # 8001 is the sibling fairdata backend
 FRONTEND_PORT="${FRONTEND_PORT:-5175}"  # 5173 is the sibling fairdata frontend
+export ONTOPRISM_FASTAPI_ORIGIN="${ONTOPRISM_FASTAPI_ORIGIN:-http://127.0.0.1:$BACKEND_PORT}"
+export ONTOPRISM_FASTAPI_TIMEOUT_MS="${ONTOPRISM_FASTAPI_TIMEOUT_MS:-5000}"
 LOG_DIR=".dev-logs"
 mkdir -p "$LOG_DIR"
 

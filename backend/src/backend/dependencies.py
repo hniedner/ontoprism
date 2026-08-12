@@ -5,6 +5,11 @@ from typing import Annotated, Protocol
 from fastapi import Depends, Request
 
 from backend.decomposition_reader import DecompositionReader
+from backend.repository_metadata import (
+    CadsrRepositoryReady,
+    NcitRepositoryReady,
+    RepositoryUnhealthy,
+)
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
@@ -13,7 +18,7 @@ from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 
 def get_ncit_store(request: Request) -> NcitGraphStore:
@@ -21,7 +26,7 @@ def get_ncit_store(request: Request) -> NcitGraphStore:
     return request.app.state.ncit_store
 
 
-def get_ncit_client(request: Request) -> OxigraphHttpClient:
+def get_ncit_client(request: Request) -> SparqlHttpClient:
     """Return the process-wide NCIt SPARQL client."""
     return request.app.state.ncit_client
 
@@ -74,6 +79,19 @@ def get_xref_store(
     return request.app.state.xref_store
 
 
+class RepositoryMetadataReader(Protocol):
+    """Read exact, certified identities for the active repository proxies."""
+
+    async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy: ...
+
+    def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy: ...
+
+
+def get_repository_metadata(request: Request) -> RepositoryMetadataReader:
+    """Return the process-wide repository certification service."""
+    return request.app.state.repository_metadata
+
+
 class NcitStatusClient(Protocol):
     async def count(self) -> int: ...
 
@@ -90,3 +108,6 @@ PubMed = Annotated[PubMedClient, Depends(get_pubmed_client)]
 NcitSearch = Annotated[NcitSearchIndex, Depends(get_ncit_search_index)]
 ProvenanceReads = Annotated[ProvenanceStore, Depends(get_provenance_store)]
 XrefReads = Annotated[XrefStore, Depends(get_xref_store)]
+RepositoryMetadataReads = Annotated[
+    RepositoryMetadataReader, Depends(get_repository_metadata)
+]

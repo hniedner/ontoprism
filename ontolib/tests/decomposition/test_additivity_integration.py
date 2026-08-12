@@ -13,12 +13,11 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-import httpx
 import pytest
 
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import Constituent, Decomposition
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,7 +27,7 @@ _TEST_GRAPH_IRI = "http://ontoprism.invalid/test-additivity-guarantee"
 
 pytestmark = [
     pytest.mark.mutating_integration,
-    pytest.mark.usefixtures("isolated_oxigraph_settings"),
+    pytest.mark.usefixtures("isolated_qlever_settings"),
 ]
 
 
@@ -53,7 +52,7 @@ async def test_loading_writer_output_leaves_default_graph_unchanged(
     out = tmp_path / "additivity.ttl"
     await write_ttl(decs, dest=out, run_id="additivity-test")
 
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url, named_graphs=()) as client:
         count_before = await client.count()
         try:
             await client.load(
@@ -70,7 +69,4 @@ async def test_loading_writer_output_leaves_default_graph_unchanged(
             )
             assert loaded  # the writer's triples really did land, just not here
         finally:
-            async with httpx.AsyncClient() as http:
-                await http.delete(
-                    f"{url.rstrip('/')}/store", params={"graph": _TEST_GRAPH_IRI}
-                )
+            await client.update(f"DROP SILENT GRAPH <{_TEST_GRAPH_IRI}>")

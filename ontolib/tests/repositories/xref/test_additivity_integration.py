@@ -8,20 +8,19 @@ from __future__ import annotations
 
 import os
 
-import httpx
 import pytest
 
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.ttl_writer import render_ttl
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 _DEFAULT_NCIT_URL = "http://localhost:7888"
 _TEST_GRAPH_IRI = "http://ontoprism.invalid/test-xref-additivity"
 
 pytestmark = [
     pytest.mark.mutating_integration,
-    pytest.mark.usefixtures("isolated_oxigraph_settings"),
+    pytest.mark.usefixtures("isolated_qlever_settings"),
 ]
 
 
@@ -45,7 +44,7 @@ async def test_loading_xref_graph_leaves_default_graph_unchanged() -> None:
     ]
     ttl = render_ttl(records)
 
-    async with OxigraphHttpClient(url) as client:
+    async with SparqlHttpClient.for_qlever(url, named_graphs=()) as client:
         count_before = await client.count()
         try:
             await client.load(
@@ -62,8 +61,4 @@ async def test_loading_xref_graph_leaves_default_graph_unchanged() -> None:
             )
             assert loaded
         finally:
-            async with httpx.AsyncClient() as http:
-                await http.delete(
-                    f"{url.rstrip('/')}/store",
-                    params={"graph": _TEST_GRAPH_IRI},
-                )
+            await client.update(f"DROP SILENT GRAPH <{_TEST_GRAPH_IRI}>")

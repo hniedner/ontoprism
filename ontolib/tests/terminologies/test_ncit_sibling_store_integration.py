@@ -24,17 +24,19 @@ from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.sibling_store import (
     CANDIDATE_MANIFEST_FILENAME,
+    QLEVER_IMAGE,
+    QLEVER_INDEX_VERSION,
     REJECTED_CANDIDATE_FILENAME,
     CandidateGraph,
     CandidateObservation,
     CandidateValidationPolicy,
-    DockerOxigraphRuntime,
+    DockerQleverRuntime,
     LoaderIdentity,
     SiblingStoreValidationError,
     build_ncit_sibling_store,
     observe_ncit_candidate,
 )
-from ontolib.terminologies.oxigraph_http_client import OxigraphHttpClient
+from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -89,7 +91,7 @@ def _identity(payload: object) -> str:
 
 
 async def _m1_walker_evidence(
-    client: OxigraphHttpClient,
+    client: SparqlHttpClient,
 ) -> tuple[
     list[dict[str, str | None]],
     dict[str, int],
@@ -350,7 +352,7 @@ class _ObservationDouble:
 def _authored_observation() -> CandidateObservation:
     """The observation a reader of the fixture would predict, authored by hand.
 
-    Every number here is an independent belief about what real Oxigraph reports for
+    Every number here is an independent belief about what real QLever reports for
     the two fixture files, not a value copied from a run:
 
     - ``default_triples`` is 3 because ``SELECT (COUNT(*)) WHERE { ?s ?p ?o }`` sees
@@ -384,11 +386,11 @@ def _authored_observation() -> CandidateObservation:
 @pytest.mark.integration
 @pytest.mark.mutating_integration
 async def test_real_cli_candidate_matches_observation_double(
-    oxigraph_sibling_store_root: Path,
+    qlever_sibling_store_root: Path,
     integration_connection_scope: Callable[[str], AbstractContextManager[None]],
 ) -> None:
-    pair_path = _write_pair(oxigraph_sibling_store_root)
-    active = oxigraph_sibling_store_root / "oxigraph-ncit"
+    pair_path = _write_pair(qlever_sibling_store_root)
+    active = qlever_sibling_store_root / "qlever-ncit"
     active.mkdir()
     sentinel = active / "active-sentinel"
     sentinel.write_text("untouched")
@@ -405,17 +407,17 @@ async def test_real_cli_candidate_matches_observation_double(
         active_store_path=active,
         owner="1" * 32,
         policy=policy,
-        runtime=DockerOxigraphRuntime(
+        runtime=DockerQleverRuntime(
             connection_scope=integration_connection_scope,
         ),
     )
 
-    # Data-shape contract: the authored belief must match what real Oxigraph reports.
+    # Data-shape contract: the authored belief must match what real QLever reports.
     assert real.observation == _authored_observation()
 
     # Double fidelity: the same authored input, fed to the double rather than derived
     # from the real result, must reach the same certified verdict.
-    second_active = oxigraph_sibling_store_root / "second-active"
+    second_active = qlever_sibling_store_root / "second-active"
     second_active.mkdir()
     doubled = await build_ncit_sibling_store(
         pair_path,
@@ -434,17 +436,17 @@ async def test_real_cli_candidate_matches_observation_double(
 @pytest.mark.integration
 @pytest.mark.mutating_integration
 async def test_real_store_refutes_a_double_that_overstates_the_candidate(
-    oxigraph_sibling_store_root: Path,
+    qlever_sibling_store_root: Path,
     integration_connection_scope: Callable[[str], AbstractContextManager[None]],
 ) -> None:
     """A double stronger than reality must not be able to certify a build.
 
     #73 shipped bugs because a hand-made double asserted a guarantee the real tool
     does not provide. Here the double claims the stated-only sentinel is also visible
-    in the default graph; real Oxigraph disagrees, so the two verdicts must differ.
+    in the default graph; real QLever disagrees, so the two verdicts must differ.
     """
-    pair_path = _write_pair(oxigraph_sibling_store_root)
-    active = oxigraph_sibling_store_root / "oxigraph-ncit"
+    pair_path = _write_pair(qlever_sibling_store_root)
+    active = qlever_sibling_store_root / "qlever-ncit"
     active.mkdir()
     policy = CandidateValidationPolicy(
         min_default_triples=1,
@@ -459,7 +461,7 @@ async def test_real_store_refutes_a_double_that_overstates_the_candidate(
         active_store_path=active,
         owner="4" * 32,
         policy=policy,
-        runtime=DockerOxigraphRuntime(
+        runtime=DockerQleverRuntime(
             connection_scope=integration_connection_scope,
         ),
     )
@@ -468,7 +470,7 @@ async def test_real_store_refutes_a_double_that_overstates_the_candidate(
     overstated = _authored_observation().model_copy(
         update={"default_has_stated_only_sentinel": True}
     )
-    second_active = oxigraph_sibling_store_root / "second-active"
+    second_active = qlever_sibling_store_root / "second-active"
     second_active.mkdir()
 
     with pytest.raises(SiblingStoreValidationError, match="stated-only"):
@@ -484,14 +486,14 @@ async def test_real_store_refutes_a_double_that_overstates_the_candidate(
 @pytest.mark.integration
 @pytest.mark.mutating_integration
 async def test_real_malformed_candidate_reaches_required_restriction_gate(
-    oxigraph_sibling_store_root: Path,
+    qlever_sibling_store_root: Path,
     integration_connection_scope: Callable[[str], AbstractContextManager[None]],
 ) -> None:
     pair_path = _write_pair(
-        oxigraph_sibling_store_root,
+        qlever_sibling_store_root,
         stated_bytes=_STATED.replace(b"C27970", b"C27971"),
     )
-    active = oxigraph_sibling_store_root / "oxigraph-ncit"
+    active = qlever_sibling_store_root / "qlever-ncit"
     active.mkdir()
     owner = "3" * 32
 
@@ -511,7 +513,7 @@ async def test_real_malformed_candidate_reaches_required_restriction_gate(
                 min_restrictions=1,
                 max_restrictions=5,
             ),
-            runtime=DockerOxigraphRuntime(
+            runtime=DockerQleverRuntime(
                 connection_scope=integration_connection_scope,
             ),
         )
@@ -526,7 +528,7 @@ async def test_real_malformed_candidate_reaches_required_restriction_gate(
 @pytest.mark.full_build
 @pytest.mark.slow
 async def test_complete_pinned_ncit_pair_builds_certified_sibling(
-    oxigraph_sibling_store_root: Path,
+    qlever_sibling_store_root: Path,
     integration_connection_scope: Callable[[str], AbstractContextManager[None]],
 ) -> None:
     configured = os.environ.get(
@@ -538,7 +540,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         pytest.fail(
             "complete NCIt pair manifest is required; set ONTOPRISM_NCIT_PAIR_MANIFEST"
         )
-    active = oxigraph_sibling_store_root / "oxigraph-ncit"
+    active = qlever_sibling_store_root / "qlever-ncit"
     active.mkdir()
     sentinel = active / "active-sentinel"
     sentinel.write_text("untouched")
@@ -547,7 +549,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
         pair_path,
         active_store_path=active,
         owner="4" * 32,
-        runtime=DockerOxigraphRuntime(
+        runtime=DockerQleverRuntime(
             connection_scope=integration_connection_scope,
         ),
     )
@@ -562,11 +564,9 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
     assert manifest.observation.has_required_restriction is True
     assert manifest.observation.default_has_stated_only_sentinel is False
     assert manifest.observation.stated_has_stated_only_sentinel is True
-    assert manifest.loader.cli_version == "oxigraph 0.5.3"
-    assert manifest.loader.image.endswith(
-        "cc943499d4724fbb348c75c623335c69a047de71c59852413b0d0467d3caebe3"
-    )
-    runtime = DockerOxigraphRuntime(
+    assert manifest.loader.cli_version == QLEVER_INDEX_VERSION
+    assert manifest.loader.image == QLEVER_IMAGE
+    runtime = DockerQleverRuntime(
         connection_scope=integration_connection_scope,
     )
     scope_codes: dict[str, tuple[str, ...]] = {}
@@ -585,7 +585,7 @@ async def test_complete_pinned_ncit_pair_builds_certified_sibling(
                 endpoint,
             )
         )
-        async with OxigraphHttpClient(endpoint) as client:
+        async with SparqlHttpClient.for_qlever(endpoint) as client:
             scope_codes["neoplasm"] = await enumerate_scope_codes(client, "C3262")
             scope_codes["disease"] = await enumerate_scope_codes(client, "C2991")
             (

@@ -1,12 +1,13 @@
 """Hermetic behavioral tests for the NCIt read API (fake store / index / embeddings).
 
-These pin the endpoint contracts without a live Oxigraph: the FTS-cache-vs-SPARQL
+These pin the endpoint contracts without a live QLever: the FTS-cache-vs-SPARQL
 fallback, 404 mapping for unknown/malformed codes, the similar-concepts label join,
 and the 503 mapping when the embedding backend is unavailable. The live-store
 variants live in ``test_ncit_api_integration.py``.
 """
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -17,8 +18,10 @@ from backend.dependencies import (
     get_embedding_store,
     get_ncit_search_index,
     get_ncit_store,
+    get_repository_metadata,
 )
 from backend.main import create_app
+from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
@@ -34,10 +37,18 @@ class _FakeStore:
     """A hand-written NCIt store with a single known concept, C3262."""
 
     def __init__(self) -> None:
-        self.search_calls: list[tuple[str, int, int]] = []
+        self.search_calls: list[tuple[str, int, int, str | None]] = []
+        self.list_calls: list[tuple[int, int, str | None]] = []
 
-    async def search(self, q: str, *, limit: int, offset: int) -> SearchPage:
-        self.search_calls.append((q, limit, offset))
+    async def search(
+        self,
+        q: str,
+        *,
+        limit: int,
+        offset: int,
+        representation_status: str | None = None,
+    ) -> SearchPage:
+        self.search_calls.append((q, limit, offset, representation_status))
         return SearchPage(
             query=q,
             total=1,
@@ -46,7 +57,14 @@ class _FakeStore:
             hits=[SearchHit(code="C3262", label="Neoplasm", matched_synonym="tumor")],
         )
 
-    async def list_concepts(self, *, limit: int, offset: int) -> SearchPage:
+    async def list_concepts(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        representation_status: str | None = None,
+    ) -> SearchPage:
+        self.list_calls.append((limit, offset, representation_status))
         return SearchPage(
             query="",
             total=2,
@@ -85,14 +103,25 @@ class _FakeIndex:
         self._populated = populated
         self._fail = fail
         self.searched = False
+        self.source_identities: list[str] = []
+        self.search_calls: list[tuple[str, int, int, str | None]] = []
 
-    async def is_populated(self) -> bool:
+    async def is_populated(self, source_identity: str) -> bool:
+        self.source_identities.append(source_identity)
         if self._fail:
             raise OperationalError("cache down", None, Exception())
         return self._populated
 
-    async def search(self, q: str, *, limit: int, offset: int) -> SearchPage:
+    async def search(
+        self,
+        q: str,
+        *,
+        limit: int,
+        offset: int,
+        representation_status: str | None = None,
+    ) -> SearchPage:
         self.searched = True
+        self.search_calls.append((q, limit, offset, representation_status))
         return SearchPage(
             query=q,
             total=1,
@@ -106,6 +135,10 @@ class _FakeEmbeddings:
     def __init__(self, *, fail: bool = False) -> None:
         self._fail = fail
         self.build_id = UUID("00000000-0000-0000-0000-000000000001")
+        self.source_checks: list[tuple[Corpus, str]] = []
+
+    async def require_active_source(self, corpus: Corpus, source_identity: str) -> None:
+        self.source_checks.append((corpus, source_identity))
 
     async def active_build_id(self, _corpus: Corpus) -> UUID:
         return self.build_id
@@ -122,11 +155,34 @@ class _FakeEmbeddings:
         return [("C9305", 0.92), ("C99999", 0.5)]
 
 
+class _Metadata:
+    async def ncit(self) -> SimpleNamespace:
+        return SimpleNamespace(source_identity="f" * 64)
+
+    def cadsr(self) -> SimpleNamespace:
+        return SimpleNamespace(source_identity="f" * 64)
+
+
+class _UnhealthyMetadata:
+    """Metadata reads that certify the NCIt proxy as unhealthy."""
+
+    async def ncit(self) -> RepositoryUnhealthy:
+        return RepositoryUnhealthy(
+            repository="ncit",
+            reason="activation-incomplete",
+            message="NCIt activation did not complete.",
+        )
+
+    def cadsr(self) -> SimpleNamespace:
+        return SimpleNamespace(source_identity="f" * 64)
+
+
 def _client(
     *,
     store: _FakeStore | None = None,
     index: _FakeIndex | None = None,
     embeddings: _FakeEmbeddings | None = None,
+    metadata: type = _Metadata,
 ) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_ncit_store] = lambda: store or _FakeStore()
@@ -134,6 +190,7 @@ def _client(
     app.dependency_overrides[get_embedding_store] = lambda: (
         embeddings or _FakeEmbeddings()
     )
+    app.dependency_overrides[get_repository_metadata] = metadata
     with TestClient(app) as client:
         yield client
 
@@ -159,7 +216,7 @@ def test_search_falls_back_to_store_when_cache_empty() -> None:
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
     assert resp.status_code == 200
     # Empty cache -> the store (source of truth) answered.
-    assert store.search_calls == [("neoplasm", 25, 0)]
+    assert store.search_calls == [("neoplasm", 25, 0, None)]
     assert resp.json()["hits"][0]["label"] == "Neoplasm"
 
 
@@ -171,7 +228,78 @@ def test_search_falls_back_to_store_when_cache_errors() -> None:
     resp = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
     assert resp.status_code == 200
     # A cache failure degrades gracefully to the store rather than 500-ing.
-    assert store.search_calls == [("neoplasm", 25, 0)]
+    assert store.search_calls == [("neoplasm", 25, 0, None)]
+
+
+@pytest.mark.api
+def test_search_status_filter_flows_through_cache_and_fallback() -> None:
+    index = _FakeIndex()
+    cached = next(_client(index=index))
+    params = {
+        "q": "neoplasm",
+        "representation_status": "legacy-precoordinated",
+    }
+
+    assert cached.get("/api/v1/ncit/search", params=params).status_code == 200
+    assert index.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
+
+    store = _FakeStore()
+    fallback = next(_client(store=store, index=_FakeIndex(populated=False)))
+    assert fallback.get("/api/v1/ncit/search", params=params).status_code == 200
+    assert store.search_calls == [("neoplasm", 25, 0, "legacy-precoordinated")]
+
+
+@pytest.mark.api
+def test_list_status_filter_flows_to_store() -> None:
+    store = _FakeStore()
+    client = next(_client(store=store))
+
+    response = client.get(
+        "/api/v1/ncit/list",
+        params={"representation_status": "legacy-precoordinated"},
+    )
+
+    assert response.status_code == 200
+    assert store.list_calls == [(25, 0, "legacy-precoordinated")]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("path", ["/api/v1/ncit/search?q=x", "/api/v1/ncit/list"])
+def test_status_filter_rejects_unknown_values(path: str) -> None:
+    client = next(_client())
+
+    separator = "&" if "?" in path else "?"
+    response = client.get(f"{path}{separator}representation_status=atomic")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.api
+def test_search_unhealthy_repository_is_503() -> None:
+    store = _FakeStore()
+    index = _FakeIndex()
+    client = next(_client(store=store, index=index, metadata=_UnhealthyMetadata))
+
+    response = client.get("/api/v1/ncit/search", params={"q": "neoplasm"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "activation-incomplete"
+    # The guard short-circuits before touching the store or the cache.
+    assert store.search_calls == []
+    assert index.search_calls == []
+
+
+@pytest.mark.api
+def test_similar_concepts_unhealthy_repository_is_503() -> None:
+    embeddings = _FakeEmbeddings()
+    client = next(_client(embeddings=embeddings, metadata=_UnhealthyMetadata))
+
+    response = client.get("/api/v1/ncit/concepts/C3262/similar")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "activation-incomplete"
+    # No embedding lookup is attempted against an unhealthy proxy.
+    assert embeddings.source_checks == []
 
 
 @pytest.mark.api
@@ -206,14 +334,18 @@ def test_concept_detail_malformed_code_is_404(ncit_client: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_similar_concepts_joins_labels(ncit_client: TestClient) -> None:
-    resp = ncit_client.get("/api/v1/ncit/concepts/C3262/similar")
+def test_similar_concepts_joins_labels_from_matching_proxy() -> None:
+    embeddings = _FakeEmbeddings()
+    gen = _client(embeddings=embeddings)
+    client = next(gen)
+    resp = client.get("/api/v1/ncit/concepts/C3262/similar")
     assert resp.status_code == 200
     body = resp.json()
     assert body[0] == {"code": "C9305", "label": "Malignant Neoplasm", "score": 0.92}
     # A hit with no resolvable label still appears (label is null, not dropped).
     assert body[1]["code"] == "C99999"
     assert body[1]["label"] is None
+    assert embeddings.source_checks == [(Corpus.NCIT, "f" * 64)]
 
 
 @pytest.mark.api

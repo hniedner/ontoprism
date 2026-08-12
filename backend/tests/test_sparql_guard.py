@@ -86,7 +86,7 @@ def test_api_routers_do_not_access_generic_query_transport() -> None:
     api_root = Path(__file__).parents[1] / "src" / "backend" / "api"
     forbidden_access: list[str] = []
     generic_query_methods = {"ask", "select", "select_once", "select_raw"}
-    low_level_dependencies = {"NcitClient", "get_ncit_client", "OxigraphHttpClient"}
+    low_level_dependencies = {"NcitClient", "get_ncit_client", "SparqlHttpClient"}
 
     for path in api_root.rglob("*.py"):
         tree = ast.parse(path.read_text(), filename=path)

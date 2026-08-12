@@ -134,6 +134,19 @@ describe('NCIt endpoints', () => {
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/search?q=neo&limit=25&offset=0');
 	});
 
+	it('searchNcit includes the published representation-status filter', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: 'neo', total: 0, limit: 25, offset: 0, hits: [] }));
+		await searchNcit('neo', {
+			representationStatus: 'legacy-precoordinated',
+			fetch: fetchImpl
+		});
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/ncit/search?q=neo&limit=25&offset=0&representation_status=legacy-precoordinated'
+		);
+	});
+
 	it('listNcit builds the browse URL with explicit paging', async () => {
 		const fetchImpl = vi
 			.fn()
@@ -150,6 +163,19 @@ describe('NCIt endpoints', () => {
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/list?limit=25&offset=0');
 	});
 
+	it('listNcit includes the published representation-status filter', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] }));
+		await listNcit({
+			representationStatus: 'legacy-precoordinated',
+			fetch: fetchImpl
+		});
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/ncit/list?limit=25&offset=0&representation_status=legacy-precoordinated'
+		);
+	});
+
 	it('getConcept encodes the code in the path', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ code: 'C 3262' }));
 		await getConcept('C 3262', fetchImpl);
@@ -162,6 +188,15 @@ describe('NCIt endpoints', () => {
 			.mockResolvedValue(jsonResponse({ center: 'C3262', nodes: [], edges: [] }));
 		await getNeighborhood('C3262', 2, fetchImpl);
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C3262/neighborhood?depth=2');
+	});
+
+	it('getNeighborhood forwards request cancellation to fetch', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(jsonResponse({ center: 'C3262', nodes: [], edges: [] }));
+		const controller = new AbortController();
+		await getNeighborhood('C3262', 1, fetchImpl, controller.signal);
+		expect(fetchImpl.mock.calls[0][1]).toEqual({ signal: controller.signal });
 	});
 
 	it('similarConcepts requests the similar endpoint with a limit', async () => {

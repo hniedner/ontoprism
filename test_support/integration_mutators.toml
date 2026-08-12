@@ -1,6 +1,6 @@
 [[mutator]]
 path = "backend/tests/test_data_build_integration.py"
-fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 
 [[mutator]]
 path = "backend/tests/test_embedding_publication_integration.py"
@@ -8,7 +8,7 @@ fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_ncit_search_index_integration.py"
-fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
@@ -17,8 +17,8 @@ fixtures = ["isolated_postgres_url"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_isolated_oxigraph_accepts_owned_graph_data"]
-fixtures = ["isolated_oxigraph_url"]
+tests = ["test_isolated_qlever_accepts_owned_graph_data"]
+fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
@@ -37,8 +37,8 @@ fixtures = ["postgres_readiness_failure_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_oxigraph_lifecycle_removes_exact_container_after_context"]
-fixtures = ["oxigraph_resource_provisioner"]
+tests = ["test_qlever_lifecycle_removes_exact_container_after_context"]
+fixtures = ["qlever_resource_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
@@ -57,33 +57,33 @@ fixtures = ["postgres_resource_provisioner", "postgres_database_creator"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_oxigraph_cleanup_does_not_touch_a_familiar_prefix_decoy"]
-fixtures = ["oxigraph_resource_provisioner", "oxigraph_container_remover"]
+tests = ["test_qlever_cleanup_does_not_touch_a_familiar_prefix_decoy"]
+fixtures = ["qlever_resource_provisioner", "qlever_container_remover"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_oxigraph_setup_failure_removes_owned_container_and_directory"]
-fixtures = ["oxigraph_setup_failure_provisioner"]
+tests = ["test_qlever_setup_failure_removes_owned_container_and_directory"]
+fixtures = ["qlever_setup_failure_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_oxigraph_start_failure_removes_owned_directory"]
-fixtures = ["oxigraph_start_failure_provisioner"]
+tests = ["test_qlever_start_failure_removes_owned_directory"]
+fixtures = ["qlever_start_failure_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_oxigraph_docker_port_failure_removes_container_and_directory"]
-fixtures = ["oxigraph_docker_port_failure_provisioner"]
+tests = ["test_qlever_docker_port_failure_removes_container_and_directory"]
+fixtures = ["qlever_docker_port_failure_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_oxigraph_readiness_failure_removes_owned_container_and_directory"]
-fixtures = ["oxigraph_readiness_failure_provisioner"]
+tests = ["test_qlever_readiness_failure_removes_owned_container_and_directory"]
+fixtures = ["qlever_readiness_failure_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
-tests = ["test_oxigraph_docker_id_failure_removes_the_real_started_container"]
-fixtures = ["oxigraph_docker_id_failure_provisioner"]
+tests = ["test_qlever_docker_id_failure_removes_the_real_started_container"]
+fixtures = ["qlever_docker_id_failure_provisioner"]
 
 [[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
@@ -141,8 +141,8 @@ fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"
-tests = ["test_oxigraph_update_is_transactional_and_empty_replacement_is_clean"]
-fixtures = ["isolated_oxigraph_settings"]
+tests = ["test_qlever_update_is_transactional_and_empty_replacement_is_clean"]
+fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"
@@ -152,12 +152,12 @@ fixtures = ["isolated_postgres_settings"]
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"
 tests = ["test_production_publication_reconciles_marker_ahead_and_clears_stale_graph"]
-fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_publication_integration.py"
 tests = ["test_concurrent_publishers_are_serialized_and_readers_see_complete_graphs"]
-fixtures = ["isolated_postgres_settings", "isolated_oxigraph_settings"]
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_run_lifecycle_integration.py"
@@ -165,35 +165,35 @@ fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_read_integration.py"
-fixtures = ["isolated_oxigraph_settings"]
+fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_additivity_integration.py"
-fixtures = ["isolated_oxigraph_settings"]
+fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
 tests = ["test_part_of_closure_rejects_row_sentinel_and_malformed_target"]
-fixtures = ["isolated_oxigraph_url"]
+fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
 tests = ["test_genus_traversal_matches_disposable_owl_list_shape"]
-fixtures = ["isolated_oxigraph_url"]
+fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
-tests = ["test_nested_intersection_groups_and_late_members_match_real_oxigraph"]
-fixtures = ["isolated_oxigraph_url"]
+tests = ["test_nested_intersection_groups_and_late_members_match_real_qlever"]
+fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_scope_integration.py"
 tests = ["test_scope_fails_closed_when_named_genus_follows_bounded_prefix"]
-fixtures = ["isolated_oxigraph_url"]
+fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/repositories/xref/test_additivity_integration.py"
-fixtures = ["isolated_oxigraph_settings"]
+fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/repositories/xref/test_migration_roundtrip.py"
@@ -212,10 +212,14 @@ path = "ontolib/tests/terminologies/test_ncit_search_ranking_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
-path = "ontolib/tests/terminologies/test_oxigraph_client_http.py"
-tests = ["test_version_cardinality_verdict_matches_real_oxigraph_and_http_double"]
-fixtures = ["isolated_oxigraph_url"]
+path = "ontolib/tests/terminologies/test_sparql_client_http.py"
+tests = ["test_version_cardinality_verdict_matches_real_qlever_and_http_double"]
+fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/terminologies/test_ncit_sibling_store_integration.py"
-fixtures = ["oxigraph_sibling_store_root", "integration_connection_scope"]
+fixtures = ["qlever_sibling_store_root", "integration_connection_scope"]
+
+[[mutator]]
+path = "ontolib/tests/terminologies/test_ncit_activation_integration.py"
+fixtures = ["qlever_sibling_store_root", "integration_connection_scope"]

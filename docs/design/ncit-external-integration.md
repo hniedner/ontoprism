@@ -92,10 +92,11 @@ a pair both ingest passes produce now promotes on source agreement). D33 Option 
 **Codebase corrections to this doc's earlier assumptions** (the design predates the code): the xref
 module lives under `repositories/xref/` (not `terminologies/xref/`); there is **no ORM** — Postgres is
 raw SQL via `sqlalchemy.text()` and hand-written Alembic migrations (`target_metadata=None`); there is
-**no `terminologies/uberon/` module** — Uberon is queried through the generic `OxigraphHttpClient` and
-its SPARQL lives in `candidate_ingest.py`; ports are **NCIt :7888, Uberon :7889, Postgres :5433** (not
-7878/7879/5432); the NCIt role queries are in `terminologies/ncit/role_queries.py`. §8 paths below are
-annotated accordingly.
+`terminologies/uberon/store.py` now owns the certified Uberon/CL QLever build, while
+candidate SPARQL remains in `candidate_ingest.py` and uses the store-neutral HTTP
+transport; ports are **NCIt :7888, Uberon/CL :7889, Postgres :5433** (not
+7878/7879/5432); the NCIt role queries are in `terminologies/ncit/role_queries.py`.
+§8 paths below are annotated accordingly.
 
 ---
 
@@ -587,7 +588,7 @@ Concrete, mapped onto the existing `keep-names` layout (ARCHITECTURE.md). All ad
 
 ### 8.1 `ontolib` — storage & terminologies
 
-- `ontolib/src/ontolib/terminologies/uberon/` — **exists** (store at :7879). Add an `xref` query
+- `ontolib/src/ontolib/terminologies/uberon/` — **exists** (QLever index at :7889). Add an `xref` query
   surface (NCIt↔Uberon) and a `part_of` transitive helper for §11's tie-break revisit.
 - New `ontolib/src/ontolib/terminologies/cl/`, `.../snomed/`, `.../icdo3/`, `.../mondo/` — thin
   read/xref modules, or (preferred) a **single generic `terminologies/xref/`** module parameterized
@@ -599,13 +600,13 @@ Concrete, mapped onto the existing `keep-names` layout (ARCHITECTURE.md). All ad
 - Reserved vocab in `vocab.py`: add `op:` axis domain/range declarations referencing upstream, plus
   the `skos:*Match` / RO bridge predicates.
 
-### 8.2 Named graphs (Oxigraph)
+### 8.2 Named graphs and indexes (QLever)
 
 Add additive named graphs alongside `ncit_decomposed`: `ncit_upstream_xref` (single graph, source
 tagged) **or** per-source graphs (`uberon_xref`, `cl_xref`, `snomed_xref`, `icdo3_xref`, `mondo_xref`).
 Single-graph-with-provenance-tags is favored for simpler `$translate` queries. Source ontologies
-that must be loaded for reasoning (Uberon already is; CL/Mondo are small) get their own read-only
-graphs; SNOMED/ICD-O-3 are **not** bulk-loaded (licensing) — only the NCIt→code map is stored.
+used for read-side corroboration use separate immutable QLever indexes; runtime reasoning is off.
+SNOMED/ICD-O-3 are **not** bulk-loaded (licensing) — only the NCIt→code map is stored.
 
 ### 8.3 PostgreSQL
 

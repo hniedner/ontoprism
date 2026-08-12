@@ -11,7 +11,7 @@ D1–D2) and adding a decomposition engine.
 ontoprism/
 ├── pyproject.toml            # root PDM project (distribution=false), tool config, test scripts
 ├── conftest.py               # puts ontolib/src & backend/src on sys.path (see DECISIONS D6)
-├── docker-compose.yml        # postgres(:5433) + oxigraph-ncit(:7888) + oxigraph-uberon(:7889)
+├── docker-compose.yml        # postgres(:5433) + qlever-ncit(:7888) + qlever-uberon(:7889)
 ├── Makefile  .env.example
 ├── .github/workflows/       # ci (path-filtered: quality/backend/coverage/web/integration
 │                            #   + ci-summary) + release + security (codeql default setup,
@@ -19,8 +19,7 @@ ontoprism/
 ├── ontolib/                  # LIFTED library — import name `ontolib`
 │   ├── pyproject.toml        #   editable package (src layout)
 │   ├── src/ontolib/
-│   │   ├── storage/          #   Oxigraph HTTP store base, pyoxigraph compat
-│   │   ├── terminologies/    #   ncit (graph store, role/restriction queries), uberon
+│   │   ├── terminologies/    #   SPARQL transport + NCIt/Uberon index builders/readers
 │   │   ├── repositories/     #   cadsr read model
 │   │   ├── core/  common/    #   shared primitives
 │   │   └── decomposition/    #   NEW — non-pre-coordinated NCIt engine (M5)
@@ -31,23 +30,71 @@ ontoprism/
 │   │   ├── main.py           #   app factory + /health (M0)
 │   │   └── api/…/routers/    #   repo/graph/search/refresh + decomp (M6)
 │   └── tests/
-├── frontend/                 # LIFTED SvelteKit 5 app (M4)
+├── frontend/                 # SvelteKit 5 SSR/Node BFF + browser UI
 └── docs/  ARCHITECTURE.md  DECISIONS.md  DATA_SETUP.md  design/  postcoordination-literature-review.md
 ```
 
 ## Data planes
 
-- **Oxigraph (SPARQL)** — the ontology graph. Source NCIt graph is read-only; the
-  decomposition engine writes a separate `ncit_decomposed` named graph (additive, never
-  mutating the source). NCIt on :7888, Uberon on :7889 (Postgres :5433) — ports are
-  offset from the sibling `fairdata` app so both can run at once.
-- **PostgreSQL** — concept metadata/FTS cache, decomposition run state, provenance
-  (`decomp_run`, `decomp_constituent`, `minted_concept`), and the caDSR read tables.
+- **QLever (immutable publisher-ontology indexes; D65)** — publisher-inferred NCIt in
+  the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL
+  in a separate default-graph index. Runtime reasoning is disabled. The compose stack
+  runs the digest-pinned QLever index/server pair on :7888/:7889; the first-install
+  bootstrap and #148's journaled, rollback-capable replacement of an existing NCIt index
+  are implemented.
+- **PostgreSQL (selected mutable authority)** — concept metadata/FTS cache, decomposition run
+  state, provenance (`decomp_run`, `decomp_constituent`, `minted_concept`), source-bound
+  NCIt search/embedding publication manifests, caDSR embeddings, and, when the curation
+  API lands, the authoritative
+  identity/revision/evidence/lifecycle/RDF projection for proposed NCIt content.
+  Graph-explorer curation reads will compose this overlay with the identified QLever base
+  so a committed edit does not wait for index rebuilding.
+- **One SPARQL implementation** — QLever passed the seven real Uberon/NCIt data-shape
+  contracts unchanged (`env UBERON_SPARQL_URL=http://127.0.0.1:7889
+  NCIT_SPARQL_URL=http://127.0.0.1:7888 pdm run pytest
+  ontolib/tests/repositories/xref/test_upstream_data_contract.py -m 'integration and
+  full_store' -v`, 2026-08-10). The runtime dependency contract rejects any active
+  Oxigraph package/import/service (`pdm run pytest
+  backend/tests/test_supply_chain_contract.py::test_active_runtime_has_no_oxigraph_dependency
+  -q`, 2026-08-10). Decomposition RDF and proposal RDF remain additive projections,
+  never source graph mutations.
 
-The frontend talks only to the FastAPI backend; the backend owns all Oxigraph/Postgres
-access. The application exposes no caller-supplied raw SPARQL route: typed endpoints
-construct the supported store queries. Re-enabling raw execution requires a separately
-reviewed executor with proven store-side cancellation and resource bounds (D44).
+## Web request architecture
+
+```text
+browser → SvelteKit adapter-node (routing, SSR, hydration, same-origin /api BFF)
+        → FastAPI (typed domain API) → QLever / PostgreSQL / certified caDSR
+```
+
+SvelteKit server loads own route-critical reads, so list, search, and detail content is
+in the first HTML response. Browser calls remain same-origin under `/api`; the server-only
+BFF reads `ONTOPRISM_FASTAPI_ORIGIN` and applies a bounded
+`ONTOPRISM_FASTAPI_TIMEOUT_MS`. Neither value is delivered to browser code. FastAPI
+remains the sole owner of domain endpoints and all QLever/Postgres/caDSR access.
+The BFF removes caller-supplied forwarding and hop-by-hop headers, never follows an
+upstream redirect, and completes each bounded FastAPI response body (at most 32 MiB)
+before publishing its status and content to the browser. This prevents a loopback-trusted
+client-address header from bypassing FastAPI rate limits and prevents redirects or
+late-stalling bodies from escaping the gateway contract. It replaces the removed address
+with SvelteKit's `getClientAddress()` value, which is socket-derived unless adapter-node
+is explicitly configured to trust an operator-selected `ADDRESS_HEADER` and `XFF_DEPTH`.
+
+In development, Vite and the built Node server exercise the same SvelteKit `/api` route;
+there is no Vite-only proxy path. The supported process wrapper loads the repository
+`.env`. Production `node build` receives the private origin from its process environment
+(or Node's `--env-file`); `.env` is not loaded implicitly by adapter-node. If adapter-node
+is behind a trusted reverse proxy, configure `ORIGIN` directly or set
+`PROTOCOL_HEADER`/`HOST_HEADER` only for headers overwritten by that trusted proxy.
+
+The application exposes no caller-supplied raw SPARQL route: typed endpoints construct
+the supported store queries. Re-enabling raw execution requires a separately reviewed
+executor with proven store-side cancellation and resource bounds (D44).
+
+Repository readiness is a certification boundary, not a ping. NCIt binds the exact
+active candidate manifest and completed activation journal to a live same-release graph
+observation; caDSR binds its persisted archive record to canonical row count and
+fingerprint. Search and similarity readers accept derived publications only when their
+persisted `source_identity` matches that certified active proxy (D68).
 
 ## Key inherited mechanism: NCIt roles are OWL restrictions
 

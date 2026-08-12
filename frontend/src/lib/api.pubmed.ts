@@ -25,10 +25,12 @@ export function getArticle(pmid: string, fetchImpl?: typeof fetch): Promise<PubM
 export function getRelatedArticles(
 	pmid: string,
 	linkType: 'similar' | 'cited_by' | 'references' = 'similar',
-	fetchImpl?: typeof fetch
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
 ): Promise<RelatedArticlesResult> {
 	return getJson<RelatedArticlesResult>(
 		apiUrl(`/api/v1/pubmed/${encodeURIComponent(pmid)}/related`, { link_type: linkType }),
-		fetchImpl
+		fetchImpl,
+		signal
 	);
 }

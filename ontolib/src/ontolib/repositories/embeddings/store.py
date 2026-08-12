@@ -109,6 +109,21 @@ class EmbeddingStore:
             )
         return build_id
 
+    async def require_active_source(self, corpus: Corpus, source_identity: str) -> None:
+        """Fail unless the active embedding manifest names the live proxy source."""
+        async with self._sf() as session:
+            observed = await session.scalar(
+                text(
+                    "SELECT source_identity FROM embedding_corpus_manifest "
+                    "WHERE corpus = :corpus AND state = 'complete' AND is_active"
+                ),
+                {"corpus": corpus.value},
+            )
+        if observed != source_identity:
+            raise CorpusUnavailableError(
+                f"embedding source does not match active {corpus.value} proxy"
+            )
+
     async def require_same_active_build(self, corpus: Corpus, build_id: UUID) -> None:
         """Fail if source/publication changed while an API response was assembled."""
         if await self.active_build_id(corpus) != build_id:

@@ -1,7 +1,7 @@
 """Fixtures for terminology-store tests.
 
 Two flavors of backing:
-- ``ncit_url``: the actual running Oxigraph store (integration tests; skipped if down).
+- ``ncit_url``: the actual running QLever store (integration tests; skipped if down).
 - ``ncit_stub_url``: an in-process ``httpx.MockTransport`` returning canned NCIt
   SPARQL-JSON keyed by query shape, so the repository assembly logic runs in CI
   without the live store (no socket, thread, or port).
@@ -39,10 +39,10 @@ def _reachable(url: str) -> bool:
 
 @pytest.fixture
 def ncit_url() -> str:
-    """Base URL of the live NCIt Oxigraph store; skip if it is not reachable."""
+    """Base URL of the live NCIt QLever store; skip if it is not reachable."""
     url = os.environ.get("NCIT_SPARQL_URL", _DEFAULT_NCIT_URL)
     if not _reachable(url):
-        pytest.skip(f"NCIt Oxigraph not reachable at {url}")
+        pytest.skip(f"NCIt QLever not reachable at {url}")
     return url
 
 
@@ -146,7 +146,7 @@ _CANNED: list[tuple[str, list[dict[str, str]]]] = [
         ],
     ),
     (
-        "ORDER BY ?label",
+        "SAMPLE(?synValue) AS ?syn",
         [
             {
                 "concept": f"{NS}C3262",
@@ -225,10 +225,10 @@ def ncit_stub_url(monkeypatch: pytest.MonkeyPatch) -> str:
         return httpx.Response(200, json=canned_ncit_response(query))
 
     transport = httpx.MockTransport(_handler)
-    # OxigraphHttpClient builds ``httpx.AsyncClient(timeout=...)`` internally; inject
+    # SparqlHttpClient builds ``httpx.AsyncClient(timeout=...)`` internally; inject
     # the mock transport by wrapping the class the module references.
     monkeypatch.setattr(
-        "ontolib.terminologies.oxigraph_http_client.httpx.AsyncClient",
+        "ontolib.terminologies.sparql_transport.httpx.AsyncClient",
         functools.partial(httpx.AsyncClient, transport=transport),
     )
     return "http://ncit.stub"

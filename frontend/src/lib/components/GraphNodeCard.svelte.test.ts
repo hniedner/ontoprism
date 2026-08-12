@@ -10,7 +10,8 @@ const selected: NodeAttrs = {
 	semanticType: 'Neoplastic Process',
 	degree: 4,
 	community: 1,
-	expanded: false
+	expanded: false,
+	representationStatus: 'legacy-precoordinated'
 };
 
 describe('GraphNodeCard', () => {
@@ -27,6 +28,7 @@ describe('GraphNodeCard', () => {
 		expect(screen.getByText('4')).toBeInTheDocument();
 		// Community is displayed 1-indexed (#community+1).
 		expect(screen.getByText('#2')).toBeInTheDocument();
+		expect(screen.getByText('Legacy pre-coordinated')).toBeInTheDocument();
 	});
 
 	it('calls onexpand / onopen with the node code', async () => {
@@ -67,9 +69,20 @@ describe('GraphNodeCard', () => {
 		expect(screen.getByText('Neoplasm')).toBeInTheDocument();
 	});
 
+	it('does not infer atomicity for an unassessed node', () => {
+		render(GraphNodeCard, {
+			selected: { ...selected, representationStatus: null },
+			expanding: false,
+			onexpand: vi.fn(),
+			onopen: vi.fn()
+		});
+		expect(screen.queryByText('Legacy pre-coordinated')).not.toBeInTheDocument();
+		expect(screen.queryByText(/atomic|not pre-coordinated/i)).not.toBeInTheDocument();
+	});
+
 	it('defaults degree to 0 and community to #1 when those attributes are absent', () => {
 		render(GraphNodeCard, {
-			selected: { code: 'C1', label: 'Bare', semanticType: null },
+			selected: { code: 'C1', label: 'Bare', semanticType: null, representationStatus: null },
 			expanding: false,
 			onexpand: vi.fn(),
 			onopen: vi.fn()
