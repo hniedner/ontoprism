@@ -192,4 +192,21 @@ describe('FastAPI BFF transport', () => {
 		expect(response.status).toBe(502);
 		expect(await response.json()).toEqual({ detail: 'FastAPI response is too large' });
 	});
+
+	it('forwards a bodyless upstream status without attaching a body', async () => {
+		const response = await forwardFastApiWith(
+			new Request('http://node.test/api/v1/thing', { method: 'DELETE' }),
+			'/api/v1/thing',
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				fetch: async () => new Response(null, { status: 204 })
+			},
+			'203.0.113.9'
+		);
+		// A 204/205/304 cannot carry a body; dropping the guard makes the Response
+		// constructor throw and the request degrade to a spurious 503.
+		expect(response.status).toBe(204);
+		expect(response.body).toBeNull();
+	});
 });
