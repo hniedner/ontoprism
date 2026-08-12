@@ -150,13 +150,15 @@ async def refresh_repositories() -> dict[str, object]:
                     "has_cell_class": True,
                     "has_ncit_xref": True,
                     "serving": {
-                        "rows": 223546,
+                        "rows": 223834,
                         "sha256": (
-                            "a95beed61f43591bac4b2eee0c23a2e24e2300d6bc4df0dc"
-                            "4b9e1cbd39c8a4c7"
+                            "ed3efa224d1e7445d2dc17fb053cea61feee698232dc8404e"
+                            "1c615525b0dffb0"
                         ),
-                        "uberon_classes": 16071,
+                        "uberon_classes": 16362,
                         "cl_classes": 1484,
+                        "uberon_searchable_classes": 16071,
+                        "cl_searchable_classes": 1484,
                     },
                 },
             },

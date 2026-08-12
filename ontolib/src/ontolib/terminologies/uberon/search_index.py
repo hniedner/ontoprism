@@ -62,12 +62,50 @@ INSERT INTO uberon_search_manifest
   (singleton, source_identity, source_hash, row_count, built_at)
 VALUES (true, :source_identity, :source_hash, :row_count, now())
 """
+_STORED_COUNT_SQL = "SELECT COUNT(*) FROM uberon_search"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+class UberonSearchPublicationError(RuntimeError):
+    """A source batch cannot be published as a complete certified search cache."""
 
 
 def _require_digest(name: str, value: str) -> None:
     if _SHA256.fullmatch(value) is None:
         raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+
+
+def _require_new_codes(
+    records: Sequence[dict[str, str | None]], seen_codes: set[str]
+) -> None:
+    codes = [record.get("code") for record in records]
+    present_codes = [code for code in codes if code is not None]
+    if (
+        len(present_codes) != len(codes)
+        or len(set(present_codes)) != len(present_codes)
+        or not seen_codes.isdisjoint(present_codes)
+    ):
+        raise UberonSearchPublicationError(
+            "Uberon/CL search source contains a missing or duplicate code"
+        )
+    seen_codes.update(present_codes)
+
+
+def _require_publication_counts(
+    total: int, stored: int, expected_row_count: int | None
+) -> None:
+    if total <= 0:
+        raise UberonSearchPublicationError(
+            "Uberon/CL search source produced no records"
+        )
+    if expected_row_count is not None and total != expected_row_count:
+        raise UberonSearchPublicationError(
+            "Uberon/CL search row count differs from certified class count"
+        )
+    if stored != total:
+        raise UberonSearchPublicationError(
+            "Uberon/CL stored search row count differs from source rows"
+        )
 
 
 class UberonSearchIndex:
@@ -125,19 +163,17 @@ class UberonSearchIndex:
         _require_digest("source_identity", source_identity)
         _require_digest("source_hash", source_hash)
         total = 0
+        seen_codes: set[str] = set()
         async with self._sf() as session, session.begin():
             await session.execute(text("DELETE FROM uberon_search_manifest"))
             await session.execute(text("DELETE FROM uberon_search"))
             async for records in batches:
                 if records:
+                    _require_new_codes(records, seen_codes)
                     await session.execute(text(_UPSERT_SQL), list(records))
                     total += len(records)
-            if total <= 0:
-                raise ValueError("Uberon/CL search source produced no records")
-            if expected_row_count is not None and total != expected_row_count:
-                raise ValueError(
-                    "Uberon/CL search row count differs from certified class count"
-                )
+            stored = int((await session.execute(text(_STORED_COUNT_SQL))).scalar_one())
+            _require_publication_counts(total, stored, expected_row_count)
             if validate_source is not None:
                 await validate_source()
             await session.execute(

@@ -128,7 +128,7 @@ export interface UberonNeighborhood {
 		relation_label: string | null;
 		kind: 'subClassOf' | 'part_of' | 'other-restriction';
 	}>;
-	truncated?: boolean;
+	truncated: boolean;
 }
 
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
@@ -285,8 +285,11 @@ export interface UberonRepositoryReady {
 			sha256: string;
 			uberon_classes: number;
 			cl_classes: number;
+			uberon_searchable_classes: number;
+			cl_searchable_classes: number;
 		} | null;
 	};
+	activated_at: string;
 }
 
 export type RepositoryUnhealthyReason =

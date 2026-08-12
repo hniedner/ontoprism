@@ -51,7 +51,8 @@ class Settings(BaseSettings):
     # activated or renamed by the sibling workflow (#148 owns replacement).
     ncit_store_dir: str = "data/qlever-ncit"
 
-    # Full Uberon product (including its Cell Ontology dependency) and immutable index.
+    # Full Uberon product, including classes derived from Cell Ontology,
+    # and its immutable index.
     uberon_owl_url: str = (
         "https://github.com/obophenotype/uberon/releases/download/"
         "v2026-06-23/uberon.owl"
@@ -63,11 +64,13 @@ class Settings(BaseSettings):
         "938f51e7c3fc9fcbe5a2863eb346da8033737e568af5836958891c4c6bfb1192"
     )
     uberon_expected_serving_sha256: str = (
-        "a95beed61f43591bac4b2eee0c23a2e24e2300d6bc4df0dc4b9e1cbd39c8a4c7"
+        "2828f839070e49a56d843694b674663d28072ae454c94297ef9e3f2c157e7a81"
     )
-    uberon_expected_serving_rows: int = 223_546
-    uberon_expected_uberon_classes: int = 16_071
+    uberon_expected_serving_rows: Annotated[int, Field(gt=0)] = 223_834
+    uberon_expected_uberon_classes: Annotated[int, Field(gt=0)] = 16_362
     uberon_expected_cl_classes: int = 1_484
+    uberon_expected_uberon_searchable_classes: Annotated[int, Field(gt=0)] = 16_071
+    uberon_expected_cl_searchable_classes: Annotated[int, Field(gt=0)] = 1_484
     uberon_owl_dir: str = "data/uberon"
     uberon_owl_max_retries: int = 3
     uberon_store_dir: str = "data/qlever-uberon"

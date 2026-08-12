@@ -33,7 +33,6 @@ _APP_OPERATIONS = {
     ("GET", "/api/v1/cadsr/concepts/{concept_code}/cdes"),
     ("GET", "/api/v1/cadsr/cdes/{public_id}/neighborhood"),
     ("POST", "/api/v1/refresh"),
-    ("POST", "/api/v1/refresh/ncit/reload"),
     ("POST", "/api/v1/refresh/ncit/download"),
     ("POST", "/api/v1/refresh/cadsr/download"),
     ("POST", "/api/v1/refresh/ncit/search-index"),

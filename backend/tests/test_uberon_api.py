@@ -87,8 +87,12 @@ class _Metadata:
     def cadsr(self) -> SimpleNamespace:
         return SimpleNamespace(source_identity="c" * 64)
 
-    async def uberon(self) -> SimpleNamespace:
-        return SimpleNamespace(source_identity="a" * 64, source_sha256="b" * 64)
+    async def uberon(self, *, force: bool = False) -> object:
+        del force
+        return SimpleNamespace(
+            source_identity="a" * 64,
+            observation=SimpleNamespace(serving=SimpleNamespace(sha256="b" * 64)),
+        )
 
 
 def _client(
@@ -130,21 +134,23 @@ def test_search_identity_mismatch_falls_back_to_certified_store() -> None:
 
 
 @pytest.mark.api
-def test_search_database_failure_falls_back_to_certified_store() -> None:
+def test_search_database_failure_returns_explicit_unavailable_response() -> None:
     store = _Store()
 
     response = next(_client(store, _Index(False, fail=True))).get(
         "/api/v1/uberon/search", params={"q": "lung", "source": "uberon"}
     )
 
-    assert response.status_code == 200
-    assert store.search_calls == [("lung", "uberon")]
+    assert response.status_code == 503
+    assert "cache is unavailable" in response.json()["detail"]
+    assert store.search_calls == []
 
 
 @pytest.mark.api
 def test_unhealthy_repository_refuses_search_before_reads() -> None:
     class _Unhealthy(_Metadata):
-        async def uberon(self) -> RepositoryUnhealthy:
+        async def uberon(self, *, force: bool = False) -> RepositoryUnhealthy:
+            del force
             return RepositoryUnhealthy(
                 repository="uberon",
                 reason="release-mismatch",
@@ -201,5 +207,4 @@ def test_list_preserves_source_facet_and_detail_refuses_unknown_or_invalid() -> 
     assert listed.json()["hits"][0]["source"] == "uberon"
     assert unknown.status_code == 404
     assert "Concept not found" in unknown.json()["detail"]
-    assert invalid.status_code == 404
-    assert "Invalid code" in invalid.json()["detail"]
+    assert invalid.status_code == 422

@@ -3,7 +3,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 UberonSource = Literal["uberon", "cl"]
 UberonEdgeKind = Literal["subClassOf", "part_of", "other-restriction"]
@@ -25,7 +25,26 @@ def _source_for_code(code: str) -> UberonSource:
     return "uberon" if match.group(1) == "UBERON" else "cl"
 
 
-class _SourcedConcept(BaseModel):
+def _require_closed_neighborhood(
+    center: str, nodes: list["UberonGraphNode"], edges: list["UberonGraphEdge"]
+) -> None:
+    _source_for_code(center)
+    node_codes = [node.code for node in nodes]
+    if len(node_codes) != len(set(node_codes)):
+        raise ValueError("neighborhood node codes must be unique")
+    if center not in node_codes:
+        raise ValueError("neighborhood center must be present in nodes")
+    represented = set(node_codes)
+    endpoints = {endpoint for edge in edges for endpoint in (edge.source, edge.target)}
+    if not endpoints.issubset(represented):
+        raise ValueError("neighborhood edges must have represented endpoints")
+
+
+class _ReadModel(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+
+class _SourcedConcept(_ReadModel):
     code: str
     source: UberonSource
 
@@ -40,7 +59,7 @@ class UberonConceptRef(_SourcedConcept):
     label: str | None = None
 
 
-class UberonRelationship(BaseModel):
+class UberonRelationship(_ReadModel):
     relation: str
     relation_label: str | None = None
     kind: UberonEdgeKind
@@ -69,7 +88,7 @@ class UberonSearchHit(_SourcedConcept):
     matched_synonym: str | None = None
 
 
-class UberonSearchPage(BaseModel):
+class UberonSearchPage(_ReadModel):
     query: str
     total: int = Field(ge=0)
     limit: int = Field(ge=1)
@@ -81,7 +100,7 @@ class UberonGraphNode(_SourcedConcept):
     label: str | None = None
 
 
-class UberonGraphEdge(BaseModel):
+class UberonGraphEdge(_ReadModel):
     source: str
     target: str
     relation: str
@@ -98,8 +117,13 @@ class UberonGraphEdge(BaseModel):
         return self
 
 
-class UberonNeighborhood(BaseModel):
+class UberonNeighborhood(_ReadModel):
     center: str
     nodes: list[UberonGraphNode] = []
     edges: list[UberonGraphEdge] = []
     truncated: bool = False
+
+    @model_validator(mode="after")
+    def _closed_graph(self) -> "UberonNeighborhood":
+        _require_closed_neighborhood(self.center, self.nodes, self.edges)
+        return self

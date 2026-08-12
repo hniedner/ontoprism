@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from backend.config import get_settings
 from backend.dependencies import (
-    get_ncit_client,
     get_ncit_search_index,
     get_ncit_store,
     get_repository_metadata,
@@ -31,24 +30,6 @@ def _clear_settings_cache() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
-
-
-@pytest.mark.api
-def test_generic_reload_is_permanently_fail_closed_without_store_access() -> None:
-    app = create_app()
-
-    def _store_must_not_be_resolved() -> None:
-        raise AssertionError("retired reload endpoint resolved the NCIt store")
-
-    app.dependency_overrides[get_ncit_client] = _store_must_not_be_resolved
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/refresh/ncit/reload",
-            json={"source_path": "data/Thesaurus.owl", "replace": True},
-        )
-
-    assert response.status_code == 410
-    assert "offline" in response.json()["detail"]
 
 
 class _FakeNcitStore:
@@ -157,11 +138,17 @@ async def _ready_ncit() -> SimpleNamespace:
     return SimpleNamespace(source_identity="f" * 64)
 
 
-async def _ready_uberon() -> SimpleNamespace:
+async def _ready_uberon(*, force: bool = False) -> SimpleNamespace:
+    assert force is True
     return SimpleNamespace(
         source_identity="a" * 64,
         source_sha256="b" * 64,
-        class_counts=UberonClassCounts(uberon=16_071, cl=1_484),
+        class_counts=UberonClassCounts(
+            uberon=16_362,
+            cl=1_484,
+            uberon_searchable=16_071,
+            cl_searchable=1_484,
+        ),
         observation=UberonIndexObservation(
             version_iri="expected",
             triples=900_000,
@@ -171,8 +158,10 @@ async def _ready_uberon() -> SimpleNamespace:
             serving=UberonServingFingerprint(
                 rows=100,
                 sha256="f" * 64,
-                uberon_classes=16_071,
+                uberon_classes=16_362,
                 cl_classes=1_484,
+                uberon_searchable_classes=16_071,
+                cl_searchable_classes=1_484,
             ),
         ),
     )
@@ -188,7 +177,7 @@ def test_rebuild_uberon_search_index_binds_certified_source() -> None:
     app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
         uberon=_ready_uberon
     )
-    ready = asyncio.run(_ready_uberon())
+    ready = asyncio.run(_ready_uberon(force=True))
 
     async def stable_observation(
         _url: str,
@@ -208,7 +197,7 @@ def test_rebuild_uberon_search_index_binds_certified_source() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"concepts_indexed": 1}
-    assert index.source == ("a" * 64, "b" * 64)
+    assert index.source == ("a" * 64, "f" * 64)
 
 
 class _FailingSearchIndex:

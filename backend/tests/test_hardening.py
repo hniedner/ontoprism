@@ -1,7 +1,7 @@
 """Behavioral tests for API hardening: headers, request-id, error envelope, authz.
 
-Drives the real ASGI app end-to-end (no mocks). The reload/refresh guards fire before
-any live store is touched, so these need no running services.
+Drives the real ASGI app end-to-end (no mocks). Input and authorization guards fire
+before any live store is touched, so these need no running services.
 """
 
 import logging
@@ -41,10 +41,8 @@ def test_incoming_request_id_is_echoed(app_client: TestClient) -> None:
 
 @pytest.mark.security
 def test_error_envelope_shape(app_client: TestClient) -> None:
-    resp = app_client.post(
-        "/api/v1/refresh/ncit/reload", json={"source_path": "data/nope.csv"}
-    )
-    assert resp.status_code == 410
+    resp = app_client.get("/api/v1/ncit/concepts/not-a-curie")
+    assert resp.status_code == 404
     body = resp.json()
     assert body["detail"]  # kept for existing clients
     assert body["error"] == "http_error"
@@ -55,24 +53,6 @@ def test_error_envelope_shape(app_client: TestClient) -> None:
 def test_cors_allows_configured_origin(app_client: TestClient) -> None:
     resp = app_client.get("/health", headers={"Origin": "http://localhost:5175"})
     assert resp.headers["access-control-allow-origin"] == "http://localhost:5175"
-
-
-@pytest.mark.security
-def test_reload_fails_closed_for_path_traversal(app_client: TestClient) -> None:
-    resp = app_client.post(
-        "/api/v1/refresh/ncit/reload",
-        json={"source_path": "../../../../etc/passwd"},
-    )
-    assert resp.status_code == 410
-    assert "offline" in resp.json()["detail"]
-
-
-@pytest.mark.security
-def test_reload_fails_closed_for_absolute_paths(app_client: TestClient) -> None:
-    resp = app_client.post(
-        "/api/v1/refresh/ncit/reload", json={"source_path": "/etc/hosts.ttl"}
-    )
-    assert resp.status_code == 410
 
 
 @pytest.mark.security
@@ -89,18 +69,6 @@ def test_mutating_endpoints_require_api_key_when_configured(
         # Correct key passes authorization (reaches the handler / store layer).
         ok = client.post("/api/v1/refresh", headers={"X-API-Key": "s3cret"})
         assert ok.status_code != 401
-        # The file-ingesting reload endpoint carries its OWN auth dependency — guard
-        # it independently so a future edit that drops it is caught.
-        reload_unauth = client.post(
-            "/api/v1/refresh/ncit/reload", json={"source_path": "data/x.ttl"}
-        )
-        assert reload_unauth.status_code == 401
-        reload_auth = client.post(
-            "/api/v1/refresh/ncit/reload",
-            json={"source_path": "data/missing.ttl"},
-            headers={"X-API-Key": "s3cret"},
-        )
-        assert reload_auth.status_code != 401
 
 
 @pytest.mark.security

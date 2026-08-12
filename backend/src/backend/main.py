@@ -157,7 +157,7 @@ def create_app() -> FastAPI:
     @app.get("/ready", tags=["meta"])
     async def ready(metadata: RepositoryMetadataReads) -> dict[str, object]:
         """Readiness — certify each local terminology proxy or refuse."""
-        repositories = [await metadata.ncit(), await metadata.uberon()]
+        repositories = [await metadata.ncit(), await metadata.uberon(force=True)]
         unhealthy = next(
             (
                 repository

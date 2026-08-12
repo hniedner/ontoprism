@@ -11,7 +11,8 @@ describe('GraphCanvasState', () => {
 			loading: true,
 			error: 'store unavailable',
 			visibleNodeCount: 0,
-			expanding: false
+			expanding: false,
+			truncated: false
 		});
 
 		await vi.advanceTimersByTimeAsync(150);
@@ -25,7 +26,8 @@ describe('GraphCanvasState', () => {
 			loading: false,
 			error: 'store unavailable',
 			visibleNodeCount: 0,
-			expanding: false
+			expanding: false,
+			truncated: false
 		});
 
 		expect(screen.getByText('store unavailable')).toBeInTheDocument();
@@ -37,7 +39,8 @@ describe('GraphCanvasState', () => {
 			loading: false,
 			error: null,
 			visibleNodeCount: 0,
-			expanding: false
+			expanding: false,
+			truncated: false
 		});
 
 		expect(screen.getByText('No graph nodes match the active filters.')).toBeInTheDocument();
@@ -49,11 +52,26 @@ describe('GraphCanvasState', () => {
 			loading: false,
 			error: null,
 			visibleNodeCount: 2,
-			expanding: true
+			expanding: true,
+			truncated: false
 		});
 
 		await vi.advanceTimersByTimeAsync(150);
 		expect(screen.getByRole('status')).toHaveTextContent('Expanding graph');
 		expect(screen.queryByText('No graph nodes match the active filters.')).not.toBeInTheDocument();
+	});
+
+	it('warns when the displayed graph omits relationships at the backend cap', () => {
+		render(GraphCanvasState, {
+			loading: false,
+			error: null,
+			visibleNodeCount: 2,
+			expanding: false,
+			truncated: true
+		});
+
+		expect(screen.getByRole('status')).toHaveTextContent(
+			'This graph is partial because the relationship limit was reached.'
+		);
 	});
 });

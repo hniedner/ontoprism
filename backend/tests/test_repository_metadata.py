@@ -20,6 +20,7 @@ from backend.repository_metadata import (
     bind_uberon_repository_metadata,
     observe_uberon_repository,
 )
+from ontolib.core.exceptions import StorageError
 from ontolib.repositories.cadsr.archive import CadsrSource
 from ontolib.terminologies.ncit.activation import ActivationJournal
 from ontolib.terminologies.ncit.sibling_store import (
@@ -31,6 +32,7 @@ from ontolib.terminologies.ncit.sibling_store import (
 )
 from ontolib.terminologies.uberon.store import (
     UBERON_INDEX_MANIFEST_FILENAME,
+    CertifiedUberonIndexObservation,
     UberonArtifactManifest,
     UberonIndexManifest,
     UberonIndexObservation,
@@ -52,8 +54,10 @@ def _uberon_observation(**changes: object) -> UberonIndexObservation:
         "serving": UberonServingFingerprint(
             rows=100,
             sha256="f" * 64,
-            uberon_classes=16_071,
+            uberon_classes=16_362,
             cl_classes=1_484,
+            uberon_searchable_classes=16_071,
+            cl_searchable_classes=1_484,
         ),
     }
     values.update(changes)
@@ -73,8 +77,27 @@ class _Settings:
     uberon_expected_sha256: str = "d" * 64
     uberon_expected_serving_sha256: str = "f" * 64
     uberon_expected_serving_rows: int = 100
-    uberon_expected_uberon_classes: int = 16_071
+    uberon_expected_uberon_classes: int = 16_362
     uberon_expected_cl_classes: int = 1_484
+    uberon_expected_uberon_searchable_classes: int = 16_071
+    uberon_expected_cl_searchable_classes: int = 1_484
+
+
+def _uberon_counts() -> UberonClassCounts:
+    return UberonClassCounts(
+        uberon=16_362,
+        cl=1_484,
+        uberon_searchable=16_071,
+        cl_searchable=1_484,
+    )
+
+
+def _certified_uberon_observation(
+    **changes: object,
+) -> CertifiedUberonIndexObservation:
+    return CertifiedUberonIndexObservation.model_validate(
+        _uberon_observation(**changes).model_dump()
+    )
 
 
 def _observation(**changes: object) -> CandidateObservation:
@@ -229,14 +252,15 @@ def test_uberon_ready_metadata_has_no_fabricated_activation_timestamp() -> None:
         artifact_identity="b" * 64,
         source_identity="c" * 64,
         loader={},
-        observation=_uberon_observation(),
+        installed_at=datetime(2026, 8, 12, tzinfo=UTC),
+        observation=_certified_uberon_observation(),
     )
 
     ready = bind_uberon_repository_metadata(
         manifest,
         manifest_identity="d" * 64,
         source_sha256="e" * 64,
-        class_counts=UberonClassCounts(uberon=16_071, cl=1_484),
+        class_counts=_uberon_counts(),
     )
 
     assert isinstance(ready, UberonRepositoryReady)
@@ -244,15 +268,56 @@ def test_uberon_ready_metadata_has_no_fabricated_activation_timestamp() -> None:
     assert ready.source_identity != manifest.source_identity
     assert len(ready.source_identity) == 64
     assert ready.version_iri.endswith("/2026-06-19/uberon.owl")
-    assert ready.class_counts == UberonClassCounts(uberon=16_071, cl=1_484)
-    assert "activated_at" not in ready.model_dump()
+    assert ready.class_counts == _uberon_counts()
+    assert ready.activated_at == datetime(2026, 8, 12, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"version_iri": "wrong-version"}, "versions must agree"),
+        (
+            {
+                "class_counts": UberonClassCounts(
+                    uberon=16_363,
+                    cl=1_484,
+                    uberon_searchable=16_071,
+                    cl_searchable=1_484,
+                )
+            },
+            "class counts must match",
+        ),
+    ],
+)
+def test_uberon_ready_metadata_rejects_internal_identity_mismatch(
+    changes: dict[str, object], message: str
+) -> None:
+    observation = _certified_uberon_observation()
+    values: dict[str, object] = {
+        "source_identity": "a" * 64,
+        "manifest_identity": "b" * 64,
+        "source_sha256": "c" * 64,
+        "version_iri": observation.version_iri,
+        "activated_at": datetime(2026, 8, 12, tzinfo=UTC),
+        "class_counts": _uberon_counts(),
+        "observation": observation,
+    }
+    values.update(changes)
+
+    with pytest.raises(ValueError, match=message):
+        UberonRepositoryReady.model_validate(values)
 
 
 def test_uberon_class_counts_require_both_positive_sources() -> None:
     with pytest.raises(ValueError, match="cl"):
         UberonClassCounts.model_validate({"uberon": 16_071})
     with pytest.raises(ValueError, match="greater than 0"):
-        UberonClassCounts(uberon=16_071, cl=0)
+        UberonClassCounts(
+            uberon=16_362,
+            cl=0,
+            uberon_searchable=16_071,
+            cl_searchable=1_484,
+        )
 
 
 def test_uberon_ready_metadata_requires_serving_content_proof() -> None:
@@ -266,7 +331,7 @@ def test_uberon_ready_metadata_requires_serving_content_proof() -> None:
             manifest,
             manifest_identity="d" * 64,
             source_sha256="e" * 64,
-            class_counts=UberonClassCounts(uberon=16_071, cl=1_484),
+            class_counts=_uberon_counts(),
         )
 
     assert captured.value.reason == "observation-mismatch"
@@ -388,7 +453,8 @@ async def test_service_binds_uberon_identity_to_manifest_artifact_and_live_count
         artifact_identity="b" * 64,
         source_identity="c" * 64,
         loader={},
-        observation=_uberon_observation(),
+        installed_at=datetime(2026, 8, 12, tzinfo=UTC),
+        observation=_certified_uberon_observation(),
     )
     artifact = UberonArtifactManifest.model_construct(
         source_url="https://example.test/uberon.owl",
@@ -409,7 +475,10 @@ async def test_service_binds_uberon_identity_to_manifest_artifact_and_live_count
     async def _observe(
         _url: str,
     ) -> tuple[UberonIndexObservation, UberonClassCounts]:
-        return manifest.observation, UberonClassCounts(uberon=16_071, cl=1_484)
+        return (
+            UberonIndexObservation.model_validate(manifest.observation.model_dump()),
+            _uberon_counts(),
+        )
 
     monkeypatch.setattr(
         "backend.repository_metadata.observe_uberon_repository", _observe
@@ -432,7 +501,11 @@ async def test_service_binds_uberon_identity_to_manifest_artifact_and_live_count
         == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     )
     assert result.source_sha256 == "d" * 64
-    assert result.class_counts == UberonClassCounts(uberon=16_071, cl=1_484)
+    assert result.class_counts == _uberon_counts()
+
+    forced = await service.uberon(force=True)
+    assert isinstance(forced, UberonRepositoryReady)
+    assert proof_loads == 2
 
 
 @pytest.mark.asyncio
@@ -444,7 +517,7 @@ async def test_service_refuses_uberon_release_skew_without_identity(
     (store / UBERON_INDEX_MANIFEST_FILENAME).write_text("{}")
     manifest = UberonIndexManifest.model_construct(
         source_identity="c" * 64,
-        observation=_uberon_observation(version_iri="expected"),
+        observation=_certified_uberon_observation(version_iri="expected"),
         artifact_manifest_path=str(tmp_path / "artifact.json"),
     )
     monkeypatch.setattr(
@@ -464,7 +537,7 @@ async def test_service_refuses_uberon_release_skew_without_identity(
     ) -> tuple[UberonIndexObservation, UberonClassCounts]:
         return (
             manifest.observation.model_copy(update={"version_iri": "different"}),
-            UberonClassCounts(uberon=16_071, cl=1_484),
+            _uberon_counts(),
         )
 
     monkeypatch.setattr(
@@ -528,7 +601,9 @@ async def test_service_refuses_artifact_outside_configured_pins(
         uberon_store_dir=str(store),
         uberon_sparql_url="http://uberon.test",
     )
-    observation = _uberon_observation(version_iri=settings.uberon_expected_version_iri)
+    observation = _certified_uberon_observation(
+        version_iri=settings.uberon_expected_version_iri
+    )
     artifact = _artifact_for_settings(settings).model_copy(update={field: wrong_value})
     manifest = _uberon_manifest_for_test(tmp_path / "artifact.json", observation)
     monkeypatch.setattr(
@@ -557,7 +632,9 @@ async def test_service_refuses_same_version_live_observation_drift(
         uberon_store_dir=str(store),
         uberon_sparql_url="http://uberon.test",
     )
-    expected = _uberon_observation(version_iri=settings.uberon_expected_version_iri)
+    expected = _certified_uberon_observation(
+        version_iri=settings.uberon_expected_version_iri
+    )
     manifest = _uberon_manifest_for_test(tmp_path / "artifact.json", expected)
     monkeypatch.setattr(
         "backend.repository_metadata.validate_uberon_index_proof",
@@ -569,7 +646,7 @@ async def test_service_refuses_same_version_live_observation_drift(
     ) -> tuple[UberonIndexObservation, UberonClassCounts]:
         return (
             expected.model_copy(update={"triples": expected.triples - 1}),
-            UberonClassCounts(uberon=16_071, cl=1_484),
+            _uberon_counts(),
         )
 
     monkeypatch.setattr(
@@ -585,6 +662,46 @@ async def test_service_refuses_same_version_live_observation_drift(
 
 
 @pytest.mark.asyncio
+async def test_service_reports_unreachable_uberon_without_ready_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "qlever-uberon"
+    store.mkdir()
+    (store / UBERON_INDEX_MANIFEST_FILENAME).write_text("{}")
+    settings = _Settings(
+        ncit_store_dir=str(tmp_path / "ncit"),
+        ncit_sparql_url="http://ncit.test",
+        uberon_store_dir=str(store),
+        uberon_sparql_url="http://uberon.test",
+    )
+    observation = _certified_uberon_observation(
+        version_iri=settings.uberon_expected_version_iri
+    )
+    manifest = _uberon_manifest_for_test(tmp_path / "artifact.json", observation)
+    monkeypatch.setattr(
+        "backend.repository_metadata.validate_uberon_index_proof",
+        lambda path: (manifest, _artifact_for_settings(settings)),
+    )
+
+    async def _unreachable(
+        _url: str,
+    ) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        raise StorageError("Uberon endpoint unavailable")
+
+    monkeypatch.setattr(
+        "backend.repository_metadata.observe_uberon_repository", _unreachable
+    )
+
+    result = await RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr()
+    ).uberon()
+
+    assert isinstance(result, RepositoryUnhealthy)
+    assert result.reason == "repository-unreachable"
+    assert "source_identity" not in result.model_dump()
+
+
+@pytest.mark.asyncio
 async def test_service_refuses_serving_content_outside_configured_pins(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -597,7 +714,9 @@ async def test_service_refuses_serving_content_outside_configured_pins(
         uberon_store_dir=str(store),
         uberon_sparql_url="http://uberon.test",
     )
-    expected = _uberon_observation(version_iri=settings.uberon_expected_version_iri)
+    expected = _certified_uberon_observation(
+        version_iri=settings.uberon_expected_version_iri
+    )
     manifest = _uberon_manifest_for_test(tmp_path / "artifact.json", expected)
     monkeypatch.setattr(
         "backend.repository_metadata.validate_uberon_index_proof",
@@ -607,7 +726,7 @@ async def test_service_refuses_serving_content_outside_configured_pins(
     async def _observe(
         _url: str,
     ) -> tuple[UberonIndexObservation, UberonClassCounts]:
-        return expected, UberonClassCounts(uberon=16_071, cl=1_484)
+        return expected, _uberon_counts()
 
     monkeypatch.setattr(
         "backend.repository_metadata.observe_uberon_repository", _observe

@@ -198,6 +198,21 @@ describe('mergeNeighborhood', () => {
 		expect(g.getNodeAttribute('C1', 'expanded')).toBe(false);
 	});
 
+	it('retains a truncation signal when a partial neighborhood is merged', () => {
+		const g = createGraph();
+		mergeNeighborhood(
+			g,
+			nb({
+				center: 'UBERON:1',
+				nodes: [{ code: 'UBERON:1', label: null, semantic_type: 'Uberon' }],
+				truncated: true
+			})
+		);
+
+		expect(g.getAttribute('truncated')).toBe(true);
+		expect(g.getNodeAttribute('UBERON:1', 'label')).toBe('UBERON:1');
+	});
+
 	it('uses the bare relation code as the edge label when no relation_label is given', () => {
 		const g = createGraph();
 		mergeNeighborhood(

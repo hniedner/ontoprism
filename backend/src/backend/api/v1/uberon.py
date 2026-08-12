@@ -2,11 +2,12 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Path, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.dependencies import RepositoryMetadataReads, UberonSearch, UberonStore
 from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
+from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
@@ -30,6 +31,14 @@ async def _ready(metadata: RepositoryMetadataReads) -> UberonRepositoryReady:
     return repository
 
 
+def _repository_failure(exc: StorageError) -> HTTPException:
+    logger.exception("Uberon/CL repository read failed")
+    return HTTPException(
+        status.HTTP_502_BAD_GATEWAY,
+        "Uberon/CL repository returned an invalid or unavailable response.",
+    )
+
+
 @router.get("/search", response_model=UberonSearchPage)
 async def search(
     store: UberonStore,
@@ -43,12 +52,19 @@ async def search(
     repository = await _ready(metadata)
     try:
         if await index.is_populated(
-            repository.source_identity, repository.source_sha256
+            repository.source_identity, repository.observation.serving.sha256
         ):
             return await index.search(q, source=source, limit=limit, offset=offset)
     except SQLAlchemyError as exc:
-        logger.warning("Uberon/CL FTS unavailable; using QLever: %s", exc)
-    return await store.search(q, source=source, limit=limit, offset=offset)
+        logger.exception("Uberon/CL FTS read failed")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Uberon/CL search cache is unavailable.",
+        ) from exc
+    try:
+        return await store.search(q, source=source, limit=limit, offset=offset)
+    except StorageError as exc:
+        raise _repository_failure(exc) from exc
 
 
 @router.get("/list", response_model=UberonSearchPage)
@@ -60,12 +76,17 @@ async def list_concepts(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> UberonSearchPage:
     await _ready(metadata)
-    return await store.list_concepts(source=source, limit=limit, offset=offset)
+    try:
+        return await store.list_concepts(source=source, limit=limit, offset=offset)
+    except StorageError as exc:
+        raise _repository_failure(exc) from exc
 
 
 @router.get("/concepts/{code}", response_model=UberonConceptDetail)
 async def concept_detail(
-    store: UberonStore, metadata: RepositoryMetadataReads, code: str
+    store: UberonStore,
+    metadata: RepositoryMetadataReads,
+    code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
 ) -> UberonConceptDetail:
     await _ready(metadata)
     try:
@@ -77,6 +98,8 @@ async def concept_detail(
             else "Concept not found"
         )
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc
+    except StorageError as exc:
+        raise _repository_failure(exc) from exc
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Concept not found: {code}")
     return detail
@@ -86,7 +109,7 @@ async def concept_detail(
 async def neighborhood(
     store: UberonStore,
     metadata: RepositoryMetadataReads,
-    code: str,
+    code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
     depth: Annotated[int, Query(ge=1, le=1)] = 1,
 ) -> UberonNeighborhood:
     await _ready(metadata)
@@ -99,3 +122,5 @@ async def neighborhood(
             else "Concept not found"
         )
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc
+    except StorageError as exc:
+        raise _repository_failure(exc) from exc

@@ -82,6 +82,7 @@ export function mergeNeighborhood(
 	{ centerExpanded = true }: { centerExpanded?: boolean } = {}
 ): number {
 	let added = 0;
+	if (nb.truncated) graph.setAttribute('truncated', true);
 	for (const node of nb.nodes) {
 		if (graph.hasNode(node.code)) {
 			// A previously-referenced neighbor now arrives with real attributes.

@@ -8,6 +8,8 @@ from ontolib.terminologies.uberon.graph_store import UberonGraphStore
 from ontolib.terminologies.uberon.models import (
     UberonConceptRef,
     UberonGraphEdge,
+    UberonGraphNode,
+    UberonNeighborhood,
     UberonRelationship,
     UberonSearchPage,
 )
@@ -282,3 +284,47 @@ def test_models_enforce_curie_source_edge_and_pagination_invariants() -> None:
         )
     with pytest.raises(ValidationError):
         UberonSearchPage(query="x", total=-1, limit=0, offset=-1)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("center", "nodes", "edges", "message"),
+    [
+        (
+            "UBERON:1",
+            [
+                UberonGraphNode(code="UBERON:1", source="uberon"),
+                UberonGraphNode(code="UBERON:1", source="uberon"),
+            ],
+            [],
+            "node codes must be unique",
+        ),
+        (
+            "UBERON:1",
+            [UberonGraphNode(code="UBERON:2", source="uberon")],
+            [],
+            "center must be present",
+        ),
+        (
+            "UBERON:1",
+            [UberonGraphNode(code="UBERON:1", source="uberon")],
+            [
+                UberonGraphEdge(
+                    source="UBERON:1",
+                    target="UBERON:2",
+                    relation="subClassOf",
+                    kind="subClassOf",
+                )
+            ],
+            "represented endpoints",
+        ),
+    ],
+)
+def test_neighborhood_model_rejects_open_or_ambiguous_graphs(
+    center: str,
+    nodes: list[UberonGraphNode],
+    edges: list[UberonGraphEdge],
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        UberonNeighborhood(center=center, nodes=nodes, edges=edges)

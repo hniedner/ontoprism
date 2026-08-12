@@ -117,6 +117,8 @@ def _observation(**updates: object) -> UberonIndexObservation:
             sha256="f" * 64,
             uberon_classes=10,
             cl_classes=5,
+            uberon_searchable_classes=9,
+            cl_searchable_classes=5,
         ),
     }
     values.update(updates)
@@ -274,7 +276,7 @@ async def test_build_publishes_only_a_validated_index(tmp_path: Path) -> None:
     assert (target / UBERON_INDEX_MANIFEST_FILENAME).is_file()
     assert manifest.artifact_identity == artifact.artifact_identity
     assert manifest.loader == _loader()
-    assert manifest.observation == _observation()
+    assert manifest.observation.model_dump() == _observation().model_dump()
     assert runtime.loaded is not None
     assert runtime.loaded[0] == Path(artifact.file_path)
     assert (

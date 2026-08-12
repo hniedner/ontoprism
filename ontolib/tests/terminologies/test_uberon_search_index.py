@@ -7,6 +7,7 @@ import pytest
 
 from ontolib.terminologies.uberon.search_index import (
     UberonSearchIndex,
+    UberonSearchPublicationError,
     populate_from_store,
 )
 
@@ -47,6 +48,14 @@ class _Session:
     async def execute(self, sql: Any, params: Any = None) -> _Result:
         statement = str(sql)
         self.factory.executed.append((statement, params))
+        if statement.strip() == "SELECT COUNT(*) FROM uberon_search":
+            return _Result(scalar=self.factory.stored_rows)
+        if "INSERT INTO uberon_search " in statement:
+            self.factory.stored_rows += (
+                len(params or []) + self.factory.inserted_row_delta
+            )
+        elif "DELETE FROM uberon_search" in statement:
+            self.factory.stored_rows = 0
         for needle, result in self.factory.results.items():
             if needle in statement:
                 return result
@@ -57,6 +66,8 @@ class _Factory:
     def __init__(self, results: dict[str, _Result]) -> None:
         self.results = results
         self.executed: list[tuple[str, Any]] = []
+        self.stored_rows = 0
+        self.inserted_row_delta = 0
 
     def __call__(self) -> _Session:
         return _Session(self)
@@ -140,7 +151,8 @@ async def test_rebuild_publishes_rows_and_manifest_in_one_transaction() -> None:
     assert "DELETE FROM uberon_search_manifest" in statements[0]
     assert "DELETE FROM uberon_search" in statements[1]
     assert "INSERT INTO uberon_search" in statements[2]
-    assert "INSERT INTO uberon_search_manifest" in statements[3]
+    assert "SELECT COUNT(*) FROM uberon_search" in statements[3]
+    assert "INSERT INTO uberon_search_manifest" in statements[4]
 
 
 @pytest.mark.unit
@@ -158,15 +170,15 @@ async def test_rebuild_validates_source_before_manifest_publication() -> None:
         validate_source=validate_source,
     )
 
-    assert observed_statement_counts == [3]
-    assert "INSERT INTO uberon_search_manifest" in factory.executed[3][0]
+    assert observed_statement_counts == [4]
+    assert "INSERT INTO uberon_search_manifest" in factory.executed[4][0]
 
 
 @pytest.mark.unit
 async def test_rebuild_refuses_incomplete_certified_row_count() -> None:
     factory = _Factory({})
 
-    with pytest.raises(ValueError, match="certified class count"):
+    with pytest.raises(UberonSearchPublicationError, match="certified class count"):
         await UberonSearchIndex(factory).rebuild(  # type: ignore[arg-type]
             _batches(),
             source_identity="a" * 64,
@@ -178,6 +190,75 @@ async def test_rebuild_refuses_incomplete_certified_row_count() -> None:
         "INSERT INTO uberon_search_manifest" in statement
         for statement, _params in factory.executed
     )
+
+
+@pytest.mark.unit
+async def test_rebuild_refuses_duplicate_codes_within_one_batch() -> None:
+    factory = _Factory({})
+
+    async def duplicates():
+        yield [
+            {
+                "code": "UBERON:0002048",
+                "source": "uberon",
+                "label": "first",
+                "synonyms": "",
+            },
+            {
+                "code": "UBERON:0002048",
+                "source": "uberon",
+                "label": "second",
+                "synonyms": "",
+            },
+        ]
+
+    with pytest.raises(UberonSearchPublicationError, match="duplicate code"):
+        await UberonSearchIndex(factory).rebuild(  # type: ignore[arg-type]
+            duplicates(), source_identity="a" * 64, source_hash="b" * 64
+        )
+
+    assert not any(
+        "INSERT INTO uberon_search" in statement
+        for statement, _params in factory.executed
+    )
+
+
+@pytest.mark.unit
+async def test_rebuild_refuses_missing_codes_before_insertion() -> None:
+    factory = _Factory({})
+
+    async def missing_code():
+        yield [{"code": None, "source": "uberon", "label": "lung", "synonyms": ""}]
+
+    with pytest.raises(UberonSearchPublicationError, match="missing or duplicate"):
+        await UberonSearchIndex(factory).rebuild(  # type: ignore[arg-type]
+            missing_code(), source_identity="a" * 64, source_hash="b" * 64
+        )
+
+
+@pytest.mark.unit
+async def test_rebuild_refuses_empty_source_without_manifest() -> None:
+    factory = _Factory({})
+
+    async def empty():
+        if False:
+            yield []
+
+    with pytest.raises(UberonSearchPublicationError, match="produced no records"):
+        await UberonSearchIndex(factory).rebuild(  # type: ignore[arg-type]
+            empty(), source_identity="a" * 64, source_hash="b" * 64
+        )
+
+
+@pytest.mark.unit
+async def test_rebuild_refuses_when_postgres_stores_fewer_rows() -> None:
+    factory = _Factory({})
+    factory.inserted_row_delta = -1
+
+    with pytest.raises(UberonSearchPublicationError, match="stored search row count"):
+        await UberonSearchIndex(factory).rebuild(  # type: ignore[arg-type]
+            _batches(), source_identity="a" * 64, source_hash="b" * 64
+        )
 
 
 @pytest.mark.unit

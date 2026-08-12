@@ -5,12 +5,14 @@
 		loading,
 		error,
 		visibleNodeCount,
-		expanding
+		expanding,
+		truncated
 	}: {
 		loading: boolean;
 		error: string | null;
 		visibleNodeCount: number;
 		expanding: boolean;
+		truncated: boolean;
 	} = $props();
 </script>
 
@@ -27,6 +29,15 @@
 		class="pointer-events-none absolute inset-0 flex items-center justify-center bg-card/85 px-6 text-center text-sm text-muted"
 	>
 		No graph nodes match the active filters.
+	</div>
+{/if}
+
+{#if !loading && !error && truncated}
+	<div
+		role="status"
+		class="pointer-events-none absolute bottom-3 left-3 rounded-md bg-warning-50 px-2 py-1 text-xs text-warning-800 shadow dark:bg-warning-950 dark:text-warning-200"
+	>
+		This graph is partial because the relationship limit was reached.
 	</div>
 {/if}
 

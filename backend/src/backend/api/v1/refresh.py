@@ -37,6 +37,9 @@ from ontolib.terminologies.ncit.owl_download import (
 )
 from ontolib.terminologies.ncit.search_index import populate_from_store
 from ontolib.terminologies.uberon.search_index import (
+    UberonSearchPublicationError,
+)
+from ontolib.terminologies.uberon.search_index import (
     populate_from_store as populate_uberon_search,
 )
 
@@ -52,34 +55,18 @@ class RefreshReport(BaseModel):
     repositories: list[RepositoryMetadata]
 
 
-class ReloadRequest(BaseModel):
-    """Legacy request retained only to return an explicit fail-closed response."""
-
-    source_path: str
-    replace: bool = True
-
-
 @router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
 async def refresh(
     metadata: RepositoryMetadataReads,
 ) -> RefreshReport:
-    """Re-certify local proxies and return their exact active identities."""
+    """Re-certify local proxies and return their certified repository identities."""
     repositories: list[RepositoryMetadata] = [
         await metadata.ncit(),
         metadata.cadsr(),
-        await metadata.uberon(),
+        await metadata.uberon(force=True),
     ]
     return RefreshReport(
         refreshed_at=datetime.now(UTC).isoformat(), repositories=repositories
-    )
-
-
-@router.post("/ncit/reload", dependencies=[RequireApiKey])
-async def reload_ncit(_body: ReloadRequest) -> None:
-    """Reject the removed generic source-ontology HTTP loader."""
-    raise HTTPException(
-        status.HTTP_410_GONE,
-        "NCIt HTTP reload is disabled; build a validated sibling store offline.",
     )
 
 
@@ -227,7 +214,7 @@ async def rebuild_uberon_search_index(
     metadata: RepositoryMetadataReads,
 ) -> SearchIndexReport:
     """Rebuild Uberon/CL FTS from the exact certified immutable source."""
-    repository = await metadata.uberon()
+    repository = await metadata.uberon(force=True)
     if isinstance(repository, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -251,13 +238,14 @@ async def rebuild_uberon_search_index(
             store,
             index,
             source_identity=repository.source_identity,
-            source_hash=repository.source_sha256,
+            source_hash=repository.observation.serving.sha256,
             validate_source=validate_source,
             expected_row_count=(
-                repository.class_counts.uberon + repository.class_counts.cl
+                repository.class_counts.uberon_searchable
+                + repository.class_counts.cl_searchable
             ),
         )
-    except (StorageError, SQLAlchemyError) as exc:
+    except (UberonSearchPublicationError, StorageError, SQLAlchemyError) as exc:
         logger.exception("Uberon/CL search-index rebuild failed")
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,

@@ -1,6 +1,6 @@
 """FastAPI dependencies for process-wide repository stores and clients."""
 
-from typing import Annotated, Protocol
+from typing import Annotated, Literal, Protocol
 
 from fastapi import Depends, Request
 
@@ -93,11 +93,17 @@ def get_xref_store(
 class RepositoryMetadataReader(Protocol):
     """Read exact, certified identities for the active repository proxies."""
 
-    async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy: ...
+    async def ncit(
+        self,
+    ) -> NcitRepositoryReady | RepositoryUnhealthy[Literal["ncit"]]: ...
 
-    def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy: ...
+    def cadsr(
+        self,
+    ) -> CadsrRepositoryReady | RepositoryUnhealthy[Literal["cadsr"]]: ...
 
-    async def uberon(self) -> UberonRepositoryReady | RepositoryUnhealthy: ...
+    async def uberon(
+        self, *, force: bool = False
+    ) -> UberonRepositoryReady | RepositoryUnhealthy[Literal["uberon"]]: ...
 
 
 def get_repository_metadata(request: Request) -> RepositoryMetadataReader:

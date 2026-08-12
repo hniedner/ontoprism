@@ -99,6 +99,7 @@
 	let expanding = $state(false);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let truncated = $state(false);
 	let search = $state('');
 	let fullscreen = $state(false);
 	let hideIsolated = $state(false);
@@ -313,6 +314,7 @@
 			layoutController.cancel();
 			layoutRunning = false;
 			mergeNeighborhood(activeGraph, nb);
+			truncated = activeGraph.getAttribute('truncated') === true;
 			refreshStats(activeGraph);
 			runLayout(activeGraph);
 			sigma?.refresh();
@@ -447,6 +449,7 @@
 		sigma?.kill();
 		sigma = null;
 		graph = null;
+		truncated = false;
 		expanding = false;
 		selected = null;
 		hovered = null;
@@ -467,6 +470,7 @@
 			const nb = nextInitial ?? (await fetchNeighborhood(nextCode, lease.signal));
 			if (!lease.isCurrent() || graph !== nextGraph) return;
 			mergeNeighborhood(nextGraph, nb);
+			truncated = nextGraph.getAttribute('truncated') === true;
 			seedPositions(nextGraph);
 			refreshStats(nextGraph);
 			const labelTheme = graphLabelTheme(theme.current);
@@ -764,7 +768,7 @@
 			<GraphMinimap {graph} {sigma} version={graphVersion} />
 		{/if}
 
-		<GraphCanvasState {loading} {error} {visibleNodeCount} {expanding} />
+		<GraphCanvasState {loading} {error} {visibleNodeCount} {expanding} {truncated} />
 
 		{#if menu}
 			<!-- Right-click context menu, positioned over the canvas. -->

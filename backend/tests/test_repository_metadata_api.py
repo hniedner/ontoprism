@@ -18,7 +18,7 @@ from backend.repository_metadata import (
 )
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
 from ontolib.terminologies.uberon.store import (
-    UberonIndexObservation,
+    CertifiedUberonIndexObservation,
     UberonServingFingerprint,
 )
 
@@ -69,8 +69,7 @@ def _uberon_ready() -> UberonRepositoryReady:
         manifest_identity="1" * 64,
         source_sha256="2" * 64,
         version_iri="http://example.test/uberon/2026-06-19",
-        class_counts=UberonClassCounts(uberon=16_071, cl=1_484),
-        observation=UberonIndexObservation(
+        observation=CertifiedUberonIndexObservation(
             version_iri="http://example.test/uberon/2026-06-19",
             triples=900_000,
             has_uberon_lung=True,
@@ -79,9 +78,18 @@ def _uberon_ready() -> UberonRepositoryReady:
             serving=UberonServingFingerprint(
                 rows=100,
                 sha256="f" * 64,
-                uberon_classes=16_071,
+                uberon_classes=16_362,
                 cl_classes=1_484,
+                uberon_searchable_classes=16_071,
+                cl_searchable_classes=1_484,
             ),
+        ),
+        activated_at=datetime(2026, 8, 12, tzinfo=UTC),
+        class_counts=UberonClassCounts(
+            uberon=16_362,
+            cl=1_484,
+            uberon_searchable=16_071,
+            cl_searchable=1_484,
         ),
     )
 
@@ -101,7 +109,10 @@ class _Metadata:
     def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
         return _cadsr_ready()
 
-    async def uberon(self) -> UberonRepositoryReady | RepositoryUnhealthy:
+    async def uberon(
+        self, *, force: bool = False
+    ) -> UberonRepositoryReady | RepositoryUnhealthy:
+        del force
         return self._uberon
 
 
