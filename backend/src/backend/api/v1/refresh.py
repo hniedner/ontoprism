@@ -177,7 +177,8 @@ async def rebuild_ncit_search_index(
     """Rebuild the NCIt FTS cache from the live store (materialize label + synonyms).
 
     Run after an NCIt store (re)load: search then serves from the tsvector index
-    instead of a live SPARQL scan. A store or DB failure returns 502.
+    instead of a live SPARQL scan. An unhealthy NCIt repository returns 503; a store
+    or DB failure during the rebuild returns 502.
     """
     repository = await metadata.ncit()
     if isinstance(repository, RepositoryUnhealthy):

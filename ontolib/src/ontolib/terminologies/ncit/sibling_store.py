@@ -430,7 +430,8 @@ class DockerQleverRuntime:
         )
 
     def identify_loader(self) -> LoaderIdentity:
-        """Require the exact digest and CLI version that own the store format."""
+        """Require the exact RIOT converter identity plus the QLever image digest and
+        indexer version that together own the store format."""
         jena_dir = self._require_jena_install_dir()
         converter = (
             self._identify_converter(jena_dir)

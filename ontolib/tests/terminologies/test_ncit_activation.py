@@ -156,6 +156,32 @@ def test_health_validation_transition_records_durable_activation_time(
 
 
 @pytest.mark.unit
+def test_journal_rejects_activation_time_that_contradicts_its_phase(
+    tmp_path: Path,
+) -> None:
+    stamped = datetime(2026, 8, 10, tzinfo=UTC)
+
+    # A phase at or after health-validation must carry an activation time.
+    for activated_phase in ("health-validated", "complete"):
+        with pytest.raises(ValidationError, match="activated_at is required"):
+            _journal(tmp_path, phase=activated_phase, activated_at=None)
+
+    # A phase before health-validation must not carry one.
+    for pending_phase in ("preflight", "service-restarted"):
+        with pytest.raises(ValidationError, match="activated_at must be unset"):
+            _journal(tmp_path, phase=pending_phase, activated_at=stamped)
+
+    # ``rolled-back`` is terminal from either side and constrains neither.
+    assert _journal(tmp_path, phase="rolled-back", activated_at=None).phase == (
+        "rolled-back"
+    )
+    assert (
+        _journal(tmp_path, phase="rolled-back", activated_at=stamped).activated_at
+        == stamped
+    )
+
+
+@pytest.mark.unit
 def test_failed_fsync_does_not_report_a_journal_transition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

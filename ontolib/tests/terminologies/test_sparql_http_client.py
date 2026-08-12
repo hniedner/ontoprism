@@ -323,3 +323,27 @@ def test_engine_selection_rejects_an_unknown_runtime_value() -> None:
             "http://example.test/ncit",
             named_graphs=(),
         )
+
+
+@pytest.mark.unit
+def test_profile_rejects_a_half_configured_dataset() -> None:
+    root = "http://example.test:7001/"
+
+    # A default graph without its named graphs would silently leak QLever's union
+    # default graph through query_url_for; the coupling must be all-or-nothing.
+    with pytest.raises(ValueError, match="must be set together"):
+        SparqlEndpointProfile(
+            service_url=root,
+            query_url=root,
+            update_url=root,
+            graph_store_url=root,
+            dataset_default_graph="urn:ontoprism:ncit:default",
+        )
+    with pytest.raises(ValueError, match="must be set together"):
+        SparqlEndpointProfile(
+            service_url=root,
+            query_url=root,
+            update_url=root,
+            graph_store_url=root,
+            dataset_named_graphs=("urn:ontoprism:ncit:stated",),
+        )

@@ -79,6 +79,23 @@ _FORWARD_TRANSITIONS: dict[ActivationPhase, ActivationPhase] = {
     "publication-resumed": "complete",
 }
 
+# ``activated_at`` is stamped at the ``health-validated`` transition, so it must be set
+# from that phase onward and unset before it. ``rolled-back`` is deliberately in neither
+# set: a rollback can occur on either side of the health-validation boundary.
+_ACTIVATED_PHASES: frozenset[ActivationPhase] = frozenset(
+    {"health-validated", "rollback-cleaned", "publication-resumed", "complete"}
+)
+_PRE_ACTIVATION_PHASES: frozenset[ActivationPhase] = frozenset(
+    {
+        "preflight",
+        "publication-paused",
+        "service-stopped",
+        "rollback-staged",
+        "candidate-activated",
+        "service-restarted",
+    }
+)
+
 QLEVER_REQUIRED_STORE_FILES = frozenset(
     {
         "ncit.index.ops",
@@ -548,6 +565,22 @@ class ActivationJournal(BaseModel):
             self.qlever_index_version,
             self.qlever_index_basename,
         )
+        return self
+
+    @model_validator(mode="after")
+    def _activated_at_matches_phase(self) -> ActivationJournal:
+        # ``activated_at`` is stamped exactly at the ``health-validated`` transition and
+        # inherited by every later forward phase, so it must be present from then on and
+        # absent before. ``rolled-back`` is terminal from either side of that boundary
+        # (a rollback before or after health-validation), so it constrains neither.
+        if self.phase in _ACTIVATED_PHASES and self.activated_at is None:
+            raise ValueError(
+                "activated_at is required once activation is health-validated"
+            )
+        if self.phase in _PRE_ACTIVATION_PHASES and self.activated_at is not None:
+            raise ValueError(
+                "activated_at must be unset before activation is health-validated"
+            )
         return self
 
 
