@@ -155,6 +155,9 @@ def _write_compose_file(
   {contract.service_name}:
     image: {contract.image}
     container_name: {contract.container_name}
+    # The sibling index is built as the host owner. The server must use the same
+    # uid/gid or image uid 999 exits against this bind mount on Linux CI.
+    user: "{os.getuid()}:{os.getgid()}"
     working_dir: /data
     entrypoint: [\"/bin/sh\", \"-c\"]
     command:
