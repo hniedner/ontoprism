@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qs, urlparse
@@ -16,6 +17,11 @@ from ontolib.repositories.pubmed.client import (
     PubMedClient,
     _extract_elink_pmids,
     _linkset_pmids,
+)
+from ontolib.repositories.upstream import (
+    UpstreamRateLimitedError,
+    UpstreamTimeoutError,
+    UpstreamUnavailableError,
 )
 
 if TYPE_CHECKING:
@@ -258,6 +264,20 @@ class _BadHandler(BaseHTTPRequestHandler):
         pass
 
 
+class _FailureHandler(BaseHTTPRequestHandler):
+    status: ClassVar[int] = 500
+    body: ClassVar[bytes] = b"upstream-secret-body"
+
+    def do_GET(self) -> None:
+        self.send_response(self.status)
+        self.send_header("Content-Length", str(len(self.body)))
+        self.end_headers()
+        self.wfile.write(self.body)
+
+    def log_message(self, *_a: object) -> None:
+        pass
+
+
 @pytest.mark.unit
 async def test_malformed_efetch_xml_raises_storage_error() -> None:
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _BadHandler)
@@ -265,7 +285,7 @@ async def test_malformed_efetch_xml_raises_storage_error() -> None:
     host, port = srv.server_address[:2]
     try:
         async with _client(f"http://{host}:{port}") as client:
-            with pytest.raises(StorageError, match="unparseable XML"):
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
                 await client.get_article("111")
     finally:
         srv.shutdown()
@@ -279,7 +299,7 @@ async def test_non_json_esearch_raises_storage_error() -> None:
     host, port = srv.server_address[:2]
     try:
         async with _client(f"http://{host}:{port}") as client:
-            with pytest.raises(StorageError, match="JSON"):
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
                 await client.search_articles("x")
     finally:
         srv.shutdown()
@@ -381,8 +401,74 @@ async def test_non_200_response_raises_storage_error() -> None:
     host, port = srv.server_address[:2]
     try:
         async with _client(f"http://{host}:{port}") as client:
-            with pytest.raises(StorageError, match="HTTP 500"):
+            with pytest.raises(
+                UpstreamUnavailableError, match="temporarily unavailable"
+            ):
                 await client.search_articles("x")
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "state"),
+    [
+        (429, UpstreamRateLimitedError, "rate-limited"),
+        (500, UpstreamUnavailableError, "unavailable"),
+    ],
+)
+async def test_http_failures_are_typed_and_sanitized(
+    status_code: int,
+    error_type: type[Exception],
+    state: str,
+) -> None:
+    _FailureHandler.status = status_code
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _FailureHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with PubMedClient(
+            f"http://{host}:{port}", api_key="api-key-secret", requests_per_second=0
+        ) as client:
+            with pytest.raises(error_type) as raised:
+                await client.search_articles("private patient query")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert raised.value.service == "pubmed"
+    assert raised.value.state == state
+    message = str(raised.value)
+    assert "private patient query" not in message
+    assert "api-key-secret" not in message
+    assert "upstream-secret-body" not in message
+
+
+@pytest.mark.unit
+async def test_timeout_is_typed_and_sanitized() -> None:
+    class _SlowHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            time.sleep(0.2)
+
+        def log_message(self, *_a: object) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _SlowHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with PubMedClient(
+            f"http://{host}:{port}",
+            requests_per_second=0,
+            connect_timeout=0.01,
+            read_timeout=0.01,
+        ) as client:
+            with pytest.raises(UpstreamTimeoutError) as raised:
+                await client.search_articles("private timeout query")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert raised.value.state == "timeout"
+    assert "private timeout query" not in str(raised.value)

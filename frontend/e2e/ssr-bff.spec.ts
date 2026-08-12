@@ -158,9 +158,48 @@ test('ClinicalTrials and PubMed search URLs and detail routes render initial con
 	expect(await article.text()).toContain('SSR abstract from FastAPI.');
 });
 
-test('refresh structure is SSR and its slow mutation uses the shared delayed status', async ({ page }) => {
+test('repository kind is persistent on navigation, list, and detail surfaces', async ({ page }) => {
+	await page.goto('/repositories/ncit');
+	await expect(page.getByRole('navigation').getByText('Local', { exact: true }).first()).toBeVisible();
+	await expect(page.getByText('Local certified proxy', { exact: true })).toBeVisible();
+
+	await page.goto('/repositories/pubmed/12345678');
+	await expect(page.getByText('Remote live service', { exact: true })).toBeVisible();
+});
+
+test('remote search discloses live queries and renders typed failures without identity fields', async ({
+	page
+}) => {
+	for (const [repository, query, state, message] of [
+		['pubmed', 'rate-limit-private-query', 'rate-limited', 'PubMed rate limit reached'],
+		['pubmed', 'timeout-private-query', 'timeout', 'PubMed request timed out'],
+		['pubmed', 'unavailable-private-query', 'unavailable', 'PubMed is temporarily unavailable'],
+		['clinicaltrials', 'rate-limit-private-query', 'rate-limited', 'ClinicalTrials.gov rate limit reached'],
+		['clinicaltrials', 'timeout-private-query', 'timeout', 'ClinicalTrials.gov request timed out'],
+		['clinicaltrials', 'unavailable-private-query', 'unavailable', 'ClinicalTrials.gov is temporarily unavailable']
+	] as const) {
+		await page.goto(`/repositories/${repository}?q=${query}`);
+		await expect(page.getByText(message, { exact: false })).toBeVisible();
+		await expect(page.locator(`[data-remote-state="${state}"]`)).toBeVisible();
+		await expect(page.getByText(query, { exact: false })).toHaveCount(0);
+		await expect(page.getByText('Release', { exact: true })).toHaveCount(0);
+		await expect(page.getByText('Source identity', { exact: true })).toHaveCount(0);
+	}
+
+	await page.goto('/repositories/pubmed');
+	await expect(page.getByRole('note').getByText(/NCBI PubMed is queried live/)).toBeVisible();
+	await page.goto('/repositories/pubmed/12345678');
+	await expect(page.getByRole('note').getByText(/not reproducible from certified local state/)).toBeVisible();
+	await page.goto('/repositories/clinicaltrials');
+	await expect(page.getByRole('note').getByText(/ClinicalTrials.gov is queried live/)).toBeVisible();
+	await page.goto('/repositories/clinicaltrials/NCT01234567');
+	await expect(page.getByRole('note')).toContainText('Query and request data are sent to ClinicalTrials.gov');
+});
+
+test('refresh is explicitly local-only and its slow mutation uses the shared delayed status', async ({ page }) => {
 	const response = await page.goto('/refresh');
-	expect(await response?.text()).toContain('Re-certify the active NCIt and caDSR proxies');
+	expect(await response?.text()).toContain('Re-certify the active NCIt, caDSR, and Uberon/CL local proxies');
+	expect(await response?.text()).toContain('Remote live services are not refreshed');
 	expect(page.getByRole('status')).not.toBeVisible();
 
 	await page.getByRole('button', { name: 'Refresh repositories' }).click();

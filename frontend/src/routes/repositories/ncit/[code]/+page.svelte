@@ -8,6 +8,7 @@
 	import RelationshipList from '$lib/components/RelationshipList.svelte';
 	import SimilarConcepts from '$lib/components/SimilarConcepts.svelte';
 	import type { PageProps } from './$types';
+	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
 
 	let { data }: PageProps = $props();
 	const detail = $derived(data.detail);
@@ -21,6 +22,8 @@
 >
 	<span aria-hidden="true">←</span> Back to search
 </a>
+
+<div class="mb-4"><RepositoryKindBadge kind="local-certified-proxy" /></div>
 
 <NcitConceptSummary {detail} />
 <NcitConceptGraph code={detail.code} graph={data.graph} />

@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
+from backend.api.upstream import upstream_http_exception
 from backend.dependencies import ClinicalTrials
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
@@ -17,6 +18,7 @@ from ontolib.repositories.clinicaltrials.models import (
     CTStudyDetail,
     CTStudySearchPage,
 )
+from ontolib.repositories.upstream import UpstreamFailureError
 
 logger = get_logger(__name__)
 
@@ -54,6 +56,9 @@ async def search(client: ClinicalTrials, body: CTSearchRequest) -> CTStudySearch
     except ValueError as exc:
         # Invalid status/phase enum — a client error, not an upstream failure.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except UpstreamFailureError as exc:
+        logger.warning("ClinicalTrials.gov search failed: %s", exc.state)
+        raise upstream_http_exception(exc) from exc
     except StorageError as exc:
         logger.warning("ClinicalTrials.gov search failed: %s", exc)
         raise HTTPException(
@@ -68,6 +73,9 @@ async def trial_detail(client: ClinicalTrials, nct_id: str) -> CTStudyDetail:
         detail = await client.get_study(nct_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except UpstreamFailureError as exc:
+        logger.warning("ClinicalTrials.gov detail fetch failed: %s", exc.state)
+        raise upstream_http_exception(exc) from exc
     except StorageError as exc:
         logger.warning("ClinicalTrials.gov detail fetch failed: %s", exc)
         raise HTTPException(

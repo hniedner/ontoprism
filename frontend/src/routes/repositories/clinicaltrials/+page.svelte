@@ -7,6 +7,8 @@
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import CtResultsTable from '$lib/components/CtResultsTable.svelte';
 	import type { PageProps } from './$types';
+	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
+	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
 
 	const SUGGESTIONS = ['melanoma', 'breast cancer', 'immunotherapy', 'CAR-T', 'glioblastoma'];
 
@@ -28,6 +30,7 @@
 
 <RepoPageHeader
 	title="ClinicalTrials.gov"
+	kind="remote-live-service"
 	description="Search the ClinicalTrials.gov v2 registry by condition. Open a trial to see its interventions, outcomes, eligibility, sponsors, sites, and publication references."
 	total={result?.total ?? null}
 >
@@ -36,6 +39,8 @@
 		fetched live from the public ClinicalTrials.gov v2 API. Open a trial for full protocol detail.
 	{/snippet}
 </RepoPageHeader>
+
+<RemoteServiceDisclosure service="ClinicalTrials.gov" />
 
 <RepoSearchBar
 	bind:value={queryValue}
@@ -51,7 +56,17 @@
 	suggestionsLabel="Quick:"
 />
 
-{#if result}
+<RemoteSearchSurface
+	service="ClinicalTrials.gov"
+	error={data.result.state === 'error' ? data.result : null}
+	ready={result !== null}
+>
+	{#snippet instruction()}
+		<p class="text-sm text-muted">
+			Enter a condition above to search
+			<span class="font-medium text-default">ClinicalTrials.gov</span>.
+		</p>
+	{/snippet}
 	<RepoResultsCard
 		title={`Results for “${data.query}”`}
 		{countLabel}
@@ -63,14 +78,7 @@
 				No trials matched “{data.query}”.
 			</p>
 		{:else}
-			<CtResultsTable studies={result.studies} />
+			<CtResultsTable studies={result?.studies ?? []} />
 		{/if}
 	</RepoResultsCard>
-{:else}
-	<div class="rounded-xl border border-dashed border-default bg-card/50 px-6 py-12 text-center">
-		<p class="text-sm text-muted">
-			Enter a condition above to search
-			<span class="font-medium text-default">ClinicalTrials.gov</span>.
-		</p>
-	</div>
-{/if}
+</RemoteSearchSurface>

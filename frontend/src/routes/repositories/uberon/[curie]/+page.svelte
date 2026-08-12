@@ -3,6 +3,7 @@
 	import BrowserGraph from '$lib/components/BrowserGraph.svelte';
 	import UberonConceptSummary from './UberonConceptSummary.svelte';
 	import type { PageProps } from './$types';
+	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
 
 	let { data }: PageProps = $props();
 	const detail = $derived(data.detail);
@@ -11,6 +12,8 @@
 <svelte:head><title>{detail.label ?? detail.code} · Uberon/CL · ONTOPRISM</title></svelte:head>
 
 <a href={resolve('/repositories/uberon')} class="mb-4 inline-flex text-sm text-muted">← Back to search</a>
+
+<div class="mb-4"><RepositoryKindBadge kind="local-certified-proxy" /></div>
 
 <UberonConceptSummary {detail} />
 

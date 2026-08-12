@@ -14,7 +14,6 @@ from typing import Any, Self
 import httpx
 
 from ontolib.common.error_handling import retry_with_backoff
-from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
     CTStudyDetail,
@@ -23,6 +22,11 @@ from ontolib.repositories.clinicaltrials.models import (
 from ontolib.repositories.clinicaltrials.parser import (
     parse_study_detail,
     parse_study_summary,
+)
+from ontolib.repositories.upstream import (
+    UpstreamRateLimitedError,
+    UpstreamTimeoutError,
+    UpstreamUnavailableError,
 )
 
 logger = get_logger(__name__)
@@ -223,21 +227,35 @@ class ClinicalTrialsClient:
     ) -> Any:
         try:
             response = await self._get(path, params)
-        except _RETRYABLE as exc:
-            raise StorageError(
-                f"ClinicalTrials.gov transport error for {path}: "
-                f"{type(exc).__name__}: {exc}"
+        except httpx.TimeoutException as exc:
+            raise UpstreamTimeoutError(
+                "clinicaltrials", "ClinicalTrials.gov request timed out."
             ) from exc
-        if allow_404 and response.status_code == HTTPStatus.NOT_FOUND:
+        except httpx.TransportError as exc:
+            raise UpstreamUnavailableError(
+                "clinicaltrials", "ClinicalTrials.gov is temporarily unavailable."
+            ) from exc
+        missing = _classify_response(response.status_code, allow_404=allow_404)
+        if missing:
             return None
-        if response.status_code != HTTPStatus.OK:
-            raise StorageError(
-                f"ClinicalTrials.gov request failed: HTTP {response.status_code} "
-                f"for {path} — {response.text[:200]}"
-            )
         try:
             return response.json()
         except ValueError as exc:
-            raise StorageError(
-                f"ClinicalTrials.gov response was not valid JSON for {path}: {exc}"
+            raise UpstreamUnavailableError(
+                "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
             ) from exc
+
+
+def _classify_response(status_code: int, *, allow_404: bool) -> bool:
+    if allow_404 and status_code == HTTPStatus.NOT_FOUND:
+        return True
+    if status_code == HTTPStatus.TOO_MANY_REQUESTS:
+        raise UpstreamRateLimitedError(
+            "clinicaltrials",
+            "ClinicalTrials.gov rate limit reached; try again later.",
+        )
+    if status_code != HTTPStatus.OK:
+        raise UpstreamUnavailableError(
+            "clinicaltrials", "ClinicalTrials.gov is temporarily unavailable."
+        )
+    return False
