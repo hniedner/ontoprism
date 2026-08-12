@@ -289,8 +289,9 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   changed; do not silently omit it.
 
   Only after every milestone issue is present on the milestone branch: run `pdm run verify`,
-  commit any resulting fixes, and run the full five-agent pre-PR review/fix cycle on the
-  committed milestone diff to convergence. Then rerun `pdm run verify`, run required branch
+  commit any resulting fixes, and run the milestone branch's full five-agent pre-PR
+  review/fix cycle repeatedly on committed milestone diffs until all five agents converge.
+  Then rerun `pdm run verify`, run required branch
   CI/checks, and create the milestone's single PR. Wait for every triggered GitHub workflow.
   Merge the milestone PR only when the required target-branch and PR checks satisfy the hard
   merge rules above. After the merge, watch every post-merge workflow to completion before
