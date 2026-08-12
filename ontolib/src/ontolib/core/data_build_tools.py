@@ -353,7 +353,8 @@ def install_robot(
     Unlike :func:`install_jena`, the JAR and launcher are published as separate
     atomic operations rather than a single directory swap, so a crash between them
     yields a detectably-inconsistent install that :func:`identify_robot_installation`
-    rejects (its launcher text will not match the JAR).
+    rejects: a fresh install missing the launcher/metadata fails to read them, and a
+    version-changing reinstall is caught by the metadata-identity check.
     """
     destination = install_dir.resolve()
     destination.mkdir(parents=True, exist_ok=True)
