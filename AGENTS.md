@@ -252,6 +252,8 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   bot commits pushed by CI (with `GITHUB_TOKEN`).
 - Branches: `feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`; PRs merge into
   `main`.
+- **Dependabot PRs: fetch into exactly one ref name and delete it when the PR closes.** A
+  previous session left 22 stray local branches by minting a new ref prefix per retry.
 - **PR bodies must only reference issues they fully resolve.** Use `Closes #X` /
   `Fixes #X` only when the PR completely resolves the issue (see D35). Issues labeled
   `epic` must never be referenced in a `Closes` keyword.
@@ -292,7 +294,10 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   is unchanged before accepting its verdict or starting another round — a mutation that
   was committed or amended into `HEAD` leaves the tree clean while the reviewed diff has
   moved. If either check fails, restore the tree yourself and treat that run as
-  inconclusive, hence non-converged. The full set otherwise matters because they find different classes of
+  inconclusive, hence non-converged. **Never restore a review mutation with
+  `git checkout -- <path>`.** Copy each file you are about to mutate to an out-of-repo backup
+  first (session temp dir, e.g. `$TMPDIR/opencode/`) and restore from that copy, so
+  restoration is byte-exact and never depends on index/HEAD state. The full set otherwise matters because they find different classes of
   defect and do not substitute for one another. On #73 the five caught, respectively: a
   vacuous satisfiability gate, an environment failure laundered into a verdict, a test
   double that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
