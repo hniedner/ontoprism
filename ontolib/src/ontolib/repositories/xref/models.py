@@ -12,6 +12,31 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class EndpointIdentity:
+    """A terminology endpoint bound to the exact release it identifies."""
+
+    system: str
+    version: str
+    identifier: str
+
+    def __post_init__(self) -> None:
+        for name in ("system", "version", "identifier"):
+            if not getattr(self, name):
+                raise ValueError(f"{name} must be non-empty")
+
+
+@dataclass(frozen=True)
+class MappingResult:
+    """One currently active mapping with both endpoint identities intact."""
+
+    subject: EndpointIdentity
+    predicate: str
+    object: EndpointIdentity
+    lifecycle: str
+    confidence: float
+
+
+@dataclass(frozen=True)
 class SSSOMRecord:
     """NCIt<->upstream mapping with provenance.
 
@@ -26,6 +51,8 @@ class SSSOMRecord:
     confidence: float
     subject_source_version: str
     object_source_version: str
+    subject_system: str = "ncit"
+    object_system: str = "uberon-cl"
     lifecycle_state: str = "proposed"
     review_status: str = "unreviewed"
     author: str = ""
@@ -42,10 +69,28 @@ class SSSOMRecord:
     # this is a guard against a future caller doing so, not a fix for a live path.
     evidence: tuple[Evidence, ...] = field(default=(), compare=False)
 
+    @property
+    def subject(self) -> EndpointIdentity:
+        return EndpointIdentity(
+            system=self.subject_system,
+            version=self.subject_source_version,
+            identifier=self.subject_id,
+        )
+
+    @property
+    def object(self) -> EndpointIdentity:
+        return EndpointIdentity(
+            system=self.object_system,
+            version=self.object_source_version,
+            identifier=self.object_id,
+        )
+
     def __post_init__(self) -> None:
         for field_name in (
             "subject_id",
+            "subject_system",
             "object_id",
+            "object_system",
             "mapping_justification",
             "subject_source_version",
             "object_source_version",

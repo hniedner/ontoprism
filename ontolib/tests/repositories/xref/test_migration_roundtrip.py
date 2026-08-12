@@ -33,6 +33,57 @@ async def _evidence_column_exists(engine: object) -> bool:
 
 
 @pytest.mark.integration
+async def test_generation_schema_constraints_and_indexes() -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        async with engine.connect() as conn:
+            columns = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'concept_xref'"
+                    )
+                )
+            }
+            indexes = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT indexname FROM pg_indexes "
+                        "WHERE tablename = 'concept_xref'"
+                    )
+                )
+            }
+            generation_checks = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conrelid = 'xref_generation'::regclass"
+                    )
+                )
+            }
+
+        assert {
+            "generation_id",
+            "subject_system",
+            "subject_version",
+            "subject_id",
+            "object_system",
+            "object_version",
+            "object_id",
+        } <= columns
+        assert {"idx_concept_xref_forward", "idx_concept_xref_reverse"} <= indexes
+        assert any(
+            "state" in check and "prepared" in check for check in generation_checks
+        )
+        assert any("content_sha256" in check for check in generation_checks)
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
 async def test_evidence_column_added_and_removed_by_0006(tmp_path: object) -> None:
     """The per-promotion ``evidence`` column exists after ``upgrade head`` and is gone
     after a downgrade past 0006 (#122, D36) — a schema fact, asked of Postgres."""

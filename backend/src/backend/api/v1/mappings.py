@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from backend.config import get_settings
 from backend.dependencies import XrefReads
+from ontolib.repositories.xref.models import MappingResult
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
     CLOSE_MATCH,
@@ -47,6 +48,7 @@ class TranslateConcept(BaseModel):
 
     code: str
     system: str | None = None
+    version: str | None = None
 
 
 class TranslateEntry(BaseModel):
@@ -63,32 +65,57 @@ class TranslateResponse(BaseModel):
     result: list[TranslateEntry]
 
 
-def _translate_entry(code: str, pred: str, confidence: float) -> TranslateEntry:
+def _translate_entry(
+    code: str,
+    pred: str,
+    confidence: float,
+    *,
+    system: str | None = None,
+    version: str | None = None,
+) -> TranslateEntry:
     return TranslateEntry(
         equivalence=_SKOS_TO_EQUIVALENCE.get(pred, "unmatched"),
-        concept=TranslateConcept(code=code),
+        concept=TranslateConcept(code=code, system=system, version=version),
         confidence=confidence,
     )
 
 
+def _is_eligible(row: MappingResult, *, target_id: str, licensed_allowed: bool) -> bool:
+    return row.lifecycle in _ACTIVE_LIFECYCLES and (
+        licensed_allowed or not _is_licensed(target_id)
+    )
+
+
 def _collect_entries(
-    rows_by_key: dict[str, list[tuple[str, str, str, float]]],
+    rows_by_key: dict[str, list[MappingResult]],
     *,
+    reverse: bool,
     licensed_allowed: bool,
     seen: set[tuple[str, str]],
 ) -> list[TranslateEntry]:
     entries: list[TranslateEntry] = []
     for rows in rows_by_key.values():
-        for target_id, pred, lifecycle, confidence in rows:
-            if lifecycle not in _ACTIVE_LIFECYCLES:
+        for row in rows:
+            target = row.subject if reverse else row.object
+            if not _is_eligible(
+                row,
+                target_id=target.identifier,
+                licensed_allowed=licensed_allowed,
+            ):
                 continue
-            if not licensed_allowed and _is_licensed(target_id):
-                continue
-            key = (target_id, pred)
+            key = (target.identifier, row.predicate)
             if key in seen:
                 continue
             seen.add(key)
-            entries.append(_translate_entry(target_id, pred, confidence))
+            entries.append(
+                _translate_entry(
+                    target.identifier,
+                    row.predicate,
+                    row.confidence,
+                    system=target.system,
+                    version=target.version,
+                )
+            )
     return entries
 
 
@@ -114,12 +141,14 @@ async def translate(
     seen: set[tuple[str, str]] = set()
     entries = _collect_entries(
         upstream,
+        reverse=False,
         licensed_allowed=settings.enable_licensed_mappings,
         seen=seen,
     )
     entries.extend(
         _collect_entries(
             reverse,
+            reverse=True,
             licensed_allowed=settings.enable_licensed_mappings,
             seen=seen,
         )

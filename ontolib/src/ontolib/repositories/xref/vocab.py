@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-# Single additive named graph that holds all NCIt<->upstream mapping triples.
-# Never write mappings to the stated NCIt graph or the decomposed graph.
+# Base IRI for immutable, source-specific generation graphs. Never write mappings to
+# the stated NCIt graph or the decomposed graph.
 NCIT_UPSTREAM_XREF_GRAPH_IRI = (
     "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-upstream-xref.owl"
 )

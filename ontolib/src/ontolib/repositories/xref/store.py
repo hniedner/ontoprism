@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import datetime
 import json
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import Result, text
 
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    MappingResult,
+    SSSOMRecord,
+)
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from ontolib.repositories.xref.evidence import EvidenceDict
@@ -22,6 +29,192 @@ class XrefStore:
 
     def __init__(self, sf: async_sessionmaker[AsyncSession]) -> None:
         self._sf = sf
+
+    @asynccontextmanager
+    async def publication_lock(self, source: str) -> AsyncIterator[None]:
+        """Serialize the complete PostgreSQL/RDF publication for one source."""
+        async with self._sf() as session:
+            await session.execute(
+                text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
+                {"key": f"xref:{source}"},
+            )
+            try:
+                yield
+            finally:
+                await session.execute(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                    {"key": f"xref:{source}"},
+                )
+
+    async def prepare_generation(
+        self,
+        *,
+        source: str,
+        generation_id: str,
+        content_sha256: str,
+        graph_iri: str,
+        run_id: str,
+        records: Sequence[SSSOMRecord],
+        _publication_locked: bool = False,
+    ) -> bool:
+        """Persist one immutable generation; an exact retry is a no-op."""
+        rows = [
+            {
+                "generation_id": generation_id,
+                "run_id": run_id,
+                "subject_system": r.subject.system,
+                "subject_version": r.subject.version,
+                "subject_id": r.subject.identifier,
+                "predicate_id": r.predicate_id,
+                "object_system": r.object.system,
+                "object_version": r.object.version,
+                "object_id": r.object.identifier,
+                "mapping_justification": r.mapping_justification,
+                "confidence": r.confidence,
+                "lifecycle_state": r.lifecycle_state,
+                "review_status": r.review_status,
+                "author": r.author,
+                "evidence": json.dumps([e.as_dict() for e in r.evidence]),
+            }
+            for r in records
+        ]
+        async with self._sf() as s:
+            if not _publication_locked:
+                await s.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": f"xref:{source}"},
+                )
+            existing = await s.execute(
+                text(
+                    "SELECT id, content_sha256 FROM xref_generation "
+                    "WHERE id = :id AND source = :source"
+                ),
+                {"id": generation_id, "source": source},
+            )
+            found = existing.mappings().one_or_none()
+            if found is not None:
+                if found["content_sha256"] != content_sha256:
+                    raise ValueError("generation identity has different content")
+                await s.commit()
+                return False
+            predecessor = await s.execute(
+                text(
+                    "SELECT generation_id FROM xref_active_generation "
+                    "WHERE source = :source"
+                ),
+                {"source": source},
+            )
+            await s.execute(
+                text(
+                    "INSERT INTO xref_generation "
+                    "(id, source, content_sha256, graph_iri, state, predecessor_id) "
+                    "VALUES (:id, :source, :content, :graph, 'prepared', :predecessor)"
+                ),
+                {
+                    "id": generation_id,
+                    "source": source,
+                    "content": content_sha256,
+                    "graph": graph_iri,
+                    "predecessor": predecessor.scalar_one_or_none(),
+                },
+            )
+            if rows:
+                await s.execute(
+                    text(
+                        "INSERT INTO concept_xref "
+                        "(generation_id, run_id, subject_system, subject_version, "
+                        "subject_id, predicate_id, object_system, object_version, "
+                        "object_id, mapping_justification, confidence, "
+                        "lifecycle_state, review_status, author, evidence) VALUES "
+                        "(:generation_id, :run_id, :subject_system, :subject_version, "
+                        ":subject_id, :predicate_id, :object_system, :object_version, "
+                        ":object_id, :mapping_justification, :confidence, "
+                        ":lifecycle_state, :review_status, :author, "
+                        "CAST(:evidence AS jsonb))"
+                    ),
+                    rows,
+                )
+            await s.commit()
+            return True
+
+    async def activate_generation(
+        self,
+        source: str,
+        generation_id: str,
+        *,
+        _publication_locked: bool = False,
+    ) -> bool:
+        """Atomically switch one source pointer after its RDF graph is materialized."""
+        async with self._sf() as s:
+            if not _publication_locked:
+                await s.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": f"xref:{source}"},
+                )
+            generation = await s.execute(
+                text(
+                    "SELECT state FROM xref_generation "
+                    "WHERE id = :id AND source = :source FOR UPDATE"
+                ),
+                {"id": generation_id, "source": source},
+            )
+            if generation.scalar_one_or_none() is None:
+                raise ValueError("unknown generation for source")
+            current = await s.execute(
+                text(
+                    "SELECT generation_id FROM xref_active_generation "
+                    "WHERE source = :source"
+                ),
+                {"source": source},
+            )
+            if current.scalar_one_or_none() == generation_id:
+                await s.commit()
+                return False
+            await s.execute(
+                text(
+                    "UPDATE xref_generation SET state = 'published', "
+                    "published_at = COALESCE(published_at, now()) WHERE id = :id"
+                ),
+                {"id": generation_id},
+            )
+            await s.execute(
+                text(
+                    "INSERT INTO xref_active_generation (source, generation_id) "
+                    "VALUES (:source, :id) ON CONFLICT (source) DO UPDATE SET "
+                    "generation_id = EXCLUDED.generation_id, activated_at = now()"
+                ),
+                {"source": source, "id": generation_id},
+            )
+            await s.commit()
+            return True
+
+    async def rollback(self, source: str) -> str:
+        """Repoint *source* to its active generation's immutable predecessor."""
+        async with self._sf() as s:
+            await s.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"xref:{source}"},
+            )
+            result = await s.execute(
+                text(
+                    "SELECT g.predecessor_id FROM xref_active_generation a "
+                    "JOIN xref_generation g ON g.id = a.generation_id "
+                    "WHERE a.source = :source FOR UPDATE OF a"
+                ),
+                {"source": source},
+            )
+            predecessor = result.scalar_one_or_none()
+            if predecessor is None:
+                raise ValueError("active generation has no predecessor")
+            await s.execute(
+                text(
+                    "UPDATE xref_active_generation SET generation_id = :id, "
+                    "activated_at = now() WHERE source = :source"
+                ),
+                {"id": predecessor, "source": source},
+            )
+            await s.commit()
+            return str(predecessor)
 
     async def upsert_run(
         self,
@@ -52,63 +245,6 @@ class XrefStore:
             )
             await s.commit()
             return cast("int", result.rowcount)  # type: ignore[attr-defined]
-
-    async def upsert_records(self, run_id: str, records: list[SSSOMRecord]) -> int:
-        """Insert *records* into ``concept_xref`` (additive; ``ON CONFLICT``
-        ``DO NOTHING``).
-
-        Evidence (#122) is **write-once per run row**: a row is keyed on
-        ``(run_id, subject_id, predicate_id, object_id)``, so re-calling with the same
-        ``run_id`` keeps the first row's evidence and drops the second's. A promotion
-        is a fresh ``run_id`` per pass, so this is not reachable in ``run_promotion``,
-        but a caller reusing a ``run_id`` to *correct* evidence would find it cannot.
-        """
-        if not records:
-            return 0
-        rows = [
-            {
-                "run_id": run_id,
-                "subject_id": r.subject_id,
-                "predicate_id": r.predicate_id,
-                "object_id": r.object_id,
-                "mapping_justification": r.mapping_justification,
-                "confidence": r.confidence,
-                "subject_source_version": r.subject_source_version,
-                "object_source_version": r.object_source_version,
-                "lifecycle_state": r.lifecycle_state,
-                "review_status": r.review_status,
-                "author": r.author,
-                # jsonb column, raw SQL: asyncpg will not adapt a bare list, so
-                # serialize and CAST explicitly, as update_run_metrics does (#122/D36).
-                "evidence": json.dumps([e.as_dict() for e in r.evidence]),
-            }
-            for r in records
-        ]
-        async with self._sf() as s:
-            result: Result = await s.execute(
-                text(
-                    "INSERT INTO concept_xref "
-                    "(run_id, subject_id, predicate_id, object_id, "
-                    "mapping_justification, "
-                    "confidence, subject_source_version, object_source_version, "
-                    "lifecycle_state, review_status, author, evidence) "
-                    "VALUES (:run_id, :subject_id, :predicate_id, :object_id, "
-                    ":mapping_justification, :confidence, :subject_source_version, "
-                    ":object_source_version, :lifecycle_state, "
-                    ":review_status, :author, CAST(:evidence AS jsonb)) "
-                    "ON CONFLICT (run_id, subject_id, predicate_id, object_id) "
-                    "DO NOTHING"
-                ),
-                rows,
-            )
-            await s.commit()
-            if result.rowcount is not None:  # type: ignore[attr-defined]
-                if (
-                    result.rowcount >= 0  # type: ignore[attr-defined]
-                ):
-                    return cast("int", result.rowcount)  # type: ignore[attr-defined]
-                return len(rows)
-            return 0
 
     async def update_run_metrics(
         self, run_id: str, metrics: dict[str, Any], *, status: str = "completed"
@@ -199,7 +335,11 @@ class XrefStore:
         and validation (#73) promotes to ``exactMatch/validated``;
         cross-run conflicts are resolved by dataset design, not by query.
         """
-        sql = text("SELECT subject_id, predicate_id, lifecycle_state FROM concept_xref")
+        sql = text(
+            "SELECT x.subject_id, x.predicate_id, x.lifecycle_state "
+            "FROM concept_xref x JOIN xref_active_generation a "
+            "ON a.generation_id = x.generation_id"
+        )
         async with self._sf() as s:
             result = await s.execute(sql)
             out: dict[str, set[tuple[str, str]]] = {}
@@ -226,10 +366,16 @@ class XrefStore:
         must be re-validated against the new release (D29).
         """
         sql = text(
-            "SELECT DISTINCT subject_id, predicate_id, object_id, "
+            "SELECT DISTINCT x.subject_id, x.subject_system, x.predicate_id, "
+            "x.object_id, x.object_system, "
             "mapping_justification, confidence, subject_source_version, "
             "object_source_version, lifecycle_state, review_status, author "
-            "FROM concept_xref "
+            "FROM (SELECT subject_id, subject_system, predicate_id, object_id, "
+            "object_system, mapping_justification, confidence, "
+            "subject_version AS subject_source_version, "
+            "object_version AS object_source_version, lifecycle_state, "
+            "review_status, author, generation_id FROM concept_xref) x "
+            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
             "WHERE lifecycle_state = 'proposed' AND predicate_id = :close "
             "ORDER BY subject_id, object_id"
         )
@@ -256,7 +402,9 @@ class XrefStore:
             "SELECT DISTINCT subject_id, object_id FROM concept_xref "
             "WHERE predicate_id = :exact "
             "AND lifecycle_state IN ('validated', 'active') "
-            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
+            "AND generation_id IN ("
+            "SELECT generation_id FROM xref_active_generation WHERE source = :source"
+            ") "
             "ORDER BY subject_id, object_id"
         )
         unscoped = text(
@@ -290,9 +438,11 @@ class XrefStore:
         sql = text(
             "SELECT DISTINCT subject_id, object_id FROM concept_xref "
             "WHERE lifecycle_state = 'validated' "
-            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
-            "AND (subject_source_version <> :ncit_version "
-            "     OR object_source_version <> :source_version)"
+            "AND generation_id IN ("
+            "SELECT generation_id FROM xref_active_generation WHERE source = :source"
+            ") "
+            "AND (subject_version <> :ncit_version "
+            "     OR object_version <> :source_version)"
         )
         async with self._sf() as s:
             result = await s.execute(
@@ -318,9 +468,11 @@ class XrefStore:
         sql = text(
             "SELECT count(*) FROM concept_xref "
             "WHERE lifecycle_state = 'validated' "
-            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
-            "AND (subject_source_version <> :ncit_version "
-            "     OR object_source_version <> :source_version)"
+            "AND generation_id IN ("
+            "SELECT generation_id FROM xref_active_generation WHERE source = :source"
+            ") "
+            "AND (subject_version <> :ncit_version "
+            "     OR object_version <> :source_version)"
         )
         async with self._sf() as s:
             result = await s.execute(
@@ -357,9 +509,11 @@ class XrefStore:
         sql = text(
             "UPDATE concept_xref SET lifecycle_state = 'quarantined' "
             "WHERE lifecycle_state = 'validated' "
-            "AND run_id IN (SELECT id FROM xref_run WHERE source = :source) "
-            "AND (subject_source_version <> :ncit_version "
-            "     OR object_source_version <> :source_version)"
+            "AND generation_id IN ("
+            "SELECT generation_id FROM xref_active_generation WHERE source = :source"
+            ") "
+            "AND (subject_version <> :ncit_version "
+            "     OR object_version <> :source_version)"
         )
         async with self._sf() as s:
             result: Result = await s.execute(
@@ -375,46 +529,62 @@ class XrefStore:
 
     async def mappings_by_subjects(
         self, codes: set[str]
-    ) -> dict[str, list[tuple[str, str, str, float]]]:
+    ) -> dict[str, list[MappingResult]]:
         if not codes:
             return {}
         sql = text(
-            "SELECT subject_id, object_id, predicate_id, lifecycle_state, confidence "
-            "FROM concept_xref WHERE subject_id = ANY(:codes)"
+            "SELECT x.subject_system, x.subject_version, x.subject_id, "
+            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "WHERE x.subject_id = ANY(:codes)"
         )
         async with self._sf() as s:
             result = await s.execute(sql, {"codes": list(codes)})
-            out: dict[str, list[tuple[str, str, str, float]]] = {}
+            out: dict[str, list[MappingResult]] = {}
             for r in result.mappings().all():
                 out.setdefault(r["subject_id"], []).append(
-                    (
-                        r["object_id"],
-                        r["predicate_id"],
-                        r["lifecycle_state"],
-                        r["confidence"],
+                    MappingResult(
+                        subject=EndpointIdentity(
+                            r["subject_system"], r["subject_version"], r["subject_id"]
+                        ),
+                        predicate=r["predicate_id"],
+                        object=EndpointIdentity(
+                            r["object_system"], r["object_version"], r["object_id"]
+                        ),
+                        lifecycle=r["lifecycle_state"],
+                        confidence=r["confidence"],
                     )
                 )
             return out
 
     async def mappings_by_objects(
         self, curies: set[str]
-    ) -> dict[str, list[tuple[str, str, str, float]]]:
+    ) -> dict[str, list[MappingResult]]:
         if not curies:
             return {}
         sql = text(
-            "SELECT object_id, subject_id, predicate_id, lifecycle_state, confidence "
-            "FROM concept_xref WHERE object_id = ANY(:curies)"
+            "SELECT x.subject_system, x.subject_version, x.subject_id, "
+            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "WHERE x.object_id = ANY(:curies)"
         )
         async with self._sf() as s:
             result = await s.execute(sql, {"curies": list(curies)})
-            out: dict[str, list[tuple[str, str, str, float]]] = {}
+            out: dict[str, list[MappingResult]] = {}
             for r in result.mappings().all():
                 out.setdefault(r["object_id"], []).append(
-                    (
-                        r["subject_id"],
-                        r["predicate_id"],
-                        r["lifecycle_state"],
-                        r["confidence"],
+                    MappingResult(
+                        subject=EndpointIdentity(
+                            r["subject_system"], r["subject_version"], r["subject_id"]
+                        ),
+                        predicate=r["predicate_id"],
+                        object=EndpointIdentity(
+                            r["object_system"], r["object_version"], r["object_id"]
+                        ),
+                        lifecycle=r["lifecycle_state"],
+                        confidence=r["confidence"],
                     )
                 )
             return out

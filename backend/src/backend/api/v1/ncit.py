@@ -44,6 +44,8 @@ class MappingEntry(BaseModel):
     """
 
     object_id: str
+    system: str
+    version: str
     predicate: str
     lifecycle: str
     confidence: float = Field(ge=0.0, le=1.0)
@@ -73,8 +75,13 @@ async def _attach_xref_upstream(
         upstream_rows = await xref_store.mappings_by_subjects(set(filler_codes))
         upstream_by_filler = {
             code: [
-                UpstreamMapping(object_id=o, predicate=p, lifecycle=lc, confidence=c)
-                for (o, p, lc, c) in rows
+                UpstreamMapping(
+                    object_id=row.object.identifier,
+                    predicate=row.predicate,
+                    lifecycle=row.lifecycle,
+                    confidence=row.confidence,
+                )
+                for row in rows
             ]
             for code, rows in upstream_rows.items()
         }
@@ -217,14 +224,28 @@ async def concept_mappings(
     upstream = await xref_store.mappings_by_subjects({code})
     reverse = await xref_store.mappings_by_objects({code})
     entries: list[MappingEntry] = [
-        MappingEntry(object_id=o, predicate=p, lifecycle=lc, confidence=c)
+        MappingEntry(
+            object_id=row.object.identifier,
+            system=row.object.system,
+            version=row.object.version,
+            predicate=row.predicate,
+            lifecycle=row.lifecycle,
+            confidence=row.confidence,
+        )
         for rows in upstream.values()
-        for (o, p, lc, c) in rows
+        for row in rows
     ]
     entries.extend(
-        MappingEntry(object_id=s, predicate=p, lifecycle=lc, confidence=c)
+        MappingEntry(
+            object_id=row.subject.identifier,
+            system=row.subject.system,
+            version=row.subject.version,
+            predicate=row.predicate,
+            lifecycle=row.lifecycle,
+            confidence=row.confidence,
+        )
         for rows in reverse.values()
-        for (s, p, lc, c) in rows
+        for row in rows
     )
     return ConceptMappings(code=code, mappings=entries)
 
