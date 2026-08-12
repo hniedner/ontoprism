@@ -37,6 +37,9 @@ class _FakeXrefStore:
             "C50000": [
                 ("UBERON:0002107", EXACT_MATCH, "quarantined", 0.5),
             ],
+            "C60000": [
+                ("UBERON:0009999", CLOSE_MATCH, "validated", 0.9),
+            ],
         }
         self.reverse: dict[str, list[tuple[str, str, str, float]]] = {
             "UBERON:0002046": [
@@ -92,6 +95,18 @@ def test_concept_mappings_exact_match_with_nonactive_lifecycle_is_not_identity()
     assert entry["predicate"] == EXACT_MATCH
     assert entry["lifecycle"] == "quarantined"
     # exactMatch alone is not identity; the lifecycle must be validated/active.
+    assert entry["is_identity"] is False
+
+
+@pytest.mark.api
+def test_nonexact_match_with_active_lifecycle_is_not_identity() -> None:
+    client = next(_client())
+    resp = client.get("/api/v1/ncit/concepts/C60000/mappings")
+    assert resp.status_code == 200
+    entry = resp.json()["mappings"][0]
+    assert entry["predicate"] == CLOSE_MATCH
+    assert entry["lifecycle"] == "validated"
+    # A validated/active lifecycle is not enough; the predicate must be exactMatch.
     assert entry["is_identity"] is False
 
 
