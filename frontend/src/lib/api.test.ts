@@ -97,6 +97,27 @@ describe('getRelatedArticles', () => {
 });
 
 describe('error handling', () => {
+	it('preserves a typed remote failure without exposing the submitted query', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					detail: {
+						state: 'rate-limited',
+						service: 'pubmed',
+						message: 'PubMed rate limit reached; try again later.'
+					}
+				}),
+				{ status: 429, headers: { 'Content-Type': 'application/json' } }
+			)
+		);
+
+		await expect(searchPubmed('private patient query', 25, fetchImpl)).rejects.toMatchObject({
+			status: 429,
+			remoteState: 'rate-limited',
+			message: 'PubMed rate limit reached; try again later.'
+		});
+	});
+
 	it('surfaces the backend HTTPException `detail` string on a failed POST', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify({ detail: 'Invalid trial phase filter.' }), {

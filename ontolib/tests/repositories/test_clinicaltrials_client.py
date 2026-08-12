@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qs, urlparse
@@ -12,6 +13,11 @@ import pytest
 
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
+from ontolib.repositories.upstream import (
+    UpstreamRateLimitedError,
+    UpstreamTimeoutError,
+    UpstreamUnavailableError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -239,7 +245,9 @@ async def test_server_5xx_response_raises_storage_error() -> None:
     srv, base = _serve(_StatusHandler)
     try:
         async with ClinicalTrialsClient(base) as client:
-            with pytest.raises(StorageError, match="500"):
+            with pytest.raises(
+                UpstreamUnavailableError, match="temporarily unavailable"
+            ):
                 await client.search_studies(condition="x")
     finally:
         srv.shutdown()
@@ -252,7 +260,7 @@ async def test_non_json_200_response_raises_storage_error() -> None:
     srv, base = _serve(_StatusHandler)
     try:
         async with ClinicalTrialsClient(base) as client:
-            with pytest.raises(StorageError, match="JSON"):
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
                 await client.search_studies(condition="x")
     finally:
         srv.shutdown()
@@ -314,3 +322,58 @@ async def test_null_studies_body_parses_to_empty_page() -> None:
         srv.server_close()
     assert page.total == 0
     assert page.studies == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("status_code", "error_type", "state"),
+    [
+        (429, UpstreamRateLimitedError, "rate-limited"),
+        (503, UpstreamUnavailableError, "unavailable"),
+    ],
+)
+async def test_http_failures_are_typed_and_sanitized(
+    status_code: int,
+    error_type: type[Exception],
+    state: str,
+) -> None:
+    _StatusHandler.status = status_code
+    _StatusHandler.body = b"upstream-secret-body"
+    srv, base = _serve(_StatusHandler)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(error_type) as raised:
+                await client.search_studies(condition="private patient condition")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert raised.value.service == "clinicaltrials"
+    assert raised.value.state == state
+    message = str(raised.value)
+    assert "private patient condition" not in message
+    assert "upstream-secret-body" not in message
+
+
+@pytest.mark.unit
+async def test_timeout_is_typed_and_sanitized() -> None:
+    class _SlowHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            time.sleep(0.2)
+
+        def log_message(self, *_a: object) -> None:
+            pass
+
+    srv, base = _serve(_SlowHandler)
+    try:
+        async with ClinicalTrialsClient(
+            base, connect_timeout=0.01, read_timeout=0.01
+        ) as client:
+            with pytest.raises(UpstreamTimeoutError) as raised:
+                await client.search_studies(condition="private timeout condition")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    assert raised.value.state == "timeout"
+    assert "private timeout condition" not in str(raised.value)

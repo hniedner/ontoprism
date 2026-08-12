@@ -4,6 +4,7 @@
 	import CdeDetailCards from './CdeDetailCards.svelte';
 	import CdeSummary from './CdeSummary.svelte';
 	import type { PageProps } from './$types';
+	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
 
 	let { data }: PageProps = $props();
 	const cde = $derived(data.cde);
@@ -17,6 +18,8 @@
 >
 	<span aria-hidden="true">←</span> Back to CDE search
 </a>
+
+<div class="mb-4"><RepositoryKindBadge kind="local-certified-proxy" /></div>
 
 <CdeSummary {cde} />
 <CdeConceptGraph {cde} />

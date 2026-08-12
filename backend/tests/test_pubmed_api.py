@@ -33,11 +33,14 @@ _ELINK = {
 
 class _Handler(BaseHTTPRequestHandler):
     fail_status: ClassVar[int | None] = None
+    fail_body: ClassVar[bytes] = b""
 
     def do_GET(self) -> None:
         if _Handler.fail_status is not None:
             self.send_response(_Handler.fail_status)
+            self.send_header("Content-Length", str(len(_Handler.fail_body)))
             self.end_headers()
+            self.wfile.write(_Handler.fail_body)
             return
         path = urlparse(self.path).path
         if path.endswith("/esearch.fcgi"):
@@ -72,6 +75,7 @@ class _Handler(BaseHTTPRequestHandler):
 @pytest.fixture
 def pm_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     _Handler.fail_status = None
+    _Handler.fail_body = b""
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     host, port = srv.server_address[:2]
@@ -103,10 +107,31 @@ def test_search_requires_query(pm_app: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_search_upstream_failure_is_502(pm_app: TestClient) -> None:
+def test_search_upstream_unavailable_is_explicit(pm_app: TestClient) -> None:
     _Handler.fail_status = 500
     resp = pm_app.post("/api/v1/pubmed/search", json={"query": "melanoma"})
-    assert resp.status_code == 502
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == {
+        "state": "unavailable",
+        "service": "pubmed",
+        "message": "PubMed is temporarily unavailable.",
+    }
+
+
+@pytest.mark.api
+def test_search_rate_limit_is_explicit_and_private(
+    pm_app: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    _Handler.fail_status = 429
+    _Handler.fail_body = b"upstream-secret-body"
+    query = "private patient query"
+    resp = pm_app.post("/api/v1/pubmed/search", json={"query": query})
+
+    assert resp.status_code == 429
+    assert resp.json()["detail"]["state"] == "rate-limited"
+    exposed = resp.text + caplog.text
+    assert query not in exposed
+    assert "upstream-secret-body" not in exposed
 
 
 @pytest.mark.api
@@ -142,14 +167,14 @@ def test_related_invalid_link_type_is_422(pm_app: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_article_detail_upstream_failure_is_502(pm_app: TestClient) -> None:
+def test_article_detail_upstream_unavailable_is_503(pm_app: TestClient) -> None:
     _Handler.fail_status = 500
     resp = pm_app.get("/api/v1/pubmed/111")
-    assert resp.status_code == 502
+    assert resp.status_code == 503
 
 
 @pytest.mark.api
-def test_related_upstream_failure_is_502(pm_app: TestClient) -> None:
+def test_related_upstream_unavailable_is_503(pm_app: TestClient) -> None:
     _Handler.fail_status = 500
     resp = pm_app.get("/api/v1/pubmed/111/related?link_type=similar")
-    assert resp.status_code == 502
+    assert resp.status_code == 503

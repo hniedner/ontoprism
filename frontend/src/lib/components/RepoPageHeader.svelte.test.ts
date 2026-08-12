@@ -10,7 +10,11 @@ const help = createRawSnippet(() => ({
 
 describe('RepoPageHeader', () => {
 	it('renders the title and description', () => {
-		render(RepoPageHeader, { title: 'NCIt Browser', description: 'Browse concepts' });
+		render(RepoPageHeader, {
+			title: 'NCIt Browser',
+			description: 'Browse concepts',
+			kind: 'local-certified-proxy'
+		});
 		expect(screen.getByRole('heading', { name: 'NCIt Browser' })).toBeInTheDocument();
 		expect(screen.getByText('Browse concepts')).toBeInTheDocument();
 	});
@@ -19,22 +23,23 @@ describe('RepoPageHeader', () => {
 		const { unmount } = render(RepoPageHeader, {
 			title: 'T',
 			description: 'D',
+			kind: 'local-certified-proxy',
 			total: 204321
 		});
 		expect(screen.getByText('204,321 total')).toBeInTheDocument();
 		unmount();
 
-		render(RepoPageHeader, { title: 'T', description: 'D', total: null });
+		render(RepoPageHeader, { title: 'T', description: 'D', kind: 'local-certified-proxy', total: null });
 		expect(screen.queryByText(/total/)).not.toBeInTheDocument();
 	});
 
 	it('has no Help button when no help snippet is given', () => {
-		render(RepoPageHeader, { title: 'T', description: 'D' });
+		render(RepoPageHeader, { title: 'T', description: 'D', kind: 'local-certified-proxy' });
 		expect(screen.queryByRole('button', { name: /Help/ })).not.toBeInTheDocument();
 	});
 
 	it('toggles the help panel when the Help button is clicked', async () => {
-		render(RepoPageHeader, { title: 'T', description: 'D', help });
+		render(RepoPageHeader, { title: 'T', description: 'D', kind: 'local-certified-proxy', help });
 		expect(screen.queryByTestId('help-body')).not.toBeInTheDocument();
 		screen.getByRole('button', { name: /Help/ }).click();
 		await tick();

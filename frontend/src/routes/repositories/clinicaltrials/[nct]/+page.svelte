@@ -5,6 +5,8 @@
 	import TrialOutcomes from '$lib/components/trial/TrialOutcomes.svelte';
 	import TrialSupport from '$lib/components/trial/TrialSupport.svelte';
 	import type { PageProps } from './$types';
+	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
+	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
 
 	let { data }: PageProps = $props();
 	const trial = $derived(data.trial);
@@ -20,6 +22,9 @@
 >
 	<span aria-hidden="true">←</span> Back to trial search
 </a>
+
+<div class="mb-4"><RepositoryKindBadge kind="remote-live-service" /></div>
+<RemoteServiceDisclosure service="ClinicalTrials.gov" />
 
 	<div class="space-y-5">
 		<TrialOverview {trial} />

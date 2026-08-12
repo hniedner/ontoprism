@@ -17,7 +17,6 @@ from xml.etree.ElementTree import ParseError
 import httpx
 
 from ontolib.common.error_handling import retry_with_backoff
-from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.pubmed.models import (
     PubMedArticleDetail,
@@ -26,6 +25,11 @@ from ontolib.repositories.pubmed.models import (
     RelatedArticlesResult,
 )
 from ontolib.repositories.pubmed.parser import parse_efetch_xml, parse_esummary
+from ontolib.repositories.upstream import (
+    UpstreamRateLimitedError,
+    UpstreamTimeoutError,
+    UpstreamUnavailableError,
+)
 
 logger = get_logger(__name__)
 
@@ -105,15 +109,19 @@ class PubMedClient:
         await self._throttle()
         try:
             response = await self._get(path, params)
-        except _RETRYABLE as exc:
-            raise StorageError(
-                f"PubMed E-utilities transport error for {path}: "
-                f"{type(exc).__name__}: {exc}"
+        except httpx.TimeoutException as exc:
+            raise UpstreamTimeoutError("pubmed", "PubMed request timed out.") from exc
+        except httpx.TransportError as exc:
+            raise UpstreamUnavailableError(
+                "pubmed", "PubMed is temporarily unavailable."
             ) from exc
+        if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+            raise UpstreamRateLimitedError(
+                "pubmed", "PubMed rate limit reached; try again later."
+            )
         if response.status_code != HTTPStatus.OK:
-            raise StorageError(
-                f"PubMed E-utilities request failed: HTTP {response.status_code} "
-                f"for {path} — {response.text[:200]}"
+            raise UpstreamUnavailableError(
+                "pubmed", "PubMed is temporarily unavailable."
             )
         return response
 
@@ -122,8 +130,8 @@ class PubMedClient:
         try:
             return response.json()
         except ValueError as exc:
-            raise StorageError(
-                f"PubMed E-utilities response was not valid JSON for {path}: {exc}"
+            raise UpstreamUnavailableError(
+                "pubmed", "PubMed returned an invalid response."
             ) from exc
 
     async def search_articles(
@@ -170,8 +178,8 @@ class PubMedClient:
         except (ParseError, ValueError) as exc:
             # Upstream returned truncated / non-XML / entity-bearing content — an
             # upstream fault (→ 502), not a server error.
-            raise StorageError(
-                f"PubMed EFetch returned unparseable XML for {pmid}: {exc}"
+            raise UpstreamUnavailableError(
+                "pubmed", "PubMed returned an invalid response."
             ) from exc
         return articles[0] if articles else None
 

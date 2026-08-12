@@ -25,11 +25,27 @@ const BASE = '';
 export class ApiRequestError extends Error {
 	constructor(
 		readonly status: number,
-		message: string
+		message: string,
+		readonly remoteState?: RemoteFailureState
 	) {
 		super(message);
 		this.name = 'ApiRequestError';
 	}
+}
+
+export type RemoteFailureState = 'unavailable' | 'timeout' | 'rate-limited';
+
+function remoteFailure(detail: unknown): { state: RemoteFailureState; message: string } | null {
+	if (typeof detail !== 'object' || detail === null) return null;
+	const value = detail as Record<string, unknown>;
+	if (
+		(value.state === 'unavailable' || value.state === 'timeout' || value.state === 'rate-limited') &&
+		typeof value.message === 'string' &&
+		value.message.trim()
+	) {
+		return { state: value.state, message: value.message };
+	}
+	return null;
 }
 
 async function failedResponse(response: Response, url: string): Promise<ApiRequestError> {
@@ -39,10 +55,9 @@ async function failedResponse(response: Response, url: string): Promise<ApiReque
 	} catch {
 		// A non-JSON upstream error still has an unambiguous HTTP status.
 	}
-	const message =
-		typeof detail === 'string' && detail.trim()
-			? detail
-			: `Request failed (${response.status}): ${url}`;
+	const remote = remoteFailure(detail);
+	if (remote) return new ApiRequestError(response.status, remote.message, remote.state);
+	const message = typeof detail === 'string' && detail.trim() ? detail : `Request failed (${response.status}): ${url}`;
 	return new ApiRequestError(response.status, message);
 }
 

@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from backend.api.upstream import upstream_http_exception
 from backend.dependencies import PubMed
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
@@ -18,6 +19,7 @@ from ontolib.repositories.pubmed.models import (
     PubMedSearchResult,
     RelatedArticlesResult,
 )
+from ontolib.repositories.upstream import UpstreamFailureError
 
 logger = get_logger(__name__)
 
@@ -44,6 +46,9 @@ async def search(client: PubMed, body: PubMedSearchRequest) -> PubMedSearchResul
     """Search PubMed and return resolved article summaries."""
     try:
         return await client.search_articles(body.query, retmax=body.retmax)
+    except UpstreamFailureError as exc:
+        logger.warning("PubMed search failed: %s", exc.state)
+        raise upstream_http_exception(exc) from exc
     except StorageError as exc:
         logger.warning("PubMed search failed: %s", exc)
         raise HTTPException(
@@ -57,6 +62,9 @@ async def article_detail(client: PubMed, pmid: str) -> PubMedArticleDetail:
     _pmid_or_400(pmid)
     try:
         article = await client.get_article(pmid)
+    except UpstreamFailureError as exc:
+        logger.warning("PubMed article fetch failed: %s", exc.state)
+        raise upstream_http_exception(exc) from exc
     except StorageError as exc:
         logger.warning("PubMed article fetch failed: %s", exc)
         raise HTTPException(
@@ -78,6 +86,9 @@ async def related_articles(
     _pmid_or_400(pmid)
     try:
         return await client.get_related_pmids(pmid, link_type=link_type, limit=limit)
+    except UpstreamFailureError as exc:
+        logger.warning("PubMed related-articles fetch failed: %s", exc.state)
+        raise upstream_http_exception(exc) from exc
     except StorageError as exc:
         logger.warning("PubMed related-articles fetch failed: %s", exc)
         raise HTTPException(

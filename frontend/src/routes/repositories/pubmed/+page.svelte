@@ -7,6 +7,8 @@
 	import RepoResultsCard from '$lib/components/RepoResultsCard.svelte';
 	import PubMedResultsTable from '$lib/components/PubMedResultsTable.svelte';
 	import type { PageProps } from './$types';
+	import RemoteSearchSurface from '$lib/components/RemoteSearchSurface.svelte';
+	import RemoteServiceDisclosure from '$lib/components/RemoteServiceDisclosure.svelte';
 
 	let { data }: PageProps = $props();
 	let queryValue = $derived(data.query);
@@ -27,6 +29,7 @@
 
 <RepoPageHeader
 	title="PubMed"
+	kind="remote-live-service"
 	description="Search the NCBI PubMed literature database. Open an article for its abstract, authors, MeSH terms, and identifiers."
 	total={result?.total ?? null}
 >
@@ -35,6 +38,8 @@
 		article for its abstract, MeSH headings, DOI/PMC ids, and a link to PubMed.
 	{/snippet}
 </RepoPageHeader>
+
+<RemoteServiceDisclosure service="NCBI PubMed" />
 
 <RepoSearchBar
 	bind:value={queryValue}
@@ -49,7 +54,16 @@
 	}}
 />
 
-{#if result}
+<RemoteSearchSurface
+	service="PubMed"
+	error={data.result.state === 'error' ? data.result : null}
+	ready={result !== null}
+>
+	{#snippet instruction()}
+		<p class="text-sm text-muted">
+			Enter a query above to search <span class="font-medium text-default">PubMed</span>.
+		</p>
+	{/snippet}
 	<RepoResultsCard
 		title={`Results for “${data.query}”`}
 		{countLabel}
@@ -61,13 +75,7 @@
 				No articles matched “{data.query}”.
 			</p>
 		{:else}
-			<PubMedResultsTable articles={result.articles} />
+			<PubMedResultsTable articles={result?.articles ?? []} />
 		{/if}
 	</RepoResultsCard>
-{:else}
-	<div class="rounded-xl border border-dashed border-default bg-card/50 px-6 py-12 text-center">
-		<p class="text-sm text-muted">
-			Enter a query above to search <span class="font-medium text-default">PubMed</span>.
-		</p>
-	</div>
-{/if}
+</RemoteSearchSurface>

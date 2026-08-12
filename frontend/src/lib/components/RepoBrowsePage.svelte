@@ -74,7 +74,7 @@
 	<title>{title} · ONTOPRISM</title>
 </svelte:head>
 
-<RepoPageHeader {title} {description} total={initial.result.total}>
+<RepoPageHeader {title} {description} total={initial.result.total} kind="local-certified-proxy">
 	{#snippet help()}
 		{@render helpText()}
 	{/snippet}

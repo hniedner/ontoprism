@@ -18,6 +18,13 @@ export default defineConfig({
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 	webServer: [
 		{
+			command: 'pdm run uvicorn test_support.remote_upstream_http:app --host 127.0.0.1 --port 18012',
+			cwd: '..',
+			url: 'http://127.0.0.1:18012/docs',
+			reuseExistingServer: false,
+			timeout: 120_000
+		},
+		{
 			command: `pdm run uvicorn test_support.frontend_fastapi_double:app --host 127.0.0.1 --port ${FASTAPI_PORT}`,
 			cwd: '..',
 			url: `http://127.0.0.1:${FASTAPI_PORT}/health`,
