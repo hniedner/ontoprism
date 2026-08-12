@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 
+from ontolib.core.data_build_tools import JENA_INSTALL_DIR_ENV
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.activation import (
     ActivationHealthError,
@@ -180,6 +182,20 @@ def _endpoint(contract: QleverServiceContract) -> str:
     return f"http://{port}"
 
 
+def _jena_install_dir() -> Path:
+    """Resolve Jena from the documented env var, falling back to the repo default.
+
+    `docs/DATA_SETUP.md` installs Jena under `.tools/jena-6.1.0` and exports
+    `ONTOPRISM_JENA_DIR`; CI installs it under the runner temp dir and exports the same
+    variable. Hardcoding the repo-relative default made this test pass locally and fail
+    in CI with "cannot read pinned artifact .../apache-jena-6.1.0.tar.gz".
+    """
+    configured = os.environ.get(JENA_INSTALL_DIR_ENV)
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[3] / ".tools/jena-6.1.0"
+
+
 async def _build_activation_pair(
     root: Path,
     connection_scope: Callable[[str], AbstractContextManager[None]],
@@ -187,7 +203,7 @@ async def _build_activation_pair(
     pair_path = _write_pair(root)
     runtime = DockerQleverRuntime(
         connection_scope=connection_scope,
-        jena_install_dir=Path(__file__).resolve().parents[3] / ".tools/jena-6.1.0",
+        jena_install_dir=_jena_install_dir(),
     )
     active_path = root / "qlever-ncit"
     active = await build_initial_ncit_store(

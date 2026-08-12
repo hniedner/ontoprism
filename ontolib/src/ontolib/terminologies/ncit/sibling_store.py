@@ -529,6 +529,14 @@ class DockerQleverRuntime:
             "12g",
             "--memory-swap",
             "12g",
+            # The QLever image runs as uid 999 (`qlever`), but the candidate directory
+            # is bind-mounted from the host and owned by the invoking user, so the
+            # indexer cannot create `ncit.unsorted-triples.dat` and the build fails with
+            # "Permission denied". Docker Desktop on macOS masks this by ignoring host
+            # ownership on bind mounts; on Linux CI it is fatal. Run as the directory's
+            # owner so the write succeeds on both.
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
             "--label",
             f"org.ontoprism.candidate-owner={owner}",
             "--mount",

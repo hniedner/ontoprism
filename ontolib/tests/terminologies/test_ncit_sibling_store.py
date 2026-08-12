@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
@@ -937,6 +938,9 @@ def test_runtime_loads_inferred_default_then_stated_named_offline(
         "-p",
         "true",
     )
+    # The QLever image runs as uid 999, so without this the indexer cannot write into
+    # the host-owned bind mount on Linux (macOS Docker hides the problem).
+    assert indexed[indexed.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
 
 
 @pytest.mark.unit
