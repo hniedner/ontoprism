@@ -254,10 +254,19 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - name: Set up PDM (cached)
+        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
         with:
           python-version: "3.13"
+          version: "2.28.0"
+          cache: true
+
+      # `npm run test:coverage` chains `pdm run coverage-gate` (the gate must run on the
+      # pinned project interpreter, not a bare `python3`), so this job needs the project
+      # environment as well as Node.
+      - name: Install dependencies
+        run: pdm sync --clean-unselected --dev
+        working-directory: ${{ github.workspace }}
 
       - name: Install
         run: npm ci

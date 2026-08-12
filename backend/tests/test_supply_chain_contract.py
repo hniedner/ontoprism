@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -23,7 +24,7 @@ from ontolib.core.data_build_tools import (
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 _ROOT = Path(__file__).resolve().parents[2]
-_DIGEST_PIN = re.compile(r"^[^:@\s]+(?:/[^:@\s]+)+@sha256:[0-9a-f]{64}$")
+_DIGEST_PIN = re.compile(r"^[^:@/\s]+(?:/[^:@/\s]+)+@sha256:[0-9a-f]{64}$")
 _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f"
 _ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
@@ -115,6 +116,51 @@ def test_workflow_images_and_robot_install_are_immutable() -> None:
     )
 
 
+def _npm_script_bodies(
+    command: str, scripts: dict[str, str], depth: int = 0
+) -> list[str]:
+    """Expand `npm run <script>` in *command* to the bodies it actually executes."""
+    if depth > 3:  # guard against a self-referential script chain
+        return []
+    expanded: list[str] = []
+    for name, body in scripts.items():
+        if re.search(rf"npm (?:--prefix \S+ )?run {re.escape(name)}\b", command):
+            expanded.append(body)
+            expanded.extend(_npm_script_bodies(body, scripts, depth + 1))
+    return expanded
+
+
+def test_every_ci_job_installs_the_tools_its_steps_invoke() -> None:
+    """A CI job that invokes `pdm` must also set PDM up — including via an npm script.
+
+    `web tests + coverage` regressed exactly this way: `npm run test:coverage` grew a
+    `pdm run coverage-gate` tail (the gate must use the pinned project interpreter)
+    while the job installed only Node and Python, so CI failed with `pdm: not found`.
+    No local run could reveal it, because pdm is on a developer's PATH. Only comparing
+    the workflow against the scripts it invokes catches this class of drift.
+    """
+    workflow = yaml.safe_load((_ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    scripts: dict[str, str] = json.loads(
+        (_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
+    )["scripts"]
+
+    for job_name, job in workflow["jobs"].items():
+        steps = job.get("steps", [])
+        commands = [step["run"] for step in steps if step.get("run")]
+        executed = [
+            fragment
+            for command in commands
+            for fragment in (command, *_npm_script_bodies(command, scripts))
+        ]
+        invokes_pdm = any(re.search(r"(?<!\S)pdm\b", fragment) for fragment in executed)
+        if not invokes_pdm:
+            continue
+        assert any(step.get("uses") == _SETUP_PDM_ACTION for step in steps), (
+            f"CI job {job_name!r} invokes pdm but never installs it; "
+            f"add {_SETUP_PDM_ACTION} to that job"
+        )
+
+
 def test_ci_dependency_environments_are_pinned_clean_and_cached(
     tmp_path: Path,
 ) -> None:
@@ -124,6 +170,7 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
         "quality": "pdm sync --clean-unselected --dev",
         "backend-tests": "pdm sync --clean-unselected --dev",
         "integration-tests": "pdm sync --clean-unselected --dev",
+        "web-tests": "pdm sync --clean-unselected --dev",
         "embedding-model-contract": ("pdm sync --clean-unselected --dev -G data-build"),
     }
 
