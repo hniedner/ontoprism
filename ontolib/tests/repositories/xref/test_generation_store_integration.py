@@ -927,6 +927,144 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
     await dispose_engine(engine)
 
 
+@pytest.mark.parametrize(
+    ("read_name", "lookup", "expected_key"),
+    [
+        ("mappings_by_subjects", {"CAPTURED"}, "CAPTURED"),
+        ("mappings_by_objects", {"UBERON:CAPTURED"}, "UBERON:CAPTURED"),
+        ("mappings_for_identifiers", {"CAPTURED"}, "CAPTURED"),
+    ],
+)
+async def test_general_mapping_reads_pin_the_generation_validated_before_pointer_switch(
+    read_name: str, lookup: set[str], expected_key: str
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    normal_store = XrefStore(sf)
+    source = "uberon-cl"
+    generations: list[str] = []
+    for suffix in ("CAPTURED", "REPLACEMENT"):
+        record = _record(suffix, f"UBERON:{suffix}", "u1")
+        generation_id, content = _generation_identity(
+            source, [record], _SOURCE_METADATA
+        )
+        generations.append(generation_id)
+        await normal_store.prepare_generation(
+            source=source,
+            generation_id=generation_id,
+            content_sha256=content,
+            source_metadata=_SOURCE_METADATA,
+            graph_iri=generation_graph_iri(source, generation_id),
+            run_id=await _run(normal_store, source, suffix),
+            records=[record],
+        )
+    await normal_store.activate_generation(source, generations[0])
+
+    execution_count = 0
+
+    class SwitchingSession:
+        def __init__(self, session: object) -> None:
+            self._session = session
+            self._switched = False
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._session, name)
+
+        async def execute(self, statement: object, params: object = None) -> object:
+            nonlocal execution_count
+            execution_count += 1
+            result = await self._session.execute(statement, params)  # type: ignore[union-attr]
+            if not self._switched and "source_metadata" in str(statement):
+                self._switched = True
+                await normal_store.set_active_generation(source, generations[1])
+            return result
+
+    class SwitchingContext:
+        def __init__(self) -> None:
+            self._context = sf()
+
+        async def __aenter__(self) -> SwitchingSession:
+            return SwitchingSession(await self._context.__aenter__())
+
+        async def __aexit__(self, *args: object) -> object:
+            return await self._context.__aexit__(*args)
+
+    store = XrefStore(SwitchingContext)  # type: ignore[arg-type]
+    rows = await getattr(store, read_name)(lookup, expected=_READ_POLICY)
+
+    assert set(rows) == {expected_key}
+    assert execution_count == 2
+    assert await normal_store.active_generation(source) == generations[1]
+    await dispose_engine(engine)
+
+
+async def test_candidates_pin_validated_generation_across_pointer_switch() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    normal_store = XrefStore(sf)
+    source = "uberon-cl"
+    generations: list[str] = []
+    for suffix in ("CAPTURED-CANDIDATE", "REPLACEMENT-CANDIDATE"):
+        record = _record(suffix, f"UBERON:{suffix}", "u1")
+        generation_id, content = _generation_identity(
+            source, [record], _SOURCE_METADATA
+        )
+        generations.append(generation_id)
+        await normal_store.prepare_generation(
+            source=source,
+            generation_id=generation_id,
+            content_sha256=content,
+            source_metadata=_SOURCE_METADATA,
+            graph_iri=generation_graph_iri(source, generation_id),
+            run_id=await _run(normal_store, source, suffix),
+            records=[record],
+        )
+    await normal_store.activate_generation(source, generations[0])
+
+    execution_count = 0
+
+    class SwitchingSession:
+        def __init__(self, session: object) -> None:
+            self._session = session
+            self._switched = False
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._session, name)
+
+        async def execute(self, statement: object, params: object = None) -> object:
+            nonlocal execution_count
+            execution_count += 1
+            result = await self._session.execute(statement, params)  # type: ignore[union-attr]
+            if not self._switched and "source_metadata" in str(statement):
+                self._switched = True
+                await normal_store.set_active_generation(source, generations[1])
+            return result
+
+    class SwitchingContext:
+        def __init__(self) -> None:
+            self._context = sf()
+
+        async def __aenter__(self) -> SwitchingSession:
+            return SwitchingSession(await self._context.__aenter__())
+
+        async def __aexit__(self, *args: object) -> object:
+            return await self._context.__aexit__(*args)
+
+    store = XrefStore(SwitchingContext)  # type: ignore[arg-type]
+    rows = await store.proposed_candidates(
+        expected=UberonReadIdentity(
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+        )
+    )
+
+    assert [row.subject_id for row in rows] == ["CAPTURED-CANDIDATE"]
+    assert execution_count == 2
+    assert await normal_store.active_generation(source) == generations[1]
+    await dispose_engine(engine)
+
+
 @pytest.mark.parametrize("matching", [False, True])
 async def test_stale_active_generation_refuses_even_without_a_matching_row(
     matching: bool,

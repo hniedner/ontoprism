@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import Result, text
 
@@ -35,6 +35,8 @@ _PUBLISHER_SOURCE = "uberon-publisher-xref"
 _PROMOTION_SOURCE = "uberon-cl-promotion"
 _P334_SOURCE = "ncit-p334-icdo32"
 _UBERON_SOURCES = frozenset({_CANDIDATE_SOURCE, _PUBLISHER_SOURCE, _PROMOTION_SOURCE})
+type TerminalXrefRunStatus = Literal["completed", "failed"]
+_TERMINAL_RUN_STATUSES = frozenset({"completed", "failed"})
 
 
 def _validate_generation_retry(
@@ -344,21 +346,19 @@ class XrefStore:
         source: str,
         ncit_version: str,
         source_version: str,
-        status: str = "running",
     ) -> int:
         now = datetime.datetime.now(datetime.UTC)
         async with self._sf() as s:
-            await s.execute(
+            inserted: Result = await s.execute(
                 text(
                     "INSERT INTO xref_run "
                     "(id, source, status, ncit_version, source_version, started_at) "
-                    "VALUES (:id, :source, :status, :ncit_version, "
+                    "VALUES (:id, :source, 'running', :ncit_version, "
                     ":source_version, :started_at) ON CONFLICT (id) DO NOTHING"
                 ),
                 {
                     "id": run_id,
                     "source": source,
-                    "status": status,
                     "ncit_version": ncit_version,
                     "source_version": source_version,
                     "started_at": now,
@@ -368,7 +368,8 @@ class XrefStore:
                 (
                     await s.execute(
                         text(
-                            "SELECT source, ncit_version, source_version FROM xref_run "
+                            "SELECT source, ncit_version, source_version, status "
+                            "FROM xref_run "
                             "WHERE id = :id FOR UPDATE"
                         ),
                         {"id": run_id},
@@ -383,15 +384,24 @@ class XrefStore:
                 or existing["source_version"] != source_version
             ):
                 raise ValueError("run identity has different provenance")
+            if (
+                cast("int", inserted.rowcount) == 0  # type: ignore[attr-defined]
+                and existing["status"] in _TERMINAL_RUN_STATUSES
+            ):
+                raise ValueError("terminal run cannot be restarted or overwritten")
             result: Result = await s.execute(
                 text("UPDATE xref_run SET status = :status WHERE id = :id"),
-                {"id": run_id, "status": status},
+                {"id": run_id, "status": "running"},
             )
             await s.commit()
             return cast("int", result.rowcount)  # type: ignore[attr-defined]
 
     async def update_run_metrics(
-        self, run_id: str, metrics: dict[str, Any], *, status: str = "completed"
+        self,
+        run_id: str,
+        metrics: dict[str, Any],
+        *,
+        status: TerminalXrefRunStatus = "completed",
     ) -> None:
         """Set ``finished_at``, *status*, and *metrics* on a run.
 
@@ -403,6 +413,26 @@ class XrefStore:
         """
         now = datetime.datetime.now(datetime.UTC)
         async with self._sf() as s:
+            existing = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT status, metrics FROM xref_run "
+                            "WHERE id = :run_id FOR UPDATE"
+                        ),
+                        {"run_id": run_id},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if existing is None:
+                raise ValueError("unknown xref run")
+            if existing["status"] in _TERMINAL_RUN_STATUSES:
+                if existing["status"] == status and existing["metrics"] == metrics:
+                    await s.commit()
+                    return
+                raise ValueError("terminal run cannot be mutated")
             await s.execute(
                 text(
                     "UPDATE xref_run SET "
@@ -520,38 +550,23 @@ class XrefStore:
             "subject_version AS subject_source_version, "
             "object_version AS object_source_version, lifecycle_state, "
             "review_status, author, generation_id FROM concept_xref) x "
-            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
-            "AND a.source = :source "
-            "WHERE lifecycle_state = 'proposed' AND predicate_id = :close "
+            "WHERE generation_id = :generation_id "
+            "AND lifecycle_state = 'proposed' AND predicate_id = :close "
             "ORDER BY subject_id, object_id"
         )
         async with self._sf() as s:
-            active = (
-                (
-                    await s.execute(
-                        text(
-                            "SELECT g.source_metadata FROM xref_active_generation a "
-                            "JOIN xref_generation g ON g.source=a.source "
-                            "AND g.id=a.generation_id WHERE a.source = :source"
-                        ),
-                        {"source": _CANDIDATE_SOURCE},
-                    )
-                )
-                .mappings()
-                .one_or_none()
+            generations = await self._validated_active_generations(
+                s,
+                XrefReadPolicy(uberon=expected),
+                sources=frozenset({_CANDIDATE_SOURCE}),
             )
-            if active is None:
+            generation_id = generations.get(_CANDIDATE_SOURCE)
+            if generation_id is None:
                 raise UnavailableXrefGenerationError(
                     "no active certified uberon-cl candidate generation"
                 )
-            observed = generation_source_metadata_adapter.validate_python(
-                active["source_metadata"]
-            )
-            _validate_source_contract(
-                _CANDIDATE_SOURCE, observed, XrefReadPolicy(uberon=expected)
-            )
             result = await s.execute(
-                sql, {"close": CLOSE_MATCH, "source": _CANDIDATE_SOURCE}
+                sql, {"close": CLOSE_MATCH, "generation_id": generation_id}
             )
             return [SSSOMRecord(**dict(row)) for row in result.mappings().all()]
 
@@ -675,7 +690,9 @@ class XrefStore:
         if not codes:
             return {}
         async with self._sf() as s:
-            generation_ids = await self._validated_active_generations(s, expected)
+            generation_ids = list(
+                (await self._validated_active_generations(s, expected)).values()
+            )
             if not generation_ids:
                 return {}
             result = await s.execute(
@@ -712,7 +729,9 @@ class XrefStore:
         if not curies:
             return {}
         async with self._sf() as s:
-            generation_ids = await self._validated_active_generations(s, expected)
+            generation_ids = list(
+                (await self._validated_active_generations(s, expected)).values()
+            )
             if not generation_ids:
                 return {}
             result = await s.execute(
@@ -750,7 +769,9 @@ class XrefStore:
         if not identifiers:
             return {}
         async with self._sf() as s:
-            generation_ids = await self._validated_active_generations(s, expected)
+            generation_ids = list(
+                (await self._validated_active_generations(s, expected)).values()
+            )
             if not generation_ids:
                 return {}
             result = await s.execute(
@@ -795,8 +816,13 @@ class XrefStore:
             return out
 
     async def _validated_active_generations(
-        self, session: AsyncSession, expected: XrefReadPolicy
-    ) -> list[str]:
+        self,
+        session: AsyncSession,
+        expected: XrefReadPolicy,
+        *,
+        sources: frozenset[str] | None = None,
+    ) -> dict[str, str]:
+        """Capture and validate active generation IDs in the caller's transaction."""
         result = await session.execute(
             text(
                 "SELECT a.source, a.generation_id, g.source_metadata "
@@ -804,17 +830,18 @@ class XrefStore:
                 "ON g.source=a.source AND g.id=a.generation_id ORDER BY a.source"
             )
         )
-        generation_ids: list[str] = []
+        generation_ids: dict[str, str] = {}
         active_sources: set[str] = set()
         for row in result.mappings().all():
             source = str(row["source"])
-            if not _source_is_requested(source, expected):
+            source_excluded = sources is not None and source not in sources
+            if source_excluded or not _source_is_requested(source, expected):
                 continue
             observed = generation_source_metadata_adapter.validate_python(
                 row["source_metadata"]
             )
             _validate_source_contract(source, observed, expected)
-            generation_ids.append(str(row["generation_id"]))
+            generation_ids[source] = str(row["generation_id"])
             active_sources.add(source)
         _require_requested_families(expected, active_sources)
         return generation_ids

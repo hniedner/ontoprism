@@ -1437,6 +1437,7 @@ async def persist_promotions(
     run_id: str | None = None,
     tool_identity: DataBuildToolIdentity | None = None,
     source_metadata: UberonPromotionGenerationMetadata,
+    _finalize: bool = True,
 ) -> str:
     """Write the promoted ``exactMatch/validated`` records as their own xref run.
 
@@ -1456,7 +1457,8 @@ async def persist_promotions(
     if tool_identity is not None:
         metrics["tools"] = [tool_identity.as_dict()]
     if report.failed:
-        await store.update_run_metrics(rid, metrics, status="failed")
+        if _finalize:
+            await store.update_run_metrics(rid, metrics, status="failed")
         return rid
     # Re-stamp with the versions this run actually validated against.  The candidate
     # carried its *ingest-time* versions, and promote_candidate copies them through; if
@@ -1480,7 +1482,8 @@ async def persist_promotions(
         records=stamped,
         source_metadata=source_metadata,
     )
-    await store.update_run_metrics(rid, metrics)
+    if _finalize:
+        await store.update_run_metrics(rid, metrics)
     return rid
 
 
@@ -1570,6 +1573,7 @@ async def run_promotion(
         source=source,
         tool_identity=tool_identity,
         source_metadata=source_metadata,
+        _finalize=False,
     )
 
     # A failed run established nothing, so `_sweep` performs no staleness read or write.

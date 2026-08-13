@@ -244,6 +244,22 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                     {"generation": "f" * 64, "predicate": CLOSE_MATCH},
                 )
 
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO concept_xref "
+                        "(generation_id,generation_source,run_id,subject_system,"
+                        "subject_version,subject_id,predicate_id,object_system,"
+                        "object_version,object_id,mapping_justification,confidence,"
+                        "lifecycle_state,review_status,author) VALUES "
+                        "(:generation,'uberon-cl',NULL,'ncit','v','C-NULL-RUN',"
+                        ":predicate,'uberon-cl','v','UBERON:NULL-RUN','j',1,"
+                        "'proposed','unreviewed','')"
+                    ),
+                    {"generation": "a" * 64, "predicate": CLOSE_MATCH},
+                )
+
         async with engine.begin() as conn:
             await conn.execute(
                 text(

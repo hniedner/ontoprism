@@ -22,7 +22,9 @@ review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 
 ## 0. Implementation status (updated 2026-08-13)
 
-> **CURRENT-STATUS CORRECTION (2026-08-06) — read before trusting the table below.**
+> **Historical status snapshot (2026-08-06), superseded by D60 and the current table
+> below.** The measurements and delivery assessment in this block describe that date;
+> they are not current implementation status or the current ownership model.
 >
 > The status table is an accurate map of *code that exists*. It is misleading as a statement of
 > *deliverable*, because **not one line of the Phase-A pipeline has ever processed real data**.
@@ -68,7 +70,7 @@ built code, not only a forward plan. Verified against the tree:
 | Area | Status | Where |
 |---|---|---|
 | SSSOM record + SKOS/lifecycle vocab | **Done** | `ontolib/src/ontolib/repositories/xref/models.py`, `vocab.py` |
-| Postgres `xref_run`/typed generation publication | **Done** | initial `migrations/versions/0004_xref.py`, current `0018_xref_generations.py`; `repositories/xref/store.py` (`XrefStore`) |
+| Postgres `xref_run`/typed generation publication | **Done** | initial migration `migrations/versions/0004_xref.py`; current schema migration `migrations/versions/0018_xref_generations.py`; `ontolib/src/ontolib/repositories/xref/store.py` (`XrefStore`) |
 | Additive named graph `NCIT_UPSTREAM_XREF_GRAPH_IRI` | **Done** | `repositories/xref/vocab.py`, `ttl_writer.py` |
 | caDSR anchor enumeration + scope gate + liveness (D27 §13.1–13.2) | **Done** | `repositories/xref/cadsr_anchors.py` (`enumerate_anchors`, `filter_in_scope`, `check_liveness`) |
 | Uberon/CL candidate ingest (`closeMatch`) | **Done** | `repositories/xref/candidate_ingest.py` (`generate_candidates`, `ingest_candidates`) |
@@ -93,7 +95,7 @@ a pair both ingest passes produce now promotes on source agreement). D33 Option 
 **Codebase corrections to this doc's earlier assumptions** (the design predates the code): the xref
 module lives under `repositories/xref/` (not `terminologies/xref/`); there is **no ORM** — Postgres is
 raw SQL via `sqlalchemy.text()` and hand-written Alembic migrations (`target_metadata=None`); there is
-`terminologies/uberon/store.py` now owns the certified Uberon/CL QLever build, while
+now a `terminologies/uberon/store.py` that owns the certified Uberon/CL QLever build, while
 candidate SPARQL remains in `candidate_ingest.py` and uses the store-neutral HTTP
 transport; ports are **NCIt :7888, Uberon/CL :7889, Postgres :5433** (not
 7878/7879/5432); the NCIt role queries are in `terminologies/ncit/role_queries.py`.
@@ -103,17 +105,17 @@ transport; ports are **NCIt :7888, Uberon/CL :7889, Postgres :5433** (not
 
 ## 1. Executive summary
 
-The strategic shift is one sentence: **NCIt becomes the oncology-specific *specialization* of a
-shared, vetted upstream substrate — Uberon (anatomy), Cell Ontology (normal cells), SNOMED CT +
-ICD-O-3 (abnormal morphology/histology), and Mondo/DO (disease genus) — rather than a self-contained
-silo that re-models all of those domains itself.** NCIt keeps what is genuinely its own — the
+The strategic shift is one sentence: **OntoPrism emits a reorganized NCIt whose proposed content is
+derived from and aligned to Uberon (anatomy), Cell Ontology (normal cells), SNOMED CT + ICD-O-3
+(abnormal morphology/histology), and Mondo/DO (disease genus).** NCIt retains the
 oncology-specific pre-coordinated combinations, AJCC staging, chemotherapy regimens, and the
-NCI-curated oncology vocabulary — and *defers* the general anatomy/cell/disease/morphology
-scaffolding to the upstream reference ontologies by **mapping to them**, not by absorbing or
-replacing them.
+NCI-curated oncology vocabulary. New proposed NCIt content can be derived from and aligned to
+general anatomy, cell, disease, and morphology records without assigning ownership of emitted
+content to those terminology projects.
 
-This is realized as an **additive alignment bridge** (per the chosen integration
-posture):
+The following two-plane description is historical and superseded by D60. The current
+model emits provisional NCIt content, with derivation and alignment provenance to other
+terminologies:
 
 - **Reference plane — NCIt (unchanged, canonical-of-record for everything that exists today).**
   Every legacy `Cxxxxx` IRI stays resolvable, un-mutated, and remains the anchor that caDSR CDEs
@@ -137,8 +139,9 @@ NCIt concepts actually referenced by in-scope caDSR CDEs — enumerated from the
 assumed. §13 makes this set explicit and measurable; it is the correction that turns "map to caDSR"
 from an assertion into a verifiable guarantee.
 
-A large volume of *candidate* cross-references already exists — NCI Metathesaurus CUIs (NCIt↔SNOMED↔
-ICD-O-3), Mondo's NCIt xrefs, Uberon/CL/FMA xrefs — which materially lowers cost. But **existence of
+A large volume of *candidate* cross-references already exists — NCI Metathesaurus CUIs
+(NCIt↔SNOMED), certified NCIt `P334` assertions for ICD-O-3.2, Mondo's NCIt xrefs, and
+Uberon/CL/FMA xrefs — which materially lowers cost. But **existence of
 an xref is not equivalence.** UMLS CUI co-occurrence encodes editorial/lexical synonymy, not logical
 class equivalence; peer-reviewed audits of the oncology case specifically find NCIt↔ICD-O-3/ICD-10
 maps *missing and inconsistent* (Abdelhak et al., *J Biomed Semantics* 2017, PMC5294908) and general
@@ -190,7 +193,11 @@ a new decomposition engine.
 
 ---
 
-## 3. Target architecture — four planes joined by one mapping layer
+## 3. Historical target architecture — superseded by D60
+
+The diagram and plane terminology below preserve the original design record. They are
+not current ownership guidance: under D60, the emitted projection and axes are NCIt,
+while the named terminology records are derivation evidence and alignments.
 
 ```
                           ┌──────────────────────────────────────────────┐
@@ -263,13 +270,17 @@ disease-genus, and morphology fillers are aligned to corroborating terminology r
 is the OBO cross-product pattern (lit §4.2 [26]) applied to make NCIt an application ontology over a
 reference substrate.
 
-### 3.2 Dual-canonical rule (which plane is authoritative when)
+### 3.2 Historical dual-canonical rule (superseded by D60)
+
+This section records the former design and is not current guidance. D60 replaces both the
+NCIt-reference/upstream-canonical split and upstream ownership language: everything OntoPrism
+emits is provisional NCIt content; other terminologies provide derivation evidence and alignment.
 
 | Situation | Canonical plane | Why |
 |---|---|---|
 | Any concept/CDE that exists today | **NCIt** | Backward compatibility; caDSR anchoring; concept permanence [Cimino desiderata]. |
-| New post-coordinated authoring | **Upstream** | Interoperability, orthogonality, no combinatorial minting. |
-| Cross-terminology query / data exchange | **Upstream** | FHIR/OBO ecosystem speaks Uberon/SNOMED/Mondo. |
+| New post-coordinated authoring | **Upstream (historical)** | Superseded by D60. |
+| Cross-terminology query / data exchange | **Upstream (historical)** | Superseded by D60. |
 | Future round-trip / reversibility proof | **NCIt** (via #153's complete `owl:equivalentClass` unfolding) | The current curated projection is not proof-bearing (D43). |
 
 The two planes are **always joined** — never a fork. Every upstream atom used in authoring has a
@@ -481,8 +492,8 @@ and stays; only its *fillers* gain alignments.
 | `op:MetastaticSite` (R102) | **Uberon** | as above | `located_in` | First-class axis per D23. |
 | `op:AssociatedSite` (R100) | **Uberon** | as above | `located_in` | Non-primary/non-metastatic. |
 | `op:CellOrigin` (R104, normal cell) | **Cell Ontology** | CL xref + lexical | `derives_from` | Defining normal-cell-origin axis; probabilistic R112 is excluded from the curated projection. |
-| `op:CellType` (R105, abnormal cell) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI (candidate) | `derives_from` (RO bridge, **not** identity) | Histology axis. **Category caution (M1):** an NCIt *cell* (e.g. C36825 Neoplastic Neuroendocrine Cell), an ICD-O-3 *morphology/behaviour* code, and a SNOMED *morphologic-abnormality* entity are three different ontological kinds; the link is a typed RO bridge, never `closeMatch`/`exactMatch`. |
-| `op:Morphology` (from taxonomic parent) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI (candidate) | `closeMatch`→`exactMatch` only via §4.4 | Morphology-from-parent query still owed (engine §6, roadmap §2.2) — build it as part of this work. Morphology↔morphology *can* be identity; cell↔morphology cannot. |
+| `op:CellType` (R105, abnormal cell) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; NCIt `P334` for ICD-O-3.2 | `derives_from` (RO bridge, **not** identity) | Histology axis. **Category caution (M1):** an NCIt *cell* (e.g. C36825 Neoplastic Neuroendocrine Cell), an ICD-O-3 *morphology/behaviour* code, and a SNOMED *morphologic-abnormality* entity are three different ontological kinds; the link is a typed RO bridge, never `closeMatch`/`exactMatch`. |
+| `op:Morphology` (from taxonomic parent) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; NCIt `P334` for ICD-O-3.2 | `closeMatch`→`exactMatch` only via §4.4 | Morphology-from-parent query still owed (engine §6, roadmap §2.2) — build it as part of this work. Morphology↔morphology *can* be identity; cell↔morphology cannot. |
 | `op:MolecularAbnormality` (R106) | NCIt-native (+ optional HGNC/SO) | — | — | Kept per D23 (PR/ER/HER2 textbook case). No mainstream OBO substitute needed; oncology-specific. |
 | `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; no alignment is asserted here. Axis names per D23. |
 | Regimen (`Chemotherapy_Regimen_Has_Component`) | **NCIt-native** (components → RxNorm/ChEBI optional) | RxNorm | `relatedMatch` | Secondary scope (regimen doc). Oncology-specific packaging. |
@@ -791,7 +802,8 @@ Let:
 2. **Liveness/retirement normalization.** For each code in `M`, resolve retired/merged/split codes to
    their current form via EVS retirement maps + NCIm; record an `anchor_liveness` status. Codes that
    cannot be resolved are reported, not silently dropped.
-3. **Candidate ingest** (SSSOM) from NCIm CUIs (SNOMED/ICD-O-3), Mondo NCIt xrefs, Uberon/CL/FMA
+3. **Candidate ingest** (SSSOM) from NCIm CUIs (SNOMED), certified NCIt `P334`
+   assertions (ICD-O-3.2), Mondo NCIt xrefs, and Uberon/CL/FMA
    xrefs — each with predicate, justification, confidence, and both endpoint versions.
 4. **Curation/validation** through the §4.4 non-circular gate → promote a subset to
    `owl:equivalentClass` bridges; the rest stay `closeMatch`/`broad`/`narrow`/`related` or `unmatched`.

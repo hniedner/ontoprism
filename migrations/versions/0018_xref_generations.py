@@ -110,7 +110,7 @@ def upgrade() -> None:
         """CREATE TABLE concept_xref (
            generation_id text NOT NULL,
            generation_source text NOT NULL,
-          run_id text,
+          run_id text NOT NULL,
           subject_system text NOT NULL,
           subject_version text NOT NULL,
           subject_id text NOT NULL,

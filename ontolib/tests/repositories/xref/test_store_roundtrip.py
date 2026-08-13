@@ -117,7 +117,7 @@ async def test_store_roundtrip() -> None:
 
 
 @pytest.mark.integration
-async def test_upsert_run_only_reuses_the_exact_run_provenance() -> None:
+async def test_run_lifecycle_is_terminal_and_exact_retry_is_idempotent() -> None:
     engine = make_engine(get_settings().database_url)
     sf = make_sessionmaker(engine)
     run_id = f"test-run-retry-{uuid.uuid4().hex}"
@@ -130,20 +130,15 @@ async def test_upsert_run_only_reuses_the_exact_run_provenance() -> None:
             )
         assert isinstance(started_at, datetime.datetime)
 
-        await store.upsert_run(
-            run_id,
-            "uberon-cl",
-            "26.02d",
-            "uberon-2026-01",
-            status="completed",
-        )
+        metrics = {"count": 1}
+        await store.update_run_metrics(run_id, metrics, status="completed")
         async with sf() as session:
             retried = (
                 (
                     await session.execute(
                         text(
                             "SELECT source, ncit_version, source_version, started_at, "
-                            "status "
+                            "status, finished_at, metrics "
                             "FROM xref_run WHERE id = :id"
                         ),
                         {"id": run_id},
@@ -158,7 +153,27 @@ async def test_upsert_run_only_reuses_the_exact_run_provenance() -> None:
             "source_version": "uberon-2026-01",
             "started_at": started_at,
             "status": "completed",
+            "finished_at": retried["finished_at"],
+            "metrics": metrics,
         }
+        finished_at = retried["finished_at"]
+
+        await store.update_run_metrics(run_id, metrics, status="completed")
+        async with sf() as session:
+            assert (
+                await session.scalar(
+                    text("SELECT finished_at FROM xref_run WHERE id = :id"),
+                    {"id": run_id},
+                )
+                == finished_at
+            )
+
+        with pytest.raises(ValueError, match="terminal"):
+            await store.upsert_run(run_id, "uberon-cl", "26.02d", "uberon-2026-01")
+        with pytest.raises(ValueError, match="terminal"):
+            await store.update_run_metrics(run_id, {"count": 2}, status="completed")
+        with pytest.raises(ValueError, match="terminal"):
+            await store.update_run_metrics(run_id, metrics, status="failed")
 
         for source, ncit_version, source_version in (
             ("uberon-cl-promotion", "26.02d", "uberon-2026-01"),
@@ -166,9 +181,43 @@ async def test_upsert_run_only_reuses_the_exact_run_provenance() -> None:
             ("uberon-cl", "26.02d", "uberon-2026-02"),
         ):
             with pytest.raises(ValueError, match="different provenance"):
-                await store.upsert_run(
-                    run_id, source, ncit_version, source_version, status="failed"
+                await store.upsert_run(run_id, source, ncit_version, source_version)
+    finally:
+        async with sf() as session:
+            await session.execute(
+                text("DELETE FROM xref_run WHERE id = :id"), {"id": run_id}
+            )
+            await session.commit()
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_failed_run_cannot_be_reset_or_overwritten() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-failed-run-{uuid.uuid4().hex}"
+    try:
+        store = XrefStore(sf)
+        await store.upsert_run(run_id, "uberon-cl", "26.02d", "uberon-2026-01")
+        await store.update_run_metrics(run_id, {"errors": 1}, status="failed")
+
+        with pytest.raises(ValueError, match="terminal"):
+            await store.upsert_run(run_id, "uberon-cl", "26.02d", "uberon-2026-01")
+        with pytest.raises(ValueError, match="terminal"):
+            await store.update_run_metrics(run_id, {"errors": 0}, status="completed")
+
+        async with sf() as session:
+            row = (
+                (
+                    await session.execute(
+                        text("SELECT status, metrics FROM xref_run WHERE id = :id"),
+                        {"id": run_id},
+                    )
                 )
+                .mappings()
+                .one()
+            )
+        assert row == {"status": "failed", "metrics": {"errors": 1}}
     finally:
         async with sf() as session:
             await session.execute(
