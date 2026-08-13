@@ -7,16 +7,19 @@ then implement ``candidate_ingest`` until they pass.
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
 from ontolib.repositories.xref.candidate_ingest import (
+    CandidateSourceInventoryError,
     _build_xref_index,
     _iri_to_curie,
     build_filler_codes_query,
     build_uberon_xref_query,
     candidate_coverage_report,
     generate_candidates,
+    ingest_candidates,
 )
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.vocab import (
@@ -399,16 +402,28 @@ async def test_an_xref_filler_whose_label_matches_nothing_stays_xref() -> None:
 
 
 @pytest.mark.unit
-async def test_generate_candidates_handles_empty_fillers() -> None:
-    """No filler codes yields no records."""
+async def test_ingest_refuses_empty_filler_inventory_before_writing() -> None:
     ncit = _MockClient({"SELECT DISTINCT ?fillerCode": []})
     uberon = _MockClient({"hasDbXref": []})
+    store = AsyncMock()
 
-    records, filler_to_source = await generate_candidates(
-        ncit, uberon, _NCIT_VERSION, _UBERON_VERSION
-    )
-    assert len(records) == 0
-    assert len(filler_to_source) == 0
+    with pytest.raises(
+        CandidateSourceInventoryError, match="NCIt filler inventory is empty"
+    ):
+        await ingest_candidates(
+            store,
+            ncit,
+            uberon,
+            _NCIT_VERSION,
+            _UBERON_VERSION,
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+            observe_source_identities=AsyncMock(
+                return_value=("a" * 64, "b" * 64, "c" * 64)
+            ),
+        )
+    store.upsert_run.assert_not_awaited()
 
 
 # -- Tests: coverage report ---------------------------------------------

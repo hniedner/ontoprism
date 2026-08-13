@@ -22,9 +22,11 @@ from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
 from ontolib.repositories.xref.models import (
-    GenerationSourceMetadata,
+    IcdoReadIdentity,
     MappingResult,
     StaleXrefGenerationError,
+    UberonReadIdentity,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
@@ -46,7 +48,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
 
 
-async def _xref_expected(metadata: RepositoryMetadataReads) -> GenerationSourceMetadata:
+async def _xref_expected(metadata: RepositoryMetadataReads) -> XrefReadPolicy:
     ncit = await metadata.ncit()
     uberon = await metadata.uberon()
     icdo = await metadata.icdo("3.2", "morphology")
@@ -62,12 +64,17 @@ async def _xref_expected(metadata: RepositoryMetadataReads) -> GenerationSourceM
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, icdo.model_dump(mode="json")
         )
-    return GenerationSourceMetadata(
-        ncit_source_identity=ncit.source_identity,
-        uberon_source_identity=uberon.source_identity,
-        uberon_serving_identity=uberon.observation.serving.sha256,
-        icdo_generation_identity=icdo.activation_identity,
-        icdo_serving_identity=icdo.serving_identity,
+    return XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity=ncit.source_identity,
+            uberon_source_identity=uberon.source_identity,
+            uberon_serving_identity=uberon.observation.serving.sha256,
+        ),
+        icdo=IcdoReadIdentity(
+            ncit_source_identity=ncit.source_identity,
+            icdo_generation_identity=icdo.activation_identity,
+            icdo_serving_identity=icdo.serving_identity,
+        ),
     )
 
 
@@ -129,7 +136,7 @@ async def _attach_xref_upstream(
     xref_store: XrefReads,
     filler_codes: list[str],
     *,
-    expected: GenerationSourceMetadata,
+    expected: XrefReadPolicy,
     entitled_to_icdo: bool,
 ) -> ConceptDecomposition:
     if filler_codes:
@@ -303,7 +310,7 @@ async def concept_mappings(
     )
     return ConceptMappings(
         code=code,
-        repository_source_identity=expected.ncit_source_identity,
+        repository_source_identity=repository.source_identity,
         repository_manifest_identity=repository.manifest_identity,
         mappings=entries,
     )

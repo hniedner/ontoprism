@@ -4,13 +4,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ontolib.repositories.xref.models import GenerationSourceMetadata
+from ontolib.repositories.xref.models import (
+    GenerationSourceMetadata,
+    UberonCandidateGenerationMetadata,
+)
 from ontolib.repositories.xref.publication import (
     generation_graph_iri,
     generation_identity,
 )
 
-_SOURCE_METADATA = GenerationSourceMetadata(ncit_source_identity="a" * 64)
+_SOURCE_METADATA = UberonCandidateGenerationMetadata(
+    ncit_source_identity="a" * 64,
+    uberon_source_identity="b" * 64,
+    uberon_serving_identity="c" * 64,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

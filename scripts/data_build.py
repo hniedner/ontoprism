@@ -73,7 +73,7 @@ from ontolib.repositories.xref.coverage import (
     save_coverage_baseline,
 )
 from ontolib.repositories.xref.mapping_score import load_golden_mappings
-from ontolib.repositories.xref.models import GenerationSourceMetadata
+from ontolib.repositories.xref.models import UberonPromotionGenerationMetadata
 from ontolib.repositories.xref.p334_alignment import publish_p334_alignments
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.publisher_xref import publish_uberon_xrefs
@@ -727,14 +727,18 @@ async def _build_xref() -> None:
             ):
                 raise RuntimeError("candidate sources are not certified ready")
 
-            async def observe_source_identities() -> tuple[str, str]:
+            async def observe_source_identities() -> tuple[str, str, str]:
                 ncit_after = await metadata.ncit()
                 uberon_after = await metadata.uberon(force=True)
                 if isinstance(ncit_after, RepositoryUnhealthy) or isinstance(
                     uberon_after, RepositoryUnhealthy
                 ):
                     raise RuntimeError("candidate source certification changed")
-                return ncit_after.source_identity, uberon_after.source_identity
+                return (
+                    ncit_after.source_identity,
+                    uberon_after.source_identity,
+                    uberon_after.observation.serving.sha256,
+                )
 
             report = await ingest_candidates(
                 store,
@@ -744,6 +748,7 @@ async def _build_xref() -> None:
                 uberon_version=uberon_ready.version_iri,
                 ncit_source_identity=ncit_ready.source_identity,
                 uberon_source_identity=uberon_ready.source_identity,
+                uberon_serving_identity=uberon_ready.observation.serving.sha256,
                 observe_source_identities=observe_source_identities,
             )
     finally:
@@ -975,7 +980,7 @@ async def _build_xref_promote(
                 # default would let a Uberon run quarantine every Mondo bridge.
                 source="uberon-cl-promotion",
                 tool_identity=robot_identity,
-                source_metadata=GenerationSourceMetadata(
+                source_metadata=UberonPromotionGenerationMetadata(
                     ncit_source_identity=ncit_ready.source_identity,
                     uberon_source_identity=uberon_ready.source_identity,
                     uberon_serving_identity=uberon_ready.observation.serving.sha256,

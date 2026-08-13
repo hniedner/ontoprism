@@ -9,7 +9,12 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
+from ontolib.repositories.xref.models import (
+    SSSOMRecord,
+    UberonCandidateGenerationMetadata,
+    UberonReadIdentity,
+    XrefReadPolicy,
+)
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -19,7 +24,27 @@ pytestmark = [
     pytest.mark.mutating_integration,
     pytest.mark.usefixtures("isolated_postgres_settings"),
 ]
-_SOURCE_METADATA = GenerationSourceMetadata(ncit_source_identity="a" * 64)
+_SOURCE_METADATA = UberonCandidateGenerationMetadata(
+    ncit_source_identity="a" * 64,
+    uberon_source_identity="b" * 64,
+    uberon_serving_identity="c" * 64,
+)
+_READ_POLICY = XrefReadPolicy(
+    uberon=UberonReadIdentity(
+        ncit_source_identity="a" * 64,
+        uberon_source_identity="b" * 64,
+        uberon_serving_identity="c" * 64,
+    )
+)
+
+
+@pytest.fixture(autouse=True)
+async def _isolate_xref_tables(isolated_postgres_settings: None) -> None:
+    del isolated_postgres_settings
+    engine = make_engine(get_settings().database_url)
+    async with engine.begin() as connection:
+        await connection.execute(text("TRUNCATE xref_generation, xref_run CASCADE"))
+    await dispose_engine(engine)
 
 
 async def _retain_only_active_source(sf: object, source: str) -> None:
@@ -41,7 +66,7 @@ async def test_store_roundtrip() -> None:
 
         count = await store.upsert_run(
             run_id=run_id,
-            source=run_id,
+            source="uberon-cl",
             ncit_version="26.02d",
             source_version="uberon-2026-01",
         )
@@ -68,7 +93,7 @@ async def test_store_roundtrip() -> None:
             ),
         ]
         assert await activate_records(
-            store, source=run_id, run_id=run_id, records=records
+            store, source="uberon-cl", run_id=run_id, records=records
         )
 
         read_back = await store.records_for_run(run_id)
@@ -97,7 +122,7 @@ async def test_mapping_strength_by_subject() -> None:
     run_id = f"test-strength-{uuid.uuid4().hex}"
     try:
         store = XrefStore(sf)
-        await store.upsert_run(run_id, run_id, "26.02d", "test-1")
+        await store.upsert_run(run_id, "uberon-cl", "26.02d", "test-1")
         records = [
             SSSOMRecord(
                 subject_id="C3262",
@@ -128,7 +153,9 @@ async def test_mapping_strength_by_subject() -> None:
                 object_source_version="uberon-2026-01",
             ),
         ]
-        await activate_records(store, source=run_id, run_id=run_id, records=records)
+        await activate_records(
+            store, source="uberon-cl", run_id=run_id, records=records
+        )
         strength = await store.mapping_strength_by_subject()
         assert "C3262" in strength
         assert (EXACT_MATCH, "validated") in strength["C3262"]
@@ -154,7 +181,7 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
     run_id = f"test-mbs-{uuid.uuid4().hex}"
     try:
         store = XrefStore(sf)
-        await store.upsert_run(run_id, run_id, "26.02d", "test-1")
+        await store.upsert_run(run_id, "uberon-cl", "26.02d", "test-1")
         records = [
             SSSOMRecord(
                 subject_id="C3262",
@@ -176,10 +203,12 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
                 object_source_version="uberon-2026-01",
             ),
         ]
-        await activate_records(store, source=run_id, run_id=run_id, records=records)
-        await _retain_only_active_source(sf, run_id)
+        await activate_records(
+            store, source="uberon-cl", run_id=run_id, records=records
+        )
+        await _retain_only_active_source(sf, "uberon-cl")
 
-        result = await store.mappings_by_subjects({"C3262"}, expected=_SOURCE_METADATA)
+        result = await store.mappings_by_subjects({"C3262"}, expected=_READ_POLICY)
         assert "C3262" in result
         assert len(result["C3262"]) == 1
         mapping = result["C3262"][0]
@@ -206,7 +235,7 @@ async def test_mappings_by_subjects_empty_returns_empty() -> None:
     try:
         sf = make_sessionmaker(engine)
         store = XrefStore(sf)
-        result = await store.mappings_by_subjects(set(), expected=_SOURCE_METADATA)
+        result = await store.mappings_by_subjects(set(), expected=_READ_POLICY)
         assert result == {}
     finally:
         await dispose_engine(engine)
@@ -219,7 +248,7 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
     run_id = f"test-mbo-{uuid.uuid4().hex}"
     try:
         store = XrefStore(sf)
-        await store.upsert_run(run_id, run_id, "26.02d", "test-1")
+        await store.upsert_run(run_id, "uberon-cl", "26.02d", "test-1")
         records = [
             SSSOMRecord(
                 subject_id="C3262",
@@ -241,11 +270,13 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
                 object_source_version="uberon-2026-01",
             ),
         ]
-        await activate_records(store, source=run_id, run_id=run_id, records=records)
-        await _retain_only_active_source(sf, run_id)
+        await activate_records(
+            store, source="uberon-cl", run_id=run_id, records=records
+        )
+        await _retain_only_active_source(sf, "uberon-cl")
 
         result = await store.mappings_by_objects(
-            {"UBERON:0002107"}, expected=_SOURCE_METADATA
+            {"UBERON:0002107"}, expected=_READ_POLICY
         )
         assert "UBERON:0002107" in result
         assert len(result["UBERON:0002107"]) == 1
@@ -273,7 +304,7 @@ async def test_mappings_by_objects_empty_returns_empty() -> None:
     try:
         sf = make_sessionmaker(engine)
         store = XrefStore(sf)
-        result = await store.mappings_by_objects(set(), expected=_SOURCE_METADATA)
+        result = await store.mappings_by_objects(set(), expected=_READ_POLICY)
         assert result == {}
     finally:
         await dispose_engine(engine)

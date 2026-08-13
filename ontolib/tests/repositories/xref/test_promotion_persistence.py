@@ -24,7 +24,10 @@ from ontolib.repositories.xref.evidence import (
     XREF_ASSERTION,
     Evidence,
 )
-from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
+from ontolib.repositories.xref.models import (
+    SSSOMRecord,
+    UberonPromotionGenerationMetadata,
+)
 from ontolib.repositories.xref.promotion import (
     PromotionReport,
 )
@@ -44,7 +47,7 @@ if TYPE_CHECKING:
 
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
-_SOURCE_METADATA = GenerationSourceMetadata(
+_SOURCE_METADATA = UberonPromotionGenerationMetadata(
     ncit_source_identity="a" * 64,
     uberon_source_identity="b" * 64,
     uberon_serving_identity="c" * 64,
@@ -158,7 +161,7 @@ async def test_a_promoted_bridge_persists_the_evidence_the_decision_used(
         PromotionReport(considered=1, promoted=1, insufficient_evidence=0, refuted=0),
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",
+        source="uberon-cl-promotion",
         run_id=rid,
     )
 
@@ -200,7 +203,7 @@ async def test_a_curated_promotion_is_distinguishable_from_source_agreement_per_
         PromotionReport(considered=2, promoted=2, insufficient_evidence=0, refuted=0),
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",
+        source="uberon-cl-promotion",
         run_id=rid,
     )
 
@@ -270,7 +273,7 @@ async def test_promotion_persists_as_validated_exact_match(
         report,
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",
+        source="uberon-cl-promotion",
     )
     run_ids.append(promotion_run)
 
@@ -325,14 +328,15 @@ async def test_an_endpoint_release_quarantines_stale_bridges(
 
     await xref_store.upsert_run(
         run_id=run_id,
-        source="promotion",
+        source="uberon-cl-promotion",
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
     )
     await activate_records(
         xref_store,
-        source="promotion",
+        source="uberon-cl-promotion",
         run_id=run_id,
+        source_metadata=_SOURCE_METADATA,
         records=[
             _promoted("C12377", "UBERON:0002110", object_version="uberon-2025-06"),
             _promoted("C12391", "UBERON:0000945"),
@@ -342,7 +346,7 @@ async def test_an_endpoint_release_quarantines_stale_bridges(
     quarantined = await xref_store.quarantine_stale(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",
+        source="uberon-cl-promotion",
     )
 
     assert quarantined >= 1
@@ -355,32 +359,31 @@ async def test_an_endpoint_release_quarantines_stale_bridges(
 async def test_quarantine_is_scoped_to_its_own_upstream_source(
     store: tuple[XrefStore, list[str]],
 ) -> None:
-    """A Mondo bridge's object_source_version can never equal a Uberon one, so an
-    unscoped sweep on a Uberon release would quarantine every Mondo bridge."""
+    """A promotion sweep cannot quarantine a candidate-source generation."""
     xref_store, run_ids = store
-    mondo_run = f"test-mondo-{uuid.uuid4().hex}"
-    run_ids.append(mondo_run)
+    candidate_run = f"test-candidate-source-{uuid.uuid4().hex}"
+    run_ids.append(candidate_run)
 
     await xref_store.upsert_run(
-        run_id=mondo_run,
-        source="mondo-promotion",
+        run_id=candidate_run,
+        source="uberon-cl",
         ncit_version=_NCIT_VERSION,
-        source_version="mondo-2026-05",
+        source_version="uberon-2025-06",
     )
     await activate_records(
         xref_store,
-        source="mondo-promotion",
-        run_id=mondo_run,
-        records=[_promoted("C3262", "UBERON:0002107", object_version="mondo-2026-05")],
+        source="uberon-cl",
+        run_id=candidate_run,
+        records=[_promoted("C3262", "UBERON:0002107", object_version="uberon-2025-06")],
     )
 
     await xref_store.quarantine_stale(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",  # a Uberon promotion run
+        source="uberon-cl-promotion",
     )
 
-    # the Mondo bridge belongs to another source and must be untouched
+    # The bridge belongs to another known source and must be untouched.
     assert ("C3262", "UBERON:0002107") in await xref_store.validated_anchors()
 
 
@@ -467,14 +470,14 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
         report,
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",
+        source="uberon-cl-promotion",
         run_id=run_id,
         tool_identity=_REASONER_TOOL,
     )
     quarantined = await xref_store.quarantine_stale(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",
+        source="uberon-cl-promotion",
     )
 
     # the bridge this run just validated must survive its own staleness sweep
@@ -508,7 +511,7 @@ async def test_a_failed_run_is_persisted_as_failed_not_completed(
         report,
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="promotion",
+        source="uberon-cl-promotion",
         run_id=run_id,
         tool_identity=_REASONER_TOOL,
     )
@@ -619,7 +622,7 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
         uberon,  # type: ignore[arg-type]
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
-        source="test-promotion",
+        source="uberon-cl-promotion",
         tool_identity=_REASONER_TOOL,
         curated_pairs=frozenset({("C12468", "UBERON:0002048")}),
         reasoner=_echo_reasoner,

@@ -122,7 +122,8 @@ posture):
   Uberon/CL/SNOMED/ICD-O-3/Mondo atoms.
 - **Join — a mapping layer** (`skos:*Match` + RO relations + FHIR `ConceptMap.$translate`) that
   translates any atom between the two planes, in both directions, with stated confidence and
-  provenance, DL-validated (D21-consistent, never `rdfs:subClassOf+`).
+  provenance; individual mappings carry their actual validation evidence and are never
+  inferred from `rdfs:subClassOf+` alone.
 
 The mapping target is a **bounded, enumerable set of NCIt concepts** — but it is *not* simply the
 ~20,021 role-target atoms decomposition surfaces (assessment §3.2). Those atoms are the *fillers* of
@@ -177,7 +178,7 @@ Every row below is existing, decided, or built work that the new architecture co
 | Single-most-specific view as an explicitly-lossy curated projection | D15, D19 | Unchanged. Projection now optionally renders upstream labels. |
 | SCG / ECL / MRCM grammar template for goal 4 (#6) | D22 | The post-coordination grammar now **sanctions over upstream ranges** (MRCM ranges reference Uberon/SNOMED). Interoperable by construction. |
 | FHIR `ConceptMap.$translate` as the pre-↔post equivalence surface | D22, lit §8.4 | Becomes the **dual-canonical join surface** between the NCIt plane and the upstream plane. |
-| Uberon store already running at `:7879` | assessment §8, D16, DATA_SETUP | Infra already present. Re-purposed from "validation cross-check" to "xref + validation target" (D16 revisit — §11). |
+| Uberon store already running at `:7889` | assessment §8, D16, DATA_SETUP | Infra already present. Re-purposed from "validation cross-check" to "xref + validation target" (D16 revisit — §11). |
 | Stated-OWL additivity; named-graph separation (`ncit_decomposed`) | D4, D12, D19 | The xref triples live in **new named graphs alongside** `ncit_decomposed`. Same discipline. |
 | DL-classification / real reasoner as the equivalence oracle; never `rdfs:subClassOf+` | D21, lit §5.2, §8.3 | Now gates **cross-ontology** mapping validation too — the highest-risk correctness item. |
 | Scope gate: disease/neoplasm(/regimen) only; gene/protein excluded | assessment §1, §3.3 | Held. Upstream integration inherits the same scope gate. |
@@ -202,7 +203,7 @@ a new decomposition engine.
                           ┌───────────────┴──────────────────────────────┐
    MAPPING LAYER          │  ncit_upstream_xref  (named graphs, additive)  │
    (the join;             │  provenance + confidence + SKOS relation       │
-   DL-validated)          │  FHIR ConceptMap.$translate  (both directions) │
+   evidence-qualified)    │  FHIR ConceptMap.$translate  (both directions) │
                           └───────────────▲──────────────────────────────┘
                                           │  op:PrimarySite / op:CellType /
                                           │  op:Morphology / op:StageSystem …
@@ -218,7 +219,7 @@ a new decomposition engine.
 ```
 
 **Reading the stack bottom-up.** The NCIt stated OWL is the immutable base; the decomposition engine
-writes `op:` axes into `ncit_decomposed`; the mapping layer attaches upstream equivalents to each
+writes `op:` axes into `ncit_decomposed`; the mapping layer attaches alignments to each
 axis filler; new authoring and external consumers work in the upstream plane and are translated down
 to NCIt (and thus to caDSR) on demand.
 
@@ -257,7 +258,7 @@ candidate(C6135) =
 
 NCIt's *unique* contribution here is the oncology-specific packaging plus staging (`op:StageSystem`
 / `op:StageValue`) and, elsewhere, regimens — none of which Uberon/CL/SNOMED model. The anatomy, cell,
-disease-genus, and morphology fillers are *borrowed* from the substrate via the mapping plane. This
+disease-genus, and morphology fillers are aligned to corroborating terminology records via the mapping plane. This
 is the OBO cross-product pattern (lit §4.2 [26]) applied to make NCIt an application ontology over a
 reference substrate.
 
@@ -272,7 +273,7 @@ reference substrate.
 
 The two planes are **always joined** — never a fork. Every upstream atom used in authoring has a
 mapping back to an NCIt atom (or an explicit "no NCIt equivalent — minted" record, cf. D23 minted
-concepts), so translation is total in both directions or explicitly flagged where it is not.
+concepts), so translation coverage is measured in both directions and gaps are explicitly flagged.
 
 ---
 
@@ -284,7 +285,7 @@ concepts), so translation is total in both directions or explicitly flagged wher
 |---|---|---|---|
 | **SNOMED CT**, **ICD-O-3** | **NCI Metathesaurus (NCIm)** | UMLS **CUI** | NCIm already bridges NCIt↔SNOMED↔ICD-O-3 across millions of terms (assessment feedback §2.2). Highest-yield, lowest-effort source. |
 | **Mondo / DO** | Mondo's own `xref`/`skos` to NCIt | direct | Mondo is built to synthesize NCIt+DO+SNOMED; NCIt xrefs ship in Mondo. Ingest and invert. |
-| **Uberon** | Uberon `xref` (NCIt, FMA, SNOMED) + label/synonym match | direct + lexical | Uberon carries NCIt/FMA/SNOMED xrefs; gaps filled by curated lexical match against the NCIt anatomy branch, DL-validated. |
+| **Uberon** | Uberon `xref` (NCIt, FMA, SNOMED) + label/synonym match | direct + lexical | Uberon carries NCIt/FMA/SNOMED xrefs; lexical candidates remain proposed until the promotion evidence policy accepts them. |
 | **Cell Ontology (CL)** | CL `xref` + label match | direct + lexical | Same pattern as Uberon for the normal-cell axis (`op:CellOrigin`). |
 
 **Principle (mirrors "atoms already exist"): map-before-mint.** A candidate mapping is only *authored*
@@ -470,7 +471,7 @@ candidate it came from. An endpoint version bump quarantines bridges validated a
 ## 5. Per-axis integration plan
 
 Each NCIt `op:` axis is bound to an upstream range. The axis (the univocal relation) is NCIt-native
-and stays; only its *fillers* gain upstream equivalents.
+and stays; only its *fillers* gain alignments.
 
 | `op:` axis (NCIt) | Upstream range | Mapping source | Relation | Notes / prior decision |
 |---|---|---|---|---|
@@ -481,7 +482,7 @@ and stays; only its *fillers* gain upstream equivalents.
 | `op:CellType` (R105, abnormal cell) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI (candidate) | `derives_from` (RO bridge, **not** identity) | Histology axis. **Category caution (M1):** an NCIt *cell* (e.g. C36825 Neoplastic Neuroendocrine Cell), an ICD-O-3 *morphology/behaviour* code, and a SNOMED *morphologic-abnormality* entity are three different ontological kinds; the link is a typed RO bridge, never `closeMatch`/`exactMatch`. |
 | `op:Morphology` (from taxonomic parent) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI (candidate) | `closeMatch`→`exactMatch` only via §4.4 | Morphology-from-parent query still owed (engine §6, roadmap §2.2) — build it as part of this work. Morphology↔morphology *can* be identity; cell↔morphology cannot. |
 | `op:MolecularAbnormality` (R106) | NCIt-native (+ optional HGNC/SO) | — | — | Kept per D23 (PR/ER/HER2 textbook case). No mainstream OBO substitute needed; oncology-specific. |
-| `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; NCIt's unique contribution, no upstream equivalent. Axis names per D23. |
+| `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; no alignment is asserted here. Axis names per D23. |
 | Regimen (`Chemotherapy_Regimen_Has_Component`) | **NCIt-native** (components → RxNorm/ChEBI optional) | RxNorm | `relatedMatch` | Secondary scope (regimen doc). Oncology-specific packaging. |
 | Disease **genus** (taxonomic parent) | **Mondo / DO** | Mondo NCIt xref | `exactMatch` | Turns the cross-product's genus into a shared disease node. |
 
@@ -624,7 +625,7 @@ against different certified repositories remain distinct generations.
 
 - Concept-detail panel: an "Aligned concepts" section (Uberon/CL/SNOMED/ICD-O-3/Mondo links,
   relation + confidence badges).
-- Graph explorer: optional overlay rendering an NCIt atom's upstream equivalent as a linked node
+- Graph explorer: optional overlay rendering an NCIt atom's alignment as a linked node
   (the "dual-plane" view), off by default.
 
 ### 8.6 CLI / data build
@@ -655,7 +656,7 @@ Phase B (bind to decomposition)
   B3  Mondo disease-genus mapping → cross-product genus                    [depends A1]
 
 Phase C (morphology + licensing)
-  C1  NCIm-driven SNOMED + ICD-O-3 morphology mapping (license-gated)      [op:CellType/op:Morphology]
+  C1  Licensed SNOMED alignment work (ICD-O-3 uses certified P334 assertions) [op:CellType/op:Morphology]
   C2  Morphology-from-parent query (owed since engine §6)                  [enables op:Morphology]
 
 Phase D (serve + interop)
@@ -747,7 +748,7 @@ mapping enriches the `op:` axes, it does not substitute for de-overloading them.
 **Scope discipline:**
 6. NCIt-native oncology axes (`op:StageSystem`, `op:MolecularAbnormality`, regimens) and caDSR
    grade/laterality/units value concepts remain first-class and are **explicitly** left unmapped where
-   no faithful upstream equivalent exists — recorded as such, not silently missing.
+   no faithful alignment exists — recorded as such, not silently missing.
 
 ---
 
@@ -822,7 +823,7 @@ number a reviewer can audit and regress against.
   the real join, including the value-domain concepts the previous draft missed.
 - **"We can have more concepts":** new upstream-canonical concepts and minted axes are additive; each
   carries a mapping back to an NCIt code (or an explicit `no-NCIt-equivalent` minted-concept record,
-  D23), so the back-map is total or explicitly flagged — never silently absent.
+  D23), so back-map coverage is measured and gaps are explicitly flagged — never silently absent.
 
 ---
 
@@ -902,14 +903,14 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 **Issue #4 (Decomposition engine) — add comment**
 > External-integration strategy adopted (design: `docs/design/ncit-external-integration.md`, DECISIONS
-> D24–D26). Impact on #4: the `op:` axes are now also the binding points for upstream equivalents. No
+> D24–D26). Impact on #4: the `op:` axes are now also the binding points for alignments. No
 > change to the extractor's critical path; add an optional `upstream_xref` field to the constituent
 > model (non-blocking, Phase B1). After #153 provides the complete representation,
 > `--emit-equivalence` may gain an upstream-bound cross-product mode.
 
 **Issue #44 (Extractor curation) — add comment**
 > Sequencing unchanged (D22: relations before coverage). New adjacency: the ~20K role-target atoms are
-> the xref surface (Phase A2). Curating the golden set now optionally records the upstream equivalent per
+> the xref surface (Phase A2). Curating the golden set now optionally records the alignment per
 > filler so the mapping golden set is built alongside the decomposition golden set. Not a gate on #44's
 > ≥0.9 threshold.
 
@@ -988,12 +989,12 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 **#79: Mondo/DO disease-genus mapping → cross-product genus**
 > Ingest Mondo NCIt xrefs; bind the disease genus of decomposed concepts to Mondo. **AC:** neoplasm-branch
-> genus concepts carry a Mondo `exactMatch` (DL-validated); cross-product genus renders. Depends: #71, #73.
+> qualifying genus concepts carry a Mondo alignment with its recorded validation evidence; cross-product genus renders. Depends: #71, #73.
 
 ### New issues — Phase C (morphology + licensing)
 
-**#80: NCIm-driven SNOMED + ICD-O-3 morphology mapping (license-gated)**
-> Map `op:CellType`/`op:Morphology` fillers via NCIm CUIs. **AC:** behind a license build-flag; stores only
+**#80: Licensed SNOMED mapping plus certified ICD-O-3 morphology alignment**
+> Map licensed SNOMED records where evidence permits; derive ICD-O-3 morphology alignments from certified NCIt P334 assertions. **AC:** behind the applicable license build-flag; stores only
 > NCIt→code maps (no bulk upstream content); SKOS relations honest (mostly `closeMatch`); off by default.
 > Depends: #71, #73. **Note:** requires SNOMED affiliate + WHO ICD-O-3 license confirmation (D26).
 

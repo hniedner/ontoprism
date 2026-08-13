@@ -18,9 +18,42 @@ def upgrade() -> None:
     op.execute(
         """CREATE TABLE xref_generation (
           id text NOT NULL CHECK (id ~ '^[0-9a-f]{64}$'),
-          source text NOT NULL,
+          source text NOT NULL CHECK (source IN (
+            'uberon-cl','uberon-cl-promotion','uberon-publisher-xref',
+            'ncit-p334-icdo32')),
           content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
-          source_metadata jsonb NOT NULL,
+          source_metadata jsonb NOT NULL CHECK (
+            source_metadata->>'source' = source AND
+            CASE source
+              WHEN 'uberon-cl' THEN
+                source_metadata ?& ARRAY['ncit_source_identity',
+                  'uberon_source_identity',
+                  'uberon_serving_identity'] AND
+                source_metadata - ARRAY['source','ncit_source_identity',
+                  'uberon_source_identity','uberon_serving_identity'] = '{}'::jsonb
+              WHEN 'uberon-cl-promotion' THEN
+                source_metadata ?& ARRAY['ncit_source_identity',
+                  'uberon_source_identity',
+                  'uberon_serving_identity'] AND
+                source_metadata - ARRAY['source','ncit_source_identity',
+                  'uberon_source_identity','uberon_serving_identity'] = '{}'::jsonb
+              WHEN 'uberon-publisher-xref' THEN
+                source_metadata ?& ARRAY['ncit_source_identity',
+                  'uberon_source_identity',
+                  'uberon_serving_identity','uberon_assertion_identity',
+                  'ncit_target_identity'] AND
+                source_metadata - ARRAY['source','ncit_source_identity',
+                  'uberon_source_identity','uberon_serving_identity',
+                  'uberon_assertion_identity','ncit_target_identity'] = '{}'::jsonb
+              WHEN 'ncit-p334-icdo32' THEN
+                source_metadata ?& ARRAY['ncit_source_identity',
+                  'icdo_generation_identity',
+                  'icdo_serving_identity','ncit_p334_identity']
+                  AND source_metadata - ARRAY['source','ncit_source_identity',
+                    'icdo_generation_identity','icdo_serving_identity',
+                    'ncit_p334_identity'] = '{}'::jsonb
+              ELSE false
+            END),
           graph_iri text NOT NULL UNIQUE,
           state text NOT NULL CHECK (state IN ('prepared', 'published')),
           created_at timestamptz NOT NULL DEFAULT now(),
@@ -61,6 +94,15 @@ def upgrade() -> None:
           review_status text NOT NULL,
           author text NOT NULL,
           evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
+           CHECK (
+             generation_source = 'uberon-cl-promotion' OR
+             (generation_source = 'uberon-cl'
+               AND subject_system = 'ncit' AND object_system = 'uberon-cl') OR
+             (generation_source = 'uberon-publisher-xref'
+               AND subject_system = 'uberon-cl' AND object_system = 'ncit') OR
+             (generation_source = 'ncit-p334-icdo32'
+               AND subject_system = 'ncit' AND object_system = 'icdo')
+           ),
            FOREIGN KEY (generation_source, generation_id)
              REFERENCES xref_generation(source, id),
            PRIMARY KEY (

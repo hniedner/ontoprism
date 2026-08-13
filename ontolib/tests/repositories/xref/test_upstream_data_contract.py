@@ -427,13 +427,14 @@ async def test_the_real_stores_co_generate_source_agreeing_candidates() -> None:
                 await client.aclose()
         pytest.skip("NCIt (:7888) and/or Uberon (:7889) store not loaded")
     try:
-        records, _ = await generate_candidates(
+        records, filler_to_source = await generate_candidates(
             ncit, uberon, "ncit-contract", "uberon-contract"
         )
     finally:
         await ncit.aclose()
         await uberon.aclose()
 
+    assert filler_to_source, "the real NCIt store returned an empty filler inventory"
     composites = [r for r in records if r.mapping_justification == COMPOSITE_MATCHING]
     assert composites, (
         "no filler on the anatomic-site / cell-origin axes is BOTH xref'd by an "

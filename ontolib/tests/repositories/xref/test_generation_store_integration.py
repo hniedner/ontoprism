@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import secrets
 import uuid
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.repositories.xref.models import (
     GenerationSourceMetadata,
+    IcdoReadIdentity,
+    P334GenerationMetadata,
     SSSOMRecord,
     StaleXrefGenerationError,
+    UberonCandidateGenerationMetadata,
+    UberonPromotionGenerationMetadata,
+    UberonPublisherGenerationMetadata,
+    UberonReadIdentity,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.publication import (
     XrefPublicationError,
@@ -38,15 +48,36 @@ pytestmark = [
 _ACTIVE_PREDICATE = (
     "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-upstream-xref.owl/activeGeneration"
 )
-_SOURCE_METADATA = GenerationSourceMetadata(ncit_source_identity="a" * 64)
+_SOURCE_METADATA = UberonCandidateGenerationMetadata(
+    ncit_source_identity="a" * 64,
+    uberon_source_identity="b" * 64,
+    uberon_serving_identity="c" * 64,
+)
+_READ_POLICY = XrefReadPolicy(
+    uberon=UberonReadIdentity(
+        ncit_source_identity="a" * 64,
+        uberon_source_identity="b" * 64,
+        uberon_serving_identity="c" * 64,
+    )
+)
+
+
+def _metadata_for(source: str) -> GenerationSourceMetadata:
+    if source == "uberon-cl-promotion":
+        return UberonPromotionGenerationMetadata(
+            ncit_source_identity="a" * 64,
+            uberon_source_identity="b" * 64,
+            uberon_serving_identity="c" * 64,
+        )
+    return _SOURCE_METADATA
 
 
 def generation_identity(source: str, records: list[SSSOMRecord]) -> tuple[str, str]:
-    return _generation_identity(source, records, _SOURCE_METADATA)
+    return _generation_identity(source, records, _metadata_for(source))
 
 
 async def publish_generation(*args: object, **kwargs: object) -> object:
-    kwargs.setdefault("source_metadata", _SOURCE_METADATA)
+    kwargs.setdefault("source_metadata", _metadata_for(str(kwargs["source"])))
     return await _publish_generation(*args, **kwargs)  # type: ignore[arg-type]
 
 
@@ -68,7 +99,7 @@ def _record(subject: str, obj: str, version: str) -> SSSOMRecord:
         subject_system="ncit",
         predicate_id=CLOSE_MATCH,
         object_id=obj,
-        object_system="uberon",
+        object_system="uberon-cl",
         mapping_justification="https://ontoprism.org/vocab#PublisherDatabaseCrossReference",
         confidence=0.9,
         subject_source_version="26.07d",
@@ -87,6 +118,29 @@ async def _clear_active_generations(engine: object) -> None:
         await connection.execute(text("DELETE FROM xref_active_generation"))
 
 
+@pytest.fixture(autouse=True)
+async def _isolate_xref_tables(
+    isolated_postgres_settings: None, isolated_qlever_url: str
+) -> None:
+    del isolated_postgres_settings
+    engine = make_engine(get_settings().database_url)
+    async with engine.begin() as connection:
+        await connection.execute(text("TRUNCATE xref_generation, xref_run CASCADE"))
+    await dispose_engine(engine)
+    async with SparqlHttpClient.for_qlever(
+        isolated_qlever_url, named_graphs=()
+    ) as client:
+        for source in (
+            "uberon-cl",
+            "uberon-cl-promotion",
+            "uberon-publisher-xref",
+            "ncit-p334-icdo32",
+        ):
+            await client.load(
+                b"", graph_iri=active_graph_iri(source), content_type="text/turtle"
+            )
+
+
 async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
     isolated_qlever_url: str,
 ) -> None:
@@ -95,27 +149,27 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
     async with SparqlHttpClient.for_qlever(
         isolated_qlever_url, named_graphs=()
     ) as client:
-        run_a = await _run(store, "issue291-uberon", "u1")
+        run_a = await _run(store, "uberon-cl", "u1")
         first = await publish_generation(
             store,
             client,
-            source="issue291-uberon",
+            source="uberon-cl",
             run_id=run_a,
             records=[_record("C1", "UBERON:1", "u1")],
         )
-        run_other = await _run(store, "issue291-other", "u1")
+        run_other = await _run(store, "uberon-cl-promotion", "u1")
         other = await publish_generation(
             store,
             client,
-            source="issue291-other",
+            source="uberon-cl-promotion",
             run_id=run_other,
             records=[_record("C9", "UBERON:9", "u1")],
         )
-        run_b = await _run(store, "issue291-uberon", "u2")
+        run_b = await _run(store, "uberon-cl", "u2")
         second = await publish_generation(
             store,
             client,
-            source="issue291-uberon",
+            source="uberon-cl",
             run_id=run_b,
             records=[
                 _record("C1", "UBERON:2", "u2"),
@@ -124,12 +178,8 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
             ],
         )
 
-        forward = await store.mappings_by_subjects(
-            {"C1", "C2"}, expected=_SOURCE_METADATA
-        )
-        reverse = await store.mappings_by_objects(
-            {"UBERON:2"}, expected=_SOURCE_METADATA
-        )
+        forward = await store.mappings_by_subjects({"C1", "C2"}, expected=_READ_POLICY)
+        reverse = await store.mappings_by_objects({"UBERON:2"}, expected=_READ_POLICY)
         assert {row.object.identifier for row in forward["C2"]} == {
             "UBERON:2",
             "UBERON:3",
@@ -145,18 +195,17 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
         assert await client.ask(f"ASK {{ GRAPH <{other.graph_iri}> {{ ?s ?p ?o }} }}")
 
         assert (
-            await rollback_generation(store, client, "issue291-uberon")
-            == first.generation_id
+            await rollback_generation(store, client, "uberon-cl") == first.generation_id
         )
         rolled_back = await store.mappings_by_subjects(
-            {"C1", "C2", "C9"}, expected=_SOURCE_METADATA
+            {"C1", "C2", "C9"}, expected=_READ_POLICY
         )
         assert {row.object.identifier for row in rolled_back["C1"]} == {"UBERON:1"}
         assert "C2" not in rolled_back
         assert {row.object.identifier for row in rolled_back["C9"]} == {"UBERON:9"}
         assert other.generation_id != first.generation_id
         pointer = await client.select(
-            f"SELECT ?g WHERE {{ GRAPH <{active_graph_iri('issue291-uberon')}> "
+            f"SELECT ?g WHERE {{ GRAPH <{active_graph_iri('uberon-cl')}> "
             "{ ?source ?predicate ?g } }"
         )
         assert pointer == [{"g": first.graph_iri}]
@@ -168,7 +217,7 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
 ) -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-reconcile"
+    source = "uberon-cl"
     run_id = await _run(store, source, "u1")
     records = [_record("C7", "UBERON:7", "u1")]
     async with SparqlHttpClient.for_qlever(
@@ -184,10 +233,7 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
                     records=records,
                     failpoint=failpoint,
                 )
-            assert (
-                await store.mappings_by_subjects({"C7"}, expected=_SOURCE_METADATA)
-                == {}
-            )
+            assert await store.mappings_by_subjects({"C7"}, expected=_READ_POLICY) == {}
 
         result = await publish_generation(
             store, client, source=source, run_id=run_id, records=records
@@ -238,7 +284,7 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
 async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-pointer-failure"
+    source = "uberon-cl"
 
     class FailingPointerClient:
         calls = 0
@@ -262,14 +308,14 @@ async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> No
             records=[_record("FAIL", "UBERON:FAIL", "u1")],
         )
     assert await store.active_generation(source) is None
-    assert await store.mappings_by_subjects({"FAIL"}, expected=_SOURCE_METADATA) == {}
+    assert await store.mappings_by_subjects({"FAIL"}, expected=_READ_POLICY) == {}
     await dispose_engine(engine)
 
 
 async def test_rollback_pointer_failure_restores_newer_postgres_generation() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-rollback-pointer-failure"
+    source = "uberon-cl"
 
     class Client:
         fail = False
@@ -308,7 +354,7 @@ async def test_rollback_pointer_failure_restores_newer_postgres_generation() -> 
     assert await store.active_generation(source) == second.generation_id
     assert first.generation_id != second.generation_id
     assert set(
-        await store.mappings_by_subjects({"RB1", "RB2"}, expected=_SOURCE_METADATA)
+        await store.mappings_by_subjects({"RB1", "RB2"}, expected=_READ_POLICY)
     ) == {"RB2"}
     await dispose_engine(engine)
 
@@ -316,7 +362,7 @@ async def test_rollback_pointer_failure_restores_newer_postgres_generation() -> 
 async def test_pointer_commit_then_raise_is_reconciled_as_success() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-commit-then-raise"
+    source = "uberon-cl"
 
     class Client:
         pointer: str | None = None
@@ -352,7 +398,7 @@ async def test_pointer_cancellation_reconciles_before_propagating(
 ) -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-cancel-after-commit"
+    source = "uberon-cl"
 
     class Client:
         pointer: str | None = None
@@ -391,7 +437,7 @@ async def test_rollback_pointer_cancellation_reconciles_before_propagating(
 ) -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-rollback-cancel"
+    source = "uberon-cl"
 
     class Client:
         pointer: str | None = None
@@ -439,7 +485,7 @@ async def test_pointer_reconciliation_failure_preserves_original_network_error()
 ):
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-reconciliation-error"
+    source = "uberon-cl"
 
     class Client:
         select_calls = 0
@@ -473,7 +519,7 @@ async def test_reactivation_rollback_uses_activation_history_not_creation_parent
 ):
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-history"
+    source = "uberon-cl"
 
     class Client:
         pointer: str | None = None
@@ -512,7 +558,7 @@ async def test_reactivation_rollback_uses_activation_history_not_creation_parent
 async def test_repeated_rollback_traverses_forward_activation_events() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-repeated-history"
+    source = "uberon-cl"
 
     class Client:
         pointer: str | None = None
@@ -556,7 +602,7 @@ async def test_repeated_rollback_traverses_forward_activation_events() -> None:
 async def test_publication_preflight_repairs_hard_crash_split_brain() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-split-brain"
+    source = "uberon-cl"
 
     class Client:
         pointer: str | None = None
@@ -607,7 +653,7 @@ async def test_publication_preflight_repairs_hard_crash_split_brain() -> None:
 async def test_forward_and_reverse_queries_use_dedicated_indexes() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-explain"
+    source = "uberon-cl"
     run_id = await _run(store, source, "u1")
     records = [_record(f"EX{i}", "UBERON:fanout", "u1") for i in range(300)]
     generation_id, content = generation_identity(source, records)
@@ -652,7 +698,7 @@ async def test_forward_and_reverse_queries_use_dedicated_indexes() -> None:
     assert "idx_concept_xref_forward" in forward
     assert "idx_concept_xref_reverse" in reverse
     reverse_rows = (
-        await store.mappings_by_objects({"UBERON:fanout"}, expected=_SOURCE_METADATA)
+        await store.mappings_by_objects({"UBERON:fanout"}, expected=_READ_POLICY)
     )["UBERON:fanout"]
     assert len(reverse_rows) == 300
     await dispose_engine(engine)
@@ -663,7 +709,7 @@ async def test_concurrent_publishers_and_reader_observe_complete_generations(
 ) -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-concurrent"
+    source = "uberon-cl"
     old_run = await _run(store, source, "old")
     async with SparqlHttpClient.for_qlever(
         isolated_qlever_url, named_graphs=()
@@ -681,7 +727,7 @@ async def test_concurrent_publishers_and_reader_observe_complete_generations(
         async def reader() -> None:
             while not stop.is_set():
                 rows = await store.mappings_by_subjects(
-                    {"CON0", "CON1", "CON2"}, expected=_SOURCE_METADATA
+                    {"CON0", "CON1", "CON2"}, expected=_READ_POLICY
                 )
                 observations.append(frozenset(rows))
                 await asyncio.sleep(0)
@@ -714,7 +760,7 @@ async def test_concurrent_publishers_and_reader_observe_complete_generations(
 async def test_source_lock_spans_postgres_rdf_and_activation() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
-    source = "issue291-lock-boundary"
+    source = "uberon-cl"
     first_run = await _run(store, source, "first")
     second_run = await _run(store, source, "second")
     first_in_rdf = asyncio.Event()
@@ -779,36 +825,52 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
     engine = make_engine(get_settings().database_url)
     await _clear_active_generations(engine)
     store = XrefStore(make_sessionmaker(engine))
-    expected = GenerationSourceMetadata(
-        ncit_source_identity="1" * 64,
-        uberon_source_identity="2" * 64,
-        uberon_serving_identity="3" * 64,
-        icdo_generation_identity="4" * 64,
-        icdo_serving_identity="5" * 64,
+    expected = XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity="1" * 64,
+            uberon_source_identity="2" * 64,
+            uberon_serving_identity="3" * 64,
+        ),
+        icdo=IcdoReadIdentity(
+            ncit_source_identity="1" * 64,
+            icdo_generation_identity="4" * 64,
+            icdo_serving_identity="5" * 64,
+        ),
     )
     generations = (
         (
             "uberon-cl",
-            GenerationSourceMetadata(
+            UberonCandidateGenerationMetadata(
                 ncit_source_identity="1" * 64,
                 uberon_source_identity="2" * 64,
+                uberon_serving_identity="3" * 64,
             ),
             _record("MIX-CANDIDATE", "UBERON:1", "u1"),
         ),
         (
             "uberon-publisher-xref",
-            GenerationSourceMetadata(
+            UberonPublisherGenerationMetadata(
                 ncit_source_identity="1" * 64,
                 uberon_source_identity="2" * 64,
                 uberon_serving_identity="3" * 64,
                 uberon_assertion_identity="6" * 64,
                 ncit_target_identity="7" * 64,
             ),
-            _record("MIX-PUBLISHER", "UBERON:2", "u1"),
+            SSSOMRecord(
+                subject_id="UBERON:2",
+                subject_system="uberon-cl",
+                predicate_id=CLOSE_MATCH,
+                object_id="MIX-PUBLISHER",
+                object_system="ncit",
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=0.9,
+                subject_source_version="u1",
+                object_source_version="26.07d",
+            ),
         ),
         (
             "uberon-cl-promotion",
-            GenerationSourceMetadata(
+            UberonPromotionGenerationMetadata(
                 ncit_source_identity="1" * 64,
                 uberon_source_identity="2" * 64,
                 uberon_serving_identity="3" * 64,
@@ -817,7 +879,7 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
         ),
         (
             "ncit-p334-icdo32",
-            GenerationSourceMetadata(
+            P334GenerationMetadata(
                 ncit_source_identity="1" * 64,
                 icdo_generation_identity="4" * 64,
                 icdo_serving_identity="5" * 64,
@@ -849,7 +911,7 @@ async def test_mixed_active_sources_validate_only_their_certified_inputs() -> No
         )
         await store.activate_generation(source, generation_id)
 
-    rows = await store.mappings_by_subjects(
+    rows = await store.mappings_for_identifiers(
         {"MIX-CANDIDATE", "MIX-PUBLISHER", "MIX-PROMOTION", "MIX-P334"},
         expected=expected,
     )
@@ -870,9 +932,10 @@ async def test_stale_active_generation_refuses_even_without_a_matching_row(
     await _clear_active_generations(engine)
     store = XrefStore(make_sessionmaker(engine))
     source = "uberon-cl"
-    metadata = GenerationSourceMetadata(
+    metadata = UberonCandidateGenerationMetadata(
         ncit_source_identity="a" * 64,
         uberon_source_identity="b" * 64,
+        uberon_serving_identity="d" * 64,
     )
     code = "STALE" if matching else "OTHER"
     record = _record(code, "UBERON:STALE", "u1")
@@ -892,9 +955,12 @@ async def test_stale_active_generation_refuses_even_without_a_matching_row(
     with pytest.raises(StaleXrefGenerationError, match="uberon_source_identity"):
         await store.mappings_by_subjects(
             {"STALE"},
-            expected=GenerationSourceMetadata(
-                ncit_source_identity="a" * 64,
-                uberon_source_identity="c" * 64,
+            expected=XrefReadPolicy(
+                uberon=UberonReadIdentity(
+                    ncit_source_identity="a" * 64,
+                    uberon_source_identity="c" * 64,
+                    uberon_serving_identity="d" * 64,
+                )
             ),
         )
     await dispose_engine(engine)
@@ -907,15 +973,16 @@ async def test_read_validates_only_sources_relevant_to_expected_contract() -> No
     generations = (
         (
             "uberon-cl",
-            GenerationSourceMetadata(
+            UberonCandidateGenerationMetadata(
                 ncit_source_identity="1" * 64,
                 uberon_source_identity="2" * 64,
+                uberon_serving_identity="3" * 64,
             ),
             _record("RELEVANT", "UBERON:RELEVANT", "u1"),
         ),
         (
             "ncit-p334-icdo32",
-            GenerationSourceMetadata(
+            P334GenerationMetadata(
                 ncit_source_identity="9" * 64,
                 icdo_generation_identity="4" * 64,
                 icdo_serving_identity="5" * 64,
@@ -948,58 +1015,27 @@ async def test_read_validates_only_sources_relevant_to_expected_contract() -> No
 
     rows = await store.mappings_by_subjects(
         {"RELEVANT", "IRRELEVANT"},
-        expected=GenerationSourceMetadata(
-            ncit_source_identity="1" * 64,
-            uberon_source_identity="2" * 64,
-            uberon_serving_identity="3" * 64,
+        expected=XrefReadPolicy(
+            uberon=UberonReadIdentity(
+                ncit_source_identity="1" * 64,
+                uberon_source_identity="2" * 64,
+                uberon_serving_identity="3" * 64,
+            )
         ),
     )
     assert set(rows) == {"RELEVANT"}
     await dispose_engine(engine)
 
 
-@pytest.mark.parametrize("matches", [False, True])
-async def test_unknown_source_requires_exact_contract(matches: bool) -> None:
-    engine = make_engine(get_settings().database_url)
-    await _clear_active_generations(engine)
-    store = XrefStore(make_sessionmaker(engine))
-    source = "explicit-contract-source"
-    metadata = GenerationSourceMetadata(ncit_source_identity="1" * 64)
-    record = _record("EXPLICIT", "UBERON:EXPLICIT", "u1")
-    generation_id, content = _generation_identity(source, [record], metadata)
-    await store.prepare_generation(
-        source=source,
-        generation_id=generation_id,
-        content_sha256=content,
-        source_metadata=metadata,
-        graph_iri=generation_graph_iri(source, generation_id),
-        run_id=await _run(store, source, "explicit"),
-        records=[record],
-    )
-    await store.activate_generation(source, generation_id)
-
-    expected = GenerationSourceMetadata(
-        ncit_source_identity=("1" if matches else "2") * 64
-    )
-    if matches:
-        rows = await store.mappings_by_subjects({"EXPLICIT"}, expected=expected)
-        assert rows["EXPLICIT"][0].object.identifier == "UBERON:EXPLICIT"
-    else:
-        with pytest.raises(StaleXrefGenerationError, match="lacks an exact contract"):
-            await store.mappings_by_subjects({"EXPLICIT"}, expected=expected)
-    await dispose_engine(engine)
-
-
-async def test_promotion_validates_every_identity_present_in_its_metadata() -> None:
+async def test_promotion_requires_all_read_identities() -> None:
     engine = make_engine(get_settings().database_url)
     await _clear_active_generations(engine)
     store = XrefStore(make_sessionmaker(engine))
     source = "uberon-cl-promotion"
-    metadata = GenerationSourceMetadata(
+    metadata = UberonPromotionGenerationMetadata(
         ncit_source_identity="1" * 64,
         uberon_source_identity="2" * 64,
         uberon_serving_identity="3" * 64,
-        uberon_assertion_identity="4" * 64,
     )
     record = _record("PROMOTION-METADATA", "UBERON:PROMOTION", "u1")
     generation_id, content = _generation_identity(source, [record], metadata)
@@ -1014,13 +1050,15 @@ async def test_promotion_validates_every_identity_present_in_its_metadata() -> N
     )
     await store.activate_generation(source, generation_id)
 
-    with pytest.raises(StaleXrefGenerationError, match="uberon_assertion_identity"):
+    with pytest.raises(StaleXrefGenerationError, match="uberon_serving_identity"):
         await store.mappings_by_subjects(
             {"PROMOTION-METADATA"},
-            expected=GenerationSourceMetadata(
-                ncit_source_identity="1" * 64,
-                uberon_source_identity="2" * 64,
-                uberon_serving_identity="3" * 64,
+            expected=XrefReadPolicy(
+                uberon=UberonReadIdentity(
+                    ncit_source_identity="1" * 64,
+                    uberon_source_identity="2" * 64,
+                    uberon_serving_identity="4" * 64,
+                )
             ),
         )
     await dispose_engine(engine)
@@ -1031,7 +1069,95 @@ async def test_nonempty_lookup_without_active_generations_returns_empty() -> Non
     await _clear_active_generations(engine)
     store = XrefStore(make_sessionmaker(engine))
 
-    assert await store.mappings_by_subjects({"ABSENT"}, expected=_SOURCE_METADATA) == {}
+    assert await store.mappings_by_subjects({"ABSENT"}, expected=_READ_POLICY) == {}
+    await dispose_engine(engine)
+
+
+async def test_prepare_rejects_metadata_for_another_source() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    metadata = UberonCandidateGenerationMetadata(
+        source="uberon-cl",
+        ncit_source_identity="1" * 64,
+        uberon_source_identity="2" * 64,
+        uberon_serving_identity="3" * 64,
+    )
+    record = _record("SOURCE-MISMATCH", "UBERON:1", "u1")
+    generation_id, content = _generation_identity(
+        "uberon-cl-promotion", [record], metadata
+    )
+    with pytest.raises(ValueError, match="metadata source"):
+        await store.prepare_generation(
+            source="uberon-cl-promotion",
+            generation_id=generation_id,
+            content_sha256=content,
+            source_metadata=metadata,
+            graph_iri=generation_graph_iri("uberon-cl-promotion", generation_id),
+            run_id=await _run(store, "uberon-cl-promotion", "mismatch"),
+            records=[record],
+        )
+    await dispose_engine(engine)
+
+
+async def test_database_rejects_invalid_source_metadata_and_endpoint_systems() -> None:
+    engine = make_engine(get_settings().database_url)
+    for source, metadata in (
+        ("unknown", {"source": "unknown", "ncit_source_identity": "1" * 64}),
+        ("uberon-cl", {"source": "uberon-cl", "ncit_source_identity": "1" * 64}),
+        (
+            "uberon-cl",
+            {
+                "source": "uberon-cl-promotion",
+                "ncit_source_identity": "1" * 64,
+                "uberon_source_identity": "2" * 64,
+                "uberon_serving_identity": "3" * 64,
+            },
+        ),
+    ):
+        async with engine.begin() as connection:
+            with pytest.raises(IntegrityError):
+                await connection.execute(
+                    text(
+                        "INSERT INTO xref_generation "
+                        "(id,source,content_sha256,source_metadata,graph_iri,state) "
+                        "VALUES (:id,:source,:id,CAST(:metadata AS jsonb),"
+                        ":graph,'prepared')"
+                    ),
+                    {
+                        "id": secrets.token_hex(32),
+                        "source": source,
+                        "metadata": json.dumps(metadata),
+                        "graph": f"https://example.test/{secrets.token_hex(8)}",
+                    },
+                )
+
+    store = XrefStore(make_sessionmaker(engine))
+    metadata = UberonCandidateGenerationMetadata(
+        ncit_source_identity="1" * 64,
+        uberon_source_identity="2" * 64,
+        uberon_serving_identity="3" * 64,
+    )
+    cross_system = SSSOMRecord(
+        subject_id="CROSS-SYSTEM",
+        predicate_id=CLOSE_MATCH,
+        object_id="8140/3",
+        object_system="icdo",
+        mapping_justification="semapv:ManualMappingCuration",
+        confidence=1.0,
+        subject_source_version="26.07d",
+        object_source_version="3.2",
+    )
+    generation_id, content = _generation_identity("uberon-cl", [cross_system], metadata)
+    with pytest.raises(IntegrityError):
+        await store.prepare_generation(
+            source="uberon-cl",
+            generation_id=generation_id,
+            content_sha256=content,
+            source_metadata=metadata,
+            graph_iri=generation_graph_iri("uberon-cl", generation_id),
+            run_id=await _run(store, "uberon-cl", "cross-system"),
+            records=[cross_system],
+        )
     await dispose_engine(engine)
 
 
@@ -1042,9 +1168,10 @@ async def test_identical_content_with_changed_metadata_is_distinct() -> None:
     record = _record("METADATA", "UBERON:METADATA", "u1")
     generation_ids: list[str] = []
     for identity in ("a" * 64, "b" * 64):
-        metadata = GenerationSourceMetadata(
+        metadata = UberonCandidateGenerationMetadata(
             ncit_source_identity="1" * 64,
             uberon_source_identity=identity,
+            uberon_serving_identity="3" * 64,
         )
         generation_id, content = _generation_identity(source, [record], metadata)
         generation_ids.append(generation_id)

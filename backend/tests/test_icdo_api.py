@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from types import SimpleNamespace
 
 import pytest
+from fastapi.exceptions import ResponseValidationError
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
@@ -298,6 +299,35 @@ def test_icdo4_code_variants_round_trip_from_safe_segments(
     )
     assert response.status_code == 200
     assert response.json()["record"]["code"] == code
+
+
+@pytest.mark.api
+def test_response_model_refuses_record_from_another_edition_axis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _WrongShape(_Store):
+        async def search(
+            self, edition: str, axis: str, **kwargs: object
+        ) -> dict[str, object]:
+            result = await super().search(edition, axis, **kwargs)
+            result["hits"] = [
+                {
+                    "code": "C34.9",
+                    "level": "leaf",
+                    "parent_code": "C34",
+                    "preferred": "Lung",
+                    "base_morphology": None,
+                    "specificity": None,
+                    "behaviour": None,
+                }
+            ]
+            return result
+
+    with pytest.raises(ResponseValidationError):
+        next(_client(_WrongShape(), monkeypatch)).get(
+            "/api/v1/icdo/3.2/morphology/list",
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
 
 
 @pytest.mark.api

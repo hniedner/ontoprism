@@ -15,6 +15,8 @@ from ontolib.repositories.xref.models import (
     MappingResult,
     SSSOMRecord,
     StaleXrefGenerationError,
+    XrefReadPolicy,
+    generation_source_metadata_adapter,
 )
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -30,20 +32,7 @@ _CANDIDATE_SOURCE = "uberon-cl"
 _PUBLISHER_SOURCE = "uberon-publisher-xref"
 _PROMOTION_SOURCE = "uberon-cl-promotion"
 _P334_SOURCE = "ncit-p334-icdo32"
-_SOURCE_REQUIRED_IDENTITIES: dict[str, tuple[str, ...] | None] = {
-    _CANDIDATE_SOURCE: ("ncit_source_identity", "uberon_source_identity"),
-    _PUBLISHER_SOURCE: (
-        "ncit_source_identity",
-        "uberon_source_identity",
-        "uberon_serving_identity",
-    ),
-    _P334_SOURCE: (
-        "ncit_source_identity",
-        "icdo_generation_identity",
-        "icdo_serving_identity",
-    ),
-    _PROMOTION_SOURCE: None,
-}
+_UBERON_SOURCES = frozenset({_CANDIDATE_SOURCE, _PUBLISHER_SOURCE, _PROMOTION_SOURCE})
 
 
 def _validate_generation_retry(
@@ -54,43 +43,24 @@ def _validate_generation_retry(
 ) -> None:
     if found["content_sha256"] != content_sha256:
         raise ValueError("generation identity has different content")
-    observed_metadata = GenerationSourceMetadata.model_validate(
+    observed_metadata = generation_source_metadata_adapter.validate_python(
         found["source_metadata"]
     )
     if observed_metadata != source_metadata:
         raise ValueError("generation identity has different source metadata")
 
 
-def _required_source_identities(
-    source: str,
-    observed: GenerationSourceMetadata,
-    expected: GenerationSourceMetadata,
-) -> tuple[str, ...] | None:
-    if source not in _SOURCE_REQUIRED_IDENTITIES:
-        if observed != expected:
-            raise StaleXrefGenerationError(
-                f"unknown active xref source {source!r} lacks an exact contract"
-            )
-        return ()
-    required = _SOURCE_REQUIRED_IDENTITIES[source]
-    if required is None:
-        return tuple(observed.model_dump(exclude_none=True))
-    expected_values = expected.model_dump(exclude_none=True)
-    source_specific = set(required) - {"ncit_source_identity"}
-    if source_specific.isdisjoint(expected_values):
-        return None
-    return required
-
-
 def _validate_source_contract(
     source: str,
     observed: GenerationSourceMetadata,
-    expected: GenerationSourceMetadata,
-    required: tuple[str, ...],
+    expected: XrefReadPolicy,
 ) -> None:
-    observed_values = observed.model_dump(exclude_none=True)
-    expected_values = expected.model_dump(exclude_none=True)
-    for key in required:
+    identity = expected.icdo if source == _P334_SOURCE else expected.uberon
+    if identity is None:
+        raise AssertionError("irrelevant source reached contract validation")
+    observed_values = observed.model_dump()
+    expected_values = identity.model_dump()
+    for key in expected_values:
         if observed_values.get(key) != expected_values.get(key):
             raise StaleXrefGenerationError(
                 f"active xref generation {source!r} has stale {key}"
@@ -132,6 +102,8 @@ class XrefStore:
         _publication_locked: bool = False,
     ) -> bool:
         """Persist one immutable generation; an exact retry is a no-op."""
+        if source_metadata.source != source:
+            raise ValueError("generation metadata source does not match source")
         rows = [
             {
                 "generation_id": generation_id,
@@ -186,7 +158,7 @@ class XrefStore:
                     "id": generation_id,
                     "source": source,
                     "content": content_sha256,
-                    "metadata": source_metadata.model_dump_json(exclude_none=True),
+                    "metadata": source_metadata.model_dump_json(),
                     "graph": graph_iri,
                 },
             )
@@ -656,7 +628,7 @@ class XrefStore:
             return cast("int", result.rowcount)  # type: ignore[attr-defined]
 
     async def mappings_by_subjects(
-        self, codes: set[str], *, expected: GenerationSourceMetadata
+        self, codes: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         if not codes:
             return {}
@@ -693,7 +665,7 @@ class XrefStore:
             return out
 
     async def mappings_by_objects(
-        self, curies: set[str], *, expected: GenerationSourceMetadata
+        self, curies: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         if not curies:
             return {}
@@ -730,7 +702,7 @@ class XrefStore:
             return out
 
     async def mappings_for_identifiers(
-        self, identifiers: set[str], *, expected: GenerationSourceMetadata
+        self, identifiers: set[str], *, expected: XrefReadPolicy
     ) -> dict[str, list[MappingResult]]:
         """Find active mappings in either direction in one indexed roundtrip."""
         if not identifiers:
@@ -781,7 +753,7 @@ class XrefStore:
             return out
 
     async def _validated_active_generations(
-        self, session: AsyncSession, expected: GenerationSourceMetadata
+        self, session: AsyncSession, expected: XrefReadPolicy
     ) -> list[str]:
         result = await session.execute(
             text(
@@ -793,10 +765,13 @@ class XrefStore:
         generation_ids: list[str] = []
         for row in result.mappings().all():
             source = str(row["source"])
-            observed = GenerationSourceMetadata.model_validate(row["source_metadata"])
-            required = _required_source_identities(source, observed, expected)
-            if required is None:
+            if (source in _UBERON_SOURCES and expected.uberon is None) or (
+                source == _P334_SOURCE and expected.icdo is None
+            ):
                 continue
-            _validate_source_contract(source, observed, expected, required)
+            observed = generation_source_metadata_adapter.validate_python(
+                row["source_metadata"]
+            )
+            _validate_source_contract(source, observed, expected)
             generation_ids.append(str(row["generation_id"]))
         return generation_ids

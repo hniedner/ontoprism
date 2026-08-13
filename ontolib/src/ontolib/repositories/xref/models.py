@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from ontolib.repositories.xref.vocab import (
     ALLOWED_PREDICATES,
@@ -18,23 +18,79 @@ if TYPE_CHECKING:
     from ontolib.repositories.xref.evidence import Evidence
 
 
-class GenerationSourceMetadata(BaseModel):
-    """Exact certified repositories and source observations used by a generation."""
+class _GenerationMetadata(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    ncit_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class UberonCandidateGenerationMetadata(_GenerationMetadata):
+    source: Literal["uberon-cl"] = "uberon-cl"
+    uberon_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    uberon_serving_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class UberonPromotionGenerationMetadata(_GenerationMetadata):
+    source: Literal["uberon-cl-promotion"] = "uberon-cl-promotion"
+    uberon_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    uberon_serving_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class UberonPublisherGenerationMetadata(_GenerationMetadata):
+    source: Literal["uberon-publisher-xref"] = "uberon-publisher-xref"
+    uberon_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    uberon_serving_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    uberon_assertion_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ncit_target_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class P334GenerationMetadata(_GenerationMetadata):
+    source: Literal["ncit-p334-icdo32"] = "ncit-p334-icdo32"
+    icdo_generation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    icdo_serving_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ncit_p334_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+type GenerationSourceMetadata = Annotated[
+    UberonCandidateGenerationMetadata
+    | UberonPromotionGenerationMetadata
+    | UberonPublisherGenerationMetadata
+    | P334GenerationMetadata,
+    Field(discriminator="source"),
+]
+generation_source_metadata_adapter = TypeAdapter(GenerationSourceMetadata)
+
+
+class UberonReadIdentity(BaseModel):
+    """Exact Uberon-capable repository identities expected by a read."""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     ncit_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
-    uberon_source_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    uberon_serving_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    icdo_generation_identity: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{64}$"
-    )
-    icdo_serving_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    uberon_assertion_identity: str | None = Field(
-        default=None, pattern=r"^[0-9a-f]{64}$"
-    )
-    ncit_target_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    ncit_p334_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    uberon_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    uberon_serving_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class IcdoReadIdentity(BaseModel):
+    """Exact ICD-O-capable repository identities expected by a read."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    ncit_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    icdo_generation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    icdo_serving_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class XrefReadPolicy:
+    """Sources relevant to one mapping read and their current identities."""
+
+    uberon: UberonReadIdentity | None = None
+    icdo: IcdoReadIdentity | None = None
+
+    def __post_init__(self) -> None:
+        if self.uberon is None and self.icdo is None:
+            raise ValueError("xref read policy must select at least one source family")
 
 
 class StaleXrefGenerationError(RuntimeError):

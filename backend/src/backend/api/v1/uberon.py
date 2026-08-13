@@ -16,8 +16,9 @@ from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryRea
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.xref.models import (
-    GenerationSourceMetadata,
     StaleXrefGenerationError,
+    UberonReadIdentity,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
@@ -167,10 +168,12 @@ async def alignments(
     try:
         rows = await xref_store.mappings_for_identifiers(
             {code},
-            expected=GenerationSourceMetadata(
-                ncit_source_identity=ncit.source_identity,
-                uberon_source_identity=repository.source_identity,
-                uberon_serving_identity=repository.observation.serving.sha256,
+            expected=XrefReadPolicy(
+                uberon=UberonReadIdentity(
+                    ncit_source_identity=ncit.source_identity,
+                    uberon_source_identity=repository.source_identity,
+                    uberon_serving_identity=repository.observation.serving.sha256,
+                )
             ),
         )
     except StaleXrefGenerationError as exc:

@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict
 
 from ontolib.repositories.xref.candidate_ingest import _iri_to_curie, fetch_uberon_xrefs
-from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
+from ontolib.repositories.xref.models import (
+    SSSOMRecord,
+    UberonPublisherGenerationMetadata,
+)
 from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -285,7 +288,7 @@ async def publish_uberon_xrefs(
         source=PUBLISHER_XREF_SOURCE,
         run_id=rid,
         records=records,
-        source_metadata=GenerationSourceMetadata(
+        source_metadata=UberonPublisherGenerationMetadata(
             ncit_source_identity=ncit_source_identity,
             uberon_source_identity=uberon_source_identity,
             uberon_serving_identity=uberon_serving_identity,

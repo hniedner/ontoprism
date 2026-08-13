@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
+from ontolib.repositories.xref.models import P334GenerationMetadata, SSSOMRecord
 from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -260,7 +260,7 @@ async def publish_p334_alignments(
         source=P334_ALIGNMENT_SOURCE,
         run_id=rid,
         records=records,
-        source_metadata=GenerationSourceMetadata(
+        source_metadata=P334GenerationMetadata(
             ncit_source_identity=ncit_source_identity,
             ncit_p334_identity=ncit_p334_identity,
             icdo_generation_identity=resolution.generation_id,

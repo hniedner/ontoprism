@@ -2,7 +2,6 @@
 	import { resolve } from '$app/paths';
 	import DecompositionPanel from '$lib/components/DecompositionPanel.svelte';
 	import AlignmentLinks from '$lib/components/AlignmentLinks.svelte';
-	import ExternalMappingsPanel from '$lib/components/ExternalMappingsPanel.svelte';
 	import MappedCdes from '$lib/components/MappedCdes.svelte';
 	import NcitConceptGraph from './NcitConceptGraph.svelte';
 	import NcitConceptSummary from './NcitConceptSummary.svelte';
@@ -62,7 +61,6 @@
 	<RelationshipList title="Associations" items={detail.associations} />
 	<RelationshipList title="Incoming roles" items={detail.incoming_roles} />
 	<DecompositionPanel code={detail.code} />
-	<ExternalMappingsPanel code={detail.code} />
 	<MappedCdes code={detail.code} />
 	<SimilarConcepts code={detail.code} />
 </div>

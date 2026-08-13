@@ -5,6 +5,7 @@ with the async test harness (alembic's sync connection tries to start its own lo
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -127,13 +128,20 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                 text(
                     "INSERT INTO xref_generation "
                     "(id,source,content_sha256,source_metadata,graph_iri,state) VALUES "
-                    "(:id,'source-a',:content,CAST(:metadata AS jsonb),"
+                    "(:id,'uberon-cl',:content,CAST(:metadata AS jsonb),"
                     "'https://example.test/g','prepared')"
                 ),
                 {
                     "id": "a" * 64,
                     "content": "b" * 64,
-                    "metadata": '{"ncit_source_identity":"' + "c" * 64 + '"}',
+                    "metadata": json.dumps(
+                        {
+                            "source": "uberon-cl",
+                            "ncit_source_identity": "c" * 64,
+                            "uberon_source_identity": "d" * 64,
+                            "uberon_serving_identity": "e" * 64,
+                        }
+                    ),
                 },
             )
         with pytest.raises(IntegrityError):
@@ -141,7 +149,7 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                 await conn.execute(
                     text(
                         "INSERT INTO xref_active_generation (source,generation_id) "
-                        "VALUES ('source-b',:id)"
+                        "VALUES ('uberon-cl-promotion',:id)"
                     ),
                     {"id": "a" * 64},
                 )
@@ -159,8 +167,8 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                             "subject_version,subject_id,predicate_id,object_system,"
                             "object_version,object_id,mapping_justification,confidence,"
                             "lifecycle_state,review_status,author) VALUES "
-                            "(:generation,'source-a','ncit','v','C1',:predicate,"
-                            "'uberon','v','U1','j',0.5,:lifecycle,'unreviewed','')"
+                            "(:generation,'uberon-cl','ncit','v','C1',:predicate,"
+                            "'uberon-cl','v','U1','j',0.5,:lifecycle,'unreviewed','')"
                         ),
                         {
                             "generation": "a" * 64,

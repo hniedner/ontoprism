@@ -8,9 +8,11 @@ from backend.dependencies import RepositoryMetadataReads, XrefReads
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.xref.models import (
     EndpointIdentity,
-    GenerationSourceMetadata,
+    IcdoReadIdentity,
     MappingResult,
     StaleXrefGenerationError,
+    UberonReadIdentity,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
@@ -160,12 +162,17 @@ async def translate(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Mapping sources are unavailable.",
         )
-    expected = GenerationSourceMetadata(
-        ncit_source_identity=ncit.source_identity,
-        uberon_source_identity=uberon.source_identity,
-        uberon_serving_identity=uberon.observation.serving.sha256,
-        icdo_generation_identity=icdo.activation_identity,
-        icdo_serving_identity=icdo.serving_identity,
+    expected = XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity=ncit.source_identity,
+            uberon_source_identity=uberon.source_identity,
+            uberon_serving_identity=uberon.observation.serving.sha256,
+        ),
+        icdo=IcdoReadIdentity(
+            ncit_source_identity=ncit.source_identity,
+            icdo_generation_identity=icdo.activation_identity,
+            icdo_serving_identity=icdo.serving_identity,
+        ),
     )
     try:
         upstream = await xref_store.mappings_by_subjects({code}, expected=expected)

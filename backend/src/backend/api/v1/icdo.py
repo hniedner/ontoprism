@@ -26,9 +26,10 @@ from ontolib.repositories.icdo.models import (
     TopographyCode40,
 )
 from ontolib.repositories.xref.models import (
-    GenerationSourceMetadata,
+    IcdoReadIdentity,
     MappingResult,
     StaleXrefGenerationError,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 
@@ -47,23 +48,110 @@ class NcitAlignment(BaseModel):
     lifecycle: MappingLifecycle
 
 
-class IcdoDetail(BaseModel):
+class _RecordBase(BaseModel):
+    code: str
+    preferred: str | None = None
+    synonyms: tuple[str, ...] = ()
+    related: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+    code_references: tuple[str, ...] = ()
+    see_also: tuple[str, ...] = ()
+    see_notes: tuple[str, ...] = ()
+    includes: tuple[str, ...] = ()
+    excludes: tuple[str, ...] = ()
+    other_text: tuple[str, ...] = ()
+
+
+class Morphology32Record(_RecordBase):
+    level: Literal["morphology"]
+    parent_code: Literal[None] = None
+    base_morphology: str
+    specificity: Literal[None] = None
+    behaviour: str
+
+
+class Morphology40Record(_RecordBase):
+    level: Literal["morphology"]
+    parent_code: Literal[None] = None
+    base_morphology: str
+    specificity: str
+    behaviour: str
+
+
+class TopographyCategoryRecord(_RecordBase):
+    level: Literal["category"]
+    parent_code: Literal[None] = None
+    base_morphology: Literal[None] = None
+    specificity: Literal[None] = None
+    behaviour: Literal[None] = None
+
+
+class TopographyLeafRecord(_RecordBase):
+    level: Literal["leaf"]
+    parent_code: str
+    base_morphology: Literal[None] = None
+    specificity: Literal[None] = None
+    behaviour: Literal[None] = None
+
+
+type TopographyRecord = TopographyCategoryRecord | TopographyLeafRecord
+
+
+class _IcdoDetail(BaseModel):
     activation_identity: str
     serving_identity: str
-    record: IcdoRecord
     ncit_alignments: list[NcitAlignment]
 
 
-class IcdoPage(BaseModel):
+class Morphology32Detail(_IcdoDetail):
+    edition: Literal["3.2"] = "3.2"
+    axis: Literal["morphology"] = "morphology"
+    record: Morphology32Record
+
+
+class Morphology40Detail(_IcdoDetail):
+    edition: Literal["4.0"] = "4.0"
+    axis: Literal["morphology"] = "morphology"
+    record: Morphology40Record
+
+
+class Topography40Detail(_IcdoDetail):
+    edition: Literal["4.0"] = "4.0"
+    axis: Literal["topography"] = "topography"
+    record: TopographyRecord
+
+
+type IcdoDetail = Morphology32Detail | Morphology40Detail | Topography40Detail
+
+
+class _IcdoPage(BaseModel):
     activation_identity: str
     serving_identity: str
-    edition: Edition
-    axis: Axis
     query: str
     total: int
     limit: int
     offset: int
-    hits: list[IcdoRecord]
+
+
+class Morphology32Page(_IcdoPage):
+    edition: Literal["3.2"]
+    axis: Literal["morphology"]
+    hits: list[Morphology32Record]
+
+
+class Morphology40Page(_IcdoPage):
+    edition: Literal["4.0"]
+    axis: Literal["morphology"]
+    hits: list[Morphology40Record]
+
+
+class Topography40Page(_IcdoPage):
+    edition: Literal["4.0"]
+    axis: Literal["topography"]
+    hits: list[TopographyRecord]
+
+
+type IcdoPage = Morphology32Page | Morphology40Page | Topography40Page
 
 
 def _ncit_alignments(
@@ -287,17 +375,26 @@ async def detail(
         try:
             rows = await xref_store.mappings_for_identifiers(
                 {canonical},
-                expected=GenerationSourceMetadata(
-                    ncit_source_identity=ncit.source_identity,
-                    icdo_generation_identity=ready.activation_identity,
-                    icdo_serving_identity=ready.serving_identity,
+                expected=XrefReadPolicy(
+                    icdo=IcdoReadIdentity(
+                        ncit_source_identity=ncit.source_identity,
+                        icdo_generation_identity=ready.activation_identity,
+                        icdo_serving_identity=ready.serving_identity,
+                    )
                 ),
             )
         except StaleXrefGenerationError as exc:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-    return IcdoDetail(
+    detail_type = {
+        ("3.2", "morphology"): Morphology32Detail,
+        ("4.0", "morphology"): Morphology40Detail,
+        ("4.0", "topography"): Topography40Detail,
+    }[(edition, axis)]
+    return detail_type(
+        edition=edition,
+        axis=axis,
         activation_identity=ready.activation_identity,
         serving_identity=ready.serving_identity,
-        record=IcdoRecord.model_validate(result),
+        record=IcdoRecord.model_validate(result).model_dump(),
         ncit_alignments=_ncit_alignments(canonical, edition, rows.get(canonical, [])),
     )

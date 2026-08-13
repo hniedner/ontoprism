@@ -19,8 +19,6 @@ import type {
 	, UberonNeighborhood
 	, UberonSearchPage
 	, UberonSource
-	, IcdoAxis
-	, IcdoEdition
 	, IcdoPage
 } from './types';
 
@@ -231,22 +229,22 @@ export function icdoCodeSegment(code: string): string {
 	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
-export function listIcdo(edition: IcdoEdition, axis: IcdoAxis, opts: {
+export function listIcdo<E extends IcdoPage['edition'], A extends Extract<IcdoPage, { edition: E }>['axis']>(edition: E, axis: A, opts: {
 	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
-} = {}): Promise<IcdoPage> {
+} = {}): Promise<Extract<IcdoPage, { edition: E; axis: A }>> {
 	const params: Record<string, string | number> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
 	if (opts.behaviour) params.behaviour = opts.behaviour;
 	if (opts.level) params.level = opts.level;
-	return getJson<IcdoPage>(apiUrl(`/api/v1/icdo/${edition}/${axis}/list`, params), opts.fetch);
+	return getJson<Extract<IcdoPage, { edition: E; axis: A }>>(apiUrl(`/api/v1/icdo/${edition}/${axis}/list`, params), opts.fetch);
 }
 
-export function searchIcdo(edition: IcdoEdition, axis: IcdoAxis, q: string, opts: {
+export function searchIcdo<E extends IcdoPage['edition'], A extends Extract<IcdoPage, { edition: E }>['axis']>(edition: E, axis: A, q: string, opts: {
 	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
-} = {}): Promise<IcdoPage> {
+} = {}): Promise<Extract<IcdoPage, { edition: E; axis: A }>> {
 	const params: Record<string, string | number> = { q, limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
 	if (opts.behaviour) params.behaviour = opts.behaviour;
 	if (opts.level) params.level = opts.level;
-	return getJson<IcdoPage>(apiUrl(`/api/v1/icdo/${edition}/${axis}/search`, params), opts.fetch);
+	return getJson<Extract<IcdoPage, { edition: E; axis: A }>>(apiUrl(`/api/v1/icdo/${edition}/${axis}/search`, params), opts.fetch);
 }
 
 

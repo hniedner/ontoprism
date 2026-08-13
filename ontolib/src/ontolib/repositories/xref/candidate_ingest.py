@@ -21,7 +21,10 @@ if TYPE_CHECKING:
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
-from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
+from ontolib.repositories.xref.models import (
+    SSSOMRecord,
+    UberonCandidateGenerationMetadata,
+)
 from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
@@ -31,6 +34,11 @@ from ontolib.repositories.xref.vocab import (
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+
+
+class CandidateSourceInventoryError(RuntimeError):
+    """The NCIt source cannot supply the filler inventory required for ingest."""
+
 
 # Which pass(es) produced a candidate for a filler — the coverage report's buckets.
 # `SOURCE_XREF` / `SOURCE_LEXICAL` / `SOURCE_NONE` partition the filler set;
@@ -365,7 +373,8 @@ async def ingest_candidates(
     *,
     ncit_source_identity: str,
     uberon_source_identity: str,
-    observe_source_identities: Callable[[], Awaitable[tuple[str, str]]],
+    uberon_serving_identity: str,
+    observe_source_identities: Callable[[], Awaitable[tuple[str, str, str]]],
     run_id: str | None = None,
     source: str = "uberon-cl",
 ) -> dict[str, Any]:
@@ -386,9 +395,12 @@ async def ingest_candidates(
         ncit_version,
         uberon_version,
     )
+    if not filler_to_source:
+        raise CandidateSourceInventoryError("NCIt filler inventory is empty")
     if await observe_source_identities() != (
         ncit_source_identity,
         uberon_source_identity,
+        uberon_serving_identity,
     ):
         raise ValueError("candidate source identity changed during generation")
     fillers = set(filler_to_source)
@@ -406,9 +418,10 @@ async def ingest_candidates(
         source=source,
         run_id=rid,
         records=records,
-        source_metadata=GenerationSourceMetadata(
+        source_metadata=UberonCandidateGenerationMetadata(
             ncit_source_identity=ncit_source_identity,
             uberon_source_identity=uberon_source_identity,
+            uberon_serving_identity=uberon_serving_identity,
         ),
     )
 

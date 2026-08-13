@@ -12,8 +12,6 @@ export const load: PageServerLoad = async ({ cookies, fetch, params }) => {
     ),
   );
   return {
-    edition: params.edition,
-    axis: params.axis,
     ...detail,
     alignments: detail.ncit_alignments,
   };

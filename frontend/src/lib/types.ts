@@ -206,30 +206,30 @@ export interface IcdoTopographyLeafRecord extends IcdoRecordBase {
 	behaviour: null;
 }
 
-export type IcdoRecord =
-	| IcdoMorphology32Record
-	| IcdoMorphology40Record
-	| IcdoTopographyCategoryRecord
-	| IcdoTopographyLeafRecord;
-
-export interface IcdoDetail {
+interface IcdoDetailBase {
 	activation_identity: string;
 	serving_identity: string;
-	record: IcdoRecord;
 	ncit_alignments: NcitAlignment[];
 }
 
-export interface IcdoPage {
+export type IcdoDetail =
+	| (IcdoDetailBase & { edition: '3.2'; axis: 'morphology'; record: IcdoMorphology32Record })
+	| (IcdoDetailBase & { edition: '4.0'; axis: 'morphology'; record: IcdoMorphology40Record })
+	| (IcdoDetailBase & { edition: '4.0'; axis: 'topography'; record: IcdoTopographyCategoryRecord | IcdoTopographyLeafRecord });
+
+interface IcdoPageBase {
 	activation_identity: string;
 	serving_identity: string;
-	edition: IcdoEdition;
-	axis: IcdoAxis;
 	query: string;
 	total: number;
 	limit: number;
 	offset: number;
-	hits: IcdoRecord[];
 }
+
+export type IcdoPage =
+	| (IcdoPageBase & { edition: '3.2'; axis: 'morphology'; hits: IcdoMorphology32Record[] })
+	| (IcdoPageBase & { edition: '4.0'; axis: 'morphology'; hits: IcdoMorphology40Record[] })
+	| (IcdoPageBase & { edition: '4.0'; axis: 'topography'; hits: Array<IcdoTopographyCategoryRecord | IcdoTopographyLeafRecord> });
 
 export interface IcdoCongruenceReport {
 	report_identity: string;
