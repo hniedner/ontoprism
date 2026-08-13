@@ -29,8 +29,18 @@ RepositoryDescriptor = Annotated[
     Field(discriminator="kind"),
 ]
 _REGISTRY = TypeAdapter(list[RepositoryDescriptor])
+REPOSITORY_MANIFEST_PATH = Path(__file__).parents[3] / "repository-manifest.json"
 
 
 def load_repository_registry(path: Path) -> list[RepositoryDescriptor]:
     """Read and strictly validate one repository manifest."""
     return _REGISTRY.validate_python(json.loads(path.read_bytes()))
+
+
+def local_repository_ids() -> tuple[Literal["ncit", "cadsr", "uberon", "icdo"], ...]:
+    """Return the local-certified repository order declared by the tracked manifest."""
+    return tuple(
+        entry.id
+        for entry in load_repository_registry(REPOSITORY_MANIFEST_PATH)
+        if isinstance(entry, LocalRepositoryDescriptor)
+    )

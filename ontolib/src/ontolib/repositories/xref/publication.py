@@ -60,15 +60,22 @@ def _active_pointer(source: str, generation_id: str | None) -> bytes:
 
 
 async def rdf_active_generation(client: SparqlHttpClient, source: str) -> str | None:
+    subject = active_graph_iri(source)
     rows = await client.select(
-        f"SELECT ?g WHERE {{ GRAPH <{active_graph_iri(source)}> "
+        f"SELECT ?source ?predicate ?g WHERE {{ GRAPH <{subject}> "
         "{ ?source ?predicate ?g } }"
     )
     if not rows:
         return None
     if len(rows) != 1:
         raise XrefPublicationError("RDF active pointer is ambiguous")
-    graph = rows[0].get("g", "")
+    row = rows[0]
+    if set(row) != {"source", "predicate", "g"} or (
+        row.get("source"),
+        row.get("predicate"),
+    ) != (subject, _ACTIVE_PREDICATE):
+        raise XrefPublicationError("RDF active pointer is invalid")
+    graph = row["g"]
     prefix = generation_graph_iri(source, "0" * 64).rsplit("/", 1)[0] + "/"
     generation_id = graph.removeprefix(prefix)
     if (
@@ -102,14 +109,23 @@ async def _write_pointer(
             graph_iri=active_graph_iri(source),
             replace=True,
         )
-    except BaseException:
-        observed = await rdf_active_generation(client, source)
-        await store.set_active_generation(source, observed, _publication_locked=True)
+    except Exception as original:
+        try:
+            observed = await rdf_active_generation(client, source)
+            await store.set_active_generation(
+                source, observed, _publication_locked=True
+            )
+        except Exception as reconciliation:
+            raise original from reconciliation
         if observed != generation_id:
             raise
 
 
-def generation_identity(source: str, records: Sequence[SSSOMRecord]) -> tuple[str, str]:
+def generation_identity(
+    source: str,
+    records: Sequence[SSSOMRecord],
+    source_metadata: dict[str, str] | None = None,
+) -> tuple[str, str]:
     """Return deterministic generation and exact-content identities."""
     rows = [
         {
@@ -132,7 +148,8 @@ def generation_identity(source: str, records: Sequence[SSSOMRecord]) -> tuple[st
         sort_keys=True,
     ).encode()
     content = hashlib.sha256(payload).hexdigest()
-    generation = hashlib.sha256(f"{source}\0{content}".encode()).hexdigest()
+    metadata = json.dumps(source_metadata or {}, separators=(",", ":"), sort_keys=True)
+    generation = hashlib.sha256(f"{source}\0{content}\0{metadata}".encode()).hexdigest()
     return generation, content
 
 
@@ -143,10 +160,13 @@ async def publish_generation(
     source: str,
     run_id: str,
     records: Sequence[SSSOMRecord],
+    source_metadata: dict[str, str] | None = None,
     failpoint: PublicationFailpoint | None = None,
 ) -> PublicationResult:
-    """Prepare, materialize, and atomically activate one source generation."""
-    generation_id, content_sha256 = generation_identity(source, records)
+    """Prepare, materialize, then reconcile the ordered cross-store activation."""
+    generation_id, content_sha256 = generation_identity(
+        source, records, source_metadata
+    )
     graph_iri = generation_graph_iri(source, generation_id)
     async with store.publication_lock(source):
         await _reconcile_pointers(store, client, source)

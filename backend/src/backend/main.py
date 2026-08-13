@@ -34,6 +34,7 @@ from backend.middleware import (
     install_error_handlers,
 )
 from backend.repository_metadata import RepositoryMetadataService, RepositoryUnhealthy
+from backend.repository_registry import local_repository_ids
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -162,7 +163,22 @@ def create_app() -> FastAPI:
     @app.get("/ready", tags=["meta"])
     async def ready(metadata: RepositoryMetadataReads) -> dict[str, object]:
         """Readiness — certify each local terminology proxy or refuse."""
-        repositories = [await metadata.ncit(), await metadata.uberon(force=True)]
+        repositories = []
+        for repository_id in local_repository_ids():
+            if repository_id == "ncit":
+                repositories.append(await metadata.ncit())
+            elif repository_id == "cadsr":
+                repositories.append(metadata.cadsr())
+            elif repository_id == "uberon":
+                repositories.append(await metadata.uberon(force=True))
+            else:
+                repositories.extend(
+                    [
+                        await metadata.icdo("3.2", "morphology"),
+                        await metadata.icdo("4.0", "morphology"),
+                        await metadata.icdo("4.0", "topography"),
+                    ]
+                )
         unhealthy = next(
             (
                 repository

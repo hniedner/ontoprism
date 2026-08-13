@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from typing import TYPE_CHECKING, Literal
@@ -17,6 +19,7 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 if TYPE_CHECKING:
     from ontolib.repositories.icdo.store import (
         CertificationExpectation,
+        IcdoCodeResolution,
         IcdoRepository,
     )
     from ontolib.repositories.xref.store import XrefStore
@@ -65,6 +68,7 @@ class P334AlignmentReport(BaseModel):
     icdo_edition: Literal["3.2"] = "3.2"
     icdo_generation_id: str
     icdo_serving_sha256: str
+    ncit_p334_identity: str
     concept_count: CountDelta
     assertion_count: CountDelta
     published_assertion_count: int
@@ -94,6 +98,12 @@ def _parse_assertions(rows: list[dict[str, str]]) -> list[tuple[str, str]]:
             raise P334SourceError("missing P334 asserted value")
         assertions.append((code, value))
     return sorted(assertions)
+
+
+def _assertion_identity(assertions: list[tuple[str, str]]) -> str:
+    return hashlib.sha256(
+        json.dumps(assertions, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
 
 
 def _delta(expected: int, observed: int) -> CountDelta:
@@ -165,6 +175,29 @@ def _require_unchanged_counts(
     return concept_count, assertion_count
 
 
+async def _require_unchanged_sources(
+    ncit_client: SparqlHttpClient,
+    icdo: IcdoRepository,
+    *,
+    ncit_version: str,
+    ncit_p334_identity: str,
+    valid_values: set[str],
+    icdo_expected: CertificationExpectation,
+    resolution: IcdoCodeResolution,
+) -> None:
+    after = _parse_assertions(await ncit_client.select(build_p334_assertions_query()))
+    if (
+        await ncit_client.version() != ncit_version
+        or _assertion_identity(after) != ncit_p334_identity
+    ):
+        raise P334SourceError("active NCIt source changed during validation")
+    recertified = await icdo.resolve_active_morphology32_codes(
+        valid_values, icdo_expected
+    )
+    if recertified != resolution:
+        raise P334SourceError("active ICD-O source changed during validation")
+
+
 async def publish_p334_alignments(
     store: XrefStore,
     ncit_client: SparqlHttpClient,
@@ -178,6 +211,7 @@ async def publish_p334_alignments(
     assertions = _parse_assertions(
         await ncit_client.select(build_p334_assertions_query())
     )
+    ncit_p334_identity = _assertion_identity(assertions)
     ncit_version = await ncit_client.version()
     if not ncit_version:
         raise P334SourceError("active NCIt source has no release identity")
@@ -188,8 +222,15 @@ async def publish_p334_alignments(
     resolution = await icdo.resolve_active_morphology32_codes(
         valid_values, icdo_expected
     )
-    if await ncit_client.version() != ncit_version:
-        raise P334SourceError("active NCIt source changed during validation")
+    await _require_unchanged_sources(
+        ncit_client,
+        icdo,
+        ncit_version=ncit_version,
+        ncit_p334_identity=ncit_p334_identity,
+        valid_values=valid_values,
+        icdo_expected=icdo_expected,
+        resolution=resolution,
+    )
     records, unresolved = _publication_rows(
         assertions,
         resolution.resolved_codes,
@@ -199,6 +240,7 @@ async def publish_p334_alignments(
         ncit_release=ncit_version,
         icdo_generation_id=resolution.generation_id,
         icdo_serving_sha256=resolution.serving_sha256,
+        ncit_p334_identity=ncit_p334_identity,
         concept_count=concept_count,
         assertion_count=assertion_count,
         published_assertion_count=len(records),
@@ -217,6 +259,11 @@ async def publish_p334_alignments(
         source=P334_ALIGNMENT_SOURCE,
         run_id=rid,
         records=records,
+        source_metadata={
+            "ncit_p334_identity": ncit_p334_identity,
+            "icdo_generation_id": resolution.generation_id,
+            "icdo_serving_sha256": resolution.serving_sha256,
+        },
     )
     await store.update_run_metrics(rid, report.model_dump(mode="json"))
     return report

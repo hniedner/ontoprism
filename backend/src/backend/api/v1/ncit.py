@@ -21,6 +21,7 @@ from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
+from ontolib.repositories.xref.models import MappingResult
 from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
     MappingLifecycle,
@@ -65,10 +66,33 @@ class MappingEntry(BaseModel):
 
 
 class ConceptMappings(BaseModel):
-    """All upstream mappings for one NCIt concept code."""
+    """Entitlement-filtered mappings plus the certified NCIt repository identity."""
 
     code: str
+    repository_source_identity: str
+    repository_manifest_identity: str
     mappings: list[MappingEntry]
+
+
+def _mapping_entries(
+    code: str, rows: list[MappingResult], *, entitled_to_icdo: bool
+) -> list[MappingEntry]:
+    entries: list[MappingEntry] = []
+    for row in rows:
+        target = row.object if row.subject.identifier == code else row.subject
+        if target.system == "icdo" and not entitled_to_icdo:
+            continue
+        entries.append(
+            MappingEntry(
+                object_id=target.identifier,
+                system=target.system,
+                version=target.version,
+                predicate=row.predicate,
+                lifecycle=row.lifecycle,
+                confidence=row.confidence,
+            )
+        )
+    return entries
 
 
 async def _attach_xref_upstream(
@@ -217,10 +241,11 @@ async def neighborhood(
 async def concept_mappings(
     store: NcitStore,
     xref_store: XrefReads,
+    metadata: RepositoryMetadataReads,
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptMappings:
-    """Return all upstream mappings for an NCIt concept code.
+    """Return mappings visible under the caller's ICD-O entitlement.
 
     Searches both by subject (NCIt code as subject) and by object
     (NCIt code as object of an upstream-to-NCIt mapping), so
@@ -231,21 +256,21 @@ async def concept_mappings(
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
     rows = await xref_store.mappings_for_identifiers({code})
-    entitled_to_icdo = has_icdo_entitlement(x_icdo_entitlement)
-    entries = [
-        MappingEntry(
-            object_id=target.identifier,
-            system=target.system,
-            version=target.version,
-            predicate=row.predicate,
-            lifecycle=row.lifecycle,
-            confidence=row.confidence,
+    repository = await metadata.ncit()
+    if isinstance(repository, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, repository.model_dump(mode="json")
         )
-        for row in rows.get(code, [])
-        for target in [row.object if row.subject.identifier == code else row.subject]
-        if target.system != "icdo" or entitled_to_icdo
-    ]
-    return ConceptMappings(code=code, mappings=entries)
+    entitled_to_icdo = has_icdo_entitlement(x_icdo_entitlement)
+    entries = _mapping_entries(
+        code, rows.get(code, []), entitled_to_icdo=entitled_to_icdo
+    )
+    return ConceptMappings(
+        code=code,
+        repository_source_identity=repository.source_identity,
+        repository_manifest_identity=repository.manifest_identity,
+        mappings=entries,
+    )
 
 
 @router.get("/concepts/{code}/decomposition", response_model=ConceptDecomposition)

@@ -16,7 +16,7 @@ from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
@@ -363,6 +363,9 @@ async def ingest_candidates(
     ncit_version: str,
     uberon_version: str,
     *,
+    ncit_source_identity: str,
+    uberon_source_identity: str,
+    observe_source_identities: Callable[[], Awaitable[tuple[str, str]]],
     run_id: str | None = None,
     source: str = "uberon-cl",
 ) -> dict[str, Any]:
@@ -378,8 +381,16 @@ async def ingest_candidates(
     """
     rid = run_id or uuid.uuid4().hex
     records, filler_to_source = await generate_candidates(
-        ncit_client, uberon_client, ncit_version, uberon_version
+        ncit_client,
+        uberon_client,
+        ncit_version,
+        uberon_version,
     )
+    if await observe_source_identities() != (
+        ncit_source_identity,
+        uberon_source_identity,
+    ):
+        raise ValueError("candidate source identity changed during generation")
     fillers = set(filler_to_source)
 
     await store.upsert_run(
@@ -395,9 +406,15 @@ async def ingest_candidates(
         source=source,
         run_id=rid,
         records=records,
+        source_metadata={
+            "ncit_source_identity": ncit_source_identity,
+            "uberon_source_identity": uberon_source_identity,
+        },
     )
 
     report = candidate_coverage_report(fillers, records, filler_to_source)
+    report["ncit_source_identity"] = ncit_source_identity
+    report["uberon_source_identity"] = uberon_source_identity
     await store.update_run_metrics(rid, report)
 
     return report

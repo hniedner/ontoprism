@@ -121,6 +121,8 @@ export interface Alignment {
 
 export interface UberonAlignments {
 	code: string;
+	repository_source_identity: string;
+	repository_serving_identity: string;
 	alignments: Alignment[];
 }
 
@@ -167,14 +169,24 @@ export interface IcdoRecord {
 	synonyms: string[];
 	related: string[];
 	notes: string[];
+	code_references: string[];
+	see_also: string[];
+	see_notes: string[];
+	includes: string[];
+	excludes: string[];
+	other_text: string[];
 }
 
 export interface IcdoDetail {
+	activation_identity: string;
+	serving_identity: string;
 	record: IcdoRecord;
 	ncit_alignments: Alignment[];
 }
 
 export interface IcdoPage {
+	activation_identity: string;
+	serving_identity: string;
 	edition: IcdoEdition;
 	axis: IcdoAxis;
 	query: string;
@@ -260,6 +272,8 @@ export interface ExternalMapping {
 
 export interface ConceptMappings {
 	code: string;
+	repository_source_identity: string;
+	repository_manifest_identity: string;
 	mappings: ExternalMapping[];
 }
 

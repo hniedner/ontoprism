@@ -250,6 +250,8 @@ def test_detail_alignments_return_ncit_targets_in_one_indexed_lookup() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "code": "UBERON:0002048",
+        "repository_source_identity": "a" * 64,
+        "repository_serving_identity": "b" * 64,
         "alignments": [
             {
                 "code": "C12468",

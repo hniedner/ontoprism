@@ -481,7 +481,7 @@ Notes:
 - The embedding step is heavy (multi-GB model + compute over ~200k concepts + ~80k
   CDEs) and is a batch/offline operation. CI runs deterministic encoders against
   disposable pgvector to prove staged-batch invisibility, failure rollback, validation,
-  retry, independent corpora, and atomic activation. Explicit `full_build` contracts
+  retry, independent corpora, and reconcilable ordered activation. Explicit `full_build` contracts
   verify the real encoder shape and inspect configured full-build artifacts; the
   expensive end-to-end build remains an operator run.
 - The QLever indexes, caDSR SQLite, and pgvector rows produced are the same shapes the

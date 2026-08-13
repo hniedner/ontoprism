@@ -1,7 +1,7 @@
 import manifest from '../../../repository-manifest.json';
 
 export type RepositoryKind = 'local-certified-proxy' | 'remote-live-service';
-type LocalRepositoryId = 'ncit' | 'cadsr' | 'uberon' | 'icdo';
+export type LocalRepositoryId = 'ncit' | 'cadsr' | 'uberon' | 'icdo';
 type RemoteRepositoryId = 'clinicaltrials' | 'pubmed';
 export type RepositoryId = LocalRepositoryId | RemoteRepositoryId;
 

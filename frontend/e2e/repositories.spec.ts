@@ -100,6 +100,24 @@ test('PubMed: copied URL restores search → open a server-loaded article', asyn
 	await expect(page.getByText('SSR abstract from FastAPI.')).toBeVisible();
 });
 
+test('ICD-O: entitled detail renders all publisher fields', async ({ page, context }) => {
+	await context.addCookies([
+		{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173' }
+	]);
+	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
+	for (const value of [
+		'Publisher note',
+		'Code reference',
+		'See also term',
+		'See note',
+		'Included term',
+		'Excluded term',
+		'Other publisher text'
+	]) {
+		await expect(page.getByRole('listitem').filter({ hasText: value })).toBeVisible();
+	}
+});
+
 test('NCIt: server-loaded concept hydrates the browser-only graph explorer', async ({ page }) => {
 	await page.goto('/repositories/ncit/C3262');
 	await expect(page.getByText('SSR concept definition from FastAPI.')).toBeVisible();

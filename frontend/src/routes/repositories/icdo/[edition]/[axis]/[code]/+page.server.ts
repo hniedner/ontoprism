@@ -1,11 +1,20 @@
-import { getJson } from '$lib/api';
-import { critical } from '$lib/server/critical-load';
-import type { IcdoDetail } from '$lib/types';
-import type { PageServerLoad } from './$types';
+import { getJson } from "$lib/api";
+import { critical } from "$lib/server/critical-load";
+import { icdoFetch } from "$lib/server/icdo-fetch";
+import type { IcdoDetail } from "$lib/types";
+import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ cookies, fetch, params }) => {
-	const entitlement = cookies.get('icdo_entitlement');
-	const detail = await critical(getJson<IcdoDetail>(`/api/v1/icdo/${params.edition}/${params.axis}/concepts/${params.code}`,
-		(input, init = {}) => fetch(input, { ...init, headers: { ...Object.fromEntries(new Headers(init.headers)), ...(entitlement ? { 'X-ICDO-Entitlement': entitlement } : {}) } })));
-	return { edition: params.edition, axis: params.axis, record: detail.record, alignments: detail.ncit_alignments };
+  const detail = await critical(
+    getJson<IcdoDetail>(
+      `/api/v1/icdo/${params.edition}/${params.axis}/concepts/${params.code}`,
+      icdoFetch(fetch, cookies),
+    ),
+  );
+  return {
+    edition: params.edition,
+    axis: params.axis,
+    ...detail,
+    alignments: detail.ncit_alignments,
+  };
 };

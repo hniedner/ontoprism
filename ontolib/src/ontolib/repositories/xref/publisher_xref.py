@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from typing import TYPE_CHECKING, Literal
@@ -59,6 +61,8 @@ class PublisherXrefReport(BaseModel):
     model_config = ConfigDict(frozen=True)
     uberon_release: str
     ncit_release: str
+    uberon_assertion_identity: str
+    ncit_target_identity: str
     source_class_count: CountDelta
     assertion_count: CountDelta
     published_assertion_count: int
@@ -89,7 +93,13 @@ def _parse_assertions(rows: list[dict[str, str]]) -> list[tuple[str, str]]:
         if not _NCIT_CODE.fullmatch(code):
             raise PublisherXrefSourceError(f"malformed NCIt target: {xref}")
         assertions.append((curie, code))
-    return assertions
+    return sorted(assertions)
+
+
+def _rows_identity(rows: object) -> str:
+    return hashlib.sha256(
+        json.dumps(rows, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
 
 
 def _record(
@@ -118,10 +128,14 @@ def _report(
     uberon_version: str,
     source_class_count: CountDelta,
     assertion_count: CountDelta,
+    uberon_assertion_identity: str,
+    ncit_target_identity: str,
 ) -> PublisherXrefReport:
     return PublisherXrefReport(
         uberon_release=uberon_version,
         ncit_release=ncit_version,
+        uberon_assertion_identity=uberon_assertion_identity,
+        ncit_target_identity=ncit_target_identity,
         source_class_count=source_class_count,
         assertion_count=assertion_count,
         published_assertion_count=len(records),
@@ -184,6 +198,28 @@ async def _resolved_targets(
     }
 
 
+async def _sources_changed(
+    ncit_client: SparqlHttpClient,
+    uberon_client: SparqlHttpClient,
+    assertions: list[tuple[str, str]],
+    *,
+    ncit_version: str,
+    uberon_version: str,
+    uberon_assertion_identity: str,
+    ncit_target_identity: str,
+) -> bool:
+    assertions_after = _parse_assertions(await fetch_uberon_xrefs(uberon_client))
+    resolved_after = await _resolved_targets(ncit_client, assertions)
+    return any(
+        (
+            await _observed_version(ncit_client, "NCIt") != ncit_version,
+            await _observed_version(uberon_client, "Uberon") != uberon_version,
+            _rows_identity(assertions_after) != uberon_assertion_identity,
+            _rows_identity(sorted(resolved_after)) != ncit_target_identity,
+        )
+    )
+
+
 async def publish_uberon_xrefs(
     store: XrefStore,
     ncit_client: SparqlHttpClient,
@@ -195,15 +231,22 @@ async def publish_uberon_xrefs(
     """Validate and publish every resolvable Uberon-authored NCIt assertion."""
     rid = run_id or uuid.uuid4().hex
     assertions = _parse_assertions(await fetch_uberon_xrefs(uberon_client))
+    uberon_assertion_identity = _rows_identity(assertions)
     source_class_count, assertion_count = _require_unchanged_counts(
         assertions, expected_counts
     )
     ncit_version = await _observed_version(ncit_client, "NCIt")
     uberon_version = await _observed_version(uberon_client, "Uberon")
     resolved = await _resolved_targets(ncit_client, assertions)
-    if (
-        await _observed_version(ncit_client, "NCIt") != ncit_version
-        or await _observed_version(uberon_client, "Uberon") != uberon_version
+    ncit_target_identity = _rows_identity(sorted(resolved))
+    if await _sources_changed(
+        ncit_client,
+        uberon_client,
+        assertions,
+        ncit_version=ncit_version,
+        uberon_version=uberon_version,
+        uberon_assertion_identity=uberon_assertion_identity,
+        ncit_target_identity=ncit_target_identity,
     ):
         raise PublisherXrefSourceError("publisher source changed during validation")
     records = [
@@ -224,6 +267,8 @@ async def publish_uberon_xrefs(
         uberon_version=uberon_version,
         source_class_count=source_class_count,
         assertion_count=assertion_count,
+        uberon_assertion_identity=uberon_assertion_identity,
+        ncit_target_identity=ncit_target_identity,
     )
     await store.upsert_run(
         run_id=rid,
@@ -237,6 +282,10 @@ async def publish_uberon_xrefs(
         source=PUBLISHER_XREF_SOURCE,
         run_id=rid,
         records=records,
+        source_metadata={
+            "uberon_assertion_identity": uberon_assertion_identity,
+            "ncit_target_identity": ncit_target_identity,
+        },
     )
     await store.update_run_metrics(rid, report.model_dump(mode="json"))
     return report

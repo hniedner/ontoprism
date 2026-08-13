@@ -71,6 +71,8 @@ def _synthetic_neighborhood(
             }
         )
     return {
+        "activation_identity": "d" * 64,
+        "serving_identity": "e" * 64,
         "center": center,
         "nodes": nodes,
         "edges": edges,
@@ -290,9 +292,16 @@ async def list_icdo(
                 "level": "morphology",
                 "preferred": "Protected intraductal papilloma",
                 "behaviour": "0",
+                "base_morphology": "8503",
                 "synonyms": [],
                 "related": [],
                 "notes": [],
+                "code_references": [],
+                "see_also": [],
+                "see_notes": [],
+                "includes": [],
+                "excludes": [],
+                "other_text": [],
             }
         ],
     }
@@ -321,13 +330,23 @@ async def icdo_detail(
     if code != "ODUwMy8w":
         raise HTTPException(404, "ICD-O code not found.")
     return {
+        "activation_identity": "d" * 64,
+        "serving_identity": "e" * 64,
         "record": {
             "code": "8503/0",
             "level": "morphology",
             "preferred": "Protected intraductal papilloma",
+            "base_morphology": "8503",
+            "behaviour": "0",
             "synonyms": ["Protected papilloma synonym"],
             "related": [],
-            "notes": [],
+            "notes": ["Publisher note"],
+            "code_references": ["Code reference"],
+            "see_also": ["See also term"],
+            "see_notes": ["See note"],
+            "includes": ["Included term"],
+            "excludes": ["Excluded term"],
+            "other_text": ["Other publisher text"],
         },
         "ncit_alignments": [
             {
@@ -401,7 +420,12 @@ async def get_uberon_concept(code: str) -> dict[str, object]:
 
 @app.get("/api/v1/uberon/concepts/{code}/alignments")
 async def get_uberon_alignments(code: str) -> dict[str, object]:
-    return {"code": code, "alignments": []}
+    return {
+        "code": code,
+        "repository_source_identity": "a" * 64,
+        "repository_serving_identity": "b" * 64,
+        "alignments": [],
+    }
 
 
 @app.get("/api/v1/ncit/concepts/{code}/neighborhood")

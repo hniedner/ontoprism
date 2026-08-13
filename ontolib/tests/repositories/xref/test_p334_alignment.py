@@ -168,13 +168,16 @@ async def test_p334_publish_is_batched_typed_many_to_many_and_reports_unresolved
     )
 
     p334_queries = [query for query in ncit.select_calls if "P334" in query]
-    assert len(p334_queries) == 1
+    assert len(p334_queries) == 2
     assert (
         "GRAPH <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl>"
         in p334_queries[0]
     )
     assert "P334" in p334_queries[0]
-    assert icdo.calls == [{"8240/3", "8241/3", "8248/1", "9680/3", "8155/1"}]
+    assert icdo.calls == [
+        {"8240/3", "8241/3", "8248/1", "9680/3", "8155/1"},
+        {"8240/3", "8241/3", "8248/1", "9680/3", "8155/1"},
+    ]
     assert {(row.subject_id, row.object_id) for row in store.records} == {
         ("C188218", "8240/3"),
         ("C188218", "8241/3"),
@@ -207,6 +210,7 @@ async def test_p334_publish_is_batched_typed_many_to_many_and_reports_unresolved
     assert report.published_assertion_count == 5
     assert report.icdo_generation_id == "a" * 64
     assert report.icdo_serving_sha256 == "b" * 64
+    assert len(report.ncit_p334_identity) == 64
     assert store.metrics == report.model_dump(mode="json")
 
 
@@ -283,6 +287,29 @@ async def test_p334_refuses_ncit_pointer_switch_during_validation() -> None:
         return next(versions)
 
     client.version = switching_version  # type: ignore[method-assign]
+    store = _Store()
+    with pytest.raises(P334SourceError, match="changed during validation"):
+        await publish_p334_alignments(
+            store,
+            client,
+            _Icdo({"8000/3"}),
+            icdo_expected=_expectation(),
+            expected_counts=(1, 1),
+        )
+    assert store.run_writes == 0
+
+
+@pytest.mark.unit
+async def test_p334_refuses_same_release_same_count_row_mutation() -> None:
+    client = _NcitClient([_row("C1", "8000/3")])
+    observations = iter(([_row("C1", "8000/3")], [_row("C2", "8000/3")]))
+
+    async def switching_rows(query: str) -> list[dict[str, str]]:
+        if "active/" in query:
+            return []
+        return next(observations)
+
+    client.select = switching_rows  # type: ignore[method-assign]
     store = _Store()
     with pytest.raises(P334SourceError, match="changed during validation"):
         await publish_p334_alignments(

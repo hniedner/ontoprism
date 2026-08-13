@@ -44,11 +44,15 @@ class NcitAlignment(BaseModel):
 
 
 class IcdoDetail(BaseModel):
+    activation_identity: str
+    serving_identity: str
     record: IcdoRecord
     ncit_alignments: list[NcitAlignment]
 
 
 class IcdoPage(BaseModel):
+    activation_identity: str
+    serving_identity: str
     edition: Edition
     axis: Axis
     query: str
@@ -190,7 +194,7 @@ async def list_records(
     _dataset(edition, axis)
     ready = await _ready(repository_metadata, edition, axis)
     try:
-        return await repository.search(
+        result = await repository.search(
             edition,
             axis,
             query="",
@@ -200,6 +204,11 @@ async def list_records(
             offset=offset,
             generation_id=ready.activation_identity,
         )
+        return {
+            **result,
+            "activation_identity": ready.activation_identity,
+            "serving_identity": ready.serving_identity,
+        }
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
@@ -221,7 +230,7 @@ async def search(
     _dataset(edition, axis)
     ready = await _ready(repository_metadata, edition, axis)
     try:
-        return await repository.search(
+        result = await repository.search(
             edition,
             axis,
             query=q,
@@ -231,6 +240,11 @@ async def search(
             offset=offset,
             generation_id=ready.activation_identity,
         )
+        return {
+            **result,
+            "activation_identity": ready.activation_identity,
+            "serving_identity": ready.serving_identity,
+        }
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
@@ -265,6 +279,8 @@ async def detail(
         else {}
     )
     return IcdoDetail(
+        activation_identity=ready.activation_identity,
+        serving_identity=ready.serving_identity,
         record=IcdoRecord.model_validate(result),
         ncit_alignments=_ncit_alignments(canonical, edition, rows.get(canonical, [])),
     )

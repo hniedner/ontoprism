@@ -161,7 +161,7 @@ class _FakeEmbeddings:
 
 class _Metadata:
     async def ncit(self) -> SimpleNamespace:
-        return SimpleNamespace(source_identity="f" * 64)
+        return SimpleNamespace(source_identity="f" * 64, manifest_identity="e" * 64)
 
     def cadsr(self) -> SimpleNamespace:
         return SimpleNamespace(source_identity="f" * 64)

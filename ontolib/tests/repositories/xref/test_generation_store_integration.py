@@ -27,6 +27,22 @@ pytestmark = [
     pytest.mark.usefixtures("isolated_postgres_settings", "isolated_qlever_settings"),
 ]
 
+_ACTIVE_PREDICATE = (
+    "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-upstream-xref.owl/activeGeneration"
+)
+
+
+def _pointer_row(source: str, graph: str | None) -> list[dict[str, str]]:
+    if graph is None:
+        return []
+    return [
+        {
+            "source": active_graph_iri(source),
+            "predicate": _ACTIVE_PREDICATE,
+            "g": graph,
+        }
+    ]
+
 
 def _record(subject: str, obj: str, version: str) -> SSSOMRecord:
     return SSSOMRecord(
@@ -237,7 +253,7 @@ async def test_rollback_pointer_failure_restores_newer_postgres_generation() -> 
                 )
 
         async def select(self, _query: str) -> list[dict[str, str]]:
-            return [{"g": self.pointer}] if self.pointer is not None else []
+            return _pointer_row(source, self.pointer)
 
     client = Client()
     first = await publish_generation(
@@ -282,7 +298,7 @@ async def test_pointer_commit_then_raise_is_reconciled_as_success() -> None:
                 raise RuntimeError("response lost after commit")
 
         async def select(self, _query: str) -> list[dict[str, str]]:
-            return [{"g": self.pointer}] if self.pointer is not None else []
+            return _pointer_row(source, self.pointer)
 
     client = Client()
     result = await publish_generation(
@@ -293,6 +309,71 @@ async def test_pointer_commit_then_raise_is_reconciled_as_success() -> None:
         records=[_record("COMMIT", "UBERON:COMMIT", "u1")],
     )
     assert await store.active_generation(source) == result.generation_id
+    await dispose_engine(engine)
+
+
+async def test_pointer_cancellation_propagates_without_reconciliation() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "issue291-cancel-after-commit"
+
+    class Client:
+        pointer: str | None = None
+        select_calls = 0
+
+        async def load(self, data: bytes, *, graph_iri: str, **_kwargs: object) -> None:
+            if graph_iri == active_graph_iri(source):
+                self.pointer = data.decode().rsplit("<", 1)[1].split(">", 1)[0]
+                raise asyncio.CancelledError
+
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            self.select_calls += 1
+            return _pointer_row(source, self.pointer)
+
+    client = Client()
+    with pytest.raises(asyncio.CancelledError):
+        await publish_generation(
+            store,
+            client,  # type: ignore[arg-type]
+            source=source,
+            run_id=await _run(store, source, "u1"),
+            records=[_record("CANCEL", "UBERON:CANCEL", "u1")],
+        )
+    assert client.select_calls == 1
+    await dispose_engine(engine)
+
+
+async def test_pointer_reconciliation_failure_preserves_original_network_error() -> (
+    None
+):
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "issue291-reconciliation-error"
+
+    class Client:
+        select_calls = 0
+
+        async def load(
+            self, _data: bytes, *, graph_iri: str, **_kwargs: object
+        ) -> None:
+            if graph_iri == active_graph_iri(source):
+                raise RuntimeError("original pointer error")
+
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            self.select_calls += 1
+            if self.select_calls > 1:
+                raise ValueError("reconciliation failed")
+            return []
+
+    with pytest.raises(RuntimeError, match="original pointer error") as captured:
+        await publish_generation(
+            store,
+            Client(),  # type: ignore[arg-type]
+            source=source,
+            run_id=await _run(store, source, "u1"),
+            records=[_record("ERROR", "UBERON:ERROR", "u1")],
+        )
+    assert isinstance(captured.value.__cause__, ValueError)
     await dispose_engine(engine)
 
 
@@ -314,7 +395,7 @@ async def test_reactivation_rollback_uses_activation_history_not_creation_parent
                 )
 
         async def select(self, _query: str) -> list[dict[str, str]]:
-            return [{"g": self.pointer}] if self.pointer is not None else []
+            return _pointer_row(source, self.pointer)
 
     client = Client()
     generations = []
@@ -330,6 +411,53 @@ async def test_reactivation_rollback_uses_activation_history_not_creation_parent
         )
     assert (
         await rollback_generation(store, client, source) == generations[2].generation_id
+    )  # type: ignore[arg-type]
+    assert (
+        await rollback_generation(store, client, source) == generations[1].generation_id
+    )
+    await dispose_engine(engine)
+
+
+async def test_repeated_rollback_traverses_forward_activation_events() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "issue291-repeated-history"
+
+    class Client:
+        pointer: str | None = None
+
+        async def load(self, data: bytes, *, graph_iri: str, **_kwargs: object) -> None:
+            if graph_iri == active_graph_iri(source):
+                self.pointer = data.decode().rsplit("<", 1)[1].split(">", 1)[0]
+
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            if self.pointer is None:
+                return []
+            return [
+                {
+                    "source": active_graph_iri(source),
+                    "predicate": _ACTIVE_PREDICATE,
+                    "g": self.pointer,
+                }
+            ]
+
+    client = Client()
+    generations = []
+    for code in ("A", "B", "C"):
+        generations.append(
+            await publish_generation(
+                store,
+                client,  # type: ignore[arg-type]
+                source=source,
+                run_id=await _run(store, source, code),
+                records=[_record(code, f"UBERON:{code}", code)],
+            )
+        )
+    assert (
+        await rollback_generation(store, client, source) == generations[1].generation_id
+    )  # type: ignore[arg-type]
+    assert (
+        await rollback_generation(store, client, source) == generations[0].generation_id
     )  # type: ignore[arg-type]
     await dispose_engine(engine)
 
@@ -350,7 +478,7 @@ async def test_publication_preflight_repairs_hard_crash_split_brain() -> None:
                 )
 
         async def select(self, _query: str) -> list[dict[str, str]]:
-            return [{"g": self.pointer}] if self.pointer is not None else []
+            return _pointer_row(source, self.pointer)
 
     client = Client()
     first = await publish_generation(
@@ -511,7 +639,7 @@ async def test_source_lock_spans_postgres_rdf_and_activation() -> None:
                 )
 
         async def select(self, _query: str) -> list[dict[str, str]]:
-            return [{"g": self.pointer}] if self.pointer is not None else []
+            return _pointer_row(source, self.pointer)
 
     client = PausingClient()
     first = asyncio.create_task(

@@ -233,14 +233,6 @@ class XrefStore:
                 ),
                 {"id": predecessor, "source": source},
             )
-            await s.execute(
-                text(
-                    "INSERT INTO xref_activation_history "
-                    "(source, generation_id, predecessor_id) "
-                    "VALUES (:source, :id, :predecessor)"
-                ),
-                {"source": source, "id": predecessor, "predecessor": None},
-            )
             await s.commit()
             return str(predecessor)
 

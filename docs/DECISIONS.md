@@ -2,6 +2,48 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
+
+### D71. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
+
+**Decision:** NCIt's `P334` assertions are publisher database cross-references, not
+equivalence claims. Values resolving against the exact active ICD-O-3.2 morphology
+generation publish as `skos:closeMatch`, lifecycle `proposed`, with
+`https://ontoprism.org/vocab#PublisherDatabaseCrossReference` justification. Publication
+binds the exact P334 row fingerprint and the recertified ICD-O generation and serving
+fingerprint; only the independent-evidence and reasoner-backed promotion path may produce
+identity-grade mappings.
+
+Malformed or unresolved publisher values remain explicit report rows. These additive
+alignments are derived from and aligned to ICD-O-3.2 and never alter stated or decomposed
+NCIt graphs. Protected term text and reciprocal ICD-O detail remain entitlement-gated.
+
+## 2026-08-12 — Certified cross-repository publication
+
+### D73. Publisher database cross-references remain inspectable proposals until independently validated
+
+Uberon `oboInOwl:hasDbXref "NCIT:C…"` assertions are direct publisher evidence, but do
+not state equivalence and may differ in scope across terminologies.
+
+**Decision:** Publish each resolvable assertion as `skos:closeMatch`, lifecycle `proposed`,
+with publisher-database-cross-reference justification. Bind the exact Uberon assertion
+fingerprint and exact resolved NCIt target fingerprint into the report and generation
+identity, and repeat both observations before publication. Preserve many-to-one and
+many-to-many assertions; unresolved targets remain explicit report rows. Only the
+independent-evidence and reasoner-backed promotion path can produce identity-grade mappings.
+
+### D70. ICD-O certified repositories use separate consumer entitlement
+
+**Decision:** ICD-O term content is served only to consumers presenting the dedicated
+ICD-O entitlement. Authorization runs before repository metadata, records, search caches,
+SSR rendering, or analytical reports are read.
+
+Publisher workbooks remain operator-supplied, access-controlled artifacts. Each served
+edition/axis is an immutable PostgreSQL generation selected by an active pointer and
+certified by a canonical fingerprint over exact served values. Reads carry the activation
+identity used to pin the query and the certified serving identity. The ICD-O-4
+topography/Uberon congruence output is an inspection report and publishes no mapping.
+
 ## 2026-08-11 — PDM commands own certified local tool configuration
 
 ### D72. Every PDM task loads repository-local Jena and ROBOT defaults
@@ -370,26 +412,6 @@ which `round(tp / 153, 4) == 0.5229`
 **Decision: M1 is "decomposition baseline measured against SME truth". Engine-quality work
 follows the measurement; web-application work precedes further content work. Keep subsequent
 work on one small issue branch apiece.**
-
-## 2026-08-12 — Uberon publisher xrefs are proposed close alignments
-
-### D73. Publisher database cross-references remain inspectable proposals until independently validated
-
-Uberon publishes `oboInOwl:hasDbXref "NCIT:C…"` assertions. They are valuable direct publisher
-evidence, but the predicate does not state equivalence and anatomy concepts frequently differ in
-scope across terminologies.
-
-**Decision.** Publish each resolvable assertion as `skos:closeMatch` with lifecycle `proposed` and
-mapping justification `https://ontoprism.org/vocab#PublisherDatabaseCrossReference`. Bind both typed endpoints to the certified
-Uberon and NCIt releases used for validation. Preserve every asserted pair, including many-to-one
-and many-to-many sets. Validate all NCIt targets in one bounded query against the activated store;
-retain unresolved assertions in the run report as `ncit-target-not-found` rather than publishing
-or dropping them silently. This publisher ingest never emits `exactMatch`. The existing
-independent-evidence and reasoner-backed promotion path remains the sole route to an
-identity-grade mapping.
-
-This records alignment derived from and corroborated by Uberon's assertion, consistent with D60;
-it does not make Uberon a co-owner of anything OntoPrism emits.
 
 ## 2026-08-07 — what we produce is NCIt, and provenance is what makes alignment work
 
@@ -2420,40 +2442,3 @@ in M1+, where its machinery is justified.
 
 ### Dropped/deferred tests
 _(none yet — record here any intentionally-dropped ported test.)_
-## D70. ICD-O certified repositories use separate consumer entitlement
-
-**Decision (2026-08-12):** ICD-O term content is served only to consumers presenting
-the dedicated ICD-O entitlement; this is separate from
-the build/serving flag for licensed mappings. Authorization runs before repository
-metadata, records, search caches, SSR rendering, or analytical reports are read.
-
-Publisher workbooks remain operator-supplied, access-controlled artifacts and are not
-committed. ICD-O-3.2 morphology is read directly from the certified original `.xls`
-with pinned `xlrd`; its uncertified historical `.xlsx` conversion is never a production
-input. ICD-O-4 morphology and topography are read with pinned `openpyxl` from the
-certified archive and annex workbooks. Each edition/axis is an immutable PostgreSQL
-generation with an atomic active pointer and a canonical fingerprint over exact served
-values. The ICD-O-4 topography/Uberon congruence output is a protected inspection
-report: evidence and classification are distinct, and it publishes no mapping or
-`exactMatch` assertion.
-
-## D71. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
-
-**Decision (2026-08-13):** NCIt's own `P334` assertions are publisher database
-cross-references, not equivalence claims. Every value resolving against the exact active
-ICD-O-3.2 morphology generation is therefore published as `skos:closeMatch`, lifecycle
-`proposed`, with `https://ontoprism.org/vocab#PublisherDatabaseCrossReference` justification. The source and target retain
-typed release identity `(ncit, release, code)` and `(icdo, 3.2, code)`. Only the independent-
-evidence and reasoner-backed promotion path may produce identity-grade mappings.
-
-The broad/narrow scope mismatch is material: an NCIt disease concept can assert a morphology
-code that describes only one aspect of it, and one morphology code can be asserted by several
-NCIt concepts. Multiple targets neither prove nor disprove equivalence. Publisher values that do
-not have the ICD-O-3.2 `dddd/b` form, and well-formed codes absent from the certified generation,
-remain explicit typed unresolved report rows rather than being coerced or silently dropped.
-
-These alignments are derived from and aligned to the WHO 3.2 edition and corroborated by NCIt's
-own assertion, consistent with D60. They remain additive xref provenance and never alter the
-stated or decomposed NCIt graphs. Protected WHO term text and reciprocal ICD-O detail stay behind
-the ICD-O consumer entitlement. NCIt's published code mapping follows the existing licensed-
-mapping governance and is never presented as a WHO preferred term.

@@ -78,13 +78,21 @@ class SourceShape(_StrictModel):
     trailing_blank_rows: int
 
 
-def _validate_record_shape(record: IcdoRecord) -> None:
-    if record.level == "morphology":
-        if record.parent_code is not None or not re.fullmatch(
-            r"[0-9]{4}(?:[0-9A-Z])?/[0-9]", record.code
-        ):
-            raise ValueError("morphology record has incompatible fields")
-        return
+def _validate_morphology_record(record: IcdoRecord) -> None:
+    if record.parent_code is not None or not re.fullmatch(
+        r"[0-9]{4}(?:[0-9A-Z])?/[0-9]", record.code
+    ):
+        raise ValueError("morphology record has incompatible fields")
+    expected = (
+        record.code[:4],
+        record.code[4] if "/" not in record.code[:5] else None,
+        record.code[-1],
+    )
+    if (record.base_morphology, record.specificity, record.behaviour) != expected:
+        raise ValueError("morphology derived fields do not match code")
+
+
+def _validate_topography_record(record: IcdoRecord) -> None:
     morphology_fields = (
         record.base_morphology,
         record.specificity,
@@ -94,6 +102,28 @@ def _validate_record_shape(record: IcdoRecord) -> None:
         field is not None for field in morphology_fields
     ):
         raise ValueError("topography record has incompatible fields")
+    expected_level = "leaf" if "." in record.code else "category"
+    expected_parent = record.code[:3] if expected_level == "leaf" else None
+    if (record.level, record.parent_code) != (expected_level, expected_parent):
+        raise ValueError("topography record level or parent does not match code")
+
+
+def _validate_record_shape(record: IcdoRecord) -> None:
+    if record.level == "morphology":
+        _validate_morphology_record(record)
+    else:
+        _validate_topography_record(record)
+
+
+def _invalid_morphology_edition(dataset: CanonicalDataset, pattern: str) -> bool:
+    invalid_shape = any(
+        re.fullmatch(pattern, row.code) is None for row in dataset.records
+    )
+    invalid_specificity = any(
+        (dataset.edition == "3.2") == (row.specificity is not None)
+        for row in dataset.records
+    )
+    return invalid_shape or invalid_specificity
 
 
 class IcdoRecord(_StrictModel):
@@ -127,9 +157,7 @@ def _validate_dataset_records(dataset: CanonicalDataset) -> None:
     pattern = (
         r"[0-9]{4}/[0-9]" if dataset.edition == "3.2" else r"[0-9]{4}[0-9A-Z]/[0-9]"
     )
-    if morphology and any(
-        re.fullmatch(pattern, row.code) is None for row in dataset.records
-    ):
+    if morphology and _invalid_morphology_edition(dataset, pattern):
         raise ValueError("morphology record shape does not match dataset edition")
 
 

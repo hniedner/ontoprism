@@ -1,6 +1,6 @@
 """Certified Uberon/CL list, search, detail, and neighborhood endpoints."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ from backend.dependencies import (
 from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
+from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
@@ -29,14 +30,16 @@ logger = get_logger(__name__)
 
 class NcitAlignment(BaseModel):
     code: str
-    system: str
+    system: Literal["ncit"] = "ncit"
     version: str
-    predicate: str
-    lifecycle: str
+    predicate: MappingPredicate
+    lifecycle: MappingLifecycle
 
 
 class UberonAlignments(BaseModel):
     code: str
+    repository_source_identity: str
+    repository_serving_identity: str
     alignments: list[NcitAlignment]
 
 
@@ -151,10 +154,12 @@ async def alignments(
     metadata: RepositoryMetadataReads,
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
 ) -> UberonAlignments:
-    await _ready(metadata)
+    repository = await _ready(metadata)
     rows = await xref_store.mappings_for_identifiers({code})
     return UberonAlignments(
         code=code,
+        repository_source_identity=repository.source_identity,
+        repository_serving_identity=repository.observation.serving.sha256,
         alignments=[
             NcitAlignment(
                 code=target.identifier,

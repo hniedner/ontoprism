@@ -28,6 +28,7 @@ class _Store:
         self.calls += 1
         return SimpleNamespace(
             activation_identity="a" * 64,
+            serving_identity="b" * 64,
             model_dump=lambda **_: {"edition": edition, "axis": axis, "row_count": 1},
         )
 
@@ -53,6 +54,7 @@ class _Store:
                     "code": "8503/0",
                     "level": "morphology",
                     "preferred": "Intraductal papilloma",
+                    "base_morphology": "8503",
                     "behaviour": "0",
                 }
             ],
@@ -68,6 +70,8 @@ class _Store:
         return {
             "code": code,
             "level": "morphology",
+            "base_morphology": "8503",
+            "behaviour": "0",
             "preferred": "Intraductal papilloma",
             "synonyms": ("Papilloma",),
             "related": (),
@@ -91,7 +95,12 @@ class _ReadinessMetadata:
             return RepositoryUnhealthy(
                 repository="icdo", reason="observation-mismatch", message="drift"
             )
-        return SimpleNamespace(edition=edition, axis=axis, activation_identity="a" * 64)
+        return SimpleNamespace(
+            edition=edition,
+            axis=axis,
+            activation_identity="a" * 64,
+            serving_identity="b" * 64,
+        )
 
 
 class _Xrefs:
@@ -196,6 +205,9 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         detail.status_code,
     ] == [200] * 4
     assert detail.json()["record"]["code"] == "8503/0"
+    for payload in (listed.json(), searched.json(), detail.json()):
+        assert payload["activation_identity"] == "a" * 64
+        assert payload["serving_identity"] == "b" * 64
     assert [row["code"] for row in detail.json()["ncit_alignments"]] == [
         "C1",
         "C2",
@@ -245,6 +257,9 @@ def test_icdo4_code_variants_round_trip_from_safe_segments(
                 "code": code,
                 "level": "morphology" if axis == "morphology" else "leaf",
                 "parent_code": "C34" if axis == "topography" else None,
+                "base_morphology": "8503" if axis == "morphology" else None,
+                "specificity": "2" if axis == "morphology" else None,
+                "behaviour": "0" if axis == "morphology" else None,
                 "preferred": "Publisher term",
             }
 

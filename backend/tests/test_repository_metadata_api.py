@@ -100,15 +100,19 @@ class _Metadata:
         self,
         ncit: NcitRepositoryReady | RepositoryUnhealthy,
         uberon: UberonRepositoryReady | RepositoryUnhealthy | None = None,
+        cadsr: CadsrRepositoryReady | RepositoryUnhealthy | None = None,
+        icdo: IcdoRepositoryReady | RepositoryUnhealthy | None = None,
     ) -> None:
         self._ncit = ncit
         self._uberon = uberon or _uberon_ready()
+        self._cadsr = cadsr or _cadsr_ready()
+        self._icdo = icdo
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         return self._ncit
 
     def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
-        return _cadsr_ready()
+        return self._cadsr
 
     async def uberon(
         self, *, force: bool = False
@@ -116,8 +120,10 @@ class _Metadata:
         del force
         return self._uberon
 
-    async def icdo(self, edition: str, axis: str) -> IcdoRepositoryReady:
-        return IcdoRepositoryReady(
+    async def icdo(
+        self, edition: str, axis: str
+    ) -> IcdoRepositoryReady | RepositoryUnhealthy:
+        return self._icdo or IcdoRepositoryReady(
             edition=edition,
             axis=axis,
             source_identity="3" * 64,
@@ -142,7 +148,24 @@ def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
         "repository": _ncit_ready().model_dump(mode="json"),
         "repositories": [
             _ncit_ready().model_dump(mode="json"),
+            _cadsr_ready().model_dump(mode="json"),
             _uberon_ready().model_dump(mode="json"),
+            *[
+                IcdoRepositoryReady(
+                    edition=edition,
+                    axis=axis,
+                    source_identity="3" * 64,
+                    serving_identity="4" * 64,
+                    activation_identity="5" * 64,
+                    row_count=1,
+                    activated_at=datetime(2026, 8, 12, tzinfo=UTC),
+                ).model_dump(mode="json")
+                for edition, axis in (
+                    ("3.2", "morphology"),
+                    ("4.0", "morphology"),
+                    ("4.0", "topography"),
+                )
+            ],
         ],
     }
 
@@ -182,6 +205,40 @@ def test_ready_refuses_when_uberon_release_is_unhealthy() -> None:
     with TestClient(app) as client:
         response = client.get("/ready")
 
+    assert response.status_code == 503
+    assert response.json()["detail"] == unhealthy.model_dump(mode="json")
+
+
+@pytest.mark.api
+def test_ready_refuses_when_manifest_declared_cadsr_is_unhealthy() -> None:
+    unhealthy = RepositoryUnhealthy(
+        repository="cadsr",
+        reason="repository-unreachable",
+        message="caDSR unavailable",
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(
+        _ncit_ready(), cadsr=unhealthy
+    )
+    with TestClient(app) as client:
+        response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"] == unhealthy.model_dump(mode="json")
+
+
+@pytest.mark.api
+def test_ready_refuses_when_any_served_icdo_dataset_is_unhealthy() -> None:
+    unhealthy = RepositoryUnhealthy(
+        repository="icdo",
+        reason="observation-mismatch",
+        message="ICD-O serving fingerprint drift",
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(
+        _ncit_ready(), icdo=unhealthy
+    )
+    with TestClient(app) as client:
+        response = client.get("/ready")
     assert response.status_code == 503
     assert response.json()["detail"] == unhealthy.model_dump(mode="json")
 

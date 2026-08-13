@@ -18,4 +18,12 @@ describe('repository registry', () => {
 		]);
 	});
 
+	it('requires every local-certified manifest entry in readiness representation', () => {
+		const represented = new Set(['ncit', 'cadsr', 'uberon', 'icdo']);
+		const declared = repositories
+			.filter((entry) => entry.kind === 'local-certified-proxy')
+			.map((entry) => entry.id);
+		expect(declared.every((id) => represented.has(id))).toBe(true);
+	});
+
 });

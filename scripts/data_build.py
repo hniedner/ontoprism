@@ -33,7 +33,11 @@ import typer
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from backend.repository_metadata import icdo_expectation
+from backend.repository_metadata import (
+    RepositoryMetadataService,
+    RepositoryUnhealthy,
+    icdo_expectation,
+)
 from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -711,14 +715,35 @@ async def _build_xref() -> None:
             SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
         ):
             store = XrefStore(sf)
-            ncit_version = (await ncit_client.version()) or "unknown"
-            uberon_version = "uberon-2026-01"
+            metadata = RepositoryMetadataService(
+                settings=settings,
+                cadsr=CdeRepository(settings.cadsr_db_path),
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("candidate sources are not certified ready")
+
+            async def observe_source_identities() -> tuple[str, str]:
+                ncit_after = await metadata.ncit()
+                uberon_after = await metadata.uberon(force=True)
+                if isinstance(ncit_after, RepositoryUnhealthy) or isinstance(
+                    uberon_after, RepositoryUnhealthy
+                ):
+                    raise RuntimeError("candidate source certification changed")
+                return ncit_after.source_identity, uberon_after.source_identity
+
             report = await ingest_candidates(
                 store,
                 ncit_client,
                 uberon_client,
-                ncit_version=ncit_version,
-                uberon_version=uberon_version,
+                ncit_version=ncit_ready.release,
+                uberon_version=uberon_ready.version_iri,
+                ncit_source_identity=ncit_ready.source_identity,
+                uberon_source_identity=uberon_ready.source_identity,
+                observe_source_identities=observe_source_identities,
             )
     finally:
         await dispose_engine(engine)
@@ -988,7 +1013,10 @@ def embeddings(
     publish: bool = typer.Option(
         False,
         "--publish",
-        help="Build, validate, and atomically replace each selected active corpus.",
+        help=(
+            "Build, validate, and replace each selected corpus with ordered "
+            "reconciliation."
+        ),
     ),
     corpus: Corpus | None = typer.Option(  # noqa: B008 — typer option factory
         None,
