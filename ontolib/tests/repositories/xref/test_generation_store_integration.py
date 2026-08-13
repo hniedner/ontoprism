@@ -21,6 +21,7 @@ from ontolib.repositories.xref.models import (
     UberonPromotionGenerationMetadata,
     UberonPublisherGenerationMetadata,
     UberonReadIdentity,
+    UnavailableXrefGenerationError,
     XrefReadPolicy,
 )
 from ontolib.repositories.xref.publication import (
@@ -233,7 +234,8 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
                     records=records,
                     failpoint=failpoint,
                 )
-            assert await store.mappings_by_subjects({"C7"}, expected=_READ_POLICY) == {}
+            with pytest.raises(UnavailableXrefGenerationError):
+                await store.mappings_by_subjects({"C7"}, expected=_READ_POLICY)
 
         result = await publish_generation(
             store, client, source=source, run_id=run_id, records=records
@@ -308,7 +310,8 @@ async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> No
             records=[_record("FAIL", "UBERON:FAIL", "u1")],
         )
     assert await store.active_generation(source) is None
-    assert await store.mappings_by_subjects({"FAIL"}, expected=_READ_POLICY) == {}
+    with pytest.raises(UnavailableXrefGenerationError):
+        await store.mappings_by_subjects({"FAIL"}, expected=_READ_POLICY)
     await dispose_engine(engine)
 
 
@@ -1064,10 +1067,33 @@ async def test_promotion_requires_all_read_identities() -> None:
     await dispose_engine(engine)
 
 
-async def test_nonempty_lookup_without_active_generations_returns_empty() -> None:
+async def test_nonempty_lookup_without_requested_active_family_fails_closed() -> None:
     engine = make_engine(get_settings().database_url)
     await _clear_active_generations(engine)
     store = XrefStore(make_sessionmaker(engine))
+
+    with pytest.raises(UnavailableXrefGenerationError, match="Uberon"):
+        await store.mappings_by_subjects({"ABSENT"}, expected=_READ_POLICY)
+    await dispose_engine(engine)
+
+
+async def test_active_certified_family_with_no_matching_mapping_returns_empty() -> None:
+    engine = make_engine(get_settings().database_url)
+    await _clear_active_generations(engine)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "uberon-cl"
+    record = _record("OTHER", "UBERON:OTHER", "u1")
+    generation_id, content = _generation_identity(source, [record], _SOURCE_METADATA)
+    await store.prepare_generation(
+        source=source,
+        generation_id=generation_id,
+        content_sha256=content,
+        source_metadata=_SOURCE_METADATA,
+        graph_iri=generation_graph_iri(source, generation_id),
+        run_id=await _run(store, source, "active-empty"),
+        records=[record],
+    )
+    await store.activate_generation(source, generation_id)
 
     assert await store.mappings_by_subjects({"ABSENT"}, expected=_READ_POLICY) == {}
     await dispose_engine(engine)

@@ -29,6 +29,7 @@ from ontolib.repositories.xref.models import (
     IcdoReadIdentity,
     MappingResult,
     StaleXrefGenerationError,
+    UnavailableXrefGenerationError,
     XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
@@ -383,7 +384,7 @@ async def detail(
                     )
                 ),
             )
-        except StaleXrefGenerationError as exc:
+        except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     detail_type = {
         ("3.2", "morphology"): Morphology32Detail,

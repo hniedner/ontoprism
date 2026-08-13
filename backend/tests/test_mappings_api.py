@@ -14,7 +14,11 @@ from backend.dependencies import (
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
-from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    MappingResult,
+    UnavailableXrefGenerationError,
+)
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
 
@@ -247,6 +251,29 @@ def test_concept_mappings_no_mappings_returns_empty() -> None:
 
 
 @pytest.mark.api
+def test_concept_mappings_maps_missing_requested_family_to_503() -> None:
+    class _Unavailable(_FakeXrefStore):
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], **_kwargs: object
+        ) -> dict[str, list[MappingResult]]:
+            del identifiers
+            raise UnavailableXrefGenerationError(
+                "no active certified Uberon alignment generation"
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_xref_store] = _Unavailable
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C99999/mappings")
+
+    assert response.status_code == 503
+
+
+@pytest.mark.api
 def test_concept_mappings_rejects_malformed_code() -> None:
     client = next(_client())
     resp = client.get("/api/v1/ncit/concepts/bad code/mappings")
@@ -254,7 +281,7 @@ def test_concept_mappings_rejects_malformed_code() -> None:
 
 
 @pytest.mark.api
-@pytest.mark.parametrize("repository", ["ncit", "uberon", "icdo"])
+@pytest.mark.parametrize("repository", ["ncit", "uberon"])
 def test_concept_mappings_refuses_each_uncertified_source(repository: str) -> None:
     class _Unhealthy(_FakeMetadata):
         async def ncit(self) -> object:
@@ -292,6 +319,53 @@ def test_concept_mappings_refuses_each_uncertified_source(repository: str) -> No
     assert store.lookup_calls == 0
 
 
+@pytest.mark.api
+def test_public_concept_mappings_does_not_request_licensed_family() -> None:
+    class _UnhealthyIcdo(_FakeMetadata):
+        async def icdo(self, edition: str, axis: str) -> object:
+            del edition, axis
+            raise AssertionError("public mapping read requested ICD-O metadata")
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = _FakeXrefStore
+    app.dependency_overrides[get_repository_metadata] = _UnhealthyIcdo
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C12400/mappings")
+
+    assert response.status_code == 200
+
+
+@pytest.mark.api
+def test_entitled_concept_mappings_refuses_uncertified_licensed_family(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+
+    class _UnhealthyIcdo(_FakeMetadata):
+        async def icdo(self, edition: str, axis: str) -> object:
+            del edition, axis
+            return RepositoryUnhealthy(
+                repository="icdo", reason="observation-mismatch", message="drift"
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = _FakeXrefStore
+    app.dependency_overrides[get_repository_metadata] = _UnhealthyIcdo
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/ncit/concepts/C12400/mappings",
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+
+    assert response.status_code == 503
+
+
 # --- $translate ---
 
 
@@ -313,6 +387,71 @@ def test_translate_ncit_to_upstream() -> None:
     assert entry["concept"]["version"] == "2026-06-19"
     assert entry["equivalence"] == "equivalent"
     assert entry["confidence"] == 0.95
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("repository", ["ncit", "uberon", "icdo"])
+def test_translate_refuses_each_requested_uncertified_family(
+    repository: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if repository == "icdo":
+        monkeypatch.setattr(
+            "backend.api.v1.mappings.get_settings",
+            lambda: type(get_settings())(enable_licensed_mappings=True),
+        )
+
+    class _Unhealthy(_FakeMetadata):
+        async def ncit(self) -> object:
+            if repository == "ncit":
+                return RepositoryUnhealthy(
+                    repository="ncit", reason="observation-mismatch", message="drift"
+                )
+            return await super().ncit()
+
+        async def uberon(self) -> object:
+            if repository == "uberon":
+                return RepositoryUnhealthy(
+                    repository="uberon", reason="observation-mismatch", message="drift"
+                )
+            return await super().uberon()
+
+        async def icdo(self, edition: str, axis: str) -> object:
+            if repository == "icdo":
+                return RepositoryUnhealthy(
+                    repository="icdo", reason="observation-mismatch", message="drift"
+                )
+            return await super().icdo(edition, axis)
+
+    app = create_app()
+    app.dependency_overrides[get_xref_store] = _FakeXrefStore
+    app.dependency_overrides[get_repository_metadata] = _Unhealthy
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/mappings/$translate", json={"code": "C12400"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Mapping sources are unavailable."
+
+
+@pytest.mark.api
+def test_translate_maps_missing_requested_family_to_503() -> None:
+    class _Unavailable(_FakeXrefStore):
+        async def mappings_by_subjects(
+            self, codes: set[str], **_kwargs: object
+        ) -> dict[str, list[MappingResult]]:
+            del codes
+            raise UnavailableXrefGenerationError(
+                "no active certified Uberon alignment generation"
+            )
+
+    app = create_app()
+    app.dependency_overrides[get_xref_store] = _Unavailable
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/mappings/$translate", json={"code": "C12400"})
+
+    assert response.status_code == 503
 
 
 @pytest.mark.api

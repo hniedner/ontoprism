@@ -1,4 +1,4 @@
-# NCIt as a Specialization of the OBO/SNOMED Reference Substrate — External-Ontology Integration Strategy & Implementation Plan
+# NCIt Alignment Integration Strategy and Implementation Plan
 
 **Status:** Design-of-record (strategy shift) · **Author:** Hannes Niedner · **Date:** 2026-07-11
 **Supersedes nothing; extends** the [decomposition assessment](./ncit-decomposition-assessment.md),
@@ -6,7 +6,7 @@
 review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 **Decisions introduced here:** **D24–D26** (see [`../DECISIONS.md`](../DECISIONS.md)).
 
-> **Origin.** This document responds to external feedback (a local input memo) recommending
+> **Origin.** This document responds to review feedback (a local input memo) recommending
 > that a next-generation NCIt be built on the OBO Foundry stack (**Uberon** anatomy, **Cell
 > Ontology** cells) plus **SNOMED CT / ICD-O-3** morphology and **Mondo / DO** disease, linked by
 > Relation-Ontology properties. The feedback is directionally aligned with where ONTOPRISM already
@@ -111,7 +111,7 @@ NCI-curated oncology vocabulary — and *defers* the general anatomy/cell/diseas
 scaffolding to the upstream reference ontologies by **mapping to them**, not by absorbing or
 replacing them.
 
-This is realized as a **dual-canonical, additive bridge** (per the user's chosen integration
+This is realized as an **additive alignment bridge** (per the chosen integration
 posture):
 
 - **Reference plane — NCIt (unchanged, canonical-of-record for everything that exists today).**
@@ -177,7 +177,7 @@ Every row below is existing, decided, or built work that the new architecture co
 | Future complete lossless `owl:equivalentClass` unfolding (#153) | D19, D21, D43 | Becomes the **cross-product** artifact only after the proof-bearing representation exists; the current reserved flag rejects every request. |
 | Single-most-specific view as an explicitly-lossy curated projection | D15, D19 | Unchanged. Projection now optionally renders upstream labels. |
 | SCG / ECL / MRCM grammar template for goal 4 (#6) | D22 | The post-coordination grammar now **sanctions over upstream ranges** (MRCM ranges reference Uberon/SNOMED). Interoperable by construction. |
-| FHIR `ConceptMap.$translate` as the pre-↔post equivalence surface | D22, lit §8.4 | Becomes the **dual-canonical join surface** between the NCIt plane and the upstream plane. |
+| FHIR `ConceptMap.$translate` as the pre-↔post equivalence surface | D22, lit §8.4 | Becomes the alignment join surface between NCIt and corroborating terminology identifiers. |
 | Uberon store already running at `:7889` | assessment §8, D16, DATA_SETUP | Infra already present. Re-purposed from "validation cross-check" to "xref + validation target" (D16 revisit — §11). |
 | Stated-OWL additivity; named-graph separation (`ncit_decomposed`) | D4, D12, D19 | The xref triples live in **new named graphs alongside** `ncit_decomposed`. Same discipline. |
 | DL-classification / real reasoner as the equivalence oracle; never `rdfs:subClassOf+` | D21, lit §5.2, §8.3 | Now gates **cross-ontology** mapping validation too — the highest-risk correctness item. |
@@ -201,7 +201,7 @@ a new decomposition engine.
                                           │  RO: has_location, derives_from,
                                           │      has_material_basis_in
                           ┌───────────────┴──────────────────────────────┐
-   MAPPING LAYER          │  ncit_upstream_xref  (named graphs, additive)  │
+   ALIGNMENT LAYER        │  ncit_upstream_xref  (named graphs, additive)  │
    (the join;             │  provenance + confidence + SKOS relation       │
    evidence-qualified)    │  FHIR ConceptMap.$translate  (both directions) │
                           └───────────────▲──────────────────────────────┘
@@ -220,8 +220,8 @@ a new decomposition engine.
 
 **Reading the stack bottom-up.** The NCIt stated OWL is the immutable base; the decomposition engine
 writes `op:` axes into `ncit_decomposed`; the mapping layer attaches alignments to each
-axis filler; new authoring and external consumers work in the upstream plane and are translated down
-to NCIt (and thus to caDSR) on demand.
+axis filler; authoring and consuming systems use the aligned terminology view and translate to NCIt
+(and thus to caDSR) on demand.
 
 ### 3.1 The future cross-product model (how NCIt may become a "specialization")
 
@@ -458,7 +458,7 @@ What is read is the **stated** structure (NCIt's stated named graph), never NCIt
 pairs bootstrapping the anchor set: with no anchors and no curation, nothing is corroborated and nothing
 promotes. **The disjointness we get is a lower bound**: only binary `owl:disjointWith` is fetched (not
 `owl:AllDisjointClasses`), and NCIt ships almost none — so in practice the refutation power rests on the
-upstream plane. A run loading zero disjointness axioms logs a warning, because in that state calling the
+aligned terminology view. A run loading zero disjointness axioms logs a warning, because in that state calling the
 result "reasoner-validated" would be a false claim.
 
 **Lifecycle (D29).** Promotions are additive — they are written as their own `xref_run`, and the
@@ -543,9 +543,9 @@ coverage number. §13 specifies the workstream and its acceptance test.
 
 ---
 
-## 7. Governance of the dual-canonical model
+## 7. Governance of the alignment model
 
-The user accepted the higher governance cost of dual-canonical; this section bounds it — and corrects
+This section bounds the additional alignment governance cost and corrects
 two over-optimistic claims the red-team flagged (H3, H4).
 
 - **Authority-per-stage governs authoring, not truth-over-time.** The §3.2 table says which plane you
@@ -578,7 +578,7 @@ two over-optimistic claims the red-team flagged (H3, H4).
   licensed artifact, and ICD-O-3 morphology codes are WHO-copyrighted *content*, not bare identifiers.
   Therefore: (a) obtain a **written license determination** before building the gated path; (b) gate the
   **serving** endpoint by consumer entitlement, not just the build flag; (c) Uberon/CL/Mondo (CC-BY/CC0)
-  carry a **complete default product** with zero licensed dependency, so the open path is never blocked
+  carry a **complete default product** without licensed terminology requirements, so the open path is never blocked
   on the licensed one.
 
 ---
@@ -612,6 +612,11 @@ typed endpoint systems, versions, identifiers, predicates, lifecycle, confidence
 evidence keyed by generation. `xref_activation_history` supports source-local rollback.
 The generation identity covers source, records, and metadata, so identical records built
 against different certified repositories remain distinct generations.
+Migration `0018_xref_generations` introduced this source-specific generation model. Uberon
+candidate, publisher-alignment, and promotion sources form one optionally populated Uberon
+family; an active generation from any published feature satisfies family liveness. The P334
+family requires its single active generation. Reads validate every selected generation against
+the currently certified repository identities before looking up identifiers.
 
 ### 8.4 `backend` — API
 
@@ -634,13 +639,14 @@ against different certified repositories remain distinct generations.
   generations with source-specific certified metadata.
 - Future #153 work may extend the reserved `--emit-equivalence` seam with upstream-bound
   cross-products. It currently rejects every request, regardless of xref availability.
-- `pdm run data-build xref` is the mapping ingest/validation entry point.
+- `pdm run data-build xref` publishes candidates only. `pdm run data-build xref-promote`
+  validates candidates and publishes promotions.
 
 ---
 
 ## 9. Phased sequencing (revised critical path)
 
-The existing critical path (#4 → #9 → #5 → #6) is preserved; external integration is **inserted as a
+The existing critical path (#4 → #9 → #5 → #6) is preserved; alignment integration is **inserted as a
 parallel enabling track that gates goal-4 interoperability**, not as a replacement. Relation quality
 still gates coverage (D22) — mapping does **not** jump ahead of the `op:` genus-sense work.
 
@@ -661,11 +667,11 @@ Phase C (morphology + licensing)
 
 Phase D (serve + interop)
   D1  /concept/{id}/mappings + $translate endpoints                        [depends A1]
-  D2  Frontend external-mappings panel + dual-plane overlay
+  D2  Frontend alignment panel + optional graph overlay
   D3  caDSR transitive-reach validation (CDE → NCIt → upstream resolves)   [proves §6]
 
 Phase E (grammar, folds into #6)
-  E1  MRCM ranges reference upstream classes; SCG/ECL over dual-canonical  [#6 design starts here]
+  E1  MRCM ranges reference aligned classes; SCG/ECL alignment support     [#6 design starts here]
   E2  cross-product --emit-equivalence upstream-bound, reasoner-validated  [requires #153; #6 grammar]
 ```
 
@@ -683,9 +689,9 @@ mapping enriches the `op:` axes, it does not substitute for de-overloading them.
 | **SNOMED/ICD-O-3 licensing** limits redistribution | High | D26: license-gate those sources; store only NCIt→code maps (NCIm/UMLS-compatible), never bulk upstream content; Uberon/CL/Mondo (open) carry the default experience. |
 | **Mapping quality** — UMLS co-occurrence ≠ equivalence; OBO xrefs imperfect | High | §4.2 honest SKOS relations + §4.4 DL validation; golden mapping set with ≥0.9 gate; downgrade unvalidated `exactMatch`→`closeMatch`. |
 | **Cross-ontology subsumption not materialized** (D21, now ×2 ontologies) | High | Real OWL reasoner over stated structure as the oracle; never `rdfs:subClassOf+`; fail-safe = preserve, don't collapse. |
-| **Governance/maintenance cost** of dual-canonical + version rot | Medium | §7 single-authority-per-stage rule; upstream version pins with loud-fail (D5 parallel); mapping review workflow (D23 parity). |
+| **Governance/maintenance cost** of alignments + version rot | Medium | §7 single-authority-per-stage rule; source version pins with loud-fail (D5 parallel); mapping review workflow (D23 parity). |
 | **Scope creep** into gene/protein or into re-modeling upstream domains | Medium | Hold the assessment §3.3 scope gate; NCIt *maps to* upstream, never *forks/re-authors* it. |
-| **Perceived re-platforming** / stakeholder confusion | Medium | Communicate the dual-canonical invariant: NCIt stays canonical-of-record; nothing existing breaks; caDSR untouched. |
+| **Perceived re-platforming** / stakeholder confusion | Medium | Communicate the alignment invariant: NCIt stays canonical-of-record; nothing existing breaks; caDSR untouched. |
 | **D16 said "don't default to Uberon"** — apparent reversal | Low | §11: D16 declined Uberon as a *tie-break default for most-specific-filler*; using it as an *xref + interop target* (and re-testing its `part_of` for the residual region/organ ties) is a different, complementary use — not a reversal. **Do not over-claim** `part_of` as an equivalence arbiter (OAEI large-bio shows partonomy alignment still yields false positives); it disambiguates the anatomy axis only. |
 | **caDSR value/qualifier concepts unmapped** (grade, laterality, yes/no are outside role-target set + scope gate) | **High** | §6/§13: enumerate the true caDSR anchor set `C_cadsr` (all `concept_type` + all `permissible_value.meaning_code`), map `C_cadsr ∪ C_roles`, give value/qualifier concepts their own workstream, and report coverage — do not claim transitive reach for concepts never mapped. |
 | **Reasoner intractable / non-EL merge** at 10M+ triples | **High** | §4.4/D28: profile the merged validation ontology to OWL 2 EL, check satisfiability before classifying, commit tool/profile/runtime/owner — or downgrade to the materialized-definition structural check. Triple count ≠ complexity. |
@@ -902,7 +908,7 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 ### Updates to existing issues
 
 **Issue #4 (Decomposition engine) — add comment**
-> External-integration strategy adopted (design: `docs/design/ncit-external-integration.md`, DECISIONS
+> Alignment-integration strategy adopted (design: `docs/design/ncit-alignment-integration.md`, DECISIONS
 > D24–D26). Impact on #4: the `op:` axes are now also the binding points for alignments. No
 > change to the extractor's critical path; add an optional `upstream_xref` field to the constituent
 > model (non-blocking, Phase B1). After #153 provides the complete representation,
@@ -920,18 +926,18 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 **Issue #6 (Post-coordination grammar) — add comment**
 > D24/D26: the grammar's MRCM ranges now reference upstream classes (Uberon/CL/SNOMED/Mondo). #6 design
-> still starts from SCG/ECL/MRCM (D22) but sanctions over the dual-canonical range. Depends on Phase B.
+> still starts from SCG/ECL/MRCM (D22) but sanctions over aligned ranges. Depends on Phase B.
 
 **Issue #5 (Graph balancing) — add comment**
-> Unchanged dependency on trustworthy decomposed data. Note: upstream mappings give balancing an external
-> validation signal (Uberon/Mondo hierarchy) once Phase B lands; do not design against it until #44 data exists.
+> Trustworthy decomposed data remains a prerequisite. Uberon/Mondo hierarchy alignments can provide a
+> corroborating validation signal once Phase B lands; do not design against it until #44 data exists.
 
 ### New issues — Epic
 
-**#70 (EPIC): NCIt as a specialization of the OBO/SNOMED substrate — dual-canonical external integration**
-> Umbrella for NCIt alignments derived from other terminologies (design: `docs/design/ncit-external-integration.md`;
+**#70 (EPIC): NCIt alignment integration with OBO/SNOMED terminology evidence**
+> Umbrella for NCIt alignments derived from other terminologies (design: `docs/design/ncit-alignment-integration.md`;
 > DECISIONS D24–D29). Delivers additive NCIt↔upstream mappings (SSSOM), cross-product logical
-> definitions, dual-canonical `$translate`, and a **published caDSR coverage report**, preserving
+> definitions, bidirectional `$translate`, and a **published caDSR coverage report**, preserving
 > NCIt + caDSR anchoring. Children: #71–#84. Exit: §12 success criteria met — including the
 > published caDSR coverage number (§13.3), not an unfalsifiable "for free" claim.
 
@@ -1005,9 +1011,9 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 ### New issues — Phase D (serve + interop)
 
 **#82: `/concept/{id}/mappings` + FHIR-style `$translate` endpoints + frontend panel**
-> Serve mappings both directions; frontend external-mappings panel + optional dual-plane graph overlay.
-> **AC:** `$translate` round-trips NCIt↔upstream; license-gated fields feature-flagged; frontend renders
-> relation+confidence badges. Depends: #71, #77.
+> Serve mappings both directions; frontend alignment panel + optional graph overlay.
+> **AC:** `$translate` round-trips NCIt↔aligned identifiers; license-gated fields feature-flagged.
+> Depends: #71, #77.
 
 **#83: caDSR coverage report (not a sample walk) — the published guarantee**
 > Generate the §13.3 coverage report over **all** in-scope caDSR CDEs (not a sample), keyed on the true

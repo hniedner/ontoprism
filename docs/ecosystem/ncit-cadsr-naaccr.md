@@ -4,7 +4,7 @@
 **Decision:** `docs/DECISIONS.md` **D40** · **Vision:** `README.md` ("Serving the downstream NCI ecosystem")
 **Series:** first of the downstream-program relationship docs under `docs/ecosystem/`. Planned siblings —
 NCI Clinical Trials Reporting Program + oncology trials in ClinicalTrials.gov; NCI CRDC; NCI CCDI.
-Depends on / extends: [`../design/ncit-external-integration.md`](../design/ncit-external-integration.md)
+Extends: [`../design/ncit-alignment-integration.md`](../design/ncit-alignment-integration.md)
 (the dual-canonical mapping layer, §13 caDSR coverage) and DECISIONS **D24–D29, D27, D38**.
 
 ---

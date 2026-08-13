@@ -1761,7 +1761,7 @@ Three governance corrections (red-team H2/H3/H4/M3; lit F8/F9/F11/F14).
 
 ## 2026-07-11 — strategy shift: NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical, additive)
 
-Full design-of-record: [`docs/design/ncit-external-integration.md`](design/ncit-external-integration.md).
+Full design-of-record: [`docs/design/ncit-alignment-integration.md`](design/ncit-alignment-integration.md).
 Origin: external feedback (a local input memo) recommending an OBO Foundry + SNOMED/ICD-O-3 +
 Mondo composite architecture for a next-generation NCIt.
 
@@ -1863,7 +1863,7 @@ accepted by NCI.
 > composite staging sites with no anatomical counterpart and are the correct
 > `no-upstream-equivalent` residue, to remain hand-curated and explicitly labelled as such.
 >
-> Sequencing and the per-axis plan are in `docs/design/ncit-external-integration.md` §5/§9 and its
+> Sequencing and the per-axis plan are in `docs/design/ncit-alignment-integration.md` §5/§9 and its
 > 2026-08-06 status correction.
 
 SME review of the draft golden set (30 neoplasm concepts) produced a single governing rule that supersedes the per-cancer tie-resolution table in prior drafts, ratified the `op:` namespace for decomposition axes, identified two structural bugs, and required minted concepts for NCIt gaps. Recording all SME decisions as load-bearing.

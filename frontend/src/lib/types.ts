@@ -293,9 +293,9 @@ export interface SimilarConcept {
 	score: number;
 }
 
-// External mapping (issue #82).
+// Terminology alignment (issue #82).
 
-export interface ExternalMapping {
+export interface AlignmentMapping {
 	object_id: string;
 	system: string;
 	version: string;
@@ -305,11 +305,11 @@ export interface ExternalMapping {
 	is_identity: boolean;
 }
 
-export interface ConceptMappings {
+export interface ConceptAlignments {
 	code: string;
 	repository_source_identity: string;
 	repository_manifest_identity: string;
-	mappings: ExternalMapping[];
+	mappings: AlignmentMapping[];
 }
 
 // Decomposition (non-pre-coordinated) read models (backend ontolib.decomposition).

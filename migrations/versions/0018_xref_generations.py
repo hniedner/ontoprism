@@ -23,6 +23,8 @@ def upgrade() -> None:
             'ncit-p334-icdo32')),
           content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
           source_metadata jsonb NOT NULL CHECK (
+            jsonb_typeof(source_metadata) = 'object' AND
+            jsonb_typeof(source_metadata->'source') = 'string' AND
             source_metadata->>'source' = source AND
             CASE source
               WHEN 'uberon-cl' THEN
@@ -30,13 +32,25 @@ def upgrade() -> None:
                   'uberon_source_identity',
                   'uberon_serving_identity'] AND
                 source_metadata - ARRAY['source','ncit_source_identity',
-                  'uberon_source_identity','uberon_serving_identity'] = '{}'::jsonb
+                  'uberon_source_identity','uberon_serving_identity'] = '{}'::jsonb AND
+                jsonb_typeof(source_metadata->'ncit_source_identity') = 'string' AND
+                source_metadata->>'ncit_source_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'uberon_source_identity') = 'string' AND
+                source_metadata->>'uberon_source_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'uberon_serving_identity') = 'string' AND
+                source_metadata->>'uberon_serving_identity' ~ '^[0-9a-f]{64}$'
               WHEN 'uberon-cl-promotion' THEN
                 source_metadata ?& ARRAY['ncit_source_identity',
                   'uberon_source_identity',
                   'uberon_serving_identity'] AND
                 source_metadata - ARRAY['source','ncit_source_identity',
-                  'uberon_source_identity','uberon_serving_identity'] = '{}'::jsonb
+                  'uberon_source_identity','uberon_serving_identity'] = '{}'::jsonb AND
+                jsonb_typeof(source_metadata->'ncit_source_identity') = 'string' AND
+                source_metadata->>'ncit_source_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'uberon_source_identity') = 'string' AND
+                source_metadata->>'uberon_source_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'uberon_serving_identity') = 'string' AND
+                source_metadata->>'uberon_serving_identity' ~ '^[0-9a-f]{64}$'
               WHEN 'uberon-publisher-xref' THEN
                 source_metadata ?& ARRAY['ncit_source_identity',
                   'uberon_source_identity',
@@ -44,14 +58,33 @@ def upgrade() -> None:
                   'ncit_target_identity'] AND
                 source_metadata - ARRAY['source','ncit_source_identity',
                   'uberon_source_identity','uberon_serving_identity',
-                  'uberon_assertion_identity','ncit_target_identity'] = '{}'::jsonb
+                  'uberon_assertion_identity','ncit_target_identity'] = '{}'::jsonb AND
+                jsonb_typeof(source_metadata->'ncit_source_identity') = 'string' AND
+                source_metadata->>'ncit_source_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'uberon_source_identity') = 'string' AND
+                source_metadata->>'uberon_source_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'uberon_serving_identity') = 'string' AND
+                source_metadata->>'uberon_serving_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->
+                  'uberon_assertion_identity') = 'string' AND
+                source_metadata->>'uberon_assertion_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'ncit_target_identity') = 'string' AND
+                source_metadata->>'ncit_target_identity' ~ '^[0-9a-f]{64}$'
               WHEN 'ncit-p334-icdo32' THEN
                 source_metadata ?& ARRAY['ncit_source_identity',
                   'icdo_generation_identity',
                   'icdo_serving_identity','ncit_p334_identity']
-                  AND source_metadata - ARRAY['source','ncit_source_identity',
+                    AND source_metadata - ARRAY['source','ncit_source_identity',
                     'icdo_generation_identity','icdo_serving_identity',
-                    'ncit_p334_identity'] = '{}'::jsonb
+                    'ncit_p334_identity'] = '{}'::jsonb AND
+                jsonb_typeof(source_metadata->'ncit_source_identity') = 'string' AND
+                source_metadata->>'ncit_source_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'icdo_generation_identity') = 'string' AND
+                source_metadata->>'icdo_generation_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'icdo_serving_identity') = 'string' AND
+                source_metadata->>'icdo_serving_identity' ~ '^[0-9a-f]{64}$' AND
+                jsonb_typeof(source_metadata->'ncit_p334_identity') = 'string' AND
+                source_metadata->>'ncit_p334_identity' ~ '^[0-9a-f]{64}$'
               ELSE false
             END),
           graph_iri text NOT NULL UNIQUE,
@@ -95,7 +128,8 @@ def upgrade() -> None:
           author text NOT NULL,
           evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
            CHECK (
-             generation_source = 'uberon-cl-promotion' OR
+              (generation_source = 'uberon-cl-promotion'
+                AND subject_system = 'ncit' AND object_system = 'uberon-cl') OR
              (generation_source = 'uberon-cl'
                AND subject_system = 'ncit' AND object_system = 'uberon-cl') OR
              (generation_source = 'uberon-publisher-xref'

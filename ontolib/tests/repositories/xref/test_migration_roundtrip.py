@@ -180,6 +180,85 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                             else "proposed",
                         },
                     )
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_generation "
+                    "(id,source,content_sha256,source_metadata,graph_iri,state) VALUES "
+                    "(:id,'uberon-cl-promotion',:content,CAST(:metadata AS jsonb),"
+                    "'https://example.test/promotion','prepared')"
+                ),
+                {
+                    "id": "f" * 64,
+                    "content": "1" * 64,
+                    "metadata": json.dumps(
+                        {
+                            "source": "uberon-cl-promotion",
+                            "ncit_source_identity": "2" * 64,
+                            "uberon_source_identity": "3" * 64,
+                            "uberon_serving_identity": "4" * 64,
+                        }
+                    ),
+                },
+            )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO concept_xref "
+                        "(generation_id,generation_source,subject_system,"
+                        "subject_version,subject_id,predicate_id,object_system,"
+                        "object_version,object_id,mapping_justification,confidence,"
+                        "lifecycle_state,review_status,author) VALUES "
+                        "(:generation,'uberon-cl-promotion','uberon-cl','v','U1',"
+                        ":predicate,'ncit','v','C1','j',1,'validated','reviewed','')"
+                    ),
+                    {"generation": "f" * 64, "predicate": CLOSE_MATCH},
+                )
+
+        malformed_metadata = (
+            None,
+            7,
+            [],
+            {"source": 7},
+            {
+                "source": "uberon-cl",
+                "ncit_source_identity": None,
+                "uberon_source_identity": "d" * 64,
+                "uberon_serving_identity": "e" * 64,
+            },
+            {
+                "source": "uberon-cl",
+                "ncit_source_identity": 7,
+                "uberon_source_identity": "d" * 64,
+                "uberon_serving_identity": "e" * 64,
+            },
+            {
+                "source": "uberon-cl",
+                "ncit_source_identity": "not-a-digest",
+                "uberon_source_identity": "d" * 64,
+                "uberon_serving_identity": "e" * 64,
+            },
+        )
+        for index, metadata in enumerate(malformed_metadata):
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO xref_generation "
+                            "(id,source,content_sha256,source_metadata,"
+                            "graph_iri,state) "
+                            "VALUES (:id,'uberon-cl',:content,CAST(:metadata AS jsonb),"
+                            ":graph,'prepared')"
+                        ),
+                        {
+                            "id": f"{index + 1:x}" * 64,
+                            "content": "9" * 64,
+                            "metadata": json.dumps(metadata),
+                            "graph": f"https://example.test/malformed/{index}",
+                        },
+                    )
     finally:
         await dispose_engine(engine)
 

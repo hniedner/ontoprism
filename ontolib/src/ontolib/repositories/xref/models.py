@@ -97,6 +97,10 @@ class StaleXrefGenerationError(RuntimeError):
     """An active mapping generation is not bound to current repositories."""
 
 
+class UnavailableXrefGenerationError(RuntimeError):
+    """A requested mapping family has no active certified generation."""
+
+
 @dataclass(frozen=True)
 class EndpointIdentity:
     """A terminology endpoint bound to the exact release it identifies."""

@@ -7,7 +7,7 @@ import type {
 	CdeSummary,
 	ConceptDecomposition,
 	ConceptDetail,
-	ConceptMappings,
+	ConceptAlignments,
 	Neighborhood,
 	RepresentationStatus,
 	RefreshReport,
@@ -261,13 +261,13 @@ export function getDecomposition(
 	);
 }
 
-/** All upstream mappings for an NCIt concept (both directions). */
-export function getMappings(
+/** All terminology alignments for an NCIt concept (both directions). */
+export function getAlignments(
 	code: string,
 	fetchImpl?: typeof fetch,
 	signal?: AbortSignal
-): Promise<ConceptMappings> {
-	return getJson<ConceptMappings>(
+): Promise<ConceptAlignments> {
+	return getJson<ConceptAlignments>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/mappings`),
 		fetchImpl,
 		signal

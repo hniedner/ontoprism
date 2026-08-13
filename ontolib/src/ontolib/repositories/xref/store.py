@@ -15,6 +15,7 @@ from ontolib.repositories.xref.models import (
     MappingResult,
     SSSOMRecord,
     StaleXrefGenerationError,
+    UnavailableXrefGenerationError,
     XrefReadPolicy,
     generation_source_metadata_adapter,
 )
@@ -65,6 +66,25 @@ def _validate_source_contract(
             raise StaleXrefGenerationError(
                 f"active xref generation {source!r} has stale {key}"
             )
+
+
+def _source_is_requested(source: str, expected: XrefReadPolicy) -> bool:
+    if source in _UBERON_SOURCES:
+        return expected.uberon is not None
+    return source == _P334_SOURCE and expected.icdo is not None
+
+
+def _require_requested_families(
+    expected: XrefReadPolicy, active_sources: set[str]
+) -> None:
+    if expected.uberon is not None and active_sources.isdisjoint(_UBERON_SOURCES):
+        raise UnavailableXrefGenerationError(
+            "no active certified Uberon alignment generation"
+        )
+    if expected.icdo is not None and _P334_SOURCE not in active_sources:
+        raise UnavailableXrefGenerationError(
+            "no active certified P334 alignment generation"
+        )
 
 
 class XrefStore:
@@ -476,11 +496,14 @@ class XrefStore:
             "object_version AS object_source_version, lifecycle_state, "
             "review_status, author, generation_id FROM concept_xref) x "
             "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "AND a.source = :source "
             "WHERE lifecycle_state = 'proposed' AND predicate_id = :close "
             "ORDER BY subject_id, object_id"
         )
         async with self._sf() as s:
-            result = await s.execute(sql, {"close": CLOSE_MATCH})
+            result = await s.execute(
+                sql, {"close": CLOSE_MATCH, "source": _CANDIDATE_SOURCE}
+            )
             return [SSSOMRecord(**dict(row)) for row in result.mappings().all()]
 
     async def validated_anchors(
@@ -763,15 +786,16 @@ class XrefStore:
             )
         )
         generation_ids: list[str] = []
+        active_sources: set[str] = set()
         for row in result.mappings().all():
             source = str(row["source"])
-            if (source in _UBERON_SOURCES and expected.uberon is None) or (
-                source == _P334_SOURCE and expected.icdo is None
-            ):
+            if not _source_is_requested(source, expected):
                 continue
             observed = generation_source_metadata_adapter.validate_python(
                 row["source_metadata"]
             )
             _validate_source_contract(source, observed, expected)
             generation_ids.append(str(row["generation_id"]))
+            active_sources.add(source)
+        _require_requested_families(expected, active_sources)
         return generation_ids

@@ -18,6 +18,7 @@ from ontolib.core.logging_config import get_logger
 from ontolib.repositories.xref.models import (
     StaleXrefGenerationError,
     UberonReadIdentity,
+    UnavailableXrefGenerationError,
     XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
@@ -176,7 +177,7 @@ async def alignments(
                 )
             ),
         )
-    except StaleXrefGenerationError as exc:
+    except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return UberonAlignments(
         code=code,

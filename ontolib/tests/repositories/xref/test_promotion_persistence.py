@@ -25,8 +25,10 @@ from ontolib.repositories.xref.evidence import (
     Evidence,
 )
 from ontolib.repositories.xref.models import (
+    P334GenerationMetadata,
     SSSOMRecord,
     UberonPromotionGenerationMetadata,
+    UberonPublisherGenerationMetadata,
 )
 from ontolib.repositories.xref.promotion import (
     PromotionReport,
@@ -314,6 +316,77 @@ async def test_proposed_candidates_returns_only_unvalidated(
     assert ("C12468", "UBERON:0002048") in pairs
     assert ("C12393", "UBERON:0001264") not in pairs
     assert all(c.lifecycle_state == "proposed" for c in candidates)
+
+
+@pytest.mark.integration
+async def test_proposed_candidates_only_reads_candidate_generation_source(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    xref_store, run_ids = store
+    rows = (
+        ("uberon-cl", _candidate("C-CANDIDATE", "UBERON:CANDIDATE"), None),
+        (
+            "uberon-publisher-xref",
+            SSSOMRecord(
+                subject_id="UBERON:PUBLISHER",
+                subject_system="uberon-cl",
+                predicate_id=CLOSE_MATCH,
+                object_id="C-PUBLISHER",
+                object_system="ncit",
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=1.0,
+                subject_source_version=_UBERON_VERSION,
+                object_source_version=_NCIT_VERSION,
+            ),
+            UberonPublisherGenerationMetadata(
+                ncit_source_identity="a" * 64,
+                uberon_source_identity="b" * 64,
+                uberon_serving_identity="c" * 64,
+                uberon_assertion_identity="d" * 64,
+                ncit_target_identity="e" * 64,
+            ),
+        ),
+        (
+            "uberon-cl-promotion",
+            _candidate("C-PROMOTION", "UBERON:PROMOTION"),
+            _SOURCE_METADATA,
+        ),
+        (
+            "ncit-p334-icdo32",
+            SSSOMRecord(
+                subject_id="C-P334",
+                predicate_id=CLOSE_MATCH,
+                object_id="8140/3",
+                object_system="icdo",
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=1.0,
+                subject_source_version=_NCIT_VERSION,
+                object_source_version="3.2",
+            ),
+            P334GenerationMetadata(
+                ncit_source_identity="a" * 64,
+                icdo_generation_identity="f" * 64,
+                icdo_serving_identity="1" * 64,
+                ncit_p334_identity="2" * 64,
+            ),
+        ),
+    )
+    for source, record, metadata in rows:
+        run_id = f"test-source-filter-{source}-{uuid.uuid4().hex}"
+        run_ids.append(run_id)
+        await xref_store.upsert_run(
+            run_id, source, _NCIT_VERSION, record.object_source_version
+        )
+        kwargs = {"source_metadata": metadata} if metadata is not None else {}
+        await activate_records(
+            xref_store, source=source, run_id=run_id, records=[record], **kwargs
+        )
+
+    candidates = await xref_store.proposed_candidates()
+
+    assert {(row.subject_id, row.object_id) for row in candidates} == {
+        ("C-CANDIDATE", "UBERON:CANDIDATE")
+    }
 
 
 @pytest.mark.integration
