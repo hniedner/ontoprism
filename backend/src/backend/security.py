@@ -34,3 +34,15 @@ def require_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
 
 
 RequireApiKey = Depends(require_api_key)
+
+
+def require_icdo_entitlement(
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> None:
+    """Refuse protected ICD-O access before any repository dependency is resolved."""
+    expected = get_settings().icdo_entitlement_key
+    if not expected or not secrets.compare_digest(x_icdo_entitlement or "", expected):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "ICD-O entitlement required.")
+
+
+RequireIcdoEntitlement = Depends(require_icdo_entitlement)

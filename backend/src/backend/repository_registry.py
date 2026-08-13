@@ -15,7 +15,7 @@ class _RepositoryDescriptor(BaseModel):
 
 
 class LocalRepositoryDescriptor(_RepositoryDescriptor):
-    id: Literal["ncit", "cadsr", "uberon"]
+    id: Literal["ncit", "cadsr", "uberon", "icdo"]
     kind: Literal["local-certified-proxy"]
 
 

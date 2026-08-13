@@ -9,7 +9,8 @@ describe('repository registry', () => {
 		expect(repositories.filter((entry) => entry.kind === 'local-certified-proxy').map((entry) => entry.id)).toEqual([
 			'ncit',
 			'cadsr',
-			'uberon'
+			'uberon',
+			'icdo'
 		]);
 		expect(repositories.filter((entry) => entry.kind === 'remote-live-service').map((entry) => entry.id)).toEqual([
 			'clinicaltrials',

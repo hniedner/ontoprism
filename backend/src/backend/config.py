@@ -90,6 +90,23 @@ class Settings(BaseSettings):
     # SNOMED/ICD-O-3 mappings require license confirmation (D26).
     # When False, the $translate endpoint refuses to serve licensed sources.
     enable_licensed_mappings: bool = False
+    # Separate consumer entitlement for protected ICD-O repository content.
+    icdo_entitlement_key: str | None = None
+    icdo_32_morphology_source_sha256: str = (
+        "7ca51dcb66107d6462b43212b26aa65d52f6b0e306c6295e8c751416b3278a21"
+    )
+    icdo_32_morphology_serving_sha256: str = (
+        "e3f60fc47d4f3bff332501299d3050fe662fdc93b8132d788afa7bd5f791ebf2"
+    )
+    icdo_40_source_sha256: str = (
+        "280ae87dc8bfea873a2346e7a5bee380877da1c84f8339697155fa5e77f3deef"
+    )
+    icdo_40_morphology_serving_sha256: str = (
+        "b1757b0a5184862a5ba64b843b0b46d7739fa9e03d2a0e4d78592662ef38d86a"
+    )
+    icdo_40_topography_serving_sha256: str = (
+        "f2ed3c5a29dd416d9f9df339fdf825015a133b2f0fb64c2fdd1b148811852439"
+    )
 
     # PubMed / NCBI E-utilities client. An API key (optional) raises the rate limit from
     # 3 to 10 req/s; pubmed_requests_per_second throttles to stay within NCBI's policy.

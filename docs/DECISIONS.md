@@ -2420,3 +2420,20 @@ in M1+, where its machinery is justified.
 
 ### Dropped/deferred tests
 _(none yet — record here any intentionally-dropped ported test.)_
+## D65. ICD-O certified repositories use separate consumer entitlement
+
+**Decision (2026-08-12):** OntoPrism is an NCI project covered by NCI's license to
+incorporate ICD terminologies in the NCI Metathesaurus. ICD-O term content is served
+only to consumers presenting the dedicated ICD-O entitlement; this is separate from
+the build/serving flag for licensed mappings. Authorization runs before repository
+metadata, records, search caches, SSR rendering, or analytical reports are read.
+
+Publisher workbooks remain operator-supplied, access-controlled artifacts and are not
+committed. ICD-O-3.2 morphology is read directly from the certified original `.xls`
+with pinned `xlrd`; its uncertified historical `.xlsx` conversion is never a production
+input. ICD-O-4 morphology and topography are read with pinned `openpyxl` from the
+certified archive and annex workbooks. Each edition/axis is an immutable PostgreSQL
+generation with an atomic active pointer and a canonical fingerprint over exact served
+values. The ICD-O-4 topography/Uberon congruence output is a protected inspection
+report: evidence and classification are distinct, and it publishes no mapping or
+`exactMatch` assertion.

@@ -14,17 +14,14 @@
 
 	const crumbs = $derived(buildBreadcrumbs(page.url.pathname));
 
+	const repositoryHrefs = {
+		ncit: resolve('/repositories/ncit'), cadsr: resolve('/repositories/cadsr'),
+		uberon: resolve('/repositories/uberon'), icdo: resolve('/repositories/icdo'),
+		clinicaltrials: resolve('/repositories/clinicaltrials'), pubmed: resolve('/repositories/pubmed')
+	} as const;
 	const nav = repositories.map((entry) => ({
 		...entry,
-		href: entry.path === '/repositories/ncit'
-			? resolve('/repositories/ncit')
-			: entry.path === '/repositories/cadsr'
-				? resolve('/repositories/cadsr')
-				: entry.path === '/repositories/uberon'
-					? resolve('/repositories/uberon')
-					: entry.path === '/repositories/clinicaltrials'
-						? resolve('/repositories/clinicaltrials')
-						: resolve('/repositories/pubmed'),
+		href: repositoryHrefs[entry.id],
 		label: entry.id === 'clinicaltrials' ? 'Trials' : entry.label
 	}));
 

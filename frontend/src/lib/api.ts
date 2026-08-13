@@ -19,6 +19,9 @@ import type {
 	, UberonNeighborhood
 	, UberonSearchPage
 	, UberonSource
+	, IcdoAxis
+	, IcdoEdition
+	, IcdoPage
 } from './types';
 
 const BASE = '';
@@ -220,6 +223,32 @@ export function getUberonNeighborhood(
 		signal
 	);
 }
+
+export function icdoCodeSegment(code: string): string {
+	const bytes = new TextEncoder().encode(code);
+	let binary = '';
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+export function listIcdo(edition: IcdoEdition, axis: IcdoAxis, opts: {
+	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
+} = {}): Promise<IcdoPage> {
+	const params: Record<string, string | number> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
+	if (opts.behaviour) params.behaviour = opts.behaviour;
+	if (opts.level) params.level = opts.level;
+	return getJson<IcdoPage>(apiUrl(`/api/v1/icdo/${edition}/${axis}/list`, params), opts.fetch);
+}
+
+export function searchIcdo(edition: IcdoEdition, axis: IcdoAxis, q: string, opts: {
+	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
+} = {}): Promise<IcdoPage> {
+	const params: Record<string, string | number> = { q, limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
+	if (opts.behaviour) params.behaviour = opts.behaviour;
+	if (opts.level) params.level = opts.level;
+	return getJson<IcdoPage>(apiUrl(`/api/v1/icdo/${edition}/${axis}/search`, params), opts.fetch);
+}
+
 
 /** The concept's decomposition (constituents by axis + legacy flag) from ncit_decomposed. */
 export function getDecomposition(

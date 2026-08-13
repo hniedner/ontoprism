@@ -144,6 +144,48 @@ export interface UberonNeighborhood {
 	truncated: boolean;
 }
 
+export type IcdoEdition = '3.2' | '4.0';
+export type IcdoAxis = 'morphology' | 'topography';
+export type IcdoLevel = 'morphology' | 'category' | 'leaf';
+
+export interface IcdoRecord {
+	code: string;
+	level: IcdoLevel;
+	parent_code?: string | null;
+	base_morphology?: string | null;
+	specificity?: string | null;
+	behaviour?: string | null;
+	preferred: string | null;
+	synonyms: string[];
+	related: string[];
+	notes: string[];
+}
+
+export interface IcdoPage {
+	edition: IcdoEdition;
+	axis: IcdoAxis;
+	query: string;
+	total: number;
+	limit: number;
+	offset: number;
+	hits: IcdoRecord[];
+}
+
+export interface IcdoCongruenceReport {
+	report_identity: string;
+	icdo_serving_identity: string;
+	uberon_serving_identity: string;
+	total: number;
+	counts: Record<string, number>;
+	rows: Array<{
+		code: string;
+		classification: 'one-supported-candidate' | 'multiple-candidates' | 'no-candidate' | 'broader-narrower-mismatch' | 'intentionally-unresolved' | 'source-data-anomaly';
+		reason: string;
+		candidates: string[];
+		evidence: Array<{ kind: string; candidate: string; value: string }>;
+	}>;
+}
+
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
 
 export interface ConceptLink {

@@ -34,6 +34,8 @@ dependencies = [
 # with `pdm install -G data-build`. The runtime only reads vectors from pgvector.
 data-build = [
     "sentence-transformers>=3.0",
+    "openpyxl==3.1.5",
+    "xlrd==2.0.2",
 ]
 
 [tool.pdm]
@@ -320,8 +322,3 @@ token = { env = "GH_TOKEN" }
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = false
-
-[dependency-groups]
-dev = [
-    "openpyxl>=3.1.5",
-]

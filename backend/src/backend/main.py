@@ -17,6 +17,7 @@ from backend.api.v1 import (
     cadsr,
     clinicaltrials,
     decomposition,
+    icdo,
     mappings,
     ncit,
     pubmed,
@@ -39,6 +40,7 @@ from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.icdo.store import IcdoRepository
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.client import ncit_sparql_client
@@ -97,9 +99,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.uberon_store = UberonGraphStore(uberon_client)
     app.state.decomposition_reader = DecompositionReader(client)
     app.state.cadsr_repo = CdeRepository(settings.cadsr_db_path)
+    sessions = make_sessionmaker(engine)
+    app.state.icdo_repository = IcdoRepository(sessions)
     app.state.repository_metadata = RepositoryMetadataService(
         settings=settings,
         cadsr=app.state.cadsr_repo,
+        icdo=app.state.icdo_repository,
     )
     app.state.embedding_store = EmbeddingStore(make_sessionmaker(engine))
     app.state.ncit_search_index = NcitSearchIndex(make_sessionmaker(engine))
@@ -187,6 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(ncit.router)
     app.include_router(uberon.router)
     app.include_router(mappings.router)
+    app.include_router(icdo.router)
     app.include_router(cadsr.router)
     app.include_router(refresh.router)
     app.include_router(clinicaltrials.router)

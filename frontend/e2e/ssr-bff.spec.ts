@@ -8,6 +8,7 @@ test('every repository breadcrumb link resolves and the final crumb remains iner
 		'/repositories/ncit/C27262',
 		'/repositories/uberon',
 		'/repositories/uberon/UBERON:0002048',
+		'/repositories/icdo',
 		'/repositories/cadsr',
 		'/repositories/cadsr/2001',
 		'/repositories/clinicaltrials',
@@ -35,6 +36,46 @@ test('every repository breadcrumb link resolves and the final crumb remains iner
 		expect(await finalCrumb.evaluate((element) => element.tagName)).toBe('SPAN');
 		expect(await finalCrumb.getAttribute('href')).toBeNull();
 	}
+});
+
+test('ICD-O entitlement is server-side, no-leak, and slash codes use one safe segment', async ({
+	browser,
+	request
+}) => {
+	const refused = await request.get('/repositories/icdo/3.2/morphology');
+	expect(refused.status()).toBe(403);
+	const refusedHtml = await refused.text();
+	expect(refusedHtml).not.toContain('Protected intraductal papilloma');
+	expect(refusedHtml).not.toContain('Protected papilloma synonym');
+
+	const context = await browser.newContext();
+	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
+	const page = await context.newPage();
+	const list = await page.goto('/repositories/icdo/3.2/morphology');
+	expect(list?.status()).toBe(200);
+	expect(await list?.text()).toContain('Protected intraductal papilloma');
+	await page.getByRole('link', { name: '8503/0' }).click();
+	await expect(page).toHaveURL('/repositories/icdo/3.2/morphology/ODUwMy8w');
+	expect(new URL(page.url()).pathname.split('/').at(-1)).toBe('ODUwMy8w');
+	await expect(page.getByText('Protected papilloma synonym')).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('heading', { name: '8503/0' })).toBeVisible();
+	await context.close();
+});
+
+test('protected congruence report is present in entitled initial HTML only', async ({ browser, request }) => {
+	const refused = await request.get('/repositories/icdo/4.0/topography/congruence');
+	expect(refused.status()).toBe(403);
+	expect(await refused.text()).not.toContain('C34.9');
+	const context = await browser.newContext();
+	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
+	const response = await context.request.get('/repositories/icdo/4.0/topography/congruence');
+	expect(response.status()).toBe(200);
+	const html = await response.text();
+	expect(html).toContain('Every 406 ICD-O-4 topography codes');
+	expect(html).toContain('C34.9');
+	expect(html).not.toContain('exactMatch');
+	await context.close();
 });
 
 test('built adapter-node SSR includes NCIt browse data and hydration does not fetch it twice', async ({

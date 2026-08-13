@@ -22,6 +22,11 @@
 				'Anatomy and cell concepts from the certified combined Uberon and Cell Ontology index, with hierarchy and OWL restrictions.',
 			accent: 'from-violet-500 to-violet-700'
 		},
+		icdo: {
+			title: 'ICD-O Datasets',
+			blurb: 'Entitlement-gated, certified ICD-O-3.2 and ICD-O-4 morphology and topography datasets.',
+			accent: 'from-rose-500 to-rose-700'
+		},
 		clinicaltrials: {
 			title: 'ClinicalTrials.gov',
 			blurb:
@@ -45,6 +50,8 @@
 				? resolve('/repositories/cadsr')
 				: path === '/repositories/uberon'
 					? resolve('/repositories/uberon')
+					: path === '/repositories/icdo'
+						? resolve('/repositories/icdo')
 					: path === '/repositories/clinicaltrials'
 						? resolve('/repositories/clinicaltrials')
 						: resolve('/repositories/pubmed');

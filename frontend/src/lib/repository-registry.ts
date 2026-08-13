@@ -1,7 +1,7 @@
 import manifest from '../../../repository-manifest.json';
 
 export type RepositoryKind = 'local-certified-proxy' | 'remote-live-service';
-type LocalRepositoryId = 'ncit' | 'cadsr' | 'uberon';
+type LocalRepositoryId = 'ncit' | 'cadsr' | 'uberon' | 'icdo';
 type RemoteRepositoryId = 'clinicaltrials' | 'pubmed';
 export type RepositoryId = LocalRepositoryId | RemoteRepositoryId;
 
@@ -22,7 +22,7 @@ interface RemoteRepositoryDescriptor extends RepositoryDescriptorBase {
 
 type RepositoryDescriptor = LocalRepositoryDescriptor | RemoteRepositoryDescriptor;
 
-const localIds = new Set(['ncit', 'cadsr', 'uberon']);
+const localIds = new Set(['ncit', 'cadsr', 'uberon', 'icdo']);
 const remoteIds = new Set(['clinicaltrials', 'pubmed']);
 const keys = new Set(['id', 'label', 'path', 'kind']);
 

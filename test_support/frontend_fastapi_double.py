@@ -6,7 +6,7 @@ import asyncio
 from collections import Counter
 from typing import TYPE_CHECKING, Annotated
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from backend.api.v1 import clinicaltrials, pubmed
@@ -263,6 +263,96 @@ async def search_uberon(
     return result
 
 
+def _require_icdo(value: str | None) -> None:
+    if value != "licensed":
+        raise HTTPException(403, "ICD-O entitlement required.")
+
+
+@app.get("/api/v1/icdo/{edition}/{axis}/list")
+async def list_icdo(
+    edition: str,
+    axis: str,
+    limit: int = 25,
+    offset: int = 0,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    _require_icdo(x_icdo_entitlement)
+    return {
+        "edition": edition,
+        "axis": axis,
+        "query": "",
+        "total": 1,
+        "limit": limit,
+        "offset": offset,
+        "hits": [
+            {
+                "code": "8503/0",
+                "level": "morphology",
+                "preferred": "Protected intraductal papilloma",
+                "behaviour": "0",
+                "synonyms": [],
+                "related": [],
+                "notes": [],
+            }
+        ],
+    }
+
+
+@app.get("/api/v1/icdo/{edition}/{axis}/search")
+async def search_icdo(
+    edition: str,
+    axis: str,
+    q: str,
+    limit: int = 25,
+    offset: int = 0,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    result = await list_icdo(edition, axis, limit, offset, x_icdo_entitlement)
+    result["query"] = q
+    return result
+
+
+@app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}")
+async def icdo_detail(
+    code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    _require_icdo(x_icdo_entitlement)
+    if code != "ODUwMy8w":
+        raise HTTPException(404, "ICD-O code not found.")
+    return {
+        "code": "8503/0",
+        "level": "morphology",
+        "preferred": "Protected intraductal papilloma",
+        "synonyms": ["Protected papilloma synonym"],
+        "related": [],
+        "notes": [],
+    }
+
+
+@app.get("/api/v1/icdo/4.0/topography/congruence")
+async def icdo_congruence(
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    _require_icdo(x_icdo_entitlement)
+    return {
+        "report_identity": "a" * 64,
+        "icdo_serving_identity": "b" * 64,
+        "uberon_serving_identity": "c" * 64,
+        "total": 406,
+        "counts": {"one-supported-candidate": 1, "no-candidate": 405},
+        "rows": [
+            {
+                "code": "C34.9",
+                "classification": "one-supported-candidate",
+                "reason": "one lexical candidate retained for inspection",
+                "candidates": ["UBERON:0002048"],
+                "evidence": [],
+            }
+        ],
+    }
+
+
 @app.get("/api/v1/uberon/concepts/{code}/neighborhood")
 async def get_uberon_neighborhood(code: str) -> dict[str, object]:
     return {
@@ -287,6 +377,11 @@ async def get_uberon_concept(code: str) -> dict[str, object]:
         "relations": [],
         "truncated": False,
     }
+
+
+@app.get("/api/v1/uberon/concepts/{code}/alignments")
+async def get_uberon_alignments(code: str) -> dict[str, object]:
+    return {"code": code, "alignments": []}
 
 
 @app.get("/api/v1/ncit/concepts/{code}/neighborhood")
@@ -380,6 +475,11 @@ async def get_ncit_concept(code: str) -> JSONResponse:
             ),
         }
     )
+
+
+@app.get("/api/v1/ncit/concepts/{code}/mappings")
+async def get_ncit_mappings(code: str) -> dict[str, object]:
+    return {"code": code, "mappings": []}
 
 
 @app.get("/api/v1/cadsr/list")

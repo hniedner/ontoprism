@@ -18,6 +18,12 @@
 		"kind": "local-certified-proxy"
 	},
 	{
+		"id": "icdo",
+		"label": "ICD-O",
+		"path": "/repositories/icdo",
+		"kind": "local-certified-proxy"
+	},
+	{
 		"id": "clinicaltrials",
 		"label": "ClinicalTrials.gov",
 		"path": "/repositories/clinicaltrials",

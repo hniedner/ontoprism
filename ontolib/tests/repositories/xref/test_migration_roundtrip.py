@@ -79,6 +79,32 @@ async def test_generation_schema_constraints_and_indexes() -> None:
             "state" in check and "prepared" in check for check in generation_checks
         )
         assert any("content_sha256" in check for check in generation_checks)
+
+        async with engine.connect() as conn:
+            icdo_tables = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema='public' AND table_name IN "
+                        "('icdo_generation','icdo_record','icdo_active_generation')"
+                    )
+                )
+            }
+            icdo_indexes = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT indexname FROM pg_indexes WHERE tablename='icdo_record'"
+                    )
+                )
+            }
+        assert icdo_tables == {
+            "icdo_generation",
+            "icdo_record",
+            "icdo_active_generation",
+        }
+        assert "idx_icdo_record_filters" in icdo_indexes
     finally:
         await dispose_engine(engine)
 

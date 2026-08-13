@@ -19,6 +19,11 @@ from pydantic import (
 )
 
 from ontolib.core.exceptions import StorageError
+from ontolib.repositories.icdo.store import (
+    CertificationExpectation,
+    IcdoCertificationError,
+    IcdoManifest,
+)
 from ontolib.terminologies.ncit.activation import (
     ActivationJournal,
     ActivationJournalError,
@@ -50,7 +55,7 @@ from ontolib.terminologies.uberon.store import (
 if TYPE_CHECKING:
     from ontolib.repositories.cadsr.archive import CadsrSource
 
-RepositoryName = Literal["ncit", "cadsr", "uberon"]
+RepositoryName = Literal["ncit", "cadsr", "uberon", "icdo"]
 RepositoryUnhealthyReason = Literal[
     "manifest-missing",
     "manifest-invalid",
@@ -149,6 +154,20 @@ class UberonRepositoryReady(_RepositoryModel):
         return self
 
 
+class IcdoRepositoryReady(_RepositoryModel):
+    """Certified active ICD-O dataset and exact serving identity."""
+
+    state: Literal["ready"] = "ready"
+    repository: Literal["icdo"] = "icdo"
+    edition: Literal["3.2", "4.0"]
+    axis: Literal["morphology", "topography"]
+    source_identity: str = Field(pattern=_SHA256_PATTERN)
+    serving_identity: str = Field(pattern=_SHA256_PATTERN)
+    activation_identity: str = Field(pattern=_SHA256_PATTERN)
+    row_count: PositiveInt
+    activated_at: AwareDatetime
+
+
 class RepositoryUnhealthy[RepositoryNameT: RepositoryName](_RepositoryModel):
     """Typed refusal with no fields that could be mistaken for an active identity."""
 
@@ -162,9 +181,11 @@ RepositoryMetadata = (
     NcitRepositoryReady
     | CadsrRepositoryReady
     | UberonRepositoryReady
+    | IcdoRepositoryReady
     | RepositoryUnhealthy[Literal["ncit"]]
     | RepositoryUnhealthy[Literal["cadsr"]]
     | RepositoryUnhealthy[Literal["uberon"]]
+    | RepositoryUnhealthy[Literal["icdo"]]
 )
 
 
@@ -182,10 +203,24 @@ class _MetadataSettings(Protocol):
     uberon_expected_cl_classes: int
     uberon_expected_uberon_searchable_classes: int
     uberon_expected_cl_searchable_classes: int
+    icdo_32_morphology_source_sha256: str
+    icdo_32_morphology_serving_sha256: str
+    icdo_40_source_sha256: str
+    icdo_40_morphology_serving_sha256: str
+    icdo_40_topography_serving_sha256: str
 
 
 class _CadsrCertification(Protocol):
     def certification(self) -> tuple[CadsrSource, int, str]: ...
+
+
+class _IcdoCertification(Protocol):
+    async def certified_metadata(
+        self,
+        edition: str,
+        axis: str,
+        expected: CertificationExpectation,
+    ) -> IcdoManifest | None: ...
 
 
 def _require_complete_activation(
@@ -502,9 +537,11 @@ class RepositoryMetadataService:
         *,
         settings: _MetadataSettings,
         cadsr: _CadsrCertification,
+        icdo: _IcdoCertification | None = None,
     ) -> None:
         self._settings = settings
         self._cadsr = cadsr
+        self._icdo = icdo
         self._uberon_static_proof: (
             tuple[UberonIndexManifest, UberonArtifactManifest, str] | None
         ) = None
@@ -573,3 +610,75 @@ class RepositoryMetadataService:
             return _unhealthy("uberon", exc.reason, exc)
         except StorageError as exc:
             return _unhealthy("uberon", "repository-unreachable", exc)
+
+    async def icdo(
+        self,
+        edition: Literal["3.2", "4.0"],
+        axis: Literal["morphology", "topography"],
+    ) -> IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]:
+        """Return an active-row/manifest/configuration-bound ICD-O identity."""
+        if self._icdo is None:
+            return _unhealthy(
+                "icdo",
+                "repository-unreachable",
+                RuntimeError("ICD-O repository is unavailable"),
+            )
+        try:
+            manifest = await self._icdo.certified_metadata(
+                edition, axis, _icdo_expectation(self._settings, edition, axis)
+            )
+            if manifest is None:
+                raise RepositoryMetadataError(
+                    "repository-unreachable", "ICD-O dataset is unavailable"
+                )
+            return _bind_icdo_repository_metadata(manifest)
+        except IcdoCertificationError as exc:
+            return _unhealthy("icdo", "observation-mismatch", exc)
+        except RepositoryMetadataError as exc:
+            return _unhealthy("icdo", exc.reason, exc)
+        except ValueError as exc:
+            return _unhealthy("icdo", "manifest-invalid", exc)
+
+
+def _icdo_expectation(
+    settings: _MetadataSettings,
+    edition: Literal["3.2", "4.0"],
+    axis: Literal["morphology", "topography"],
+) -> CertificationExpectation:
+    configured = {
+        ("3.2", "morphology"): (
+            settings.icdo_32_morphology_source_sha256,
+            settings.icdo_32_morphology_serving_sha256,
+            1143,
+        ),
+        ("4.0", "morphology"): (
+            settings.icdo_40_source_sha256,
+            settings.icdo_40_morphology_serving_sha256,
+            2390,
+        ),
+        ("4.0", "topography"): (
+            settings.icdo_40_source_sha256,
+            settings.icdo_40_topography_serving_sha256,
+            406,
+        ),
+    }
+    source, serving, count = configured[(edition, axis)]
+    return CertificationExpectation(
+        source_sha256=source,
+        edition=edition,
+        axis=axis,
+        row_count=count,
+        serving_sha256=serving,
+    )
+
+
+def _bind_icdo_repository_metadata(manifest: IcdoManifest) -> IcdoRepositoryReady:
+    return IcdoRepositoryReady(
+        edition=manifest.edition,
+        axis=manifest.axis,
+        source_identity=manifest.source_sha256,
+        serving_identity=manifest.serving_sha256,
+        activation_identity=manifest.generation_id,
+        row_count=manifest.row_count,
+        activated_at=manifest.published_at,
+    )
