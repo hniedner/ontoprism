@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import Result, text
 
+from ontolib.repositories.xref.evidence import Evidence
 from ontolib.repositories.xref.models import (
     EndpointIdentity,
     GenerationSourceMetadata,
@@ -44,6 +45,8 @@ def _validate_generation_retry(
     *,
     content_sha256: str,
     source_metadata: GenerationSourceMetadata,
+    graph_iri: str,
+    run_id: str,
 ) -> None:
     if found["content_sha256"] != content_sha256:
         raise ValueError("generation identity has different content")
@@ -52,6 +55,10 @@ def _validate_generation_retry(
     )
     if observed_metadata != source_metadata:
         raise ValueError("generation identity has different source metadata")
+    if found["graph_iri"] != graph_iri:
+        raise ValueError("generation identity has different graph IRI")
+    if found["run_id"] != run_id:
+        raise ValueError("generation identity has different originating run")
 
 
 def _validate_source_contract(
@@ -69,6 +76,35 @@ def _validate_source_contract(
             raise StaleXrefGenerationError(
                 f"active xref generation {source!r} has stale {key}"
             )
+
+
+def _generation_rows(
+    generation_id: str,
+    source: str,
+    records: Sequence[SSSOMRecord],
+    originating_runs: Sequence[str],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "generation_id": generation_id,
+            "generation_source": source,
+            "run_id": originating_run,
+            "subject_system": record.subject.system,
+            "subject_version": record.subject.version,
+            "subject_id": record.subject.identifier,
+            "predicate_id": record.predicate_id,
+            "object_system": record.object.system,
+            "object_version": record.object.version,
+            "object_id": record.object.identifier,
+            "mapping_justification": record.mapping_justification,
+            "confidence": record.confidence,
+            "lifecycle_state": record.lifecycle_state,
+            "review_status": record.review_status,
+            "author": record.author,
+            "evidence": json.dumps([e.as_dict() for e in record.evidence]),
+        }
+        for record, originating_run in zip(records, originating_runs, strict=True)
+    ]
 
 
 def _source_is_requested(source: str, expected: XrefReadPolicy) -> bool:
@@ -122,32 +158,16 @@ class XrefStore:
         graph_iri: str,
         run_id: str,
         records: Sequence[SSSOMRecord],
+        record_run_ids: Sequence[str] | None = None,
         _publication_locked: bool = False,
     ) -> bool:
         """Persist one immutable generation; an exact retry is a no-op."""
         if source_metadata.source != source:
             raise ValueError("generation metadata source does not match source")
-        rows = [
-            {
-                "generation_id": generation_id,
-                "generation_source": source,
-                "run_id": run_id,
-                "subject_system": r.subject.system,
-                "subject_version": r.subject.version,
-                "subject_id": r.subject.identifier,
-                "predicate_id": r.predicate_id,
-                "object_system": r.object.system,
-                "object_version": r.object.version,
-                "object_id": r.object.identifier,
-                "mapping_justification": r.mapping_justification,
-                "confidence": r.confidence,
-                "lifecycle_state": r.lifecycle_state,
-                "review_status": r.review_status,
-                "author": r.author,
-                "evidence": json.dumps([e.as_dict() for e in r.evidence]),
-            }
-            for r in records
-        ]
+        originating_runs = record_run_ids or [run_id] * len(records)
+        if len(originating_runs) != len(records):
+            raise ValueError("record_run_ids must match records")
+        rows = _generation_rows(generation_id, source, records, originating_runs)
         async with self._sf() as s:
             if not _publication_locked:
                 await s.execute(
@@ -156,7 +176,8 @@ class XrefStore:
                 )
             existing = await s.execute(
                 text(
-                    "SELECT id, content_sha256, source_metadata FROM xref_generation "
+                    "SELECT id, content_sha256, source_metadata, graph_iri, run_id "
+                    "FROM xref_generation "
                     "WHERE id = :id AND source = :source"
                 ),
                 {"id": generation_id, "source": source},
@@ -167,15 +188,18 @@ class XrefStore:
                     found,
                     content_sha256=content_sha256,
                     source_metadata=source_metadata,
+                    graph_iri=graph_iri,
+                    run_id=run_id,
                 )
                 await s.commit()
                 return False
             await s.execute(
                 text(
                     "INSERT INTO xref_generation "
-                    "(id, source, content_sha256, source_metadata, graph_iri, state) "
+                    "(id, source, content_sha256, source_metadata, graph_iri, "
+                    "run_id, state) "
                     "VALUES (:id, :source, :content, CAST(:metadata AS jsonb), "
-                    ":graph, 'prepared')"
+                    ":graph, :run_id, 'prepared')"
                 ),
                 {
                     "id": generation_id,
@@ -183,6 +207,7 @@ class XrefStore:
                     "content": content_sha256,
                     "metadata": source_metadata.model_dump_json(),
                     "graph": graph_iri,
+                    "run_id": run_id,
                 },
             )
             if rows:
@@ -218,6 +243,28 @@ class XrefStore:
             )
             value = result.scalar_one_or_none()
             return str(value) if value is not None else None
+
+    async def candidate_generation(self, expected: UberonReadIdentity) -> str:
+        """Capture the one certified candidate generation a promotion run will use."""
+        async with self._sf() as session:
+            generations = await self._validated_active_generations(
+                session,
+                XrefReadPolicy(uberon=expected),
+                sources=frozenset({_CANDIDATE_SOURCE}),
+            )
+            generation_id = generations.get(_CANDIDATE_SOURCE)
+            if generation_id is None:
+                raise UnavailableXrefGenerationError(
+                    "no active certified uberon-cl candidate generation"
+                )
+            return generation_id
+
+    async def require_active_generation(self, source: str, generation_id: str) -> None:
+        """Fail before publication if a captured source snapshot has moved."""
+        if await self.active_generation(source) != generation_id:
+            raise StaleXrefGenerationError(
+                f"active xref generation {source!r} changed during the run"
+            )
 
     async def activate_generation(
         self,
@@ -523,7 +570,7 @@ class XrefStore:
             return out
 
     async def proposed_candidates(
-        self, *, expected: UberonReadIdentity
+        self, *, expected: UberonReadIdentity, generation_id: str | None = None
     ) -> list[SSSOMRecord]:
         """Every candidate awaiting validation (#73): ``closeMatch`` + ``proposed``.
 
@@ -554,24 +601,15 @@ class XrefStore:
             "AND lifecycle_state = 'proposed' AND predicate_id = :close "
             "ORDER BY subject_id, object_id"
         )
+        generation_id = generation_id or await self.candidate_generation(expected)
         async with self._sf() as s:
-            generations = await self._validated_active_generations(
-                s,
-                XrefReadPolicy(uberon=expected),
-                sources=frozenset({_CANDIDATE_SOURCE}),
-            )
-            generation_id = generations.get(_CANDIDATE_SOURCE)
-            if generation_id is None:
-                raise UnavailableXrefGenerationError(
-                    "no active certified uberon-cl candidate generation"
-                )
             result = await s.execute(
                 sql, {"close": CLOSE_MATCH, "generation_id": generation_id}
             )
             return [SSSOMRecord(**dict(row)) for row in result.mappings().all()]
 
     async def validated_anchors(
-        self, *, source: str | None = None
+        self, *, source: str | None = None, generation_id: str | None = None
     ) -> tuple[tuple[str, str], ...]:
         """Identity-grade bridges already validated — the trusted anchors for #73.
 
@@ -602,8 +640,18 @@ class XrefStore:
         )
         sql = scoped if source else unscoped
         params: dict[str, str] = {"exact": EXACT_MATCH}
+        if source and generation_id is not None:
+            scoped = text(
+                "SELECT DISTINCT subject_id, object_id FROM concept_xref "
+                "WHERE predicate_id = :exact "
+                "AND lifecycle_state IN ('validated', 'active') "
+                "AND generation_id = :generation_id "
+                "ORDER BY subject_id, object_id"
+            )
         if source:
             params["source"] = source
+        if generation_id is not None:
+            params["generation_id"] = generation_id
         async with self._sf() as s:
             result = await s.execute(sql, params)
             return tuple(
@@ -611,7 +659,12 @@ class XrefStore:
             )
 
     async def stale_anchors(
-        self, *, ncit_version: str, source_version: str, source: str
+        self,
+        *,
+        ncit_version: str,
+        source_version: str,
+        source: str,
+        generation_id: str | None = None,
     ) -> set[tuple[str, str]]:
         """Validated bridges the current endpoint versions have already made stale.
 
@@ -625,9 +678,8 @@ class XrefStore:
         sql = text(
             "SELECT DISTINCT subject_id, object_id FROM concept_xref "
             "WHERE lifecycle_state = 'validated' "
-            "AND generation_id IN ("
-            "SELECT generation_id FROM xref_active_generation WHERE source = :source"
-            ") "
+            "AND generation_id = COALESCE(:generation_id, ("
+            "SELECT generation_id FROM xref_active_generation WHERE source = :source)) "
             "AND (subject_version <> :ncit_version "
             "     OR object_version <> :source_version)"
         )
@@ -638,51 +690,37 @@ class XrefStore:
                     "ncit_version": ncit_version,
                     "source_version": source_version,
                     "source": source,
+                    "generation_id": generation_id,
                 },
             )
             return {(r["subject_id"], r["object_id"]) for r in result.mappings().all()}
 
-    async def quarantine_stale(
-        self, *, ncit_version: str, source_version: str, source: str
-    ) -> int:
-        """Quarantine validated bridges whose endpoint versions have moved on (D29).
-
-        An endpoint release bumps the version fields; a bridge validated against an
-        older release is no longer *known* good, so it is quarantined until validation
-        re-runs over it.
-
-        Precisely what "quarantined" buys today: the bridge stops counting toward the
-        published coverage number (``mapping_strength_by_subject`` -> ``_is_identity``
-        requires ``validated``/``active``) and stops acting as a trusted anchor
-        (``validated_anchors``).  It is **not** withheld from the read path —
-        ``mappings_by_subjects`` applies no lifecycle filter, so ``/concept/{id}``
-        still surfaces it, tagged with its lifecycle, and the client decides.  Do not
-        read this as "quarantined bridges are not served".
-
-        Scoped to *source*: an ``object_source_version`` is only comparable within its
-        own upstream. Sweeping unscoped would quarantine every Mondo bridge on a Uberon
-        release, because a Mondo version can never equal a Uberon one.
-        """
-        sql = text(
-            "UPDATE concept_xref SET lifecycle_state = 'quarantined' "
-            "WHERE lifecycle_state = 'validated' "
-            "AND generation_id IN ("
-            "SELECT generation_id FROM xref_active_generation WHERE source = :source"
-            ") "
-            "AND (subject_version <> :ncit_version "
-            "     OR object_version <> :source_version)"
-        )
+    async def records_for_generation(
+        self, generation_id: str
+    ) -> list[tuple[SSSOMRecord, str]]:
+        """Load immutable rows for construction of a successor generation."""
         async with self._sf() as s:
-            result: Result = await s.execute(
-                sql,
-                {
-                    "ncit_version": ncit_version,
-                    "source_version": source_version,
-                    "source": source,
-                },
+            result = await s.execute(
+                text(
+                    "SELECT subject_id, subject_system, predicate_id, object_id, "
+                    "object_system, mapping_justification, confidence, "
+                    "subject_version AS subject_source_version, "
+                    "object_version AS object_source_version, lifecycle_state, "
+                    "review_status, author, evidence, run_id FROM concept_xref "
+                    "WHERE generation_id = :generation_id "
+                    "ORDER BY subject_id, object_id"
+                ),
+                {"generation_id": generation_id},
             )
-            await s.commit()
-            return cast("int", result.rowcount)  # type: ignore[attr-defined]
+            records: list[tuple[SSSOMRecord, str]] = []
+            for row in result.mappings().all():
+                values = dict(row)
+                run_id = str(values.pop("run_id"))
+                values["evidence"] = tuple(
+                    Evidence(**item) for item in values["evidence"]
+                )
+                records.append((SSSOMRecord(**values), run_id))
+            return records
 
     async def mappings_by_subjects(
         self, codes: set[str], *, expected: XrefReadPolicy

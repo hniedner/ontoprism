@@ -1,7 +1,7 @@
 # NCIt Alignment Integration Strategy and Implementation Plan
 
-**Status:** Historical strategy plus current implementation record; D60 supersedes the
-dual-canonical ownership framing · **Author:** Hannes Niedner · **Date:** 2026-07-11
+**Status:** Historical strategy plus current implementation record; D60 governs emitted
+NCIt content and terminology alignment · **Author:** Hannes Niedner · **Date:** 2026-07-11
 **Supersedes nothing; extends** the [decomposition assessment](./ncit-decomposition-assessment.md),
 [engine design](./ncit-decomposition-engine.md), the [post-coordination literature
 review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
@@ -115,14 +115,14 @@ content to those terminology projects.
 
 The following two-plane description is historical and superseded by D60. The current
 model emits provisional NCIt content, with derivation and alignment provenance to other
-terminologies:
+terminologies. NCIt remains the identity of everything OntoPrism emits:
 
 - **Reference plane — NCIt (unchanged, canonical-of-record for everything that exists today).**
   Every legacy `Cxxxxx` IRI stays resolvable, un-mutated, and remains the anchor that caDSR CDEs
   point at. This is the D4/D19/§6 additivity invariant, now load-bearing across ontologies too.
-- **Canonical plane — the upstream OBO/SNOMED stack (canonical for *new* post-coordinated
-  authoring and for cross-terminology interoperability).** New expressions are written against
-  Uberon/CL/SNOMED/ICD-O-3/Mondo atoms.
+- **Alignment plane — corroborating terminology records.** Proposed NCIt expressions are derived
+  from and aligned to Uberon/CL/SNOMED/ICD-O-3/Mondo records; those projects do not own the emitted
+  content.
 - **Join — a mapping layer** (`skos:*Match` + RO relations + FHIR `ConceptMap.$translate`) that
   translates any atom between the two planes, in both directions, with stated confidence and
   provenance; individual mappings carry their actual validation evidence and are never
@@ -474,10 +474,12 @@ promotes. **The disjointness we get is a lower bound**: only binary `owl:disjoin
 aligned terminology view. A run loading zero disjointness axioms logs a warning, because in that state calling the
 result "reasoner-validated" would be a false claim.
 
-**Lifecycle (D29).** Promotions are additive — they are written as their own `xref_run`, and the
-originating `closeMatch/proposed` candidate is left untouched, so every bridge is auditable back to the
-candidate it came from. An endpoint version bump quarantines bridges validated against the older release
-(`XrefStore.quarantine_stale`) rather than continuing to serve them.
+**Lifecycle (D29).** Candidate generations remain immutable `closeMatch/proposed` evidence.
+Promotion publishes a new immutable `uberon-cl-promotion` generation containing `exactMatch/validated`
+bridges. An endpoint version bump constructs another generation with stale validated bridges marked
+`quarantined`; no published generation is updated in place. Quarantined rows remain visible on mapping
+read surfaces with their lifecycle tag, but they are excluded from trusted anchors and identity-grade
+coverage.
 
 ---
 
@@ -493,7 +495,7 @@ and stays; only its *fillers* gain alignments.
 | `op:AssociatedSite` (R100) | **Uberon** | as above | `located_in` | Non-primary/non-metastatic. |
 | `op:CellOrigin` (R104, normal cell) | **Cell Ontology** | CL xref + lexical | `derives_from` | Defining normal-cell-origin axis; probabilistic R112 is excluded from the curated projection. |
 | `op:CellType` (R105, abnormal cell) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; NCIt `P334` for ICD-O-3.2 | `derives_from` (RO bridge, **not** identity) | Histology axis. **Category caution (M1):** an NCIt *cell* (e.g. C36825 Neoplastic Neuroendocrine Cell), an ICD-O-3 *morphology/behaviour* code, and a SNOMED *morphologic-abnormality* entity are three different ontological kinds; the link is a typed RO bridge, never `closeMatch`/`exactMatch`. |
-| `op:Morphology` (from taxonomic parent) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; NCIt `P334` for ICD-O-3.2 | `closeMatch`→`exactMatch` only via §4.4 | Morphology-from-parent query still owed (engine §6, roadmap §2.2) — build it as part of this work. Morphology↔morphology *can* be identity; cell↔morphology cannot. |
+| `op:Morphology` (from taxonomic parent) | **SNOMED** morphologic abnormality + **ICD-O-3** morphology | NCIm CUI for SNOMED; certified NCIt `P334` for ICD-O-3.2 | `closeMatch`→`exactMatch` only via §4.4 | Morphology-from-parent is implemented. Certified ICD-O-3.2/P334 alignment is implemented; licensed SNOMED alignment is not started. Morphology↔morphology *can* be identity; cell↔morphology cannot. |
 | `op:MolecularAbnormality` (R106) | NCIt-native (+ optional HGNC/SO) | — | — | Kept per D23 (PR/ER/HER2 textbook case). No mainstream OBO substitute needed; oncology-specific. |
 | `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; no alignment is asserted here. Axis names per D23. |
 | Regimen (`Chemotherapy_Regimen_Has_Component`) | **NCIt-native** (components → RxNorm/ChEBI optional) | RxNorm | `relatedMatch` | Secondary scope (regimen doc). Oncology-specific packaging. |
@@ -575,9 +577,11 @@ two over-optimistic claims the red-team flagged (H3, H4).
     concept-duplication the project exists to kill. Rule: `$translate` into the NCIt plane must return
     the **legacy anchor when one exists** (prefer the existing code over minting/選a sibling), and flag
     a divergence for curation when the reasoner disagrees.
-  - **Mapping lifecycle states** (new): a mapping is `proposed → validated → {active | quarantined |
-    retired}`. An endpoint version bump moves affected `active` mappings to `quarantined` until
-    re-validated. `$translate` never serves `quarantined`/`proposed`.
+  - **Mapping lifecycle states:** candidate rows are `proposed`; accepted promotion rows are
+    `validated`; stale rows become `quarantined` in a successor immutable generation. `active` is an
+    allowed lifecycle value but publication activeness is represented by `xref_active_generation`, not
+    by rewriting every row to `active`. Mapping read surfaces can return proposed/quarantined rows with
+    lifecycle tags; identity-grade coverage and trusted anchors require `validated` or `active`.
 - **Mapping is versioned and reviewed** like decomposition (D23 governance; `concept_xref`/SSSOM). A
   mapping is a curated assertion, not a scrape; NCIm volume is *not* evidence of correctness (M5).
 - **Upstream version pinning** parallels the NCIt build pin (D5): all endpoints pinned; a bump triggers
@@ -841,7 +845,7 @@ number a reviewer can audit and regress against.
   caDSR-used NCIt code is retained and, after step 2, resolvable even across retirements.
 - **To caDSR CDEs:** the coverage report is keyed on the *actual* CDE anchor surfaces, so it measures
   the real join, including the value-domain concepts the previous draft missed.
-- **"We can have more concepts":** new upstream-canonical concepts and minted axes are additive; each
+- **"We can have more concepts":** new proposed NCIt concepts and minted axes are additive; each
   carries a mapping back to an NCIt code (or an explicit `no-NCIt-equivalent` minted-concept record,
   D23), so back-map coverage is measured and gaps are explicitly flagged — never silently absent.
 

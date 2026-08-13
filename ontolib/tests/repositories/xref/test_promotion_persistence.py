@@ -43,6 +43,10 @@ from ontolib.repositories.xref.promotion import (
 from ontolib.repositories.xref.promotion import (
     run_promotion as _run_promotion,
 )
+from ontolib.repositories.xref.publication import (
+    generation_graph_iri,
+    generation_identity,
+)
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.validation import ReasonerUnavailableError
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH, NARROW_MATCH
@@ -136,11 +140,7 @@ async def store() -> AsyncIterator[tuple[XrefStore, list[str]]]:
     run_ids: list[str] = []
     yield XrefStore(sf), run_ids
     async with sf() as s:
-        for rid in run_ids:
-            await s.execute(
-                text("DELETE FROM concept_xref WHERE run_id = :rid"), {"rid": rid}
-            )
-            await s.execute(text("DELETE FROM xref_run WHERE id = :rid"), {"rid": rid})
+        await s.execute(text("TRUNCATE xref_generation, xref_run CASCADE"))
         await s.commit()
     await dispose_engine(engine)
 
@@ -322,14 +322,26 @@ async def test_proposed_candidates_returns_only_unvalidated(
         run_id=run_id,
         records=[
             _candidate("C12468", "UBERON:0002048"),
-            _promoted("C12393", "UBERON:0001264"),
+            replace(
+                _candidate("C-VALIDATED", "UBERON:VALIDATED"),
+                lifecycle_state="validated",
+            ),
+            replace(_candidate("C-ACTIVE", "UBERON:ACTIVE"), lifecycle_state="active"),
+            replace(
+                _candidate("C-QUARANTINED", "UBERON:QUARANTINED"),
+                lifecycle_state="quarantined",
+            ),
+            replace(
+                _candidate("C-RETIRED", "UBERON:RETIRED"),
+                lifecycle_state="retired",
+            ),
         ],
     )
 
     candidates = await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
     pairs = {(c.subject_id, c.object_id) for c in candidates}
     assert ("C12468", "UBERON:0002048") in pairs
-    assert ("C12393", "UBERON:0001264") not in pairs
+    assert pairs == {("C12468", "UBERON:0002048")}
     assert all(c.lifecycle_state == "proposed" for c in candidates)
 
 
@@ -450,7 +462,7 @@ async def test_proposed_candidates_rejects_a_stale_candidate_generation(
 
 
 @pytest.mark.integration
-async def test_an_endpoint_release_quarantines_stale_bridges(
+async def test_an_endpoint_release_plans_stale_bridges_without_mutating_published_rows(
     store: tuple[XrefStore, list[str]],
 ) -> None:
     """D29: a bridge validated against an older upstream release is no longer *known*
@@ -476,20 +488,25 @@ async def test_an_endpoint_release_quarantines_stale_bridges(
         ],
     )
 
-    quarantined = await xref_store.quarantine_stale(
+    original_generation = await xref_store.active_generation("uberon-cl-promotion")
+    stale = await xref_store.stale_anchors(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
         source="uberon-cl-promotion",
+        generation_id=original_generation,
     )
 
-    assert quarantined >= 1
-    anchors = await xref_store.validated_anchors()
-    assert ("C12391", "UBERON:0000945") in anchors
-    assert ("C12377", "UBERON:0002110") not in anchors
+    assert stale == {("C12377", "UBERON:0002110")}
+    assert (
+        await xref_store.active_generation("uberon-cl-promotion") == original_generation
+    )
+    assert ("C12377", "UBERON:0002110") in await xref_store.validated_anchors(
+        source="uberon-cl-promotion", generation_id=original_generation
+    )
 
 
 @pytest.mark.integration
-async def test_quarantine_is_scoped_to_its_own_upstream_source(
+async def test_stale_planning_is_scoped_to_its_own_upstream_source(
     store: tuple[XrefStore, list[str]],
 ) -> None:
     """A promotion sweep cannot quarantine a candidate-source generation."""
@@ -510,7 +527,7 @@ async def test_quarantine_is_scoped_to_its_own_upstream_source(
         records=[_promoted("C3262", "UBERON:0002107", object_version="uberon-2025-06")],
     )
 
-    await xref_store.quarantine_stale(
+    stale = await xref_store.stale_anchors(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
         source="uberon-cl-promotion",
@@ -518,6 +535,7 @@ async def test_quarantine_is_scoped_to_its_own_upstream_source(
 
     # The bridge belongs to another known source and must be untouched.
     assert ("C3262", "UBERON:0002107") in await xref_store.validated_anchors()
+    assert stale == set()
 
 
 @pytest.mark.integration
@@ -607,7 +625,7 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
         run_id=run_id,
         tool_identity=_REASONER_TOOL,
     )
-    quarantined = await xref_store.quarantine_stale(
+    stale = await xref_store.stale_anchors(
         ncit_version=_NCIT_VERSION,
         source_version=_UBERON_VERSION,
         source="uberon-cl-promotion",
@@ -615,7 +633,7 @@ async def test_a_promotion_run_does_not_quarantine_what_it_just_promoted(
 
     # the bridge this run just validated must survive its own staleness sweep
     assert ("C12971", "UBERON:0000310") in await xref_store.validated_anchors()
-    assert quarantined == 0
+    assert stale == set()
 
 
 @pytest.mark.integration
@@ -788,6 +806,122 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
     # cannot catch that; only reading evidence off a run the machinery produced.
     by_pair = await xref_store.evidence_by_pair(report["run_id"])
     assert SME_CURATION in {e["kind"] for e in by_pair[("C12468", "UBERON:0002048")]}
+
+
+@pytest.mark.parametrize(
+    "switch_after", ["proposed_candidates", "validated_anchors", "stale_anchors"]
+)
+@pytest.mark.integration
+async def test_promotion_rejects_a_candidate_pointer_change_before_writes(
+    store: tuple[XrefStore, list[str]], switch_after: str
+) -> None:
+    xref_store, run_ids = store
+    first_run = f"test-snapshot-first-{uuid.uuid4().hex}"
+    second_run = f"test-snapshot-second-{uuid.uuid4().hex}"
+    run_ids.extend((first_run, second_run))
+    await xref_store.upsert_run(first_run, "uberon-cl", _NCIT_VERSION, _UBERON_VERSION)
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=first_run,
+        records=[_candidate("C-SNAPSHOT", "UBERON:0002048")],
+    )
+    captured_generation = await xref_store.active_generation("uberon-cl")
+    await xref_store.upsert_run(second_run, "uberon-cl", _NCIT_VERSION, _UBERON_VERSION)
+    second_records = [_candidate("C-OTHER", "UBERON:0001264")]
+    second_generation, second_content = generation_identity(
+        "uberon-cl", second_records, _CANDIDATE_METADATA
+    )
+    await xref_store.prepare_generation(
+        source="uberon-cl",
+        generation_id=second_generation,
+        content_sha256=second_content,
+        source_metadata=_CANDIDATE_METADATA,
+        graph_iri=generation_graph_iri("uberon-cl", second_generation),
+        run_id=second_run,
+        records=second_records,
+    )
+
+    class SwitchingStore(XrefStore):
+        switched = False
+
+        async def _switch(self, phase: str) -> None:
+            if phase == switch_after and not self.switched:
+                self.switched = True
+                await xref_store.activate_generation("uberon-cl", second_generation)
+
+        async def proposed_candidates(self, **kwargs: object) -> list[SSSOMRecord]:
+            rows = await xref_store.proposed_candidates(**kwargs)  # type: ignore[arg-type]
+            await self._switch("proposed_candidates")
+            return rows
+
+        async def validated_anchors(
+            self, **kwargs: object
+        ) -> tuple[tuple[str, str], ...]:
+            rows = await xref_store.validated_anchors(**kwargs)  # type: ignore[arg-type]
+            await self._switch("validated_anchors")
+            return rows
+
+        async def stale_anchors(self, **kwargs: object) -> set[tuple[str, str]]:
+            rows = await xref_store.stale_anchors(**kwargs)  # type: ignore[arg-type]
+            await self._switch("stale_anchors")
+            return rows
+
+    switching_store = SwitchingStore(xref_store._sf)  # type: ignore[attr-defined]
+    ncit_ns = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
+    obo = "http://purl.obolibrary.org/obo/"
+    ncit = _StubClient(
+        {
+            "?parent": [
+                {
+                    "child": f"{ncit_ns}C-SNAPSHOT",
+                    "parent": f"{ncit_ns}C12366",
+                }
+            ],
+            "rdfs:label": [{"code": "C-SNAPSHOT", "label": "lung"}],
+        }
+    )
+    uberon = _StubClient(
+        {
+            "?parent": [
+                {
+                    "child": f"{obo}UBERON_0002048",
+                    "parent": f"{obo}UBERON_0001004",
+                }
+            ],
+            "rdfs:label": [
+                {
+                    "concept": "http://purl.obolibrary.org/obo/UBERON_0002048",
+                    "label": "lung",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(StaleXrefGenerationError, match="changed during the run"):
+        await run_promotion(
+            switching_store,
+            ncit,  # type: ignore[arg-type]
+            uberon,  # type: ignore[arg-type]
+            ncit_version=_NCIT_VERSION,
+            source_version=_UBERON_VERSION,
+            source="uberon-cl-promotion",
+            tool_identity=_REASONER_TOOL,
+            curated_pairs=frozenset({("C-SNAPSHOT", "UBERON:0002048")}),
+            reasoner=_echo_reasoner,
+        )
+
+    assert captured_generation != await xref_store.active_generation("uberon-cl")
+    assert await xref_store.active_generation("uberon-cl-promotion") is None
+    engine = make_engine(get_settings().database_url)
+    try:
+        async with engine.connect() as connection:
+            promotion_runs = await connection.scalar(
+                text("SELECT count(*) FROM xref_run WHERE source='uberon-cl-promotion'")
+            )
+        assert promotion_runs == 0
+    finally:
+        await dispose_engine(engine)
 
 
 @pytest.mark.integration

@@ -283,6 +283,28 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
     await dispose_engine(engine)
 
 
+async def test_generation_retry_rejects_a_different_originating_run(
+    isolated_qlever_url: str,
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "uberon-cl"
+    records = [_record("C-RUN", "UBERON:RUN", "u1")]
+    first_run = await _run(store, source, "u1")
+    second_run = await _run(store, source, "u1")
+    async with SparqlHttpClient.for_qlever(
+        isolated_qlever_url, named_graphs=()
+    ) as client:
+        await publish_generation(
+            store, client, source=source, run_id=first_run, records=records
+        )
+        with pytest.raises(ValueError, match="different originating run"):
+            await publish_generation(
+                store, client, source=source, run_id=second_run, records=records
+            )
+    await dispose_engine(engine)
+
+
 async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
@@ -539,13 +561,14 @@ async def test_reactivation_rollback_uses_activation_history_not_creation_parent
 
     client = Client()
     generations = []
+    runs = {code: await _run(store, source, code) for code in ("A", "B", "C")}
     for code in ("A", "B", "C", "B"):
         generations.append(
             await publish_generation(
                 store,
                 client,  # type: ignore[arg-type]
                 source=source,
-                run_id=await _run(store, source, code),
+                run_id=runs[code],
                 records=[_record(code, f"UBERON:{code}", code)],
             )
         )
@@ -621,11 +644,12 @@ async def test_publication_preflight_repairs_hard_crash_split_brain() -> None:
             return _pointer_row(source, self.pointer)
 
     client = Client()
+    first_run = await _run(store, source, "a")
     first = await publish_generation(
         store,
         client,
         source=source,
-        run_id=await _run(store, source, "a"),  # type: ignore[arg-type]
+        run_id=first_run,  # type: ignore[arg-type]
         records=[_record("SPLIT1", "UBERON:SPLIT1", "a")],
     )
     second_records = [_record("SPLIT2", "UBERON:SPLIT2", "b")]
@@ -646,7 +670,7 @@ async def test_publication_preflight_repairs_hard_crash_split_brain() -> None:
         store,
         client,
         source=source,
-        run_id=await _run(store, source, "a2"),  # type: ignore[arg-type]
+        run_id=first_run,  # type: ignore[arg-type]
         records=[_record("SPLIT1", "UBERON:SPLIT1", "a")],
     )
     assert await store.active_generation(source) == first.generation_id

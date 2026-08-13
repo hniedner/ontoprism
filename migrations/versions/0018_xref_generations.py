@@ -91,11 +91,13 @@ def upgrade() -> None:
               ELSE false
             END),
           graph_iri text NOT NULL UNIQUE,
+          run_id text NOT NULL,
           state text NOT NULL CHECK (state IN ('prepared', 'published')),
           created_at timestamptz NOT NULL DEFAULT now(),
           published_at timestamptz,
           PRIMARY KEY (source, id),
-          UNIQUE (id)
+          UNIQUE (id),
+          FOREIGN KEY (run_id, source) REFERENCES xref_run(id, source)
         )"""
     )
     op.execute(

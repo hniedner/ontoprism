@@ -57,6 +57,12 @@ async def _retain_only_active_source(sf: object, source: str) -> None:
         await session.commit()
 
 
+async def _clear_xref_tables(sf: object) -> None:
+    async with sf() as session:  # type: ignore[operator]
+        await session.execute(text("TRUNCATE xref_generation, xref_run CASCADE"))
+        await session.commit()
+
+
 @pytest.mark.integration
 async def test_store_roundtrip() -> None:
     engine = make_engine(get_settings().database_url)
@@ -103,16 +109,7 @@ async def test_store_roundtrip() -> None:
         assert all(r["predicate_id"] == CLOSE_MATCH for r in read_back)
         assert all(r["confidence"] in (0.7, 1.0) for r in read_back)
     finally:
-        async with sf() as s:
-            await s.execute(
-                text("DELETE FROM concept_xref WHERE run_id = :rid"),
-                {"rid": run_id},
-            )
-            await s.execute(
-                text("DELETE FROM xref_run WHERE id = :rid"),
-                {"rid": run_id},
-            )
-            await s.commit()
+        await _clear_xref_tables(sf)
         await dispose_engine(engine)
 
 
@@ -275,14 +272,7 @@ async def test_mapping_strength_by_subject() -> None:
         assert "C12345" in strength
         assert (CLOSE_MATCH, "proposed") in strength["C12345"]
     finally:
-        async with sf() as s:
-            await s.execute(
-                text("DELETE FROM concept_xref WHERE run_id = :rid"), {"rid": run_id}
-            )
-            await s.execute(
-                text("DELETE FROM xref_run WHERE id = :rid"), {"rid": run_id}
-            )
-            await s.commit()
+        await _clear_xref_tables(sf)
         await dispose_engine(engine)
 
 
@@ -330,14 +320,7 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
         assert mapping.confidence == 1.0
         assert "C12400" not in result
     finally:
-        async with sf() as s:
-            await s.execute(
-                text("DELETE FROM concept_xref WHERE run_id = :rid"), {"rid": run_id}
-            )
-            await s.execute(
-                text("DELETE FROM xref_run WHERE id = :rid"), {"rid": run_id}
-            )
-            await s.commit()
+        await _clear_xref_tables(sf)
         await dispose_engine(engine)
 
 
@@ -399,14 +382,7 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
         assert mapping.confidence == 1.0
         assert "UBERON:0002046" not in result
     finally:
-        async with sf() as s:
-            await s.execute(
-                text("DELETE FROM concept_xref WHERE run_id = :rid"), {"rid": run_id}
-            )
-            await s.execute(
-                text("DELETE FROM xref_run WHERE id = :rid"), {"rid": run_id}
-            )
-            await s.commit()
+        await _clear_xref_tables(sf)
         await dispose_engine(engine)
 
 

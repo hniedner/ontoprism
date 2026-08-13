@@ -1299,9 +1299,10 @@ elimination and was not adopted; SNOMED CT retains pre-coordination and *sanctio
 bracket it — `roundtrip_fidelity` (did we capture everything the source asserts?) and
 `residual_precoordination` (is what we produced actually atomic? — see D37).
 
-**2. "NCIt as a subset of Uberon/SNOMED/ICD-O-3" → a dual-canonical mapping layer, split by licence.**
+**2. Historical proposal, superseded by D60: "NCIt as a subset of Uberon/SNOMED/ICD-O-3."**
 NCIt is not a subset: it holds concepts with no upstream counterpart and its class structure differs.
-D24–D26 already say *additive, dual-canonical mapping*, and that is right. Added here is the licence
+D24–D26 proposed an additive mapping model. D60 now governs ownership: everything emitted is NCIt,
+derived from and aligned to corroborating terminology records. The historical addition here was the licence
 boundary, which is a hard constraint on what can be *built*, not a legal footnote: **Uberon / CL /
 Mondo are open and may be depended on definitionally; SNOMED CT and ICD-O-3 are licence-gated and may
 only be mapped to.** An NCIt whose definitions depend on SNOMED cannot be redistributed — which would
@@ -1743,10 +1744,13 @@ NCIt+upstream merges can leave EL, where classification over a 10M+-triple graph
 
 ### D29. Mappings have a lifecycle and rot on release; the "identifiers-only" license safety is confirmed-then-served, not assumed; economics are curation-grade
 Three governance corrections (red-team H2/H3/H4/M3; lit F8/F9/F11/F14).
-1. **Lifecycle + drift.** A mapping is `proposed → validated → {active | quarantined | retired}`. An
+1. **Lifecycle + drift.** Candidate rows are `proposed`; accepted promotion rows are `validated`; stale
+   rows are `quarantined` in a new immutable generation. `active` is an allowed row lifecycle, while the
+   active published generation is selected separately. An
    endpoint version bump **re-runs validation** over the affected set (computable from SSSOM version
-   fields) and quarantines stale mappings — it does not merely "fail loudly." `$translate` never serves
-   non-`active` mappings, and translating an upstream expression into the NCIt plane must return the
+   fields) and quarantines stale mappings — it does not merely "fail loudly." Mapping reads may surface
+   non-validated rows with lifecycle tags, while trusted anchors and identity-grade coverage exclude
+   them. Translating an aligned expression into NCIt must return the
    **legacy anchor** where one exists (prevents dual-identity re-duplication). Expect ~6–10% error
    re-injected per upstream release (Groß 2016; Dos Reis) — a **standing maintenance LOE**, separate from
    the decomposition ~5–8 pm, not folded into it.
@@ -1760,7 +1764,7 @@ Three governance corrections (red-team H2/H3/H4/M3; lit F8/F9/F11/F14).
    **written license determination**, gate the **serving** surface by consumer entitlement (not just the
    build flag), and rely on open Uberon/CL/Mondo (CC-BY/CC0) for a complete default product.
 
-## 2026-07-11 — strategy shift: NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical, additive)
+## 2026-07-11 — historical strategy shift, superseded by D60
 
 Full design-of-record: [`docs/design/ncit-alignment-integration.md`](design/ncit-alignment-integration.md).
 Origin: external feedback (a local input memo) recommending an OBO Foundry + SNOMED/ICD-O-3 +
@@ -1770,10 +1774,10 @@ Mondo composite architecture for a next-generation NCIt.
 > peer-reviewed literature pass and an adversarial red-team. Read them as historical context: the
 > caDSR guarantee is enumerate-then-measure (D27), validation is non-circular and reasoner-committed
 > (D28), and mapping lifecycle/economics/licensing are corrected (D29). **D60 supersedes D24's
-> dual-canonical ownership framing:** all emitted content is proposed NCIt, derived from and aligned
+> ownership framing:** all emitted content is proposed NCIt, derived from and aligned
 > to corroborating terminologies rather than authored in an upstream plane.
 
-### D24. Adopt "NCIt as an oncology-specific specialization of a vetted upstream substrate," realized as a dual-canonical, additive bridge — not a re-platforming
+### D24. Historical additive-alignment proposal (ownership superseded by D60)
 The feedback's correct intent (be compliant with, and build on, the vetted upstream ontologies —
 Uberon anatomy, Cell Ontology normal cells, SNOMED CT + ICD-O-3 morphology, Mondo/DO disease) is
 adopted. Its literal prescription — *extract NCIt's anatomy/cell axes and replace them with upstream

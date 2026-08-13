@@ -22,13 +22,31 @@ def upgrade() -> None:
         "CREATE TABLE xref_run ("
         "  id            text PRIMARY KEY,"
         "  source        text NOT NULL,"
-        "  status        text NOT NULL DEFAULT 'running',"
+        "  status        text NOT NULL DEFAULT 'running' "
+        "CHECK (status IN ('running','completed','failed')) ,"
         "  ncit_version  text NOT NULL,"
         "  source_version text NOT NULL,"
         "  started_at    timestamptz NOT NULL,"
         "  finished_at   timestamptz,"
-        "  metrics       jsonb"
+        "  metrics       jsonb,"
+        "  CHECK ((status = 'running' AND finished_at IS NULL AND metrics IS NULL) OR "
+        "         (status IN ('completed','failed') AND finished_at IS NOT NULL "
+        "          AND metrics IS NOT NULL))"
         ")"
+    )
+    op.execute(
+        """CREATE FUNCTION prevent_terminal_xref_run_update() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF OLD.status IN ('completed','failed') AND NEW IS DISTINCT FROM OLD THEN
+            RAISE EXCEPTION 'terminal xref_run rows are immutable';
+          END IF;
+          RETURN NEW;
+        END $$"""
+    )
+    op.execute(
+        "CREATE TRIGGER xref_run_terminal_immutable BEFORE UPDATE ON xref_run "
+        "FOR EACH ROW EXECUTE FUNCTION prevent_terminal_xref_run_update()"
     )
     op.execute(
         "CREATE TABLE concept_xref ("
@@ -51,3 +69,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS concept_xref")
     op.execute("DROP TABLE IF EXISTS xref_run")
+    op.execute("DROP FUNCTION IF EXISTS prevent_terminal_xref_run_update()")

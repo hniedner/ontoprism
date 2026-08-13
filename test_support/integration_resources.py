@@ -45,7 +45,7 @@ _REPOSITORY_WRITES: Final = frozenset(
         "populate",
         "publish_artifact",
         "publish_generation",
-        "quarantine_stale",
+        "records_for_generation",
         "record_publication_failure",
         "rebuild",
         "resume_run",

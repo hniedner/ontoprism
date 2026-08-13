@@ -12,7 +12,7 @@ import subprocess
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine
@@ -153,10 +153,19 @@ async def test_generation_schema_constraints_and_indexes() -> None:
         async with engine.begin() as conn:
             await conn.execute(
                 text(
+                    "INSERT INTO xref_run "
+                    "(id,source,status,ncit_version,source_version,started_at) VALUES "
+                    "('schema-candidate','uberon-cl','running','n','u',now()),"
+                    "('schema-promotion','uberon-cl-promotion','running','n','u',now())"
+                )
+            )
+            await conn.execute(
+                text(
                     "INSERT INTO xref_generation "
-                    "(id,source,content_sha256,source_metadata,graph_iri,state) VALUES "
+                    "(id,source,content_sha256,source_metadata,graph_iri,run_id,state) "
+                    "VALUES "
                     "(:id,'uberon-cl',:content,CAST(:metadata AS jsonb),"
-                    "'https://example.test/g','prepared')"
+                    "'https://example.test/g','schema-candidate','prepared')"
                 ),
                 {
                     "id": "a" * 64,
@@ -212,9 +221,10 @@ async def test_generation_schema_constraints_and_indexes() -> None:
             await conn.execute(
                 text(
                     "INSERT INTO xref_generation "
-                    "(id,source,content_sha256,source_metadata,graph_iri,state) VALUES "
+                    "(id,source,content_sha256,source_metadata,graph_iri,run_id,state) "
+                    "VALUES "
                     "(:id,'uberon-cl-promotion',:content,CAST(:metadata AS jsonb),"
-                    "'https://example.test/promotion','prepared')"
+                    "'https://example.test/promotion','schema-promotion','prepared')"
                 ),
                 {
                     "id": "f" * 64,
@@ -315,9 +325,9 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                         text(
                             "INSERT INTO xref_generation "
                             "(id,source,content_sha256,source_metadata,"
-                            "graph_iri,state) "
+                            "graph_iri,run_id,state) "
                             "VALUES (:id,'uberon-cl',:content,CAST(:metadata AS jsonb),"
-                            ":graph,'prepared')"
+                            ":graph,'schema-candidate','prepared')"
                         ),
                         {
                             "id": f"{index + 1:x}" * 64,
@@ -327,6 +337,63 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                         },
                     )
     finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_terminal_xref_runs_are_immutable_under_direct_sql() -> None:
+    engine = make_engine(get_settings().database_url)
+    run_id = "terminal-run"
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_run "
+                    "(id,source,status,ncit_version,source_version,started_at,"
+                    "finished_at,metrics) VALUES "
+                    "(:id,'uberon-cl','completed','n','u',now(),now(),'{}'::jsonb)"
+                ),
+                {"id": run_id},
+            )
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE xref_run SET id = id WHERE id = :id"), {"id": run_id}
+            )
+        for statement in (
+            "UPDATE xref_run SET status = 'running' WHERE id = :id",
+            "UPDATE xref_run SET metrics = jsonb_build_object('changed', true) "
+            "WHERE id = :id",
+            "UPDATE xref_run SET finished_at = NULL WHERE id = :id",
+        ):
+            with pytest.raises(
+                DBAPIError, match="terminal xref_run rows are immutable"
+            ):
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(statement),
+                        {"id": run_id},
+                    )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO xref_run "
+                        "(id,source,status,ncit_version,source_version,started_at) "
+                        "VALUES ('invalid-status','uberon-cl','done','n','u',now())"
+                    )
+                )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO xref_run "
+                        "(id,source,status,ncit_version,source_version,started_at) "
+                        "VALUES ('invalid-terminal','uberon-cl','failed','n','u',now())"
+                    )
+                )
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("TRUNCATE xref_generation, xref_run CASCADE"))
         await dispose_engine(engine)
 
 

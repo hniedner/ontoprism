@@ -5,7 +5,7 @@
 **Series:** first of the downstream-program relationship docs under `docs/ecosystem/`. Planned siblings —
 NCI Clinical Trials Reporting Program + oncology trials in ClinicalTrials.gov; NCI CRDC; NCI CCDI.
 Extends: [`../design/ncit-alignment-integration.md`](../design/ncit-alignment-integration.md)
-(the dual-canonical mapping layer, §13 caDSR coverage) and DECISIONS **D24–D29, D27, D38**.
+(the NCIt alignment layer, §13 caDSR coverage) and DECISIONS **D24–D29, D27, D38, D60**.
 
 ---
 
@@ -27,7 +27,7 @@ NAACCR Data Standards & Data Dictionary (v26, 2025)  # data items + value domain
 caDSR CDEs  ── question (DEC) + value domain (permissible values / value meanings) ──┐
         │  each administered item annotated with NCIt concept codes (EVS)            │  ← THE HINGE
         ▼                                                                            │
-NCIt (decomposed op: axes)  ── mapped, dual-canonical ──►  Uberon / CL / Mondo / SNOMED / ICD-O-3
+NCIt (decomposed op: axes)  ── derived from / aligned to ──►  Uberon / CL / Mondo / SNOMED / ICD-O-3
 ```
 **caDSR is the load-bearing hinge, and it is the one part of this chain already in the codebase**
 (`ontolib/.../repositories/xref/cadsr_anchors.py`, `coverage.py`, the published `COV`). caDSR is "the

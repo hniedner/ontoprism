@@ -174,6 +174,7 @@ async def publish_generation(
     run_id: str,
     records: Sequence[SSSOMRecord],
     source_metadata: GenerationSourceMetadata,
+    record_run_ids: Sequence[str] | None = None,
     failpoint: PublicationFailpoint | None = None,
 ) -> PublicationResult:
     """Prepare, materialize, then reconcile the ordered cross-store activation."""
@@ -191,6 +192,7 @@ async def publish_generation(
             graph_iri=graph_iri,
             run_id=run_id,
             records=records,
+            record_run_ids=record_run_ids,
             _publication_locked=True,
         )
         if failpoint == "after_postgres":
