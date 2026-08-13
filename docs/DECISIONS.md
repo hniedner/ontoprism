@@ -373,14 +373,14 @@ work on one small issue branch apiece.**
 
 ## 2026-08-12 — Uberon publisher xrefs are proposed close alignments
 
-### D65. Publisher database cross-references remain inspectable proposals until independently validated
+### D73. Publisher database cross-references remain inspectable proposals until independently validated
 
 Uberon publishes `oboInOwl:hasDbXref "NCIT:C…"` assertions. They are valuable direct publisher
 evidence, but the predicate does not state equivalence and anatomy concepts frequently differ in
 scope across terminologies.
 
 **Decision.** Publish each resolvable assertion as `skos:closeMatch` with lifecycle `proposed` and
-mapping justification `semapv:DatabaseCrossReference`. Bind both typed endpoints to the certified
+mapping justification `https://ontoprism.org/vocab#PublisherDatabaseCrossReference`. Bind both typed endpoints to the certified
 Uberon and NCIt releases used for validation. Preserve every asserted pair, including many-to-one
 and many-to-many sets. Validate all NCIt targets in one bounded query against the activated store;
 retain unresolved assertions in the run report as `ncit-target-not-found` rather than publishing
@@ -2442,7 +2442,7 @@ report: evidence and classification are distinct, and it publishes no mapping or
 **Decision (2026-08-13):** NCIt's own `P334` assertions are publisher database
 cross-references, not equivalence claims. Every value resolving against the exact active
 ICD-O-3.2 morphology generation is therefore published as `skos:closeMatch`, lifecycle
-`proposed`, with `semapv:DatabaseCrossReference` justification. The source and target retain
+`proposed`, with `https://ontoprism.org/vocab#PublisherDatabaseCrossReference` justification. The source and target retain
 typed release identity `(ncit, release, code)` and `(icdo, 3.2, code)`. Only the independent-
 evidence and reasoner-backed promotion path may produce identity-grade mappings.
 

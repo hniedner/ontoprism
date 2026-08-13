@@ -160,6 +160,79 @@ async def test_concurrent_publications_activate_one_complete_immutable_generatio
 
 
 @pytest.mark.integration
+async def test_certified_generation_remains_bound_after_pointer_switch() -> None:
+    engine = make_engine(get_settings().database_url)
+    sessions = make_sessionmaker(engine)
+    try:
+        first = await publish_dataset(
+            sessions,
+            _dataset("LUNG"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+        repository = IcdoRepository(sessions)
+        certified = await repository.certified_metadata(
+            "4.0",
+            "topography",
+            CertificationExpectation(
+                source_sha256=first.source_sha256,
+                edition="4.0",
+                axis="topography",
+                row_count=first.row_count,
+                serving_sha256=first.serving_sha256,
+            ),
+        )
+        assert certified is not None
+        await publish_dataset(
+            sessions,
+            _dataset("BRONCHUS"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+
+        detail = await repository.detail(
+            "4.0", "topography", "C34", generation_id=certified.generation_id
+        )
+        assert detail is not None
+        assert detail["preferred"] == "LUNG"
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_search_refuses_denormalized_column_corruption() -> None:
+    engine = make_engine(get_settings().database_url)
+    sessions = make_sessionmaker(engine)
+    try:
+        manifest = await publish_dataset(
+            sessions,
+            _dataset("LUNG"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE icdo_record SET search_text='corrupt', behaviour='9' "
+                    "WHERE generation_id=:id"
+                ),
+                {"id": manifest.generation_id},
+            )
+        repository = IcdoRepository(sessions)
+        result = await repository.search(
+            "4.0",
+            "topography",
+            query="corrupt",
+            limit=10,
+            offset=0,
+            generation_id=manifest.generation_id,
+        )
+        assert result["total"] == 0
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
 async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None:
     engine = make_engine(get_settings().database_url)
     sessions = make_sessionmaker(engine)

@@ -103,12 +103,20 @@ export interface UberonConceptDetail {
 	truncated: boolean;
 }
 
+export type MappingPredicate =
+	| 'http://www.w3.org/2004/02/skos/core#exactMatch'
+	| 'http://www.w3.org/2004/02/skos/core#closeMatch'
+	| 'http://www.w3.org/2004/02/skos/core#broadMatch'
+	| 'http://www.w3.org/2004/02/skos/core#narrowMatch'
+	| 'http://www.w3.org/2004/02/skos/core#relatedMatch';
+export type MappingLifecycle = 'proposed' | 'validated' | 'active' | 'quarantined' | 'retired';
+
 export interface Alignment {
 	code: string;
 	system: 'ncit' | 'uberon-cl' | 'icdo';
 	version: string;
-	predicate: string;
-	lifecycle: string;
+	predicate: MappingPredicate;
+	lifecycle: MappingLifecycle;
 }
 
 export interface UberonAlignments {
@@ -244,8 +252,8 @@ export interface ExternalMapping {
 	object_id: string;
 	system: string;
 	version: string;
-	predicate: string;
-	lifecycle: string;
+	predicate: MappingPredicate;
+	lifecycle: MappingLifecycle;
 	confidence: number;
 	is_identity: boolean;
 }

@@ -78,6 +78,24 @@ class SourceShape(_StrictModel):
     trailing_blank_rows: int
 
 
+def _validate_record_shape(record: IcdoRecord) -> None:
+    if record.level == "morphology":
+        if record.parent_code is not None or not re.fullmatch(
+            r"[0-9]{4}(?:[0-9A-Z])?/[0-9]", record.code
+        ):
+            raise ValueError("morphology record has incompatible fields")
+        return
+    morphology_fields = (
+        record.base_morphology,
+        record.specificity,
+        record.behaviour,
+    )
+    if not re.fullmatch(r"C[0-9]{2}(?:\.[0-9])?", record.code) or any(
+        field is not None for field in morphology_fields
+    ):
+        raise ValueError("topography record has incompatible fields")
+
+
 class IcdoRecord(_StrictModel):
     code: str
     level: Literal["morphology", "category", "leaf"]
@@ -98,14 +116,21 @@ class IcdoRecord(_StrictModel):
 
     @model_validator(mode="after")
     def validate_shape(self) -> IcdoRecord:
-        if self.level == "morphology":
-            if self.parent_code is not None or not re.fullmatch(
-                r"[0-9]{4}(?:[0-9A-Z])?/[0-9]", self.code
-            ):
-                raise ValueError("morphology record has incompatible fields")
-        elif not re.fullmatch(r"C[0-9]{2}(?:\.[0-9])?", self.code):
-            raise ValueError("topography record has incompatible code")
+        _validate_record_shape(self)
         return self
+
+
+def _validate_dataset_records(dataset: CanonicalDataset) -> None:
+    morphology = dataset.axis == "morphology"
+    if any((row.level == "morphology") != morphology for row in dataset.records):
+        raise ValueError("record level does not match dataset axis")
+    pattern = (
+        r"[0-9]{4}/[0-9]" if dataset.edition == "3.2" else r"[0-9]{4}[0-9A-Z]/[0-9]"
+    )
+    if morphology and any(
+        re.fullmatch(pattern, row.code) is None for row in dataset.records
+    ):
+        raise ValueError("morphology record shape does not match dataset edition")
 
 
 class CanonicalDataset(_StrictModel):
@@ -121,12 +146,7 @@ class CanonicalDataset(_StrictModel):
     def validate_edition_axis(self) -> CanonicalDataset:
         if (self.edition, self.axis) == ("3.2", "topography"):
             raise ValueError("ICD-O-3.2 topography is not served")
-        expected_level = "morphology" if self.axis == "morphology" else None
-        if any(
-            (row.level == "morphology") != (expected_level == "morphology")
-            for row in self.records
-        ):
-            raise ValueError("record level does not match dataset axis")
+        _validate_dataset_records(self)
         return self
 
     @computed_field

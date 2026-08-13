@@ -368,10 +368,12 @@ release, activation time, and observation. A refusal is HTTP 503 with a typed re
 as `manifest-missing`, `activation-incomplete`, `release-mismatch`, or
 `observation-mismatch`; the unhealthy value deliberately contains no identity fields.
 
-The refresh report returns the same discriminated metadata for NCIt and caDSR. caDSR's
-ready value identifies the persisted source archive and the canonical serving-row
-fingerprint/count. The refresh page displays these values and the exact unhealthy reason;
-it does not turn endpoint reachability into a ready claim (D68).
+The refresh report returns discriminated metadata for NCIt, caDSR, Uberon/CL, and each
+served ICD-O edition/axis dataset. caDSR identifies its persisted source archive and
+canonical serving rows; Uberon/CL identifies its certified combined index; ICD-O binds
+the active generation to its source digest, exact serving digest, and row count. The
+refresh page displays these values and the exact unhealthy reason; it does not turn
+endpoint reachability into a ready claim (D68).
 
 ## Validation tools (ROBOT + ELK)
 

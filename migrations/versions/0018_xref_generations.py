@@ -22,13 +22,11 @@ def upgrade() -> None:
           content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
           graph_iri text NOT NULL UNIQUE,
           state text NOT NULL CHECK (state IN ('prepared', 'published')),
-          predecessor_id text,
           created_at timestamptz NOT NULL DEFAULT now(),
           published_at timestamptz,
           PRIMARY KEY (source, id),
           UNIQUE (id),
-          UNIQUE (source, content_sha256),
-          FOREIGN KEY (source, predecessor_id) REFERENCES xref_generation(source, id)
+           UNIQUE (source, content_sha256)
         )"""
     )
     op.execute(
@@ -84,6 +82,17 @@ def upgrade() -> None:
         "lifecycle_state, confidence)"
     )
     op.execute(
+        """CREATE TABLE xref_activation_history (
+          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          source text NOT NULL,
+          generation_id text NOT NULL,
+          predecessor_id text,
+          activated_at timestamptz NOT NULL DEFAULT now(),
+          FOREIGN KEY (source, generation_id) REFERENCES xref_generation(source, id),
+          FOREIGN KEY (source, predecessor_id) REFERENCES xref_generation(source, id)
+        )"""
+    )
+    op.execute(
         """CREATE TABLE xref_legacy_quarantine (
           quarantined_at timestamptz NOT NULL DEFAULT now(),
           reason text NOT NULL,
@@ -118,6 +127,7 @@ def downgrade() -> None:
         )"""
     )
     op.execute("DROP TABLE concept_xref_generation")
+    op.execute("DROP TABLE xref_activation_history")
     op.execute("DROP TABLE xref_active_generation")
     op.execute("DROP TABLE xref_generation")
     op.execute("DROP TABLE xref_legacy_quarantine")

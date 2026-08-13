@@ -21,6 +21,8 @@ class _NcitClient:
 
     async def select(self, query: str) -> list[dict[str, str]]:
         self.select_calls.append(query)
+        if "active/" in query:
+            return []
         return self.rows
 
     async def version(self) -> str:
@@ -165,12 +167,13 @@ async def test_p334_publish_is_batched_typed_many_to_many_and_reports_unresolved
         run_id="p334-run",
     )
 
-    assert len(ncit.select_calls) == 1
+    p334_queries = [query for query in ncit.select_calls if "P334" in query]
+    assert len(p334_queries) == 1
     assert (
         "GRAPH <http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-stated.owl>"
-        in ncit.select_calls[0]
+        in p334_queries[0]
     )
-    assert "P334" in ncit.select_calls[0]
+    assert "P334" in p334_queries[0]
     assert icdo.calls == [{"8240/3", "8241/3", "8248/1", "9680/3", "8155/1"}]
     assert {(row.subject_id, row.object_id) for row in store.records} == {
         ("C188218", "8240/3"),
@@ -269,6 +272,27 @@ async def test_p334_publisher_non_code_value_is_explicitly_unresolved() -> None:
         "icdo_code": "981-983",
         "reason": "invalid-icdo32-morphology-code",
     }
+
+
+@pytest.mark.unit
+async def test_p334_refuses_ncit_pointer_switch_during_validation() -> None:
+    client = _NcitClient([_row("C1", "8000/3")])
+    versions = iter(("26.07d", "26.08a"))
+
+    async def switching_version() -> str:
+        return next(versions)
+
+    client.version = switching_version  # type: ignore[method-assign]
+    store = _Store()
+    with pytest.raises(P334SourceError, match="changed during validation"):
+        await publish_p334_alignments(
+            store,
+            client,
+            _Icdo({"8000/3"}),
+            icdo_expected=_expectation(),
+            expected_counts=(1, 1),
+        )
+    assert store.run_writes == 0
 
 
 @pytest.mark.unit

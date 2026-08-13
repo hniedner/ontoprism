@@ -98,25 +98,17 @@ class XrefStore:
                     raise ValueError("generation identity has different content")
                 await s.commit()
                 return False
-            predecessor = await s.execute(
-                text(
-                    "SELECT generation_id FROM xref_active_generation "
-                    "WHERE source = :source"
-                ),
-                {"source": source},
-            )
             await s.execute(
                 text(
                     "INSERT INTO xref_generation "
-                    "(id, source, content_sha256, graph_iri, state, predecessor_id) "
-                    "VALUES (:id, :source, :content, :graph, 'prepared', :predecessor)"
+                    "(id, source, content_sha256, graph_iri, state) "
+                    "VALUES (:id, :source, :content, :graph, 'prepared')"
                 ),
                 {
                     "id": generation_id,
                     "source": source,
                     "content": content_sha256,
                     "graph": graph_iri,
-                    "predecessor": predecessor.scalar_one_or_none(),
                 },
             )
             if rows:
@@ -183,7 +175,8 @@ class XrefStore:
                 ),
                 {"source": source},
             )
-            if current.scalar_one_or_none() == generation_id:
+            current_id = current.scalar_one_or_none()
+            if current_id == generation_id:
                 await s.commit()
                 return False
             await s.execute(
@@ -192,6 +185,14 @@ class XrefStore:
                     "published_at = COALESCE(published_at, now()) WHERE id = :id"
                 ),
                 {"id": generation_id},
+            )
+            await s.execute(
+                text(
+                    "INSERT INTO xref_activation_history "
+                    "(source, generation_id, predecessor_id) "
+                    "VALUES (:source, :id, :predecessor)"
+                ),
+                {"source": source, "id": generation_id, "predecessor": current_id},
             )
             await s.execute(
                 text(
@@ -214,8 +215,10 @@ class XrefStore:
                 )
             result = await s.execute(
                 text(
-                    "SELECT g.predecessor_id FROM xref_active_generation a "
-                    "JOIN xref_generation g ON g.id = a.generation_id "
+                    "SELECT h.predecessor_id FROM xref_active_generation a "
+                    "JOIN LATERAL (SELECT predecessor_id FROM xref_activation_history "
+                    "WHERE source=a.source AND generation_id=a.generation_id "
+                    "ORDER BY id DESC LIMIT 1) h ON true "
                     "WHERE a.source = :source FOR UPDATE OF a"
                 ),
                 {"source": source},
@@ -229,6 +232,14 @@ class XrefStore:
                     "activated_at = now() WHERE source = :source"
                 ),
                 {"id": predecessor, "source": source},
+            )
+            await s.execute(
+                text(
+                    "INSERT INTO xref_activation_history "
+                    "(source, generation_id, predecessor_id) "
+                    "VALUES (:source, :id, :predecessor)"
+                ),
+                {"source": source, "id": predecessor, "predecessor": None},
             )
             await s.commit()
             return str(predecessor)

@@ -63,6 +63,24 @@ def certify_dataset(
     dataset: CanonicalDataset,
     expected: CertificationExpectation,
 ) -> IcdoManifest:
+    recomputed = dataset_manifest(
+        dataset,
+        publisher_url=manifest.publisher_url,
+        published_at=manifest.published_at,
+    )
+    persisted = {
+        "row_count": manifest.row_count,
+        "serving_sha256": manifest.serving_sha256,
+        "generation_id": manifest.generation_id,
+    }
+    exact = {
+        "row_count": recomputed.row_count,
+        "serving_sha256": recomputed.serving_sha256,
+        "generation_id": recomputed.generation_id,
+    }
+    for field, value in exact.items():
+        if persisted[field] != value:
+            raise IcdoCertificationError(f"{field} drift")
     observed: dict[str, object] = {
         "source_sha256": manifest.source_sha256,
         "edition": manifest.edition,
@@ -138,32 +156,33 @@ class IcdoRepository:
             else None
         )
 
-    async def dataset(self, edition: str, axis: str) -> CanonicalDataset | None:
-        manifest = await self.metadata(edition, axis)
-        if manifest is None:
-            return None
+    async def _generation_dataset(
+        self, edition: str, axis: str, generation_id: str | None = None
+    ) -> tuple[IcdoManifest, CanonicalDataset] | None:
         async with self._sessions() as session:
-            payloads = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT r.payload FROM icdo_active_generation a "
-                            "JOIN icdo_record r ON r.edition=a.edition "
-                            "AND r.axis=a.axis AND r.generation_id=a.generation_id "
-                            "WHERE a.edition=:edition AND a.axis=:axis ORDER BY r.code"
-                        ),
-                        {"edition": edition, "axis": axis},
-                    )
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT g.manifest, r.payload FROM icdo_generation g "
+                        "JOIN icdo_record r ON r.edition=g.edition AND r.axis=g.axis "
+                        "AND r.generation_id=g.id "
+                        "WHERE g.edition=:edition AND g.axis=:axis AND g.id=COALESCE("
+                        ":generation, (SELECT generation_id FROM "
+                        "icdo_active_generation "
+                        "WHERE edition=:edition AND axis=:axis)) ORDER BY r.code"
+                    ),
+                    {"edition": edition, "axis": axis, "generation": generation_id},
                 )
-                .scalars()
-                .all()
-            )
-        return CanonicalDataset(
+            ).all()
+        if not rows:
+            return None
+        manifest = IcdoManifest.model_validate_json(json.dumps(rows[0][0]))
+        dataset = CanonicalDataset(
             edition=manifest.edition,
             axis=manifest.axis,
             records=tuple(
                 IcdoRecord.model_validate_json(json.dumps(payload))
-                for payload in payloads
+                for _, payload in rows
             ),
             source_shape=SourceShape(
                 sheet_names=(), headers=(), merged_ranges=(), trailing_blank_rows=0
@@ -172,14 +191,21 @@ class IcdoRepository:
             archive_sha256=manifest.archive_sha256,
             annex_sha256=manifest.annex_sha256,
         )
+        return manifest, dataset
+
+    async def dataset(
+        self, edition: str, axis: str, generation_id: str | None = None
+    ) -> CanonicalDataset | None:
+        bound = await self._generation_dataset(edition, axis, generation_id)
+        return bound[1] if bound is not None else None
 
     async def certified_metadata(
         self, edition: str, axis: str, expected: CertificationExpectation
     ) -> IcdoManifest | None:
-        manifest = await self.metadata(edition, axis)
-        dataset = await self.dataset(edition, axis)
-        if manifest is None or dataset is None:
+        bound = await self._generation_dataset(edition, axis)
+        if bound is None:
             return None
+        manifest, dataset = bound
         return certify_dataset(manifest, dataset, expected)
 
     async def search(
@@ -192,6 +218,7 @@ class IcdoRepository:
         offset: int,
         behaviour: str | None = None,
         level: str | None = None,
+        generation_id: str | None = None,
     ) -> dict[str, object]:
         pattern = f"%{query.lower()}%"
         params: dict[str, object] = {
@@ -203,18 +230,19 @@ class IcdoRepository:
             "has_query": bool(query),
             "behaviour": behaviour,
             "level": level,
+            "generation": generation_id,
         }
-        joins = (
-            " FROM icdo_active_generation a JOIN icdo_record r "
-            "ON r.edition=a.edition AND r.axis=a.axis "
-            "AND r.generation_id=a.generation_id "
-        )
+        joins = " FROM icdo_record r "
         where = (
-            "WHERE a.edition=:edition AND a.axis=:axis "
-            "AND (NOT :has_query OR lower(r.code) LIKE :pattern "
-            "OR lower(r.search_text) LIKE :pattern) "
-            "AND (CAST(:behaviour AS text) IS NULL OR r.behaviour=:behaviour) "
-            "AND (CAST(:level AS text) IS NULL OR r.level=:level)"
+            "WHERE r.edition=:edition AND r.axis=:axis "
+            "AND r.generation_id=COALESCE(:generation, (SELECT generation_id "
+            "FROM icdo_active_generation WHERE edition=:edition AND axis=:axis)) "
+            "AND (NOT :has_query OR lower(r.payload->>'code') LIKE :pattern OR "
+            "lower(concat_ws(' ', r.payload->>'preferred', r.payload->'synonyms', "
+            "r.payload->'related')) LIKE :pattern) "
+            "AND (CAST(:behaviour AS text) IS NULL OR "
+            "r.payload->>'behaviour'=:behaviour) "
+            "AND (CAST(:level AS text) IS NULL OR r.payload->>'level'=:level)"
         )
         async with self._sessions() as session:
             total = (
@@ -245,70 +273,51 @@ class IcdoRepository:
             "total": total,
             "limit": limit,
             "offset": offset,
-            "hits": rows,
+            "hits": [
+                IcdoRecord.model_validate_json(json.dumps(row)).model_dump(mode="json")
+                for row in rows
+            ],
         }
 
     async def detail(
-        self, edition: str, axis: str, code: str
+        self, edition: str, axis: str, code: str, generation_id: str | None = None
     ) -> dict[str, object] | None:
         async with self._sessions() as session:
-            return (
+            row = (
                 await session.execute(
                     text(
-                        "SELECT r.payload FROM icdo_active_generation a "
-                        "JOIN icdo_record r ON r.edition=a.edition "
-                        "AND r.axis=a.axis AND r.generation_id=a.generation_id "
-                        "WHERE a.edition=:edition AND a.axis=:axis AND r.code=:code"
+                        "SELECT r.payload FROM icdo_record r WHERE r.edition=:edition "
+                        "AND r.axis=:axis AND r.generation_id=COALESCE(:generation, "
+                        "(SELECT generation_id FROM icdo_active_generation WHERE "
+                        "edition=:edition AND axis=:axis)) AND r.code=:code"
                     ),
-                    {"edition": edition, "axis": axis, "code": code},
+                    {
+                        "edition": edition,
+                        "axis": axis,
+                        "code": code,
+                        "generation": generation_id,
+                    },
                 )
             ).scalar_one_or_none()
+        if row is None:
+            return None
+        return IcdoRecord.model_validate_json(json.dumps(row)).model_dump(mode="json")
 
     async def resolve_active_morphology32_codes(
         self, codes: set[str], expected: CertificationExpectation
     ) -> IcdoCodeResolution:
         """Resolve a code set against exactly one active ICD-O-3.2 generation."""
-        manifest = await self.certified_metadata("3.2", "morphology", expected)
-        if manifest is None:
+        bound = await self._generation_dataset("3.2", "morphology")
+        if bound is None:
             raise IcdoRepositoryUnavailableError(
                 "active ICD-O-3.2 morphology generation is unavailable"
             )
-        async with self._sessions() as session:
-            rows = (
-                (
-                    await session.execute(
-                        text(
-                            "SELECT a.generation_id, g.manifest->>'serving_sha256' "
-                            "AS serving_sha256, r.code FROM icdo_active_generation a "
-                            "JOIN icdo_generation g ON g.id=a.generation_id "
-                            "LEFT JOIN icdo_record r ON "
-                            "r.edition=a.edition AND r.axis=a.axis "
-                            "AND r.generation_id=a.generation_id "
-                            "AND r.code=ANY(:codes) WHERE a.edition='3.2' "
-                            "AND a.axis='morphology' ORDER BY r.code"
-                        ),
-                        {"codes": sorted(codes)},
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        if not rows:
-            raise IcdoRepositoryUnavailableError(
-                "active ICD-O-3.2 morphology generation is unavailable"
-            )
-        generation_id = rows[0]["generation_id"]
-        serving_sha256 = rows[0]["serving_sha256"]
-        if not isinstance(generation_id, str) or not isinstance(serving_sha256, str):
-            raise IcdoRepositoryUnavailableError(
-                "active ICD-O-3.2 morphology generation identity is invalid"
-            )
+        manifest, dataset = bound
+        certify_dataset(manifest, dataset, expected)
         return IcdoCodeResolution(
-            generation_id=generation_id,
-            serving_sha256=serving_sha256,
-            resolved_codes={
-                str(row["code"]) for row in rows if row["code"] is not None
-            },
+            generation_id=manifest.generation_id,
+            serving_sha256=manifest.serving_sha256,
+            resolved_codes={row.code for row in dataset.records if row.code in codes},
         )
 
 

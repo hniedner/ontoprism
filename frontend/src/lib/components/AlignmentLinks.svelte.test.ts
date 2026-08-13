@@ -7,8 +7,8 @@ describe('AlignmentLinks', () => {
 		render(AlignmentLinks, {
 			title: 'Aligned NCIt concepts',
 			alignments: [
-				{ code: 'C12468', system: 'ncit', version: '26.07d', predicate: 'closeMatch', lifecycle: 'proposed' },
-				{ code: 'C12345', system: 'ncit', version: '26.07d', predicate: 'closeMatch', lifecycle: 'proposed' }
+				{ code: 'C12468', system: 'ncit', version: '26.07d', predicate: 'http://www.w3.org/2004/02/skos/core#closeMatch', lifecycle: 'proposed' },
+				{ code: 'C12345', system: 'ncit', version: '26.07d', predicate: 'http://www.w3.org/2004/02/skos/core#closeMatch', lifecycle: 'proposed' }
 			]
 		});
 
@@ -26,8 +26,8 @@ describe('AlignmentLinks', () => {
 				code,
 				system: 'uberon-cl' as const,
 				version: '2026-06-19',
-				predicate: 'closeMatch',
-				lifecycle: 'proposed'
+				predicate: 'http://www.w3.org/2004/02/skos/core#closeMatch' as const,
+				lifecycle: 'proposed' as const
 			}))
 		});
 
@@ -44,8 +44,8 @@ describe('AlignmentLinks', () => {
 				code,
 				system: 'icdo' as const,
 				version: '3.2',
-				predicate: 'closeMatch',
-				lifecycle: 'proposed'
+				predicate: 'http://www.w3.org/2004/02/skos/core#closeMatch' as const,
+				lifecycle: 'proposed' as const
 			}))
 		});
 
@@ -60,7 +60,7 @@ describe('AlignmentLinks', () => {
 		const { rerender } = render(AlignmentLinks, {
 			title: 'Alignments',
 			alignments: [
-				{ code: 'C1', system: 'ncit', version: '26.07d', predicate: 'exactMatch', lifecycle: 'validated' }
+				{ code: 'C1', system: 'ncit', version: '26.07d', predicate: 'http://www.w3.org/2004/02/skos/core#exactMatch', lifecycle: 'validated' }
 			]
 		});
 

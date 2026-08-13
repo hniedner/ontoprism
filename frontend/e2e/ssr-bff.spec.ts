@@ -70,6 +70,7 @@ test('P334 reciprocal alignment links are accessible in both entitled directions
 	expect(publicHtml).not.toContain('8240/3');
 	expect(publicHtml).not.toContain('8241/3');
 	expect(publicHtml).not.toContain('8248/1');
+	expect(publicHtml).not.toContain('8503/0');
 
 	const context = await browser.newContext();
 	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
@@ -266,7 +267,7 @@ test('remote search discloses live queries and renders typed failures without id
 
 test('refresh is explicitly local-only and its slow mutation uses the shared delayed status', async ({ page }) => {
 	const response = await page.goto('/refresh');
-	expect(await response?.text()).toContain('Re-certify the active NCIt, caDSR, and Uberon/CL local proxies');
+	expect(await response?.text()).toContain('Re-certify the active NCIt, caDSR, Uberon/CL, and ICD-O local repositories');
 	expect(await response?.text()).toContain('Remote live services are not refreshed');
 	expect(page.getByRole('status')).not.toBeVisible();
 

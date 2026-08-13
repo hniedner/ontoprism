@@ -20,11 +20,13 @@ from ontolib.repositories.icdo.congruence import (
     build_congruence_report,
 )
 from ontolib.repositories.icdo.models import (
+    IcdoRecord,
     MorphologyCode32,
     MorphologyCode40,
     TopographyCode40,
 )
 from ontolib.repositories.xref.models import MappingResult
+from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 
 router = APIRouter(
     prefix="/api/v1/icdo", tags=["icdo"], dependencies=[RequireIcdoEntitlement]
@@ -37,13 +39,23 @@ class NcitAlignment(BaseModel):
     code: str
     system: Literal["ncit"] = "ncit"
     version: str
-    predicate: str
-    lifecycle: str
+    predicate: MappingPredicate
+    lifecycle: MappingLifecycle
 
 
 class IcdoDetail(BaseModel):
-    record: dict[str, object]
+    record: IcdoRecord
     ncit_alignments: list[NcitAlignment]
+
+
+class IcdoPage(BaseModel):
+    edition: Edition
+    axis: Axis
+    query: str
+    total: int
+    limit: int
+    offset: int
+    hits: list[IcdoRecord]
 
 
 def _ncit_alignments(
@@ -126,7 +138,9 @@ async def congruence_report(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Congruence sources are unavailable.",
         )
-    topography = await repository.dataset("4.0", "topography")
+    topography = await repository.dataset(
+        "4.0", "topography", generation_id=icdo_metadata.activation_identity
+    )
     if topography is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -162,7 +176,7 @@ async def _uberon_congruence_records(
     return tuple(records)
 
 
-@router.get("/{edition}/{axis}/list")
+@router.get("/{edition}/{axis}/list", response_model=IcdoPage)
 async def list_records(
     repository: IcdoReads,
     repository_metadata: RepositoryMetadataReads,
@@ -174,19 +188,25 @@ async def list_records(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     _dataset(edition, axis)
-    await _ready(repository_metadata, edition, axis)
-    return await repository.search(
-        edition,
-        axis,
-        query="",
-        behaviour=behaviour,
-        level=level,
-        limit=limit,
-        offset=offset,
-    )
+    ready = await _ready(repository_metadata, edition, axis)
+    try:
+        return await repository.search(
+            edition,
+            axis,
+            query="",
+            behaviour=behaviour,
+            level=level,
+            limit=limit,
+            offset=offset,
+            generation_id=ready.activation_identity,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
+        ) from exc
 
 
-@router.get("/{edition}/{axis}/search")
+@router.get("/{edition}/{axis}/search", response_model=IcdoPage)
 async def search(
     repository: IcdoReads,
     repository_metadata: RepositoryMetadataReads,
@@ -199,16 +219,22 @@ async def search(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     _dataset(edition, axis)
-    await _ready(repository_metadata, edition, axis)
-    return await repository.search(
-        edition,
-        axis,
-        query=q,
-        behaviour=behaviour,
-        level=level,
-        limit=limit,
-        offset=offset,
-    )
+    ready = await _ready(repository_metadata, edition, axis)
+    try:
+        return await repository.search(
+            edition,
+            axis,
+            query=q,
+            behaviour=behaviour,
+            level=level,
+            limit=limit,
+            offset=offset,
+            generation_id=ready.activation_identity,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
+        ) from exc
 
 
 @router.get("/{edition}/{axis}/concepts/{code}", response_model=IcdoDetail)
@@ -221,9 +247,16 @@ async def detail(
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
     _dataset(edition, axis)
-    await _ready(repository_metadata, edition, axis)
+    ready = await _ready(repository_metadata, edition, axis)
     canonical = _decode_code(code, edition, axis)
-    result = await repository.detail(edition, axis, canonical)
+    try:
+        result = await repository.detail(
+            edition, axis, canonical, generation_id=ready.activation_identity
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
+        ) from exc
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ICD-O code not found.")
     rows = (
@@ -232,6 +265,6 @@ async def detail(
         else {}
     )
     return IcdoDetail(
-        record=result,
+        record=IcdoRecord.model_validate(result),
         ncit_alignments=_ncit_alignments(canonical, edition, rows.get(canonical, [])),
     )

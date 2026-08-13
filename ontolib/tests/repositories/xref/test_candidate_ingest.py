@@ -423,7 +423,7 @@ def test_coverage_report_shape() -> None:
             subject_id=f,
             predicate_id=CLOSE_MATCH,
             object_id=f"UBERON:{i:07d}",
-            mapping_justification="semapv:DatabaseCrossReference",
+            mapping_justification="https://ontoprism.org/vocab#PublisherDatabaseCrossReference",
             confidence=0.9,
             subject_source_version="26.02d",
             object_source_version="uberon-2026-01",

@@ -21,7 +21,7 @@ def test_mapping_requires_complete_typed_endpoint_identity() -> None:
         predicate_id=CLOSE_MATCH,
         object_id=obj.identifier,
         object_system=obj.system,
-        mapping_justification="semapv:DatabaseCrossReference",
+        mapping_justification="https://ontoprism.org/vocab#PublisherDatabaseCrossReference",
         confidence=0.9,
         subject_source_version=subject.version,
         object_source_version=obj.version,

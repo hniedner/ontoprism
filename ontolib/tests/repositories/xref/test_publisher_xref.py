@@ -24,6 +24,8 @@ class _Client:
 
     async def select(self, query: str) -> list[dict[str, str]]:
         self.select_calls.append(query)
+        if "active/" in query:
+            return []
         if "owl:Ontology" in query:
             return [{"v": _UBERON_VERSION}]
         if "hasDbXref" in query:
@@ -118,8 +120,9 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
         run_id="publisher-run",
     )
 
-    assert len(ncit.select_calls) == 1
-    assert "VALUES ?concept" in ncit.select_calls[0]
+    assert (
+        len([query for query in ncit.select_calls if "VALUES ?concept" in query]) == 1
+    )
     assert {(r.subject_id, r.object_id) for r in store.records} == {
         ("UBERON:0000171", "C12468"),
         ("UBERON:0002048", "C12468"),
@@ -246,6 +249,30 @@ async def test_publisher_refuses_nonunique_observed_uberon_release_before_writes
             store,
             _Client([], {"C12468"}),
             uberon,
+            expected_counts=(1, 1),
+        )
+    assert store.run_writes == 0
+
+
+@pytest.mark.unit
+async def test_publisher_refuses_source_pointer_switch_during_validation() -> None:
+    row = {
+        "upstream": "http://purl.obolibrary.org/obo/UBERON_0002048",
+        "xref": "NCIT:C12468",
+    }
+    ncit = _Client([], {"C12468"})
+    versions = iter(("26.07d", "26.08a"))
+
+    async def switching_version() -> str:
+        return next(versions)
+
+    ncit.version = switching_version  # type: ignore[method-assign]
+    store = _Store()
+    with pytest.raises(PublisherXrefSourceError, match="changed during validation"):
+        await publish_uberon_xrefs(
+            store,
+            ncit,
+            _Client([row], set()),
             expected_counts=(1, 1),
         )
     assert store.run_writes == 0

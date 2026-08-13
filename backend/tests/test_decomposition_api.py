@@ -14,6 +14,8 @@ from backend.dependencies import (
 from backend.main import create_app
 from ontolib.core.exceptions import StorageError
 from ontolib.decomposition import vocab
+from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.vocab import CLOSE_MATCH
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -63,19 +65,24 @@ class _FakeStore:
 
 
 class _FakeXrefStore:
+    def __init__(self, rows: list[MappingResult] | None = None) -> None:
+        self.rows = rows or []
+
     async def mappings_by_subjects(
         self, codes: set[str]
-    ) -> dict[str, list[tuple[str, str, str, float]]]:
-        return {}
+    ) -> dict[str, list[MappingResult]]:
+        return dict.fromkeys(codes, self.rows)
 
 
-def _client(rows: list[dict[str, str | None]]) -> Iterator[TestClient]:
+def _client(
+    rows: list[dict[str, str | None]], xrefs: _FakeXrefStore | None = None
+) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_decomposition_reader] = lambda: DecompositionReader(
         _FakeClient(rows)
     )
     app.dependency_overrides[get_ncit_store] = _FakeStore
-    app.dependency_overrides[get_xref_store] = _FakeXrefStore
+    app.dependency_overrides[get_xref_store] = lambda: xrefs or _FakeXrefStore()
     with TestClient(app) as client:
         yield client
 
@@ -165,3 +172,24 @@ def test_op_axis_filler_without_label_is_null_not_dropped() -> None:
     assert c["axis"] == "op:Morphology"
     assert c["axis_source"] == "parent"
     assert c["filler_label"] is None  # unknown to the fake store → null, still present
+
+
+@pytest.mark.api
+def test_decomposition_hides_icdo_upstream_without_entitlement() -> None:
+    xrefs = _FakeXrefStore(
+        [
+            MappingResult(
+                subject=EndpointIdentity("ncit", "26.07d", "C12400"),
+                predicate=CLOSE_MATCH,
+                object=EndpointIdentity("icdo", "3.2", "8503/0"),
+                lifecycle="proposed",
+                confidence=0.9,
+            )
+        ]
+    )
+    response = next(_client(_DECOMPOSED_ROWS, xrefs)).get(
+        "/api/v1/ncit/concepts/C6135/decomposition"
+    )
+
+    assert response.status_code == 200
+    assert "8503/0" not in response.text

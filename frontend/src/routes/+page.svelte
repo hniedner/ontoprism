@@ -65,8 +65,8 @@
 <section class="mb-8">
 	<h1 class="text-3xl font-semibold text-default">Ontology Explorer</h1>
 	<p class="mt-2 max-w-2xl text-secondary">
-		Search, browse, and cross-navigate the NCI Thesaurus and caDSR Common Data Elements — with
-		graph visualization and embedding-based semantic similarity.
+		Search, browse, and cross-navigate certified NCIt, caDSR, Uberon/CL, and ICD-O
+		repositories, alongside live clinical-trial and literature services.
 	</p>
 </section>
 

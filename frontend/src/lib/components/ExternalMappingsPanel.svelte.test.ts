@@ -31,12 +31,12 @@ describe('ExternalMappingsPanel', () => {
 
 		third.resolve({
 			code: 'C3',
-			mappings: [{ object_id: 'NEW:3', system: 'new', version: '1', predicate: 'exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
+			mappings: [{ object_id: 'NEW:3', system: 'new', version: '1', predicate: 'http://www.w3.org/2004/02/skos/core#exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
 		});
 		expect(await screen.findByText('NEW:3')).toBeInTheDocument();
 		first.resolve({
 			code: 'C1',
-			mappings: [{ object_id: 'OLD:1', system: 'old', version: '1', predicate: 'exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
+			mappings: [{ object_id: 'OLD:1', system: 'old', version: '1', predicate: 'http://www.w3.org/2004/02/skos/core#exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
 		});
 		second.reject(new Error('stale failure'));
 		await Promise.allSettled([first.promise, second.promise]);

@@ -27,7 +27,8 @@ class _Store:
     async def metadata(self, edition: str, axis: str) -> object:
         self.calls += 1
         return SimpleNamespace(
-            model_dump=lambda **_: {"edition": edition, "axis": axis, "row_count": 1}
+            activation_identity="a" * 64,
+            model_dump=lambda **_: {"edition": edition, "axis": axis, "row_count": 1},
         )
 
     async def certified_metadata(
@@ -58,8 +59,9 @@ class _Store:
         }
 
     async def detail(
-        self, edition: str, axis: str, code: str
+        self, edition: str, axis: str, code: str, **kwargs: object
     ) -> dict[str, object] | None:
+        del kwargs
         self.calls += 1
         if code != "8503/0":
             return None
@@ -67,12 +69,13 @@ class _Store:
             "code": code,
             "level": "morphology",
             "preferred": "Intraductal papilloma",
-            "synonyms": ["Papilloma"],
-            "related": [],
-            "notes": [],
+            "synonyms": ("Papilloma",),
+            "related": (),
+            "notes": (),
         }
 
-    async def dataset(self, edition: str, axis: str) -> object | None:
+    async def dataset(self, edition: str, axis: str, **kwargs: object) -> object | None:
+        del kwargs
         self.calls += 1
         return None
 
@@ -88,7 +91,7 @@ class _ReadinessMetadata:
             return RepositoryUnhealthy(
                 repository="icdo", reason="observation-mismatch", message="drift"
             )
-        return SimpleNamespace(edition=edition, axis=axis)
+        return SimpleNamespace(edition=edition, axis=axis, activation_identity="a" * 64)
 
 
 class _Xrefs:
@@ -228,14 +231,22 @@ def test_icdo4_code_variants_round_trip_from_safe_segments(
     monkeypatch: pytest.MonkeyPatch, edition: str, axis: str, code: str
 ) -> None:
     class _CodeStore(_Store):
-        async def detail(self, edition: str, axis: str, code: str) -> dict[str, object]:
+        async def detail(
+            self, edition: str, axis: str, code: str, **kwargs: object
+        ) -> dict[str, object]:
+            del kwargs
             self.calls += 1
             assert (edition, axis, code) == (
                 expected_edition,
                 expected_axis,
                 expected_code,
             )
-            return {"code": code, "level": axis, "preferred": "Publisher term"}
+            return {
+                "code": code,
+                "level": "morphology" if axis == "morphology" else "leaf",
+                "parent_code": "C34" if axis == "topography" else None,
+                "preferred": "Publisher term",
+            }
 
     expected_edition, expected_axis, expected_code = edition, axis, code
     segment = base64.urlsafe_b64encode(expected_code.encode()).decode().rstrip("=")
@@ -317,7 +328,10 @@ def test_congruence_classifies_active_sources_and_pages_uberon_inventory(
     )
 
     class _ReportStore(_Store):
-        async def dataset(self, edition: str, axis: str) -> CanonicalDataset:
+        async def dataset(
+            self, edition: str, axis: str, **kwargs: object
+        ) -> CanonicalDataset:
+            del kwargs
             self.calls += 1
             return dataset
 
@@ -342,7 +356,9 @@ def test_congruence_classifies_active_sources_and_pages_uberon_inventory(
     class _Metadata:
         async def icdo(self, edition: str, axis: str) -> object:
             assert (edition, axis) == ("4.0", "topography")
-            return SimpleNamespace(serving_identity="b" * 64)
+            return SimpleNamespace(
+                serving_identity="b" * 64, activation_identity="a" * 64
+            )
 
         async def uberon(self, *, force: bool = False) -> object:
             del force
@@ -381,7 +397,9 @@ def test_congruence_refuses_unhealthy_uberon_without_inventory_read(
     class _Metadata:
         async def icdo(self, edition: str, axis: str) -> object:
             del edition, axis
-            return SimpleNamespace(serving_identity="b" * 64)
+            return SimpleNamespace(
+                serving_identity="b" * 64, activation_identity="a" * 64
+            )
 
         async def uberon(self, *, force: bool = False) -> RepositoryUnhealthy:
             del force
@@ -452,7 +470,9 @@ def test_congruence_refuses_missing_active_topography_after_certification(
     class _Metadata:
         async def icdo(self, edition: str, axis: str) -> object:
             del edition, axis
-            return SimpleNamespace(serving_identity="b" * 64)
+            return SimpleNamespace(
+                serving_identity="b" * 64, activation_identity="a" * 64
+            )
 
         async def uberon(self, *, force: bool = False) -> object:
             del force
@@ -536,3 +556,31 @@ def test_protected_reads_refuse_unhealthy_generation_before_repository_or_xref(
     assert response.json()["detail"]["reason"] == "observation-mismatch"
     assert metadata.calls == 1
     assert store.calls == xrefs.calls == 0
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/icdo/3.2/morphology/list",
+        "/api/v1/icdo/3.2/morphology/search?q=papilloma",
+        "/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w",
+    ],
+)
+def test_malformed_persisted_record_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    class _Malformed(_Store):
+        async def search(self, *args: object, **kwargs: object) -> dict[str, object]:
+            del args, kwargs
+            raise ValueError("malformed persisted row")
+
+        async def detail(self, *args: object, **kwargs: object) -> dict[str, object]:
+            del args, kwargs
+            raise ValueError("malformed persisted row")
+
+    response = next(_client(_Malformed(), monkeypatch)).get(
+        path, headers={"X-ICDO-Entitlement": "licensed"}
+    )
+    assert response.status_code == 503
+    assert "malformed persisted row" not in response.text

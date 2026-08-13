@@ -67,3 +67,34 @@ def test_code_variants_reject_other_or_placeholder_shapes(
 ) -> None:
     with pytest.raises(ValidationError):
         model(value=value)
+
+
+@pytest.mark.parametrize(
+    ("edition", "code", "fields"),
+    [
+        (
+            "3.2",
+            "85032/0",
+            {"base_morphology": "8503", "specificity": "2", "behaviour": "0"},
+        ),
+        ("4.0", "8503/0", {"base_morphology": "8503", "behaviour": "0"}),
+    ],
+)
+def test_dataset_binds_morphology_record_shape_to_edition(
+    edition: str, code: str, fields: dict[str, str]
+) -> None:
+    with pytest.raises(ValidationError, match="edition"):
+        CanonicalDataset(
+            edition=edition,
+            axis="morphology",
+            records=(IcdoRecord(code=code, level="morphology", **fields),),
+            source_shape=SourceShape(
+                sheet_names=(), headers=(), merged_ranges=(), trailing_blank_rows=0
+            ),
+            source_sha256="a" * 64,
+        )
+
+
+def test_topography_refuses_morphology_only_fields() -> None:
+    with pytest.raises(ValidationError, match="topography record"):
+        IcdoRecord(code="C34.9", level="leaf", behaviour="3")

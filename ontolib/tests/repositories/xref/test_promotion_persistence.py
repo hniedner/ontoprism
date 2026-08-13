@@ -52,6 +52,9 @@ class _PublicationClient:
     async def load(self, *_args: object, **_kwargs: object) -> None:
         pass
 
+    async def select(self, _query: str) -> list[dict[str, str]]:
+        return []
+
 
 pytestmark = [
     pytest.mark.mutating_integration,
@@ -64,7 +67,7 @@ def _candidate(subject: str, obj: str) -> SSSOMRecord:
         subject_id=subject,
         predicate_id=CLOSE_MATCH,
         object_id=obj,
-        mapping_justification="semapv:DatabaseCrossReference",
+        mapping_justification="https://ontoprism.org/vocab#PublisherDatabaseCrossReference",
         confidence=0.9,
         subject_source_version=_NCIT_VERSION,
         object_source_version=_UBERON_VERSION,

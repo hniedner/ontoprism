@@ -45,12 +45,10 @@ ALLOWED_PREDICATES = frozenset(
 #
 # `LEXICAL_MATCHING` and `COMPOSITE_MATCHING` are published semapv terms
 # (`mapping-commons/semantic-mapping-vocabulary`, `semapv-terms.tsv`).
-# `DATABASE_CROSS_REFERENCE` is NOT: semapv has no term for "an upstream database
-# asserts a cross-reference", and this one predates the vocabulary check. It is kept
-# because it is the string persisted in `concept_xref.mapping_justification` on every
-# ingested row; renaming it is a data migration, not a constant edit.
+# A publisher database cross-reference is represented by an explicit project-local
+# process identifier because SEMAPV does not publish that term.
 LEXICAL_MATCHING = "semapv:LexicalMatching"
-DATABASE_CROSS_REFERENCE = "semapv:DatabaseCrossReference"
+DATABASE_CROSS_REFERENCE = "https://ontoprism.org/vocab#PublisherDatabaseCrossReference"
 # Both passes independently produced the same pair (D34): the upstream class xrefs the
 # NCIt code AND the two labels agree. semapv defines this as "a matching process based
 # on multiple matching processes" — which is exactly the claim, and the reason the pair

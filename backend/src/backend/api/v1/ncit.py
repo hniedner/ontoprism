@@ -21,7 +21,11 @@ from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
-from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.repositories.xref.vocab import (
+    EXACT_MATCH,
+    MappingLifecycle,
+    MappingPredicate,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
@@ -47,8 +51,8 @@ class MappingEntry(BaseModel):
     object_id: str
     system: str
     version: str
-    predicate: str
-    lifecycle: str
+    predicate: MappingPredicate
+    lifecycle: MappingLifecycle
     confidence: float = Field(ge=0.0, le=1.0)
 
     @computed_field  # type: ignore[prop-decorator]
@@ -71,6 +75,8 @@ async def _attach_xref_upstream(
     decomposition: ConceptDecomposition,
     xref_store: XrefReads,
     filler_codes: list[str],
+    *,
+    entitled_to_icdo: bool,
 ) -> ConceptDecomposition:
     if filler_codes:
         upstream_rows = await xref_store.mappings_by_subjects(set(filler_codes))
@@ -83,6 +89,7 @@ async def _attach_xref_upstream(
                     confidence=row.confidence,
                 )
                 for row in rows
+                if row.object.system != "icdo" or entitled_to_icdo
             ]
             for code, rows in upstream_rows.items()
         }
@@ -247,13 +254,15 @@ async def concept_decomposition(
     store: NcitStore,
     xref_store: XrefReads,
     code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptDecomposition:
     """Return the concept's decomposition from the additive ``ncit_decomposed`` graph.
 
     Resolves even for a concept the engine has not decomposed
     (``is_legacy_precoordinated = false``, no constituents) so the UI can show "not
     decomposed" rather than a 404. Filler labels are resolved for display, and
-    upstream xref mappings (Uberon/CL equivalents) are attached per constituent.
+    typed upstream xref mappings are attached per constituent. ICD-O mappings are
+    included only when ``X-ICDO-Entitlement`` is valid.
     """
     try:
         rows = await reader.rows_for(code)
@@ -264,5 +273,10 @@ async def concept_decomposition(
     labels = await store.labels_for(filler_codes) if filler_codes else {}
     for constituent in decomposition.constituents:
         constituent.filler_label = labels.get(constituent.filler)
-    decomposition = await _attach_xref_upstream(decomposition, xref_store, filler_codes)
+    decomposition = await _attach_xref_upstream(
+        decomposition,
+        xref_store,
+        filler_codes,
+        entitled_to_icdo=has_icdo_entitlement(x_icdo_entitlement),
+    )
     return decomposition

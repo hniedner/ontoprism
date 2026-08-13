@@ -201,6 +201,11 @@ async def publish_uberon_xrefs(
     ncit_version = await _observed_version(ncit_client, "NCIt")
     uberon_version = await _observed_version(uberon_client, "Uberon")
     resolved = await _resolved_targets(ncit_client, assertions)
+    if (
+        await _observed_version(ncit_client, "NCIt") != ncit_version
+        or await _observed_version(uberon_client, "Uberon") != uberon_version
+    ):
+        raise PublisherXrefSourceError("publisher source changed during validation")
     records = [
         _record(
             upstream,

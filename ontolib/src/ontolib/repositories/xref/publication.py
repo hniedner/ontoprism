@@ -59,6 +59,56 @@ def _active_pointer(source: str, generation_id: str | None) -> bytes:
     return f"<{subject}> <{_ACTIVE_PREDICATE}> <{graph}> .\n".encode()
 
 
+async def rdf_active_generation(client: SparqlHttpClient, source: str) -> str | None:
+    rows = await client.select(
+        f"SELECT ?g WHERE {{ GRAPH <{active_graph_iri(source)}> "
+        "{ ?source ?predicate ?g } }"
+    )
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise XrefPublicationError("RDF active pointer is ambiguous")
+    graph = rows[0].get("g", "")
+    prefix = generation_graph_iri(source, "0" * 64).rsplit("/", 1)[0] + "/"
+    generation_id = graph.removeprefix(prefix)
+    if (
+        graph != prefix + generation_id
+        or re.fullmatch(r"[0-9a-f]{64}", generation_id) is None
+    ):
+        raise XrefPublicationError("RDF active pointer is invalid")
+    return generation_id
+
+
+async def _reconcile_pointers(
+    store: XrefStore, client: SparqlHttpClient, source: str
+) -> str | None:
+    rdf = await rdf_active_generation(client, source)
+    postgres = await store.active_generation(source)
+    if rdf != postgres:
+        await store.set_active_generation(source, rdf, _publication_locked=True)
+    return rdf
+
+
+async def _write_pointer(
+    store: XrefStore,
+    client: SparqlHttpClient,
+    source: str,
+    generation_id: str,
+) -> None:
+    try:
+        await client.load(
+            _active_pointer(source, generation_id),
+            content_type="text/turtle",
+            graph_iri=active_graph_iri(source),
+            replace=True,
+        )
+    except BaseException:
+        observed = await rdf_active_generation(client, source)
+        await store.set_active_generation(source, observed, _publication_locked=True)
+        if observed != generation_id:
+            raise
+
+
 def generation_identity(source: str, records: Sequence[SSSOMRecord]) -> tuple[str, str]:
     """Return deterministic generation and exact-content identities."""
     rows = [
@@ -99,7 +149,7 @@ async def publish_generation(
     generation_id, content_sha256 = generation_identity(source, records)
     graph_iri = generation_graph_iri(source, generation_id)
     async with store.publication_lock(source):
-        previous = await store.active_generation(source)
+        await _reconcile_pointers(store, client, source)
         changed = await store.prepare_generation(
             source=source,
             generation_id=generation_id,
@@ -123,18 +173,7 @@ async def publish_generation(
         if failpoint == "before_pointer":
             raise XrefPublicationError("injected failure before pointer switch")
         await store.activate_generation(source, generation_id, _publication_locked=True)
-        try:
-            await client.load(
-                _active_pointer(source, generation_id),
-                content_type="text/turtle",
-                graph_iri=active_graph_iri(source),
-                replace=True,
-            )
-        except BaseException:
-            await store.set_active_generation(
-                source, previous, _publication_locked=True
-            )
-            raise
+        await _write_pointer(store, client, source, generation_id)
     return PublicationResult(
         generation_id=generation_id,
         graph_iri=graph_iri,
@@ -147,18 +186,7 @@ async def rollback_generation(
 ) -> str:
     """Rollback both active pointers, compensating PostgreSQL on RDF failure."""
     async with store.publication_lock(source):
-        previous = await store.active_generation(source)
+        await _reconcile_pointers(store, client, source)
         predecessor = await store.rollback(source, _publication_locked=True)
-        try:
-            await client.load(
-                _active_pointer(source, predecessor),
-                content_type="text/turtle",
-                graph_iri=active_graph_iri(source),
-                replace=True,
-            )
-        except BaseException:
-            await store.set_active_generation(
-                source, previous, _publication_locked=True
-            )
-            raise
+        await _write_pointer(store, client, source, predecessor)
         return predecessor

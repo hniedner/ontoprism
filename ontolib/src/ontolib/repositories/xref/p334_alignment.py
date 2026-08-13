@@ -188,6 +188,8 @@ async def publish_p334_alignments(
     resolution = await icdo.resolve_active_morphology32_codes(
         valid_values, icdo_expected
     )
+    if await ncit_client.version() != ncit_version:
+        raise P334SourceError("active NCIt source changed during validation")
     records, unresolved = _publication_rows(
         assertions,
         resolution.resolved_codes,
