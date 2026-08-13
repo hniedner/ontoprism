@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import uuid
 
 import pytest
@@ -112,6 +113,68 @@ async def test_store_roundtrip() -> None:
                 {"rid": run_id},
             )
             await s.commit()
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_upsert_run_only_reuses_the_exact_run_provenance() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-run-retry-{uuid.uuid4().hex}"
+    try:
+        store = XrefStore(sf)
+        await store.upsert_run(run_id, "uberon-cl", "26.02d", "uberon-2026-01")
+        async with sf() as session:
+            started_at = await session.scalar(
+                text("SELECT started_at FROM xref_run WHERE id = :id"), {"id": run_id}
+            )
+        assert isinstance(started_at, datetime.datetime)
+
+        await store.upsert_run(
+            run_id,
+            "uberon-cl",
+            "26.02d",
+            "uberon-2026-01",
+            status="completed",
+        )
+        async with sf() as session:
+            retried = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT source, ncit_version, source_version, started_at, "
+                            "status "
+                            "FROM xref_run WHERE id = :id"
+                        ),
+                        {"id": run_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert retried == {
+            "source": "uberon-cl",
+            "ncit_version": "26.02d",
+            "source_version": "uberon-2026-01",
+            "started_at": started_at,
+            "status": "completed",
+        }
+
+        for source, ncit_version, source_version in (
+            ("uberon-cl-promotion", "26.02d", "uberon-2026-01"),
+            ("uberon-cl", "26.03a", "uberon-2026-01"),
+            ("uberon-cl", "26.02d", "uberon-2026-02"),
+        ):
+            with pytest.raises(ValueError, match="different provenance"):
+                await store.upsert_run(
+                    run_id, source, ncit_version, source_version, status="failed"
+                )
+    finally:
+        async with sf() as session:
+            await session.execute(
+                text("DELETE FROM xref_run WHERE id = :id"), {"id": run_id}
+            )
+            await session.commit()
         await dispose_engine(engine)
 
 

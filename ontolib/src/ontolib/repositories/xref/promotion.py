@@ -95,6 +95,7 @@ from ontolib.repositories.xref.evidence import (
     gather_evidence,
     is_independent,
 )
+from ontolib.repositories.xref.models import UberonReadIdentity
 from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES, object_iri
 from ontolib.repositories.xref.validation import (
@@ -115,7 +116,10 @@ if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
 
     from ontolib.core.data_build_tools import DataBuildToolIdentity
-    from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
+    from ontolib.repositories.xref.models import (
+        SSSOMRecord,
+        UberonPromotionGenerationMetadata,
+    )
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -1432,7 +1436,7 @@ async def persist_promotions(
     source: str,
     run_id: str | None = None,
     tool_identity: DataBuildToolIdentity | None = None,
-    source_metadata: GenerationSourceMetadata,
+    source_metadata: UberonPromotionGenerationMetadata,
 ) -> str:
     """Write the promoted ``exactMatch/validated`` records as their own xref run.
 
@@ -1448,6 +1452,12 @@ async def persist_promotions(
         ncit_version=ncit_version,
         source_version=source_version,
     )
+    metrics: dict[str, Any] = report.as_dict()
+    if tool_identity is not None:
+        metrics["tools"] = [tool_identity.as_dict()]
+    if report.failed:
+        await store.update_run_metrics(rid, metrics, status="failed")
+        return rid
     # Re-stamp with the versions this run actually validated against.  The candidate
     # carried its *ingest-time* versions, and promote_candidate copies them through; if
     # they differ from the run's by so much as a character, quarantine_stale (which
@@ -1470,16 +1480,13 @@ async def persist_promotions(
         records=stamped,
         source_metadata=source_metadata,
     )
-    metrics: dict[str, Any] = report.as_dict()
-    if tool_identity is not None:
-        metrics["tools"] = [tool_identity.as_dict()]
-    await store.update_run_metrics(
-        rid, metrics, status="failed" if report.failed else "completed"
-    )
+    await store.update_run_metrics(rid, metrics)
     return rid
 
 
-async def _load_candidates(store: XrefStore) -> tuple[list[SSSOMRecord], int]:
+async def _load_candidates(
+    store: XrefStore, expected: UberonReadIdentity
+) -> tuple[list[SSSOMRecord], int]:
     """Proposed candidates this build can actually express, plus how many it dropped.
 
     Filtered ONCE, here, so the context and the validator see the SAME list. An earlier
@@ -1488,7 +1495,7 @@ async def _load_candidates(store: XrefStore) -> tuple[list[SSSOMRecord], int]:
     KeyError-ed the run to death, while the "skipping N candidates" log line claimed
     otherwise. A fix that did not fix, announcing that it had.
     """
-    raw = await store.proposed_candidates()
+    raw = await store.proposed_candidates(expected=expected)
     candidates = _expandable_only(raw)
     if raw and not candidates:
         raise PromotionEnvironmentError(
@@ -1508,7 +1515,7 @@ async def run_promotion(
     source_version: str,
     source: str,
     tool_identity: DataBuildToolIdentity,
-    source_metadata: GenerationSourceMetadata,
+    source_metadata: UberonPromotionGenerationMetadata,
     curated_pairs: frozenset[tuple[str, str]] = frozenset(),
     reasoner: Reasoner = elk_reasoner,
 ) -> dict[str, Any]:
@@ -1520,11 +1527,16 @@ async def run_promotion(
     The sweep runs whenever the run is sound — a release makes old bridges stale whether
     or not this run promoted anything — but is **skipped when the reasoner failed**: a
     run that established nothing must not also demote bridges a working run validated.
-    In that case the stale bridges keep being served *and counted*, so the count is
-    surfaced as ``stale_pending`` rather than left in a log line: the published coverage
-    number is unreliable until a sound run sweeps.
+    In that case the run performs no publication, quarantine, or staleness query.
     """
-    candidates, skipped = await _load_candidates(store)
+    candidates, skipped = await _load_candidates(
+        store,
+        UberonReadIdentity(
+            ncit_source_identity=source_metadata.ncit_source_identity,
+            uberon_source_identity=source_metadata.uberon_source_identity,
+            uberon_serving_identity=source_metadata.uberon_serving_identity,
+        ),
+    )
     # Filter ONCE, here, and hand the SAME list to the context and the validator. An
     # earlier cut filtered inside `load_promotion_context`, which rebinds a *local* —
     # the caller's list was untouched, so unexpandable candidates still reached the
@@ -1560,9 +1572,7 @@ async def run_promotion(
         source_metadata=source_metadata,
     )
 
-    # The staleness sweep is destructive (it demotes validated bridges) and a run whose
-    # reasoner never ran has established nothing — it must not also demote the bridges a
-    # working run had validated.
+    # A failed run established nothing, so `_sweep` performs no staleness read or write.
     quarantined, stale_pending = await _sweep(
         store, report, ncit_version, source_version, source
     )
@@ -1591,26 +1601,18 @@ async def _sweep(
     source: str,
 ) -> tuple[int, int]:
     """Run the D29 staleness sweep — unless the run established nothing."""
-    quarantined = stale_pending = 0
     if report.failed:
-        stale_pending = await store.count_stale(
-            ncit_version=ncit_version,
-            source_version=source_version,
-            source=source,
-        )
         logger.error(
-            "skipping the D29 staleness sweep: the reasoner failed for %d candidate(s),"
-            " so this run established nothing and must not demote anything. %d"
-            " bridge(s) are stale and still being served and counted — the published"
-            " coverage number is unreliable until a sound run sweeps.",
+            "skipping the D29 staleness sweep: the reasoner failed for %d "
+            "candidate(s), "
+            "so this run established nothing and must not demote anything.",
             report.reasoner_errors,
-            stale_pending,
         )
-    else:
-        quarantined = await store.quarantine_stale(
-            ncit_version=ncit_version,
-            source_version=source_version,
-            source=source,
-        )
+        return 0, 0
 
-    return quarantined, stale_pending
+    quarantined = await store.quarantine_stale(
+        ncit_version=ncit_version,
+        source_version=source_version,
+        source=source,
+    )
+    return quarantined, 0

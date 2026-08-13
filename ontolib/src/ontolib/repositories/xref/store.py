@@ -15,6 +15,7 @@ from ontolib.repositories.xref.models import (
     MappingResult,
     SSSOMRecord,
     StaleXrefGenerationError,
+    UberonReadIdentity,
     UnavailableXrefGenerationError,
     XrefReadPolicy,
     generation_source_metadata_adapter,
@@ -347,13 +348,12 @@ class XrefStore:
     ) -> int:
         now = datetime.datetime.now(datetime.UTC)
         async with self._sf() as s:
-            result: Result = await s.execute(
+            await s.execute(
                 text(
                     "INSERT INTO xref_run "
                     "(id, source, status, ncit_version, source_version, started_at) "
                     "VALUES (:id, :source, :status, :ncit_version, "
-                    ":source_version, :started_at) "
-                    "ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status"
+                    ":source_version, :started_at) ON CONFLICT (id) DO NOTHING"
                 ),
                 {
                     "id": run_id,
@@ -363,6 +363,29 @@ class XrefStore:
                     "source_version": source_version,
                     "started_at": now,
                 },
+            )
+            existing = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT source, ncit_version, source_version FROM xref_run "
+                            "WHERE id = :id FOR UPDATE"
+                        ),
+                        {"id": run_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            if (
+                existing["source"] != source
+                or existing["ncit_version"] != ncit_version
+                or existing["source_version"] != source_version
+            ):
+                raise ValueError("run identity has different provenance")
+            result: Result = await s.execute(
+                text("UPDATE xref_run SET status = :status WHERE id = :id"),
+                {"id": run_id, "status": status},
             )
             await s.commit()
             return cast("int", result.rowcount)  # type: ignore[attr-defined]
@@ -469,7 +492,9 @@ class XrefStore:
                 out.setdefault(key, set()).add(pair)
             return out
 
-    async def proposed_candidates(self) -> list[SSSOMRecord]:
+    async def proposed_candidates(
+        self, *, expected: UberonReadIdentity
+    ) -> list[SSSOMRecord]:
         """Every candidate awaiting validation (#73): ``closeMatch`` + ``proposed``.
 
         The predicate filter is load-bearing, not defensive tidiness: promotion rewrites
@@ -501,6 +526,30 @@ class XrefStore:
             "ORDER BY subject_id, object_id"
         )
         async with self._sf() as s:
+            active = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT g.source_metadata FROM xref_active_generation a "
+                            "JOIN xref_generation g ON g.source=a.source "
+                            "AND g.id=a.generation_id WHERE a.source = :source"
+                        ),
+                        {"source": _CANDIDATE_SOURCE},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if active is None:
+                raise UnavailableXrefGenerationError(
+                    "no active certified uberon-cl candidate generation"
+                )
+            observed = generation_source_metadata_adapter.validate_python(
+                active["source_metadata"]
+            )
+            _validate_source_contract(
+                _CANDIDATE_SOURCE, observed, XrefReadPolicy(uberon=expected)
+            )
             result = await s.execute(
                 sql, {"close": CLOSE_MATCH, "source": _CANDIDATE_SOURCE}
             )
@@ -577,36 +626,6 @@ class XrefStore:
                 },
             )
             return {(r["subject_id"], r["object_id"]) for r in result.mappings().all()}
-
-    async def count_stale(
-        self, *, ncit_version: str, source_version: str, source: str
-    ) -> int:
-        """How many validated bridges the current endpoint versions have made stale.
-
-        Read-only twin of :meth:`quarantine_stale`. A run that *cannot* sweep (because
-        its reasoner failed) must still be able to say "N bridges are stale and I could
-        not act on them — the coverage number is currently unreliable", instead of
-        leaving that fact in a log line the pipeline swallows.
-        """
-        sql = text(
-            "SELECT count(*) FROM concept_xref "
-            "WHERE lifecycle_state = 'validated' "
-            "AND generation_id IN ("
-            "SELECT generation_id FROM xref_active_generation WHERE source = :source"
-            ") "
-            "AND (subject_version <> :ncit_version "
-            "     OR object_version <> :source_version)"
-        )
-        async with self._sf() as s:
-            result = await s.execute(
-                sql,
-                {
-                    "ncit_version": ncit_version,
-                    "source_version": source_version,
-                    "source": source,
-                },
-            )
-            return int(result.scalar_one())
 
     async def quarantine_stale(
         self, *, ncit_version: str, source_version: str, source: str

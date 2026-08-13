@@ -80,6 +80,27 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                     )
                 )
             }
+            run_unique_columns = {
+                tuple(row[0])
+                for row in await conn.execute(
+                    text(
+                        "SELECT ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH "
+                        "ORDINALITY AS k(attnum, ord) JOIN pg_attribute a "
+                        "ON a.attrelid=c.conrelid AND a.attnum=k.attnum "
+                        "ORDER BY k.ord) FROM pg_constraint c WHERE "
+                        "c.conrelid='xref_run'::regclass AND c.contype='u'"
+                    )
+                )
+            }
+            concept_foreign_keys = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conrelid='concept_xref'::regclass AND contype='f'"
+                    )
+                )
+            }
 
         assert {
             "generation_id",
@@ -96,6 +117,12 @@ async def test_generation_schema_constraints_and_indexes() -> None:
         )
         assert any("content_sha256" in check for check in generation_checks)
         assert ("source", "content_sha256") not in generation_unique_columns
+        assert ("id", "source") in run_unique_columns
+        assert any(
+            "FOREIGN KEY (run_id, generation_source)" in foreign_key
+            and "xref_run(id, source)" in foreign_key
+            for foreign_key in concept_foreign_keys
+        )
 
         async with engine.connect() as conn:
             icdo_tables = {
@@ -213,6 +240,30 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                         "lifecycle_state,review_status,author) VALUES "
                         "(:generation,'uberon-cl-promotion','uberon-cl','v','U1',"
                         ":predicate,'ncit','v','C1','j',1,'validated','reviewed','')"
+                    ),
+                    {"generation": "f" * 64, "predicate": CLOSE_MATCH},
+                )
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_run "
+                    "(id,source,status,ncit_version,source_version,started_at) VALUES "
+                    "('cross-source-run','uberon-cl','running','v','v',now())"
+                )
+            )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO concept_xref "
+                        "(generation_id,generation_source,run_id,subject_system,"
+                        "subject_version,subject_id,predicate_id,object_system,"
+                        "object_version,object_id,mapping_justification,confidence,"
+                        "lifecycle_state,review_status,author) VALUES "
+                        "(:generation,'uberon-cl-promotion','cross-source-run','ncit',"
+                        "'v','C2',:predicate,'uberon-cl','v','U2','j',1,'validated',"
+                        "'reviewed','')"
                     ),
                     {"generation": "f" * 64, "predicate": CLOSE_MATCH},
                 )

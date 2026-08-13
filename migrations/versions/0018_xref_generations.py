@@ -14,6 +14,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.execute(
+        "ALTER TABLE xref_run ADD CONSTRAINT uq_xref_run_id_source UNIQUE (id, source)"
+    )
     op.execute("ALTER TABLE concept_xref RENAME TO concept_xref_legacy")
     op.execute(
         """CREATE TABLE xref_generation (
@@ -107,7 +110,7 @@ def upgrade() -> None:
         """CREATE TABLE concept_xref (
            generation_id text NOT NULL,
            generation_source text NOT NULL,
-          run_id text REFERENCES xref_run(id),
+          run_id text,
           subject_system text NOT NULL,
           subject_version text NOT NULL,
           subject_id text NOT NULL,
@@ -139,6 +142,8 @@ def upgrade() -> None:
            ),
            FOREIGN KEY (generation_source, generation_id)
              REFERENCES xref_generation(source, id),
+           FOREIGN KEY (run_id, generation_source)
+             REFERENCES xref_run(id, source),
            PRIMARY KEY (
             generation_id, subject_system, subject_version, subject_id,
             predicate_id, object_system, object_version, object_id
@@ -207,3 +212,4 @@ def downgrade() -> None:
     op.execute("DROP TABLE xref_active_generation")
     op.execute("DROP TABLE xref_generation")
     op.execute("DROP TABLE xref_legacy_quarantine")
+    op.execute("ALTER TABLE xref_run DROP CONSTRAINT uq_xref_run_id_source")

@@ -1,7 +1,8 @@
-"""External xref provenance tables
+"""Additive alignment provenance tables.
 
-Tables for the NCIt<->upstream mapping layer (issue #71): xref_run and concept_xref.
-See docs/design/ncit-external-integration.md §8.3.
+Initial tables for NCIt alignments derived from corroborating terminologies (issue #71):
+xref_run and concept_xref. Migration 0018 replaces the row model with typed,
+generation-atomic publication. See docs/design/ncit-alignment-integration.md §8.3.
 
 Revision ID: 0004_xref
 Revises: 0003_decomposition

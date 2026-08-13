@@ -27,8 +27,12 @@ from ontolib.repositories.xref.evidence import (
 from ontolib.repositories.xref.models import (
     P334GenerationMetadata,
     SSSOMRecord,
+    StaleXrefGenerationError,
+    UberonCandidateGenerationMetadata,
     UberonPromotionGenerationMetadata,
     UberonPublisherGenerationMetadata,
+    UberonReadIdentity,
+    UnavailableXrefGenerationError,
 )
 from ontolib.repositories.xref.promotion import (
     PromotionReport,
@@ -40,6 +44,7 @@ from ontolib.repositories.xref.promotion import (
     run_promotion as _run_promotion,
 )
 from ontolib.repositories.xref.store import XrefStore
+from ontolib.repositories.xref.validation import ReasonerUnavailableError
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH, NARROW_MATCH
 
 from .conftest import activate_records
@@ -50,6 +55,16 @@ if TYPE_CHECKING:
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
 _SOURCE_METADATA = UberonPromotionGenerationMetadata(
+    ncit_source_identity="a" * 64,
+    uberon_source_identity="b" * 64,
+    uberon_serving_identity="c" * 64,
+)
+_CANDIDATE_METADATA = UberonCandidateGenerationMetadata(
+    ncit_source_identity="a" * 64,
+    uberon_source_identity="b" * 64,
+    uberon_serving_identity="c" * 64,
+)
+_CANDIDATE_IDENTITY = UberonReadIdentity(
     ncit_source_identity="a" * 64,
     uberon_source_identity="b" * 64,
     uberon_serving_identity="c" * 64,
@@ -311,7 +326,7 @@ async def test_proposed_candidates_returns_only_unvalidated(
         ],
     )
 
-    candidates = await xref_store.proposed_candidates()
+    candidates = await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
     pairs = {(c.subject_id, c.object_id) for c in candidates}
     assert ("C12468", "UBERON:0002048") in pairs
     assert ("C12393", "UBERON:0001264") not in pairs
@@ -382,11 +397,56 @@ async def test_proposed_candidates_only_reads_candidate_generation_source(
             xref_store, source=source, run_id=run_id, records=[record], **kwargs
         )
 
-    candidates = await xref_store.proposed_candidates()
+    candidates = await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
 
     assert {(row.subject_id, row.object_id) for row in candidates} == {
         ("C-CANDIDATE", "UBERON:CANDIDATE")
     }
+
+
+@pytest.mark.integration
+async def test_proposed_candidates_requires_an_active_candidate_generation(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    xref_store, _run_ids = store
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    try:
+        async with sf() as session:
+            await session.execute(
+                text("DELETE FROM xref_active_generation WHERE source = 'uberon-cl'")
+            )
+            await session.commit()
+
+        with pytest.raises(UnavailableXrefGenerationError):
+            await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_proposed_candidates_rejects_a_stale_candidate_generation(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    xref_store, run_ids = store
+    run_id = f"test-stale-candidate-{uuid.uuid4().hex}"
+    run_ids.append(run_id)
+    stale_metadata = UberonCandidateGenerationMetadata(
+        ncit_source_identity="d" * 64,
+        uberon_source_identity="b" * 64,
+        uberon_serving_identity="c" * 64,
+    )
+    await xref_store.upsert_run(run_id, "uberon-cl", _NCIT_VERSION, _UBERON_VERSION)
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=run_id,
+        records=[_candidate("C-STALE", "UBERON:STALE")],
+        source_metadata=stale_metadata,
+    )
+
+    with pytest.raises(StaleXrefGenerationError):
+        await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
 
 
 @pytest.mark.integration
@@ -495,7 +555,7 @@ async def test_a_narrow_match_is_never_offered_up_for_promotion(
         ],
     )
 
-    candidates = await xref_store.proposed_candidates()
+    candidates = await xref_store.proposed_candidates(expected=_CANDIDATE_IDENTITY)
     pairs = {(c.subject_id, c.object_id) for c in candidates}
     assert ("C19184", "UBERON:0001155") not in pairs
 
@@ -603,12 +663,22 @@ async def test_a_failed_run_is_persisted_as_failed_not_completed(
                 .mappings()
                 .one()
             )
+        async with sf() as s:
+            generation_count = await s.scalar(
+                text(
+                    "SELECT count(*) FROM xref_generation g JOIN concept_xref x "
+                    "ON x.generation_source=g.source AND x.generation_id=g.id "
+                    "WHERE x.run_id = :rid"
+                ),
+                {"rid": run_id},
+            )
     finally:
         await dispose_engine(engine)
 
     assert row["status"] == "failed"
     assert row["metrics"]["reasoner_errors"] == 2
     assert row["metrics"]["tools"] == [_REASONER_TOOL.as_dict()]
+    assert generation_count == 0
 
 
 class _StubClient:
@@ -718,3 +788,80 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
     # cannot catch that; only reading evidence off a run the machinery produced.
     by_pair = await xref_store.evidence_by_pair(report["run_id"])
     assert SME_CURATION in {e["kind"] for e in by_pair[("C12468", "UBERON:0002048")]}
+
+
+@pytest.mark.integration
+async def test_failed_promotion_run_writes_only_the_failed_run_record(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    xref_store, run_ids = store
+    ingest_run = f"test-failed-seam-{uuid.uuid4().hex}"
+    run_ids.append(ingest_run)
+    await xref_store.upsert_run(ingest_run, "uberon-cl", _NCIT_VERSION, _UBERON_VERSION)
+    await activate_records(
+        xref_store,
+        source="uberon-cl",
+        run_id=ingest_run,
+        records=[_candidate("C-FAILED-RUN", "UBERON:0099999")],
+    )
+    stale_run = f"test-stale-promotion-{uuid.uuid4().hex}"
+    run_ids.append(stale_run)
+    await xref_store.upsert_run(
+        stale_run, "uberon-cl-promotion", _NCIT_VERSION, "uberon-2025-06"
+    )
+    await activate_records(
+        xref_store,
+        source="uberon-cl-promotion",
+        run_id=stale_run,
+        records=[
+            _promoted("C12377", "UBERON:0002110", object_version="uberon-2025-06")
+        ],
+        source_metadata=_SOURCE_METADATA,
+    )
+    generation_before = await xref_store.active_generation("uberon-cl-promotion")
+
+    ncit_ns = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
+    obo = "http://purl.obolibrary.org/obo/"
+    ncit = _StubClient(
+        {
+            "?parent": [
+                {"child": f"{ncit_ns}C-FAILED-RUN", "parent": f"{ncit_ns}C12366"}
+            ],
+            "rdfs:label": [{"code": "C-FAILED-RUN", "label": "Failed run"}],
+        }
+    )
+    uberon = _StubClient(
+        {
+            "?parent": [
+                {"child": f"{obo}UBERON_0099999", "parent": f"{obo}UBERON_0001004"}
+            ],
+            "rdfs:label": [{"concept": f"{obo}UBERON_0099999", "label": "failed run"}],
+        }
+    )
+
+    def unavailable(_ttl: str) -> set[tuple[str, str]]:
+        raise ReasonerUnavailableError("robot unavailable")
+
+    report = await run_promotion(
+        xref_store,
+        ncit,  # type: ignore[arg-type]
+        uberon,  # type: ignore[arg-type]
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        source="uberon-cl-promotion",
+        tool_identity=_REASONER_TOOL,
+        curated_pairs=frozenset({("C-FAILED-RUN", "UBERON:0099999")}),
+        reasoner=unavailable,
+    )
+    run_ids.append(report["run_id"])
+
+    assert report["status"] == "failed"
+    assert report["quarantined"] == 0
+    assert report["stale_pending"] == 0
+    assert (
+        await xref_store.active_generation("uberon-cl-promotion") == generation_before
+    )
+    assert ("C12377", "UBERON:0002110") in await xref_store.validated_anchors(
+        source="uberon-cl-promotion"
+    )
+    assert await xref_store.records_for_run(report["run_id"]) == []

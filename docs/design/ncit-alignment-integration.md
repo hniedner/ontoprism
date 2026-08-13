@@ -1,6 +1,7 @@
 # NCIt Alignment Integration Strategy and Implementation Plan
 
-**Status:** Design-of-record (strategy shift) · **Author:** Hannes Niedner · **Date:** 2026-07-11
+**Status:** Historical strategy plus current implementation record; D60 supersedes the
+dual-canonical ownership framing · **Author:** Hannes Niedner · **Date:** 2026-07-11
 **Supersedes nothing; extends** the [decomposition assessment](./ncit-decomposition-assessment.md),
 [engine design](./ncit-decomposition-engine.md), the [post-coordination literature
 review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
@@ -19,7 +20,7 @@ review](../postcoordination-literature-review.md), and DECISIONS **D14–D23**.
 
 ---
 
-## 0. Implementation status (2026-07-12)
+## 0. Implementation status (updated 2026-08-13)
 
 > **CURRENT-STATUS CORRECTION (2026-08-06) — read before trusting the table below.**
 >
@@ -67,7 +68,7 @@ built code, not only a forward plan. Verified against the tree:
 | Area | Status | Where |
 |---|---|---|
 | SSSOM record + SKOS/lifecycle vocab | **Done** | `ontolib/src/ontolib/repositories/xref/models.py`, `vocab.py` |
-| Postgres `xref_run`/`concept_xref` + migration | **Done** | `migrations/versions/0004_xref.py`; `repositories/xref/store.py` (`XrefStore`) |
+| Postgres `xref_run`/typed generation publication | **Done** | initial `migrations/versions/0004_xref.py`, current `0018_xref_generations.py`; `repositories/xref/store.py` (`XrefStore`) |
 | Additive named graph `NCIT_UPSTREAM_XREF_GRAPH_IRI` | **Done** | `repositories/xref/vocab.py`, `ttl_writer.py` |
 | caDSR anchor enumeration + scope gate + liveness (D27 §13.1–13.2) | **Done** | `repositories/xref/cadsr_anchors.py` (`enumerate_anchors`, `filter_in_scope`, `check_liveness`) |
 | Uberon/CL candidate ingest (`closeMatch`) | **Done** | `repositories/xref/candidate_ingest.py` (`generate_candidates`, `ingest_candidates`) |
@@ -85,7 +86,7 @@ built code, not only a forward plan. Verified against the tree:
 | **Reserved (design-heavy)**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); SNOMED/ICD-O-3 (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6) | **Not started** | needs design/SME/licensing |
 
 **Live issue status lives on the GitHub tracker (epic #70 and its milestones)** — this table is a design→code map, not a
-live tracker. Phase A is complete; Phase B/C are partially landed with #73 promotion unblocked (D33/D34:
+live tracker. The table records delivered implementation where marked Done; Phase B/C are partially landed with #73 promotion unblocked (D33/D34:
 a pair both ingest passes produce now promotes on source agreement). D33 Option 2 — making
 #78 `part_of` an *effective* second signal — remains open.
 
@@ -182,7 +183,7 @@ Every row below is existing, decided, or built work that the new architecture co
 | Stated-OWL additivity; named-graph separation (`ncit_decomposed`) | D4, D12, D19 | The xref triples live in **new named graphs alongside** `ncit_decomposed`. Same discipline. |
 | DL-classification / real reasoner as the equivalence oracle; never `rdfs:subClassOf+` | D21, lit §5.2, §8.3 | Now gates **cross-ontology** mapping validation too — the highest-risk correctness item. |
 | Scope gate: disease/neoplasm(/regimen) only; gene/protein excluded | assessment §1, §3.3 | Held. Upstream integration inherits the same scope gate. |
-| caDSR read model (`repositories/cadsr`) anchored on NCIt concepts | ARCHITECTURE, README | Untouched; gains transitive upstream reach (§7). |
+| caDSR read model (`repositories/cadsr`) anchored on NCIt concepts | ARCHITECTURE, README | Untouched; D27 measures identity-grade alignment coverage rather than assuming transitive reach. |
 
 The net-new engineering (§8) is a mapping ingest/store/serve layer and a grammar-range binding — not
 a new decomposition engine.
@@ -283,7 +284,8 @@ concepts), so translation coverage is measured in both directions and gaps are e
 
 | Upstream target | Primary mapping source | Pivot | Notes |
 |---|---|---|---|
-| **SNOMED CT**, **ICD-O-3** | **NCI Metathesaurus (NCIm)** | UMLS **CUI** | NCIm already bridges NCIt↔SNOMED↔ICD-O-3 across millions of terms (assessment feedback §2.2). Highest-yield, lowest-effort source. |
+| **SNOMED CT** | **NCI Metathesaurus (NCIm)** | UMLS **CUI** | Candidate source only; a shared CUI is not equivalence. |
+| **ICD-O-3.2** | Certified NCIt `P334` assertions aligned to a certified WHO release | direct code | NCIm has no ICD-O source vocabulary or CUI crosswalk. P334 values publish as proposed `closeMatch` alignments under D73, never as equivalence. |
 | **Mondo / DO** | Mondo's own `xref`/`skos` to NCIt | direct | Mondo is built to synthesize NCIt+DO+SNOMED; NCIt xrefs ship in Mondo. Ingest and invert. |
 | **Uberon** | Uberon `xref` (NCIt, FMA, SNOMED) + label/synonym match | direct + lexical | Uberon carries NCIt/FMA/SNOMED xrefs; lexical candidates remain proposed until the promotion evidence policy accepts them. |
 | **Cell Ontology (CL)** | CL `xref` + label match | direct + lexical | Same pattern as Uberon for the normal-cell axis (`op:CellOrigin`). |
@@ -668,7 +670,7 @@ Phase C (morphology + licensing)
 Phase D (serve + interop)
   D1  /concept/{id}/mappings + $translate endpoints                        [depends A1]
   D2  Frontend alignment panel + optional graph overlay
-  D3  caDSR transitive-reach validation (CDE → NCIt → upstream resolves)   [proves §6]
+  D3  caDSR enumerated alignment coverage (CDE → NCIt → qualified mapping) [proves §6]
 
 Phase E (grammar, folds into #6)
   E1  MRCM ranges reference aligned classes; SCG/ECL alignment support     [#6 design starts here]
