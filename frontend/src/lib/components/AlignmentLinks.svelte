@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { icdoCodeSegment } from '$lib/api';
 	import type { Alignment } from '$lib/types';
 
 	let { title, alignments }: { title: string; alignments: Alignment[] } = $props();
 
 	function repositoryName(system: Alignment['system']): string {
-		return system === 'ncit' ? 'NCIt' : 'Uberon/CL';
+		if (system === 'ncit') return 'NCIt';
+		if (system === 'icdo') return 'ICD-O-3.2 morphology';
+		return 'Uberon/CL';
 	}
 </script>
 
@@ -21,6 +24,16 @@
 						<a
 							href={resolve('/repositories/ncit/[code]', { code: alignment.code })}
 							aria-label={`Open aligned NCIt concept ${alignment.code}`}
+							class="font-mono text-primary-700 dark:text-primary-300"
+						>{alignment.code}</a>
+					{:else if alignment.system === 'icdo'}
+						<a
+							href={resolve('/repositories/icdo/[edition]/[axis]/[code]', {
+								edition: alignment.version,
+								axis: 'morphology',
+								code: icdoCodeSegment(alignment.code)
+							})}
+							aria-label={`Open aligned ${repositoryName(alignment.system)} code ${alignment.code}`}
 							class="font-mono text-primary-700 dark:text-primary-300"
 						>{alignment.code}</a>
 					{:else}

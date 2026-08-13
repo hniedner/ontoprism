@@ -105,7 +105,7 @@ export interface UberonConceptDetail {
 
 export interface Alignment {
 	code: string;
-	system: 'ncit' | 'uberon-cl';
+	system: 'ncit' | 'uberon-cl' | 'icdo';
 	version: string;
 	predicate: string;
 	lifecycle: string;
@@ -159,6 +159,11 @@ export interface IcdoRecord {
 	synonyms: string[];
 	related: string[];
 	notes: string[];
+}
+
+export interface IcdoDetail {
+	record: IcdoRecord;
+	ncit_alignments: Alignment[];
 }
 
 export interface IcdoPage {

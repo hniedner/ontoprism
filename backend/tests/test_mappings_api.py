@@ -54,6 +54,15 @@ class _FakeXrefStore:
             "C12345": [
                 mapping("C12345", "ICD-O-3:1234", EXACT_MATCH, "validated", 0.9),
             ],
+            "C188218": [
+                MappingResult(
+                    subject=EndpointIdentity("ncit", "26.07d", "C188218"),
+                    predicate=EXACT_MATCH,
+                    object=EndpointIdentity("icdo", "3.2", "8240/3"),
+                    lifecycle="validated",
+                    confidence=0.9,
+                )
+            ],
             "C50000": [
                 mapping("C50000", "UBERON:0002107", EXACT_MATCH, "quarantined", 0.5),
             ],
@@ -255,6 +264,20 @@ def test_translate_filters_licensed_sources() -> None:
     # All mappings for C12345 are ICD-O-3 — gate removes them, fallback to unmatched
     assert len(body["result"]) == 1
     assert body["result"][0]["equivalence"] == "unmatched"
+
+
+@pytest.mark.api
+def test_translate_filters_typed_p334_icdo_endpoint_without_prefix() -> None:
+    client = next(_client())
+    response = client.post("/api/v1/mappings/$translate", json={"code": "C188218"})
+    assert response.status_code == 200
+    assert response.json()["result"] == [
+        {
+            "equivalence": "unmatched",
+            "concept": {"code": "C188218", "system": None, "version": None},
+            "confidence": 0.0,
+        }
+    ]
 
 
 @pytest.mark.api

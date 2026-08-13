@@ -19,10 +19,13 @@ from backend.dependencies import (
     get_ncit_search_index,
     get_ncit_store,
     get_repository_metadata,
+    get_xref_store,
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
+from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.vocab import CLOSE_MATCH
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
     GraphEdge,
@@ -163,6 +166,25 @@ class _Metadata:
         return SimpleNamespace(source_identity="f" * 64)
 
 
+class _Xrefs:
+    async def mappings_for_identifiers(
+        self, identifiers: set[str]
+    ) -> dict[str, list[MappingResult]]:
+        code = next(iter(identifiers))
+        return {
+            code: [
+                MappingResult(
+                    subject=EndpointIdentity("ncit", "26.07d", code),
+                    predicate=CLOSE_MATCH,
+                    object=EndpointIdentity("icdo", "3.2", value),
+                    lifecycle="proposed",
+                    confidence=0.9,
+                )
+                for value in ("8240/3", "8241/3", "8248/1")
+            ]
+        }
+
+
 class _UnhealthyMetadata:
     """Metadata reads that certify the NCIt proxy as unhealthy."""
 
@@ -191,6 +213,7 @@ def _client(
         embeddings or _FakeEmbeddings()
     )
     app.dependency_overrides[get_repository_metadata] = metadata
+    app.dependency_overrides[get_xref_store] = _Xrefs
     with TestClient(app) as client:
         yield client
 
@@ -319,6 +342,26 @@ def test_concept_detail_returns_concept(ncit_client: TestClient) -> None:
     resp = ncit_client.get("/api/v1/ncit/concepts/C3262")
     assert resp.status_code == 200
     assert resp.json()["label"] == "Neoplasm"
+
+
+@pytest.mark.api
+def test_ncit_mapping_detail_preserves_three_resolved_codes_with_typed_edition() -> (
+    None
+):
+    response = next(_client()).get("/api/v1/ncit/concepts/C188218/mappings")
+    assert response.status_code == 200
+    assert [row["object_id"] for row in response.json()["mappings"]] == [
+        "8240/3",
+        "8241/3",
+        "8248/1",
+    ]
+    assert all(
+        row["system"] == "icdo"
+        and row["version"] == "3.2"
+        and row["lifecycle"] == "proposed"
+        and row["is_identity"] is False
+        for row in response.json()["mappings"]
+    )
 
 
 @pytest.mark.api

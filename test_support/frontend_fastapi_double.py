@@ -321,12 +321,32 @@ async def icdo_detail(
     if code != "ODUwMy8w":
         raise HTTPException(404, "ICD-O code not found.")
     return {
-        "code": "8503/0",
-        "level": "morphology",
-        "preferred": "Protected intraductal papilloma",
-        "synonyms": ["Protected papilloma synonym"],
-        "related": [],
-        "notes": [],
+        "record": {
+            "code": "8503/0",
+            "level": "morphology",
+            "preferred": "Protected intraductal papilloma",
+            "synonyms": ["Protected papilloma synonym"],
+            "related": [],
+            "notes": [],
+        },
+        "ncit_alignments": [
+            {
+                "code": code,
+                "system": "ncit",
+                "version": "26.07d",
+                "predicate": "http://www.w3.org/2004/02/skos/core#closeMatch",
+                "lifecycle": "proposed",
+            }
+            for code in (
+                "C45194",
+                "C71720",
+                "C80281",
+                "C80289",
+                "C80291",
+                "C8851",
+                "C9496",
+            )
+        ],
     }
 
 
@@ -479,7 +499,23 @@ async def get_ncit_concept(code: str) -> JSONResponse:
 
 @app.get("/api/v1/ncit/concepts/{code}/mappings")
 async def get_ncit_mappings(code: str) -> dict[str, object]:
-    return {"code": code, "mappings": []}
+    mappings = (
+        [
+            {
+                "object_id": value,
+                "system": "icdo",
+                "version": "3.2",
+                "predicate": "http://www.w3.org/2004/02/skos/core#closeMatch",
+                "lifecycle": "proposed",
+                "confidence": 0.9,
+                "is_identity": False,
+            }
+            for value in ("8240/3", "8241/3", "8248/1")
+        ]
+        if code == "C188218"
+        else []
+    )
+    return {"code": code, "mappings": mappings}
 
 
 @app.get("/api/v1/cadsr/list")

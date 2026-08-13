@@ -47,6 +47,17 @@ class IcdoCertificationError(ValueError):
     """Active ICD-O data differs from its configured certified identity."""
 
 
+class IcdoRepositoryUnavailableError(RuntimeError):
+    """The required active ICD-O dataset is absent or structurally invalid."""
+
+
+class IcdoCodeResolution(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    generation_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    serving_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    resolved_codes: set[str]
+
+
 def certify_dataset(
     manifest: IcdoManifest,
     dataset: CanonicalDataset,
@@ -242,6 +253,47 @@ class IcdoRepository:
                     {"edition": edition, "axis": axis, "code": code},
                 )
             ).scalar_one_or_none()
+
+    async def resolve_active_morphology32_codes(
+        self, codes: set[str]
+    ) -> IcdoCodeResolution:
+        """Resolve a code set against exactly one active ICD-O-3.2 generation."""
+        async with self._sessions() as session:
+            rows = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT a.generation_id, g.manifest->>'serving_sha256' "
+                            "AS serving_sha256, r.code FROM icdo_active_generation a "
+                            "JOIN icdo_generation g ON g.id=a.generation_id "
+                            "LEFT JOIN icdo_record r ON "
+                            "r.generation_id=a.generation_id "
+                            "AND r.code=ANY(:codes) WHERE a.edition='3.2' "
+                            "AND a.axis='morphology' ORDER BY r.code"
+                        ),
+                        {"codes": sorted(codes)},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        if not rows:
+            raise IcdoRepositoryUnavailableError(
+                "active ICD-O-3.2 morphology generation is unavailable"
+            )
+        generation_id = rows[0]["generation_id"]
+        serving_sha256 = rows[0]["serving_sha256"]
+        if not isinstance(generation_id, str) or not isinstance(serving_sha256, str):
+            raise IcdoRepositoryUnavailableError(
+                "active ICD-O-3.2 morphology generation identity is invalid"
+            )
+        return IcdoCodeResolution(
+            generation_id=generation_id,
+            serving_sha256=serving_sha256,
+            resolved_codes={
+                str(row["code"]) for row in rows if row["code"] is not None
+            },
+        )
 
 
 async def publish_dataset(

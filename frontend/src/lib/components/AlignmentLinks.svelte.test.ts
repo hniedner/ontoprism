@@ -36,4 +36,23 @@ describe('AlignmentLinks', () => {
 			'/repositories/uberon/UBERON:0002048'
 		);
 	});
+
+	it('links slash-bearing ICD-O codes through one safe segment', () => {
+		render(AlignmentLinks, {
+			title: 'Aligned ICD-O-3.2 morphology codes',
+			alignments: ['9751/1', '9751/3', '9752/1', '9753/1', '9754/3'].map((code) => ({
+				code,
+				system: 'icdo' as const,
+				version: '3.2',
+				predicate: 'closeMatch',
+				lifecycle: 'proposed'
+			}))
+		});
+
+		expect(screen.getByRole('link', { name: 'Open aligned ICD-O-3.2 morphology code 9754/3' })).toHaveAttribute(
+			'href',
+			'/repositories/icdo/3.2/morphology/OTc1NC8z'
+		);
+		expect(screen.getAllByText('Proposed close alignment')).toHaveLength(5);
+	});
 });

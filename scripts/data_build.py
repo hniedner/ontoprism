@@ -58,7 +58,7 @@ from ontolib.repositories.embeddings.publication import (
     replacing_corpus_source,
 )
 from ontolib.repositories.icdo.ingest import ingest_icdo4, ingest_icdo32_morphology
-from ontolib.repositories.icdo.store import publish_dataset
+from ontolib.repositories.icdo.store import IcdoRepository, publish_dataset
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
     detect_coverage_regression,
@@ -68,6 +68,7 @@ from ontolib.repositories.xref.coverage import (
     save_coverage_baseline,
 )
 from ontolib.repositories.xref.mapping_score import load_golden_mappings
+from ontolib.repositories.xref.p334_alignment import publish_p334_alignments
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.publisher_xref import publish_uberon_xrefs
 from ontolib.repositories.xref.store import XrefStore
@@ -745,6 +746,23 @@ async def _build_uberon_publisher_xrefs(
     typer.echo(report.model_dump_json(indent=2))
 
 
+async def _build_p334_alignments(*, ncit_version: str) -> None:
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    try:
+        async with ncit_sparql_client(settings.ncit_sparql_url) as ncit_client:
+            sessions = make_sessionmaker(engine)
+            report = await publish_p334_alignments(
+                XrefStore(sessions),
+                ncit_client,
+                IcdoRepository(sessions),
+                ncit_version=ncit_version,
+            )
+    finally:
+        await dispose_engine(engine)
+    typer.echo(report.model_dump_json(indent=2))
+
+
 async def _build_xref_coverage() -> None:
     """Print the CDE-level coverage report and check for regression."""
     settings = get_settings()
@@ -1012,6 +1030,16 @@ def uberon_publisher_xrefs(
             ncit_version=ncit_version, uberon_version=uberon_version
         )
     )
+
+
+@app.command(name="p334-alignments")
+def p334_alignments(
+    ncit_version: str = typer.Option(
+        ..., help="Certified active NCIt release identity."
+    ),
+) -> None:
+    """Publish NCIt P334 alignments against active ICD-O-3.2 morphology."""
+    asyncio.run(_build_p334_alignments(ncit_version=ncit_version))
 
 
 @app.command(name="xref-promote")

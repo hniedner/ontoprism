@@ -2437,3 +2437,24 @@ generation with an atomic active pointer and a canonical fingerprint over exact 
 values. The ICD-O-4 topography/Uberon congruence output is a protected inspection
 report: evidence and classification are distinct, and it publishes no mapping or
 `exactMatch` assertion.
+
+## D66. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
+
+**Decision (2026-08-13):** NCIt's own `P334` assertions are publisher database
+cross-references, not equivalence claims. Every value resolving against the exact active
+ICD-O-3.2 morphology generation is therefore published as `skos:closeMatch`, lifecycle
+`proposed`, with `semapv:DatabaseCrossReference` justification. The source and target retain
+typed release identity `(ncit, release, code)` and `(icdo, 3.2, code)`. Only the independent-
+evidence and reasoner-backed promotion path may produce identity-grade mappings.
+
+The broad/narrow scope mismatch is material: an NCIt disease concept can assert a morphology
+code that describes only one aspect of it, and one morphology code can be asserted by several
+NCIt concepts. Multiple targets neither prove nor disprove equivalence. Publisher values that do
+not have the ICD-O-3.2 `dddd/b` form, and well-formed codes absent from the certified generation,
+remain explicit typed unresolved report rows rather than being coerced or silently dropped.
+
+These alignments are derived from and aligned to the WHO 3.2 edition and corroborated by NCIt's
+own assertion, consistent with D60. They remain additive xref provenance and never alter the
+stated or decomposed NCIt graphs. Protected WHO term text and reciprocal ICD-O detail stay behind
+the ICD-O consumer entitlement. NCIt's published code mapping follows the existing licensed-
+mapping governance and is never presented as a WHO preferred term.

@@ -33,6 +33,71 @@ def _dataset(label: str) -> CanonicalDataset:
     )
 
 
+def _morphology32() -> CanonicalDataset:
+    return CanonicalDataset(
+        edition="3.2",
+        axis="morphology",
+        records=tuple(
+            IcdoRecord(
+                code=code,
+                level="morphology",
+                base_morphology=code[:4],
+                behaviour=code[-1],
+                preferred=f"Term {code}",
+            )
+            for code in ("9680/3", "9751/1", "9751/3")
+        ),
+        source_shape=SourceShape(
+            sheet_names=("Morphology",),
+            headers=("ICDO3.2",),
+            merged_ranges=(),
+            trailing_blank_rows=0,
+        ),
+        source_sha256="c" * 64,
+    )
+
+
+@pytest.mark.integration
+async def test_active_morphology32_codes_resolve_in_one_indexed_generation_join() -> (
+    None
+):
+    engine = make_engine(get_settings().database_url)
+    sessions = make_sessionmaker(engine)
+    try:
+        manifest = await publish_dataset(
+            sessions,
+            _morphology32(),
+            publisher_url="https://example.test/icdo32",
+            published_at=datetime.now(UTC),
+        )
+        resolution = await IcdoRepository(sessions).resolve_active_morphology32_codes(
+            {"9680/3", "9751/1", "9999/9"}
+        )
+        assert resolution.generation_id == manifest.generation_id
+        assert resolution.serving_sha256 == manifest.serving_sha256
+        assert resolution.resolved_codes == {"9680/3", "9751/1"}
+
+        async with engine.connect() as connection:
+            await connection.execute(text("SET LOCAL enable_seqscan = off"))
+            plan = "\n".join(
+                str(row[0])
+                for row in (
+                    await connection.execute(
+                        text(
+                            "EXPLAIN SELECT r.code FROM icdo_active_generation a "
+                            "JOIN icdo_record r ON r.generation_id=a.generation_id "
+                            "AND r.code=ANY(:codes) WHERE a.edition='3.2' "
+                            "AND a.axis='morphology'"
+                        ),
+                        {"codes": ["9680/3", "9751/1", "9999/9"]},
+                    )
+                ).all()
+            )
+        assert "idx_icdo_record_filters" in plan
+    finally:
+        await dispose_engine(engine)
+
+
 @pytest.mark.integration
 async def test_concurrent_publications_activate_one_complete_immutable_generation() -> (
     None
