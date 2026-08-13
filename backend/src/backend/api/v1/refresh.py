@@ -64,6 +64,9 @@ async def refresh(
         await metadata.ncit(),
         metadata.cadsr(),
         await metadata.uberon(force=True),
+        await metadata.icdo("3.2", "morphology"),
+        await metadata.icdo("4.0", "morphology"),
+        await metadata.icdo("4.0", "topography"),
     ]
     return RefreshReport(
         refreshed_at=datetime.now(UTC).isoformat(), repositories=repositories

@@ -132,7 +132,11 @@ class IcdoRepository:
                     {"edition": edition, "axis": axis},
                 )
             ).scalar_one_or_none()
-        return IcdoManifest.model_validate(row) if row is not None else None
+        return (
+            IcdoManifest.model_validate_json(json.dumps(row))
+            if row is not None
+            else None
+        )
 
     async def dataset(self, edition: str, axis: str) -> CanonicalDataset | None:
         manifest = await self.metadata(edition, axis)
@@ -144,7 +148,8 @@ class IcdoRepository:
                     await session.execute(
                         text(
                             "SELECT r.payload FROM icdo_active_generation a "
-                            "JOIN icdo_record r ON r.generation_id=a.generation_id "
+                            "JOIN icdo_record r ON r.edition=a.edition "
+                            "AND r.axis=a.axis AND r.generation_id=a.generation_id "
                             "WHERE a.edition=:edition AND a.axis=:axis ORDER BY r.code"
                         ),
                         {"edition": edition, "axis": axis},
@@ -156,7 +161,10 @@ class IcdoRepository:
         return CanonicalDataset(
             edition=manifest.edition,
             axis=manifest.axis,
-            records=tuple(IcdoRecord.model_validate(payload) for payload in payloads),
+            records=tuple(
+                IcdoRecord.model_validate_json(json.dumps(payload))
+                for payload in payloads
+            ),
             source_shape=SourceShape(
                 sheet_names=(), headers=(), merged_ranges=(), trailing_blank_rows=0
             ),
@@ -198,14 +206,15 @@ class IcdoRepository:
         }
         joins = (
             " FROM icdo_active_generation a JOIN icdo_record r "
-            "ON r.generation_id=a.generation_id "
+            "ON r.edition=a.edition AND r.axis=a.axis "
+            "AND r.generation_id=a.generation_id "
         )
         where = (
             "WHERE a.edition=:edition AND a.axis=:axis "
             "AND (NOT :has_query OR lower(r.code) LIKE :pattern "
             "OR lower(r.search_text) LIKE :pattern) "
-            "AND (:behaviour IS NULL OR r.behaviour=:behaviour) "
-            "AND (:level IS NULL OR r.level=:level)"
+            "AND (CAST(:behaviour AS text) IS NULL OR r.behaviour=:behaviour) "
+            "AND (CAST(:level AS text) IS NULL OR r.level=:level)"
         )
         async with self._sessions() as session:
             total = (
@@ -247,7 +256,8 @@ class IcdoRepository:
                 await session.execute(
                     text(
                         "SELECT r.payload FROM icdo_active_generation a "
-                        "JOIN icdo_record r ON r.generation_id=a.generation_id "
+                        "JOIN icdo_record r ON r.edition=a.edition "
+                        "AND r.axis=a.axis AND r.generation_id=a.generation_id "
                         "WHERE a.edition=:edition AND a.axis=:axis AND r.code=:code"
                     ),
                     {"edition": edition, "axis": axis, "code": code},
@@ -255,9 +265,14 @@ class IcdoRepository:
             ).scalar_one_or_none()
 
     async def resolve_active_morphology32_codes(
-        self, codes: set[str]
+        self, codes: set[str], expected: CertificationExpectation
     ) -> IcdoCodeResolution:
         """Resolve a code set against exactly one active ICD-O-3.2 generation."""
+        manifest = await self.certified_metadata("3.2", "morphology", expected)
+        if manifest is None:
+            raise IcdoRepositoryUnavailableError(
+                "active ICD-O-3.2 morphology generation is unavailable"
+            )
         async with self._sessions() as session:
             rows = (
                 (
@@ -267,7 +282,8 @@ class IcdoRepository:
                             "AS serving_sha256, r.code FROM icdo_active_generation a "
                             "JOIN icdo_generation g ON g.id=a.generation_id "
                             "LEFT JOIN icdo_record r ON "
-                            "r.generation_id=a.generation_id "
+                            "r.edition=a.edition AND r.axis=a.axis "
+                            "AND r.generation_id=a.generation_id "
                             "AND r.code=ANY(:codes) WHERE a.edition='3.2' "
                             "AND a.axis='morphology' ORDER BY r.code"
                         ),
@@ -335,12 +351,16 @@ async def publish_dataset(
             await session.execute(
                 text(
                     "INSERT INTO icdo_record "
-                    "(generation_id, code, level, behaviour, search_text, payload) "
-                    "VALUES (:generation,:code,:level,:behaviour,:search,:payload) "
+                    "(edition, axis, generation_id, code, level, behaviour, "
+                    "search_text, payload) VALUES "
+                    "(:edition,:axis,:generation,:code,:level,:behaviour,"
+                    ":search,:payload) "
                     "ON CONFLICT DO NOTHING"
                 ),
                 {
                     "generation": manifest.generation_id,
+                    "edition": dataset.edition,
+                    "axis": dataset.axis,
                     "code": record.code,
                     "level": record.level,
                     "behaviour": record.behaviour,

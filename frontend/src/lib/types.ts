@@ -365,15 +365,28 @@ export type RepositoryUnhealthyReason =
 
 export interface RepositoryUnhealthy {
 	state: 'unhealthy';
-	repository: 'ncit' | 'cadsr' | 'uberon';
+	repository: 'ncit' | 'cadsr' | 'uberon' | 'icdo';
 	reason: RepositoryUnhealthyReason;
 	message: string;
+}
+
+export interface IcdoRepositoryReady {
+	state: 'ready';
+	repository: 'icdo';
+	edition: IcdoEdition;
+	axis: IcdoAxis;
+	source_identity: string;
+	serving_identity: string;
+	activation_identity: string;
+	row_count: number;
+	activated_at: string;
 }
 
 export type RepositoryMetadata =
 	| NcitRepositoryReady
 	| CadsrRepositoryReady
 	| UberonRepositoryReady
+	| IcdoRepositoryReady
 	| RepositoryUnhealthy;
 
 export interface RefreshReport {

@@ -3,7 +3,7 @@ mappings."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, computed_field
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -16,6 +16,7 @@ from backend.dependencies import (
     XrefReads,
 )
 from backend.repository_metadata import RepositoryUnhealthy
+from backend.security import has_icdo_entitlement
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
@@ -210,6 +211,7 @@ async def concept_mappings(
     store: NcitStore,
     xref_store: XrefReads,
     code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptMappings:
     """Return all upstream mappings for an NCIt concept code.
 
@@ -222,6 +224,7 @@ async def concept_mappings(
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
     rows = await xref_store.mappings_for_identifiers({code})
+    entitled_to_icdo = has_icdo_entitlement(x_icdo_entitlement)
     entries = [
         MappingEntry(
             object_id=target.identifier,
@@ -233,6 +236,7 @@ async def concept_mappings(
         )
         for row in rows.get(code, [])
         for target in [row.object if row.subject.identifier == code else row.subject]
+        if target.system != "icdo" or entitled_to_icdo
     ]
     return ConceptMappings(code=code, mappings=entries)
 

@@ -4,8 +4,9 @@ from typing import Any
 
 import pytest
 
-from ontolib.repositories.icdo.store import IcdoCodeResolution
+from ontolib.repositories.icdo.store import CertificationExpectation, IcdoCodeResolution
 from ontolib.repositories.xref.p334_alignment import (
+    P334CountDriftError,
     P334SourceError,
     publish_p334_alignments,
 )
@@ -21,6 +22,9 @@ class _NcitClient:
     async def select(self, query: str) -> list[dict[str, str]]:
         self.select_calls.append(query)
         return self.rows
+
+    async def version(self) -> str:
+        return "26.07d"
 
     async def load(
         self,
@@ -41,8 +45,9 @@ class _Icdo:
         self.calls: list[set[str]] = []
 
     async def resolve_active_morphology32_codes(
-        self, codes: set[str]
+        self, codes: set[str], expected: CertificationExpectation
     ) -> IcdoCodeResolution:
+        assert expected.edition == "3.2"
         self.calls.append(codes)
         return IcdoCodeResolution(
             generation_id="a" * 64,
@@ -64,12 +69,20 @@ class _Store:
         self.records: list[Any] = []
         self.metrics: dict[str, Any] | None = None
         self.generation_id: str | None = None
+        self.run_writes = 0
 
     async def upsert_run(self, **_kwargs: object) -> int:
+        self.run_writes += 1
         return 1
 
     async def update_run_metrics(self, _run_id: str, metrics: dict[str, Any]) -> None:
         self.metrics = metrics
+
+    async def active_generation(self, _source: str) -> str | None:
+        return None
+
+    async def set_active_generation(self, *_args: object, **_kwargs: object) -> None:
+        return None
 
     def publication_lock(self, _source: str) -> _Lock:
         return _Lock()
@@ -90,6 +103,40 @@ def _row(code: str, value: str) -> dict[str, str]:
         "concept": f"http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}",
         "value": value,
     }
+
+
+def _expectation() -> CertificationExpectation:
+    return CertificationExpectation(
+        source_sha256="c" * 64,
+        edition="3.2",
+        axis="morphology",
+        row_count=1143,
+        serving_sha256="b" * 64,
+    )
+
+
+@pytest.mark.unit
+async def test_p334_refuses_missing_observed_ncit_release_before_icdo_or_writes() -> (
+    None
+):
+    client = _NcitClient([_row("C1", "8000/3")])
+    client.version = _none_version  # type: ignore[method-assign]
+    store = _Store()
+    icdo = _Icdo({"8000/3"})
+    with pytest.raises(P334SourceError, match="no release identity"):
+        await publish_p334_alignments(
+            store,
+            client,
+            icdo,
+            icdo_expected=_expectation(),
+            expected_counts=(1, 1),
+        )
+    assert icdo.calls == []
+    assert store.run_writes == 0
+
+
+async def _none_version() -> None:
+    return None
 
 
 @pytest.mark.unit
@@ -113,7 +160,8 @@ async def test_p334_publish_is_batched_typed_many_to_many_and_reports_unresolved
         store,
         ncit,
         icdo,
-        ncit_version="26.07d",
+        icdo_expected=_expectation(),
+        expected_counts=(4, 6),
         run_id="p334-run",
     )
 
@@ -147,10 +195,10 @@ async def test_p334_publish_is_batched_typed_many_to_many_and_reports_unresolved
         "reason": "icdo32-morphology-code-not-found",
     }
     assert report.concept_count.model_dump() == {
-        "expected": 1161,
+        "expected": 4,
         "observed": 4,
-        "delta": -1157,
-        "classification": "decreased",
+        "delta": 0,
+        "classification": "unchanged",
     }
     assert report.assertion_count.observed == 6
     assert report.published_assertion_count == 5
@@ -171,7 +219,8 @@ async def test_p334_generation_is_deterministic_for_source_row_order() -> None:
             store,
             client,
             _Icdo({"8240/3", "8241/3"}),
-            ncit_version="26.07d",
+            icdo_expected=_expectation(),
+            expected_counts=(1, 2),
             run_id="same-run",
         )
         generations.append(store.generation_id)
@@ -201,7 +250,7 @@ async def test_p334_malformed_source_rows_fail_closed_before_icdo_read(
             _Store(),
             _NcitClient([row]),
             icdo,
-            ncit_version="26.07d",
+            icdo_expected=_expectation(),
         )
     assert icdo.calls == []
 
@@ -212,7 +261,8 @@ async def test_p334_publisher_non_code_value_is_explicitly_unresolved() -> None:
         _Store(),
         _NcitClient([_row("C7539", "981-983")]),
         _Icdo(set()),
-        ncit_version="26.07d",
+        icdo_expected=_expectation(),
+        expected_counts=(1, 1),
     )
     assert report.unresolved[0].model_dump() == {
         "ncit_code": "C7539",
@@ -226,23 +276,27 @@ async def test_p334_publisher_non_code_value_is_explicitly_unresolved() -> None:
     ("observed", "classification"),
     [(1161, "unchanged"), (1162, "increased"), (1160, "decreased")],
 )
-async def test_p334_count_deltas_are_independently_classified(
+async def test_p334_count_drift_fails_before_any_write_with_typed_independent_deltas(
     observed: int, classification: str
 ) -> None:
     rows = [
         _row(f"C{index + 1}", f"{index % 10000:04d}/3") for index in range(observed)
     ]
-    report = await publish_p334_alignments(
-        _Store(),
-        _NcitClient(rows),
-        _Icdo({row["value"] for row in rows}),
-        ncit_version="26.07d",
-    )
-    assert report.concept_count.classification == classification
-    assert report.assertion_count.classification == (
+    store = _Store()
+    with pytest.raises(P334CountDriftError) as captured:
+        await publish_p334_alignments(
+            store,
+            _NcitClient(rows),
+            _Icdo({row["value"] for row in rows}),
+            icdo_expected=_expectation(),
+        )
+    assert captured.value.concept_count.classification == classification
+    assert captured.value.assertion_count.classification == (
         "decreased"
         if observed < 1252
         else "unchanged"
         if observed == 1252
         else "increased"
     )
+    assert store.run_writes == 0
+    assert store.records == []

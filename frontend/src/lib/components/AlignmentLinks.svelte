@@ -10,12 +10,19 @@
 		if (system === 'icdo') return 'ICD-O-3.2 morphology';
 		return 'Uberon/CL';
 	}
+
+	function label(alignment: Alignment): string {
+		const localName = alignment.predicate.split(/[/#]/).at(-1) ?? alignment.predicate;
+		const predicate = localName.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+		const words = `${alignment.lifecycle} ${predicate}`;
+		return words.charAt(0).toUpperCase() + words.slice(1);
+	}
 </script>
 
 <section class="rounded-xl border border-default bg-card p-4 shadow-sm">
 	<h2 class="mb-3 text-sm font-semibold text-default">{title}</h2>
 	{#if alignments.length === 0}
-		<p class="text-sm italic text-subtle">No publisher alignments.</p>
+		<p class="text-sm italic text-subtle">No alignments.</p>
 	{:else}
 		<ul class="flex flex-col gap-2">
 			{#each alignments as alignment (alignment.system + alignment.code)}
@@ -43,7 +50,7 @@
 							class="font-mono text-primary-700 dark:text-primary-300"
 						>{alignment.code}</a>
 					{/if}
-					<span class="text-xs text-muted">Proposed close alignment</span>
+					<span class="text-xs text-muted">{label(alignment)}</span>
 				</li>
 			{/each}
 		</ul>

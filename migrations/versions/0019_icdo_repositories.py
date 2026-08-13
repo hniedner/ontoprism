@@ -15,17 +15,21 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("""CREATE TABLE icdo_generation (
-      id text PRIMARY KEY CHECK (id ~ '^[0-9a-f]{64}$'),
+      id text NOT NULL CHECK (id ~ '^[0-9a-f]{64}$'),
       edition text NOT NULL CHECK (edition IN ('3.2','4.0')),
       axis text NOT NULL CHECK (axis IN ('morphology','topography')),
       manifest jsonb NOT NULL,
-      UNIQUE (edition, axis, id)
+      PRIMARY KEY (edition, axis, id),
+      UNIQUE (id)
     )""")
     op.execute("""CREATE TABLE icdo_record (
-      generation_id text NOT NULL REFERENCES icdo_generation(id),
+      edition text NOT NULL, axis text NOT NULL,
+      generation_id text NOT NULL,
       code text NOT NULL, level text NOT NULL,
       behaviour text, search_text text NOT NULL, payload jsonb NOT NULL,
-      PRIMARY KEY (generation_id, code)
+      FOREIGN KEY (edition, axis, generation_id)
+        REFERENCES icdo_generation(edition, axis, id),
+      PRIMARY KEY (edition, axis, generation_id, code)
     )""")
     op.execute(
         "CREATE INDEX idx_icdo_record_filters ON icdo_record "
@@ -33,10 +37,12 @@ def upgrade() -> None:
     )
     op.execute("""CREATE TABLE icdo_active_generation (
       edition text NOT NULL, axis text NOT NULL,
-      generation_id text NOT NULL UNIQUE REFERENCES icdo_generation(id),
+      generation_id text NOT NULL UNIQUE,
       activated_at timestamptz NOT NULL,
       PRIMARY KEY (edition, axis),
-      CHECK (NOT (edition='3.2' AND axis='topography'))
+      CHECK (NOT (edition='3.2' AND axis='topography')),
+      FOREIGN KEY (edition, axis, generation_id)
+        REFERENCES icdo_generation(edition, axis, id)
     )""")
 
 

@@ -30,13 +30,17 @@
 				? repository.release
 				: repository.repository === 'cadsr'
 					? repository.item_count.toLocaleString()
-					: (repository.class_counts.uberon + repository.class_counts.cl).toLocaleString()}
+					: repository.repository === 'uberon'
+						? (repository.class_counts.uberon + repository.class_counts.cl).toLocaleString()
+						: `${repository.edition} ${repository.axis} (${repository.row_count.toLocaleString()})`}
 		</td>
 		<td class="max-w-64 break-all px-4 py-2.5 font-mono text-xs text-muted">
 			{repository.source_identity}
 		</td>
 		<td class="max-w-64 break-all px-4 py-2.5 font-mono text-xs text-muted">
-			{repository.manifest_identity}
+			{'manifest_identity' in repository
+				? repository.manifest_identity
+				: repository.activation_identity}
 		</td>
 	{:else}
 		<td class="px-4 py-2.5 text-muted">—</td>

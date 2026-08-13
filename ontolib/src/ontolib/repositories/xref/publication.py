@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
 PublicationFailpoint = Literal["after_postgres", "after_rdf", "before_pointer"]
+_ACTIVE_PREDICATE = f"{NCIT_UPSTREAM_XREF_GRAPH_IRI}/activeGeneration"
 
 
 class XrefPublicationError(RuntimeError):
@@ -40,6 +41,22 @@ def generation_graph_iri(source: str, generation_id: str) -> str:
     if not component:
         raise ValueError("source must contain an alphanumeric character")
     return f"{NCIT_UPSTREAM_XREF_GRAPH_IRI}/generation/{component}/{generation_id}"
+
+
+def active_graph_iri(source: str) -> str:
+    """Return the stable RDF pointer graph for one source."""
+    component = re.sub(r"[^a-z0-9]+", "-", source.casefold()).strip("-")
+    if not component:
+        raise ValueError("source must contain an alphanumeric character")
+    return f"{NCIT_UPSTREAM_XREF_GRAPH_IRI}/active/{component}"
+
+
+def _active_pointer(source: str, generation_id: str | None) -> bytes:
+    if generation_id is None:
+        return b""
+    graph = generation_graph_iri(source, generation_id)
+    subject = active_graph_iri(source)
+    return f"<{subject}> <{_ACTIVE_PREDICATE}> <{graph}> .\n".encode()
 
 
 def generation_identity(source: str, records: Sequence[SSSOMRecord]) -> tuple[str, str]:
@@ -82,6 +99,7 @@ async def publish_generation(
     generation_id, content_sha256 = generation_identity(source, records)
     graph_iri = generation_graph_iri(source, generation_id)
     async with store.publication_lock(source):
+        previous = await store.active_generation(source)
         changed = await store.prepare_generation(
             source=source,
             generation_id=generation_id,
@@ -105,8 +123,42 @@ async def publish_generation(
         if failpoint == "before_pointer":
             raise XrefPublicationError("injected failure before pointer switch")
         await store.activate_generation(source, generation_id, _publication_locked=True)
+        try:
+            await client.load(
+                _active_pointer(source, generation_id),
+                content_type="text/turtle",
+                graph_iri=active_graph_iri(source),
+                replace=True,
+            )
+        except BaseException:
+            await store.set_active_generation(
+                source, previous, _publication_locked=True
+            )
+            raise
     return PublicationResult(
         generation_id=generation_id,
         graph_iri=graph_iri,
         changed=changed,
     )
+
+
+async def rollback_generation(
+    store: XrefStore, client: SparqlHttpClient, source: str
+) -> str:
+    """Rollback both active pointers, compensating PostgreSQL on RDF failure."""
+    async with store.publication_lock(source):
+        previous = await store.active_generation(source)
+        predecessor = await store.rollback(source, _publication_locked=True)
+        try:
+            await client.load(
+                _active_pointer(source, predecessor),
+                content_type="text/turtle",
+                graph_iri=active_graph_iri(source),
+                replace=True,
+            )
+        except BaseException:
+            await store.set_active_generation(
+                source, previous, _publication_locked=True
+            )
+            raise
+        return predecessor

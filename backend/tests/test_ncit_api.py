@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 
+from backend.config import get_settings
 from backend.dependencies import (
     get_embedding_store,
     get_ncit_search_index,
@@ -345,10 +346,14 @@ def test_concept_detail_returns_concept(ncit_client: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_ncit_mapping_detail_preserves_three_resolved_codes_with_typed_edition() -> (
-    None
-):
-    response = next(_client()).get("/api/v1/ncit/concepts/C188218/mappings")
+def test_ncit_mapping_detail_preserves_three_resolved_codes_with_typed_edition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    response = next(_client()).get(
+        "/api/v1/ncit/concepts/C188218/mappings",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
     assert response.status_code == 200
     assert [row["object_id"] for row in response.json()["mappings"]] == [
         "8240/3",

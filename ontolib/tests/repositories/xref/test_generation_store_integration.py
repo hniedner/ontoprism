@@ -11,9 +11,11 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.repositories.xref.models import SSSOMRecord
 from ontolib.repositories.xref.publication import (
     XrefPublicationError,
+    active_graph_iri,
     generation_graph_iri,
     generation_identity,
     publish_generation,
+    rollback_generation,
 )
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
@@ -99,12 +101,20 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
         assert await client.ask(f"ASK {{ GRAPH <{second.graph_iri}> {{ ?s ?p ?o }} }}")
         assert await client.ask(f"ASK {{ GRAPH <{other.graph_iri}> {{ ?s ?p ?o }} }}")
 
-        assert await store.rollback("issue291-uberon") == first.generation_id
+        assert (
+            await rollback_generation(store, client, "issue291-uberon")
+            == first.generation_id
+        )
         rolled_back = await store.mappings_by_subjects({"C1", "C2", "C9"})
         assert {row.object.identifier for row in rolled_back["C1"]} == {"UBERON:1"}
         assert "C2" not in rolled_back
         assert {row.object.identifier for row in rolled_back["C9"]} == {"UBERON:9"}
         assert other.generation_id != first.generation_id
+        pointer = await client.select(
+            f"SELECT ?g WHERE {{ GRAPH <{active_graph_iri('issue291-uberon')}> "
+            "{ ?source ?predicate ?g } }"
+        )
+        assert pointer == [{"g": first.graph_iri}]
     await dispose_engine(engine)
 
 
@@ -174,6 +184,70 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
         )
         assert before == after
         assert counts == (1, 1)
+    await dispose_engine(engine)
+
+
+async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "issue291-pointer-failure"
+
+    class FailingPointerClient:
+        calls = 0
+
+        async def load(self, *_args: object, **_kwargs: object) -> None:
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("pointer write failed")
+
+    client = FailingPointerClient()
+    run_id = await _run(store, source, "u1")
+    with pytest.raises(RuntimeError, match="pointer write failed"):
+        await publish_generation(
+            store,
+            client,  # type: ignore[arg-type]
+            source=source,
+            run_id=run_id,
+            records=[_record("FAIL", "UBERON:FAIL", "u1")],
+        )
+    assert await store.active_generation(source) is None
+    assert await store.mappings_by_subjects({"FAIL"}) == {}
+    await dispose_engine(engine)
+
+
+async def test_rollback_pointer_failure_restores_newer_postgres_generation() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "issue291-rollback-pointer-failure"
+
+    class Client:
+        fail = False
+
+        async def load(self, *_args: object, **_kwargs: object) -> None:
+            if self.fail:
+                raise RuntimeError("rollback pointer write failed")
+
+    client = Client()
+    first = await publish_generation(
+        store,
+        client,  # type: ignore[arg-type]
+        source=source,
+        run_id=await _run(store, source, "u1"),
+        records=[_record("RB1", "UBERON:RB1", "u1")],
+    )
+    second = await publish_generation(
+        store,
+        client,  # type: ignore[arg-type]
+        source=source,
+        run_id=await _run(store, source, "u2"),
+        records=[_record("RB2", "UBERON:RB2", "u2")],
+    )
+    client.fail = True
+    with pytest.raises(RuntimeError, match="rollback pointer write failed"):
+        await rollback_generation(store, client, source)  # type: ignore[arg-type]
+    assert await store.active_generation(source) == second.generation_id
+    assert first.generation_id != second.generation_id
+    assert set(await store.mappings_by_subjects({"RB1", "RB2"})) == {"RB2"}
     await dispose_engine(engine)
 
 
@@ -330,5 +404,5 @@ async def test_source_lock_spans_postgres_rdf_and_activation() -> None:
 
     release_first.set()
     await asyncio.gather(first, second)
-    assert client.calls == 2
+    assert client.calls == 4
     await dispose_engine(engine)

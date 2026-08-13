@@ -148,8 +148,10 @@ async def neighborhood(
 @router.get("/concepts/{code}/alignments", response_model=UberonAlignments)
 async def alignments(
     xref_store: XrefReads,
+    metadata: RepositoryMetadataReads,
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
 ) -> UberonAlignments:
+    await _ready(metadata)
     rows = await xref_store.mappings_for_identifiers({code})
     return UberonAlignments(
         code=code,

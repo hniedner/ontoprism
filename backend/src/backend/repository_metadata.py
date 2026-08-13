@@ -17,6 +17,7 @@ from pydantic import (
     PositiveInt,
     model_validator,
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.icdo.store import (
@@ -523,10 +524,9 @@ async def _select_uberon_live_observation(
     *,
     force: bool,
 ) -> tuple[str, UberonIndexObservation, UberonClassCounts]:
-    if force or cached is None or cached[0] != manifest.source_identity:
-        observation, class_counts = await observe_uberon_repository(endpoint_url)
-        return manifest.source_identity, observation, class_counts
-    return cached
+    del cached, force
+    observation, class_counts = await observe_uberon_repository(endpoint_url)
+    return manifest.source_identity, observation, class_counts
 
 
 class RepositoryMetadataService:
@@ -625,7 +625,7 @@ class RepositoryMetadataService:
             )
         try:
             manifest = await self._icdo.certified_metadata(
-                edition, axis, _icdo_expectation(self._settings, edition, axis)
+                edition, axis, icdo_expectation(self._settings, edition, axis)
             )
             if manifest is None:
                 raise RepositoryMetadataError(
@@ -634,13 +634,15 @@ class RepositoryMetadataService:
             return _bind_icdo_repository_metadata(manifest)
         except IcdoCertificationError as exc:
             return _unhealthy("icdo", "observation-mismatch", exc)
+        except SQLAlchemyError as exc:
+            return _unhealthy("icdo", "repository-unreachable", exc)
         except RepositoryMetadataError as exc:
             return _unhealthy("icdo", exc.reason, exc)
         except ValueError as exc:
             return _unhealthy("icdo", "manifest-invalid", exc)
 
 
-def _icdo_expectation(
+def icdo_expectation(
     settings: _MetadataSettings,
     edition: Literal["3.2", "4.0"],
     axis: Literal["morphology", "topography"],

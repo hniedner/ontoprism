@@ -33,6 +33,7 @@ import typer
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from backend.repository_metadata import icdo_expectation
 from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -724,9 +725,7 @@ async def _build_xref() -> None:
     typer.echo(f"xref candidates ingested: {report}")
 
 
-async def _build_uberon_publisher_xrefs(
-    *, ncit_version: str, uberon_version: str
-) -> None:
+async def _build_uberon_publisher_xrefs() -> None:
     settings = get_settings()
     engine = make_engine(settings.database_url)
     try:
@@ -738,15 +737,13 @@ async def _build_uberon_publisher_xrefs(
                 XrefStore(make_sessionmaker(engine)),
                 ncit_client,
                 uberon_client,
-                ncit_version=ncit_version,
-                uberon_version=uberon_version,
             )
     finally:
         await dispose_engine(engine)
     typer.echo(report.model_dump_json(indent=2))
 
 
-async def _build_p334_alignments(*, ncit_version: str) -> None:
+async def _build_p334_alignments() -> None:
     settings = get_settings()
     engine = make_engine(settings.database_url)
     try:
@@ -756,7 +753,7 @@ async def _build_p334_alignments(*, ncit_version: str) -> None:
                 XrefStore(sessions),
                 ncit_client,
                 IcdoRepository(sessions),
-                ncit_version=ncit_version,
+                icdo_expected=icdo_expectation(settings, "3.2", "morphology"),
             )
     finally:
         await dispose_engine(engine)
@@ -1016,30 +1013,15 @@ def xref_coverage() -> None:
 
 
 @app.command(name="uberon-publisher-xrefs")
-def uberon_publisher_xrefs(
-    ncit_version: str = typer.Option(
-        ..., help="Certified active NCIt release identity."
-    ),
-    uberon_version: str = typer.Option(
-        ..., help="Certified active Uberon release/version IRI."
-    ),
-) -> None:
-    """Publish Uberon-authored NCIt alignments and print unresolved targets."""
-    asyncio.run(
-        _build_uberon_publisher_xrefs(
-            ncit_version=ncit_version, uberon_version=uberon_version
-        )
-    )
+def uberon_publisher_xrefs() -> None:
+    """Publish alignments labelled with releases observed from both active stores."""
+    asyncio.run(_build_uberon_publisher_xrefs())
 
 
 @app.command(name="p334-alignments")
-def p334_alignments(
-    ncit_version: str = typer.Option(
-        ..., help="Certified active NCIt release identity."
-    ),
-) -> None:
-    """Publish NCIt P334 alignments against active ICD-O-3.2 morphology."""
-    asyncio.run(_build_p334_alignments(ncit_version=ncit_version))
+def p334_alignments() -> None:
+    """Publish P334 after certifying both observed active source identities."""
+    asyncio.run(_build_p334_alignments())
 
 
 @app.command(name="xref-promote")

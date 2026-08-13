@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 # Base IRI for immutable, source-specific generation graphs. Never write mappings to
 # the stated NCIt graph or the decomposed graph.
 NCIT_UPSTREAM_XREF_GRAPH_IRI = (
@@ -11,11 +13,29 @@ NCIT_UPSTREAM_XREF_GRAPH_IRI = (
 # SSSOM predicate vocabulary (SKOS mapping properties — ANNOTATION ONLY,
 # never fed to a reasoner).
 SKOS_NS = "http://www.w3.org/2004/02/skos/core#"
-EXACT_MATCH = f"{SKOS_NS}exactMatch"
-CLOSE_MATCH = f"{SKOS_NS}closeMatch"
-BROAD_MATCH = f"{SKOS_NS}broadMatch"
-NARROW_MATCH = f"{SKOS_NS}narrowMatch"
-RELATED_MATCH = f"{SKOS_NS}relatedMatch"
+EXACT_MATCH: Literal["http://www.w3.org/2004/02/skos/core#exactMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#exactMatch"
+)
+CLOSE_MATCH: Literal["http://www.w3.org/2004/02/skos/core#closeMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#closeMatch"
+)
+BROAD_MATCH: Literal["http://www.w3.org/2004/02/skos/core#broadMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#broadMatch"
+)
+NARROW_MATCH: Literal["http://www.w3.org/2004/02/skos/core#narrowMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#narrowMatch"
+)
+RELATED_MATCH: Literal["http://www.w3.org/2004/02/skos/core#relatedMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#relatedMatch"
+)
+
+type MappingPredicate = Literal[
+    "http://www.w3.org/2004/02/skos/core#exactMatch",
+    "http://www.w3.org/2004/02/skos/core#closeMatch",
+    "http://www.w3.org/2004/02/skos/core#broadMatch",
+    "http://www.w3.org/2004/02/skos/core#narrowMatch",
+    "http://www.w3.org/2004/02/skos/core#relatedMatch",
+]
 
 ALLOWED_PREDICATES = frozenset(
     {EXACT_MATCH, CLOSE_MATCH, BROAD_MATCH, NARROW_MATCH, RELATED_MATCH}
@@ -41,3 +61,6 @@ COMPOSITE_MATCHING = "semapv:CompositeMatching"
 LIFECYCLE_STATES = frozenset(
     {"proposed", "validated", "active", "quarantined", "retired"}
 )
+type MappingLifecycle = Literal[
+    "proposed", "validated", "active", "quarantined", "retired"
+]

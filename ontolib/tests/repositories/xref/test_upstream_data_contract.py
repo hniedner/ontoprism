@@ -37,7 +37,7 @@ import pytest
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.repositories.icdo.store import IcdoRepository
+from ontolib.repositories.icdo.store import CertificationExpectation, IcdoRepository
 from ontolib.repositories.xref.candidate_ingest import (
     _build_xref_index,
     fetch_uberon_xrefs,
@@ -129,7 +129,16 @@ async def test_p334_reconciles_against_exact_active_icdo32_generation() -> None:
         }
         resolution = await IcdoRepository(
             make_sessionmaker(engine)
-        ).resolve_active_morphology32_codes(valid_values)
+        ).resolve_active_morphology32_codes(
+            valid_values,
+            CertificationExpectation(
+                source_sha256=get_settings().icdo_32_morphology_source_sha256,
+                edition="3.2",
+                axis="morphology",
+                row_count=1143,
+                serving_sha256=get_settings().icdo_32_morphology_serving_sha256,
+            ),
+        )
         records, unresolved = _publication_rows(
             assertions,
             resolution.resolved_codes,

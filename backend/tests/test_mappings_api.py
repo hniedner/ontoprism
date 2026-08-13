@@ -127,6 +127,24 @@ def test_concept_mappings_returns_forward_mappings() -> None:
 
 
 @pytest.mark.api
+def test_public_concept_mappings_omit_icdo_but_entitled_call_returns_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    client = next(_client())
+
+    public = client.get("/api/v1/ncit/concepts/C188218/mappings")
+    entitled = client.get(
+        "/api/v1/ncit/concepts/C188218/mappings",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert public.status_code == entitled.status_code == 200
+    assert public.json()["mappings"] == []
+    assert entitled.json()["mappings"][0]["system"] == "icdo"
+
+
+@pytest.mark.api
 def test_concept_mappings_preserves_reverse_many_to_one_in_one_indexed_query() -> None:
     store = _FakeXrefStore()
     store.reverse["C12468"] = [

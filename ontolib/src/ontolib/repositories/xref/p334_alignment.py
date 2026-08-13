@@ -15,7 +15,10 @@ from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 if TYPE_CHECKING:
-    from ontolib.repositories.icdo.store import IcdoRepository
+    from ontolib.repositories.icdo.store import (
+        CertificationExpectation,
+        IcdoRepository,
+    )
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -28,6 +31,15 @@ _ICDO32_CODE = re.compile(r"[0-9]{4}/[0-9]")
 
 class P334SourceError(ValueError):
     """An NCIt P334 source row is malformed and cannot be published safely."""
+
+
+class P334CountDriftError(ValueError):
+    """The active NCIt P334 inventory differs from the certified expectation."""
+
+    def __init__(self, concept_count: CountDelta, assertion_count: CountDelta) -> None:
+        super().__init__("NCIt P334 concept/assertion count drift")
+        self.concept_count = concept_count
+        self.assertion_count = assertion_count
 
 
 class CountDelta(BaseModel):
@@ -140,20 +152,42 @@ def _publication_rows(
     return records, unresolved
 
 
+def _require_unchanged_counts(
+    assertions: list[tuple[str, str]], expected: tuple[int, int]
+) -> tuple[CountDelta, CountDelta]:
+    concept_count = _delta(expected[0], len({code for code, _ in assertions}))
+    assertion_count = _delta(expected[1], len(assertions))
+    if (
+        concept_count.classification != "unchanged"
+        or assertion_count.classification != "unchanged"
+    ):
+        raise P334CountDriftError(concept_count, assertion_count)
+    return concept_count, assertion_count
+
+
 async def publish_p334_alignments(
     store: XrefStore,
     ncit_client: SparqlHttpClient,
     icdo: IcdoRepository,
     *,
-    ncit_version: str,
+    icdo_expected: CertificationExpectation,
+    expected_counts: tuple[int, int] = (EXPECTED_CONCEPTS, EXPECTED_ASSERTIONS),
     run_id: str | None = None,
 ) -> P334AlignmentReport:
     """Validate and publish all resolvable NCIt P334 assertions deterministically."""
     assertions = _parse_assertions(
         await ncit_client.select(build_p334_assertions_query())
     )
+    ncit_version = await ncit_client.version()
+    if not ncit_version:
+        raise P334SourceError("active NCIt source has no release identity")
+    concept_count, assertion_count = _require_unchanged_counts(
+        assertions, expected_counts
+    )
     valid_values = {value for _, value in assertions if _ICDO32_CODE.fullmatch(value)}
-    resolution = await icdo.resolve_active_morphology32_codes(valid_values)
+    resolution = await icdo.resolve_active_morphology32_codes(
+        valid_values, icdo_expected
+    )
     records, unresolved = _publication_rows(
         assertions,
         resolution.resolved_codes,
@@ -163,8 +197,8 @@ async def publish_p334_alignments(
         ncit_release=ncit_version,
         icdo_generation_id=resolution.generation_id,
         icdo_serving_sha256=resolution.serving_sha256,
-        concept_count=_delta(EXPECTED_CONCEPTS, len({code for code, _ in assertions})),
-        assertion_count=_delta(EXPECTED_ASSERTIONS, len(assertions)),
+        concept_count=concept_count,
+        assertion_count=assertion_count,
         published_assertion_count=len(records),
         unresolved=unresolved,
     )

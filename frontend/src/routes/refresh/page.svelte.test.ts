@@ -39,6 +39,12 @@ describe('repository refresh metadata', () => {
 					repository: 'cadsr',
 					reason: 'manifest-missing',
 					message: 'source provenance is absent'
+				},
+				{
+					state: 'ready', repository: 'icdo', edition: '3.2', axis: 'morphology',
+					source_identity: 'c'.repeat(64), serving_identity: 'd'.repeat(64),
+					activation_identity: 'e'.repeat(64), row_count: 1143,
+					activated_at: '2026-08-10T19:30:00+00:00'
 				}
 			]
 		});
@@ -50,5 +56,6 @@ describe('repository refresh metadata', () => {
 		expect(screen.getByText('a'.repeat(64))).toBeInTheDocument();
 		expect(screen.getByText('manifest-missing')).toBeInTheDocument();
 		expect(screen.getByText('source provenance is absent')).toBeInTheDocument();
+		expect(screen.getByText('3.2 morphology (1,143)')).toBeInTheDocument();
 	});
 });

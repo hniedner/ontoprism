@@ -11,6 +11,7 @@ from backend.main import create_app
 from backend.repository_metadata import (
     CadsrRepositoryReady,
     CadsrSourceMetadata,
+    IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryUnhealthy,
     UberonClassCounts,
@@ -115,6 +116,17 @@ class _Metadata:
         del force
         return self._uberon
 
+    async def icdo(self, edition: str, axis: str) -> IcdoRepositoryReady:
+        return IcdoRepositoryReady(
+            edition=edition,
+            axis=axis,
+            source_identity="3" * 64,
+            serving_identity="4" * 64,
+            activation_identity="5" * 64,
+            row_count=1,
+            activated_at=datetime(2026, 8, 12, tzinfo=UTC),
+        )
+
 
 @pytest.mark.api
 def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
@@ -188,7 +200,15 @@ def test_refresh_returns_discriminated_local_repository_metadata() -> None:
         ("ncit", "ready"),
         ("cadsr", "ready"),
         ("uberon", "ready"),
+        ("icdo", "ready"),
+        ("icdo", "ready"),
+        ("icdo", "ready"),
     ]
     assert repositories[0]["source_identity"] == "a" * 64
     assert repositories[1]["manifest_identity"] == "d" * 64
     assert repositories[2]["source_sha256"] == "2" * 64
+    assert [(row["edition"], row["axis"]) for row in repositories[3:]] == [
+        ("3.2", "morphology"),
+        ("4.0", "morphology"),
+        ("4.0", "topography"),
+    ]

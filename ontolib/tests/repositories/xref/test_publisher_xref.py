@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from ontolib.repositories.xref.publisher_xref import (
+    PublisherXrefCountDriftError,
     PublisherXrefSourceError,
     publish_uberon_xrefs,
 )
@@ -23,9 +24,14 @@ class _Client:
 
     async def select(self, query: str) -> list[dict[str, str]]:
         self.select_calls.append(query)
+        if "owl:Ontology" in query:
+            return [{"v": _UBERON_VERSION}]
         if "hasDbXref" in query:
             return self.xrefs
         return [{"code": code} for code in sorted(self.resolved)]
+
+    async def version(self) -> str:
+        return _NCIT_VERSION
 
     async def load(
         self,
@@ -53,13 +59,21 @@ class _Store:
         self.records: list[Any] = []
         self.metrics: dict[str, Any] | None = None
         self.source: str | None = None
+        self.run_writes = 0
 
     async def upsert_run(self, **kwargs: object) -> int:
+        self.run_writes += 1
         self.source = str(kwargs["source"])
         return 1
 
     async def update_run_metrics(self, _run_id: str, metrics: dict[str, Any]) -> None:
         self.metrics = metrics
+
+    async def active_generation(self, _source: str) -> str | None:
+        return None
+
+    async def set_active_generation(self, *_args: object, **_kwargs: object) -> None:
+        return None
 
     def publication_lock(self, _source: str) -> _Lock:
         return _Lock()
@@ -100,8 +114,7 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
         store,
         ncit,
         uberon,
-        ncit_version=_NCIT_VERSION,
-        uberon_version=_UBERON_VERSION,
+        expected_counts=(2, 3),
         run_id="publisher-run",
     )
 
@@ -124,8 +137,6 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
     assert report.model_dump(mode="json") == {
         "uberon_release": _UBERON_VERSION,
         "ncit_release": _NCIT_VERSION,
-        "source_class_count": 2,
-        "assertion_count": 3,
         "published_assertion_count": 2,
         "unresolved": [
             {
@@ -134,13 +145,22 @@ async def test_publisher_xrefs_validate_once_and_report_unresolved() -> None:
                 "reason": "ncit-target-not-found",
             }
         ],
-        "count_delta": "decreased",
-        "source_class_delta": -2575,
-        "assertion_delta": -2615,
+        "source_class_count": {
+            "expected": 2,
+            "observed": 2,
+            "delta": 0,
+            "classification": "unchanged",
+        },
+        "assertion_count": {
+            "expected": 3,
+            "observed": 3,
+            "delta": 0,
+            "classification": "unchanged",
+        },
     }
     assert store.metrics == report.model_dump(mode="json")
     assert store.source == "uberon-publisher-xref"
-    assert len(ncit.loads) == 1
+    assert len(ncit.loads) == 2
 
 
 @pytest.mark.unit
@@ -161,8 +181,71 @@ async def test_publisher_xrefs_fail_closed_on_malformed_source_assertion() -> No
             _Store(),
             ncit,
             uberon,
-            ncit_version=_NCIT_VERSION,
-            uberon_version=_UBERON_VERSION,
         )
 
     assert ncit.select_calls == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("classes", "assertions", "class_kind", "assertion_kind"),
+    [
+        (2577, 2618, "unchanged", "unchanged"),
+        (2578, 2618, "increased", "unchanged"),
+        (2576, 2617, "decreased", "decreased"),
+    ],
+)
+async def test_publisher_count_drift_is_independent_and_precedes_all_writes(
+    classes: int, assertions: int, class_kind: str, assertion_kind: str
+) -> None:
+    rows = [
+        {
+            "upstream": f"http://purl.obolibrary.org/obo/UBERON_{index:07d}",
+            "xref": f"NCIT:C{index + 1}",
+        }
+        for index in range(classes)
+    ]
+    rows.extend(rows[: assertions - classes])
+    rows = rows[:assertions]
+    store = _Store()
+    if (classes, assertions) == (2577, 2618):
+        await publish_uberon_xrefs(
+            store,
+            _Client([], set()),
+            _Client(rows, set()),
+            expected_counts=(2577, 2618),
+        )
+        assert store.run_writes == 1
+        return
+    with pytest.raises(PublisherXrefCountDriftError) as captured:
+        await publish_uberon_xrefs(store, _Client([], set()), _Client(rows, set()))
+    assert captured.value.source_class_count.classification == class_kind
+    assert captured.value.assertion_count.classification == assertion_kind
+    assert store.run_writes == 0
+
+
+@pytest.mark.unit
+async def test_publisher_refuses_nonunique_observed_uberon_release_before_writes() -> (
+    None
+):
+    row = {
+        "upstream": "http://purl.obolibrary.org/obo/UBERON_0002048",
+        "xref": "NCIT:C12468",
+    }
+    uberon = _Client([row], set())
+
+    async def _ambiguous(query: str) -> list[dict[str, str]]:
+        if "hasDbXref" in query:
+            return [row]
+        return [{"v": "v1"}, {"v": "v2"}]
+
+    uberon.select = _ambiguous  # type: ignore[method-assign]
+    store = _Store()
+    with pytest.raises(PublisherXrefSourceError, match="no unique release identity"):
+        await publish_uberon_xrefs(
+            store,
+            _Client([], {"C12468"}),
+            uberon,
+            expected_counts=(1, 1),
+        )
+    assert store.run_writes == 0

@@ -29,6 +29,25 @@ class PublisherXrefSourceError(ValueError):
     """A publisher assertion cannot be represented without changing its meaning."""
 
 
+class CountDelta(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    expected: int
+    observed: int
+    delta: int
+    classification: Literal["unchanged", "increased", "decreased"]
+
+
+class PublisherXrefCountDriftError(ValueError):
+    """The publisher xref inventory differs from the certified expectation."""
+
+    def __init__(
+        self, source_class_count: CountDelta, assertion_count: CountDelta
+    ) -> None:
+        super().__init__("Uberon publisher class/assertion count drift")
+        self.source_class_count = source_class_count
+        self.assertion_count = assertion_count
+
+
 class UnresolvedPublisherXref(BaseModel):
     model_config = ConfigDict(frozen=True)
     uberon_id: str
@@ -40,13 +59,10 @@ class PublisherXrefReport(BaseModel):
     model_config = ConfigDict(frozen=True)
     uberon_release: str
     ncit_release: str
-    source_class_count: int
-    assertion_count: int
+    source_class_count: CountDelta
+    assertion_count: CountDelta
     published_assertion_count: int
     unresolved: list[UnresolvedPublisherXref]
-    count_delta: Literal["unchanged", "increased", "decreased"]
-    source_class_delta: int
-    assertion_delta: int
 
 
 def build_ncit_target_validation_query(codes: set[str]) -> str:
@@ -100,16 +116,9 @@ def _report(
     *,
     ncit_version: str,
     uberon_version: str,
+    source_class_count: CountDelta,
+    assertion_count: CountDelta,
 ) -> PublisherXrefReport:
-    source_class_count = len({upstream for upstream, _ in assertions})
-    assertion_count = len(assertions)
-    deltas = (
-        source_class_count - EXPECTED_SOURCE_CLASSES,
-        assertion_count - EXPECTED_ASSERTIONS,
-    )
-    count_delta: Literal["unchanged", "increased", "decreased"] = "unchanged"
-    if deltas != (0, 0):
-        count_delta = "increased" if deltas[1] > 0 else "decreased"
     return PublisherXrefReport(
         uberon_release=uberon_version,
         ncit_release=ncit_version,
@@ -121,10 +130,58 @@ def _report(
             for upstream, code in assertions
             if code not in resolved
         ],
-        count_delta=count_delta,
-        source_class_delta=deltas[0],
-        assertion_delta=deltas[1],
     )
+
+
+def _delta(expected: int, observed: int) -> CountDelta:
+    classification: Literal["unchanged", "increased", "decreased"] = "unchanged"
+    if observed != expected:
+        classification = "increased" if observed > expected else "decreased"
+    return CountDelta(
+        expected=expected,
+        observed=observed,
+        delta=observed - expected,
+        classification=classification,
+    )
+
+
+async def _observed_version(client: SparqlHttpClient, name: str) -> str:
+    if name == "NCIt":
+        version = await client.version()
+        if version:
+            return version
+    rows = await client.select(
+        "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+        "SELECT ?v WHERE { ?ont a owl:Ontology; owl:versionIRI ?v }"
+    )
+    versions = sorted({str(row["v"]) for row in rows if row.get("v")})
+    if len(versions) != 1:
+        raise PublisherXrefSourceError(f"{name} source has no unique release identity")
+    return versions[0]
+
+
+def _require_unchanged_counts(
+    assertions: list[tuple[str, str]], expected: tuple[int, int]
+) -> tuple[CountDelta, CountDelta]:
+    source_count = _delta(expected[0], len({row[0] for row in assertions}))
+    assertion_count = _delta(expected[1], len(assertions))
+    if (
+        source_count.classification != "unchanged"
+        or assertion_count.classification != "unchanged"
+    ):
+        raise PublisherXrefCountDriftError(source_count, assertion_count)
+    return source_count, assertion_count
+
+
+async def _resolved_targets(
+    client: SparqlHttpClient, assertions: list[tuple[str, str]]
+) -> set[str]:
+    target_codes = {code for _, code in assertions}
+    return {
+        str(row["code"])
+        for row in await client.select(build_ncit_target_validation_query(target_codes))
+        if row.get("code")
+    }
 
 
 async def publish_uberon_xrefs(
@@ -132,21 +189,18 @@ async def publish_uberon_xrefs(
     ncit_client: SparqlHttpClient,
     uberon_client: SparqlHttpClient,
     *,
-    ncit_version: str,
-    uberon_version: str,
+    expected_counts: tuple[int, int] = (EXPECTED_SOURCE_CLASSES, EXPECTED_ASSERTIONS),
     run_id: str | None = None,
 ) -> PublisherXrefReport:
     """Validate and publish every resolvable Uberon-authored NCIt assertion."""
     rid = run_id or uuid.uuid4().hex
     assertions = _parse_assertions(await fetch_uberon_xrefs(uberon_client))
-    target_codes = {code for _, code in assertions}
-    resolved = {
-        str(row["code"])
-        for row in await ncit_client.select(
-            build_ncit_target_validation_query(target_codes)
-        )
-        if row.get("code")
-    }
+    source_class_count, assertion_count = _require_unchanged_counts(
+        assertions, expected_counts
+    )
+    ncit_version = await _observed_version(ncit_client, "NCIt")
+    uberon_version = await _observed_version(uberon_client, "Uberon")
+    resolved = await _resolved_targets(ncit_client, assertions)
     records = [
         _record(
             upstream,
@@ -163,6 +217,8 @@ async def publish_uberon_xrefs(
         resolved,
         ncit_version=ncit_version,
         uberon_version=uberon_version,
+        source_class_count=source_class_count,
+        assertion_count=assertion_count,
     )
     await store.upsert_run(
         run_id=rid,

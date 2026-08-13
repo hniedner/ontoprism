@@ -16,7 +16,7 @@ describe('AlignmentLinks', () => {
 			'href',
 			'/repositories/ncit/C12468'
 		);
-		expect(screen.getAllByText('Proposed close alignment')).toHaveLength(2);
+		expect(screen.getAllByText('Proposed close match')).toHaveLength(2);
 	});
 
 	it('links all reverse publisher assertions to Uberon details', () => {
@@ -53,6 +53,19 @@ describe('AlignmentLinks', () => {
 			'href',
 			'/repositories/icdo/3.2/morphology/OTc1NC8z'
 		);
-		expect(screen.getAllByText('Proposed close alignment')).toHaveLength(5);
+		expect(screen.getAllByText('Proposed close match')).toHaveLength(5);
+	});
+
+	it('renders the actual predicate and lifecycle and a source-neutral empty state', () => {
+		const { rerender } = render(AlignmentLinks, {
+			title: 'Alignments',
+			alignments: [
+				{ code: 'C1', system: 'ncit', version: '26.07d', predicate: 'exactMatch', lifecycle: 'validated' }
+			]
+		});
+
+		expect(screen.getByText('Validated exact match')).toBeInTheDocument();
+		rerender({ title: 'Alignments', alignments: [] });
+		expect(screen.getByText('No alignments.')).toBeInTheDocument();
 	});
 });

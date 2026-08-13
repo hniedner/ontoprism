@@ -498,7 +498,10 @@ async def get_ncit_concept(code: str) -> JSONResponse:
 
 
 @app.get("/api/v1/ncit/concepts/{code}/mappings")
-async def get_ncit_mappings(code: str) -> dict[str, object]:
+async def get_ncit_mappings(
+    code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
     mappings = (
         [
             {
@@ -512,7 +515,7 @@ async def get_ncit_mappings(code: str) -> dict[str, object]:
             }
             for value in ("8240/3", "8241/3", "8248/1")
         ]
-        if code == "C188218"
+        if code == "C188218" and x_icdo_entitlement == "licensed"
         else []
     )
     return {"code": code, "mappings": mappings}

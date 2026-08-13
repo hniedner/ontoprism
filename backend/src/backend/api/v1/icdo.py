@@ -13,7 +13,7 @@ from backend.dependencies import (
     UberonStore,
     XrefReads,
 )
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import IcdoRepositoryReady, RepositoryUnhealthy
 from backend.security import RequireIcdoEntitlement
 from ontolib.repositories.icdo.congruence import (
     CongruenceReport,
@@ -75,6 +75,17 @@ def _dataset(edition: Edition, axis: Axis) -> None:
         )
 
 
+async def _ready(
+    repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
+) -> IcdoRepositoryReady:
+    result = await repository_metadata.icdo(edition, axis)
+    if isinstance(result, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, result.model_dump(mode="json")
+        )
+    return result
+
+
 def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
     try:
         code = base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)).decode(
@@ -96,16 +107,7 @@ async def metadata(
     repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
 ) -> object:
     _dataset(edition, axis)
-    result = await repository_metadata.icdo(edition, axis)
-    if isinstance(result, RepositoryUnhealthy):
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            {
-                "state": "unhealthy",
-                "reason": result.reason,
-                "message": result.message,
-            },
-        )
+    result = await _ready(repository_metadata, edition, axis)
     return result.model_dump(mode="json")
 
 
@@ -163,6 +165,7 @@ async def _uberon_congruence_records(
 @router.get("/{edition}/{axis}/list")
 async def list_records(
     repository: IcdoReads,
+    repository_metadata: RepositoryMetadataReads,
     edition: Edition,
     axis: Axis,
     behaviour: str | None = None,
@@ -171,6 +174,7 @@ async def list_records(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     _dataset(edition, axis)
+    await _ready(repository_metadata, edition, axis)
     return await repository.search(
         edition,
         axis,
@@ -185,6 +189,7 @@ async def list_records(
 @router.get("/{edition}/{axis}/search")
 async def search(
     repository: IcdoReads,
+    repository_metadata: RepositoryMetadataReads,
     edition: Edition,
     axis: Axis,
     q: Annotated[str, Query(min_length=1)],
@@ -194,6 +199,7 @@ async def search(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     _dataset(edition, axis)
+    await _ready(repository_metadata, edition, axis)
     return await repository.search(
         edition,
         axis,
@@ -209,11 +215,13 @@ async def search(
 async def detail(
     repository: IcdoReads,
     xref_store: XrefReads,
+    repository_metadata: RepositoryMetadataReads,
     edition: Edition,
     axis: Axis,
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
     _dataset(edition, axis)
+    await _ready(repository_metadata, edition, axis)
     canonical = _decode_code(code, edition, axis)
     result = await repository.detail(edition, axis, canonical)
     if result is None:

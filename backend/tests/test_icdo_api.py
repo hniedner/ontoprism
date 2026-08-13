@@ -77,6 +77,20 @@ class _Store:
         return None
 
 
+class _ReadinessMetadata:
+    def __init__(self, *, healthy: bool) -> None:
+        self.healthy = healthy
+        self.calls = 0
+
+    async def icdo(self, edition: str, axis: str) -> object:
+        self.calls += 1
+        if not self.healthy:
+            return RepositoryUnhealthy(
+                repository="icdo", reason="observation-mismatch", message="drift"
+            )
+        return SimpleNamespace(edition=edition, axis=axis)
+
+
 class _Xrefs:
     def __init__(self) -> None:
         self.calls = 0
@@ -492,3 +506,33 @@ def test_metadata_drift_returns_typed_unhealthy_result(
     )
     assert response.status_code == 503
     assert response.json()["detail"]["reason"] == "observation-mismatch"
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/icdo/3.2/morphology/list",
+        "/api/v1/icdo/3.2/morphology/search?q=papilloma",
+        "/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w",
+    ],
+)
+def test_protected_reads_refuse_unhealthy_generation_before_repository_or_xref(
+    monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    store = _Store()
+    xrefs = _Xrefs()
+    metadata = _ReadinessMetadata(healthy=False)
+    app = create_app()
+    app.dependency_overrides[get_icdo_repository] = lambda: store
+    app.dependency_overrides[get_xref_store] = lambda: xrefs
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+
+    with TestClient(app) as client:
+        response = client.get(path, headers={"X-ICDO-Entitlement": "licensed"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "observation-mismatch"
+    assert metadata.calls == 1
+    assert store.calls == xrefs.calls == 0

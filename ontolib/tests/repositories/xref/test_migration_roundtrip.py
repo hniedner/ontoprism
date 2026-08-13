@@ -11,9 +11,11 @@ import subprocess
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine
+from ontolib.repositories.xref.vocab import CLOSE_MATCH
 
 pytestmark = [
     pytest.mark.mutating_integration,
@@ -105,6 +107,52 @@ async def test_generation_schema_constraints_and_indexes() -> None:
             "icdo_active_generation",
         }
         assert "idx_icdo_record_filters" in icdo_indexes
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_generation "
+                    "(id,source,content_sha256,graph_iri,state) VALUES "
+                    "(:id,'source-a',:content,'https://example.test/g','prepared')"
+                ),
+                {"id": "a" * 64, "content": "b" * 64},
+            )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO xref_active_generation (source,generation_id) "
+                        "VALUES ('source-b',:id)"
+                    ),
+                    {"id": "a" * 64},
+                )
+
+        for column, value in (
+            ("predicate_id", "https://example.test/not-skos"),
+            ("lifecycle_state", "invented"),
+        ):
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO concept_xref "
+                            "(generation_id,generation_source,subject_system,"
+                            "subject_version,subject_id,predicate_id,object_system,"
+                            "object_version,object_id,mapping_justification,confidence,"
+                            "lifecycle_state,review_status,author) VALUES "
+                            "(:generation,'source-a','ncit','v','C1',:predicate,"
+                            "'uberon','v','U1','j',0.5,:lifecycle,'unreviewed','')"
+                        ),
+                        {
+                            "generation": "a" * 64,
+                            "predicate": value
+                            if column == "predicate_id"
+                            else CLOSE_MATCH,
+                            "lifecycle": value
+                            if column == "lifecycle_state"
+                            else "proposed",
+                        },
+                    )
     finally:
         await dispose_engine(engine)
 

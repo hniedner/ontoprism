@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
 
 class _StrictModel(BaseModel):
@@ -96,6 +96,17 @@ class IcdoRecord(_StrictModel):
     excludes: tuple[str, ...] = ()
     other_text: tuple[str, ...] = ()
 
+    @model_validator(mode="after")
+    def validate_shape(self) -> IcdoRecord:
+        if self.level == "morphology":
+            if self.parent_code is not None or not re.fullmatch(
+                r"[0-9]{4}(?:[0-9A-Z])?/[0-9]", self.code
+            ):
+                raise ValueError("morphology record has incompatible fields")
+        elif not re.fullmatch(r"C[0-9]{2}(?:\.[0-9])?", self.code):
+            raise ValueError("topography record has incompatible code")
+        return self
+
 
 class CanonicalDataset(_StrictModel):
     edition: Literal["3.2", "4.0"]
@@ -105,6 +116,18 @@ class CanonicalDataset(_StrictModel):
     source_sha256: str
     archive_sha256: str | None = None
     annex_sha256: str | None = None
+
+    @model_validator(mode="after")
+    def validate_edition_axis(self) -> CanonicalDataset:
+        if (self.edition, self.axis) == ("3.2", "topography"):
+            raise ValueError("ICD-O-3.2 topography is not served")
+        expected_level = "morphology" if self.axis == "morphology" else None
+        if any(
+            (row.level == "morphology") != (expected_level == "morphology")
+            for row in self.records
+        ):
+            raise ValueError("record level does not match dataset axis")
+        return self
 
     @computed_field
     @property
@@ -134,3 +157,11 @@ class CanonicalDataset(_StrictModel):
 class Icdo4Datasets(_StrictModel):
     morphology: CanonicalDataset
     topography: CanonicalDataset
+
+    @model_validator(mode="after")
+    def validate_axes(self) -> Icdo4Datasets:
+        if (self.morphology.edition, self.morphology.axis) != ("4.0", "morphology"):
+            raise ValueError("morphology must be ICD-O-4 morphology")
+        if (self.topography.edition, self.topography.axis) != ("4.0", "topography"):
+            raise ValueError("topography must be ICD-O-4 topography")
+        return self

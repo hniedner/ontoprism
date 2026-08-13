@@ -261,3 +261,21 @@ def test_detail_alignments_return_ncit_targets_in_one_indexed_lookup() -> None:
         ],
     }
     assert xrefs.calls == [{"UBERON:0002048"}]
+
+
+@pytest.mark.api
+def test_alignments_refuse_uncertified_uberon_before_xref_read() -> None:
+    class _Unhealthy(_Metadata):
+        async def uberon(self, *, force: bool = False) -> RepositoryUnhealthy:
+            del force
+            return RepositoryUnhealthy(
+                repository="uberon", reason="observation-mismatch", message="drift"
+            )
+
+    xrefs = _Xrefs()
+    response = next(
+        _client(_Store(), _Index(False), metadata=_Unhealthy(), xrefs=xrefs)
+    ).get("/api/v1/uberon/concepts/UBERON:0002048/alignments")
+
+    assert response.status_code == 503
+    assert xrefs.calls == []

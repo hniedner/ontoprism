@@ -17,42 +17,55 @@ def upgrade() -> None:
     op.execute("ALTER TABLE concept_xref RENAME TO concept_xref_legacy")
     op.execute(
         """CREATE TABLE xref_generation (
-          id text PRIMARY KEY CHECK (id ~ '^[0-9a-f]{64}$'),
+          id text NOT NULL CHECK (id ~ '^[0-9a-f]{64}$'),
           source text NOT NULL,
           content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
           graph_iri text NOT NULL UNIQUE,
           state text NOT NULL CHECK (state IN ('prepared', 'published')),
-          predecessor_id text REFERENCES xref_generation(id),
+          predecessor_id text,
           created_at timestamptz NOT NULL DEFAULT now(),
           published_at timestamptz,
-          UNIQUE (source, content_sha256)
+          PRIMARY KEY (source, id),
+          UNIQUE (id),
+          UNIQUE (source, content_sha256),
+          FOREIGN KEY (source, predecessor_id) REFERENCES xref_generation(source, id)
         )"""
     )
     op.execute(
         """CREATE TABLE xref_active_generation (
           source text PRIMARY KEY,
-          generation_id text NOT NULL UNIQUE REFERENCES xref_generation(id),
-          activated_at timestamptz NOT NULL DEFAULT now()
+          generation_id text NOT NULL UNIQUE,
+          activated_at timestamptz NOT NULL DEFAULT now(),
+          FOREIGN KEY (source, generation_id) REFERENCES xref_generation(source, id)
         )"""
     )
     op.execute(
         """CREATE TABLE concept_xref (
-          generation_id text NOT NULL REFERENCES xref_generation(id),
+           generation_id text NOT NULL,
+           generation_source text NOT NULL,
           run_id text REFERENCES xref_run(id),
           subject_system text NOT NULL,
           subject_version text NOT NULL,
           subject_id text NOT NULL,
-          predicate_id text NOT NULL,
+           predicate_id text NOT NULL CHECK (predicate_id IN (
+             'http://www.w3.org/2004/02/skos/core#exactMatch',
+             'http://www.w3.org/2004/02/skos/core#closeMatch',
+             'http://www.w3.org/2004/02/skos/core#broadMatch',
+             'http://www.w3.org/2004/02/skos/core#narrowMatch',
+             'http://www.w3.org/2004/02/skos/core#relatedMatch')),
           object_system text NOT NULL,
           object_version text NOT NULL,
           object_id text NOT NULL,
           mapping_justification text NOT NULL,
           confidence double precision NOT NULL CHECK (confidence BETWEEN 0 AND 1),
-          lifecycle_state text NOT NULL,
+           lifecycle_state text NOT NULL CHECK (lifecycle_state IN (
+             'proposed','validated','active','quarantined','retired')),
           review_status text NOT NULL,
           author text NOT NULL,
           evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
-          PRIMARY KEY (
+           FOREIGN KEY (generation_source, generation_id)
+             REFERENCES xref_generation(source, id),
+           PRIMARY KEY (
             generation_id, subject_system, subject_version, subject_id,
             predicate_id, object_system, object_version, object_id
           )

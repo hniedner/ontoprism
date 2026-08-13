@@ -61,6 +61,7 @@ class XrefStore:
         rows = [
             {
                 "generation_id": generation_id,
+                "generation_source": source,
                 "run_id": run_id,
                 "subject_system": r.subject.system,
                 "subject_version": r.subject.version,
@@ -122,11 +123,13 @@ class XrefStore:
                 await s.execute(
                     text(
                         "INSERT INTO concept_xref "
-                        "(generation_id, run_id, subject_system, subject_version, "
+                        "(generation_id, generation_source, run_id, subject_system, "
+                        "subject_version, "
                         "subject_id, predicate_id, object_system, object_version, "
                         "object_id, mapping_justification, confidence, "
                         "lifecycle_state, review_status, author, evidence) VALUES "
-                        "(:generation_id, :run_id, :subject_system, :subject_version, "
+                        "(:generation_id, :generation_source, :run_id, "
+                        ":subject_system, :subject_version, "
                         ":subject_id, :predicate_id, :object_system, :object_version, "
                         ":object_id, :mapping_justification, :confidence, "
                         ":lifecycle_state, :review_status, :author, "
@@ -136,6 +139,19 @@ class XrefStore:
                 )
             await s.commit()
             return True
+
+    async def active_generation(self, source: str) -> str | None:
+        """Return the exact PostgreSQL active generation for one source."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT generation_id FROM xref_active_generation "
+                    "WHERE source = :source"
+                ),
+                {"source": source},
+            )
+            value = result.scalar_one_or_none()
+            return str(value) if value is not None else None
 
     async def activate_generation(
         self,
@@ -188,13 +204,14 @@ class XrefStore:
             await s.commit()
             return True
 
-    async def rollback(self, source: str) -> str:
+    async def rollback(self, source: str, *, _publication_locked: bool = False) -> str:
         """Repoint *source* to its active generation's immutable predecessor."""
         async with self._sf() as s:
-            await s.execute(
-                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                {"key": f"xref:{source}"},
-            )
+            if not _publication_locked:
+                await s.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": f"xref:{source}"},
+                )
             result = await s.execute(
                 text(
                     "SELECT g.predecessor_id FROM xref_active_generation a "
@@ -215,6 +232,36 @@ class XrefStore:
             )
             await s.commit()
             return str(predecessor)
+
+    async def set_active_generation(
+        self,
+        source: str,
+        generation_id: str | None,
+        *,
+        _publication_locked: bool = False,
+    ) -> None:
+        """Set or clear a source pointer for cross-store compensation."""
+        async with self._sf() as session:
+            if not _publication_locked:
+                await session.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": f"xref:{source}"},
+                )
+            if generation_id is None:
+                await session.execute(
+                    text("DELETE FROM xref_active_generation WHERE source = :source"),
+                    {"source": source},
+                )
+            else:
+                await session.execute(
+                    text(
+                        "INSERT INTO xref_active_generation (source, generation_id) "
+                        "VALUES (:source, :id) ON CONFLICT (source) DO UPDATE SET "
+                        "generation_id = EXCLUDED.generation_id, activated_at = now()"
+                    ),
+                    {"source": source, "id": generation_id},
+                )
+            await session.commit()
 
     async def upsert_run(
         self,

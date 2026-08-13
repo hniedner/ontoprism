@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ontolib.repositories.xref.vocab import ALLOWED_PREDICATES, LIFECYCLE_STATES
+from ontolib.repositories.xref.vocab import (
+    ALLOWED_PREDICATES,
+    LIFECYCLE_STATES,
+    MappingLifecycle,
+    MappingPredicate,
+)
 
 if TYPE_CHECKING:
     from ontolib.repositories.xref.evidence import Evidence
@@ -30,10 +35,18 @@ class MappingResult:
     """One currently active mapping with both endpoint identities intact."""
 
     subject: EndpointIdentity
-    predicate: str
+    predicate: MappingPredicate
     object: EndpointIdentity
-    lifecycle: str
+    lifecycle: MappingLifecycle
     confidence: float
+
+    def __post_init__(self) -> None:
+        if self.predicate not in ALLOWED_PREDICATES:
+            raise ValueError(f"predicate not allowed: {self.predicate}")
+        if self.lifecycle not in LIFECYCLE_STATES:
+            raise ValueError(f"lifecycle not allowed: {self.lifecycle}")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(f"confidence out of range: {self.confidence}")
 
 
 @dataclass(frozen=True)
@@ -45,7 +58,7 @@ class SSSOMRecord:
     """
 
     subject_id: str
-    predicate_id: str
+    predicate_id: MappingPredicate
     object_id: str
     mapping_justification: str
     confidence: float
@@ -53,7 +66,7 @@ class SSSOMRecord:
     object_source_version: str
     subject_system: str = "ncit"
     object_system: str = "uberon-cl"
-    lifecycle_state: str = "proposed"
+    lifecycle_state: MappingLifecycle = "proposed"
     review_status: str = "unreviewed"
     author: str = ""
     # The independent signals that promoted this bridge (#122, D36). Empty for a

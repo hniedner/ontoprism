@@ -4,7 +4,7 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 ## 2026-08-11 — PDM commands own certified local tool configuration
 
-### D70. Every PDM task loads repository-local Jena and ROBOT defaults
+### D72. Every PDM task loads repository-local Jena and ROBOT defaults
 
 **Decision:** PDM's global script options load `.env` for every `pdm run` task and
 prepend Homebrew's keg-only OpenJDK directory while retaining the inherited `PATH`.
@@ -2420,11 +2420,10 @@ in M1+, where its machinery is justified.
 
 ### Dropped/deferred tests
 _(none yet — record here any intentionally-dropped ported test.)_
-## D65. ICD-O certified repositories use separate consumer entitlement
+## D70. ICD-O certified repositories use separate consumer entitlement
 
-**Decision (2026-08-12):** OntoPrism is an NCI project covered by NCI's license to
-incorporate ICD terminologies in the NCI Metathesaurus. ICD-O term content is served
-only to consumers presenting the dedicated ICD-O entitlement; this is separate from
+**Decision (2026-08-12):** ICD-O term content is served only to consumers presenting
+the dedicated ICD-O entitlement; this is separate from
 the build/serving flag for licensed mappings. Authorization runs before repository
 metadata, records, search caches, SSR rendering, or analytical reports are read.
 
@@ -2438,7 +2437,7 @@ values. The ICD-O-4 topography/Uberon congruence output is a protected inspectio
 report: evidence and classification are distinct, and it publishes no mapping or
 `exactMatch` assertion.
 
-## D66. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
+## D71. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
 
 **Decision (2026-08-13):** NCIt's own `P334` assertions are publisher database
 cross-references, not equivalence claims. Every value resolving against the exact active

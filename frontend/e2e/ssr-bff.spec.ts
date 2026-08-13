@@ -66,16 +66,23 @@ test('ICD-O entitlement is server-side, no-leak, and slash codes use one safe se
 test('P334 reciprocal alignment links are accessible in both entitled directions', async ({ browser, page }) => {
 	const ncit = await page.goto('/repositories/ncit/C188218');
 	expect(ncit?.status()).toBe(200);
+	const publicHtml = await ncit?.text();
+	expect(publicHtml).not.toContain('8240/3');
+	expect(publicHtml).not.toContain('8241/3');
+	expect(publicHtml).not.toContain('8248/1');
+
+	const context = await browser.newContext();
+	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
+	const protectedPage = await context.newPage();
+	const entitledNcit = await protectedPage.goto('/repositories/ncit/C188218');
+	expect(entitledNcit?.status()).toBe(200);
 	for (const [code, segment] of [['8240/3', 'ODI0MC8z'], ['8241/3', 'ODI0MS8z'], ['8248/1', 'ODI0OC8x']] as const) {
-		await expect(page.getByRole('link', { name: `Open aligned ICD-O-3.2 morphology code ${code}` })).toHaveAttribute(
+		await expect(protectedPage.getByRole('link', { name: `Open aligned ICD-O-3.2 morphology code ${code}` })).toHaveAttribute(
 			'href',
 			`/repositories/icdo/3.2/morphology/${segment}`
 		);
 	}
 
-	const context = await browser.newContext();
-	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
-	const protectedPage = await context.newPage();
 	await protectedPage.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
 	for (const code of ['C45194', 'C71720', 'C80281', 'C80289', 'C80291', 'C8851', 'C9496']) {
 		await expect(protectedPage.getByRole('link', { name: `Open aligned NCIt concept ${code}` })).toBeVisible();

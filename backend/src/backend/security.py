@@ -45,4 +45,10 @@ def require_icdo_entitlement(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "ICD-O entitlement required.")
 
 
+def has_icdo_entitlement(value: str | None) -> bool:
+    """Return whether a supplied entitlement matches the configured consumer key."""
+    expected = get_settings().icdo_entitlement_key
+    return bool(expected and secrets.compare_digest(value or "", expected))
+
+
 RequireIcdoEntitlement = Depends(require_icdo_entitlement)
