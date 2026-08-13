@@ -11,9 +11,12 @@ from backend.dependencies import (
     get_repository_metadata,
     get_uberon_search_index,
     get_uberon_store,
+    get_xref_store,
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
+from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.vocab import CLOSE_MATCH
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
@@ -80,6 +83,29 @@ class _Index:
         )
 
 
+class _Xrefs:
+    def __init__(self) -> None:
+        self.calls: list[set[str]] = []
+
+    async def mappings_for_identifiers(
+        self, identifiers: set[str]
+    ) -> dict[str, list[MappingResult]]:
+        self.calls.append(identifiers)
+        return {
+            "UBERON:0002048": [
+                MappingResult(
+                    subject=EndpointIdentity(
+                        "uberon-cl", "uberon-2026-06-19", "UBERON:0002048"
+                    ),
+                    predicate=CLOSE_MATCH,
+                    object=EndpointIdentity("ncit", "26.07d", "C12468"),
+                    lifecycle="proposed",
+                    confidence=0.9,
+                )
+            ]
+        }
+
+
 class _Metadata:
     async def ncit(self) -> SimpleNamespace:
         return SimpleNamespace(source_identity="n" * 64)
@@ -96,12 +122,16 @@ class _Metadata:
 
 
 def _client(
-    store: _Store, index: _Index, metadata: object = _Metadata()
+    store: _Store,
+    index: _Index,
+    metadata: object = _Metadata(),
+    xrefs: _Xrefs | None = None,
 ) -> Iterator[TestClient]:
     app = create_app()
     app.dependency_overrides[get_uberon_store] = lambda: store
     app.dependency_overrides[get_uberon_search_index] = lambda: index
     app.dependency_overrides[get_repository_metadata] = lambda: metadata
+    app.dependency_overrides[get_xref_store] = lambda: xrefs or _Xrefs()
     with TestClient(app) as client:
         yield client
 
@@ -208,3 +238,26 @@ def test_list_preserves_source_facet_and_detail_refuses_unknown_or_invalid() -> 
     assert unknown.status_code == 404
     assert "Concept not found" in unknown.json()["detail"]
     assert invalid.status_code == 422
+
+
+@pytest.mark.api
+def test_detail_alignments_return_ncit_targets_in_one_indexed_lookup() -> None:
+    xrefs = _Xrefs()
+    client = next(_client(_Store(), _Index(False), xrefs=xrefs))
+
+    response = client.get("/api/v1/uberon/concepts/UBERON:0002048/alignments")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "code": "UBERON:0002048",
+        "alignments": [
+            {
+                "code": "C12468",
+                "system": "ncit",
+                "version": "26.07d",
+                "predicate": CLOSE_MATCH,
+                "lifecycle": "proposed",
+            }
+        ],
+    }
+    assert xrefs.calls == [{"UBERON:0002048"}]

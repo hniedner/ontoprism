@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import BrowserGraph from '$lib/components/BrowserGraph.svelte';
+	import AlignmentLinks from '$lib/components/AlignmentLinks.svelte';
 	import UberonConceptSummary from './UberonConceptSummary.svelte';
 	import type { PageProps } from './$types';
 	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
@@ -16,6 +17,10 @@
 <div class="mb-4"><RepositoryKindBadge kind="local-certified-proxy" /></div>
 
 <UberonConceptSummary {detail} />
+
+<div class="mt-6">
+	<AlignmentLinks title="Aligned NCIt concepts" alignments={data.alignments.alignments} />
+</div>
 
 <section class="mt-6">
 	<h2 class="mb-2 text-sm font-semibold text-default">Concept graph</h2>

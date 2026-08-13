@@ -24,6 +24,7 @@ _APP_OPERATIONS = {
     ("GET", "/api/v1/uberon/search"),
     ("GET", "/api/v1/uberon/list"),
     ("GET", "/api/v1/uberon/concepts/{code}"),
+    ("GET", "/api/v1/uberon/concepts/{code}/alignments"),
     ("GET", "/api/v1/uberon/concepts/{code}/neighborhood"),
     ("POST", "/api/v1/mappings/$translate"),
     ("GET", "/api/v1/cadsr/search"),

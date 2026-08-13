@@ -1,13 +1,14 @@
-import { getUberonConcept, getUberonNeighborhood } from '$lib/api';
+import { getUberonAlignments, getUberonConcept, getUberonNeighborhood } from '$lib/api';
 import { critical } from '$lib/server/critical-load';
 import type { Neighborhood } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ fetch, params }) => {
-	const [detail, rawGraph] = await critical(
+	const [detail, rawGraph, alignments] = await critical(
 		Promise.all([
 			getUberonConcept(params.curie, fetch),
-			getUberonNeighborhood(params.curie, 1, fetch)
+			getUberonNeighborhood(params.curie, 1, fetch),
+			getUberonAlignments(params.curie, fetch)
 		])
 	);
 	const graph: Neighborhood = {
@@ -18,5 +19,5 @@ export const load: PageServerLoad = async ({ fetch, params }) => {
 			representation_status: null
 		}))
 	};
-	return { detail, graph };
+	return { detail, graph, alignments };
 };

@@ -15,6 +15,7 @@ import type {
 	SimilarCde,
 	SimilarConcept
 	, UberonConceptDetail
+	, UberonAlignments
 	, UberonNeighborhood
 	, UberonSearchPage
 	, UberonSource
@@ -193,6 +194,16 @@ export function getUberonConcept(
 ): Promise<UberonConceptDetail> {
 	return getJson<UberonConceptDetail>(
 		apiUrl(`/api/v1/uberon/concepts/${encodeURIComponent(code)}`),
+		fetchImpl
+	);
+}
+
+export function getUberonAlignments(
+	code: string,
+	fetchImpl?: typeof fetch
+): Promise<UberonAlignments> {
+	return getJson<UberonAlignments>(
+		apiUrl(`/api/v1/uberon/concepts/${encodeURIComponent(code)}/alignments`),
 		fetchImpl
 	);
 }

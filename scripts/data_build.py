@@ -66,6 +66,7 @@ from ontolib.repositories.xref.coverage import (
 )
 from ontolib.repositories.xref.mapping_score import load_golden_mappings
 from ontolib.repositories.xref.promotion import run_promotion
+from ontolib.repositories.xref.publisher_xref import publish_uberon_xrefs
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.activation import (
@@ -668,6 +669,28 @@ async def _build_xref() -> None:
     typer.echo(f"xref candidates ingested: {report}")
 
 
+async def _build_uberon_publisher_xrefs(
+    *, ncit_version: str, uberon_version: str
+) -> None:
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    try:
+        async with (
+            ncit_sparql_client(settings.ncit_sparql_url) as ncit_client,
+            SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
+        ):
+            report = await publish_uberon_xrefs(
+                XrefStore(make_sessionmaker(engine)),
+                ncit_client,
+                uberon_client,
+                ncit_version=ncit_version,
+                uberon_version=uberon_version,
+            )
+    finally:
+        await dispose_engine(engine)
+    typer.echo(report.model_dump_json(indent=2))
+
+
 async def _build_xref_coverage() -> None:
     """Print the CDE-level coverage report and check for regression."""
     settings = get_settings()
@@ -918,6 +941,23 @@ def xref() -> None:
 def xref_coverage() -> None:
     """Print the CDE-level caDSR coverage report (COV)."""
     asyncio.run(_build_xref_coverage())
+
+
+@app.command(name="uberon-publisher-xrefs")
+def uberon_publisher_xrefs(
+    ncit_version: str = typer.Option(
+        ..., help="Certified active NCIt release identity."
+    ),
+    uberon_version: str = typer.Option(
+        ..., help="Certified active Uberon release/version IRI."
+    ),
+) -> None:
+    """Publish Uberon-authored NCIt alignments and print unresolved targets."""
+    asyncio.run(
+        _build_uberon_publisher_xrefs(
+            ncit_version=ncit_version, uberon_version=uberon_version
+        )
+    )
 
 
 @app.command(name="xref-promote")

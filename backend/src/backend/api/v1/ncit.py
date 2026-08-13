@@ -221,32 +221,19 @@ async def concept_mappings(
         safe_iri(code, NCIT_NS)
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    upstream = await xref_store.mappings_by_subjects({code})
-    reverse = await xref_store.mappings_by_objects({code})
-    entries: list[MappingEntry] = [
+    rows = await xref_store.mappings_for_identifiers({code})
+    entries = [
         MappingEntry(
-            object_id=row.object.identifier,
-            system=row.object.system,
-            version=row.object.version,
+            object_id=target.identifier,
+            system=target.system,
+            version=target.version,
             predicate=row.predicate,
             lifecycle=row.lifecycle,
             confidence=row.confidence,
         )
-        for rows in upstream.values()
-        for row in rows
+        for row in rows.get(code, [])
+        for target in [row.object if row.subject.identifier == code else row.subject]
     ]
-    entries.extend(
-        MappingEntry(
-            object_id=row.subject.identifier,
-            system=row.subject.system,
-            version=row.subject.version,
-            predicate=row.predicate,
-            lifecycle=row.lifecycle,
-            confidence=row.confidence,
-        )
-        for rows in reverse.values()
-        for row in rows
-    )
     return ConceptMappings(code=code, mappings=entries)
 
 

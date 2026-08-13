@@ -6,6 +6,7 @@ import {
 	getConcept,
 	getNeighborhood,
 	getUberonConcept,
+	getUberonAlignments,
 	getUberonNeighborhood,
 	listUberon,
 	searchUberon,
@@ -268,9 +269,11 @@ describe('Uberon/CL endpoints', () => {
 			Promise.resolve(jsonResponse({ code: 'UBERON:0002048' }))
 		);
 		await getUberonConcept('UBERON:0002048', fetchImpl);
+		await getUberonAlignments('UBERON:0002048', fetchImpl);
 		await getUberonNeighborhood('UBERON:0002048', 2, fetchImpl);
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/uberon/concepts/UBERON%3A0002048');
-		expect(fetchImpl.mock.calls[1][0]).toBe(
+		expect(fetchImpl.mock.calls[1][0]).toBe('/api/v1/uberon/concepts/UBERON%3A0002048/alignments');
+		expect(fetchImpl.mock.calls[2][0]).toBe(
 			'/api/v1/uberon/concepts/UBERON%3A0002048/neighborhood?depth=2'
 		);
 	});

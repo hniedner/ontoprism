@@ -588,3 +588,45 @@ class XrefStore:
                     )
                 )
             return out
+
+    async def mappings_for_identifiers(
+        self, identifiers: set[str]
+    ) -> dict[str, list[MappingResult]]:
+        """Find active mappings in either direction in one indexed roundtrip."""
+        if not identifiers:
+            return {}
+        sql = text(
+            "SELECT x.subject_system, x.subject_version, x.subject_id, "
+            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "WHERE x.subject_id = ANY(:identifiers) UNION ALL "
+            "SELECT x.subject_system, x.subject_version, x.subject_id, "
+            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "WHERE x.object_id = ANY(:identifiers) "
+            "AND NOT (x.subject_id = ANY(:identifiers))"
+        )
+        async with self._sf() as s:
+            result = await s.execute(sql, {"identifiers": list(identifiers)})
+            out: dict[str, list[MappingResult]] = {}
+            for row in result.mappings().all():
+                mapping = MappingResult(
+                    subject=EndpointIdentity(
+                        row["subject_system"], row["subject_version"], row["subject_id"]
+                    ),
+                    predicate=row["predicate_id"],
+                    object=EndpointIdentity(
+                        row["object_system"], row["object_version"], row["object_id"]
+                    ),
+                    lifecycle=row["lifecycle_state"],
+                    confidence=row["confidence"],
+                )
+                key = (
+                    mapping.subject.identifier
+                    if mapping.subject.identifier in identifiers
+                    else mapping.object.identifier
+                )
+                out.setdefault(key, []).append(mapping)
+            return out

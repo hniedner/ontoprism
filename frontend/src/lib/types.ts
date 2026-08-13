@@ -103,6 +103,19 @@ export interface UberonConceptDetail {
 	truncated: boolean;
 }
 
+export interface Alignment {
+	code: string;
+	system: 'ncit' | 'uberon-cl';
+	version: string;
+	predicate: string;
+	lifecycle: string;
+}
+
+export interface UberonAlignments {
+	code: string;
+	alignments: Alignment[];
+}
+
 export interface UberonSearchHit {
 	code: string;
 	source: UberonSource;
@@ -182,6 +195,8 @@ export interface SimilarConcept {
 
 export interface ExternalMapping {
 	object_id: string;
+	system: string;
+	version: string;
 	predicate: string;
 	lifecycle: string;
 	confidence: number;
