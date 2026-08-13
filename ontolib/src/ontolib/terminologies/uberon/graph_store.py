@@ -295,6 +295,37 @@ class UberonGraphStore:
             for iri in _required(row, "concept", "label")[:1]
         ]
 
+    async def congruence_records(
+        self, *, limit: int, offset: int
+    ) -> list[dict[str, str]]:
+        """Return labels, synonyms, and named parent labels for inspection reports."""
+        rows = await self._client.select(
+            f"""{_PREFIXES}
+            SELECT ?concept ?label
+              (GROUP_CONCAT(DISTINCT ?synonym;
+                separator="{_LIST_SEPARATOR}") AS ?synonyms)
+              (GROUP_CONCAT(DISTINCT ?parentLabel;
+                separator="{_LIST_SEPARATOR}") AS ?parents)
+            WHERE {{
+              ?concept a owl:Class ; rdfs:label ?label .
+              {_source_filter("?concept", None)}
+              OPTIONAL {{ ?concept oio:hasExactSynonym ?synonym }}
+              OPTIONAL {{ ?concept rdfs:subClassOf ?parent . FILTER(isIRI(?parent))
+                         ?parent rdfs:label ?parentLabel }}
+            }} GROUP BY ?concept ?label ORDER BY ?concept ?label
+            LIMIT {limit} OFFSET {offset}"""
+        )
+        return [
+            {
+                "code": _code_for_iri(iri),
+                "label": row.get("label") or "",
+                "synonyms": row.get("synonyms") or "",
+                "parents": row.get("parents") or "",
+            }
+            for row in rows
+            for iri in _required(row, "concept", "label")[:1]
+        ]
+
     @staticmethod
     def _hits(rows: Sequence[Mapping[str, str | None]]) -> list[UberonSearchHit]:
         return [

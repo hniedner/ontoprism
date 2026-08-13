@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 from backend.decomposition_reader import DecompositionReader
 from backend.repository_metadata import (
     CadsrRepositoryReady,
+    IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryUnhealthy,
     UberonRepositoryReady,
@@ -15,6 +16,7 @@ from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.icdo.store import IcdoRepository
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
@@ -90,6 +92,10 @@ def get_xref_store(
     return request.app.state.xref_store
 
 
+def get_icdo_repository(request: Request) -> IcdoRepository:
+    return request.app.state.icdo_repository
+
+
 class RepositoryMetadataReader(Protocol):
     """Read exact, certified identities for the active repository proxies."""
 
@@ -104,6 +110,12 @@ class RepositoryMetadataReader(Protocol):
     async def uberon(
         self, *, force: bool = False
     ) -> UberonRepositoryReady | RepositoryUnhealthy[Literal["uberon"]]: ...
+
+    async def icdo(
+        self,
+        edition: Literal["3.2", "4.0"],
+        axis: Literal["morphology", "topography"],
+    ) -> IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]: ...
 
 
 def get_repository_metadata(request: Request) -> RepositoryMetadataReader:
@@ -129,6 +141,7 @@ UberonStore = Annotated[UberonGraphStore, Depends(get_uberon_store)]
 UberonSearch = Annotated[UberonSearchIndex, Depends(get_uberon_search_index)]
 ProvenanceReads = Annotated[ProvenanceStore, Depends(get_provenance_store)]
 XrefReads = Annotated[XrefStore, Depends(get_xref_store)]
+IcdoReads = Annotated[IcdoRepository, Depends(get_icdo_repository)]
 RepositoryMetadataReads = Annotated[
     RepositoryMetadataReader, Depends(get_repository_metadata)
 ]

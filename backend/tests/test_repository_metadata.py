@@ -9,6 +9,7 @@ import pytest
 
 from backend.repository_metadata import (
     CadsrRepositoryReady,
+    IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryMetadataError,
     RepositoryMetadataService,
@@ -22,6 +23,7 @@ from backend.repository_metadata import (
 )
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.cadsr.archive import CadsrSource
+from ontolib.repositories.icdo.store import IcdoCertificationError, IcdoManifest
 from ontolib.terminologies.ncit.activation import ActivationJournal
 from ontolib.terminologies.ncit.sibling_store import (
     QLEVER_IMAGE,
@@ -81,6 +83,11 @@ class _Settings:
     uberon_expected_cl_classes: int = 1_484
     uberon_expected_uberon_searchable_classes: int = 16_071
     uberon_expected_cl_searchable_classes: int = 1_484
+    icdo_32_morphology_source_sha256: str = "1" * 64
+    icdo_32_morphology_serving_sha256: str = "2" * 64
+    icdo_40_source_sha256: str = "3" * 64
+    icdo_40_morphology_serving_sha256: str = "4" * 64
+    icdo_40_topography_serving_sha256: str = "5" * 64
 
 
 def _uberon_counts() -> UberonClassCounts:
@@ -90,6 +97,81 @@ def _uberon_counts() -> UberonClassCounts:
         uberon_searchable=16_071,
         cl_searchable=1_484,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("edition", "axis", "count"),
+    [
+        ("3.2", "morphology", 1143),
+        ("4.0", "morphology", 2390),
+        ("4.0", "topography", 406),
+    ],
+)
+async def test_icdo_readiness_is_bound_to_certified_active_dataset(
+    edition: str, axis: str, count: int
+) -> None:
+    settings = _Settings(
+        ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
+    )
+
+    class _Icdo:
+        async def certified_metadata(
+            self, observed_edition: str, observed_axis: str, expected: object
+        ) -> IcdoManifest:
+            assert (observed_edition, observed_axis) == (edition, axis)
+            source = (
+                settings.icdo_32_morphology_source_sha256
+                if edition == "3.2"
+                else settings.icdo_40_source_sha256
+            )
+            serving = getattr(
+                settings, f"icdo_{edition.replace('.', '')}_{axis}_serving_sha256"
+            )
+            return IcdoManifest(
+                generation_id="a" * 64,
+                edition=edition,
+                axis=axis,
+                publisher_url="https://example.test",
+                source_sha256=source,
+                archive_sha256=None,
+                annex_sha256=None,
+                reader_identity="reader",
+                serving_sha256=serving,
+                row_count=count,
+                term_counts={},
+                published_at=datetime.now(UTC),
+            )
+
+    result = await RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr(), icdo=_Icdo()
+    ).icdo(edition, axis)
+    assert isinstance(result, IcdoRepositoryReady)
+    assert (result.edition, result.axis, result.row_count) == (edition, axis, count)
+
+
+@pytest.mark.asyncio
+async def test_icdo_readiness_returns_typed_drift_and_unavailable_refusals() -> None:
+    settings = _Settings(
+        ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
+    )
+
+    class _Drift:
+        async def certified_metadata(
+            self, edition: str, axis: str, expected: object
+        ) -> object:
+            raise IcdoCertificationError("source_sha256 drift")
+
+    drift = await RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr(), icdo=_Drift()
+    ).icdo("4.0", "topography")
+    unavailable = await RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr()
+    ).icdo("4.0", "topography")
+    assert isinstance(drift, RepositoryUnhealthy)
+    assert drift.reason == "observation-mismatch"
+    assert isinstance(unavailable, RepositoryUnhealthy)
+    assert unavailable.reason == "repository-unreachable"
 
 
 def _certified_uberon_observation(

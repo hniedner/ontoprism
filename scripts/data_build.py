@@ -24,8 +24,9 @@ import json
 import logging
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID, uuid4
 
 import typer
@@ -56,6 +57,8 @@ from ontolib.repositories.embeddings.publication import (
     corpus_manifests,
     replacing_corpus_source,
 )
+from ontolib.repositories.icdo.ingest import ingest_icdo4, ingest_icdo32_morphology
+from ontolib.repositories.icdo.store import publish_dataset
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
     detect_coverage_regression,
@@ -114,6 +117,57 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
+
+
+@app.command("icdo")
+def build_icdo(
+    source_directory: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+) -> None:
+    """Validate and atomically publish all three certified ICD-O datasets."""
+    settings = get_settings()
+    old = ingest_icdo32_morphology(
+        source_directory / "ICD-O-3.2_final_update09102020.xls"
+    )
+    new = ingest_icdo4(
+        source_directory / "ICD-O-4.zip",
+        morphology_annex_path=source_directory / "Morphology_annexes.xlsx",
+        topography_annex_path=source_directory / "Topography_annexes.xlsx",
+    )
+
+    async def publish() -> None:
+        engine = make_engine(settings.database_url)
+        try:
+            sessions = make_sessionmaker(engine)
+            published_at = datetime.now(UTC)
+            manifests = [
+                await publish_dataset(
+                    sessions,
+                    old,
+                    publisher_url="http://www.iacr.com.fr/index.php?option=com_content&view=category&layout=blog&id=100&Itemid=577",
+                    published_at=published_at,
+                ),
+                await publish_dataset(
+                    sessions,
+                    new.morphology,
+                    publisher_url="https://tumourclassification.iarc.who.int/icd-o-4/",
+                    published_at=published_at,
+                ),
+                await publish_dataset(
+                    sessions,
+                    new.topography,
+                    publisher_url="https://tumourclassification.iarc.who.int/icd-o-4/",
+                    published_at=published_at,
+                ),
+            ]
+            for manifest in manifests:
+                typer.echo(
+                    f"{manifest.edition}/{manifest.axis}: "
+                    f"{manifest.generation_id} {manifest.serving_sha256}"
+                )
+        finally:
+            await dispose_engine(engine)
+
+    asyncio.run(publish())
 
 
 def _require_ncit_source(
