@@ -36,10 +36,17 @@ from __future__ import annotations
 import pytest
 
 from backend.config import get_settings
+from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.repositories.icdo.store import IcdoRepository
 from ontolib.repositories.xref.candidate_ingest import (
     _build_xref_index,
     fetch_uberon_xrefs,
     generate_candidates,
+)
+from ontolib.repositories.xref.p334_alignment import (
+    _parse_assertions,
+    _publication_rows,
+    build_p334_assertions_query,
 )
 from ontolib.repositories.xref.promotion import (
     build_upstream_edges_query,
@@ -59,6 +66,90 @@ _OBO = "http://purl.obolibrary.org/obo/"
 _LUNG = f"{_OBO}UBERON_0002048"
 _RESPIRATORY_SYSTEM = f"{_OBO}UBERON_0001004"
 _RESPIRATION_ORGAN = f"{_OBO}UBERON_0000171"
+_NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
+
+
+async def test_p334_shape_and_both_fanout_boundaries_match_ncit_2607d() -> None:
+    ncit = await _ncit()
+    if ncit is None:
+        pytest.skip("NCIt store not loaded")
+    try:
+        version = await ncit.version()
+        rows = await ncit.select(build_p334_assertions_query())
+    finally:
+        await ncit.aclose()
+
+    by_concept: dict[str, list[str]] = {}
+    by_code: dict[str, list[str]] = {}
+    for row in rows:
+        concept = row["concept"].removeprefix(_NCIT)
+        value = row["value"]
+        by_concept.setdefault(concept, []).append(value)
+        by_code.setdefault(value, []).append(concept)
+
+    observed = (len(by_concept), len(rows))
+    expected = (1161, 1252)
+    assert version == "26.07d", (
+        f"NCIt release moved to {version}; P334 comparison is invalid"
+    )
+    assert observed == expected, {
+        "release": version,
+        "concept_delta": observed[0] - expected[0],
+        "assertion_delta": observed[1] - expected[1],
+    }
+    assert by_concept["C3107"] == [
+        "9751/1",
+        "9751/3",
+        "9752/1",
+        "9753/1",
+        "9754/3",
+    ]
+    assert by_code["9680/3"] == [
+        "C45194",
+        "C71720",
+        "C80281",
+        "C80289",
+        "C80291",
+        "C8851",
+        "C9496",
+    ]
+
+
+async def test_p334_reconciles_against_exact_active_icdo32_generation() -> None:
+    ncit = await _ncit()
+    if ncit is None:
+        pytest.skip("NCIt store not loaded")
+    engine = make_engine(get_settings().database_url)
+    try:
+        assertions = _parse_assertions(await ncit.select(build_p334_assertions_query()))
+        valid_values = {
+            value
+            for _, value in assertions
+            if len(value) == 6 and value[4] == "/" and value.replace("/", "").isdigit()
+        }
+        resolution = await IcdoRepository(
+            make_sessionmaker(engine)
+        ).resolve_active_morphology32_codes(valid_values)
+        records, unresolved = _publication_rows(
+            assertions,
+            resolution.resolved_codes,
+            ncit_version="26.07d",
+        )
+    finally:
+        await ncit.aclose()
+        await dispose_engine(engine)
+
+    assert resolution.generation_id == (
+        "18f06b1bc7ee46b5610182c512c42834f93aece161e421815272d9008ff9b775"
+    )
+    assert resolution.serving_sha256 == (
+        "e3f60fc47d4f3bff332501299d3050fe662fdc93b8132d788afa7bd5f791ebf2"
+    )
+    assert len(records) == 1157
+    assert len(unresolved) == 95
+    assert (
+        sum(row.reason == "invalid-icdo32-morphology-code" for row in unresolved) == 2
+    )
 
 
 async def _uberon() -> SparqlHttpClient | None:

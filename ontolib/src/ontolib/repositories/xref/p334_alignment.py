@@ -1,0 +1,186 @@
+"""Publish NCIt's P334 assertions as proposed ICD-O-3.2 alignments."""
+
+from __future__ import annotations
+
+import re
+import uuid
+from typing import TYPE_CHECKING, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.publication import publish_generation
+from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
+from ontolib.terminologies.namespaces import NCIT_NS
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+
+if TYPE_CHECKING:
+    from ontolib.repositories.icdo.store import IcdoRepository
+    from ontolib.repositories.xref.store import XrefStore
+    from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+
+P334_ALIGNMENT_SOURCE = "ncit-p334-icdo32"
+EXPECTED_CONCEPTS = 1161
+EXPECTED_ASSERTIONS = 1252
+_NCIT_CODE = re.compile(r"C[0-9]+")
+_ICDO32_CODE = re.compile(r"[0-9]{4}/[0-9]")
+
+
+class P334SourceError(ValueError):
+    """An NCIt P334 source row is malformed and cannot be published safely."""
+
+
+class CountDelta(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    expected: int
+    observed: int
+    delta: int
+    classification: Literal["unchanged", "increased", "decreased"]
+
+
+class UnresolvedP334Assertion(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    ncit_code: str
+    icdo_code: str
+    reason: Literal[
+        "icdo32-morphology-code-not-found", "invalid-icdo32-morphology-code"
+    ] = "icdo32-morphology-code-not-found"
+
+
+class P334AlignmentReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    ncit_release: str
+    icdo_edition: Literal["3.2"] = "3.2"
+    icdo_generation_id: str
+    icdo_serving_sha256: str
+    concept_count: CountDelta
+    assertion_count: CountDelta
+    published_assertion_count: int
+    unresolved: list[UnresolvedP334Assertion]
+
+
+def build_p334_assertions_query() -> str:
+    """Read every P334 assertion from the activated stated graph in one operation."""
+    return f"""\
+SELECT ?concept ?value WHERE {{
+  GRAPH <{STATED_GRAPH_IRI}> {{ ?concept <{NCIT_NS}P334> ?value }}
+}} ORDER BY ?concept ?value
+"""
+
+
+def _parse_assertions(rows: list[dict[str, str]]) -> list[tuple[str, str]]:
+    assertions: list[tuple[str, str]] = []
+    for row in rows:
+        concept = row.get("concept", "")
+        value = row.get("value", "")
+        if not concept.startswith(NCIT_NS):
+            raise P334SourceError(f"unsupported P334 concept IRI: {concept}")
+        code = concept.removeprefix(NCIT_NS)
+        if _NCIT_CODE.fullmatch(code) is None:
+            raise P334SourceError(f"malformed P334 NCIt code: {code}")
+        if not value:
+            raise P334SourceError("missing P334 asserted value")
+        assertions.append((code, value))
+    return sorted(assertions)
+
+
+def _delta(expected: int, observed: int) -> CountDelta:
+    classification: Literal["unchanged", "increased", "decreased"] = "unchanged"
+    if observed != expected:
+        classification = "increased" if observed > expected else "decreased"
+    return CountDelta(
+        expected=expected,
+        observed=observed,
+        delta=observed - expected,
+        classification=classification,
+    )
+
+
+def _record(code: str, value: str, *, ncit_version: str) -> SSSOMRecord:
+    return SSSOMRecord(
+        subject_id=code,
+        subject_system="ncit",
+        predicate_id=CLOSE_MATCH,
+        object_id=value,
+        object_system="icdo",
+        mapping_justification=DATABASE_CROSS_REFERENCE,
+        confidence=0.9,
+        subject_source_version=ncit_version,
+        object_source_version="3.2",
+        author="ncit-p334",
+    )
+
+
+def _publication_rows(
+    assertions: list[tuple[str, str]],
+    resolved_codes: set[str],
+    *,
+    ncit_version: str,
+) -> tuple[list[SSSOMRecord], list[UnresolvedP334Assertion]]:
+    records: list[SSSOMRecord] = []
+    unresolved: list[UnresolvedP334Assertion] = []
+    for code, value in assertions:
+        if value in resolved_codes:
+            records.append(_record(code, value, ncit_version=ncit_version))
+            continue
+        reason: Literal[
+            "icdo32-morphology-code-not-found", "invalid-icdo32-morphology-code"
+        ] = (
+            "icdo32-morphology-code-not-found"
+            if _ICDO32_CODE.fullmatch(value)
+            else "invalid-icdo32-morphology-code"
+        )
+        unresolved.append(
+            UnresolvedP334Assertion(
+                ncit_code=code,
+                icdo_code=value,
+                reason=reason,
+            )
+        )
+    return records, unresolved
+
+
+async def publish_p334_alignments(
+    store: XrefStore,
+    ncit_client: SparqlHttpClient,
+    icdo: IcdoRepository,
+    *,
+    ncit_version: str,
+    run_id: str | None = None,
+) -> P334AlignmentReport:
+    """Validate and publish all resolvable NCIt P334 assertions deterministically."""
+    assertions = _parse_assertions(
+        await ncit_client.select(build_p334_assertions_query())
+    )
+    valid_values = {value for _, value in assertions if _ICDO32_CODE.fullmatch(value)}
+    resolution = await icdo.resolve_active_morphology32_codes(valid_values)
+    records, unresolved = _publication_rows(
+        assertions,
+        resolution.resolved_codes,
+        ncit_version=ncit_version,
+    )
+    report = P334AlignmentReport(
+        ncit_release=ncit_version,
+        icdo_generation_id=resolution.generation_id,
+        icdo_serving_sha256=resolution.serving_sha256,
+        concept_count=_delta(EXPECTED_CONCEPTS, len({code for code, _ in assertions})),
+        assertion_count=_delta(EXPECTED_ASSERTIONS, len(assertions)),
+        published_assertion_count=len(records),
+        unresolved=unresolved,
+    )
+    rid = run_id or uuid.uuid4().hex
+    await store.upsert_run(
+        run_id=rid,
+        source=P334_ALIGNMENT_SOURCE,
+        ncit_version=ncit_version,
+        source_version="3.2",
+    )
+    await publish_generation(
+        store,
+        ncit_client,
+        source=P334_ALIGNMENT_SOURCE,
+        run_id=rid,
+        records=records,
+    )
+    await store.update_run_metrics(rid, report.model_dump(mode="json"))
+    return report

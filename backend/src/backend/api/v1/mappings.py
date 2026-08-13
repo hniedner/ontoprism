@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from backend.config import get_settings
 from backend.dependencies import XrefReads
-from ontolib.repositories.xref.models import MappingResult
+from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
     CLOSE_MATCH,
@@ -25,9 +25,13 @@ _SKOS_TO_EQUIVALENCE: dict[str, str] = {
 _ACTIVE_LIFECYCLES = frozenset({"validated", "active"})
 
 
-def _is_licensed(object_id: str) -> bool:
-    prefix = object_id.split(":", maxsplit=1)[0] if ":" in object_id else ""
-    return prefix in _LICENSED_PREFIXES
+def _is_licensed(endpoint: EndpointIdentity) -> bool:
+    prefix = (
+        endpoint.identifier.split(":", maxsplit=1)[0]
+        if ":" in endpoint.identifier
+        else ""
+    )
+    return endpoint.system == "icdo" or prefix in _LICENSED_PREFIXES
 
 
 router = APIRouter(prefix="/api/v1/mappings", tags=["mappings"])
@@ -80,9 +84,11 @@ def _translate_entry(
     )
 
 
-def _is_eligible(row: MappingResult, *, target_id: str, licensed_allowed: bool) -> bool:
+def _is_eligible(
+    row: MappingResult, *, target: EndpointIdentity, licensed_allowed: bool
+) -> bool:
     return row.lifecycle in _ACTIVE_LIFECYCLES and (
-        licensed_allowed or not _is_licensed(target_id)
+        licensed_allowed or not _is_licensed(target)
     )
 
 
@@ -99,7 +105,7 @@ def _collect_entries(
             target = row.subject if reverse else row.object
             if not _is_eligible(
                 row,
-                target_id=target.identifier,
+                target=target,
                 licensed_allowed=licensed_allowed,
             ):
                 continue

@@ -5,8 +5,14 @@ import binascii
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
+from pydantic import BaseModel
 
-from backend.dependencies import IcdoReads, RepositoryMetadataReads, UberonStore
+from backend.dependencies import (
+    IcdoReads,
+    RepositoryMetadataReads,
+    UberonStore,
+    XrefReads,
+)
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import RequireIcdoEntitlement
 from ontolib.repositories.icdo.congruence import (
@@ -18,12 +24,48 @@ from ontolib.repositories.icdo.models import (
     MorphologyCode40,
     TopographyCode40,
 )
+from ontolib.repositories.xref.models import MappingResult
 
 router = APIRouter(
     prefix="/api/v1/icdo", tags=["icdo"], dependencies=[RequireIcdoEntitlement]
 )
 Edition = Literal["3.2", "4.0"]
 Axis = Literal["morphology", "topography"]
+
+
+class NcitAlignment(BaseModel):
+    code: str
+    system: Literal["ncit"] = "ncit"
+    version: str
+    predicate: str
+    lifecycle: str
+
+
+class IcdoDetail(BaseModel):
+    record: dict[str, object]
+    ncit_alignments: list[NcitAlignment]
+
+
+def _ncit_alignments(
+    code: str, edition: str, rows: list[MappingResult]
+) -> list[NcitAlignment]:
+    alignments: list[NcitAlignment] = []
+    for row in rows:
+        target = row.object if row.subject.identifier == code else row.subject
+        if target.system != "ncit" or not any(
+            endpoint.system == "icdo" and endpoint.version == edition
+            for endpoint in (row.subject, row.object)
+        ):
+            continue
+        alignments.append(
+            NcitAlignment(
+                code=target.identifier,
+                version=target.version,
+                predicate=row.predicate,
+                lifecycle=row.lifecycle,
+            )
+        )
+    return sorted(alignments, key=lambda alignment: alignment.code)
 
 
 def _dataset(edition: Edition, axis: Axis) -> None:
@@ -163,9 +205,10 @@ async def search(
     )
 
 
-@router.get("/{edition}/{axis}/concepts/{code}")
+@router.get("/{edition}/{axis}/concepts/{code}", response_model=IcdoDetail)
 async def detail(
     repository: IcdoReads,
+    xref_store: XrefReads,
     edition: Edition,
     axis: Axis,
     code: Annotated[str, Path(min_length=1)],
@@ -175,4 +218,12 @@ async def detail(
     result = await repository.detail(edition, axis, canonical)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ICD-O code not found.")
-    return result
+    rows = (
+        await xref_store.mappings_for_identifiers({canonical})
+        if (edition, axis) == ("3.2", "morphology")
+        else {}
+    )
+    return IcdoDetail(
+        record=result,
+        ncit_alignments=_ncit_alignments(canonical, edition, rows.get(canonical, [])),
+    )

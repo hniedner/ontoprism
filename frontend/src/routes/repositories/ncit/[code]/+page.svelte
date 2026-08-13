@@ -41,6 +41,20 @@
 			}))}
 />
 </div>
+<div class="mt-6">
+	<AlignmentLinks
+		title="Aligned ICD-O-3.2 morphology codes"
+		alignments={data.mappings.mappings
+			.filter((mapping) => mapping.system === 'icdo' && mapping.version === '3.2')
+			.map((mapping) => ({
+				code: mapping.object_id,
+				system: 'icdo' as const,
+				version: mapping.version,
+				predicate: mapping.predicate,
+				lifecycle: mapping.lifecycle
+			}))}
+	/>
+</div>
 <NcitConceptGraph code={detail.code} graph={data.graph} />
 
 <div class="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">

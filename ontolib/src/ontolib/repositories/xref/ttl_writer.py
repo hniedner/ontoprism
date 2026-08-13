@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -44,6 +45,9 @@ def _endpoint_iri(system: str, identifier: str) -> str:
         return f"<{NCIT_NS}{identifier}>"
     if system in {"uberon", "uberon-cl"}:
         return _object_iri(identifier)
+    if system == "icdo":
+        code = quote(identifier, safe="")
+        return f"<https://ontoprism.org/id/icdo/3.2/morphology/{code}>"
     raise KeyError(f"unsupported xref endpoint system: {system}")
 
 

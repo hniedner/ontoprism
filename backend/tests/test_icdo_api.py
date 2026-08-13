@@ -10,11 +10,14 @@ from backend.dependencies import (
     get_icdo_repository,
     get_repository_metadata,
     get_uberon_store,
+    get_xref_store,
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
 from ontolib.repositories.icdo.store import IcdoCertificationError
+from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.vocab import CLOSE_MATCH
 
 
 class _Store:
@@ -74,7 +77,34 @@ class _Store:
         return None
 
 
-def _client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+class _Xrefs:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def mappings_for_identifiers(
+        self, identifiers: set[str]
+    ) -> dict[str, list[MappingResult]]:
+        self.calls += 1
+        assert identifiers == {"8503/0"}
+        return {
+            "8503/0": [
+                MappingResult(
+                    subject=EndpointIdentity("ncit", "26.07d", code),
+                    predicate=CLOSE_MATCH,
+                    object=EndpointIdentity("icdo", "3.2", "8503/0"),
+                    lifecycle="proposed",
+                    confidence=0.9,
+                )
+                for code in ("C1", "C2", "C3")
+            ]
+        }
+
+
+def _client(
+    store: _Store,
+    monkeypatch: pytest.MonkeyPatch,
+    xrefs: _Xrefs | None = None,
+) -> Iterator[TestClient]:
     class _Metadata:
         async def icdo(self, edition: str, axis: str) -> object:
             try:
@@ -96,6 +126,7 @@ def _client(store: _Store, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
     app = create_app()
     app.dependency_overrides[get_icdo_repository] = lambda: store
+    app.dependency_overrides[get_xref_store] = lambda: xrefs or _Xrefs()
     metadata = _Metadata()
     app.dependency_overrides[get_repository_metadata] = lambda: metadata
     with TestClient(app) as client:
@@ -111,6 +142,19 @@ def test_entitlement_refuses_before_repository_read(
     assert response.status_code == 403
     assert store.calls == 0
     assert "Intraductal" not in response.text
+
+
+@pytest.mark.api
+def test_detail_entitlement_refuses_before_repository_or_xref_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _Store()
+    xrefs = _Xrefs()
+    response = next(_client(store, monkeypatch, xrefs)).get(
+        "/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w"
+    )
+    assert response.status_code == 403
+    assert store.calls == xrefs.calls == 0
 
 
 @pytest.mark.api
@@ -134,7 +178,12 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         metadata.status_code,
         detail.status_code,
     ] == [200] * 4
-    assert detail.json()["code"] == "8503/0"
+    assert detail.json()["record"]["code"] == "8503/0"
+    assert [row["code"] for row in detail.json()["ncit_alignments"]] == [
+        "C1",
+        "C2",
+        "C3",
+    ]
     assert metadata.json() == {"edition": "3.2", "axis": "morphology", "row_count": 1}
 
 
@@ -181,7 +230,7 @@ def test_icdo4_code_variants_round_trip_from_safe_segments(
         headers={"X-ICDO-Entitlement": "licensed"},
     )
     assert response.status_code == 200
-    assert response.json()["code"] == code
+    assert response.json()["record"]["code"] == code
 
 
 @pytest.mark.api
