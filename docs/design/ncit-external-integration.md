@@ -588,35 +588,33 @@ Concrete, mapped onto the existing `keep-names` layout (ARCHITECTURE.md). All ad
 
 ### 8.1 `ontolib` — storage & terminologies
 
-- `ontolib/src/ontolib/terminologies/uberon/` — **exists** (QLever index at :7889). Add an `xref` query
-  surface (NCIt↔Uberon) and a `part_of` transitive helper for §11's tie-break revisit.
-- New `ontolib/src/ontolib/terminologies/cl/`, `.../snomed/`, `.../icdo3/`, `.../mondo/` — thin
-  read/xref modules, or (preferred) a **single generic `terminologies/xref/`** module parameterized
-  by source, to avoid five near-duplicate packages. Decision left to implementation; generic is
-  favored (mirrors the "one mapping-ingest framework" option).
-- `ontolib/src/ontolib/decomposition/` — extend the `Constituent`/axis model so each filler can carry
-  an optional `upstream_xref` set. After #153 supplies the complete representation, its exact-emission
-  seam may bind fillers to upstream ranges in the cross-product.
-- Reserved vocab in `vocab.py`: add `op:` axis domain/range declarations referencing upstream, plus
-  the `skos:*Match` / RO bridge predicates.
+- `ontolib/repositories/xref/` owns typed SSSOM records, source-specific publication,
+  promotion, and read validation. Decomposition constituents carry typed alignments from
+  active generations.
+- Uberon/CL and ICD-O remain independently certified repositories. Their identities are
+  captured in each xref generation's source metadata rather than inferred from endpoint
+  labels or release strings.
 
 ### 8.2 Named graphs and indexes (QLever)
 
-Add additive named graphs alongside `ncit_decomposed`: `ncit_upstream_xref` (single graph, source
-tagged) **or** per-source graphs (`uberon_xref`, `cl_xref`, `snomed_xref`, `icdo3_xref`, `mondo_xref`).
-Single-graph-with-provenance-tags is favored for simpler `$translate` queries. Source ontologies
-used for read-side corroboration use separate immutable QLever indexes; runtime reasoning is off.
-SNOMED/ICD-O-3 are **not** bulk-loaded (licensing) — only the NCIt→code map is stored.
+Each source publishes an immutable named graph under
+`Thesaurus-upstream-xref.owl/generation/{source}/{generation_id}`. A separate
+source-specific pointer graph identifies the active generation. Publication reconciles
+the PostgreSQL and RDF pointers under one source lock; reads never combine inactive
+graphs. Terminology repositories used for corroboration retain their separate indexes.
 
 ### 8.3 PostgreSQL
 
-New tables mirroring the `decomp_*` provenance model: `concept_xref` (ncit_iri, target_iri,
-target_source, skos_relation, ro_relation, umls_cui, confidence, review_status, run_id) and
-`xref_run` (provenance, upstream version pins). Alembic migration `0004_xref.py`.
+`xref_generation` stores immutable content and exact source metadata;
+`xref_active_generation` provides one atomic pointer per source; `concept_xref` stores
+typed endpoint systems, versions, identifiers, predicates, lifecycle, confidence, and
+evidence keyed by generation. `xref_activation_history` supports source-local rollback.
+The generation identity covers source, records, and metadata, so identical records built
+against different certified repositories remain distinct generations.
 
 ### 8.4 `backend` — API
 
-- `GET /concept/{id}/mappings` — all upstream equivalents for an NCIt concept (and reverse).
+- `GET /concept/{id}/mappings` — typed terminology alignments for an NCIt concept (and reverse).
 - `POST /terminology/$translate` — FHIR-style ConceptMap translate, both directions, honoring SKOS
   relation and confidence.
 - Extend the existing concept-detail response to include `mappings` (feature-flagged for the
@@ -624,18 +622,18 @@ target_source, skos_relation, ro_relation, umls_cui, confidence, review_status, 
 
 ### 8.5 `frontend` — SvelteKit
 
-- Concept-detail panel: an "External mappings" section (Uberon/CL/SNOMED/ICD-O-3/Mondo links,
+- Concept-detail panel: an "Aligned concepts" section (Uberon/CL/SNOMED/ICD-O-3/Mondo links,
   relation + confidence badges).
 - Graph explorer: optional overlay rendering an NCIt atom's upstream equivalent as a linked node
   (the "dual-plane" view), off by default.
 
 ### 8.6 CLI / data build
 
-- `scripts/data_build.py` — add an `xref` stage (ingest NCIm/Mondo/Uberon/CL maps → validate →
-  persist), gated by license flags for SNOMED/ICD-O-3.
+- `scripts/data_build.py` publishes candidate, publisher, promotion, and P334 alignment
+  generations with source-specific certified metadata.
 - Future #153 work may extend the reserved `--emit-equivalence` seam with upstream-bound
   cross-products. It currently rejects every request, regardless of xref availability.
-- New `pdm run map` (or `data-build xref`) — the mapping ingest/validation entry point.
+- `pdm run data-build xref` is the mapping ingest/validation entry point.
 
 ---
 
@@ -930,7 +928,7 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 ### New issues — Epic
 
 **#70 (EPIC): NCIt as a specialization of the OBO/SNOMED substrate — dual-canonical external integration**
-> Umbrella for the external-ontology bridge (design: `docs/design/ncit-external-integration.md`;
+> Umbrella for NCIt alignments derived from other terminologies (design: `docs/design/ncit-external-integration.md`;
 > DECISIONS D24–D29). Delivers additive NCIt↔upstream mappings (SSSOM), cross-product logical
 > definitions, dual-canonical `$translate`, and a **published caDSR coverage report**, preserving
 > NCIt + caDSR anchoring. Children: #71–#84. Exit: §12 success criteria met — including the

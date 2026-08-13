@@ -65,7 +65,7 @@
 				<span class="leading-tight">
 					<span class="block text-lg font-bold tracking-wide text-white">ONTOPRISM</span>
 					<span class="block text-[0.7rem] font-medium text-white/70"
-						>Ontology Explorer · NCIt &amp; caDSR</span
+						>NCIt · caDSR · Uberon/CL · ICD-O</span
 					>
 				</span>
 			</a>
@@ -156,7 +156,7 @@
 			class="mx-auto flex flex-col items-center justify-between gap-1 px-[2%] py-4 text-xs text-muted sm:flex-row"
 		>
 			<span>ONTOPRISM · Ontology vertical slice</span>
-			<span>NCIt &amp; caDSR terminology explorer</span>
+			<span>NCIt · caDSR · Uberon/CL · ICD-O</span>
 		</div>
 	</footer>
 </div>

@@ -72,7 +72,7 @@ async def _xref_expected(metadata: RepositoryMetadataReads) -> GenerationSourceM
 
 
 class MappingEntry(BaseModel):
-    """One upstream mapping for an NCIt concept, serialized for the API.
+    """One terminology alignment for an NCIt concept, serialized for the API.
 
     ``is_identity`` mirrors ``UpstreamMapping.is_identity``: true when
     the predicate is ``exactMatch`` and lifecycle is ``validated``/``active``.
@@ -95,7 +95,7 @@ class MappingEntry(BaseModel):
 
 
 class ConceptMappings(BaseModel):
-    """Entitlement-filtered mappings plus the certified NCIt repository identity."""
+    """Mappings plus NCIt identity; ICD-O rows require caller entitlement."""
 
     code: str
     repository_source_identity: str
@@ -277,7 +277,7 @@ async def concept_mappings(
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptMappings:
-    """Return mappings visible under the caller's ICD-O entitlement.
+    """Return alignments, withholding ICD-O rows without caller entitlement.
 
     Searches both by subject (NCIt code as subject) and by object
     (NCIt code as object of an upstream-to-NCIt mapping), so
@@ -323,7 +323,7 @@ async def concept_decomposition(
     Resolves even for a concept the engine has not decomposed
     (``is_legacy_precoordinated = false``, no constituents) so the UI can show "not
     decomposed" rather than a 404. Filler labels are resolved for display, and
-    typed upstream xref mappings are attached per constituent. ICD-O mappings are
+    typed terminology alignments are attached per constituent. ICD-O mappings are
     included only when ``X-ICDO-Entitlement`` is valid.
     """
     try:

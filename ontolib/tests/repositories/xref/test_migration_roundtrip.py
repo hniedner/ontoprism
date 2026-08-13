@@ -66,6 +66,19 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                     )
                 )
             }
+            generation_unique_columns = {
+                tuple(row[0])
+                for row in await conn.execute(
+                    text(
+                        "SELECT ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH "
+                        "ORDINALITY AS k(attnum, ord) JOIN pg_attribute a "
+                        "ON a.attrelid=c.conrelid AND a.attnum=k.attnum "
+                        "ORDER BY k.ord) FROM pg_constraint c WHERE "
+                        "c.conrelid='xref_generation'::regclass "
+                        "AND c.contype='u'"
+                    )
+                )
+            }
 
         assert {
             "generation_id",
@@ -81,6 +94,7 @@ async def test_generation_schema_constraints_and_indexes() -> None:
             "state" in check and "prepared" in check for check in generation_checks
         )
         assert any("content_sha256" in check for check in generation_checks)
+        assert ("source", "content_sha256") not in generation_unique_columns
 
         async with engine.connect() as conn:
             icdo_tables = {

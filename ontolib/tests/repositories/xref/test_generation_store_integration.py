@@ -8,7 +8,11 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
+from ontolib.repositories.xref.models import (
+    GenerationSourceMetadata,
+    SSSOMRecord,
+    StaleXrefGenerationError,
+)
 from ontolib.repositories.xref.publication import (
     XrefPublicationError,
     active_graph_iri,
@@ -76,6 +80,11 @@ async def _run(store: XrefStore, source: str, version: str) -> str:
     run_id = uuid.uuid4().hex
     await store.upsert_run(run_id, source, "26.07d", version)
     return run_id
+
+
+async def _clear_active_generations(engine: object) -> None:
+    async with engine.begin() as connection:  # type: ignore[attr-defined]
+        await connection.execute(text("DELETE FROM xref_active_generation"))
 
 
 async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
@@ -763,4 +772,303 @@ async def test_source_lock_spans_postgres_rdf_and_activation() -> None:
     release_first.set()
     await asyncio.gather(first, second)
     assert client.calls == 4
+    await dispose_engine(engine)
+
+
+async def test_mixed_active_sources_validate_only_their_certified_inputs() -> None:
+    engine = make_engine(get_settings().database_url)
+    await _clear_active_generations(engine)
+    store = XrefStore(make_sessionmaker(engine))
+    expected = GenerationSourceMetadata(
+        ncit_source_identity="1" * 64,
+        uberon_source_identity="2" * 64,
+        uberon_serving_identity="3" * 64,
+        icdo_generation_identity="4" * 64,
+        icdo_serving_identity="5" * 64,
+    )
+    generations = (
+        (
+            "uberon-cl",
+            GenerationSourceMetadata(
+                ncit_source_identity="1" * 64,
+                uberon_source_identity="2" * 64,
+            ),
+            _record("MIX-CANDIDATE", "UBERON:1", "u1"),
+        ),
+        (
+            "uberon-publisher-xref",
+            GenerationSourceMetadata(
+                ncit_source_identity="1" * 64,
+                uberon_source_identity="2" * 64,
+                uberon_serving_identity="3" * 64,
+                uberon_assertion_identity="6" * 64,
+                ncit_target_identity="7" * 64,
+            ),
+            _record("MIX-PUBLISHER", "UBERON:2", "u1"),
+        ),
+        (
+            "uberon-cl-promotion",
+            GenerationSourceMetadata(
+                ncit_source_identity="1" * 64,
+                uberon_source_identity="2" * 64,
+                uberon_serving_identity="3" * 64,
+            ),
+            _record("MIX-PROMOTION", "UBERON:3", "u1"),
+        ),
+        (
+            "ncit-p334-icdo32",
+            GenerationSourceMetadata(
+                ncit_source_identity="1" * 64,
+                icdo_generation_identity="4" * 64,
+                icdo_serving_identity="5" * 64,
+                ncit_p334_identity="8" * 64,
+            ),
+            SSSOMRecord(
+                subject_id="MIX-P334",
+                predicate_id=CLOSE_MATCH,
+                object_id="8140/3",
+                object_system="icdo",
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=1.0,
+                subject_source_version="26.07d",
+                object_source_version="3.2",
+            ),
+        ),
+    )
+    for source, metadata, record in generations:
+        run_id = await _run(store, source, "mixed")
+        generation_id, content = _generation_identity(source, [record], metadata)
+        await store.prepare_generation(
+            source=source,
+            generation_id=generation_id,
+            content_sha256=content,
+            source_metadata=metadata,
+            graph_iri=generation_graph_iri(source, generation_id),
+            run_id=run_id,
+            records=[record],
+        )
+        await store.activate_generation(source, generation_id)
+
+    rows = await store.mappings_by_subjects(
+        {"MIX-CANDIDATE", "MIX-PUBLISHER", "MIX-PROMOTION", "MIX-P334"},
+        expected=expected,
+    )
+    assert set(rows) == {
+        "MIX-CANDIDATE",
+        "MIX-PUBLISHER",
+        "MIX-PROMOTION",
+        "MIX-P334",
+    }
+    await dispose_engine(engine)
+
+
+@pytest.mark.parametrize("matching", [False, True])
+async def test_stale_active_generation_refuses_even_without_a_matching_row(
+    matching: bool,
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    await _clear_active_generations(engine)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "uberon-cl"
+    metadata = GenerationSourceMetadata(
+        ncit_source_identity="a" * 64,
+        uberon_source_identity="b" * 64,
+    )
+    code = "STALE" if matching else "OTHER"
+    record = _record(code, "UBERON:STALE", "u1")
+    run_id = await _run(store, source, "stale")
+    generation_id, content = _generation_identity(source, [record], metadata)
+    await store.prepare_generation(
+        source=source,
+        generation_id=generation_id,
+        content_sha256=content,
+        source_metadata=metadata,
+        graph_iri=generation_graph_iri(source, generation_id),
+        run_id=run_id,
+        records=[record],
+    )
+    await store.activate_generation(source, generation_id)
+
+    with pytest.raises(StaleXrefGenerationError, match="uberon_source_identity"):
+        await store.mappings_by_subjects(
+            {"STALE"},
+            expected=GenerationSourceMetadata(
+                ncit_source_identity="a" * 64,
+                uberon_source_identity="c" * 64,
+            ),
+        )
+    await dispose_engine(engine)
+
+
+async def test_read_validates_only_sources_relevant_to_expected_contract() -> None:
+    engine = make_engine(get_settings().database_url)
+    await _clear_active_generations(engine)
+    store = XrefStore(make_sessionmaker(engine))
+    generations = (
+        (
+            "uberon-cl",
+            GenerationSourceMetadata(
+                ncit_source_identity="1" * 64,
+                uberon_source_identity="2" * 64,
+            ),
+            _record("RELEVANT", "UBERON:RELEVANT", "u1"),
+        ),
+        (
+            "ncit-p334-icdo32",
+            GenerationSourceMetadata(
+                ncit_source_identity="9" * 64,
+                icdo_generation_identity="4" * 64,
+                icdo_serving_identity="5" * 64,
+                ncit_p334_identity="8" * 64,
+            ),
+            SSSOMRecord(
+                subject_id="IRRELEVANT",
+                predicate_id=CLOSE_MATCH,
+                object_id="8140/3",
+                object_system="icdo",
+                mapping_justification="semapv:ManualMappingCuration",
+                confidence=1.0,
+                subject_source_version="26.07d",
+                object_source_version="3.2",
+            ),
+        ),
+    )
+    for source, metadata, record in generations:
+        generation_id, content = _generation_identity(source, [record], metadata)
+        await store.prepare_generation(
+            source=source,
+            generation_id=generation_id,
+            content_sha256=content,
+            source_metadata=metadata,
+            graph_iri=generation_graph_iri(source, generation_id),
+            run_id=await _run(store, source, "relevant"),
+            records=[record],
+        )
+        await store.activate_generation(source, generation_id)
+
+    rows = await store.mappings_by_subjects(
+        {"RELEVANT", "IRRELEVANT"},
+        expected=GenerationSourceMetadata(
+            ncit_source_identity="1" * 64,
+            uberon_source_identity="2" * 64,
+            uberon_serving_identity="3" * 64,
+        ),
+    )
+    assert set(rows) == {"RELEVANT"}
+    await dispose_engine(engine)
+
+
+@pytest.mark.parametrize("matches", [False, True])
+async def test_unknown_source_requires_exact_contract(matches: bool) -> None:
+    engine = make_engine(get_settings().database_url)
+    await _clear_active_generations(engine)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "explicit-contract-source"
+    metadata = GenerationSourceMetadata(ncit_source_identity="1" * 64)
+    record = _record("EXPLICIT", "UBERON:EXPLICIT", "u1")
+    generation_id, content = _generation_identity(source, [record], metadata)
+    await store.prepare_generation(
+        source=source,
+        generation_id=generation_id,
+        content_sha256=content,
+        source_metadata=metadata,
+        graph_iri=generation_graph_iri(source, generation_id),
+        run_id=await _run(store, source, "explicit"),
+        records=[record],
+    )
+    await store.activate_generation(source, generation_id)
+
+    expected = GenerationSourceMetadata(
+        ncit_source_identity=("1" if matches else "2") * 64
+    )
+    if matches:
+        rows = await store.mappings_by_subjects({"EXPLICIT"}, expected=expected)
+        assert rows["EXPLICIT"][0].object.identifier == "UBERON:EXPLICIT"
+    else:
+        with pytest.raises(StaleXrefGenerationError, match="lacks an exact contract"):
+            await store.mappings_by_subjects({"EXPLICIT"}, expected=expected)
+    await dispose_engine(engine)
+
+
+async def test_promotion_validates_every_identity_present_in_its_metadata() -> None:
+    engine = make_engine(get_settings().database_url)
+    await _clear_active_generations(engine)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "uberon-cl-promotion"
+    metadata = GenerationSourceMetadata(
+        ncit_source_identity="1" * 64,
+        uberon_source_identity="2" * 64,
+        uberon_serving_identity="3" * 64,
+        uberon_assertion_identity="4" * 64,
+    )
+    record = _record("PROMOTION-METADATA", "UBERON:PROMOTION", "u1")
+    generation_id, content = _generation_identity(source, [record], metadata)
+    await store.prepare_generation(
+        source=source,
+        generation_id=generation_id,
+        content_sha256=content,
+        source_metadata=metadata,
+        graph_iri=generation_graph_iri(source, generation_id),
+        run_id=await _run(store, source, "promotion"),
+        records=[record],
+    )
+    await store.activate_generation(source, generation_id)
+
+    with pytest.raises(StaleXrefGenerationError, match="uberon_assertion_identity"):
+        await store.mappings_by_subjects(
+            {"PROMOTION-METADATA"},
+            expected=GenerationSourceMetadata(
+                ncit_source_identity="1" * 64,
+                uberon_source_identity="2" * 64,
+                uberon_serving_identity="3" * 64,
+            ),
+        )
+    await dispose_engine(engine)
+
+
+async def test_nonempty_lookup_without_active_generations_returns_empty() -> None:
+    engine = make_engine(get_settings().database_url)
+    await _clear_active_generations(engine)
+    store = XrefStore(make_sessionmaker(engine))
+
+    assert await store.mappings_by_subjects({"ABSENT"}, expected=_SOURCE_METADATA) == {}
+    await dispose_engine(engine)
+
+
+async def test_identical_content_with_changed_metadata_is_distinct() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "uberon-cl"
+    record = _record("METADATA", "UBERON:METADATA", "u1")
+    generation_ids: list[str] = []
+    for identity in ("a" * 64, "b" * 64):
+        metadata = GenerationSourceMetadata(
+            ncit_source_identity="1" * 64,
+            uberon_source_identity=identity,
+        )
+        generation_id, content = _generation_identity(source, [record], metadata)
+        generation_ids.append(generation_id)
+        assert await store.prepare_generation(
+            source=source,
+            generation_id=generation_id,
+            content_sha256=content,
+            source_metadata=metadata,
+            graph_iri=generation_graph_iri(source, generation_id),
+            run_id=await _run(store, source, identity[:1]),
+            records=[record],
+        )
+        assert await store.activate_generation(source, generation_id)
+
+    assert generation_ids[0] != generation_ids[1]
+    assert await store.active_generation(source) == generation_ids[1]
+    async with engine.connect() as connection:
+        assert (
+            await connection.execute(
+                text(
+                    "SELECT count(*) FROM xref_generation "
+                    "WHERE source=:source AND id=ANY(:ids)"
+                ),
+                {"source": source, "ids": generation_ids},
+            )
+        ).scalar_one() == 2
     await dispose_engine(engine)

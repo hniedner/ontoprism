@@ -22,6 +22,15 @@ pytestmark = [
 _SOURCE_METADATA = GenerationSourceMetadata(ncit_source_identity="a" * 64)
 
 
+async def _retain_only_active_source(sf: object, source: str) -> None:
+    async with sf() as session:  # type: ignore[operator]
+        await session.execute(
+            text("DELETE FROM xref_active_generation WHERE source <> :source"),
+            {"source": source},
+        )
+        await session.commit()
+
+
 @pytest.mark.integration
 async def test_store_roundtrip() -> None:
     engine = make_engine(get_settings().database_url)
@@ -168,6 +177,7 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
             ),
         ]
         await activate_records(store, source=run_id, run_id=run_id, records=records)
+        await _retain_only_active_source(sf, run_id)
 
         result = await store.mappings_by_subjects({"C3262"}, expected=_SOURCE_METADATA)
         assert "C3262" in result
@@ -232,6 +242,7 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
             ),
         ]
         await activate_records(store, source=run_id, run_id=run_id, records=records)
+        await _retain_only_active_source(sf, run_id)
 
         result = await store.mappings_by_objects(
             {"UBERON:0002107"}, expected=_SOURCE_METADATA

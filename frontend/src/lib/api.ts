@@ -371,7 +371,7 @@ export function similarCdes(
 
 // --- refresh ---
 
-/** Re-probe repositories and return their live version/counts. */
+/** Re-certify local repositories, returning identities or typed refusal details. */
 export function refreshRepositories(fetchImpl?: typeof fetch): Promise<RefreshReport> {
 	return postJson<RefreshReport>(apiUrl('/api/v1/refresh'), fetchImpl);
 }

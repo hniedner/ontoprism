@@ -26,8 +26,7 @@ def upgrade() -> None:
           created_at timestamptz NOT NULL DEFAULT now(),
           published_at timestamptz,
           PRIMARY KEY (source, id),
-          UNIQUE (id),
-           UNIQUE (source, content_sha256)
+          UNIQUE (id)
         )"""
     )
     op.execute(

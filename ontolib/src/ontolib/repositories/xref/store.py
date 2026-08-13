@@ -26,6 +26,26 @@ if TYPE_CHECKING:
     from ontolib.repositories.xref.evidence import EvidenceDict
 
 
+_CANDIDATE_SOURCE = "uberon-cl"
+_PUBLISHER_SOURCE = "uberon-publisher-xref"
+_PROMOTION_SOURCE = "uberon-cl-promotion"
+_P334_SOURCE = "ncit-p334-icdo32"
+_SOURCE_REQUIRED_IDENTITIES: dict[str, tuple[str, ...] | None] = {
+    _CANDIDATE_SOURCE: ("ncit_source_identity", "uberon_source_identity"),
+    _PUBLISHER_SOURCE: (
+        "ncit_source_identity",
+        "uberon_source_identity",
+        "uberon_serving_identity",
+    ),
+    _P334_SOURCE: (
+        "ncit_source_identity",
+        "icdo_generation_identity",
+        "icdo_serving_identity",
+    ),
+    _PROMOTION_SOURCE: None,
+}
+
+
 def _validate_generation_retry(
     found: Any,
     *,
@@ -39,6 +59,42 @@ def _validate_generation_retry(
     )
     if observed_metadata != source_metadata:
         raise ValueError("generation identity has different source metadata")
+
+
+def _required_source_identities(
+    source: str,
+    observed: GenerationSourceMetadata,
+    expected: GenerationSourceMetadata,
+) -> tuple[str, ...] | None:
+    if source not in _SOURCE_REQUIRED_IDENTITIES:
+        if observed != expected:
+            raise StaleXrefGenerationError(
+                f"unknown active xref source {source!r} lacks an exact contract"
+            )
+        return ()
+    required = _SOURCE_REQUIRED_IDENTITIES[source]
+    if required is None:
+        return tuple(observed.model_dump(exclude_none=True))
+    expected_values = expected.model_dump(exclude_none=True)
+    source_specific = set(required) - {"ncit_source_identity"}
+    if source_specific.isdisjoint(expected_values):
+        return None
+    return required
+
+
+def _validate_source_contract(
+    source: str,
+    observed: GenerationSourceMetadata,
+    expected: GenerationSourceMetadata,
+    required: tuple[str, ...],
+) -> None:
+    observed_values = observed.model_dump(exclude_none=True)
+    expected_values = expected.model_dump(exclude_none=True)
+    for key in required:
+        if observed_values.get(key) != expected_values.get(key):
+            raise StaleXrefGenerationError(
+                f"active xref generation {source!r} has stale {key}"
+            )
 
 
 class XrefStore:
@@ -396,17 +452,16 @@ class XrefStore:
             return [dict(row) for row in result.mappings().all()]
 
     async def mapping_strength_by_subject(self) -> dict[str, set[tuple[str, str]]]:
-        """Return all ``(predicate_id, lifecycle_state)`` per subject across every run.
+        """Return mapping strengths per subject from active generations.
 
-        Because rows from multiple runs coalesce in the same set, callers
+        Because rows from multiple active sources coalesce in the same set, callers
         should be aware that the same ``(subject, predicate)`` may appear
-        with different lifecycle states (e.g. ``proposed`` in one run and
-        ``validated`` in another). The latest run's state is **not** applied
-        here — the downstream ``build_coverage_report`` treats *any*
+        with different lifecycle states (e.g. ``proposed`` in one generation and
+        ``validated`` in another). The downstream ``build_coverage_report`` treats any
         ``exactMatch + {validated, active}`` as identity-grade.  This is
         correct for Phase A where ingest produces ``closeMatch/proposed``
         and validation (#73) promotes to ``exactMatch/validated``;
-        cross-run conflicts are resolved by dataset design, not by query.
+        cross-source conflicts are resolved by dataset design, not by this query.
         """
         sql = text(
             "SELECT x.subject_id, x.predicate_id, x.lifecycle_state "
@@ -431,9 +486,9 @@ class XrefStore:
         rows) would be silently upgraded to identity-grade equivalence.  Only a
         ``closeMatch`` is a candidate for identity.
 
-        ``DISTINCT`` collapses a byte-identical re-ingest (the same pair, same versions,
-        in a later run) — without it each duplicate is re-validated (two JVM launches
-        apiece) and inflates the counts that land in ``xref_run.metrics``.  Note it does
+        Only active generations are read. ``DISTINCT`` collapses a byte-identical pair
+        present in multiple active sources; without it each duplicate is re-validated
+        (two JVM launches apiece) and inflates ``xref_run.metrics`` counts. Note it does
         **not** collapse a re-ingest after a version bump: those rows differ in
         ``*_source_version``, so the pair legitimately returns as a fresh candidate that
         must be re-validated against the new release (D29).
@@ -605,18 +660,21 @@ class XrefStore:
     ) -> dict[str, list[MappingResult]]:
         if not codes:
             return {}
-        sql = text(
-            "SELECT x.subject_system, x.subject_version, x.subject_id, "
-            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
-            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
-            "JOIN xref_generation g ON g.id = x.generation_id "
-            "WHERE x.subject_id = ANY(:codes)"
-        )
         async with self._sf() as s:
-            result = await s.execute(sql, {"codes": list(codes)})
+            generation_ids = await self._validated_active_generations(s, expected)
+            if not generation_ids:
+                return {}
+            result = await s.execute(
+                text(
+                    "SELECT x.subject_system, x.subject_version, x.subject_id, "
+                    "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+                    "x.lifecycle_state, x.confidence FROM concept_xref x "
+                    "WHERE x.generation_id = ANY(:generation_ids) "
+                    "AND x.subject_id = ANY(:codes)"
+                ),
+                {"generation_ids": generation_ids, "codes": list(codes)},
+            )
             rows = result.mappings().all()
-            self._validate_source_metadata(rows, expected)
             out: dict[str, list[MappingResult]] = {}
             for r in rows:
                 out.setdefault(r["subject_id"], []).append(
@@ -639,18 +697,21 @@ class XrefStore:
     ) -> dict[str, list[MappingResult]]:
         if not curies:
             return {}
-        sql = text(
-            "SELECT x.subject_system, x.subject_version, x.subject_id, "
-            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
-            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
-            "JOIN xref_generation g ON g.id = x.generation_id "
-            "WHERE x.object_id = ANY(:curies)"
-        )
         async with self._sf() as s:
-            result = await s.execute(sql, {"curies": list(curies)})
+            generation_ids = await self._validated_active_generations(s, expected)
+            if not generation_ids:
+                return {}
+            result = await s.execute(
+                text(
+                    "SELECT x.subject_system, x.subject_version, x.subject_id, "
+                    "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+                    "x.lifecycle_state, x.confidence FROM concept_xref x "
+                    "WHERE x.generation_id = ANY(:generation_ids) "
+                    "AND x.object_id = ANY(:curies)"
+                ),
+                {"generation_ids": generation_ids, "curies": list(curies)},
+            )
             rows = result.mappings().all()
-            self._validate_source_metadata(rows, expected)
             out: dict[str, list[MappingResult]] = {}
             for r in rows:
                 out.setdefault(r["object_id"], []).append(
@@ -674,25 +735,30 @@ class XrefStore:
         """Find active mappings in either direction in one indexed roundtrip."""
         if not identifiers:
             return {}
-        sql = text(
-            "SELECT x.subject_system, x.subject_version, x.subject_id, "
-            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
-            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
-            "JOIN xref_generation g ON g.id = x.generation_id "
-            "WHERE x.subject_id = ANY(:identifiers) UNION ALL "
-            "SELECT x.subject_system, x.subject_version, x.subject_id, "
-            "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
-            "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
-            "JOIN xref_generation g ON g.id = x.generation_id "
-            "WHERE x.object_id = ANY(:identifiers) "
-            "AND NOT (x.subject_id = ANY(:identifiers))"
-        )
         async with self._sf() as s:
-            result = await s.execute(sql, {"identifiers": list(identifiers)})
+            generation_ids = await self._validated_active_generations(s, expected)
+            if not generation_ids:
+                return {}
+            result = await s.execute(
+                text(
+                    "SELECT x.subject_system, x.subject_version, x.subject_id, "
+                    "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+                    "x.lifecycle_state, x.confidence FROM concept_xref x "
+                    "WHERE x.generation_id = ANY(:generation_ids) "
+                    "AND x.subject_id = ANY(:identifiers) UNION ALL "
+                    "SELECT x.subject_system, x.subject_version, x.subject_id, "
+                    "x.object_system, x.object_version, x.object_id, x.predicate_id, "
+                    "x.lifecycle_state, x.confidence FROM concept_xref x "
+                    "WHERE x.generation_id = ANY(:generation_ids) "
+                    "AND x.object_id = ANY(:identifiers) "
+                    "AND NOT (x.subject_id = ANY(:identifiers))"
+                ),
+                {
+                    "generation_ids": generation_ids,
+                    "identifiers": list(identifiers),
+                },
+            )
             rows = result.mappings().all()
-            self._validate_source_metadata(rows, expected)
             out: dict[str, list[MappingResult]] = {}
             for row in rows:
                 mapping = MappingResult(
@@ -714,19 +780,23 @@ class XrefStore:
                 out.setdefault(key, []).append(mapping)
             return out
 
-    @staticmethod
-    def _validate_source_metadata(
-        rows: Sequence[Any], expected: GenerationSourceMetadata
-    ) -> None:
-        expected_values = expected.model_dump(exclude_none=True)
-        for row in rows:
+    async def _validated_active_generations(
+        self, session: AsyncSession, expected: GenerationSourceMetadata
+    ) -> list[str]:
+        result = await session.execute(
+            text(
+                "SELECT a.source, a.generation_id, g.source_metadata "
+                "FROM xref_active_generation a JOIN xref_generation g "
+                "ON g.source=a.source AND g.id=a.generation_id ORDER BY a.source"
+            )
+        )
+        generation_ids: list[str] = []
+        for row in result.mappings().all():
+            source = str(row["source"])
             observed = GenerationSourceMetadata.model_validate(row["source_metadata"])
-            observed_values = observed.model_dump(exclude_none=True)
-            for key, value in expected_values.items():
-                certified_identity = key.endswith(
-                    ("_source_identity", "_serving_identity", "_generation_identity")
-                )
-                if certified_identity and observed_values.get(key) != value:
-                    raise StaleXrefGenerationError(
-                        f"active xref generation has stale {key}"
-                    )
+            required = _required_source_identities(source, observed, expected)
+            if required is None:
+                continue
+            _validate_source_contract(source, observed, expected, required)
+            generation_ids.append(str(row["generation_id"]))
+        return generation_ids

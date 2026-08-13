@@ -1,4 +1,4 @@
-"""SSSOM mapping record (Matentzoglu 2022) — one row per cross-ontology mapping."""
+"""SSSOM records for NCIt alignments derived from corroborating terminologies."""
 
 from __future__ import annotations
 

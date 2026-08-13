@@ -361,12 +361,14 @@ replaces stable rows plus the active manifest in one transaction.
 
 ### Repository readiness and refresh metadata
 
-`GET /ready` returns HTTP 200 only when the active NCIt manifest, completed activation
-journal (including `activated_at`), release, and live default/stated observation agree.
-Its ready value includes `source_identity`, exact manifest-byte `manifest_identity`,
-release, activation time, and observation. A refusal is HTTP 503 with a typed reason such
-as `manifest-missing`, `activation-incomplete`, `release-mismatch`, or
-`observation-mismatch`; the unhealthy value deliberately contains no identity fields.
+`GET /ready` returns HTTP 200 only when every local repository is certified: NCIt,
+caDSR, Uberon/CL, and all configured ICD-O edition/axis datasets. NCIt additionally
+requires its active manifest, completed activation journal (including `activated_at`),
+release, and live default/stated observation to agree. Ready values carry each
+repository's certified identities and observations. A single refusal returns HTTP 503
+with that repository's typed reason, such as `manifest-missing`,
+`activation-incomplete`, `release-mismatch`, or `observation-mismatch`; an unhealthy
+value deliberately contains no certified identity fields.
 
 The refresh report returns discriminated metadata for NCIt, caDSR, Uberon/CL, and each
 served ICD-O edition/axis dataset. caDSR identifies its persisted source archive and

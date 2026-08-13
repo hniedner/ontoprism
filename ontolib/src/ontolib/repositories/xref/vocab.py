@@ -1,4 +1,4 @@
-"""Constants for the external-ontology xref layer (design §8.1-8.2)."""
+"""Vocabulary for NCIt alignments derived from other terminologies (design §8)."""
 
 from __future__ import annotations
 

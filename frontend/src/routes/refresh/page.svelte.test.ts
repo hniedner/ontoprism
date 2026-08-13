@@ -49,6 +49,7 @@ describe('repository refresh metadata', () => {
 			]
 		});
 		render(Page);
+		expect(screen.getByText(/certified identity or exact refusal reason/)).toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Refresh repositories' }));
 
