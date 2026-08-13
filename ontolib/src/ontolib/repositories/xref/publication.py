@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -14,7 +15,7 @@ from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from ontolib.repositories.xref.models import SSSOMRecord
+    from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -109,6 +110,18 @@ async def _write_pointer(
             graph_iri=active_graph_iri(source),
             replace=True,
         )
+    except asyncio.CancelledError as cancellation:
+        task = asyncio.create_task(_reconcile_pointers(store, client, source))
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+        except BaseException as reconciliation:
+            cancellation.add_note(
+                "Xref pointer reconciliation after cancellation failed: "
+                f"{type(reconciliation).__name__}: {reconciliation}"
+            )
+        raise cancellation
     except Exception as original:
         try:
             observed = await rdf_active_generation(client, source)
@@ -124,7 +137,7 @@ async def _write_pointer(
 def generation_identity(
     source: str,
     records: Sequence[SSSOMRecord],
-    source_metadata: dict[str, str] | None = None,
+    source_metadata: GenerationSourceMetadata,
 ) -> tuple[str, str]:
     """Return deterministic generation and exact-content identities."""
     rows = [
@@ -148,7 +161,7 @@ def generation_identity(
         sort_keys=True,
     ).encode()
     content = hashlib.sha256(payload).hexdigest()
-    metadata = json.dumps(source_metadata or {}, separators=(",", ":"), sort_keys=True)
+    metadata = source_metadata.model_dump_json(exclude_none=True)
     generation = hashlib.sha256(f"{source}\0{content}\0{metadata}".encode()).hexdigest()
     return generation, content
 
@@ -160,7 +173,7 @@ async def publish_generation(
     source: str,
     run_id: str,
     records: Sequence[SSSOMRecord],
-    source_metadata: dict[str, str] | None = None,
+    source_metadata: GenerationSourceMetadata,
     failpoint: PublicationFailpoint | None = None,
 ) -> PublicationResult:
     """Prepare, materialize, then reconcile the ordered cross-store activation."""
@@ -174,6 +187,7 @@ async def publish_generation(
             source=source,
             generation_id=generation_id,
             content_sha256=content_sha256,
+            source_metadata=source_metadata,
             graph_iri=graph_iri,
             run_id=run_id,
             records=records,

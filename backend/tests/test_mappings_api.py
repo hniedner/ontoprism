@@ -6,8 +6,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_ncit_client, get_ncit_store, get_xref_store
+from backend.dependencies import (
+    get_ncit_client,
+    get_ncit_store,
+    get_repository_metadata,
+    get_xref_store,
+)
 from backend.main import create_app
+from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -20,6 +26,35 @@ class _FakeStore:
 class _FakeClient:
     async def select(self, _query: str) -> list[dict[str, str | None]]:
         return []
+
+
+class _FakeMetadata:
+    async def ncit(self) -> object:
+        return type(
+            "NcitReady",
+            (),
+            {"source_identity": "a" * 64, "manifest_identity": "d" * 64},
+        )()
+
+    async def uberon(self) -> object:
+        serving = type("Serving", (), {"sha256": "b" * 64})()
+        observation = type("Observation", (), {"serving": serving})()
+        return type(
+            "UberonReady",
+            (),
+            {"source_identity": "c" * 64, "observation": observation},
+        )()
+
+    async def icdo(self, edition: str, axis: str) -> object:
+        del edition, axis
+        return type(
+            "IcdoReady",
+            (),
+            {
+                "activation_identity": "e" * 64,
+                "serving_identity": "f" * 64,
+            },
+        )()
 
 
 class _FakeXrefStore:
@@ -79,17 +114,17 @@ class _FakeXrefStore:
         self.lookup_calls = 0
 
     async def mappings_by_subjects(
-        self, codes: set[str]
+        self, codes: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
         return {c: self.mappings.get(c, []) for c in codes if c in self.mappings}
 
     async def mappings_by_objects(
-        self, curies: set[str]
+        self, curies: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
         return {c: self.reverse.get(c, []) for c in curies if c in self.reverse}
 
     async def mappings_for_identifiers(
-        self, identifiers: set[str]
+        self, identifiers: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
         self.lookup_calls += 1
         return {
@@ -104,6 +139,7 @@ def _client() -> Iterator[TestClient]:
     app.dependency_overrides[get_ncit_client] = _FakeClient
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = _FakeXrefStore
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
     with TestClient(app) as client:
         yield client
 
@@ -161,6 +197,7 @@ def test_concept_mappings_preserves_reverse_many_to_one_in_one_indexed_query() -
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_ncit_client] = _FakeClient
     app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
 
     with TestClient(app) as client:
         response = client.get("/api/v1/ncit/concepts/C12468/mappings")
@@ -216,6 +253,45 @@ def test_concept_mappings_rejects_malformed_code() -> None:
     assert resp.status_code == 404
 
 
+@pytest.mark.api
+@pytest.mark.parametrize("repository", ["ncit", "uberon", "icdo"])
+def test_concept_mappings_refuses_each_uncertified_source(repository: str) -> None:
+    class _Unhealthy(_FakeMetadata):
+        async def ncit(self) -> object:
+            if repository == "ncit":
+                return RepositoryUnhealthy(
+                    repository="ncit", reason="observation-mismatch", message="drift"
+                )
+            return await super().ncit()
+
+        async def uberon(self) -> object:
+            if repository == "uberon":
+                return RepositoryUnhealthy(
+                    repository="uberon", reason="observation-mismatch", message="drift"
+                )
+            return await super().uberon()
+
+        async def icdo(self, edition: str, axis: str) -> object:
+            if repository == "icdo":
+                return RepositoryUnhealthy(
+                    repository="icdo", reason="observation-mismatch", message="drift"
+                )
+            return await super().icdo(edition, axis)
+
+    store = _FakeXrefStore()
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _Unhealthy
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C12400/mappings")
+
+    assert response.status_code == 503
+    assert store.lookup_calls == 0
+
+
 # --- $translate ---
 
 
@@ -237,6 +313,34 @@ def test_translate_ncit_to_upstream() -> None:
     assert entry["concept"]["version"] == "2026-06-19"
     assert entry["equivalence"] == "equivalent"
     assert entry["confidence"] == 0.95
+
+
+@pytest.mark.api
+def test_translate_preserves_same_identifier_across_systems_and_versions() -> None:
+    store = _FakeXrefStore()
+    store.mappings["C12400"] = [
+        MappingResult(
+            subject=EndpointIdentity("ncit", "26.07d", "C12400"),
+            predicate=EXACT_MATCH,
+            object=EndpointIdentity(system, version, "SHARED:1"),
+            lifecycle="active",
+            confidence=1.0,
+        )
+        for system, version in (("uberon", "v1"), ("other", "v1"), ("uberon", "v2"))
+    ]
+    app = create_app()
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_xref_store] = lambda: store
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/mappings/$translate", json={"code": "C12400"})
+
+    assert response.status_code == 200
+    assert {
+        (row["concept"]["system"], row["concept"]["version"])
+        for row in response.json()["result"]
+    } == {("uberon", "v1"), ("other", "v1"), ("uberon", "v2")}
 
 
 @pytest.mark.api

@@ -69,7 +69,7 @@ class _FakeXrefStore:
         self.rows = rows or []
 
     async def mappings_by_subjects(
-        self, codes: set[str]
+        self, codes: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
         return dict.fromkeys(codes, self.rows)
 

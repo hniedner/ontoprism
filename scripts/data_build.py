@@ -73,6 +73,7 @@ from ontolib.repositories.xref.coverage import (
     save_coverage_baseline,
 )
 from ontolib.repositories.xref.mapping_score import load_golden_mappings
+from ontolib.repositories.xref.models import GenerationSourceMetadata
 from ontolib.repositories.xref.p334_alignment import publish_p334_alignments
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.publisher_xref import publish_uberon_xrefs
@@ -758,10 +759,22 @@ async def _build_uberon_publisher_xrefs() -> None:
             ncit_sparql_client(settings.ncit_sparql_url) as ncit_client,
             SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
         ):
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("publisher xref sources are not certified ready")
             report = await publish_uberon_xrefs(
                 XrefStore(make_sessionmaker(engine)),
                 ncit_client,
                 uberon_client,
+                ncit_source_identity=ncit_ready.source_identity,
+                uberon_source_identity=uberon_ready.source_identity,
+                uberon_serving_identity=uberon_ready.observation.serving.sha256,
             )
     finally:
         await dispose_engine(engine)
@@ -774,11 +787,18 @@ async def _build_p334_alignments() -> None:
     try:
         async with ncit_sparql_client(settings.ncit_sparql_url) as ncit_client:
             sessions = make_sessionmaker(engine)
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            if isinstance(ncit_ready, RepositoryUnhealthy):
+                raise RuntimeError("P334 NCIt source is not certified ready")
             report = await publish_p334_alignments(
                 XrefStore(sessions),
                 ncit_client,
                 IcdoRepository(sessions),
                 icdo_expected=icdo_expectation(settings, "3.2", "morphology"),
+                ncit_source_identity=ncit_ready.source_identity,
             )
     finally:
         await dispose_engine(engine)
@@ -933,6 +953,15 @@ async def _build_xref_promote(
             ncit_sparql_client(settings.ncit_sparql_url) as ncit_client,
             SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
         ):
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("promotion sources are not certified ready")
             ncit_version, endpoint_uberon = await _endpoint_versions(
                 ncit_client, uberon_client
             )
@@ -946,6 +975,11 @@ async def _build_xref_promote(
                 # default would let a Uberon run quarantine every Mondo bridge.
                 source="uberon-cl-promotion",
                 tool_identity=robot_identity,
+                source_metadata=GenerationSourceMetadata(
+                    ncit_source_identity=ncit_ready.source_identity,
+                    uberon_source_identity=uberon_ready.source_identity,
+                    uberon_serving_identity=uberon_ready.observation.serving.sha256,
+                ),
                 curated_pairs=_curated_pairs(golden, trust_unsigned=trust_unsigned),
             )
     finally:

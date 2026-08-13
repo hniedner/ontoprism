@@ -15,7 +15,11 @@ from backend.dependencies import (
 )
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
-from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    MappingResult,
+    StaleXrefGenerationError,
+)
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
@@ -88,7 +92,7 @@ class _Xrefs:
         self.calls: list[set[str]] = []
 
     async def mappings_for_identifiers(
-        self, identifiers: set[str]
+        self, identifiers: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
         self.calls.append(identifiers)
         return {
@@ -108,7 +112,7 @@ class _Xrefs:
 
 class _Metadata:
     async def ncit(self) -> SimpleNamespace:
-        return SimpleNamespace(source_identity="n" * 64)
+        return SimpleNamespace(source_identity="c" * 64)
 
     def cadsr(self) -> SimpleNamespace:
         return SimpleNamespace(source_identity="c" * 64)
@@ -281,3 +285,20 @@ def test_alignments_refuse_uncertified_uberon_before_xref_read() -> None:
 
     assert response.status_code == 503
     assert xrefs.calls == []
+
+
+@pytest.mark.api
+def test_alignments_refuse_stale_active_xref_generation() -> None:
+    class _Stale(_Xrefs):
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], **_kwargs: object
+        ) -> dict[str, list[MappingResult]]:
+            self.calls.append(identifiers)
+            raise StaleXrefGenerationError("stale uberon_source_identity")
+
+    response = next(_client(_Store(), _Index(False), xrefs=_Stale())).get(
+        "/api/v1/uberon/concepts/UBERON:0002048/alignments"
+    )
+
+    assert response.status_code == 503
+    assert "stale uberon_source_identity" in response.json()["detail"]

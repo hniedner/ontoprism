@@ -11,8 +11,10 @@ from sqlalchemy import Result, text
 
 from ontolib.repositories.xref.models import (
     EndpointIdentity,
+    GenerationSourceMetadata,
     MappingResult,
     SSSOMRecord,
+    StaleXrefGenerationError,
 )
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -22,6 +24,21 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from ontolib.repositories.xref.evidence import EvidenceDict
+
+
+def _validate_generation_retry(
+    found: Any,
+    *,
+    content_sha256: str,
+    source_metadata: GenerationSourceMetadata,
+) -> None:
+    if found["content_sha256"] != content_sha256:
+        raise ValueError("generation identity has different content")
+    observed_metadata = GenerationSourceMetadata.model_validate(
+        found["source_metadata"]
+    )
+    if observed_metadata != source_metadata:
+        raise ValueError("generation identity has different source metadata")
 
 
 class XrefStore:
@@ -52,6 +69,7 @@ class XrefStore:
         source: str,
         generation_id: str,
         content_sha256: str,
+        source_metadata: GenerationSourceMetadata,
         graph_iri: str,
         run_id: str,
         records: Sequence[SSSOMRecord],
@@ -87,27 +105,32 @@ class XrefStore:
                 )
             existing = await s.execute(
                 text(
-                    "SELECT id, content_sha256 FROM xref_generation "
+                    "SELECT id, content_sha256, source_metadata FROM xref_generation "
                     "WHERE id = :id AND source = :source"
                 ),
                 {"id": generation_id, "source": source},
             )
             found = existing.mappings().one_or_none()
             if found is not None:
-                if found["content_sha256"] != content_sha256:
-                    raise ValueError("generation identity has different content")
+                _validate_generation_retry(
+                    found,
+                    content_sha256=content_sha256,
+                    source_metadata=source_metadata,
+                )
                 await s.commit()
                 return False
             await s.execute(
                 text(
                     "INSERT INTO xref_generation "
-                    "(id, source, content_sha256, graph_iri, state) "
-                    "VALUES (:id, :source, :content, :graph, 'prepared')"
+                    "(id, source, content_sha256, source_metadata, graph_iri, state) "
+                    "VALUES (:id, :source, :content, CAST(:metadata AS jsonb), "
+                    ":graph, 'prepared')"
                 ),
                 {
                     "id": generation_id,
                     "source": source,
                     "content": content_sha256,
+                    "metadata": source_metadata.model_dump_json(exclude_none=True),
                     "graph": graph_iri,
                 },
             )
@@ -578,21 +601,24 @@ class XrefStore:
             return cast("int", result.rowcount)  # type: ignore[attr-defined]
 
     async def mappings_by_subjects(
-        self, codes: set[str]
+        self, codes: set[str], *, expected: GenerationSourceMetadata
     ) -> dict[str, list[MappingResult]]:
         if not codes:
             return {}
         sql = text(
             "SELECT x.subject_system, x.subject_version, x.subject_id, "
             "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
             "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "JOIN xref_generation g ON g.id = x.generation_id "
             "WHERE x.subject_id = ANY(:codes)"
         )
         async with self._sf() as s:
             result = await s.execute(sql, {"codes": list(codes)})
+            rows = result.mappings().all()
+            self._validate_source_metadata(rows, expected)
             out: dict[str, list[MappingResult]] = {}
-            for r in result.mappings().all():
+            for r in rows:
                 out.setdefault(r["subject_id"], []).append(
                     MappingResult(
                         subject=EndpointIdentity(
@@ -609,21 +635,24 @@ class XrefStore:
             return out
 
     async def mappings_by_objects(
-        self, curies: set[str]
+        self, curies: set[str], *, expected: GenerationSourceMetadata
     ) -> dict[str, list[MappingResult]]:
         if not curies:
             return {}
         sql = text(
             "SELECT x.subject_system, x.subject_version, x.subject_id, "
             "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
             "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "JOIN xref_generation g ON g.id = x.generation_id "
             "WHERE x.object_id = ANY(:curies)"
         )
         async with self._sf() as s:
             result = await s.execute(sql, {"curies": list(curies)})
+            rows = result.mappings().all()
+            self._validate_source_metadata(rows, expected)
             out: dict[str, list[MappingResult]] = {}
-            for r in result.mappings().all():
+            for r in rows:
                 out.setdefault(r["object_id"], []).append(
                     MappingResult(
                         subject=EndpointIdentity(
@@ -640,7 +669,7 @@ class XrefStore:
             return out
 
     async def mappings_for_identifiers(
-        self, identifiers: set[str]
+        self, identifiers: set[str], *, expected: GenerationSourceMetadata
     ) -> dict[str, list[MappingResult]]:
         """Find active mappings in either direction in one indexed roundtrip."""
         if not identifiers:
@@ -648,20 +677,24 @@ class XrefStore:
         sql = text(
             "SELECT x.subject_system, x.subject_version, x.subject_id, "
             "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
             "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "JOIN xref_generation g ON g.id = x.generation_id "
             "WHERE x.subject_id = ANY(:identifiers) UNION ALL "
             "SELECT x.subject_system, x.subject_version, x.subject_id, "
             "x.object_system, x.object_version, x.object_id, x.predicate_id, "
-            "x.lifecycle_state, x.confidence FROM concept_xref x "
+            "x.lifecycle_state, x.confidence, g.source_metadata FROM concept_xref x "
             "JOIN xref_active_generation a ON a.generation_id = x.generation_id "
+            "JOIN xref_generation g ON g.id = x.generation_id "
             "WHERE x.object_id = ANY(:identifiers) "
             "AND NOT (x.subject_id = ANY(:identifiers))"
         )
         async with self._sf() as s:
             result = await s.execute(sql, {"identifiers": list(identifiers)})
+            rows = result.mappings().all()
+            self._validate_source_metadata(rows, expected)
             out: dict[str, list[MappingResult]] = {}
-            for row in result.mappings().all():
+            for row in rows:
                 mapping = MappingResult(
                     subject=EndpointIdentity(
                         row["subject_system"], row["subject_version"], row["subject_id"]
@@ -680,3 +713,20 @@ class XrefStore:
                 )
                 out.setdefault(key, []).append(mapping)
             return out
+
+    @staticmethod
+    def _validate_source_metadata(
+        rows: Sequence[Any], expected: GenerationSourceMetadata
+    ) -> None:
+        expected_values = expected.model_dump(exclude_none=True)
+        for row in rows:
+            observed = GenerationSourceMetadata.model_validate(row["source_metadata"])
+            observed_values = observed.model_dump(exclude_none=True)
+            for key, value in expected_values.items():
+                certified_identity = key.endswith(
+                    ("_source_identity", "_serving_identity", "_generation_identity")
+                )
+                if certified_identity and observed_values.get(key) != value:
+                    raise StaleXrefGenerationError(
+                        f"active xref generation has stale {key}"
+                    )

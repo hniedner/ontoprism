@@ -1,11 +1,17 @@
 """Mappings + FHIR-style $translate endpoints (issue #82, design §8.4)."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from backend.config import get_settings
-from backend.dependencies import XrefReads
-from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from backend.dependencies import RepositoryMetadataReads, XrefReads
+from backend.repository_metadata import RepositoryUnhealthy
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    GenerationSourceMetadata,
+    MappingResult,
+    StaleXrefGenerationError,
+)
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
     CLOSE_MATCH,
@@ -97,7 +103,7 @@ def _collect_entries(
     *,
     reverse: bool,
     licensed_allowed: bool,
-    seen: set[tuple[str, str]],
+    seen: set[tuple[str, str, str, str]],
 ) -> list[TranslateEntry]:
     entries: list[TranslateEntry] = []
     for rows in rows_by_key.values():
@@ -109,7 +115,7 @@ def _collect_entries(
                 licensed_allowed=licensed_allowed,
             ):
                 continue
-            key = (target.identifier, row.predicate)
+            key = (target.system, target.version, target.identifier, row.predicate)
             if key in seen:
                 continue
             seen.add(key)
@@ -128,6 +134,7 @@ def _collect_entries(
 @router.post("/$translate", response_model=TranslateResponse)
 async def translate(
     xref_store: XrefReads,
+    metadata: RepositoryMetadataReads,
     body: TranslateRequest,
 ) -> TranslateResponse:
     """FHIR-style ConceptMap ``$translate`` for NCIt↔upstream.
@@ -141,10 +148,32 @@ async def translate(
     settings = get_settings()
     code = body.code
 
-    upstream = await xref_store.mappings_by_subjects({code})
-    reverse = await xref_store.mappings_by_objects({code})
+    ncit = await metadata.ncit()
+    uberon = await metadata.uberon()
+    icdo = await metadata.icdo("3.2", "morphology")
+    if (
+        isinstance(ncit, RepositoryUnhealthy)
+        or isinstance(uberon, RepositoryUnhealthy)
+        or isinstance(icdo, RepositoryUnhealthy)
+    ):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Mapping sources are unavailable.",
+        )
+    expected = GenerationSourceMetadata(
+        ncit_source_identity=ncit.source_identity,
+        uberon_source_identity=uberon.source_identity,
+        uberon_serving_identity=uberon.observation.serving.sha256,
+        icdo_generation_identity=icdo.activation_identity,
+        icdo_serving_identity=icdo.serving_identity,
+    )
+    try:
+        upstream = await xref_store.mappings_by_subjects({code}, expected=expected)
+        reverse = await xref_store.mappings_by_objects({code}, expected=expected)
+    except StaleXrefGenerationError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     entries = _collect_entries(
         upstream,
         reverse=False,

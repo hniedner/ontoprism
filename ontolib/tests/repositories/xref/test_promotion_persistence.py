@@ -24,11 +24,15 @@ from ontolib.repositories.xref.evidence import (
     XREF_ASSERTION,
     Evidence,
 )
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
 from ontolib.repositories.xref.promotion import (
     PromotionReport,
-    persist_promotions,
-    run_promotion,
+)
+from ontolib.repositories.xref.promotion import (
+    persist_promotions as _persist_promotions,
+)
+from ontolib.repositories.xref.promotion import (
+    run_promotion as _run_promotion,
 )
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH, NARROW_MATCH
@@ -40,12 +44,27 @@ if TYPE_CHECKING:
 
 _NCIT_VERSION = "26.02d"
 _UBERON_VERSION = "uberon-2026-01"
+_SOURCE_METADATA = GenerationSourceMetadata(
+    ncit_source_identity="a" * 64,
+    uberon_source_identity="b" * 64,
+    uberon_serving_identity="c" * 64,
+)
 _REASONER_TOOL = DataBuildToolIdentity(
     name="test-reasoner",
     source="test://ontolib.tests.repositories.xref",
     version="1",
     digest="sha256:" + "1" * 64,
 )
+
+
+async def persist_promotions(*args: object, **kwargs: object) -> str:
+    kwargs.setdefault("source_metadata", _SOURCE_METADATA)
+    return await _persist_promotions(*args, **kwargs)  # type: ignore[arg-type]
+
+
+async def run_promotion(*args: object, **kwargs: object) -> dict[str, object]:
+    kwargs.setdefault("source_metadata", _SOURCE_METADATA)
+    return await _run_promotion(*args, **kwargs)  # type: ignore[arg-type]
 
 
 class _PublicationClient:

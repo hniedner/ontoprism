@@ -20,6 +20,7 @@ def upgrade() -> None:
           id text NOT NULL CHECK (id ~ '^[0-9a-f]{64}$'),
           source text NOT NULL,
           content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
+          source_metadata jsonb NOT NULL,
           graph_iri text NOT NULL UNIQUE,
           state text NOT NULL CHECK (state IN ('prepared', 'published')),
           created_at timestamptz NOT NULL DEFAULT now(),

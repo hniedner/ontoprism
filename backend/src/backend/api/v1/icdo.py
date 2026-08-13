@@ -25,7 +25,11 @@ from ontolib.repositories.icdo.models import (
     MorphologyCode40,
     TopographyCode40,
 )
-from ontolib.repositories.xref.models import MappingResult
+from ontolib.repositories.xref.models import (
+    GenerationSourceMetadata,
+    MappingResult,
+    StaleXrefGenerationError,
+)
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 
 router = APIRouter(
@@ -273,11 +277,24 @@ async def detail(
         ) from exc
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ICD-O code not found.")
-    rows = (
-        await xref_store.mappings_for_identifiers({canonical})
-        if (edition, axis) == ("3.2", "morphology")
-        else {}
-    )
+    rows: dict[str, list[MappingResult]] = {}
+    if (edition, axis) == ("3.2", "morphology"):
+        ncit = await repository_metadata.ncit()
+        if isinstance(ncit, RepositoryUnhealthy):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, ncit.model_dump(mode="json")
+            )
+        try:
+            rows = await xref_store.mappings_for_identifiers(
+                {canonical},
+                expected=GenerationSourceMetadata(
+                    ncit_source_identity=ncit.source_identity,
+                    icdo_generation_identity=ready.activation_identity,
+                    icdo_serving_identity=ready.serving_identity,
+                ),
+            )
+        except StaleXrefGenerationError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return IcdoDetail(
         activation_identity=ready.activation_identity,
         serving_identity=ready.serving_identity,

@@ -8,9 +8,16 @@ from ontolib.repositories.icdo.store import CertificationExpectation, IcdoCodeRe
 from ontolib.repositories.xref.p334_alignment import (
     P334CountDriftError,
     P334SourceError,
-    publish_p334_alignments,
+)
+from ontolib.repositories.xref.p334_alignment import (
+    publish_p334_alignments as _publish_p334_alignments,
 )
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
+
+
+async def publish_p334_alignments(*args: object, **kwargs: object) -> object:
+    kwargs.setdefault("ncit_source_identity", "a" * 64)
+    return await _publish_p334_alignments(*args, **kwargs)  # type: ignore[arg-type]
 
 
 class _NcitClient:

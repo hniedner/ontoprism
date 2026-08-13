@@ -100,7 +100,7 @@ test('protected congruence report is present in entitled initial HTML only', asy
 	const response = await context.request.get('/repositories/icdo/4.0/topography/congruence');
 	expect(response.status()).toBe(200);
 	const html = await response.text();
-	expect(html).toContain('Every 406 ICD-O-4 topography codes');
+	expect(html).toContain('All 406 ICD-O-4 topography codes are classified once.');
 	expect(html).toContain('C34.9');
 	expect(html).not.toContain('exactMatch');
 	await context.close();

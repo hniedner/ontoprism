@@ -4,7 +4,7 @@ Running log of consequential decisions. Newest first. Each entry: context → de
 
 ## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
 
-### D71. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
+### D73. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
 
 **Decision:** NCIt's `P334` assertions are publisher database cross-references, not
 equivalence claims. Values resolving against the exact active ICD-O-3.2 morphology
@@ -20,7 +20,7 @@ NCIt graphs. Protected term text and reciprocal ICD-O detail remain entitlement-
 
 ## 2026-08-12 — Certified cross-repository publication
 
-### D73. Publisher database cross-references remain inspectable proposals until independently validated
+### D72. Publisher database cross-references remain inspectable proposals until independently validated
 
 Uberon `oboInOwl:hasDbXref "NCIT:C…"` assertions are direct publisher evidence, but do
 not state equivalence and may differ in scope across terminologies.
@@ -32,7 +32,7 @@ identity, and repeat both observations before publication. Preserve many-to-one 
 many-to-many assertions; unresolved targets remain explicit report rows. Only the
 independent-evidence and reasoner-backed promotion path can produce identity-grade mappings.
 
-### D70. ICD-O certified repositories use separate consumer entitlement
+### D71. ICD-O certified repositories use separate consumer entitlement
 
 **Decision:** ICD-O term content is served only to consumers presenting the dedicated
 ICD-O entitlement. Authorization runs before repository metadata, records, search caches,
@@ -46,7 +46,7 @@ topography/Uberon congruence output is an inspection report and publishes no map
 
 ## 2026-08-11 — PDM commands own certified local tool configuration
 
-### D72. Every PDM task loads repository-local Jena and ROBOT defaults
+### D70. Every PDM task loads repository-local Jena and ROBOT defaults
 
 **Decision:** PDM's global script options load `.env` for every `pdm run` task and
 prepend Homebrew's keg-only OpenJDK directory while retaining the inherited `PATH`.

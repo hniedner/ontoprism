@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, EXACT_MATCH
 
@@ -19,6 +19,7 @@ pytestmark = [
     pytest.mark.mutating_integration,
     pytest.mark.usefixtures("isolated_postgres_settings"),
 ]
+_SOURCE_METADATA = GenerationSourceMetadata(ncit_source_identity="a" * 64)
 
 
 @pytest.mark.integration
@@ -168,7 +169,7 @@ async def test_mappings_by_subjects_filters_by_codes() -> None:
         ]
         await activate_records(store, source=run_id, run_id=run_id, records=records)
 
-        result = await store.mappings_by_subjects({"C3262"})
+        result = await store.mappings_by_subjects({"C3262"}, expected=_SOURCE_METADATA)
         assert "C3262" in result
         assert len(result["C3262"]) == 1
         mapping = result["C3262"][0]
@@ -195,7 +196,7 @@ async def test_mappings_by_subjects_empty_returns_empty() -> None:
     try:
         sf = make_sessionmaker(engine)
         store = XrefStore(sf)
-        result = await store.mappings_by_subjects(set())
+        result = await store.mappings_by_subjects(set(), expected=_SOURCE_METADATA)
         assert result == {}
     finally:
         await dispose_engine(engine)
@@ -232,7 +233,9 @@ async def test_mappings_by_objects_reverse_lookup() -> None:
         ]
         await activate_records(store, source=run_id, run_id=run_id, records=records)
 
-        result = await store.mappings_by_objects({"UBERON:0002107"})
+        result = await store.mappings_by_objects(
+            {"UBERON:0002107"}, expected=_SOURCE_METADATA
+        )
         assert "UBERON:0002107" in result
         assert len(result["UBERON:0002107"]) == 1
         mapping = result["UBERON:0002107"][0]
@@ -259,7 +262,7 @@ async def test_mappings_by_objects_empty_returns_empty() -> None:
     try:
         sf = make_sessionmaker(engine)
         store = XrefStore(sf)
-        result = await store.mappings_by_objects(set())
+        result = await store.mappings_by_objects(set(), expected=_SOURCE_METADATA)
         assert result == {}
     finally:
         await dispose_engine(engine)

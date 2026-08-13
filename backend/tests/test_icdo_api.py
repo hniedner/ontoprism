@@ -16,7 +16,11 @@ from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
 from ontolib.repositories.icdo.store import IcdoCertificationError
-from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    MappingResult,
+    StaleXrefGenerationError,
+)
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
 
 
@@ -108,7 +112,7 @@ class _Xrefs:
         self.calls = 0
 
     async def mappings_for_identifiers(
-        self, identifiers: set[str]
+        self, identifiers: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
         self.calls += 1
         assert identifiers == {"8503/0"}
@@ -132,6 +136,9 @@ def _client(
     xrefs: _Xrefs | None = None,
 ) -> Iterator[TestClient]:
     class _Metadata:
+        async def ncit(self) -> object:
+            return SimpleNamespace(source_identity="c" * 64)
+
         async def icdo(self, edition: str, axis: str) -> object:
             try:
                 result = await store.certified_metadata(edition, axis, object())
@@ -214,6 +221,26 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         "C3",
     ]
     assert metadata.json() == {"edition": "3.2", "axis": "morphology", "row_count": 1}
+
+
+@pytest.mark.api
+def test_detail_refuses_stale_active_reciprocal_xref_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Stale(_Xrefs):
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], **_kwargs: object
+        ) -> dict[str, list[MappingResult]]:
+            self.calls += 1
+            raise StaleXrefGenerationError("stale icdo_serving_identity")
+
+    response = next(_client(_Store(), monkeypatch, _Stale())).get(
+        "/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 503
+    assert "stale icdo_serving_identity" in response.json()["detail"]
 
 
 @pytest.mark.api

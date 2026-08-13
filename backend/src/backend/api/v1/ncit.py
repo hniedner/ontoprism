@@ -21,7 +21,11 @@ from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
-from ontolib.repositories.xref.models import MappingResult
+from ontolib.repositories.xref.models import (
+    GenerationSourceMetadata,
+    MappingResult,
+    StaleXrefGenerationError,
+)
 from ontolib.repositories.xref.vocab import (
     EXACT_MATCH,
     MappingLifecycle,
@@ -40,6 +44,31 @@ from ontolib.terminologies.sparql_transport import safe_iri
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
+
+
+async def _xref_expected(metadata: RepositoryMetadataReads) -> GenerationSourceMetadata:
+    ncit = await metadata.ncit()
+    uberon = await metadata.uberon()
+    icdo = await metadata.icdo("3.2", "morphology")
+    if isinstance(ncit, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, ncit.model_dump(mode="json")
+        )
+    if isinstance(uberon, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, uberon.model_dump(mode="json")
+        )
+    if isinstance(icdo, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, icdo.model_dump(mode="json")
+        )
+    return GenerationSourceMetadata(
+        ncit_source_identity=ncit.source_identity,
+        uberon_source_identity=uberon.source_identity,
+        uberon_serving_identity=uberon.observation.serving.sha256,
+        icdo_generation_identity=icdo.activation_identity,
+        icdo_serving_identity=icdo.serving_identity,
+    )
 
 
 class MappingEntry(BaseModel):
@@ -100,10 +129,13 @@ async def _attach_xref_upstream(
     xref_store: XrefReads,
     filler_codes: list[str],
     *,
+    expected: GenerationSourceMetadata,
     entitled_to_icdo: bool,
 ) -> ConceptDecomposition:
     if filler_codes:
-        upstream_rows = await xref_store.mappings_by_subjects(set(filler_codes))
+        upstream_rows = await xref_store.mappings_by_subjects(
+            set(filler_codes), expected=expected
+        )
         upstream_by_filler = {
             code: [
                 UpstreamMapping(
@@ -255,19 +287,23 @@ async def concept_mappings(
         safe_iri(code, NCIT_NS)
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    rows = await xref_store.mappings_for_identifiers({code})
     repository = await metadata.ncit()
     if isinstance(repository, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, repository.model_dump(mode="json")
         )
+    expected = await _xref_expected(metadata)
+    try:
+        rows = await xref_store.mappings_for_identifiers({code}, expected=expected)
+    except StaleXrefGenerationError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     entitled_to_icdo = has_icdo_entitlement(x_icdo_entitlement)
     entries = _mapping_entries(
         code, rows.get(code, []), entitled_to_icdo=entitled_to_icdo
     )
     return ConceptMappings(
         code=code,
-        repository_source_identity=repository.source_identity,
+        repository_source_identity=expected.ncit_source_identity,
         repository_manifest_identity=repository.manifest_identity,
         mappings=entries,
     )
@@ -278,6 +314,7 @@ async def concept_decomposition(
     reader: DecompositionReads,
     store: NcitStore,
     xref_store: XrefReads,
+    metadata: RepositoryMetadataReads,
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptDecomposition:
@@ -294,14 +331,19 @@ async def concept_decomposition(
     except ValueError as exc:  # code failed the IRI-safety guard
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
     decomposition = decomposition_from_rows(code, rows)
+    expected = await _xref_expected(metadata)
     filler_codes = [c.filler for c in decomposition.constituents]
     labels = await store.labels_for(filler_codes) if filler_codes else {}
     for constituent in decomposition.constituents:
         constituent.filler_label = labels.get(constituent.filler)
-    decomposition = await _attach_xref_upstream(
-        decomposition,
-        xref_store,
-        filler_codes,
-        entitled_to_icdo=has_icdo_entitlement(x_icdo_entitlement),
-    )
+    try:
+        decomposition = await _attach_xref_upstream(
+            decomposition,
+            xref_store,
+            filler_codes,
+            expected=expected,
+            entitled_to_icdo=has_icdo_entitlement(x_icdo_entitlement),
+        )
+    except StaleXrefGenerationError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return decomposition

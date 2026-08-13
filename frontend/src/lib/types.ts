@@ -119,11 +119,15 @@ export interface Alignment {
 	lifecycle: MappingLifecycle;
 }
 
+export interface NcitAlignment extends Omit<Alignment, 'system'> {
+	system: 'ncit';
+}
+
 export interface UberonAlignments {
 	code: string;
 	repository_source_identity: string;
 	repository_serving_identity: string;
-	alignments: Alignment[];
+	alignments: NcitAlignment[];
 }
 
 export interface UberonSearchHit {
@@ -156,15 +160,8 @@ export interface UberonNeighborhood {
 
 export type IcdoEdition = '3.2' | '4.0';
 export type IcdoAxis = 'morphology' | 'topography';
-export type IcdoLevel = 'morphology' | 'category' | 'leaf';
-
-export interface IcdoRecord {
+interface IcdoRecordBase {
 	code: string;
-	level: IcdoLevel;
-	parent_code?: string | null;
-	base_morphology?: string | null;
-	specificity?: string | null;
-	behaviour?: string | null;
 	preferred: string | null;
 	synonyms: string[];
 	related: string[];
@@ -177,11 +174,49 @@ export interface IcdoRecord {
 	other_text: string[];
 }
 
+export interface IcdoMorphology32Record extends IcdoRecordBase {
+	level: 'morphology';
+	parent_code: null;
+	base_morphology: string;
+	specificity: null;
+	behaviour: string;
+}
+
+export interface IcdoMorphology40Record extends IcdoRecordBase {
+	level: 'morphology';
+	parent_code: null;
+	base_morphology: string;
+	specificity: string;
+	behaviour: string;
+}
+
+export interface IcdoTopographyCategoryRecord extends IcdoRecordBase {
+	level: 'category';
+	parent_code: null;
+	base_morphology: null;
+	specificity: null;
+	behaviour: null;
+}
+
+export interface IcdoTopographyLeafRecord extends IcdoRecordBase {
+	level: 'leaf';
+	parent_code: string;
+	base_morphology: null;
+	specificity: null;
+	behaviour: null;
+}
+
+export type IcdoRecord =
+	| IcdoMorphology32Record
+	| IcdoMorphology40Record
+	| IcdoTopographyCategoryRecord
+	| IcdoTopographyLeafRecord;
+
 export interface IcdoDetail {
 	activation_identity: string;
 	serving_identity: string;
 	record: IcdoRecord;
-	ncit_alignments: Alignment[];
+	ncit_alignments: NcitAlignment[];
 }
 
 export interface IcdoPage {
@@ -357,13 +392,18 @@ export interface UberonRepositoryReady {
 	manifest_identity: string;
 	source_sha256: string;
 	version_iri: string;
-	class_counts: { uberon: number; cl: number };
+	class_counts: {
+		uberon: number;
+		cl: number;
+		uberon_searchable: number;
+		cl_searchable: number;
+	};
 	observation: {
-		version_iri: string | null;
+		version_iri: string;
 		triples: number;
-		has_uberon_lung: boolean;
-		has_cell_class: boolean;
-		has_ncit_xref: boolean;
+		has_uberon_lung: true;
+		has_cell_class: true;
+		has_ncit_xref: true;
 		serving: {
 			rows: number;
 			sha256: string;
@@ -371,7 +411,7 @@ export interface UberonRepositoryReady {
 			cl_classes: number;
 			uberon_searchable_classes: number;
 			cl_searchable_classes: number;
-		} | null;
+		};
 	};
 	activated_at: string;
 }

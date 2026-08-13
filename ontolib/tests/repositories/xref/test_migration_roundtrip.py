@@ -112,10 +112,15 @@ async def test_generation_schema_constraints_and_indexes() -> None:
             await conn.execute(
                 text(
                     "INSERT INTO xref_generation "
-                    "(id,source,content_sha256,graph_iri,state) VALUES "
-                    "(:id,'source-a',:content,'https://example.test/g','prepared')"
+                    "(id,source,content_sha256,source_metadata,graph_iri,state) VALUES "
+                    "(:id,'source-a',:content,CAST(:metadata AS jsonb),"
+                    "'https://example.test/g','prepared')"
                 ),
-                {"id": "a" * 64, "content": "b" * 64},
+                {
+                    "id": "a" * 64,
+                    "content": "b" * 64,
+                    "metadata": '{"ncit_source_identity":"' + "c" * 64 + '"}',
+                },
             )
         with pytest.raises(IntegrityError):
             async with engine.begin() as conn:

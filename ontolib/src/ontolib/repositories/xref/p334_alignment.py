@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
 from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
 from ontolib.terminologies.namespaces import NCIT_NS
@@ -204,6 +204,7 @@ async def publish_p334_alignments(
     icdo: IcdoRepository,
     *,
     icdo_expected: CertificationExpectation,
+    ncit_source_identity: str,
     expected_counts: tuple[int, int] = (EXPECTED_CONCEPTS, EXPECTED_ASSERTIONS),
     run_id: str | None = None,
 ) -> P334AlignmentReport:
@@ -259,11 +260,12 @@ async def publish_p334_alignments(
         source=P334_ALIGNMENT_SOURCE,
         run_id=rid,
         records=records,
-        source_metadata={
-            "ncit_p334_identity": ncit_p334_identity,
-            "icdo_generation_id": resolution.generation_id,
-            "icdo_serving_sha256": resolution.serving_sha256,
-        },
+        source_metadata=GenerationSourceMetadata(
+            ncit_source_identity=ncit_source_identity,
+            ncit_p334_identity=ncit_p334_identity,
+            icdo_generation_identity=resolution.generation_id,
+            icdo_serving_identity=resolution.serving_sha256,
+        ),
     )
     await store.update_run_metrics(rid, report.model_dump(mode="json"))
     return report

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
 from ontolib.repositories.xref.publication import publish_generation
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
@@ -406,10 +406,10 @@ async def ingest_candidates(
         source=source,
         run_id=rid,
         records=records,
-        source_metadata={
-            "ncit_source_identity": ncit_source_identity,
-            "uberon_source_identity": uberon_source_identity,
-        },
+        source_metadata=GenerationSourceMetadata(
+            ncit_source_identity=ncit_source_identity,
+            uberon_source_identity=uberon_source_identity,
+        ),
     )
 
     report = candidate_coverage_report(fillers, records, filler_to_source)

@@ -15,6 +15,10 @@ from backend.dependencies import (
 from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
+from ontolib.repositories.xref.models import (
+    GenerationSourceMetadata,
+    StaleXrefGenerationError,
+)
 from ontolib.repositories.xref.vocab import MappingLifecycle, MappingPredicate
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
@@ -155,7 +159,22 @@ async def alignments(
     code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
 ) -> UberonAlignments:
     repository = await _ready(metadata)
-    rows = await xref_store.mappings_for_identifiers({code})
+    ncit = await metadata.ncit()
+    if isinstance(ncit, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, ncit.model_dump(mode="json")
+        )
+    try:
+        rows = await xref_store.mappings_for_identifiers(
+            {code},
+            expected=GenerationSourceMetadata(
+                ncit_source_identity=ncit.source_identity,
+                uberon_source_identity=repository.source_identity,
+                uberon_serving_identity=repository.observation.serving.sha256,
+            ),
+        )
+    except StaleXrefGenerationError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return UberonAlignments(
         code=code,
         repository_source_identity=repository.source_identity,

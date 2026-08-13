@@ -115,7 +115,7 @@ if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet
 
     from ontolib.core.data_build_tools import DataBuildToolIdentity
-    from ontolib.repositories.xref.models import SSSOMRecord
+    from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -1432,6 +1432,7 @@ async def persist_promotions(
     source: str,
     run_id: str | None = None,
     tool_identity: DataBuildToolIdentity | None = None,
+    source_metadata: GenerationSourceMetadata,
 ) -> str:
     """Write the promoted ``exactMatch/validated`` records as their own xref run.
 
@@ -1467,6 +1468,7 @@ async def persist_promotions(
         source=source,
         run_id=rid,
         records=stamped,
+        source_metadata=source_metadata,
     )
     metrics: dict[str, Any] = report.as_dict()
     if tool_identity is not None:
@@ -1506,6 +1508,7 @@ async def run_promotion(
     source_version: str,
     source: str,
     tool_identity: DataBuildToolIdentity,
+    source_metadata: GenerationSourceMetadata,
     curated_pairs: frozenset[tuple[str, str]] = frozenset(),
     reasoner: Reasoner = elk_reasoner,
 ) -> dict[str, Any]:
@@ -1554,6 +1557,7 @@ async def run_promotion(
         source_version=source_version,
         source=source,
         tool_identity=tool_identity,
+        source_metadata=source_metadata,
     )
 
     # The staleness sweep is destructive (it demotes validated bridges) and a run whose

@@ -7,9 +7,19 @@ import pytest
 from ontolib.repositories.xref.publisher_xref import (
     PublisherXrefCountDriftError,
     PublisherXrefSourceError,
-    publish_uberon_xrefs,
+)
+from ontolib.repositories.xref.publisher_xref import (
+    publish_uberon_xrefs as _publish_uberon_xrefs,
 )
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
+
+
+async def publish_uberon_xrefs(*args: object, **kwargs: object) -> object:
+    kwargs.setdefault("ncit_source_identity", "a" * 64)
+    kwargs.setdefault("uberon_source_identity", "b" * 64)
+    kwargs.setdefault("uberon_serving_identity", "c" * 64)
+    return await _publish_uberon_xrefs(*args, **kwargs)  # type: ignore[arg-type]
+
 
 _UBERON_VERSION = "http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl"
 _NCIT_VERSION = "26.07d"

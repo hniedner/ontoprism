@@ -8,14 +8,18 @@ from sqlalchemy import text
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
 from ontolib.repositories.xref.publication import (
     XrefPublicationError,
     active_graph_iri,
     generation_graph_iri,
-    generation_identity,
-    publish_generation,
     rollback_generation,
+)
+from ontolib.repositories.xref.publication import (
+    generation_identity as _generation_identity,
+)
+from ontolib.repositories.xref.publication import (
+    publish_generation as _publish_generation,
 )
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import CLOSE_MATCH
@@ -30,6 +34,16 @@ pytestmark = [
 _ACTIVE_PREDICATE = (
     "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-upstream-xref.owl/activeGeneration"
 )
+_SOURCE_METADATA = GenerationSourceMetadata(ncit_source_identity="a" * 64)
+
+
+def generation_identity(source: str, records: list[SSSOMRecord]) -> tuple[str, str]:
+    return _generation_identity(source, records, _SOURCE_METADATA)
+
+
+async def publish_generation(*args: object, **kwargs: object) -> object:
+    kwargs.setdefault("source_metadata", _SOURCE_METADATA)
+    return await _publish_generation(*args, **kwargs)  # type: ignore[arg-type]
 
 
 def _pointer_row(source: str, graph: str | None) -> list[dict[str, str]]:
@@ -101,8 +115,12 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
             ],
         )
 
-        forward = await store.mappings_by_subjects({"C1", "C2"})
-        reverse = await store.mappings_by_objects({"UBERON:2"})
+        forward = await store.mappings_by_subjects(
+            {"C1", "C2"}, expected=_SOURCE_METADATA
+        )
+        reverse = await store.mappings_by_objects(
+            {"UBERON:2"}, expected=_SOURCE_METADATA
+        )
         assert {row.object.identifier for row in forward["C2"]} == {
             "UBERON:2",
             "UBERON:3",
@@ -121,7 +139,9 @@ async def test_active_reads_are_typed_many_to_many_and_rollback_is_source_local(
             await rollback_generation(store, client, "issue291-uberon")
             == first.generation_id
         )
-        rolled_back = await store.mappings_by_subjects({"C1", "C2", "C9"})
+        rolled_back = await store.mappings_by_subjects(
+            {"C1", "C2", "C9"}, expected=_SOURCE_METADATA
+        )
         assert {row.object.identifier for row in rolled_back["C1"]} == {"UBERON:1"}
         assert "C2" not in rolled_back
         assert {row.object.identifier for row in rolled_back["C9"]} == {"UBERON:9"}
@@ -155,7 +175,10 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
                     records=records,
                     failpoint=failpoint,
                 )
-            assert await store.mappings_by_subjects({"C7"}) == {}
+            assert (
+                await store.mappings_by_subjects({"C7"}, expected=_SOURCE_METADATA)
+                == {}
+            )
 
         result = await publish_generation(
             store, client, source=source, run_id=run_id, records=records
@@ -230,7 +253,7 @@ async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> No
             records=[_record("FAIL", "UBERON:FAIL", "u1")],
         )
     assert await store.active_generation(source) is None
-    assert await store.mappings_by_subjects({"FAIL"}) == {}
+    assert await store.mappings_by_subjects({"FAIL"}, expected=_SOURCE_METADATA) == {}
     await dispose_engine(engine)
 
 
@@ -275,7 +298,9 @@ async def test_rollback_pointer_failure_restores_newer_postgres_generation() -> 
         await rollback_generation(store, client, source)  # type: ignore[arg-type]
     assert await store.active_generation(source) == second.generation_id
     assert first.generation_id != second.generation_id
-    assert set(await store.mappings_by_subjects({"RB1", "RB2"})) == {"RB2"}
+    assert set(
+        await store.mappings_by_subjects({"RB1", "RB2"}, expected=_SOURCE_METADATA)
+    ) == {"RB2"}
     await dispose_engine(engine)
 
 
@@ -312,7 +337,10 @@ async def test_pointer_commit_then_raise_is_reconciled_as_success() -> None:
     await dispose_engine(engine)
 
 
-async def test_pointer_cancellation_propagates_without_reconciliation() -> None:
+@pytest.mark.parametrize("committed", [False, True])
+async def test_pointer_cancellation_reconciles_before_propagating(
+    committed: bool,
+) -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
     source = "issue291-cancel-after-commit"
@@ -323,7 +351,8 @@ async def test_pointer_cancellation_propagates_without_reconciliation() -> None:
 
         async def load(self, data: bytes, *, graph_iri: str, **_kwargs: object) -> None:
             if graph_iri == active_graph_iri(source):
-                self.pointer = data.decode().rsplit("<", 1)[1].split(">", 1)[0]
+                if committed:
+                    self.pointer = data.decode().rsplit("<", 1)[1].split(">", 1)[0]
                 raise asyncio.CancelledError
 
         async def select(self, _query: str) -> list[dict[str, str]]:
@@ -331,15 +360,68 @@ async def test_pointer_cancellation_propagates_without_reconciliation() -> None:
             return _pointer_row(source, self.pointer)
 
     client = Client()
+    records = [_record("CANCEL", "UBERON:CANCEL", "u1")]
+    result_id, _ = generation_identity(source, records)
     with pytest.raises(asyncio.CancelledError):
         await publish_generation(
             store,
             client,  # type: ignore[arg-type]
             source=source,
             run_id=await _run(store, source, "u1"),
-            records=[_record("CANCEL", "UBERON:CANCEL", "u1")],
+            records=records,
         )
-    assert client.select_calls == 1
+    assert client.select_calls == 2
+    expected = result_id if committed else None
+    assert await store.active_generation(source) == expected
+    await dispose_engine(engine)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+async def test_rollback_pointer_cancellation_reconciles_before_propagating(
+    committed: bool,
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "issue291-rollback-cancel"
+
+    class Client:
+        pointer: str | None = None
+        cancel = False
+
+        async def load(self, data: bytes, *, graph_iri: str, **_kwargs: object) -> None:
+            if graph_iri != active_graph_iri(source):
+                return
+            next_pointer = data.decode().rsplit("<", 1)[1].split(">", 1)[0]
+            if not self.cancel or committed:
+                self.pointer = next_pointer
+            if self.cancel:
+                raise asyncio.CancelledError
+
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            return _pointer_row(source, self.pointer)
+
+    client = Client()
+    first = await publish_generation(
+        store,
+        client,  # type: ignore[arg-type]
+        source=source,
+        run_id=await _run(store, source, "u1"),
+        records=[_record("RC1", "UBERON:RC1", "u1")],
+    )
+    second = await publish_generation(
+        store,
+        client,  # type: ignore[arg-type]
+        source=source,
+        run_id=await _run(store, source, "u2"),
+        records=[_record("RC2", "UBERON:RC2", "u2")],
+    )
+    client.cancel = True
+
+    with pytest.raises(asyncio.CancelledError):
+        await rollback_generation(store, client, source)  # type: ignore[arg-type]
+
+    expected = first.generation_id if committed else second.generation_id
+    assert await store.active_generation(source) == expected
     await dispose_engine(engine)
 
 
@@ -494,6 +576,7 @@ async def test_publication_preflight_repairs_hard_crash_split_brain() -> None:
         source=source,
         generation_id=second_id,
         content_sha256=content,
+        source_metadata=_SOURCE_METADATA,
         graph_iri=generation_graph_iri(source, second_id),
         run_id=await _run(store, source, "b"),
         records=second_records,
@@ -523,6 +606,7 @@ async def test_forward_and_reverse_queries_use_dedicated_indexes() -> None:
         source=source,
         generation_id=generation_id,
         content_sha256=content,
+        source_metadata=_SOURCE_METADATA,
         graph_iri=generation_graph_iri(source, generation_id),
         run_id=run_id,
         records=records,
@@ -558,7 +642,9 @@ async def test_forward_and_reverse_queries_use_dedicated_indexes() -> None:
         )
     assert "idx_concept_xref_forward" in forward
     assert "idx_concept_xref_reverse" in reverse
-    reverse_rows = (await store.mappings_by_objects({"UBERON:fanout"}))["UBERON:fanout"]
+    reverse_rows = (
+        await store.mappings_by_objects({"UBERON:fanout"}, expected=_SOURCE_METADATA)
+    )["UBERON:fanout"]
     assert len(reverse_rows) == 300
     await dispose_engine(engine)
 
@@ -585,7 +671,9 @@ async def test_concurrent_publishers_and_reader_observe_complete_generations(
 
         async def reader() -> None:
             while not stop.is_set():
-                rows = await store.mappings_by_subjects({"CON0", "CON1", "CON2"})
+                rows = await store.mappings_by_subjects(
+                    {"CON0", "CON1", "CON2"}, expected=_SOURCE_METADATA
+                )
                 observations.append(frozenset(rows))
                 await asyncio.sleep(0)
 

@@ -166,10 +166,20 @@ class _Metadata:
     def cadsr(self) -> SimpleNamespace:
         return SimpleNamespace(source_identity="f" * 64)
 
+    async def uberon(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            source_identity="a" * 64,
+            observation=SimpleNamespace(serving=SimpleNamespace(sha256="b" * 64)),
+        )
+
+    async def icdo(self, edition: str, axis: str) -> SimpleNamespace:
+        del edition, axis
+        return SimpleNamespace(activation_identity="c" * 64, serving_identity="d" * 64)
+
 
 class _Xrefs:
     async def mappings_for_identifiers(
-        self, identifiers: set[str]
+        self, identifiers: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
         code = next(iter(identifiers))
         return {

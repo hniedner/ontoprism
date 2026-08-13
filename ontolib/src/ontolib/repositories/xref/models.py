@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from ontolib.repositories.xref.vocab import (
     ALLOWED_PREDICATES,
     LIFECYCLE_STATES,
@@ -14,6 +16,29 @@ from ontolib.repositories.xref.vocab import (
 
 if TYPE_CHECKING:
     from ontolib.repositories.xref.evidence import Evidence
+
+
+class GenerationSourceMetadata(BaseModel):
+    """Exact certified repositories and source observations used by a generation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    ncit_source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    uberon_source_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    uberon_serving_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    icdo_generation_identity: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    icdo_serving_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    uberon_assertion_identity: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    ncit_target_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    ncit_p334_identity: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class StaleXrefGenerationError(RuntimeError):
+    """An active mapping generation is not bound to current repositories."""
 
 
 @dataclass(frozen=True)
