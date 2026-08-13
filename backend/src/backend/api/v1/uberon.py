@@ -3,9 +3,15 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
+from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.dependencies import RepositoryMetadataReads, UberonSearch, UberonStore
+from backend.dependencies import (
+    RepositoryMetadataReads,
+    UberonSearch,
+    UberonStore,
+    XrefReads,
+)
 from backend.repository_metadata import RepositoryUnhealthy, UberonRepositoryReady
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
@@ -19,6 +25,19 @@ from ontolib.terminologies.uberon.models import (
 
 router = APIRouter(prefix="/api/v1/uberon", tags=["uberon"])
 logger = get_logger(__name__)
+
+
+class NcitAlignment(BaseModel):
+    code: str
+    system: str
+    version: str
+    predicate: str
+    lifecycle: str
+
+
+class UberonAlignments(BaseModel):
+    code: str
+    alignments: list[NcitAlignment]
 
 
 async def _ready(metadata: RepositoryMetadataReads) -> UberonRepositoryReady:
@@ -124,3 +143,28 @@ async def neighborhood(
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{message}: {code}") from exc
     except StorageError as exc:
         raise _repository_failure(exc) from exc
+
+
+@router.get("/concepts/{code}/alignments", response_model=UberonAlignments)
+async def alignments(
+    xref_store: XrefReads,
+    code: Annotated[str, Path(pattern=r"^(UBERON|CL):[0-9]+$")],
+) -> UberonAlignments:
+    rows = await xref_store.mappings_for_identifiers({code})
+    return UberonAlignments(
+        code=code,
+        alignments=[
+            NcitAlignment(
+                code=target.identifier,
+                system=target.system,
+                version=target.version,
+                predicate=row.predicate,
+                lifecycle=row.lifecycle,
+            )
+            for row in rows.get(code, [])
+            for target in [
+                row.object if row.subject.identifier == code else row.subject
+            ]
+            if target.system == "ncit"
+        ],
+    )

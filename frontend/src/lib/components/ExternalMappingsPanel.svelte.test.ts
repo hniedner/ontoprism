@@ -31,12 +31,12 @@ describe('ExternalMappingsPanel', () => {
 
 		third.resolve({
 			code: 'C3',
-			mappings: [{ object_id: 'NEW:3', predicate: 'exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
+			mappings: [{ object_id: 'NEW:3', system: 'new', version: '1', predicate: 'exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
 		});
 		expect(await screen.findByText('NEW:3')).toBeInTheDocument();
 		first.resolve({
 			code: 'C1',
-			mappings: [{ object_id: 'OLD:1', predicate: 'exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
+			mappings: [{ object_id: 'OLD:1', system: 'old', version: '1', predicate: 'exactMatch', lifecycle: 'validated', confidence: 1, is_identity: true }]
 		});
 		second.reject(new Error('stale failure'));
 		await Promise.allSettled([first.promise, second.promise]);
@@ -64,6 +64,8 @@ describe('ExternalMappingsPanel', () => {
 			mappings: [
 				{
 					object_id: 'UBERON:0002046',
+					system: 'uberon-cl',
+					version: '2026-06-19',
 					predicate: 'http://www.w3.org/2004/02/skos/core#exactMatch',
 					lifecycle: 'validated',
 					confidence: 0.95,
@@ -71,6 +73,8 @@ describe('ExternalMappingsPanel', () => {
 				},
 				{
 					object_id: 'UBERON:0002048',
+					system: 'uberon-cl',
+					version: '2026-06-19',
 					predicate: 'http://www.w3.org/2004/02/skos/core#closeMatch',
 					lifecycle: 'proposed',
 					confidence: 0.7,

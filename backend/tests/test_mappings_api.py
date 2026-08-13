@@ -67,6 +67,7 @@ class _FakeXrefStore:
                 mapping("C3262", "UBERON:0002046", CLOSE_MATCH, "proposed", 0.6),
             ],
         }
+        self.lookup_calls = 0
 
     async def mappings_by_subjects(
         self, codes: set[str]
@@ -77,6 +78,16 @@ class _FakeXrefStore:
         self, curies: set[str]
     ) -> dict[str, list[MappingResult]]:
         return {c: self.reverse.get(c, []) for c in curies if c in self.reverse}
+
+    async def mappings_for_identifiers(
+        self, identifiers: set[str]
+    ) -> dict[str, list[MappingResult]]:
+        self.lookup_calls += 1
+        return {
+            code: [*self.mappings.get(code, []), *self.reverse.get(code, [])]
+            for code in identifiers
+            if code in self.mappings or code in self.reverse
+        }
 
 
 def _client() -> Iterator[TestClient]:
@@ -104,6 +115,35 @@ def test_concept_mappings_returns_forward_mappings() -> None:
     assert m0["lifecycle"] == "validated"
     assert m0["confidence"] == 0.95
     assert m0["is_identity"] is True
+
+
+@pytest.mark.api
+def test_concept_mappings_preserves_reverse_many_to_one_in_one_indexed_query() -> None:
+    store = _FakeXrefStore()
+    store.reverse["C12468"] = [
+        MappingResult(
+            subject=EndpointIdentity("uberon-cl", "2026-06-19", code),
+            predicate=CLOSE_MATCH,
+            object=EndpointIdentity("ncit", "26.07d", "C12468"),
+            lifecycle="proposed",
+            confidence=0.9,
+        )
+        for code in ("UBERON:0000171", "UBERON:0002048")
+    ]
+    app = create_app()
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_xref_store] = lambda: store
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C12468/mappings")
+
+    assert response.status_code == 200
+    assert [row["object_id"] for row in response.json()["mappings"]] == [
+        "UBERON:0000171",
+        "UBERON:0002048",
+    ]
+    assert store.lookup_calls == 1
 
 
 @pytest.mark.api

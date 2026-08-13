@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import DecompositionPanel from '$lib/components/DecompositionPanel.svelte';
+	import AlignmentLinks from '$lib/components/AlignmentLinks.svelte';
 	import ExternalMappingsPanel from '$lib/components/ExternalMappingsPanel.svelte';
 	import MappedCdes from '$lib/components/MappedCdes.svelte';
 	import NcitConceptGraph from './NcitConceptGraph.svelte';
@@ -26,6 +27,20 @@
 <div class="mb-4"><RepositoryKindBadge kind="local-certified-proxy" /></div>
 
 <NcitConceptSummary {detail} />
+<div class="mt-6">
+	<AlignmentLinks
+		title="Aligned Uberon/CL concepts"
+		alignments={data.mappings.mappings
+			.filter((mapping) => mapping.system === 'uberon-cl')
+			.map((mapping) => ({
+				code: mapping.object_id,
+				system: 'uberon-cl' as const,
+				version: mapping.version,
+				predicate: mapping.predicate,
+				lifecycle: mapping.lifecycle
+			}))}
+/>
+</div>
 <NcitConceptGraph code={detail.code} graph={data.graph} />
 
 <div class="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">

@@ -45,6 +45,10 @@ from ontolib.repositories.xref.promotion import (
     build_upstream_edges_query,
     build_upstream_partof_query,
 )
+from ontolib.repositories.xref.publisher_xref import (
+    EXPECTED_ASSERTIONS,
+    EXPECTED_SOURCE_CLASSES,
+)
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
 from ontolib.repositories.xref.vocab import COMPOSITE_MATCHING
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
@@ -251,6 +255,53 @@ async def test_the_upstream_spells_its_ncit_xrefs_ncit_and_ingest_reads_them() -
         "the canonical pair (NCIt Lung -> Uberon lung) is no longer reachable through "
         "the upstream's own cross-reference — source-agreement promotion loses its "
         "reference case"
+    )
+
+
+async def test_publisher_xref_counts_are_bound_to_named_active_releases() -> None:
+    """A release drift is classified here, not silently accepted as a new baseline."""
+    uberon = await _uberon()
+    ncit = await _ncit()
+    if uberon is None or ncit is None:
+        for client in (uberon, ncit):
+            if client is not None:
+                await client.aclose()
+        pytest.skip("NCIt (:7888) and/or Uberon (:7889) store not loaded")
+    try:
+        version_rows = await uberon.select(
+            "PREFIX owl: <http://www.w3.org/2002/07/owl#> "
+            "SELECT ?version WHERE { ?ontology a owl:Ontology ; "
+            "owl:versionIRI ?version } LIMIT 1"
+        )
+        uberon_version = version_rows[0].get("version") if version_rows else None
+        ncit_version = await ncit.version()
+        rows = await fetch_uberon_xrefs(uberon)
+    finally:
+        await uberon.aclose()
+        await ncit.aclose()
+
+    classes = len({row["upstream"] for row in rows})
+    assertions = len(rows)
+    deltas = {
+        "classes": classes - EXPECTED_SOURCE_CLASSES,
+        "assertions": assertions - EXPECTED_ASSERTIONS,
+    }
+    direction = (
+        "unchanged"
+        if deltas == {"classes": 0, "assertions": 0}
+        else "increased"
+        if deltas["assertions"] > 0
+        else "decreased"
+    )
+    assert uberon_version == (
+        "http://purl.obolibrary.org/obo/uberon/releases/2026-06-19/uberon.owl"
+    ), f"Uberon release moved to {uberon_version}; xref count comparison is invalid"
+    assert ncit_version == "26.07d", (
+        f"NCIt release moved to {ncit_version}; xref target validation must be rerun"
+    )
+    assert (classes, assertions) == (EXPECTED_SOURCE_CLASSES, EXPECTED_ASSERTIONS), (
+        f"Uberon publisher xrefs {direction}: observed classes={classes}, "
+        f"assertions={assertions}, delta={deltas} against 2026-06-19/26.07d"
     )
 
 
