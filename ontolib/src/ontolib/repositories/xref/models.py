@@ -138,8 +138,8 @@ class MappingResult:
 class SSSOMRecord:
     """NCIt<->upstream mapping with provenance.
 
-    The five id/version fields are required; ``lifecycle_state``, ``review_status``,
-    ``author`` and ``evidence`` carry defaults.
+    IDs, source versions, predicate, justification, and confidence are required;
+    systems, lifecycle, review status, author, and evidence carry defaults.
     """
 
     subject_id: str
