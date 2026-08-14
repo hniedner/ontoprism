@@ -61,7 +61,7 @@ def test_mutating_endpoints_require_api_key_when_configured(
 ) -> None:
     monkeypatch.setenv("API_KEY", "s3cret")
     get_settings.cache_clear()
-    with TestClient(create_app()) as client:
+    with TestClient(create_app(), raise_server_exceptions=False) as client:
         unauth = client.post("/api/v1/refresh")
         assert unauth.status_code == 401
         wrong = client.post("/api/v1/refresh", headers={"X-API-Key": "nope"})
@@ -79,7 +79,7 @@ def test_empty_api_key_leaves_endpoints_open(
     # string" — otherwise a blank config would 401 every unauthenticated caller.
     monkeypatch.setenv("API_KEY", "")
     get_settings.cache_clear()
-    with TestClient(create_app()) as client:
+    with TestClient(create_app(), raise_server_exceptions=False) as client:
         resp = client.post("/api/v1/refresh")
         assert resp.status_code != 401
 

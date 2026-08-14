@@ -413,6 +413,7 @@ def test_concept_mappings_refuses_each_uncertified_source(repository: str) -> No
     app.dependency_overrides[get_ncit_client] = _FakeClient
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
     app.dependency_overrides[get_repository_metadata] = _Unhealthy
 
     with TestClient(app) as client:
@@ -619,6 +620,7 @@ def test_translate_preserves_same_identifier_across_systems_and_versions() -> No
     app.dependency_overrides[get_ncit_client] = _FakeClient
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
 
     with TestClient(app) as client:
         response = client.post("/api/v1/mappings/$translate", json={"code": "C12400"})
