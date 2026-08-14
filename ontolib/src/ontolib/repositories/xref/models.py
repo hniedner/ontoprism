@@ -154,17 +154,11 @@ class SSSOMRecord:
     lifecycle_state: MappingLifecycle = "proposed"
     review_status: str = "unreviewed"
     author: str = ""
-    # The independent signals that promoted this bridge (#122, D36). Empty for a
-    # candidate; a record acquires evidence only by being promoted — `promote_candidate`
-    # is the sole writer, and it sets `evidence` in the same `replace()` that flips the
-    # predicate to `exactMatch` and the lifecycle to `validated`. So evidence rides only
-    # on validated bridges, by construction, not by convention.
+    # The independent signals supporting this bridge (#122, D36). Candidate records are
+    # normally empty; promoted and later quarantined records preserve their evidence.
     #
-    # `compare=False` keeps it out of equality and hashing, because evidence is
-    # provenance, not identity: the mapping is the same bridge whatever justified it.
-    # Nothing currently compares whole records or keys a set/dict on one anyway (the
-    # `_one_per_pair` dedup keys on an explicit `(subject_id, object_id)` tuple), so
-    # this is a guard against a future caller doing so, not a fix for a live path.
+    # `compare=False` affects only dataclass equality and hashing. Publication
+    # explicitly serializes evidence, so it remains part of generation identity.
     evidence: tuple[Evidence, ...] = field(default=(), compare=False)
 
     @property

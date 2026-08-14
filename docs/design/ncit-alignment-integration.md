@@ -85,7 +85,7 @@ built code, not only a forward plan. Verified against the tree:
 | Uberon `part_of` structural corroboration (#78) | **Landed (PR #117); does not yet fire** | the mixed `subClassOf`/`part_of` walk exists (D32) but rarely fires on cold data. Now **D33 Option 2**: the second signal for pairs source agreement cannot reach — no longer the sole lever, since #119 made source agreement a live promotion path |
 | **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 license gate, D29 lifecycle filter, confidence badges. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). Tracked as **#120**. |
 | **Published** caDSR coverage number (#83) | **Landed (PR #118)** | `coverage.py` (`fetch_role_codes`, `save_coverage_baseline`, `detect_coverage_regression`); `data-build xref-coverage` fails on a drop. Whole-corpus, not a sample. **Gaps (#124):** no breakdown by target ontology, no `permissible_value.meaning_code` cross-check. The regression gate is inert until a real run commits `data/cov-baseline.json` (#121). |
-| **Reserved (design-heavy)**: cross-product write-side (upstream IRIs in `owl:equivalentClass` over a Mondo genus); Mondo genus (#79); SNOMED/ICD-O-3 (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6) | **Not started** | needs design/SME/licensing |
+| **Reserved (design-heavy; historical upstream-IRI shape superseded by D60)**: cross-product write-side; Mondo genus alignment (#79); SNOMED/ICD-O-3 provenance (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6). Any emitted concepts and definition values are NCIt; other terminology IDs are provenance/alignment only. | **Not started** | needs design/SME/licensing |
 
 **Live issue status lives on the GitHub tracker (epic #70 and its milestones)** — this table is a design→code map, not a
 live tracker. The table records delivered implementation where marked Done; Phase B/C are partially landed with #73 promotion unblocked (D33/D34:
@@ -186,8 +186,8 @@ Every row below is existing, decided, or built work that the new architecture co
 | Scope gate: disease/neoplasm(/regimen) only; gene/protein excluded | assessment §1, §3.3 | Held. Upstream integration inherits the same scope gate. |
 | caDSR read model (`repositories/cadsr`) anchored on NCIt concepts | ARCHITECTURE, README | Untouched; D27 measures identity-grade alignment coverage rather than assuming transitive reach. |
 
-The net-new engineering (§8) is a mapping ingest/store/serve layer and a grammar-range binding — not
-a new decomposition engine.
+The net-new engineering (§8) is a mapping ingest/store/serve layer and NCIt grammar ranges informed
+by terminology alignments — not a new decomposition engine.
 
 ---
 
@@ -229,13 +229,14 @@ writes `op:` axes into `ncit_decomposed`; the mapping layer attaches alignments 
 axis filler; authoring and consuming systems use the aligned terminology view and translate to NCIt
 (and thus to caDSR) on demand.
 
-### 3.1 The future cross-product model (how NCIt may become a "specialization")
+### 3.1 Historical future cross-product model (superseded by D60)
 
 The current projection only exposes additive axes and mappings. Issue #153 must first build
-a complete proof-bearing record before any NCIt neoplasm can be asserted as a defined class
-over a Mondo/DO genus and upstream differentia. The following current-state sketch is
-non-equivalent planning pseudocode, not the serialized RDF shape (C6135, *Stage III Thyroid
-Gland Medullary Carcinoma AJCC v7*):
+a complete proof-bearing record before any NCIt neoplasm can be asserted as a defined class.
+Under D60, any future emitted genus and differentia are NCIt concepts and definition values;
+Mondo/DO and other terminology IDs are provenance/alignment only. The following historical
+sketch is non-equivalent planning pseudocode, not the serialized RDF shape (C6135, *Stage III
+Thyroid Gland Medullary Carcinoma AJCC v7*):
 
 ```text
 reference(C6135) = unchanged stated NCIt definition
@@ -248,8 +249,9 @@ mapping(NCIT:C12400) = exact-match UBERON:0002046, SCTID:69748006
 mapping(NCIT:C36825) = close-match ICDO3:8345/3-morphology
 ```
 
-The following is **non-equivalent planning pseudocode**, not RDF and not emitted output.
-It names the visible dimensions but is not a substitute for #153's complete source
+The following is **historical non-equivalent planning pseudocode**, not RDF and not emitted
+output. Its terminology IDs illustrate the superseded upstream-bound proposal and may appear
+only as provenance/alignment under D60. It is not a substitute for #153's complete source
 definition, multi-parent structure, relationship groups, and proof:
 
 ```text
@@ -323,10 +325,11 @@ uses. The predicate is the *true* relation, never a flat `owl:sameAs`:
 **Critical distinction (annotation vs logic).** SKOS mapping properties are *annotation properties
 with no logical semantics* — deliberately not `owl:equivalentClass`. They **must not** be fed to a
 reasoner as equivalences (doing so imports every mapping error as an ontological axiom and risks
-global unsatisfiability — C2). The identity used for logical inference (cross-product genus/filler
-substitution, §3.1) is a **separate, curated `owl:equivalentClass` bridge axiom** that exists only
-where independently justified, and is *not* the SKOS annotation. A mapping may never be its own
-validation evidence.
+global unsatisfiability — C2). The identity used to validate correspondence with an NCIt
+cross-product genus or filler (§3.1) is a **separate, curated `owl:equivalentClass` bridge axiom**
+that exists only where independently justified, and is *not* the SKOS annotation. It does not put
+the aligned terminology ID into emitted definitions. A mapping may never be its own validation
+evidence.
 
 RO object properties carry *typed non-identity* cross-ontology links where the relation is **not**
 equivalence — and this is the correct predicate for the cell↔morphology axis, which pairs three
@@ -483,10 +486,10 @@ coverage.
 
 ## 5. Per-axis integration plan
 
-Each NCIt `op:` axis is bound to an upstream range. The axis (the univocal relation) is NCIt-native
-and stays; only its *fillers* gain alignments.
+Each NCIt `op:` axis has an NCIt range informed by terminology alignments. The axis and emitted
+fillers remain NCIt; corroborating terminology IDs are provenance/alignment only (D60).
 
-| `op:` axis (NCIt) | Upstream range | Mapping source | Relation | Notes / prior decision |
+| `op:` axis (NCIt) | Aligned terminology | Mapping source | Relation | Notes / prior decision |
 |---|---|---|---|---|
 | `op:PrimarySite` (R101) | **Uberon** anatomical entity | NCIm CUI + Uberon xref | `exactMatch` / `located_in` | D23 organ-level principle → maps cleanly to Uberon organ classes. Uberon `part_of` may now break the region-vs-organ ties D20/D16 left open (§11 revisit). |
 | `op:MetastaticSite` (R102) | **Uberon** | as above | `located_in` | First-class axis per D23. |
@@ -497,7 +500,7 @@ and stays; only its *fillers* gain alignments.
 | `op:MolecularAbnormality` (R106) | NCIt-native (+ optional HGNC/SO) | — | — | Kept per D23 (PR/ER/HER2 textbook case). No mainstream OBO substitute needed; oncology-specific. |
 | `op:StageSystem` / `op:StageValue` (R88) | **NCIt-native** | — | — | AJCC staging is oncology-specific; no alignment is asserted here. Axis names per D23. |
 | Regimen (`Chemotherapy_Regimen_Has_Component`) | **NCIt-native** (components → RxNorm/ChEBI optional) | RxNorm | `relatedMatch` | Secondary scope (regimen doc). Oncology-specific packaging. |
-| Disease **genus** (taxonomic parent) | **Mondo / DO** | Mondo NCIt xref | `exactMatch` | Turns the cross-product's genus into a shared disease node. |
+| Disease **genus** (taxonomic parent) | **Mondo / DO** | Mondo NCIt xref | `exactMatch` | Emitted genus is NCIt; Mondo/DO IDs are alignment provenance. |
 
 **Scope discipline (unchanged):** gene/protein role families remain excluded (assessment §3.3). No
 upstream integration for `Gene_Plays_Role_In_Process` et al.
@@ -652,8 +655,9 @@ the currently certified repository identities before looking up identifiers.
 
 - `scripts/data_build.py` publishes candidate, publisher, promotion, and P334 alignment
   generations with source-specific certified metadata.
-- Future #153 work may extend the reserved `--emit-equivalence` seam with upstream-bound
-  cross-products. It currently rejects every request, regardless of xref availability.
+- Future #153 work may extend the reserved `--emit-equivalence` seam with proof-bearing NCIt
+  cross-products. Emitted concepts and definition values remain NCIt; other terminology IDs
+  are provenance/alignment only (D60). The seam currently rejects every request.
 - `pdm run data-build xref` publishes candidates only. `pdm run data-build xref-promote`
   validates candidates and publishes promotions.
 
@@ -674,7 +678,7 @@ Phase A (foundation, parallel to #44 curation)
 Phase B (bind to decomposition)
   B1  Attach upstream_xref to op: fillers in ncit_decomposed              [depends A2, #44 op: axes]
   B2  Uberon part_of tie-break revisit for R101 region/organ (D16/D20)     [research spike]
-  B3  Mondo disease-genus mapping → cross-product genus                    [depends A1]
+  B3  Mondo disease-genus alignment → NCIt cross-product genus provenance  [depends A1]
 
 Phase C (morphology + licensing)
   C1  Licensed SNOMED alignment work (ICD-O-3 uses certified P334 assertions) [op:CellType/op:Morphology]
@@ -686,8 +690,8 @@ Phase D (serve + interop)
   D3  caDSR enumerated alignment coverage (CDE → NCIt → qualified mapping) [proves §6]
 
 Phase E (grammar, folds into #6)
-  E1  MRCM ranges reference aligned classes; SCG/ECL alignment support     [#6 design starts here]
-  E2  cross-product --emit-equivalence upstream-bound, reasoner-validated  [requires #153; #6 grammar]
+  E1  NCIt MRCM-like ranges; SCG/ECL templates + terminology alignments    [#6 design starts here]
+  E2  NCIt cross-product --emit-equivalence, reasoner-validated             [requires #153; #6 grammar]
 ```
 
 **Gating rules:** A3 gates every `exactMatch` promotion (no unvalidated equivalence ships). B precedes
@@ -723,7 +727,7 @@ mapping enriches the `op:` axes, it does not substitute for de-overloading them.
   D19 (SNOMED relationship-group target; future #153 emission seam), D22 (SCG/ECL/MRCM; FHIR `$translate`),
   D21 (DL oracle, never `rdfs` closure), D23 (governance/minting workflow, organ-level R101).
 - **Extended:** D21's DL-oracle rule now spans cross-ontology maps (D28, non-circular + EL-profiled);
-  D22's grammar ranges now reference upstream; D23's minting/review workflow now also governs mappings
+  D22's grammar uses NCIt ranges informed by aligned terminology records; D23's minting/review workflow now also governs mappings
   (as SSSOM records). The assessment's "atoms already exist" finding gains a *qualified* sibling —
   **candidate xrefs exist in volume** (NCIm/Mondo/OBO), but upgrading them to inference-grade
   `owl:equivalentClass` is curation-grade work (D29; §14.2), not a free harvest.
@@ -762,9 +766,10 @@ mapping enriches the `op:` axes, it does not substitute for de-overloading them.
 4. `$translate` returns the **honest FHIR predicate** (equivalent/broader/narrower/unmatched; declare
    R4 vs R5) for a held-out translation test set; `unmatched` where no identity-grade link exists —
    never a fabricated equivalence.
-5. After #153 enables exact emission, `--emit-equivalence` cross-products validate by the §4.4 **non-circular** gate (curated
+5. After #153 enables exact emission, NCIt `--emit-equivalence` cross-products validate by the §4.4 **non-circular** gate (curated
    `owl:equivalentClass` bridge, EL-profiled reasoner *or* materialized-definition structural check) —
    **not** by feeding SKOS annotations to a reasoner, and **not** via `rdfs:subClassOf+` (D21/D28).
+   Emitted concepts and definition values use NCIt IDs; other terminology IDs remain provenance/alignment (D60).
 
 **Scope discipline:**
 6. NCIt-native oncology axes (`op:StageSystem`, `op:MolecularAbnormality`, regimens) and caDSR
@@ -928,7 +933,8 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 > D24–D26). Impact on #4: the `op:` axes are now also the binding points for alignments. No
 > change to the extractor's critical path; add an optional `upstream_xref` field to the constituent
 > model (non-blocking, Phase B1). After #153 provides the complete representation,
-> `--emit-equivalence` may gain an upstream-bound cross-product mode.
+> `--emit-equivalence` may gain a proof-bearing NCIt cross-product mode. Emitted concepts and
+> definition values remain NCIt; other terminology IDs are provenance/alignment only (D60).
 
 **Issue #44 (Extractor curation) — add comment**
 > Sequencing unchanged (D22: relations before coverage). New adjacency: the ~20K role-target atoms are
@@ -941,8 +947,9 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 > Additive to the existing concept-detail response; feature-flag the license-gated (SNOMED/ICD-O-3) fields.
 
 **Issue #6 (Post-coordination grammar) — add comment**
-> D24/D26: the grammar's MRCM ranges now reference upstream classes (Uberon/CL/SNOMED/Mondo). #6 design
-> still starts from SCG/ECL/MRCM (D22) but sanctions over aligned ranges. Depends on Phase B.
+> Historical D24/D26 upstream-range proposal, superseded by D60: #6 still uses SCG/ECL/MRCM as
+> design templates (D22), but emitted ranges and definition values are NCIt. Uberon/CL/SNOMED/Mondo
+> IDs provide provenance/alignment only. Depends on Phase B.
 
 **Issue #5 (Graph balancing) — add comment**
 > Trustworthy decomposed data remains a prerequisite. Uberon/Mondo hierarchy alignments can provide a
@@ -952,8 +959,8 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 **#70 (EPIC): NCIt alignment integration with OBO/SNOMED terminology evidence**
 > Umbrella for NCIt alignments derived from other terminologies (design: `docs/design/ncit-alignment-integration.md`;
-> DECISIONS D24–D29). Delivers additive NCIt↔upstream mappings (SSSOM), cross-product logical
-> definitions, bidirectional `$translate`, and a **published caDSR coverage report**, preserving
+> DECISIONS D24–D29, D60). Delivers additive NCIt↔terminology mappings (SSSOM), NCIt cross-product
+> logical definitions whose values use NCIt IDs, bidirectional `$translate`, and a **published caDSR coverage report**, preserving
 > NCIt + caDSR anchoring. Children: #71–#84. Exit: §12 success criteria met — including the
 > published caDSR coverage number (§13.3), not an unfalsifiable "for free" claim.
 
@@ -1009,9 +1016,11 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 > filler-semantic-type? **AC:** measured on the D16 4-concept set + D20 cases; written up as a DECISIONS
 > addendum; if no improvement, D16/D20 stand (documented null result is a valid outcome). Depends: #72.
 
-**#79: Mondo/DO disease-genus mapping → cross-product genus**
+**#79: Mondo/DO disease-genus alignment → NCIt cross-product genus provenance**
 > Ingest Mondo NCIt xrefs; bind the disease genus of decomposed concepts to Mondo. **AC:** neoplasm-branch
-> qualifying genus concepts carry a Mondo alignment with its recorded validation evidence; cross-product genus renders. Depends: #71, #73.
+> qualifying NCIt genus concepts carry a Mondo alignment with its recorded validation evidence;
+> the emitted cross-product genus uses the NCIt ID, while the Mondo ID remains provenance/alignment
+> only (D60). Depends: #71, #73.
 
 ### New issues — Phase C (morphology + licensing)
 
@@ -1039,7 +1048,9 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 ### New issues — Phase E (grammar, folds into #6)
 
-**#84: MRCM ranges over upstream + future upstream-bound cross-products**
-> Grammar sanctioning references upstream ranges; after #153, `--emit-equivalence` may emit
-> reasoner-validated cross-products. **AC:** a sanctioned post-coordinated expression validates against upstream ranges;
-> emitted cross-product round-trips to the source NCIt concept (D19/D21). Depends: #79, #82, #44 threshold, #153.
+**#84: NCIt MRCM-like ranges + future NCIt cross-products**
+> Grammar sanctioning uses NCIt ranges informed by terminology alignments; after #153, `--emit-equivalence` may emit
+> reasoner-validated NCIt cross-products. **AC:** a sanctioned post-coordinated expression validates
+> against NCIt ranges informed by terminology alignments; emitted concepts and definition values use
+> NCIt IDs, terminology IDs remain provenance/alignment only, and the cross-product round-trips to the
+> source NCIt concept (D19/D21/D60). Depends: #79, #82, #44 threshold, #153.

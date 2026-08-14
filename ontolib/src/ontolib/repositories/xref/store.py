@@ -107,6 +107,49 @@ def _generation_rows(
     ]
 
 
+def _canonical_generation_rows(rows: Sequence[dict[str, Any]]) -> list[str]:
+    return sorted(
+        json.dumps(
+            {
+                key: (
+                    json.loads(value)
+                    if key == "evidence" and isinstance(value, str)
+                    else value
+                )
+                for key, value in row.items()
+                if key not in {"generation_id", "generation_source"}
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        for row in rows
+    )
+
+
+async def _validate_persisted_generation_rows(
+    session: AsyncSession,
+    *,
+    generation_id: str,
+    source: str,
+    requested_rows: Sequence[dict[str, Any]],
+) -> None:
+    persisted = await session.execute(
+        text(
+            "SELECT run_id, subject_system, subject_version, subject_id, "
+            "predicate_id, object_system, object_version, object_id, "
+            "mapping_justification, confidence, lifecycle_state, "
+            "review_status, author, evidence FROM concept_xref "
+            "WHERE generation_id = :id AND generation_source = :source FOR UPDATE"
+        ),
+        {"id": generation_id, "source": source},
+    )
+    persisted_rows = [dict(row) for row in persisted.mappings().all()]
+    if _canonical_generation_rows(persisted_rows) != _canonical_generation_rows(
+        requested_rows
+    ):
+        raise ValueError("generation identity has different persisted rows")
+
+
 def _source_is_requested(source: str, expected: XrefReadPolicy) -> bool:
     if source in _UBERON_SOURCES:
         return expected.uberon is not None
@@ -198,6 +241,12 @@ class XrefStore:
                     source_metadata=source_metadata,
                     graph_iri=graph_iri,
                     run_id=run_id,
+                )
+                await _validate_persisted_generation_rows(
+                    s,
+                    generation_id=generation_id,
+                    source=source,
+                    requested_rows=rows,
                 )
                 await s.commit()
                 return False

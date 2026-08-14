@@ -196,10 +196,18 @@ def generation_identity(
     ).encode()
     content = hashlib.sha256(payload).hexdigest()
     metadata = source_metadata.model_dump_json(exclude_none=True)
-    provenance = json.dumps(
-        list(record_run_ids) if record_run_ids is not None else [],
-        separators=(",", ":"),
+    pairs = (
+        sorted(
+            (
+                {"record": row, "run_id": run_id}
+                for row, run_id in zip(rows, record_run_ids, strict=True)
+            ),
+            key=lambda pair: json.dumps(pair, sort_keys=True),
+        )
+        if record_run_ids is not None
+        else []
     )
+    provenance = json.dumps(pairs, separators=(",", ":"), sort_keys=True)
     generation = hashlib.sha256(
         f"{source}\0{content}\0{metadata}\0{provenance}".encode()
     ).hexdigest()

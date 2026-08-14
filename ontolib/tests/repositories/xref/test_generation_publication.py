@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 
+from ontolib.repositories.xref.evidence import SME_CURATION, Evidence
 from ontolib.repositories.xref.models import (
     SSSOMRecord,
     UberonPromotionGenerationMetadata,
@@ -174,6 +176,46 @@ def test_generation_identity_includes_ordered_record_provenance() -> None:
 
     assert first != second
     assert first_content == second_content
+
+
+@pytest.mark.unit
+def test_generation_identity_canonicalizes_record_run_pairs_together() -> None:
+    records = [_record("C1"), _record("C2")]
+    metadata = UberonPromotionGenerationMetadata(
+        ncit_source_identity="a" * 64,
+        uberon_source_identity="b" * 64,
+        uberon_serving_identity="c" * 64,
+    )
+
+    first = generation_identity(
+        "uberon-cl-promotion", records, metadata, ["run-a", "run-b"]
+    )
+    reordered = generation_identity(
+        "uberon-cl-promotion", records[::-1], metadata, ["run-b", "run-a"]
+    )
+
+    assert first == reordered
+
+
+@pytest.mark.unit
+def test_generation_identity_serializes_evidence_despite_dataclass_comparison() -> None:
+    record = _record("C1")
+    with_evidence = replace(
+        record,
+        evidence=(Evidence(kind=SME_CURATION, source="golden/mappings.json"),),
+    )
+    metadata = UberonPromotionGenerationMetadata(
+        ncit_source_identity="a" * 64,
+        uberon_source_identity="b" * 64,
+        uberon_serving_identity="c" * 64,
+    )
+
+    assert record == with_evidence
+    assert generation_identity(
+        "uberon-cl-promotion", [record], metadata, ["run-a"]
+    ) != generation_identity(
+        "uberon-cl-promotion", [with_evidence], metadata, ["run-a"]
+    )
 
 
 @pytest.mark.unit

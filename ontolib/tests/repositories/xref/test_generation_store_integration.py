@@ -307,6 +307,70 @@ async def test_different_originating_run_creates_a_distinct_generation(
     await dispose_engine(engine)
 
 
+@pytest.mark.parametrize(
+    "corruption",
+    ["run_id", "evidence", "lifecycle_state", "confidence", "missing", "extra"],
+)
+async def test_exact_generation_retry_rejects_corrupted_persisted_rows(
+    corruption: str,
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "uberon-cl"
+    run_id = await _run(store, source, "u1")
+    other_run_id = await _run(store, source, "u1")
+    records = [_record("C-RETRY", "UBERON:RETRY", "u1")]
+    generation_id, content_sha256 = generation_identity(source, records, [run_id])
+    kwargs = {
+        "source": source,
+        "generation_id": generation_id,
+        "content_sha256": content_sha256,
+        "source_metadata": _metadata_for(source),
+        "graph_iri": generation_graph_iri(source, generation_id),
+        "run_id": run_id,
+        "records": records,
+        "record_run_ids": [run_id],
+    }
+    assert await store.prepare_generation(**kwargs)  # type: ignore[arg-type]
+
+    statements = {
+        "run_id": "UPDATE concept_xref SET run_id = :other WHERE generation_id = :g",
+        "evidence": (
+            "UPDATE concept_xref SET evidence = "
+            '\'[ {"kind": "sme_curation", "source": "corrupt", '
+            '"detail": ""} ]\'::jsonb WHERE generation_id = :g'
+        ),
+        "lifecycle_state": (
+            "UPDATE concept_xref SET lifecycle_state = 'quarantined' "
+            "WHERE generation_id = :g"
+        ),
+        "confidence": (
+            "UPDATE concept_xref SET confidence = 0.1 WHERE generation_id = :g"
+        ),
+        "missing": "DELETE FROM concept_xref WHERE generation_id = :g",
+        "extra": (
+            "INSERT INTO concept_xref "
+            "(generation_id, generation_source, run_id, subject_system, "
+            "subject_version, subject_id, predicate_id, object_system, object_version, "
+            "object_id, mapping_justification, confidence, lifecycle_state, "
+            "review_status, author, evidence) "
+            "SELECT generation_id, generation_source, run_id, subject_system, "
+            "subject_version, 'C-EXTRA', predicate_id, object_system, object_version, "
+            "object_id, mapping_justification, confidence, lifecycle_state, "
+            "review_status, author, evidence FROM concept_xref WHERE generation_id = :g"
+        ),
+    }
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(statements[corruption]),
+            {"g": generation_id, "other": other_run_id},
+        )
+
+    with pytest.raises(ValueError, match="persisted rows"):
+        await store.prepare_generation(**kwargs)  # type: ignore[arg-type]
+    await dispose_engine(engine)
+
+
 async def test_rdf_pointer_failure_restores_previous_postgres_generation() -> None:
     engine = make_engine(get_settings().database_url)
     store = XrefStore(make_sessionmaker(engine))
