@@ -195,9 +195,9 @@ def _dataset(edition: Edition, axis: Axis) -> ServedIcdoDataset:
 
 
 async def _ready(
-    repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
+    repository_metadata: RepositoryMetadataReads, dataset: ServedIcdoDataset
 ) -> IcdoRepositoryReady:
-    result = await repository_metadata.icdo(edition, axis)
+    result = await repository_metadata.icdo(dataset)
     if isinstance(result, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, result.model_dump(mode="json")
@@ -242,7 +242,7 @@ async def metadata(
     repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
 ) -> object:
     dataset = _dataset(edition, axis)
-    result = await _ready(repository_metadata, dataset.edition, dataset.axis)
+    result = await _ready(repository_metadata, dataset)
     return result.model_dump(mode="json")
 
 
@@ -252,7 +252,7 @@ async def congruence_report(
     uberon: UberonStore,
     repository_metadata: RepositoryMetadataReads,
 ) -> CongruenceReport:
-    icdo_metadata = await repository_metadata.icdo("4.0", "topography")
+    icdo_metadata = await repository_metadata.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY)
     uberon_metadata = await repository_metadata.uberon()
     if isinstance(icdo_metadata, RepositoryUnhealthy) or isinstance(
         uberon_metadata, RepositoryUnhealthy
@@ -311,7 +311,7 @@ async def list_records(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     dataset = _dataset(edition, axis)
-    ready = await _ready(repository_metadata, dataset.edition, dataset.axis)
+    ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
             dataset.edition,
@@ -347,7 +347,7 @@ async def search(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     dataset = _dataset(edition, axis)
-    ready = await _ready(repository_metadata, dataset.edition, dataset.axis)
+    ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
             dataset.edition,
@@ -380,7 +380,7 @@ async def detail(
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
     dataset = _dataset(edition, axis)
-    ready = await _ready(repository_metadata, dataset.edition, dataset.axis)
+    ready = await _ready(repository_metadata, dataset)
     canonical = _decode_code(code, dataset.edition, dataset.axis)
     try:
         result = await repository.detail(

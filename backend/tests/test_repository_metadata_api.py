@@ -1,13 +1,14 @@
 """Readiness/refresh API contracts for discriminated repository metadata."""
 
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
 from backend.dependencies import get_repository_metadata
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from backend.repository_metadata import (
     CadsrRepositoryReady,
@@ -123,14 +124,12 @@ class _Metadata:
         return self._uberon
 
     async def icdo(
-        self,
-        edition: Literal["3.2", "4.0"],
-        axis: Literal["morphology", "topography"],
+        self, dataset: ServedIcdoDataset
     ) -> IcdoRepositoryReady | RepositoryUnhealthy:
         self.icdo_calls += 1
         return self._icdo or IcdoRepositoryReady(
-            edition=edition,
-            axis=axis,
+            edition=dataset.edition,
+            axis=dataset.axis,
             source_identity="3" * 64,
             serving_identity="4" * 64,
             activation_identity="5" * 64,
@@ -142,11 +141,7 @@ class _Metadata:
         self, *, force: bool = False
     ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy, ...]:
         del force
-        return (
-            await self.icdo("3.2", "morphology"),
-            await self.icdo("4.0", "morphology"),
-            await self.icdo("4.0", "topography"),
-        )
+        return tuple([await self.icdo(dataset) for dataset in ServedIcdoDataset])
 
 
 @pytest.mark.api

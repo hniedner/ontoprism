@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import (
     CadsrRepositoryReady,
     IcdoRepositoryReady,
@@ -105,15 +106,15 @@ def _uberon_counts() -> UberonClassCounts:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("edition", "axis", "count"),
+    ("dataset", "count"),
     [
-        ("3.2", "morphology", 1143),
-        ("4.0", "morphology", 2390),
-        ("4.0", "topography", 406),
+        (ServedIcdoDataset.ICDO_32_MORPHOLOGY, 1143),
+        (ServedIcdoDataset.ICDO_40_MORPHOLOGY, 2390),
+        (ServedIcdoDataset.ICDO_40_TOPOGRAPHY, 406),
     ],
 )
 async def test_icdo_readiness_is_bound_to_certified_active_dataset(
-    edition: str, axis: str, count: int
+    dataset: ServedIcdoDataset, count: int
 ) -> None:
     settings = _Settings(
         ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
@@ -123,19 +124,21 @@ async def test_icdo_readiness_is_bound_to_certified_active_dataset(
         async def certified_metadata(
             self, observed_edition: str, observed_axis: str, expected: object
         ) -> IcdoManifest:
-            assert (observed_edition, observed_axis) == (edition, axis)
+            assert (observed_edition, observed_axis) == dataset.value
             source = (
                 settings.icdo_32_morphology_source_sha256
-                if edition == "3.2"
+                if dataset.edition == "3.2"
                 else settings.icdo_40_source_sha256
             )
             serving = getattr(
-                settings, f"icdo_{edition.replace('.', '')}_{axis}_serving_sha256"
+                settings,
+                "icdo_"
+                f"{dataset.edition.replace('.', '')}_{dataset.axis}_serving_sha256",
             )
             return IcdoManifest(
                 generation_id="a" * 64,
-                edition=edition,
-                axis=axis,
+                edition=dataset.edition,
+                axis=dataset.axis,
                 publisher_url="https://example.test",
                 source_sha256=source,
                 archive_sha256=None,
@@ -149,9 +152,9 @@ async def test_icdo_readiness_is_bound_to_certified_active_dataset(
 
     result = await RepositoryMetadataService(
         settings=settings, cadsr=_CertifiedCadsr(), icdo=_Icdo()
-    ).icdo(edition, axis)
+    ).icdo(dataset)
     assert isinstance(result, IcdoRepositoryReady)
-    assert (result.edition, result.axis, result.row_count) == (edition, axis, count)
+    assert (result.edition, result.axis, result.row_count) == (*dataset.value, count)
 
 
 @pytest.mark.asyncio
@@ -168,10 +171,10 @@ async def test_icdo_readiness_returns_typed_drift_and_unavailable_refusals() -> 
 
     drift = await RepositoryMetadataService(
         settings=settings, cadsr=_CertifiedCadsr(), icdo=_Drift()
-    ).icdo("4.0", "topography")
+    ).icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY)
     unavailable = await RepositoryMetadataService(
         settings=settings, cadsr=_CertifiedCadsr()
-    ).icdo("4.0", "topography")
+    ).icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY)
     assert isinstance(drift, RepositoryUnhealthy)
     assert drift.reason == "observation-mismatch"
     assert isinstance(unavailable, RepositoryUnhealthy)

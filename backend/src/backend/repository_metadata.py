@@ -617,9 +617,7 @@ class RepositoryMetadataService:
             return _unhealthy("uberon", "repository-unreachable", exc)
 
     async def icdo(
-        self,
-        edition: Literal["3.2", "4.0"],
-        axis: Literal["morphology", "topography"],
+        self, dataset: ServedIcdoDataset
     ) -> IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]:
         """Return an active-row/manifest/configuration-bound ICD-O identity."""
         if self._icdo is None:
@@ -630,7 +628,7 @@ class RepositoryMetadataService:
             )
         try:
             manifest = await self._icdo.certified_metadata(
-                edition, axis, icdo_expectation(self._settings, edition, axis)
+                dataset.edition, dataset.axis, icdo_expectation(self._settings, dataset)
             )
             if manifest is None:
                 raise RepositoryMetadataError(
@@ -655,7 +653,7 @@ class RepositoryMetadataService:
                 IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]
             ] = []
             for dataset in ServedIcdoDataset:
-                results.append(await self.icdo(dataset.edition, dataset.axis))
+                results.append(await self.icdo(dataset))
             observed = tuple(results)
             if not any(isinstance(result, RepositoryUnhealthy) for result in observed):
                 self._icdo_access = observed
@@ -665,8 +663,7 @@ class RepositoryMetadataService:
 
 def icdo_expectation(
     settings: _MetadataSettings,
-    edition: Literal["3.2", "4.0"],
-    axis: Literal["morphology", "topography"],
+    dataset: ServedIcdoDataset,
 ) -> CertificationExpectation:
     configured = {
         ("3.2", "morphology"): (
@@ -685,11 +682,11 @@ def icdo_expectation(
             406,
         ),
     }
-    source, serving, count = configured[(edition, axis)]
+    source, serving, count = configured[dataset.value]
     return CertificationExpectation(
         source_sha256=source,
-        edition=edition,
-        axis=axis,
+        edition=dataset.edition,
+        axis=dataset.axis,
         row_count=count,
         serving_sha256=serving,
     )

@@ -13,6 +13,7 @@ from backend.dependencies import (
     get_uberon_store,
     get_xref_store,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
@@ -99,26 +100,22 @@ class _ReadinessMetadata:
         self.healthy = healthy
         self.calls = 0
 
-    async def icdo(self, edition: str, axis: str) -> object:
+    async def icdo(self, dataset: ServedIcdoDataset) -> object:
         self.calls += 1
         if not self.healthy:
             return RepositoryUnhealthy(
                 repository="icdo", reason="observation-mismatch", message="drift"
             )
         return SimpleNamespace(
-            edition=edition,
-            axis=axis,
+            edition=dataset.edition,
+            axis=dataset.axis,
             activation_identity="a" * 64,
             serving_identity="b" * 64,
         )
 
     async def icdo_access(self, *, force: bool = False) -> tuple[object, ...]:
         del force
-        return (
-            await self.icdo("3.2", "morphology"),
-            await self.icdo("4.0", "morphology"),
-            await self.icdo("4.0", "topography"),
-        )
+        return tuple([await self.icdo(dataset) for dataset in ServedIcdoDataset])
 
 
 class _Xrefs:
@@ -153,9 +150,11 @@ def _client(
         async def ncit(self) -> object:
             return SimpleNamespace(source_identity="c" * 64)
 
-        async def icdo(self, edition: str, axis: str) -> object:
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
             try:
-                result = await store.certified_metadata(edition, axis, object())
+                result = await store.certified_metadata(
+                    dataset.edition, dataset.axis, object()
+                )
             except IcdoCertificationError as exc:
                 return RepositoryUnhealthy(
                     repository="icdo",
@@ -534,8 +533,8 @@ def test_congruence_classifies_active_sources_and_pages_uberon_inventory(
             )
 
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> object:
-            assert (edition, axis) == ("4.0", "topography")
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            assert dataset is ServedIcdoDataset.ICDO_40_TOPOGRAPHY
             return SimpleNamespace(
                 serving_identity="b" * 64, activation_identity="a" * 64
             )
@@ -575,8 +574,8 @@ def test_congruence_refuses_unhealthy_uberon_without_inventory_read(
             return object()
 
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> object:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            del dataset
             return SimpleNamespace(
                 serving_identity="b" * 64, activation_identity="a" * 64
             )
@@ -614,8 +613,8 @@ def test_congruence_refuses_uncertified_icdo_before_protected_rows_are_read(
             return object()
 
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> RepositoryUnhealthy:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> RepositoryUnhealthy:
+            del dataset
             return RepositoryUnhealthy(
                 repository="icdo",
                 reason="observation-mismatch",
@@ -648,8 +647,8 @@ def test_congruence_refuses_missing_active_topography_after_certification(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> object:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            del dataset
             return SimpleNamespace(
                 serving_identity="b" * 64, activation_identity="a" * 64
             )

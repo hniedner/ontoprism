@@ -5,6 +5,7 @@ from typing import Annotated, Literal, Protocol
 from fastapi import Depends, Request
 
 from backend.decomposition_reader import DecompositionReader
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import (
     CadsrRepositoryReady,
     IcdoRepositoryReady,
@@ -112,9 +113,7 @@ class RepositoryMetadataReader(Protocol):
     ) -> UberonRepositoryReady | RepositoryUnhealthy[Literal["uberon"]]: ...
 
     async def icdo(
-        self,
-        edition: Literal["3.2", "4.0"],
-        axis: Literal["morphology", "topography"],
+        self, dataset: ServedIcdoDataset
     ) -> IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]: ...
 
     async def icdo_access(
