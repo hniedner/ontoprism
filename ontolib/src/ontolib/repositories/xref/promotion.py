@@ -1623,7 +1623,7 @@ async def _run_promotion_locked(
     *ncit_version* / *source_version* are the endpoint versions this run validates
     against; they stamp promoted rows and identify stale prior alignments.
 
-    Stale alignments are inspected while building the candidate successor generation.
+    Stale alignments are inspected while building the successor promotion generation.
     If the reasoner fails, that inspection produces no publication or lifecycle change;
     a run that established nothing cannot replace a working generation.
     """

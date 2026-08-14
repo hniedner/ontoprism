@@ -647,12 +647,9 @@ class XrefStore:
         rows) would be silently upgraded to identity-grade equivalence.  Only a
         ``closeMatch`` is a candidate for identity.
 
-        Only active generations are read. ``DISTINCT`` collapses a byte-identical pair
-        present in multiple active sources; without it each duplicate is re-validated
-        (two JVM launches apiece) and inflates ``xref_run.metrics`` counts. Note it does
-        **not** collapse a re-ingest after a version bump: those rows differ in
-        ``*_source_version``, so the pair legitimately returns as a fresh candidate that
-        must be re-validated against the new release (D29).
+        The caller pins one certified candidate generation. ``DISTINCT`` prevents
+        duplicate rows within that immutable generation from triggering repeated
+        reasoner work and inflated run metrics.
         """
         sql = text(
             "SELECT DISTINCT x.subject_id, x.subject_system, x.predicate_id, "
