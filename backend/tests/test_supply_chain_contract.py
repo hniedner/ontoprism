@@ -161,6 +161,22 @@ def test_every_ci_job_installs_the_tools_its_steps_invoke() -> None:
         )
 
 
+def test_frontend_transitive_security_and_install_script_policy() -> None:
+    """Patched transitive tools stay pinned and optional native scripts stay denied."""
+    package = json.loads(
+        (_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
+    )
+    lock = json.loads(
+        (_ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8")
+    )
+
+    assert package["allowScripts"] == {"fsevents": False}
+    assert package["overrides"]["brace-expansion"] == "^5.0.9"
+    assert package["overrides"]["nanoid"] == "^3.3.18"
+    assert lock["packages"]["node_modules/brace-expansion"]["version"] == "5.0.9"
+    assert lock["packages"]["node_modules/nanoid"]["version"] == "3.3.18"
+
+
 def test_ci_dependency_environments_are_pinned_clean_and_cached(
     tmp_path: Path,
 ) -> None:

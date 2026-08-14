@@ -2,6 +2,47 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-14 — M1.6 release governance separates semantic gates from measurements
+
+### D74. Semantic invariants block release; independently named metrics measure progress
+
+The accepted #57 baseline contains 106 engine-suggestion rows, of which 48 carry the
+SME `include` action; the exact-pair score is separately 80/106 precision and 80/153
+recall (`pdm run pytest ontolib/tests/decomposition/test_m1_baseline.py -q`, 2026-08-14).
+The include rate is immutable historical review metadata unless another human review
+occurs. It is not recomputed for a changed engine and is never filler accuracy.
+
+**Decision:** D58's semantic invariants are release blockers. Unclassified deltas,
+contract or normalized-group violations, unadjudicated golden-cohort changes,
+`op:PrimarySite` cardinality failures, and unexplained R101 loss block release. M1.6
+must also strictly improve both current exact-pair precision and recall beyond 80/106
+and 80/153 without violating an invariant. D21's `>=0.9` value remains #44's explicit
+quality target; it is not the M1.6 exit gate unless a later deliberate decision makes
+it one.
+
+Five views remain independent:
+
+1. SME include rate uses the historical 106 suggestion rows only.
+2. Exact-pair precision uses current emitted NCIt-bound scoreable pairs.
+3. Exact-pair recall uses the 153 NCIt-bound, non-deferred oracle expectations.
+4. Full-partition agreement compares exact pair sets and partitions over the accepted
+   20-concept cohort.
+5. Common-pair partition agreement induces both partitions on their shared pair set
+   and includes only concepts with at least two shared pairs; concepts with zero or one
+   shared pair are reported separately.
+
+The current certified NCIt 26.07d candidate has source identity `b58f48b5...`, while
+the historical attested evidence has `f54dd291...`
+(`rg -n 'source_identity' data/qlever-ncit/.ontoprism-ncit-candidate.json samples/ncit-26.07d-m1-sme-review.json`,
+2026-08-14). Current-run evidence must therefore use a separate identity-bound
+comparison contract; historical identity checks remain strict.
+
+Frontend dependency installation is also fail-closed from this milestone onward. The
+two reported high advisories are resolved at patched transitive versions, and optional
+`fsevents` install scripts are explicitly denied rather than silently approved
+(`npm audit --prefix frontend --json` and `npm install-scripts ls --prefix frontend`,
+2026-08-14).
+
 ## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
 
 ### D73. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
