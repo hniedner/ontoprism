@@ -60,6 +60,18 @@ def test_generation_graph_refuses_invalid_generation_identity(
 
 
 @pytest.mark.unit
+def test_generation_graph_refuses_source_without_alphanumeric_component() -> None:
+    with pytest.raises(ValueError, match="source"):
+        generation_graph_iri("///", "a" * 64)
+
+
+@pytest.mark.unit
+def test_active_graph_refuses_source_without_alphanumeric_component() -> None:
+    with pytest.raises(ValueError, match="source"):
+        active_graph_iri("///")
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "rows",
     [

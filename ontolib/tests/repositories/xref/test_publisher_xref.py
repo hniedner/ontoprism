@@ -7,6 +7,8 @@ import pytest
 from ontolib.repositories.xref.publisher_xref import (
     PublisherXrefCountDriftError,
     PublisherXrefSourceError,
+    _observed_version,
+    _parse_assertions,
 )
 from ontolib.repositories.xref.publisher_xref import (
     publish_uberon_xrefs as _publish_uberon_xrefs,
@@ -56,6 +58,36 @@ class _Client:
         assert content_type == "text/turtle"
         assert replace is True
         self.loads.append((data, graph_iri))
+
+
+@pytest.mark.unit
+def test_publisher_xref_refuses_unsupported_concept_namespace() -> None:
+    with pytest.raises(PublisherXrefSourceError, match="unsupported publisher concept"):
+        _parse_assertions(
+            [{"upstream": "https://example.test/not-uberon", "xref": "NCIT:C1"}]
+        )
+
+
+@pytest.mark.unit
+async def test_ncit_version_falls_back_to_unique_ontology_identity() -> None:
+    class Client:
+        async def version(self) -> None:
+            return None
+
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            return [{"v": "26.07d"}]
+
+    assert await _observed_version(Client(), "NCIt") == "26.07d"  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+async def test_source_version_refuses_ambiguous_ontology_identities() -> None:
+    class Client:
+        async def select(self, _query: str) -> list[dict[str, str]]:
+            return [{"v": "one"}, {"v": "two"}]
+
+    with pytest.raises(PublisherXrefSourceError, match="unique release identity"):
+        await _observed_version(Client(), "Uberon")  # type: ignore[arg-type]
 
 
 class _Lock:

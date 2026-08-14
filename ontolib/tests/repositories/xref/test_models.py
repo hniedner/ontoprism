@@ -8,6 +8,7 @@ from ontolib.repositories.xref.models import (
     EndpointIdentity,
     MappingResult,
     SSSOMRecord,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.vocab import BROAD_MATCH, CLOSE_MATCH, EXACT_MATCH
 
@@ -45,6 +46,12 @@ def test_mapping_result_rejects_out_of_range_database_confidence() -> None:
             lifecycle="proposed",
             confidence=1.1,
         )
+
+
+@pytest.mark.unit
+def test_xref_read_policy_requires_a_source_family() -> None:
+    with pytest.raises(ValueError, match="source family"):
+        XrefReadPolicy()
 
 
 @pytest.mark.unit
