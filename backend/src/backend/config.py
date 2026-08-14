@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     clinicaltrials_api_url: str = "https://clinicaltrials.gov/api/v2"
 
     # SNOMED/ICD-O-3 alignments require license confirmation (D26).
-    # When False, every alignment surface suppresses licensed sources.
+    # When False, NCIt mapping/decomposition and translation projections suppress them.
     enable_licensed_mappings: bool = False
     # Separate consumer entitlement for protected ICD-O repository content.
     icdo_entitlement_key: str | None = None
