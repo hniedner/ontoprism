@@ -639,7 +639,7 @@ the currently certified repository identities before looking up identifiers.
 ### 8.4 `backend` — API
 
 - `GET /concept/{id}/mappings` — typed terminology alignments for an NCIt concept (and reverse).
-- `POST /terminology/$translate` — FHIR-style ConceptMap translate, both directions, honoring SKOS
+- `POST /api/v1/mappings/$translate` — FHIR-style ConceptMap translate, both directions, honoring SKOS
   relation and confidence.
 - Extend the existing concept-detail response to include `mappings` (feature-flagged for the
   licensed sources).
@@ -944,7 +944,7 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 > ≥0.9 threshold.
 
 **Issue #9 (Read/serve surface) — add comment**
-> Extend serve surface with `GET /concept/{id}/mappings` and `POST /terminology/$translate` (Phase D1).
+> Extend serve surface with `GET /concept/{id}/mappings` and `POST /api/v1/mappings/$translate` (Phase D1).
 > Additive to the existing concept-detail response; feature-flag the license-gated (SNOMED/ICD-O-3) fields.
 
 **Issue #6 (Post-coordination grammar) — add comment**

@@ -23,6 +23,7 @@ from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
     CLOSE_MATCH,
     EXACT_MATCH,
+    NARROW_MATCH,
     MappingLifecycle,
     MappingPredicate,
 )
@@ -122,6 +123,9 @@ class _FakeXrefStore:
             ],
             "UBERON:0009998": [
                 mapping("C70000", "UBERON:0009998", BROAD_MATCH, "validated", 0.8)
+            ],
+            "UBERON:0009997": [
+                mapping("C70001", "UBERON:0009997", NARROW_MATCH, "validated", 0.75)
             ],
         }
         self.lookup_calls = 0
@@ -414,6 +418,26 @@ def test_translate_upstream_to_ncit_selects_subject_and_inverts_direction() -> N
                 "version": "26.07d",
             },
             "confidence": 0.8,
+        }
+    ]
+
+
+@pytest.mark.api
+def test_translate_reverse_narrow_match_becomes_broad() -> None:
+    response = next(_client()).post(
+        "/api/v1/mappings/$translate", json={"code": "UBERON:0009997"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result"] == [
+        {
+            "equivalence": "broad",
+            "concept": {
+                "code": "C70001",
+                "system": "ncit",
+                "version": "26.07d",
+            },
+            "confidence": 0.75,
         }
     ]
 
