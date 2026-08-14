@@ -13,6 +13,7 @@ from backend.main import create_app
 from backend.repository_metadata import (
     CadsrRepositoryReady,
     CadsrSourceMetadata,
+    IcdoAccessCertification,
     IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryUnhealthy,
@@ -137,11 +138,13 @@ class _Metadata:
             activated_at=datetime(2026, 8, 12, tzinfo=UTC),
         )
 
-    async def icdo_access(
-        self, *, force: bool = False
-    ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy, ...]:
+    async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification:
         del force
-        return tuple([await self.icdo(dataset) for dataset in ServedIcdoDataset])
+        return IcdoAccessCertification(
+            morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
+        )
 
 
 @pytest.mark.api

@@ -1,5 +1,6 @@
 import base64
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +16,11 @@ from backend.dependencies import (
 )
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import (
+    IcdoAccessCertification,
+    IcdoRepositoryReady,
+    RepositoryUnhealthy,
+)
 from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
 from ontolib.repositories.icdo.store import IcdoCertificationError
 from ontolib.repositories.xref.models import (
@@ -100,22 +105,31 @@ class _ReadinessMetadata:
         self.healthy = healthy
         self.calls = 0
 
-    async def icdo(self, dataset: ServedIcdoDataset) -> object:
+    async def icdo(
+        self, dataset: ServedIcdoDataset
+    ) -> IcdoRepositoryReady | RepositoryUnhealthy:
         self.calls += 1
         if not self.healthy:
             return RepositoryUnhealthy(
                 repository="icdo", reason="observation-mismatch", message="drift"
             )
-        return SimpleNamespace(
+        return IcdoRepositoryReady(
             edition=dataset.edition,
             axis=dataset.axis,
+            source_identity="c" * 64,
             activation_identity="a" * 64,
             serving_identity="b" * 64,
+            row_count=1,
+            activated_at=datetime(2026, 8, 14, tzinfo=UTC),
         )
 
-    async def icdo_access(self, *, force: bool = False) -> tuple[object, ...]:
+    async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification:
         del force
-        return tuple([await self.icdo(dataset) for dataset in ServedIcdoDataset])
+        return IcdoAccessCertification(
+            morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
+        )
 
 
 class _Xrefs:

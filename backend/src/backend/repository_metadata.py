@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -177,6 +177,25 @@ class RepositoryUnhealthy[RepositoryNameT: RepositoryName](_RepositoryModel):
     repository: RepositoryNameT
     reason: RepositoryUnhealthyReason
     message: str
+
+
+IcdoCertificationResult = IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]
+
+
+@dataclass(frozen=True, slots=True)
+class IcdoAccessCertification:
+    """Exact certification result for each served ICD-O dataset."""
+
+    morphology_32: IcdoCertificationResult
+    morphology_40: IcdoCertificationResult
+    topography_40: IcdoCertificationResult
+
+    def values(
+        self,
+    ) -> tuple[
+        IcdoCertificationResult, IcdoCertificationResult, IcdoCertificationResult
+    ]:
+        return (self.morphology_32, self.morphology_40, self.topography_40)
 
 
 RepositoryMetadata = (
@@ -549,10 +568,7 @@ class RepositoryMetadataService:
         self._uberon_live_observation: (
             tuple[str, UberonIndexObservation, UberonClassCounts] | None
         ) = None
-        self._icdo_access: (
-            tuple[IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]], ...]
-            | None
-        ) = None
+        self._icdo_access: IcdoAccessCertification | None = None
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         """Return a manifest/journal/live-observation-bound NCIt identity."""
@@ -644,18 +660,17 @@ class RepositoryMetadataService:
         except ValueError as exc:
             return _unhealthy("icdo", "manifest-invalid", exc)
 
-    async def icdo_access(
-        self, *, force: bool = False
-    ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]], ...]:
+    async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification:
         """Certify all served ICD-O datasets once for the process access marker."""
         if force or self._icdo_access is None:
-            results: list[
-                IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]
-            ] = []
-            for dataset in ServedIcdoDataset:
-                results.append(await self.icdo(dataset))
-            observed = tuple(results)
-            if not any(isinstance(result, RepositoryUnhealthy) for result in observed):
+            observed = IcdoAccessCertification(
+                morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+                morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+                topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
+            )
+            if not any(
+                isinstance(result, RepositoryUnhealthy) for result in observed.values()
+            ):
                 self._icdo_access = observed
             return observed
         return self._icdo_access

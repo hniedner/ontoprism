@@ -8,6 +8,7 @@ from backend.decomposition_reader import DecompositionReader
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import (
     CadsrRepositoryReady,
+    IcdoAccessCertification,
     IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryUnhealthy,
@@ -116,9 +117,7 @@ class RepositoryMetadataReader(Protocol):
         self, dataset: ServedIcdoDataset
     ) -> IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]: ...
 
-    async def icdo_access(
-        self, *, force: bool = False
-    ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]], ...]: ...
+    async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification: ...
 
 
 def get_repository_metadata(request: Request) -> RepositoryMetadataReader:

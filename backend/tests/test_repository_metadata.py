@@ -223,7 +223,7 @@ async def test_icdo_readiness_reuses_certification_until_forced() -> None:
     forced = await service.icdo_access(force=True)
 
     assert first is second
-    assert all(isinstance(result, IcdoRepositoryReady) for result in forced)
+    assert all(isinstance(result, IcdoRepositoryReady) for result in forced.values())
     assert repository.calls == 6
 
 
@@ -277,8 +277,8 @@ async def test_icdo_access_retries_after_an_unhealthy_snapshot() -> None:
     first = await service.icdo_access()
     second = await service.icdo_access()
 
-    assert isinstance(first[0], RepositoryUnhealthy)
-    assert all(isinstance(result, IcdoRepositoryReady) for result in second)
+    assert isinstance(first.morphology_32, RepositoryUnhealthy)
+    assert all(isinstance(result, IcdoRepositoryReady) for result in second.values())
     assert repository.calls == 6
 
 

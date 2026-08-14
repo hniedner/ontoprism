@@ -69,7 +69,7 @@ async def refresh(
         await metadata.ncit(),
         metadata.cadsr(),
         await metadata.uberon(force=True),
-        *icdo,
+        *icdo.values(),
     ]
     return RefreshReport(
         refreshed_at=datetime.now(UTC).isoformat(), repositories=repositories

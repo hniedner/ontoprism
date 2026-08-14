@@ -212,7 +212,12 @@ async def access_status(
     """Confirm entitlement and all served datasets without exposing metadata."""
     results = await repository_metadata.icdo_access()
     unhealthy = next(
-        (result for result in results if isinstance(result, RepositoryUnhealthy)), None
+        (
+            result
+            for result in results.values()
+            if isinstance(result, RepositoryUnhealthy)
+        ),
+        None,
     )
     if unhealthy is not None:
         raise HTTPException(
