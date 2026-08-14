@@ -215,7 +215,9 @@ class XrefStore:
         """Persist one immutable generation; an exact retry is a no-op."""
         if source_metadata.source != source:
             raise ValueError("generation metadata source does not match source")
-        originating_runs = record_run_ids or [run_id] * len(records)
+        originating_runs = (
+            [run_id] * len(records) if record_run_ids is None else record_run_ids
+        )
         if len(originating_runs) != len(records):
             raise ValueError("record_run_ids must match records")
         rows = _generation_rows(generation_id, source, records, originating_runs)
@@ -554,14 +556,17 @@ class XrefStore:
             await s.commit()
 
     async def evidence_by_pair(
-        self, run_id: str
+        self, run_id: str, *, generation_id: str
     ) -> dict[tuple[str, str], list[EvidenceDict]]:
-        """The persisted evidence behind each row of *run_id* (#122, D36).
+        """Return evidence for rows of *run_id* in exactly *generation_id*.
 
         Keyed by ``(subject_id, object_id)``; each value is the list of evidence dicts
         (``kind``/``source``/``detail``) the promotion decision used. A candidate row
         carries ``[]`` — so a curation-alone promotion is distinguishable from a
         source-agreement one at the row level, not only in the aggregate run metrics.
+
+        The generation scope is required because immutable historical generations may
+        contain the same run and pair with different evidence.
 
         Assumes **one predicate per pair** within the run: the key omits
         ``predicate_id``, so pointing this at an ingest run (which may hold a
@@ -573,9 +578,10 @@ class XrefStore:
             result = await s.execute(
                 text(
                     "SELECT subject_id, object_id, evidence "
-                    "FROM concept_xref WHERE run_id = :run_id"
+                    "FROM concept_xref WHERE run_id = :run_id "
+                    "AND generation_id = :generation_id"
                 ),
-                {"run_id": run_id},
+                {"run_id": run_id, "generation_id": generation_id},
             )
             out: dict[tuple[str, str], list[EvidenceDict]] = {}
             for r in result.mappings().all():
@@ -697,8 +703,8 @@ class XrefStore:
         )
         sql = scoped if source else unscoped
         params: dict[str, str] = {"exact": EXACT_MATCH}
-        if source and generation_id is not None:
-            scoped = text(
+        if generation_id is not None:
+            sql = text(
                 "SELECT DISTINCT subject_id, object_id FROM concept_xref "
                 "WHERE predicate_id = :exact "
                 "AND lifecycle_state IN ('validated', 'active') "

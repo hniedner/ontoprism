@@ -18,6 +18,7 @@ from ontolib.repositories.xref.publication import (
     fail_run_on_error,
     generation_graph_iri,
     generation_identity,
+    publish_generation,
     rdf_active_generation,
 )
 from ontolib.repositories.xref.vocab import EXACT_MATCH
@@ -229,6 +230,26 @@ def test_generation_identity_rejects_misaligned_record_provenance() -> None:
     with pytest.raises(ValueError, match="record_run_ids must match records"):
         generation_identity(
             "uberon-cl-promotion", [_record("C1")], metadata, ["run-a", "run-b"]
+        )
+
+
+@pytest.mark.unit
+async def test_publish_generation_rejects_explicit_empty_record_provenance() -> None:
+    metadata = UberonPromotionGenerationMetadata(
+        ncit_source_identity="a" * 64,
+        uberon_source_identity="b" * 64,
+        uberon_serving_identity="c" * 64,
+    )
+
+    with pytest.raises(ValueError, match="record_run_ids must match records"):
+        await publish_generation(  # type: ignore[arg-type]
+            object(),
+            object(),
+            source="uberon-cl-promotion",
+            run_id="run-a",
+            records=[_record("C1")],
+            source_metadata=metadata,
+            record_run_ids=[],
         )
 
 

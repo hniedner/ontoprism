@@ -573,11 +573,11 @@ two over-optimistic claims the red-team flagged (H3, H4).
     pinning (below) detects *that a version changed*, not *that a specific mapping became false* — so a
     bump must **re-run §4.4 validation over the affected mapped set**, not merely fail the build. Every
     SSSOM record carries both endpoint versions so the affected set is computable from a release diff.
-  - **Dual-identity duplication.** An expression authored upstream and `$translate`d to NCIt for caDSR
-    storage could resolve to a *different* NCIt code than a legacy CDE's anchor — reintroducing the very
-    concept-duplication the project exists to kill. Rule: `$translate` into the NCIt plane must return
-    the **legacy anchor when one exists** (prefer the existing code over minting/選a sibling), and flag
-    a divergence for curation when the reasoner disagrees.
+  - **Dual-identity duplication.** Current NCIt authoring informed by an alignment could select a
+    *different* NCIt code than a legacy CDE's anchor — reintroducing the very concept-duplication the
+    project exists to kill. Rule: a proposal already has NCIt identity; reuse the **legacy anchor when
+    one exists** (prefer the existing code over minting a sibling), and retain corroborating terminology
+    identifiers as alignment evidence. Flag a divergence for curation when the reasoner disagrees.
   - **Mapping lifecycle states:** candidate rows are `proposed`; accepted promotion rows are
     `validated`; stale rows become `quarantined` in a successor immutable generation. `active` is an
     allowed lifecycle value but publication activeness is represented by `xref_active_generation`, not
@@ -848,9 +848,10 @@ number a reviewer can audit and regress against.
   caDSR-used NCIt code is retained and, after step 2, resolvable even across retirements.
 - **To caDSR CDEs:** the coverage report is keyed on the *actual* CDE anchor surfaces, so it measures
   the real join, including the value-domain concepts the previous draft missed.
-- **"We can have more concepts":** new proposed NCIt concepts and minted axes are additive; each
-  carries a mapping back to an NCIt code (or an explicit `no-NCIt-equivalent` minted-concept record,
-  D23), so back-map coverage is measured and gaps are explicitly flagged — never silently absent.
+- **"We can have more concepts":** new proposed NCIt concepts and minted axes are additive. Each
+  proposal already has NCIt identity and may carry an existing NCIt anchor plus corroborating
+  terminology alignments, so coverage is measured and gaps are explicitly flagged — never silently
+  absent.
 
 ---
 

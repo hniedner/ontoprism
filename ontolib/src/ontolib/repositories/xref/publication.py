@@ -227,7 +227,9 @@ async def publish_generation(
     _publication_locked: bool = False,
 ) -> PublicationResult:
     """Prepare, materialize, then reconcile the ordered cross-store activation."""
-    originating_runs = record_run_ids or [run_id] * len(records)
+    originating_runs = (
+        [run_id] * len(records) if record_run_ids is None else record_run_ids
+    )
     generation_id, content_sha256 = generation_identity(
         source, records, source_metadata, originating_runs
     )

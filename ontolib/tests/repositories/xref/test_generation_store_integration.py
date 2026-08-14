@@ -307,6 +307,28 @@ async def test_different_originating_run_creates_a_distinct_generation(
     await dispose_engine(engine)
 
 
+async def test_prepare_generation_rejects_explicit_empty_record_provenance() -> None:
+    engine = make_engine(get_settings().database_url)
+    store = XrefStore(make_sessionmaker(engine))
+    source = "uberon-cl"
+    run_id = await _run(store, source, "u1")
+    records = [_record("C-RUN", "UBERON:RUN", "u1")]
+    generation_id, content_sha256 = generation_identity(source, records)
+
+    with pytest.raises(ValueError, match="record_run_ids must match records"):
+        await store.prepare_generation(
+            source=source,
+            generation_id=generation_id,
+            content_sha256=content_sha256,
+            source_metadata=_SOURCE_METADATA,
+            graph_iri=generation_graph_iri(source, generation_id),
+            run_id=run_id,
+            records=records,
+            record_run_ids=[],
+        )
+    await dispose_engine(engine)
+
+
 @pytest.mark.parametrize(
     "corruption",
     ["run_id", "evidence", "lifecycle_state", "confidence", "missing", "extra"],

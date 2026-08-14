@@ -183,7 +183,9 @@ async def test_a_promoted_bridge_persists_the_evidence_the_decision_used(
         run_id=rid,
     )
 
-    by_pair = await xref_store.evidence_by_pair(rid)
+    generation_id = await xref_store.active_generation("uberon-cl-promotion")
+    assert generation_id is not None
+    by_pair = await xref_store.evidence_by_pair(rid, generation_id=generation_id)
     stored = by_pair[("C12468", "UBERON:0002048")]
     assert {e["kind"] for e in stored} == {LABEL_AGREEMENT, XREF_ASSERTION}
     # provenance survives, not just the kind
@@ -225,7 +227,9 @@ async def test_a_curated_promotion_is_distinguishable_from_source_agreement_per_
         run_id=rid,
     )
 
-    by_pair = await xref_store.evidence_by_pair(rid)
+    generation_id = await xref_store.active_generation("uberon-cl-promotion")
+    assert generation_id is not None
+    by_pair = await xref_store.evidence_by_pair(rid, generation_id=generation_id)
     assert {e["kind"] for e in by_pair[("C1", "UBERON:0000001")]} == {SME_CURATION}
     assert {e["kind"] for e in by_pair[("C2", "UBERON:0000002")]} == {
         LABEL_AGREEMENT,
@@ -256,8 +260,73 @@ async def test_an_unpromoted_candidate_persists_empty_evidence(
         records=[_candidate("C3", "UBERON:0000003")],
     )
 
-    by_pair = await xref_store.evidence_by_pair(rid)
+    generation_id = await xref_store.active_generation("uberon-cl")
+    assert generation_id is not None
+    by_pair = await xref_store.evidence_by_pair(rid, generation_id=generation_id)
     assert by_pair[("C3", "UBERON:0000003")] == []
+
+
+@pytest.mark.integration
+async def test_generation_scoped_reads_do_not_collapse_history(
+    store: tuple[XrefStore, list[str]],
+) -> None:
+    xref_store, run_ids = store
+    source = "uberon-cl-promotion"
+    run_id = f"test-history-{uuid.uuid4().hex}"
+    run_ids.append(run_id)
+    await xref_store.upsert_run(run_id, source, _NCIT_VERSION, _UBERON_VERSION)
+    pair = ("C-HISTORY", "UBERON:0002048")
+    historical_records = [
+        _with_evidence(
+            _promoted(*pair),
+            Evidence(kind=SME_CURATION, source="historical-review"),
+        )
+    ]
+    historical_id, historical_content = generation_identity(
+        source, historical_records, _SOURCE_METADATA, [run_id]
+    )
+    await xref_store.prepare_generation(
+        source=source,
+        generation_id=historical_id,
+        content_sha256=historical_content,
+        source_metadata=_SOURCE_METADATA,
+        graph_iri=generation_graph_iri(source, historical_id),
+        run_id=run_id,
+        records=historical_records,
+        record_run_ids=[run_id],
+    )
+    await xref_store.activate_generation(source, historical_id)
+
+    active_pair = ("C-ACTIVE", "UBERON:0001264")
+    active_records = [
+        _with_evidence(
+            _promoted(*pair),
+            Evidence(kind=LABEL_AGREEMENT, source="active-label"),
+        ),
+        _promoted(*active_pair),
+    ]
+    active_id, active_content = generation_identity(
+        source, active_records, _SOURCE_METADATA, [run_id, run_id]
+    )
+    await xref_store.prepare_generation(
+        source=source,
+        generation_id=active_id,
+        content_sha256=active_content,
+        source_metadata=_SOURCE_METADATA,
+        graph_iri=generation_graph_iri(source, active_id),
+        run_id=run_id,
+        records=active_records,
+        record_run_ids=[run_id, run_id],
+    )
+    await xref_store.activate_generation(source, active_id)
+
+    assert await xref_store.validated_anchors(
+        source=source, generation_id=historical_id
+    ) == (pair,)
+    evidence = await xref_store.evidence_by_pair(run_id, generation_id=historical_id)
+    assert evidence[pair] == [
+        {"kind": SME_CURATION, "source": "historical-review", "detail": ""}
+    ]
 
 
 @pytest.mark.integration
@@ -805,7 +874,11 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
     # not just a hand-built record — so a future refactor that drops evidence between
     # promote_candidates and the row would fail here. The isolated persistence test
     # cannot catch that; only reading evidence off a run the machinery produced.
-    by_pair = await xref_store.evidence_by_pair(report["run_id"])
+    generation_id = await xref_store.active_generation("uberon-cl-promotion")
+    assert generation_id is not None
+    by_pair = await xref_store.evidence_by_pair(
+        str(report["run_id"]), generation_id=generation_id
+    )
     assert SME_CURATION in {e["kind"] for e in by_pair[("C12468", "UBERON:0002048")]}
 
 
