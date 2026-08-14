@@ -6,6 +6,7 @@ import pytest
 
 from ontolib.repositories.icdo.store import CertificationExpectation, IcdoCodeResolution
 from ontolib.repositories.xref.p334_alignment import (
+    P334AlignmentReport,
     P334CountDriftError,
     P334SourceError,
 )
@@ -15,7 +16,9 @@ from ontolib.repositories.xref.p334_alignment import (
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
 
 
-async def publish_p334_alignments(*args: object, **kwargs: object) -> object:
+async def publish_p334_alignments(
+    *args: object, **kwargs: object
+) -> P334AlignmentReport:
     kwargs.setdefault("ncit_source_identity", "a" * 64)
     return await _publish_p334_alignments(*args, **kwargs)  # type: ignore[arg-type]
 
@@ -326,6 +329,33 @@ async def test_p334_refuses_same_release_same_count_row_mutation() -> None:
             icdo_expected=_expectation(),
             expected_counts=(1, 1),
         )
+    assert store.run_writes == 0
+
+
+@pytest.mark.unit
+async def test_p334_refuses_icdo_change_during_validation() -> None:
+    class SwitchingIcdo(_Icdo):
+        async def resolve_active_morphology32_codes(
+            self, codes: set[str], expected: CertificationExpectation
+        ) -> IcdoCodeResolution:
+            first = not self.calls
+            self.calls.append(codes)
+            return IcdoCodeResolution(
+                generation_id="a" * 64,
+                serving_sha256=("b" if first else "d") * 64,
+                resolved_codes={"8000/3"} if first else set(),
+            )
+
+    store = _Store()
+    with pytest.raises(P334SourceError, match="ICD-O source changed"):
+        await publish_p334_alignments(
+            store,
+            _NcitClient([_row("C1", "8000/3")]),
+            SwitchingIcdo({"8000/3"}),
+            icdo_expected=_expectation(),
+            expected_counts=(1, 1),
+        )
+
     assert store.run_writes == 0
 
 
