@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	icdoListPath,
 	icdoSearchPath,
+	icdoDetailPath,
 	isIcdoProtectedPath,
 	parseIcdoDataset
 } from './icdo-routes';
@@ -18,6 +19,9 @@ describe('ICD-O route contracts', () => {
 		expect(dataset).toEqual({ edition, axis });
 		expect(icdoListPath(dataset!)).toBe(`/api/v1/icdo/${edition}/${axis}/list`);
 		expect(icdoSearchPath(dataset!)).toBe(`/api/v1/icdo/${edition}/${axis}/search`);
+		expect(icdoDetailPath(dataset!, '8503/0')).toBe(
+			`/api/v1/icdo/${edition}/${axis}/concepts/8503%2F0`
+		);
 	});
 
 	it.each([

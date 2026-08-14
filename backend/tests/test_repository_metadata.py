@@ -224,6 +224,61 @@ async def test_icdo_readiness_reuses_certification_until_forced() -> None:
     assert repository.calls == 6
 
 
+@pytest.mark.asyncio
+async def test_icdo_access_retries_after_an_unhealthy_snapshot() -> None:
+    settings = _Settings(
+        ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
+    )
+
+    class _Icdo:
+        calls = 0
+
+        async def certified_metadata(
+            self, edition: str, axis: str, expected: CertificationExpectation
+        ) -> IcdoManifest:
+            del expected
+            self.calls += 1
+            if self.calls == 1:
+                raise IcdoCertificationError("transient observation failure")
+            return IcdoManifest(
+                generation_id="a" * 64,
+                edition="3.2" if edition == "3.2" else "4.0",
+                axis="topography" if axis == "topography" else "morphology",
+                publisher_url="https://example.test",
+                source_sha256=(
+                    settings.icdo_32_morphology_source_sha256
+                    if edition == "3.2"
+                    else settings.icdo_40_source_sha256
+                ),
+                archive_sha256=None,
+                annex_sha256=None,
+                reader_identity="reader",
+                serving_sha256=getattr(
+                    settings,
+                    f"icdo_{edition.replace('.', '')}_{axis}_serving_sha256",
+                ),
+                row_count={
+                    ("3.2", "morphology"): 1143,
+                    ("4.0", "morphology"): 2390,
+                    ("4.0", "topography"): 406,
+                }[(edition, axis)],
+                term_counts={},
+                published_at=datetime.now(UTC),
+            )
+
+    repository = _Icdo()
+    service = RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr(), icdo=repository
+    )
+
+    first = await service.icdo_access()
+    second = await service.icdo_access()
+
+    assert isinstance(first[0], RepositoryUnhealthy)
+    assert all(isinstance(result, IcdoRepositoryReady) for result in second)
+    assert repository.calls == 6
+
+
 def _certified_uberon_observation(
     **changes: object,
 ) -> CertifiedUberonIndexObservation:

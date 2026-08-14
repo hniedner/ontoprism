@@ -656,7 +656,10 @@ class RepositoryMetadataService:
             ] = []
             for dataset in ServedIcdoDataset:
                 results.append(await self.icdo(dataset.edition, dataset.axis))
-            self._icdo_access = tuple(results)
+            observed = tuple(results)
+            if not any(isinstance(result, RepositoryUnhealthy) for result in observed):
+                self._icdo_access = observed
+            return observed
         return self._icdo_access
 
 

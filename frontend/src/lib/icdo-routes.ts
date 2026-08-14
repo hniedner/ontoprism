@@ -1,4 +1,4 @@
-import type { IcdoPage } from '$lib/types';
+import type { IcdoDetail, IcdoPage } from '$lib/types';
 
 export type IcdoDataset =
 	| { edition: '3.2'; axis: 'morphology' }
@@ -18,6 +18,10 @@ export function icdoListPath(dataset: IcdoDataset): string {
 
 export function icdoSearchPath(dataset: IcdoDataset): string {
 	return `/api/v1/icdo/${dataset.edition}/${dataset.axis}/search`;
+}
+
+export function icdoDetailPath(dataset: IcdoDataset, code: string): string {
+	return `/api/v1/icdo/${dataset.edition}/${dataset.axis}/concepts/${encodeURIComponent(code)}`;
 }
 
 export function ncitMappingsPath(code: string): string {
@@ -49,5 +53,10 @@ export function isIcdoProtectedPath(pathname: string): boolean {
 
 export type IcdoPageFor<D extends IcdoDataset> = Extract<
 	IcdoPage,
+	{ edition: D['edition']; axis: D['axis'] }
+>;
+
+export type IcdoDetailFor<D extends IcdoDataset> = Extract<
+	IcdoDetail,
 	{ edition: D['edition']; axis: D['axis'] }
 >;
