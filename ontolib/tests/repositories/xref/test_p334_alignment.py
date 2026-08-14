@@ -333,7 +333,10 @@ async def test_p334_refuses_same_release_same_count_row_mutation() -> None:
 
 
 @pytest.mark.unit
-async def test_p334_refuses_icdo_change_during_validation() -> None:
+@pytest.mark.parametrize("changed_identity", ["generation", "serving"])
+async def test_p334_refuses_each_icdo_identity_change_during_validation(
+    changed_identity: str,
+) -> None:
     class SwitchingIcdo(_Icdo):
         async def resolve_active_morphology32_codes(
             self, codes: set[str], expected: CertificationExpectation
@@ -341,9 +344,13 @@ async def test_p334_refuses_icdo_change_during_validation() -> None:
             first = not self.calls
             self.calls.append(codes)
             return IcdoCodeResolution(
-                generation_id="a" * 64,
-                serving_sha256=("b" if first else "d") * 64,
-                resolved_codes={"8000/3"} if first else set(),
+                generation_id=(
+                    "a" * 64 if first or changed_identity != "generation" else "c" * 64
+                ),
+                serving_sha256=(
+                    "b" * 64 if first or changed_identity != "serving" else "d" * 64
+                ),
+                resolved_codes={"8000/3"},
             )
 
     store = _Store()
