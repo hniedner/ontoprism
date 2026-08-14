@@ -24,6 +24,7 @@ from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     EXACT_MATCH,
     NARROW_MATCH,
+    RELATED_MATCH,
     MappingLifecycle,
     MappingPredicate,
 )
@@ -190,6 +191,7 @@ def test_concept_mappings_returns_forward_mappings() -> None:
 def test_public_concept_mappings_omit_icdo_but_entitled_call_returns_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", True)
     monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
     client = next(_client())
 
@@ -202,6 +204,22 @@ def test_public_concept_mappings_omit_icdo_but_entitled_call_returns_it(
     assert public.status_code == entitled.status_code == 200
     assert public.json()["mappings"] == []
     assert entitled.json()["mappings"][0]["system"] == "icdo"
+
+
+@pytest.mark.api
+def test_entitlement_cannot_expose_icdo_when_server_capability_is_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", False)
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+
+    response = next(_client()).get(
+        "/api/v1/ncit/concepts/C188218/mappings",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mappings"] == []
 
 
 @pytest.mark.api
@@ -232,6 +250,71 @@ def test_concept_mappings_preserves_reverse_many_to_one_in_one_indexed_query() -
         "UBERON:0002048",
     ]
     assert store.lookup_calls == 1
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("stored", "exposed"),
+    [
+        (BROAD_MATCH, NARROW_MATCH),
+        (NARROW_MATCH, BROAD_MATCH),
+        (EXACT_MATCH, EXACT_MATCH),
+        (CLOSE_MATCH, CLOSE_MATCH),
+        (RELATED_MATCH, RELATED_MATCH),
+    ],
+)
+def test_concept_mappings_orients_directional_reverse_rows_to_requested_ncit(
+    stored: MappingPredicate, exposed: MappingPredicate
+) -> None:
+    store = _FakeXrefStore()
+    store.reverse["C12468"] = [
+        MappingResult(
+            subject=EndpointIdentity("uberon-cl", "2026-06-19", "UBERON:0002048"),
+            predicate=stored,
+            object=EndpointIdentity("ncit", "26.07d", "C12468"),
+            lifecycle="proposed",
+            confidence=0.9,
+        )
+    ]
+    app = create_app()
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C12468/mappings")
+
+    assert response.status_code == 200
+    assert response.json()["mappings"][0]["predicate"] == exposed
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("predicate", [BROAD_MATCH, NARROW_MATCH])
+def test_concept_mappings_preserve_direction_for_requested_subject(
+    predicate: MappingPredicate,
+) -> None:
+    store = _FakeXrefStore()
+    store.mappings["C12468"] = [
+        MappingResult(
+            subject=EndpointIdentity("ncit", "26.07d", "C12468"),
+            predicate=predicate,
+            object=EndpointIdentity("uberon-cl", "2026-06-19", "UBERON:0002048"),
+            lifecycle="proposed",
+            confidence=0.9,
+        )
+    ]
+    app = create_app()
+    app.dependency_overrides[get_ncit_store] = _FakeStore
+    app.dependency_overrides[get_ncit_client] = _FakeClient
+    app.dependency_overrides[get_xref_store] = lambda: store
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/ncit/concepts/C12468/mappings")
+
+    assert response.status_code == 200
+    assert response.json()["mappings"][0]["predicate"] == predicate
 
 
 @pytest.mark.api
@@ -362,6 +445,7 @@ def test_public_concept_mappings_does_not_request_licensed_family() -> None:
 def test_entitled_concept_mappings_refuses_uncertified_licensed_family(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", True)
     monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
 
     class _UnhealthyIcdo(_FakeMetadata):

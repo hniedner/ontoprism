@@ -22,7 +22,12 @@ from ontolib.repositories.xref.models import (
     MappingResult,
     StaleXrefGenerationError,
 )
-from ontolib.repositories.xref.vocab import CLOSE_MATCH
+from ontolib.repositories.xref.vocab import (
+    BROAD_MATCH,
+    CLOSE_MATCH,
+    NARROW_MATCH,
+    MappingPredicate,
+)
 
 
 class _Store:
@@ -222,6 +227,42 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         "C3",
     ]
     assert metadata.json() == {"edition": "3.2", "axis": "morphology", "row_count": 1}
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("stored", "exposed"),
+    [(BROAD_MATCH, NARROW_MATCH), (NARROW_MATCH, BROAD_MATCH)],
+)
+def test_detail_orients_directional_reverse_rows_to_requested_icdo(
+    monkeypatch: pytest.MonkeyPatch,
+    stored: MappingPredicate,
+    exposed: MappingPredicate,
+) -> None:
+    class _DirectionalXrefs(_Xrefs):
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], **_kwargs: object
+        ) -> dict[str, list[MappingResult]]:
+            assert identifiers == {"8503/0"}
+            return {
+                "8503/0": [
+                    MappingResult(
+                        subject=EndpointIdentity("ncit", "26.07d", "C1"),
+                        predicate=stored,
+                        object=EndpointIdentity("icdo", "3.2", "8503/0"),
+                        lifecycle="proposed",
+                        confidence=0.9,
+                    )
+                ]
+            }
+
+    response = next(_client(_Store(), monkeypatch, _DirectionalXrefs())).get(
+        "/api/v1/icdo/3.2/morphology/concepts/ODUwMy8w",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ncit_alignments"][0]["predicate"] == exposed
 
 
 @pytest.mark.api

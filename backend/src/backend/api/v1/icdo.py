@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
 
+from backend.api.v1.alignment import mapping_relative_to
 from backend.dependencies import (
     IcdoReads,
     RepositoryMetadataReads,
@@ -160,7 +161,7 @@ def _ncit_alignments(
 ) -> list[NcitAlignment]:
     alignments: list[NcitAlignment] = []
     for row in rows:
-        target = row.object if row.subject.identifier == code else row.subject
+        target, predicate = mapping_relative_to(row, code)
         if target.system != "ncit" or not any(
             endpoint.system == "icdo" and endpoint.version == edition
             for endpoint in (row.subject, row.object)
@@ -170,7 +171,7 @@ def _ncit_alignments(
             NcitAlignment(
                 code=target.identifier,
                 version=target.version,
-                predicate=row.predicate,
+                predicate=predicate,
                 lifecycle=row.lifecycle,
             )
         )

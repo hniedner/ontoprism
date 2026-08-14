@@ -5,17 +5,24 @@ from collections.abc import Collection, Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.config import get_settings
 from backend.decomposition_reader import DecompositionReader
 from backend.dependencies import (
     get_decomposition_reader,
     get_ncit_store,
+    get_repository_metadata,
     get_xref_store,
 )
 from backend.main import create_app
 from ontolib.core.exceptions import StorageError
 from ontolib.decomposition import vocab
 from ontolib.repositories.xref.models import EndpointIdentity, MappingResult
-from ontolib.repositories.xref.vocab import CLOSE_MATCH
+from ontolib.repositories.xref.vocab import (
+    BROAD_MATCH,
+    CLOSE_MATCH,
+    NARROW_MATCH,
+    MappingPredicate,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -68,10 +75,39 @@ class _FakeXrefStore:
     def __init__(self, rows: list[MappingResult] | None = None) -> None:
         self.rows = rows or []
 
-    async def mappings_by_subjects(
+    async def mappings_for_identifiers(
         self, codes: set[str], **_kwargs: object
     ) -> dict[str, list[MappingResult]]:
-        return dict.fromkeys(codes, self.rows)
+        return {
+            code: [
+                row
+                for row in self.rows
+                if code in (row.subject.identifier, row.object.identifier)
+            ]
+            for code in codes
+        }
+
+
+class _FakeMetadata:
+    async def ncit(self) -> object:
+        return type("NcitReady", (), {"source_identity": "a" * 64})()
+
+    async def uberon(self) -> object:
+        serving = type("Serving", (), {"sha256": "b" * 64})()
+        observation = type("Observation", (), {"serving": serving})()
+        return type(
+            "UberonReady",
+            (),
+            {"source_identity": "c" * 64, "observation": observation},
+        )()
+
+    async def icdo(self, edition: str, axis: str) -> object:
+        del edition, axis
+        return type(
+            "IcdoReady",
+            (),
+            {"activation_identity": "d" * 64, "serving_identity": "e" * 64},
+        )()
 
 
 def _client(
@@ -83,6 +119,7 @@ def _client(
     )
     app.dependency_overrides[get_ncit_store] = _FakeStore
     app.dependency_overrides[get_xref_store] = lambda: xrefs or _FakeXrefStore()
+    app.dependency_overrides[get_repository_metadata] = _FakeMetadata
     with TestClient(app) as client:
         yield client
 
@@ -193,3 +230,62 @@ def test_decomposition_hides_icdo_upstream_without_entitlement() -> None:
 
     assert response.status_code == 200
     assert "8503/0" not in response.text
+
+
+@pytest.mark.api
+def test_decomposition_entitlement_cannot_override_disabled_server_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", False)
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    xrefs = _FakeXrefStore(
+        [
+            MappingResult(
+                subject=EndpointIdentity("ncit", "26.07d", "C12400"),
+                predicate=CLOSE_MATCH,
+                object=EndpointIdentity("icdo", "3.2", "8503/0"),
+                lifecycle="proposed",
+                confidence=0.9,
+            )
+        ]
+    )
+
+    response = next(_client(_DECOMPOSED_ROWS, xrefs)).get(
+        "/api/v1/ncit/concepts/C6135/decomposition",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 200
+    assert "8503/0" not in response.text
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("stored", "exposed"),
+    [(BROAD_MATCH, NARROW_MATCH), (NARROW_MATCH, BROAD_MATCH)],
+)
+def test_decomposition_orients_directional_rows_to_requested_filler(
+    stored: MappingPredicate, exposed: MappingPredicate
+) -> None:
+    xrefs = _FakeXrefStore(
+        [
+            MappingResult(
+                subject=EndpointIdentity("uberon", "2026-06-19", "UBERON:0002046"),
+                predicate=stored,
+                object=EndpointIdentity("ncit", "26.07d", "C12400"),
+                lifecycle="proposed",
+                confidence=0.9,
+            )
+        ]
+    )
+
+    response = next(_client(_DECOMPOSED_ROWS, xrefs)).get(
+        "/api/v1/ncit/concepts/C6135/decomposition"
+    )
+
+    assert response.status_code == 200
+    primary_site = next(
+        row for row in response.json()["constituents"] if row["filler"] == "C12400"
+    )
+    assert primary_site["upstream"][0]["object_id"] == "UBERON:0002046"
+    assert primary_site["upstream"][0]["predicate"] == exposed

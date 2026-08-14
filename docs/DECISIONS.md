@@ -38,6 +38,10 @@ independent-evidence and reasoner-backed promotion path can produce identity-gra
 ICD-O entitlement. Authorization runs before repository metadata, records, search caches,
 SSR rendering, or analytical reports are read.
 
+NCIt mapping and decomposition surfaces expose ICD-O alignments only when the server's
+licensed-mapping capability is enabled and the consumer presents that entitlement. The
+capability does not restrict public Uberon alignments.
+
 Publisher workbooks remain operator-supplied, access-controlled artifacts. Each served
 edition/axis is an immutable PostgreSQL generation selected by an active pointer and
 certified by a canonical fingerprint over exact served values. Reads carry the activation

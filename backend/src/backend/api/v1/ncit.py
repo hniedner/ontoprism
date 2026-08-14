@@ -7,6 +7,8 @@ from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, computed_field
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.api.v1.alignment import mapping_relative_to
+from backend.config import get_settings
 from backend.dependencies import (
     DecompositionReads,
     Embeddings,
@@ -109,7 +111,7 @@ class MappingEntry(BaseModel):
 
 
 class ConceptMappings(BaseModel):
-    """Mappings plus NCIt identity; ICD-O rows require caller entitlement."""
+    """Mappings plus NCIt identity; ICD-O rows require capability and entitlement."""
 
     code: str
     repository_source_identity: str
@@ -122,7 +124,7 @@ def _mapping_entries(
 ) -> list[MappingEntry]:
     entries: list[MappingEntry] = []
     for row in rows:
-        target = row.object if row.subject.identifier == code else row.subject
+        target, predicate = mapping_relative_to(row, code)
         if target.system == "icdo" and not entitled_to_icdo:
             continue
         entries.append(
@@ -130,7 +132,7 @@ def _mapping_entries(
                 object_id=target.identifier,
                 system=target.system,
                 version=target.version,
-                predicate=row.predicate,
+                predicate=predicate,
                 lifecycle=row.lifecycle,
                 confidence=row.confidence,
             )
@@ -147,19 +149,20 @@ async def _attach_xref_upstream(
     entitled_to_icdo: bool,
 ) -> ConceptDecomposition:
     if filler_codes:
-        upstream_rows = await xref_store.mappings_by_subjects(
+        upstream_rows = await xref_store.mappings_for_identifiers(
             set(filler_codes), expected=expected
         )
         upstream_by_filler = {
             code: [
                 UpstreamMapping(
-                    object_id=row.object.identifier,
-                    predicate=row.predicate,
+                    object_id=target.identifier,
+                    predicate=predicate,
                     lifecycle=row.lifecycle,
                     confidence=row.confidence,
                 )
                 for row in rows
-                if row.object.system != "icdo" or entitled_to_icdo
+                for target, predicate in [mapping_relative_to(row, code)]
+                if target.system != "icdo" or entitled_to_icdo
             ]
             for code, rows in upstream_rows.items()
         }
@@ -291,7 +294,7 @@ async def concept_mappings(
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptMappings:
-    """Return alignments, withholding ICD-O rows without caller entitlement.
+    """Return alignments, withholding ICD-O rows without capability and entitlement.
 
     Searches both by subject (NCIt code as subject) and by object
     (NCIt code as object of an upstream-to-NCIt mapping), so
@@ -306,7 +309,9 @@ async def concept_mappings(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, repository.model_dump(mode="json")
         )
-    entitled_to_icdo = has_icdo_entitlement(x_icdo_entitlement)
+    entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
+        x_icdo_entitlement
+    )
     expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
     try:
         rows = await xref_store.mappings_for_identifiers({code}, expected=expected)
@@ -337,15 +342,17 @@ async def concept_decomposition(
     Resolves even for a concept the engine has not decomposed
     (``is_legacy_precoordinated = false``, no constituents) so the UI can show "not
     decomposed" rather than a 404. Filler labels are resolved for display, and
-    typed terminology alignments are attached per constituent. ICD-O mappings are
-    included only when ``X-ICDO-Entitlement`` is valid.
+    typed terminology alignments are attached per constituent. ICD-O mappings require
+    the server capability and a valid ``X-ICDO-Entitlement``.
     """
     try:
         rows = await reader.rows_for(code)
     except ValueError as exc:  # code failed the IRI-safety guard
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
     decomposition = decomposition_from_rows(code, rows)
-    entitled_to_icdo = has_icdo_entitlement(x_icdo_entitlement)
+    entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
+        x_icdo_entitlement
+    )
     expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
     filler_codes = [c.filler for c in decomposition.constituents]
     labels = await store.labels_for(filler_codes) if filler_codes else {}

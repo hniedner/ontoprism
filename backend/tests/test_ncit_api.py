@@ -359,6 +359,7 @@ def test_concept_detail_returns_concept(ncit_client: TestClient) -> None:
 def test_ncit_mapping_detail_preserves_three_resolved_codes_with_typed_edition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", True)
     monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
     response = next(_client()).get(
         "/api/v1/ncit/concepts/C188218/mappings",

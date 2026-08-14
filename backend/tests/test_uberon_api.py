@@ -20,7 +20,12 @@ from ontolib.repositories.xref.models import (
     MappingResult,
     StaleXrefGenerationError,
 )
-from ontolib.repositories.xref.vocab import CLOSE_MATCH
+from ontolib.repositories.xref.vocab import (
+    BROAD_MATCH,
+    CLOSE_MATCH,
+    NARROW_MATCH,
+    MappingPredicate,
+)
 from ontolib.terminologies.uberon.graph_store import InvalidUberonCurieError
 from ontolib.terminologies.uberon.models import (
     UberonConceptDetail,
@@ -267,6 +272,41 @@ def test_detail_alignments_return_ncit_targets_in_one_indexed_lookup() -> None:
         ],
     }
     assert xrefs.calls == [{"UBERON:0002048"}]
+
+
+@pytest.mark.api
+@pytest.mark.parametrize(
+    ("stored", "exposed"),
+    [(BROAD_MATCH, NARROW_MATCH), (NARROW_MATCH, BROAD_MATCH)],
+)
+def test_alignments_orient_directional_reverse_rows_to_requested_uberon(
+    stored: MappingPredicate, exposed: MappingPredicate
+) -> None:
+    class _ReverseXrefs(_Xrefs):
+        async def mappings_for_identifiers(
+            self, identifiers: set[str], **_kwargs: object
+        ) -> dict[str, list[MappingResult]]:
+            self.calls.append(identifiers)
+            return {
+                "UBERON:0002048": [
+                    MappingResult(
+                        subject=EndpointIdentity("ncit", "26.07d", "C12468"),
+                        predicate=stored,
+                        object=EndpointIdentity(
+                            "uberon-cl", "uberon-2026-06-19", "UBERON:0002048"
+                        ),
+                        lifecycle="proposed",
+                        confidence=0.9,
+                    )
+                ]
+            }
+
+    response = next(_client(_Store(), _Index(False), xrefs=_ReverseXrefs())).get(
+        "/api/v1/uberon/concepts/UBERON:0002048/alignments"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["alignments"][0]["predicate"] == exposed
 
 
 @pytest.mark.api

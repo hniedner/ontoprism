@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.api.v1.alignment import mapping_relative_to
 from backend.dependencies import (
     RepositoryMetadataReads,
     UberonSearch,
@@ -188,13 +189,11 @@ async def alignments(
                 code=target.identifier,
                 system=target.system,
                 version=target.version,
-                predicate=row.predicate,
+                predicate=predicate,
                 lifecycle=row.lifecycle,
             )
             for row in rows.get(code, [])
-            for target in [
-                row.object if row.subject.identifier == code else row.subject
-            ]
+            for target, predicate in [mapping_relative_to(row, code)]
             if target.system == "ncit"
         ],
     )

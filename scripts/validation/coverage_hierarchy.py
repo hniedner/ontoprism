@@ -166,6 +166,7 @@ class Manifest:
     report_only: bool
     limitations: tuple[str, ...]
     required_production_paths: tuple[str, ...]
+    required_test_paths: tuple[str, ...]
     groups: tuple[Group, ...]
     inventories: tuple[Inventory, ...]
     assignments: tuple[Assignment, ...]
@@ -374,6 +375,7 @@ def load_manifest(path: Path, root: Path = REPO_ROOT) -> Manifest:
         report_only=_boolean(raw, "report_only"),
         limitations=_strings(raw, "limitations"),
         required_production_paths=_strings(raw, "required_production_paths"),
+        required_test_paths=_strings(raw, "required_test_paths"),
         groups=groups,
         inventories=inventories,
         assignments=assignments,
@@ -621,6 +623,10 @@ def _validate_required_surfaces(
             errors.append(
                 f"required production path {path!r} is omitted or non-production"
             )
+    for path in manifest.required_test_paths:
+        surface = by_path.get(path)
+        if surface is None or surface.group.classification != "test":
+            errors.append(f"required test path {path!r} is omitted or non-test")
     return errors
 
 

@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
+from backend.api.v1.alignment import mapping_relative_to
 from backend.config import get_settings
 from backend.dependencies import RepositoryMetadataReads, XrefReads
 from backend.repository_metadata import RepositoryUnhealthy
@@ -32,11 +33,6 @@ _SKOS_TO_EQUIVALENCE: dict[str, str] = {
     CLOSE_MATCH: "close",
     BROAD_MATCH: "broad",
     NARROW_MATCH: "narrow",
-}
-
-_REVERSE_PREDICATE: dict[str, str] = {
-    BROAD_MATCH: NARROW_MATCH,
-    NARROW_MATCH: BROAD_MATCH,
 }
 
 _ACTIVE_LIFECYCLES = frozenset({"validated", "active"})
@@ -112,19 +108,13 @@ def _is_eligible(
 def _collect_entries(
     rows_by_key: dict[str, list[MappingResult]],
     *,
-    reverse: bool,
     licensed_allowed: bool,
     seen: set[tuple[str, str, str, str]],
 ) -> list[TranslateEntry]:
     entries: list[TranslateEntry] = []
-    for rows in rows_by_key.values():
+    for requested_identifier, rows in rows_by_key.items():
         for row in rows:
-            target = row.subject if reverse else row.object
-            predicate = (
-                _REVERSE_PREDICATE.get(row.predicate, row.predicate)
-                if reverse
-                else row.predicate
-            )
+            target, predicate = mapping_relative_to(row, requested_identifier)
             if not _is_eligible(
                 row,
                 target=target,
@@ -213,14 +203,12 @@ async def translate(
     seen: set[tuple[str, str, str, str]] = set()
     entries = _collect_entries(
         upstream,
-        reverse=False,
         licensed_allowed=licensed_allowed,
         seen=seen,
     )
     entries.extend(
         _collect_entries(
             reverse,
-            reverse=True,
             licensed_allowed=licensed_allowed,
             seen=seen,
         )
