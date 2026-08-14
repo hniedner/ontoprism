@@ -548,6 +548,10 @@ class RepositoryMetadataService:
         self._uberon_live_observation: (
             tuple[str, UberonIndexObservation, UberonClassCounts] | None
         ) = None
+        self._icdo_access: (
+            tuple[IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]], ...]
+            | None
+        ) = None
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         """Return a manifest/journal/live-observation-bound NCIt identity."""
@@ -640,6 +644,18 @@ class RepositoryMetadataService:
             return _unhealthy("icdo", exc.reason, exc)
         except ValueError as exc:
             return _unhealthy("icdo", "manifest-invalid", exc)
+
+    async def icdo_access(
+        self, *, force: bool = False
+    ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]], ...]:
+        """Certify all served ICD-O datasets once for the process access marker."""
+        if force or self._icdo_access is None:
+            self._icdo_access = (
+                await self.icdo("3.2", "morphology"),
+                await self.icdo("4.0", "morphology"),
+                await self.icdo("4.0", "topography"),
+            )
+        return self._icdo_access
 
 
 def icdo_expectation(

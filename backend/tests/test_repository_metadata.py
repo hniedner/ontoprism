@@ -23,7 +23,11 @@ from backend.repository_metadata import (
 )
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.cadsr.archive import CadsrSource
-from ontolib.repositories.icdo.store import IcdoCertificationError, IcdoManifest
+from ontolib.repositories.icdo.store import (
+    CertificationExpectation,
+    IcdoCertificationError,
+    IcdoManifest,
+)
 from ontolib.terminologies.ncit.activation import ActivationJournal
 from ontolib.terminologies.ncit.sibling_store import (
     QLEVER_IMAGE,
@@ -172,6 +176,52 @@ async def test_icdo_readiness_returns_typed_drift_and_unavailable_refusals() -> 
     assert drift.reason == "observation-mismatch"
     assert isinstance(unavailable, RepositoryUnhealthy)
     assert unavailable.reason == "repository-unreachable"
+
+
+@pytest.mark.asyncio
+async def test_icdo_readiness_reuses_certification_until_forced() -> None:
+    settings = _Settings(
+        ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
+    )
+
+    class _Icdo:
+        calls = 0
+
+        async def certified_metadata(
+            self,
+            edition: str,
+            axis: str,
+            expected: CertificationExpectation,
+        ) -> IcdoManifest:
+            del expected
+            self.calls += 1
+            return IcdoManifest(
+                generation_id="a" * 64,
+                edition="4.0",
+                axis="topography",
+                publisher_url="https://example.test",
+                source_sha256=settings.icdo_40_source_sha256,
+                archive_sha256=None,
+                annex_sha256=None,
+                reader_identity="reader",
+                serving_sha256=settings.icdo_40_topography_serving_sha256,
+                row_count=406,
+                term_counts={},
+                published_at=datetime.now(UTC),
+            )
+
+    repository = _Icdo()
+    service = RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr(), icdo=repository
+    )
+
+    first = await service.icdo_access()
+    second = await service.icdo_access()
+    forced = await service.icdo_access(force=True)
+
+    assert first is second
+    assert all(isinstance(result, IcdoRepositoryReady) for result in forced)
+    assert repository.calls == 6
 
 
 def _certified_uberon_observation(

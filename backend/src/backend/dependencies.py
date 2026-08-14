@@ -117,6 +117,10 @@ class RepositoryMetadataReader(Protocol):
         axis: Literal["morphology", "topography"],
     ) -> IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]: ...
 
+    async def icdo_access(
+        self, *, force: bool = False
+    ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]], ...]: ...
+
 
 def get_repository_metadata(request: Request) -> RepositoryMetadataReader:
     """Return the process-wide repository certification service."""

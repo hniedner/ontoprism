@@ -19,8 +19,15 @@ import type {
 	, UberonNeighborhood
 	, UberonSearchPage
 	, UberonSource
-	, IcdoPage
 } from './types';
+import {
+	icdoListPath,
+	icdoSearchPath,
+	ncitDecompositionPath,
+	ncitMappingsPath,
+	type IcdoDataset,
+	type IcdoPageFor
+} from './icdo-routes';
 
 const BASE = '';
 
@@ -229,22 +236,22 @@ export function icdoCodeSegment(code: string): string {
 	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
-export function listIcdo<E extends IcdoPage['edition'], A extends Extract<IcdoPage, { edition: E }>['axis']>(edition: E, axis: A, opts: {
+export function listIcdo<D extends IcdoDataset>(dataset: D, opts: {
 	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
-} = {}): Promise<Extract<IcdoPage, { edition: E; axis: A }>> {
+} = {}): Promise<IcdoPageFor<D>> {
 	const params: Record<string, string | number> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
 	if (opts.behaviour) params.behaviour = opts.behaviour;
 	if (opts.level) params.level = opts.level;
-	return getJson<Extract<IcdoPage, { edition: E; axis: A }>>(apiUrl(`/api/v1/icdo/${edition}/${axis}/list`, params), opts.fetch);
+	return getJson<IcdoPageFor<D>>(apiUrl(icdoListPath(dataset), params), opts.fetch);
 }
 
-export function searchIcdo<E extends IcdoPage['edition'], A extends Extract<IcdoPage, { edition: E }>['axis']>(edition: E, axis: A, q: string, opts: {
+export function searchIcdo<D extends IcdoDataset>(dataset: D, q: string, opts: {
 	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
-} = {}): Promise<Extract<IcdoPage, { edition: E; axis: A }>> {
+} = {}): Promise<IcdoPageFor<D>> {
 	const params: Record<string, string | number> = { q, limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
 	if (opts.behaviour) params.behaviour = opts.behaviour;
 	if (opts.level) params.level = opts.level;
-	return getJson<Extract<IcdoPage, { edition: E; axis: A }>>(apiUrl(`/api/v1/icdo/${edition}/${axis}/search`, params), opts.fetch);
+	return getJson<IcdoPageFor<D>>(apiUrl(icdoSearchPath(dataset), params), opts.fetch);
 }
 
 
@@ -255,7 +262,7 @@ export function getDecomposition(
 	signal?: AbortSignal
 ): Promise<ConceptDecomposition> {
 	return getJson<ConceptDecomposition>(
-		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/decomposition`),
+		apiUrl(ncitDecompositionPath(code)),
 		fetchImpl,
 		signal
 	);
@@ -268,7 +275,7 @@ export function getAlignments(
 	signal?: AbortSignal
 ): Promise<ConceptAlignments> {
 	return getJson<ConceptAlignments>(
-		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/mappings`),
+		apiUrl(ncitMappingsPath(code)),
 		fetchImpl,
 		signal
 	);

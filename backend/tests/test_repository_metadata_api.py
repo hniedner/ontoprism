@@ -138,6 +138,16 @@ class _Metadata:
             activated_at=datetime(2026, 8, 12, tzinfo=UTC),
         )
 
+    async def icdo_access(
+        self, *, force: bool = False
+    ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy, ...]:
+        del force
+        return (
+            await self.icdo("3.2", "morphology"),
+            await self.icdo("4.0", "morphology"),
+            await self.icdo("4.0", "topography"),
+        )
+
 
 @pytest.mark.api
 def test_ready_reports_manifest_bound_active_ncit_identity() -> None:

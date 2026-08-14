@@ -25,8 +25,8 @@ services:
       # built offline as an inactive sibling via `pdm run data-build ncit-store`.
       CADSR_DATA_DIR: /app/refresh/cadsr
       NCIT_OWL_DIR: /app/refresh/ncit-owl
-      # Set API_KEY in your environment to require X-API-Key on the mutating endpoints
-      # (unset = open mode; the proxy is bound to localhost only).
+      # API_KEY independently protects mutating endpoints. The aggregate refresh also
+      # requires ICDO_ENTITLEMENT_KEY because it returns protected ICD-O metadata.
       API_KEY: ${API_KEY:-}
       # Consumer entitlement and licensed-mapping capability are independent gates.
       ICDO_ENTITLEMENT_KEY: ${ICDO_ENTITLEMENT_KEY:-}

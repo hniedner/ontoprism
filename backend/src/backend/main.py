@@ -162,7 +162,7 @@ def create_app() -> FastAPI:
 
     @app.get("/ready", tags=["meta"])
     async def ready(metadata: RepositoryMetadataReads) -> dict[str, object]:
-        """Readiness — certify each local terminology proxy or refuse."""
+        """Readiness — certify each public local terminology proxy or refuse."""
         repositories = []
         for repository_id in local_repository_ids():
             if repository_id == "ncit":

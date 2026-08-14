@@ -2,7 +2,7 @@
 
 import base64
 import binascii
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NamedTuple
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
@@ -45,6 +45,11 @@ _SERVED_DATASETS: tuple[tuple[Edition, Axis], ...] = (
     ("4.0", "morphology"),
     ("4.0", "topography"),
 )
+
+
+class ServedDataset(NamedTuple):
+    edition: Edition
+    axis: Axis
 
 
 class NcitAlignment(BaseModel):
@@ -189,11 +194,12 @@ def _ncit_alignments(
     return sorted(alignments, key=lambda alignment: alignment.code)
 
 
-def _dataset(edition: Edition, axis: Axis) -> None:
+def _dataset(edition: Edition, axis: Axis) -> ServedDataset:
     if edition == "3.2" and axis == "topography":
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "ICD-O-3.2 topography is not served."
         )
+    return ServedDataset(edition, axis)
 
 
 async def _ready(
@@ -212,8 +218,14 @@ async def access_status(
     repository_metadata: RepositoryMetadataReads,
 ) -> IcdoAccessReport:
     """Confirm entitlement and all served datasets without exposing metadata."""
-    for edition, axis in _SERVED_DATASETS:
-        await _ready(repository_metadata, edition, axis)
+    results = await repository_metadata.icdo_access()
+    unhealthy = next(
+        (result for result in results if isinstance(result, RepositoryUnhealthy)), None
+    )
+    if unhealthy is not None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, unhealthy.model_dump(mode="json")
+        )
     return IcdoAccessReport()
 
 
@@ -237,8 +249,8 @@ def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
 async def metadata(
     repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
 ) -> object:
-    _dataset(edition, axis)
-    result = await _ready(repository_metadata, edition, axis)
+    dataset = _dataset(edition, axis)
+    result = await _ready(repository_metadata, *dataset)
     return result.model_dump(mode="json")
 
 
@@ -306,12 +318,11 @@ async def list_records(
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
-    _dataset(edition, axis)
-    ready = await _ready(repository_metadata, edition, axis)
+    dataset = _dataset(edition, axis)
+    ready = await _ready(repository_metadata, *dataset)
     try:
         result = await repository.search(
-            edition,
-            axis,
+            *dataset,
             query="",
             behaviour=behaviour,
             level=level,
@@ -342,12 +353,11 @@ async def search(
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
-    _dataset(edition, axis)
-    ready = await _ready(repository_metadata, edition, axis)
+    dataset = _dataset(edition, axis)
+    ready = await _ready(repository_metadata, *dataset)
     try:
         result = await repository.search(
-            edition,
-            axis,
+            *dataset,
             query=q,
             behaviour=behaviour,
             level=level,
@@ -375,12 +385,12 @@ async def detail(
     axis: Axis,
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
-    _dataset(edition, axis)
-    ready = await _ready(repository_metadata, edition, axis)
-    canonical = _decode_code(code, edition, axis)
+    dataset = _dataset(edition, axis)
+    ready = await _ready(repository_metadata, *dataset)
+    canonical = _decode_code(code, *dataset)
     try:
         result = await repository.detail(
-            edition, axis, canonical, generation_id=ready.activation_identity
+            *dataset, canonical, generation_id=ready.activation_identity
         )
     except ValueError as exc:
         raise HTTPException(
@@ -389,7 +399,7 @@ async def detail(
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ICD-O code not found.")
     rows: dict[str, list[MappingResult]] = {}
-    if (edition, axis) == ("3.2", "morphology"):
+    if dataset == ("3.2", "morphology"):
         ncit = await repository_metadata.ncit()
         if isinstance(ncit, RepositoryUnhealthy):
             raise HTTPException(

@@ -64,13 +64,12 @@ async def refresh(
     metadata: RepositoryMetadataReads,
 ) -> RefreshReport:
     """Re-certify local proxies and return their certified repository identities."""
+    icdo = await metadata.icdo_access(force=True)
     repositories: list[RepositoryMetadata] = [
         await metadata.ncit(),
         metadata.cadsr(),
         await metadata.uberon(force=True),
-        await metadata.icdo("3.2", "morphology"),
-        await metadata.icdo("4.0", "morphology"),
-        await metadata.icdo("4.0", "topography"),
+        *icdo,
     ]
     return RefreshReport(
         refreshed_at=datetime.now(UTC).isoformat(), repositories=repositories

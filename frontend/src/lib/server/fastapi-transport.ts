@@ -50,15 +50,6 @@ function copyHeaders(source: Headers, omitted: ReadonlySet<string>): Headers {
 	return headers;
 }
 
-function requiresIcdoEntitlement(pathname: string): boolean {
-	return (
-		pathname.startsWith('/api/v1/icdo/') ||
-		/^\/api\/v1\/ncit\/concepts\/[^/]+\/(mappings|decomposition)$/.test(pathname) ||
-		pathname === '/api/v1/mappings/$translate' ||
-		pathname === '/api/v1/refresh'
-	);
-}
-
 function requestHeaders(
 	source: Headers,
 	clientAddress: string,
@@ -76,7 +67,7 @@ function requestHeaders(
 		])
 	);
 	headers.set('x-forwarded-for', clientAddress);
-	if (icdoEntitlement && requiresIcdoEntitlement(pathname)) {
+	if (icdoEntitlement && isIcdoProtectedPath(pathname)) {
 		headers.set('x-icdo-entitlement', icdoEntitlement);
 	}
 	return headers;
@@ -141,3 +132,4 @@ export async function forwardFastApiWith(
 		return gatewayFailure(503, 'FastAPI is unreachable');
 	}
 }
+import { isIcdoProtectedPath } from '$lib/icdo-routes';

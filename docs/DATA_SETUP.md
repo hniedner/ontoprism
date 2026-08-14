@@ -53,8 +53,9 @@ when a trusted reverse proxy overwrites them; accepting client-supplied forwarde
 would allow origin spoofing. The SvelteKit BFF strips browser-supplied `Forwarded`,
 `X-Forwarded-*`, `X-Real-IP`, and hop-by-hop headers before calling FastAPI; configure
 the public proxy-to-SvelteKit hop independently from the private SvelteKit-to-FastAPI hop.
-The BFF also strips browser credentials and injects `ICDO_ENTITLEMENT_KEY` only on
-protected FastAPI paths. The key remains private process configuration and only an
+The BFF strips browser cookies from every proxied request. On protected FastAPI paths it
+also replaces caller entitlement headers with `ICDO_ENTITLEMENT_KEY`. The key remains
+private process configuration and only an
 opaque access state reaches rendered page data (`cd frontend && npx vitest run
 src/lib/server/fastapi.test.ts src/lib/server/icdo-access.test.ts`, 2026-08-14).
 The BFF supplies FastAPI with SvelteKit's socket-derived client address. Behind a trusted

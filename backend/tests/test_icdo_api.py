@@ -112,6 +112,14 @@ class _ReadinessMetadata:
             serving_identity="b" * 64,
         )
 
+    async def icdo_access(self, *, force: bool = False) -> tuple[object, ...]:
+        del force
+        return (
+            await self.icdo("3.2", "morphology"),
+            await self.icdo("4.0", "morphology"),
+            await self.icdo("4.0", "topography"),
+        )
+
 
 class _Xrefs:
     def __init__(self) -> None:
@@ -219,6 +227,26 @@ def test_access_status_certifies_all_served_datasets(
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready-and-entitled"}
+    assert metadata.calls == 3
+
+
+@pytest.mark.api
+def test_access_status_refuses_an_unhealthy_served_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    metadata = _ReadinessMetadata(healthy=False)
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/icdo/access",
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "observation-mismatch"
     assert metadata.calls == 3
 
 
