@@ -260,6 +260,33 @@ def test_decomposition_entitlement_cannot_override_disabled_server_capability(
 
 
 @pytest.mark.api
+def test_decomposition_serves_icdo_when_capability_and_entitlement_allow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", True)
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    xrefs = _FakeXrefStore(
+        [
+            MappingResult(
+                subject=EndpointIdentity("ncit", "26.07d", "C12400"),
+                predicate=CLOSE_MATCH,
+                object=EndpointIdentity("icdo", "3.2", "8503/0"),
+                lifecycle="proposed",
+                confidence=0.9,
+            )
+        ]
+    )
+
+    response = next(_client(_DECOMPOSED_ROWS, xrefs)).get(
+        "/api/v1/ncit/concepts/C6135/decomposition",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 200
+    assert "8503/0" in response.text
+
+
+@pytest.mark.api
 @pytest.mark.parametrize(
     ("stored", "exposed"),
     [(BROAD_MATCH, NARROW_MATCH), (NARROW_MATCH, BROAD_MATCH)],

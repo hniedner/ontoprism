@@ -1,4 +1,4 @@
-"""Authorization for the mutating endpoints.
+"""Authorization for mutating endpoints and protected ICD-O repository reads.
 
 When ``api_key`` is configured, callers of the refresh/reload endpoints must present a
 matching ``X-API-Key`` header. When it is unset (the dev default), the endpoints stay
