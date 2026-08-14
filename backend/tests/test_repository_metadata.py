@@ -259,6 +259,19 @@ def test_icdo_access_certification_rejects_misassigned_ready_dataset() -> None:
         )
 
 
+def test_icdo_ready_metadata_rejects_an_unserved_dataset() -> None:
+    with pytest.raises(ValueError, match="served dataset"):
+        IcdoRepositoryReady(
+            edition="3.2",
+            axis="topography",
+            source_identity="a" * 64,
+            serving_identity="b" * 64,
+            activation_identity="c" * 64,
+            row_count=1,
+            activated_at=datetime.now(UTC),
+        )
+
+
 @pytest.mark.asyncio
 async def test_icdo_access_retries_after_an_unhealthy_snapshot() -> None:
     settings = _Settings(

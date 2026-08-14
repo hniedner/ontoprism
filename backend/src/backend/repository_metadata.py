@@ -169,6 +169,12 @@ class IcdoRepositoryReady(_RepositoryModel):
     row_count: PositiveInt
     activated_at: AwareDatetime
 
+    @model_validator(mode="after")
+    def served_dataset(self) -> IcdoRepositoryReady:
+        if ServedIcdoDataset.parse(self.edition, self.axis) is None:
+            raise ValueError("ICD-O ready metadata requires a served dataset")
+        return self
+
 
 class RepositoryUnhealthy[RepositoryNameT: RepositoryName](_RepositoryModel):
     """Typed refusal with no fields that could be mistaken for an active identity."""

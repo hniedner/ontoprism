@@ -158,8 +158,6 @@ export interface UberonNeighborhood {
 	truncated: boolean;
 }
 
-export type IcdoEdition = '3.2' | '4.0';
-export type IcdoAxis = 'morphology' | 'topography';
 export type IcdoAccessStatus =
 	| 'ready-and-entitled'
 	| 'entitlement-required'
@@ -436,17 +434,22 @@ export interface RepositoryUnhealthy {
 	message: string;
 }
 
-export interface IcdoRepositoryReady {
+interface IcdoRepositoryReadyBase {
 	state: 'ready';
 	repository: 'icdo';
-	edition: IcdoEdition;
-	axis: IcdoAxis;
 	source_identity: string;
 	serving_identity: string;
 	activation_identity: string;
 	row_count: number;
 	activated_at: string;
 }
+
+export type IcdoRepositoryReady = IcdoRepositoryReadyBase &
+	(
+		| { edition: '3.2'; axis: 'morphology' }
+		| { edition: '4.0'; axis: 'morphology' }
+		| { edition: '4.0'; axis: 'topography' }
+	);
 
 export type RepositoryMetadata =
 	| NcitRepositoryReady
