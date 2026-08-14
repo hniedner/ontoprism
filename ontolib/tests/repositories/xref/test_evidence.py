@@ -91,7 +91,7 @@ def test_the_rejection_names_the_offending_field() -> None:
 
 @pytest.mark.unit
 def test_evidence_serializes_to_a_jsonb_ready_dict() -> None:
-    """`as_dict` is what `upsert_records` writes to the `evidence` jsonb column."""
+    """`as_dict` is what generation persistence writes to the `evidence` column."""
     ev = Evidence(kind=LABEL_AGREEMENT, source="rdfs:label", detail="lung")
     assert ev.as_dict() == {
         "kind": LABEL_AGREEMENT,

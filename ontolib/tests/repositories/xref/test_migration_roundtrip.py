@@ -5,15 +5,18 @@ with the async test harness (alembic's sync connection tries to start its own lo
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine
+from ontolib.repositories.xref.vocab import CLOSE_MATCH
 
 pytestmark = [
     pytest.mark.mutating_integration,
@@ -30,6 +33,368 @@ async def _evidence_column_exists(engine: object) -> bool:
             )
         )
         return bool(list(rows))
+
+
+@pytest.mark.integration
+async def test_generation_schema_constraints_and_indexes() -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        async with engine.connect() as conn:
+            columns = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'concept_xref'"
+                    )
+                )
+            }
+            indexes = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT indexname FROM pg_indexes "
+                        "WHERE tablename = 'concept_xref'"
+                    )
+                )
+            }
+            generation_checks = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conrelid = 'xref_generation'::regclass"
+                    )
+                )
+            }
+            generation_unique_columns = {
+                tuple(row[0])
+                for row in await conn.execute(
+                    text(
+                        "SELECT ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH "
+                        "ORDINALITY AS k(attnum, ord) JOIN pg_attribute a "
+                        "ON a.attrelid=c.conrelid AND a.attnum=k.attnum "
+                        "ORDER BY k.ord) FROM pg_constraint c WHERE "
+                        "c.conrelid='xref_generation'::regclass "
+                        "AND c.contype='u'"
+                    )
+                )
+            }
+            run_unique_columns = {
+                tuple(row[0])
+                for row in await conn.execute(
+                    text(
+                        "SELECT ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH "
+                        "ORDINALITY AS k(attnum, ord) JOIN pg_attribute a "
+                        "ON a.attrelid=c.conrelid AND a.attnum=k.attnum "
+                        "ORDER BY k.ord) FROM pg_constraint c WHERE "
+                        "c.conrelid='xref_run'::regclass AND c.contype='u'"
+                    )
+                )
+            }
+            concept_foreign_keys = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conrelid='concept_xref'::regclass AND contype='f'"
+                    )
+                )
+            }
+
+        assert {
+            "generation_id",
+            "subject_system",
+            "subject_version",
+            "subject_id",
+            "object_system",
+            "object_version",
+            "object_id",
+        } <= columns
+        assert {"idx_concept_xref_forward", "idx_concept_xref_reverse"} <= indexes
+        assert any(
+            "state" in check and "prepared" in check for check in generation_checks
+        )
+        assert any("content_sha256" in check for check in generation_checks)
+        assert ("source", "content_sha256") not in generation_unique_columns
+        assert ("id", "source") in run_unique_columns
+        assert any(
+            "FOREIGN KEY (run_id, generation_source)" in foreign_key
+            and "xref_run(id, source)" in foreign_key
+            for foreign_key in concept_foreign_keys
+        )
+
+        async with engine.connect() as conn:
+            icdo_tables = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema='public' AND table_name IN "
+                        "('icdo_generation','icdo_record','icdo_active_generation')"
+                    )
+                )
+            }
+            icdo_indexes = {
+                row[0]
+                for row in await conn.execute(
+                    text(
+                        "SELECT indexname FROM pg_indexes WHERE tablename='icdo_record'"
+                    )
+                )
+            }
+        assert icdo_tables == {
+            "icdo_generation",
+            "icdo_record",
+            "icdo_active_generation",
+        }
+        assert "idx_icdo_record_filters" in icdo_indexes
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_run "
+                    "(id,source,status,ncit_version,source_version,started_at) VALUES "
+                    "('schema-candidate','uberon-cl','running','n','u',now()),"
+                    "('schema-promotion','uberon-cl-promotion','running','n','u',now())"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_generation "
+                    "(id,source,content_sha256,source_metadata,graph_iri,run_id,state) "
+                    "VALUES "
+                    "(:id,'uberon-cl',:content,CAST(:metadata AS jsonb),"
+                    "'https://example.test/g','schema-candidate','prepared')"
+                ),
+                {
+                    "id": "a" * 64,
+                    "content": "b" * 64,
+                    "metadata": json.dumps(
+                        {
+                            "source": "uberon-cl",
+                            "ncit_source_identity": "c" * 64,
+                            "uberon_source_identity": "d" * 64,
+                            "uberon_serving_identity": "e" * 64,
+                        }
+                    ),
+                },
+            )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO xref_active_generation (source,generation_id) "
+                        "VALUES ('uberon-cl-promotion',:id)"
+                    ),
+                    {"id": "a" * 64},
+                )
+
+        for column, value in (
+            ("predicate_id", "https://example.test/not-skos"),
+            ("lifecycle_state", "invented"),
+        ):
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO concept_xref "
+                            "(generation_id,generation_source,subject_system,"
+                            "subject_version,subject_id,predicate_id,object_system,"
+                            "object_version,object_id,mapping_justification,confidence,"
+                            "lifecycle_state,review_status,author) VALUES "
+                            "(:generation,'uberon-cl','ncit','v','C1',:predicate,"
+                            "'uberon-cl','v','U1','j',0.5,:lifecycle,'unreviewed','')"
+                        ),
+                        {
+                            "generation": "a" * 64,
+                            "predicate": value
+                            if column == "predicate_id"
+                            else CLOSE_MATCH,
+                            "lifecycle": value
+                            if column == "lifecycle_state"
+                            else "proposed",
+                        },
+                    )
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_generation "
+                    "(id,source,content_sha256,source_metadata,graph_iri,run_id,state) "
+                    "VALUES "
+                    "(:id,'uberon-cl-promotion',:content,CAST(:metadata AS jsonb),"
+                    "'https://example.test/promotion','schema-promotion','prepared')"
+                ),
+                {
+                    "id": "f" * 64,
+                    "content": "1" * 64,
+                    "metadata": json.dumps(
+                        {
+                            "source": "uberon-cl-promotion",
+                            "ncit_source_identity": "2" * 64,
+                            "uberon_source_identity": "3" * 64,
+                            "uberon_serving_identity": "4" * 64,
+                        }
+                    ),
+                },
+            )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO concept_xref "
+                        "(generation_id,generation_source,subject_system,"
+                        "subject_version,subject_id,predicate_id,object_system,"
+                        "object_version,object_id,mapping_justification,confidence,"
+                        "lifecycle_state,review_status,author) VALUES "
+                        "(:generation,'uberon-cl-promotion','uberon-cl','v','U1',"
+                        ":predicate,'ncit','v','C1','j',1,'validated','reviewed','')"
+                    ),
+                    {"generation": "f" * 64, "predicate": CLOSE_MATCH},
+                )
+
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO concept_xref "
+                        "(generation_id,generation_source,run_id,subject_system,"
+                        "subject_version,subject_id,predicate_id,object_system,"
+                        "object_version,object_id,mapping_justification,confidence,"
+                        "lifecycle_state,review_status,author) VALUES "
+                        "(:generation,'uberon-cl',NULL,'ncit','v','C-NULL-RUN',"
+                        ":predicate,'uberon-cl','v','UBERON:NULL-RUN','j',1,"
+                        "'proposed','unreviewed','')"
+                    ),
+                    {"generation": "a" * 64, "predicate": CLOSE_MATCH},
+                )
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_run "
+                    "(id,source,status,ncit_version,source_version,started_at) VALUES "
+                    "('cross-source-run','uberon-cl','running','v','v',now())"
+                )
+            )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO concept_xref "
+                        "(generation_id,generation_source,run_id,subject_system,"
+                        "subject_version,subject_id,predicate_id,object_system,"
+                        "object_version,object_id,mapping_justification,confidence,"
+                        "lifecycle_state,review_status,author) VALUES "
+                        "(:generation,'uberon-cl-promotion','cross-source-run','ncit',"
+                        "'v','C2',:predicate,'uberon-cl','v','U2','j',1,'validated',"
+                        "'reviewed','')"
+                    ),
+                    {"generation": "f" * 64, "predicate": CLOSE_MATCH},
+                )
+
+        malformed_metadata = (
+            None,
+            7,
+            [],
+            {"source": 7},
+            {
+                "source": "uberon-cl",
+                "ncit_source_identity": None,
+                "uberon_source_identity": "d" * 64,
+                "uberon_serving_identity": "e" * 64,
+            },
+            {
+                "source": "uberon-cl",
+                "ncit_source_identity": 7,
+                "uberon_source_identity": "d" * 64,
+                "uberon_serving_identity": "e" * 64,
+            },
+            {
+                "source": "uberon-cl",
+                "ncit_source_identity": "not-a-digest",
+                "uberon_source_identity": "d" * 64,
+                "uberon_serving_identity": "e" * 64,
+            },
+        )
+        for index, metadata in enumerate(malformed_metadata):
+            with pytest.raises(IntegrityError):
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO xref_generation "
+                            "(id,source,content_sha256,source_metadata,"
+                            "graph_iri,run_id,state) "
+                            "VALUES (:id,'uberon-cl',:content,CAST(:metadata AS jsonb),"
+                            ":graph,'schema-candidate','prepared')"
+                        ),
+                        {
+                            "id": f"{index + 1:x}" * 64,
+                            "content": "9" * 64,
+                            "metadata": json.dumps(metadata),
+                            "graph": f"https://example.test/malformed/{index}",
+                        },
+                    )
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_terminal_xref_runs_are_immutable_under_direct_sql() -> None:
+    engine = make_engine(get_settings().database_url)
+    run_id = "terminal-run"
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO xref_run "
+                    "(id,source,status,ncit_version,source_version,started_at,"
+                    "finished_at,metrics) VALUES "
+                    "(:id,'uberon-cl','completed','n','u',now(),now(),'{}'::jsonb)"
+                ),
+                {"id": run_id},
+            )
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("UPDATE xref_run SET id = id WHERE id = :id"), {"id": run_id}
+            )
+        for statement in (
+            "UPDATE xref_run SET status = 'running' WHERE id = :id",
+            "UPDATE xref_run SET metrics = jsonb_build_object('changed', true) "
+            "WHERE id = :id",
+            "UPDATE xref_run SET finished_at = NULL WHERE id = :id",
+        ):
+            with pytest.raises(
+                DBAPIError, match="terminal xref_run rows are immutable"
+            ):
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(statement),
+                        {"id": run_id},
+                    )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO xref_run "
+                        "(id,source,status,ncit_version,source_version,started_at) "
+                        "VALUES ('invalid-status','uberon-cl','done','n','u',now())"
+                    )
+                )
+        with pytest.raises(IntegrityError):
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO xref_run "
+                        "(id,source,status,ncit_version,source_version,started_at) "
+                        "VALUES ('invalid-terminal','uberon-cl','failed','n','u',now())"
+                    )
+                )
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("TRUNCATE xref_generation, xref_run CASCADE"))
+        await dispose_engine(engine)
 
 
 @pytest.mark.integration

@@ -2,6 +2,52 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+## 2026-08-13 — NCIt P334 values remain proposed ICD-O alignments
+
+### D73. NCIt P334 values publish as proposed close alignments to ICD-O-3.2
+
+**Decision:** NCIt's `P334` assertions are publisher database cross-references, not
+equivalence claims. Values resolving against the exact active ICD-O-3.2 morphology
+generation publish as `skos:closeMatch`, lifecycle `proposed`, with
+`https://ontoprism.org/vocab#PublisherDatabaseCrossReference` justification. Publication
+binds the exact P334 row fingerprint and the recertified ICD-O generation and serving
+fingerprint; only the independent-evidence and reasoner-backed promotion path may produce
+identity-grade mappings.
+
+Malformed or unresolved publisher values remain explicit report rows. These additive
+alignments are derived from and aligned to ICD-O-3.2 and never alter stated or decomposed
+NCIt graphs. Protected term text and reciprocal ICD-O detail remain entitlement-gated.
+
+## 2026-08-12 — Certified cross-repository publication
+
+### D72. Publisher database cross-references remain inspectable proposals until independently validated
+
+Uberon `oboInOwl:hasDbXref "NCIT:C…"` assertions are direct publisher evidence, but do
+not state equivalence and may differ in scope across terminologies.
+
+**Decision:** Publish each resolvable assertion as `skos:closeMatch`, lifecycle `proposed`,
+with publisher-database-cross-reference justification. Bind the exact Uberon assertion
+fingerprint and exact resolved NCIt target fingerprint into the report and generation
+identity, and repeat both observations before publication. Preserve many-to-one and
+many-to-many assertions; unresolved targets remain explicit report rows. Only the
+independent-evidence and reasoner-backed promotion path can produce identity-grade mappings.
+
+### D71. ICD-O certified repositories use separate consumer entitlement
+
+**Decision:** ICD-O term content is served only to consumers presenting the dedicated
+ICD-O entitlement. Authorization runs before repository metadata, records, search caches,
+SSR rendering, or analytical reports are read.
+
+NCIt mapping and decomposition surfaces expose ICD-O alignments only when the server's
+licensed-mapping capability is enabled and the consumer presents that entitlement. The
+capability does not restrict public Uberon alignments.
+
+Publisher workbooks remain operator-supplied, access-controlled artifacts. Each served
+edition/axis is an immutable PostgreSQL generation selected by an active pointer and
+certified by a canonical fingerprint over exact served values. Reads carry the activation
+identity used to pin the query and the certified serving identity. The ICD-O-4
+topography/Uberon congruence output is an inspection report and publishes no mapping.
+
 ## 2026-08-11 — PDM commands own certified local tool configuration
 
 ### D70. Every PDM task loads repository-local Jena and ROBOT defaults
@@ -394,11 +440,12 @@ downstream decisions inherited the error before it was caught.
    submitted → accepted-in-ncit`. `locally-approved` means our SME accepted it; it does not mean
    NCI did. No status short of `accepted-in-ncit` may be presented as NCIt-authored.
 
-3. **Derivation is recorded as provenance and alignment, never as ownership.** Where a concept or
-   relation of ours corresponds to an external one, that correspondence is a mapping annotation
-   alongside our content — the pattern `AxisContract.ro_parent` already uses, where `op:PrimarySite`
-   is *our* relation and `RO:0004026` is what it aligns to. External identifiers are never the
-   values our definitions must resolve to (D-R7, D38 correction).
+3. **Derivation is recorded as provenance and alignment, never as ownership.** Emitted definitions
+   use NCIt identifiers for their concepts and fillers. Where a concept or relation of ours
+   corresponds to one in a corroborating terminology, that identifier is a mapping or provenance
+   annotation alongside our content, never an authored definition filler — the pattern
+   `AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026`
+   is what it aligns to (D38, D60).
 
 4. **Provenance is instrumental.** It exists so that Metathesaurus integration and cross-terminology
    mapping actually work, and so a reviewer can see what evidence supported a proposal. It is not
@@ -1257,9 +1304,10 @@ elimination and was not adopted; SNOMED CT retains pre-coordination and *sanctio
 bracket it — `roundtrip_fidelity` (did we capture everything the source asserts?) and
 `residual_precoordination` (is what we produced actually atomic? — see D37).
 
-**2. "NCIt as a subset of Uberon/SNOMED/ICD-O-3" → a dual-canonical mapping layer, split by licence.**
+**2. Historical proposal, superseded by D60: "NCIt as a subset of Uberon/SNOMED/ICD-O-3."**
 NCIt is not a subset: it holds concepts with no upstream counterpart and its class structure differs.
-D24–D26 already say *additive, dual-canonical mapping*, and that is right. Added here is the licence
+D24–D26 proposed an additive mapping model. D60 now governs ownership: everything emitted is NCIt,
+derived from and aligned to corroborating terminology records. The historical addition here was the licence
 boundary, which is a hard constraint on what can be *built*, not a legal footnote: **Uberon / CL /
 Mondo are open and may be depended on definitionally; SNOMED CT and ICD-O-3 are licence-gated and may
 only be mapped to.** An NCIt whose definitions depend on SNOMED cannot be redistributed — which would
@@ -1620,9 +1668,10 @@ human action pending a secret-history audit, not automated here.
 ## 2026-07-11 — corrections from peer-reviewed review + adversarial red-team (D24–D26 hardened)
 
 Design §13/§14 record the full evidence base. A literature pass and an independent adversarial review
-found the first cut of D24–D26 over-claimed in three load-bearing ways; D27–D29 correct them. These are
-*corrections to*, not reversals of, D24's strategy — the dual-canonical specialization stands; its
-guarantees are made honest and measurable.
+found the first cut of D24–D26 over-claimed in three load-bearing ways; D27–D29 corrected them at the
+time. D60 later superseded D24's dual-canonical ownership model: OntoPrism emits provisional NCIt
+content, with derivation recorded as provenance and alignment. D27's enumerate-then-measure guarantee
+remains current.
 
 ### D27. The caDSR mapping target is the *enumerated caDSR anchor set*, not the role-target atoms — and the guarantee is a *published coverage number*, not "for free"
 The first draft claimed caDSR CDEs reach upstream "transitively, by construction" because NCIt is
@@ -1700,10 +1749,13 @@ NCIt+upstream merges can leave EL, where classification over a 10M+-triple graph
 
 ### D29. Mappings have a lifecycle and rot on release; the "identifiers-only" license safety is confirmed-then-served, not assumed; economics are curation-grade
 Three governance corrections (red-team H2/H3/H4/M3; lit F8/F9/F11/F14).
-1. **Lifecycle + drift.** A mapping is `proposed → validated → {active | quarantined | retired}`. An
+1. **Lifecycle + drift.** Candidate rows are `proposed`; accepted promotion rows are `validated`; stale
+   rows are `quarantined` in a new immutable generation. `active` is an allowed row lifecycle, while the
+   active published generation is selected separately. An
    endpoint version bump **re-runs validation** over the affected set (computable from SSSOM version
-   fields) and quarantines stale mappings — it does not merely "fail loudly." `$translate` never serves
-   non-`active` mappings, and translating an upstream expression into the NCIt plane must return the
+   fields) and quarantines stale mappings — it does not merely "fail loudly." Mapping reads may surface
+   non-validated rows with lifecycle tags, while trusted anchors and identity-grade coverage exclude
+   them. Translating an aligned expression into NCIt must return the
    **legacy anchor** where one exists (prevents dual-identity re-duplication). Expect ~6–10% error
    re-injected per upstream release (Groß 2016; Dos Reis) — a **standing maintenance LOE**, separate from
    the decomposition ~5–8 pm, not folded into it.
@@ -1717,31 +1769,31 @@ Three governance corrections (red-team H2/H3/H4/M3; lit F8/F9/F11/F14).
    **written license determination**, gate the **serving** surface by consumer entitlement (not just the
    build flag), and rely on open Uberon/CL/Mondo (CC-BY/CC0) for a complete default product.
 
-## 2026-07-11 — strategy shift: NCIt as a specialization of the OBO/SNOMED substrate (dual-canonical, additive)
+## 2026-07-11 — historical strategy shift, superseded by D60
 
-Full design-of-record: [`docs/design/ncit-external-integration.md`](design/ncit-external-integration.md).
+Full design-of-record: [`docs/design/ncit-alignment-integration.md`](design/ncit-alignment-integration.md).
 Origin: external feedback (a local input memo) recommending an OBO Foundry + SNOMED/ICD-O-3 +
 Mondo composite architecture for a next-generation NCIt.
 
 > **Note (2026-07-11, post-review):** D24–D26 below are *hardened by D27–D29 above* following a
-> peer-reviewed literature pass and an adversarial red-team. Read them together: the strategy is
-> unchanged; the caDSR guarantee is now enumerate-then-measure (D27), validation is non-circular and
-> reasoner-committed (D28), and mapping lifecycle/economics/licensing are corrected (D29).
+> peer-reviewed literature pass and an adversarial red-team. Read them as historical context: the
+> caDSR guarantee is enumerate-then-measure (D27), validation is non-circular and reasoner-committed
+> (D28), and mapping lifecycle/economics/licensing are corrected (D29). **D60 supersedes D24's
+> ownership framing:** all emitted content is proposed NCIt, derived from and aligned
+> to corroborating terminologies rather than authored in an upstream plane.
 
-### D24. Adopt "NCIt as an oncology-specific specialization of a vetted upstream substrate," realized as a dual-canonical, additive bridge — not a re-platforming
+### D24. Historical additive-alignment proposal (ownership superseded by D60)
 The feedback's correct intent (be compliant with, and build on, the vetted upstream ontologies —
 Uberon anatomy, Cell Ontology normal cells, SNOMED CT + ICD-O-3 morphology, Mondo/DO disease) is
 adopted. Its literal prescription — *extract NCIt's anatomy/cell axes and replace them with upstream
 IRIs* — is **rejected** because it violates the project's load-bearing invariant (additive, never
 mutate the stated OWL; D4/D19) and would break both backward compatibility and caDSR CDE anchoring.
 
-**Decision:** NCIt keeps what is genuinely its own — oncology-specific pre-coordinated combinations,
-AJCC staging, chemotherapy regimens, NCI-curated oncology vocabulary — and *defers* the general
-anatomy/cell/disease/morphology scaffolding to the upstream reference ontologies **by mapping to
-them, not absorbing or replacing them**. Realized as a **dual-canonical** model (user-chosen posture):
+**Historical decision, superseded by D60:** NCIt was described as keeping oncology-specific content
+while deferring general scaffolding to mapped reference ontologies. The former dual-canonical model was:
 - **Reference plane = NCIt (canonical-of-record for everything that exists today)** — un-mutated,
   backward-compatible, the anchor caDSR CDEs point at.
-- **Canonical plane = the upstream stack (canonical for *new* post-coordinated authoring + interop)**.
+- **Canonical plane = the upstream stack (then proposed as canonical for new authoring + interop)**.
 - **Join = an additive mapping layer** (`skos:*Match` + RO `has_location`/`derives_from`/
   `has_material_basis_in` + FHIR `ConceptMap.$translate`), always present, both directions.
 
@@ -1754,9 +1806,10 @@ supplying the specialization, the substrate supplying the reusable parts.
 the SCG/ECL/MRCM grammar (D22), and FHIR `$translate` (D22) are already adopted. And the decisive
 empirical finding — decomposition surfaces ~20K role-target atoms, **100% already existing active
 concepts** (assessment §3.2) — means the atoms need not be imported; only *mapped*. Mirroring that,
-the mappings themselves largely already exist (NCIm UMLS CUIs for SNOMED/ICD-O-3; Mondo's own NCIt
-xrefs; Uberon/CL xrefs), so this is an ingest/validate/serve exercise, not a rewrite. Nothing that
-exists today breaks; caDSR is never touched and gains upstream reach transitively (D26).
+candidate mappings already existed in Mondo and Uberon/CL xrefs and NCIm could supply SNOMED
+candidates. NCIm does not supply an ICD-O crosswalk; current ICD-O-3.2 alignments derive from
+certified NCIt P334 assertions (D73). caDSR remains untouched, but reach is never assumed transitive:
+D27 enumerates its NCIt anchors and measures identity-grade alignment coverage.
 
 ### D25. The mapping layer uses honest SKOS relations, versioned provenance, and a DL-classification oracle — the D21 rule extended across ontologies; Uberon is revisited as an xref/interop target (not a tie-break default, so D16 stands)
 Cross-ontology maps are curated assertions, not scrapes. **Decision:**
@@ -1821,7 +1874,7 @@ accepted by NCI.
 > composite staging sites with no anatomical counterpart and are the correct
 > `no-upstream-equivalent` residue, to remain hand-curated and explicitly labelled as such.
 >
-> Sequencing and the per-axis plan are in `docs/design/ncit-external-integration.md` §5/§9 and its
+> Sequencing and the per-axis plan are in `docs/design/ncit-alignment-integration.md` §5/§9 and its
 > 2026-08-06 status correction.
 
 SME review of the draft golden set (30 neoplasm concepts) produced a single governing rule that supersedes the per-cancer tie-resolution table in prior drafts, ratified the `op:` namespace for decomposition axes, identified two structural bugs, and required minted concepts for NCIt gaps. Recording all SME decisions as load-bearing.

@@ -11,10 +11,17 @@ from backend.main import create_app
 from backend.repository_metadata import (
     CadsrRepositoryReady,
     CadsrSourceMetadata,
+    IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryUnhealthy,
+    UberonClassCounts,
+    UberonRepositoryReady,
 )
 from ontolib.terminologies.ncit.sibling_store import CandidateObservation
+from ontolib.terminologies.uberon.store import (
+    CertifiedUberonIndexObservation,
+    UberonServingFingerprint,
+)
 
 
 def _ncit_ready() -> NcitRepositoryReady:
@@ -57,15 +64,74 @@ def _cadsr_ready() -> CadsrRepositoryReady:
     )
 
 
+def _uberon_ready() -> UberonRepositoryReady:
+    return UberonRepositoryReady(
+        source_identity="f" * 64,
+        manifest_identity="1" * 64,
+        source_sha256="2" * 64,
+        version_iri="http://example.test/uberon/2026-06-19",
+        observation=CertifiedUberonIndexObservation(
+            version_iri="http://example.test/uberon/2026-06-19",
+            triples=900_000,
+            has_uberon_lung=True,
+            has_cell_class=True,
+            has_ncit_xref=True,
+            serving=UberonServingFingerprint(
+                rows=100,
+                sha256="f" * 64,
+                uberon_classes=16_362,
+                cl_classes=1_484,
+                uberon_searchable_classes=16_071,
+                cl_searchable_classes=1_484,
+            ),
+        ),
+        activated_at=datetime(2026, 8, 12, tzinfo=UTC),
+        class_counts=UberonClassCounts(
+            uberon=16_362,
+            cl=1_484,
+            uberon_searchable=16_071,
+            cl_searchable=1_484,
+        ),
+    )
+
+
 class _Metadata:
-    def __init__(self, ncit: NcitRepositoryReady | RepositoryUnhealthy) -> None:
+    def __init__(
+        self,
+        ncit: NcitRepositoryReady | RepositoryUnhealthy,
+        uberon: UberonRepositoryReady | RepositoryUnhealthy | None = None,
+        cadsr: CadsrRepositoryReady | RepositoryUnhealthy | None = None,
+        icdo: IcdoRepositoryReady | RepositoryUnhealthy | None = None,
+    ) -> None:
         self._ncit = ncit
+        self._uberon = uberon or _uberon_ready()
+        self._cadsr = cadsr or _cadsr_ready()
+        self._icdo = icdo
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         return self._ncit
 
     def cadsr(self) -> CadsrRepositoryReady | RepositoryUnhealthy:
-        return _cadsr_ready()
+        return self._cadsr
+
+    async def uberon(
+        self, *, force: bool = False
+    ) -> UberonRepositoryReady | RepositoryUnhealthy:
+        del force
+        return self._uberon
+
+    async def icdo(
+        self, edition: str, axis: str
+    ) -> IcdoRepositoryReady | RepositoryUnhealthy:
+        return self._icdo or IcdoRepositoryReady(
+            edition=edition,
+            axis=axis,
+            source_identity="3" * 64,
+            serving_identity="4" * 64,
+            activation_identity="5" * 64,
+            row_count=1,
+            activated_at=datetime(2026, 8, 12, tzinfo=UTC),
+        )
 
 
 @pytest.mark.api
@@ -80,6 +146,27 @@ def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
     assert response.json() == {
         "ready": True,
         "repository": _ncit_ready().model_dump(mode="json"),
+        "repositories": [
+            _ncit_ready().model_dump(mode="json"),
+            _cadsr_ready().model_dump(mode="json"),
+            _uberon_ready().model_dump(mode="json"),
+            *[
+                IcdoRepositoryReady(
+                    edition=edition,
+                    axis=axis,
+                    source_identity="3" * 64,
+                    serving_identity="4" * 64,
+                    activation_identity="5" * 64,
+                    row_count=1,
+                    activated_at=datetime(2026, 8, 12, tzinfo=UTC),
+                ).model_dump(mode="json")
+                for edition, axis in (
+                    ("3.2", "morphology"),
+                    ("4.0", "morphology"),
+                    ("4.0", "topography"),
+                )
+            ],
+        ],
     }
 
 
@@ -104,7 +191,60 @@ def test_ready_returns_typed_503_without_claiming_an_active_identity() -> None:
 
 
 @pytest.mark.api
-def test_refresh_returns_discriminated_ncit_and_cadsr_metadata() -> None:
+def test_ready_refuses_when_uberon_release_is_unhealthy() -> None:
+    unhealthy = RepositoryUnhealthy(
+        repository="uberon",
+        reason="release-mismatch",
+        message="live and indexed Uberon releases differ",
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(
+        _ncit_ready(), unhealthy
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == unhealthy.model_dump(mode="json")
+
+
+@pytest.mark.api
+def test_ready_refuses_when_manifest_declared_cadsr_is_unhealthy() -> None:
+    unhealthy = RepositoryUnhealthy(
+        repository="cadsr",
+        reason="repository-unreachable",
+        message="caDSR unavailable",
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(
+        _ncit_ready(), cadsr=unhealthy
+    )
+    with TestClient(app) as client:
+        response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"] == unhealthy.model_dump(mode="json")
+
+
+@pytest.mark.api
+def test_ready_refuses_when_any_served_icdo_dataset_is_unhealthy() -> None:
+    unhealthy = RepositoryUnhealthy(
+        repository="icdo",
+        reason="observation-mismatch",
+        message="ICD-O serving fingerprint drift",
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(
+        _ncit_ready(), icdo=unhealthy
+    )
+    with TestClient(app) as client:
+        response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"] == unhealthy.model_dump(mode="json")
+
+
+@pytest.mark.api
+def test_refresh_returns_discriminated_local_repository_metadata() -> None:
     app = create_app()
     app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(_ncit_ready())
 
@@ -116,6 +256,16 @@ def test_refresh_returns_discriminated_ncit_and_cadsr_metadata() -> None:
     assert [(item["repository"], item["state"]) for item in repositories] == [
         ("ncit", "ready"),
         ("cadsr", "ready"),
+        ("uberon", "ready"),
+        ("icdo", "ready"),
+        ("icdo", "ready"),
+        ("icdo", "ready"),
     ]
     assert repositories[0]["source_identity"] == "a" * 64
     assert repositories[1]["manifest_identity"] == "d" * 64
+    assert repositories[2]["source_sha256"] == "2" * 64
+    assert [(row["edition"], row["axis"]) for row in repositories[3:]] == [
+        ("3.2", "morphology"),
+        ("4.0", "morphology"),
+        ("4.0", "topography"),
+    ]

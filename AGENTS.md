@@ -6,6 +6,23 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
 
 ## Hard rules (never violate)
 
+- **Pre-production carries no dead code or legacy compatibility code.** Transitional
+  compatibility code is permitted only while an active refactor needs it. Remove it
+  before the refactor is considered complete, before local gates are accepted, and
+  before merge. Rebuild internal data/artifacts instead of retaining old-schema readers,
+  adapters, fallbacks, migration shims, or deprecated branches. Do not preserve code for
+  hypothetical rollback or future consumers while the product is pre-production.
+
+- **Implement acceptance semantics end to end on the first pass.** Before production
+  code, enumerate every required output field, semantic variant, refusal, and scale
+  boundary from the issue. Tests must drive each item through storage/query → backend
+  DTO → frontend rendering. Do not erase distinctions to reuse a component (for example,
+  mapping typed edge kinds to a generic kind). For repository work, the certified
+  identity must cover the exact values served, not only release labels, counts, or
+  sentinels. Validate user input separately from source data so only dedicated input
+  errors become 4xx responses; malformed source rows fail closed. Exercise the real
+  highest-fanout record and assert bounded query count before accepting the design.
+
 - **NEVER merge a PR unless CI is green on the target branch (`main`).** Before any
   `gh pr merge`, fetch `origin/main` and verify the newest push-event `CI` run on `main`
   completed successfully. Its head must equal `origin/main` or be its ancestor with only
@@ -261,6 +278,24 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   (`feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`) and land via PR. The only
   exceptions are the workflow-generated semantic-release and `Update README Code Stats`
   bot commits pushed by CI (with `GITHUB_TOKEN`).
+- **Milestones use one integration branch and one final PR.** When work is scoped as a
+  milestone rather than one isolated issue, create a milestone branch and implement each
+  issue or declared batch on a separate feature branch. On each feature branch: implement
+  and verify the complete issue/batch, commit it, and run `pdm run verify`. Do not open a
+  feature PR and do not run the five-agent pre-PR review cycle there. Merge the verified
+  feature branch into the milestone branch with `--no-ff`, then delete that feature branch
+  locally and remotely. Repeat until every issue assigned to the milestone is implemented.
+  A blocked issue blocks milestone completion unless its milestone assignment is explicitly
+  changed; do not silently omit it.
+
+  Only after every milestone issue is present on the milestone branch: run `pdm run verify`,
+  commit any resulting fixes, and run the milestone branch's full five-agent pre-PR
+  review/fix cycle repeatedly on committed milestone diffs until all five agents converge.
+  Then rerun `pdm run verify`, run required branch
+  CI/checks, and create the milestone's single PR. Wait for every triggered GitHub workflow.
+  Merge the milestone PR only when the required target-branch and PR checks satisfy the hard
+  merge rules above. After the merge, watch every post-merge workflow to completion before
+  starting new work.
 - Branches: `feat/<slug>-<issue#>`, `fix/...`, `security/...`, `docs/...`; PRs merge into
   `main`.
 - **Dependabot PRs: fetch into exactly one ref name and delete it when the PR closes.** A

@@ -6,8 +6,12 @@ import asyncio
 from collections import Counter
 from typing import TYPE_CHECKING, Annotated
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+
+from backend.api.v1 import clinicaltrials, pubmed
+from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
+from ontolib.repositories.pubmed.client import PubMedClient
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -15,6 +19,15 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
 app = FastAPI()
+app.state.clinicaltrials_client = ClinicalTrialsClient(
+    "http://127.0.0.1:18012", connect_timeout=0.01, read_timeout=0.01
+)
+app.state.pubmed_client = PubMedClient(
+    "http://127.0.0.1:18012",
+    requests_per_second=0,
+    connect_timeout=0.01,
+    read_timeout=0.01,
+)
 _requests: Counter[str] = Counter()
 _NEIGHBORHOOD_NODE_CAP = 400
 
@@ -58,6 +71,8 @@ def _synthetic_neighborhood(
             }
         )
     return {
+        "activation_identity": "d" * 64,
+        "serving_identity": "e" * 64,
         "center": center,
         "nodes": nodes,
         "edges": edges,
@@ -134,7 +149,34 @@ async def refresh_repositories() -> dict[str, object]:
                 "repository": "ncit",
                 "reason": "repository-unreachable",
                 "message": "fixture metadata",
-            }
+            },
+            {
+                "state": "ready",
+                "repository": "uberon",
+                "source_identity": "a" * 64,
+                "manifest_identity": "b" * 64,
+                "source_sha256": "c" * 64,
+                "version_iri": "http://example.test/uberon/2026-06-19",
+                "class_counts": {"uberon": 16071, "cl": 1484},
+                "observation": {
+                    "version_iri": "http://example.test/uberon/2026-06-19",
+                    "triples": 900000,
+                    "has_uberon_lung": True,
+                    "has_cell_class": True,
+                    "has_ncit_xref": True,
+                    "serving": {
+                        "rows": 223834,
+                        "sha256": (
+                            "ed3efa224d1e7445d2dc17fb053cea61feee698232dc8404e"
+                            "1c615525b0dffb0"
+                        ),
+                        "uberon_classes": 16362,
+                        "cl_classes": 1484,
+                        "uberon_searchable_classes": 16071,
+                        "cl_searchable_classes": 1484,
+                    },
+                },
+            },
         ],
     }
 
@@ -186,6 +228,203 @@ async def search_ncit(
                 ),
             }
         ],
+    }
+
+
+@app.get("/api/v1/uberon/list")
+async def list_uberon(
+    limit: Annotated[int, Query(ge=1)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    source: str | None = None,
+) -> dict[str, object]:
+    return {
+        "query": "",
+        "total": 1,
+        "limit": limit,
+        "offset": offset,
+        "hits": [
+            {
+                "code": "UBERON:0002048",
+                "source": source or "uberon",
+                "label": "SSR lung",
+                "matched_synonym": None,
+            }
+        ],
+    }
+
+
+@app.get("/api/v1/uberon/search")
+async def search_uberon(
+    q: str,
+    limit: Annotated[int, Query(ge=1)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    source: str | None = None,
+) -> dict[str, object]:
+    result = await list_uberon(limit, offset, source)
+    result["query"] = q
+    return result
+
+
+def _require_icdo(value: str | None) -> None:
+    if value != "licensed":
+        raise HTTPException(403, "ICD-O entitlement required.")
+
+
+@app.get("/api/v1/icdo/{edition}/{axis}/list")
+async def list_icdo(
+    edition: str,
+    axis: str,
+    limit: int = 25,
+    offset: int = 0,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    _require_icdo(x_icdo_entitlement)
+    return {
+        "edition": edition,
+        "axis": axis,
+        "query": "",
+        "total": 1,
+        "limit": limit,
+        "offset": offset,
+        "hits": [
+            {
+                "code": "8503/0",
+                "level": "morphology",
+                "preferred": "Protected intraductal papilloma",
+                "behaviour": "0",
+                "base_morphology": "8503",
+                "synonyms": [],
+                "related": [],
+                "notes": [],
+                "code_references": [],
+                "see_also": [],
+                "see_notes": [],
+                "includes": [],
+                "excludes": [],
+                "other_text": [],
+            }
+        ],
+    }
+
+
+@app.get("/api/v1/icdo/{edition}/{axis}/search")
+async def search_icdo(
+    edition: str,
+    axis: str,
+    q: str,
+    limit: int = 25,
+    offset: int = 0,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    result = await list_icdo(edition, axis, limit, offset, x_icdo_entitlement)
+    result["query"] = q
+    return result
+
+
+@app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}")
+async def icdo_detail(
+    code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    _require_icdo(x_icdo_entitlement)
+    if code != "ODUwMy8w":
+        raise HTTPException(404, "ICD-O code not found.")
+    return {
+        "activation_identity": "d" * 64,
+        "serving_identity": "e" * 64,
+        "record": {
+            "code": "8503/0",
+            "level": "morphology",
+            "preferred": "Protected intraductal papilloma",
+            "base_morphology": "8503",
+            "behaviour": "0",
+            "synonyms": ["Protected papilloma synonym"],
+            "related": [],
+            "notes": ["Publisher note"],
+            "code_references": ["Code reference"],
+            "see_also": ["See also term"],
+            "see_notes": ["See note"],
+            "includes": ["Included term"],
+            "excludes": ["Excluded term"],
+            "other_text": ["Other publisher text"],
+        },
+        "ncit_alignments": [
+            {
+                "code": code,
+                "system": "ncit",
+                "version": "26.07d",
+                "predicate": "http://www.w3.org/2004/02/skos/core#closeMatch",
+                "lifecycle": "proposed",
+            }
+            for code in (
+                "C45194",
+                "C71720",
+                "C80281",
+                "C80289",
+                "C80291",
+                "C8851",
+                "C9496",
+            )
+        ],
+    }
+
+
+@app.get("/api/v1/icdo/4.0/topography/congruence")
+async def icdo_congruence(
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    _require_icdo(x_icdo_entitlement)
+    return {
+        "report_identity": "a" * 64,
+        "icdo_serving_identity": "b" * 64,
+        "uberon_serving_identity": "c" * 64,
+        "total": 406,
+        "counts": {"one-supported-candidate": 1, "no-candidate": 405},
+        "rows": [
+            {
+                "code": "C34.9",
+                "classification": "one-supported-candidate",
+                "reason": "one lexical candidate retained for inspection",
+                "candidates": ["UBERON:0002048"],
+                "evidence": [],
+            }
+        ],
+    }
+
+
+@app.get("/api/v1/uberon/concepts/{code}/neighborhood")
+async def get_uberon_neighborhood(code: str) -> dict[str, object]:
+    return {
+        "center": code,
+        "nodes": [{"code": code, "source": "uberon", "label": "SSR lung"}],
+        "edges": [],
+        "truncated": False,
+    }
+
+
+@app.get("/api/v1/uberon/concepts/{code}")
+async def get_uberon_concept(code: str) -> dict[str, object]:
+    return {
+        "code": code,
+        "source": "uberon",
+        "label": "SSR lung",
+        "definition": "SSR Uberon concept definition from FastAPI.",
+        "synonyms": ["pulmo"],
+        "xrefs": ["NCIT:C12468"],
+        "parents": [],
+        "children": [],
+        "relations": [],
+        "truncated": False,
+    }
+
+
+@app.get("/api/v1/uberon/concepts/{code}/alignments")
+async def get_uberon_alignments(code: str) -> dict[str, object]:
+    return {
+        "code": code,
+        "repository_source_identity": "a" * 64,
+        "repository_serving_identity": "b" * 64,
+        "alignments": [],
     }
 
 
@@ -282,6 +521,30 @@ async def get_ncit_concept(code: str) -> JSONResponse:
     )
 
 
+@app.get("/api/v1/ncit/concepts/{code}/mappings")
+async def get_ncit_mappings(
+    code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    mappings = (
+        [
+            {
+                "object_id": value,
+                "system": "icdo",
+                "version": "3.2",
+                "predicate": "http://www.w3.org/2004/02/skos/core#closeMatch",
+                "lifecycle": "proposed",
+                "confidence": 0.9,
+                "is_identity": False,
+            }
+            for value in ("8240/3", "8241/3", "8248/1")
+        ]
+        if code == "C188218" and x_icdo_entitlement == "licensed"
+        else []
+    )
+    return {"code": code, "mappings": mappings}
+
+
 @app.get("/api/v1/cadsr/list")
 async def list_cadsr(
     limit: Annotated[int, Query(ge=1)] = 25,
@@ -373,90 +636,5 @@ async def get_similar_cdes(public_id: str) -> list[dict[str, object]]:
     ]
 
 
-@app.post("/api/v1/clinicaltrials/search")
-async def search_trials(payload: dict[str, object]) -> dict[str, object]:
-    condition = str(payload.get("condition") or "")
-    return {
-        "condition": condition,
-        "intervention": None,
-        "term": None,
-        "total": 1,
-        "studies": [
-            {
-                "nct_id": "NCT01234567",
-                "title": "A Study of Widgetinib",
-                "status": "RECRUITING",
-                "phase": "PHASE2",
-                "conditions": [condition],
-                "interventions": ["Widgetinib"],
-                "start_date": "2024-01-01",
-                "enrollment": 100,
-                "relevance_score": 1.0,
-            }
-        ],
-    }
-
-
-@app.get("/api/v1/clinicaltrials/{nct_id}")
-async def get_trial(nct_id: str) -> dict[str, object]:
-    return {
-        "nct_id": nct_id,
-        "title": "A Study of Widgetinib",
-        "official_title": "A Phase 2 Study of Widgetinib in Melanoma",
-        "status": "RECRUITING",
-        "phase": "PHASE2",
-        "study_type": "INTERVENTIONAL",
-        "primary_purpose": "TREATMENT",
-        "conditions": ["Melanoma"],
-        "interventions": [{"type": "DRUG", "name": "Widgetinib", "description": None}],
-        "primary_outcomes": [],
-        "secondary_outcomes": [],
-        "eligibility_criteria": "Adults with measurable disease",
-        "enrollment": 100,
-        "start_date": "2024-01-01",
-        "sponsors": [{"name": "OntoPrism", "role": "lead"}],
-        "locations": [],
-        "references": [],
-        "url": f"https://clinicaltrials.gov/study/{nct_id}",
-    }
-
-
-@app.post("/api/v1/pubmed/search")
-async def search_pubmed(payload: dict[str, object]) -> dict[str, object]:
-    query = str(payload.get("query") or "")
-    return {
-        "query": query,
-        "total": 1,
-        "articles": [
-            {
-                "pmid": "12345678",
-                "title": f"SSR article for {query}",
-                "journal": "Journal of SSR",
-                "pub_date": "2026",
-                "authors": ["Example A"],
-                "doi": None,
-            }
-        ],
-    }
-
-
-@app.get("/api/v1/pubmed/{pmid}/related")
-async def related_pubmed(pmid: str) -> dict[str, object]:
-    return {"pmid": pmid, "link_type": "similar", "related_pmids": []}
-
-
-@app.get("/api/v1/pubmed/{pmid}")
-async def get_pubmed(pmid: str) -> dict[str, object]:
-    return {
-        "pmid": pmid,
-        "title": "SSR PubMed Article",
-        "abstract": "SSR abstract from FastAPI.",
-        "authors": [{"last_name": "Example", "fore_name": "Ada", "initials": "AE"}],
-        "journal": "Journal of SSR",
-        "pub_date": "2026",
-        "doi": None,
-        "pmc_id": None,
-        "mesh_terms": [],
-        "keywords": ["SSR"],
-        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-    }
+app.include_router(clinicaltrials.router)
+app.include_router(pubmed.router)

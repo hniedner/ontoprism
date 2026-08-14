@@ -3,10 +3,12 @@ mappings."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, computed_field
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.api.v1.alignment import mapping_relative_to
+from backend.config import get_settings
 from backend.dependencies import (
     DecompositionReads,
     Embeddings,
@@ -16,11 +18,24 @@ from backend.dependencies import (
     XrefReads,
 )
 from backend.repository_metadata import RepositoryUnhealthy
+from backend.security import has_icdo_entitlement
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
-from ontolib.repositories.xref.vocab import EXACT_MATCH
+from ontolib.repositories.xref.models import (
+    IcdoReadIdentity,
+    MappingResult,
+    StaleXrefGenerationError,
+    UberonReadIdentity,
+    UnavailableXrefGenerationError,
+    XrefReadPolicy,
+)
+from ontolib.repositories.xref.vocab import (
+    EXACT_MATCH,
+    MappingLifecycle,
+    MappingPredicate,
+)
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.models import (
     ConceptDetail,
@@ -36,16 +51,54 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/ncit", tags=["ncit"])
 
 
+async def _xref_expected(
+    metadata: RepositoryMetadataReads, *, include_icdo: bool
+) -> XrefReadPolicy:
+    ncit = await metadata.ncit()
+    uberon = await metadata.uberon()
+    if isinstance(ncit, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, ncit.model_dump(mode="json")
+        )
+    if isinstance(uberon, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, uberon.model_dump(mode="json")
+        )
+    icdo = await metadata.icdo("3.2", "morphology") if include_icdo else None
+    if isinstance(icdo, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, icdo.model_dump(mode="json")
+        )
+    return XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity=ncit.source_identity,
+            uberon_source_identity=uberon.source_identity,
+            uberon_serving_identity=uberon.observation.serving.sha256,
+        ),
+        icdo=(
+            IcdoReadIdentity(
+                ncit_source_identity=ncit.source_identity,
+                icdo_generation_identity=icdo.activation_identity,
+                icdo_serving_identity=icdo.serving_identity,
+            )
+            if icdo is not None
+            else None
+        ),
+    )
+
+
 class MappingEntry(BaseModel):
-    """One upstream mapping for an NCIt concept, serialized for the API.
+    """One terminology alignment for an NCIt concept, serialized for the API.
 
     ``is_identity`` mirrors ``UpstreamMapping.is_identity``: true when
     the predicate is ``exactMatch`` and lifecycle is ``validated``/``active``.
     """
 
     object_id: str
-    predicate: str
-    lifecycle: str
+    system: str
+    version: str
+    predicate: MappingPredicate
+    lifecycle: MappingLifecycle
     confidence: float = Field(ge=0.0, le=1.0)
 
     @computed_field  # type: ignore[prop-decorator]
@@ -58,23 +111,58 @@ class MappingEntry(BaseModel):
 
 
 class ConceptMappings(BaseModel):
-    """All upstream mappings for one NCIt concept code."""
+    """Mappings plus NCIt identity; ICD-O rows require capability and entitlement."""
 
     code: str
+    repository_source_identity: str
+    repository_manifest_identity: str
     mappings: list[MappingEntry]
+
+
+def _mapping_entries(
+    code: str, rows: list[MappingResult], *, entitled_to_icdo: bool
+) -> list[MappingEntry]:
+    entries: list[MappingEntry] = []
+    for row in rows:
+        target, predicate = mapping_relative_to(row, code)
+        if target.system == "icdo" and not entitled_to_icdo:
+            continue
+        entries.append(
+            MappingEntry(
+                object_id=target.identifier,
+                system=target.system,
+                version=target.version,
+                predicate=predicate,
+                lifecycle=row.lifecycle,
+                confidence=row.confidence,
+            )
+        )
+    return entries
 
 
 async def _attach_xref_upstream(
     decomposition: ConceptDecomposition,
     xref_store: XrefReads,
     filler_codes: list[str],
+    *,
+    expected: XrefReadPolicy,
+    entitled_to_icdo: bool,
 ) -> ConceptDecomposition:
     if filler_codes:
-        upstream_rows = await xref_store.mappings_by_subjects(set(filler_codes))
+        upstream_rows = await xref_store.mappings_for_identifiers(
+            set(filler_codes), expected=expected
+        )
         upstream_by_filler = {
             code: [
-                UpstreamMapping(object_id=o, predicate=p, lifecycle=lc, confidence=c)
-                for (o, p, lc, c) in rows
+                UpstreamMapping(
+                    object_id=target.identifier,
+                    predicate=predicate,
+                    lifecycle=row.lifecycle,
+                    confidence=row.confidence,
+                )
+                for row in rows
+                for target, predicate in [mapping_relative_to(row, code)]
+                if target.system != "icdo" or entitled_to_icdo
             ]
             for code, rows in upstream_rows.items()
         }
@@ -202,9 +290,11 @@ async def neighborhood(
 async def concept_mappings(
     store: NcitStore,
     xref_store: XrefReads,
+    metadata: RepositoryMetadataReads,
     code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptMappings:
-    """Return all upstream mappings for an NCIt concept code.
+    """Return alignments, withholding ICD-O rows without capability and entitlement.
 
     Searches both by subject (NCIt code as subject) and by object
     (NCIt code as object of an upstream-to-NCIt mapping), so
@@ -214,19 +304,28 @@ async def concept_mappings(
         safe_iri(code, NCIT_NS)
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
-    upstream = await xref_store.mappings_by_subjects({code})
-    reverse = await xref_store.mappings_by_objects({code})
-    entries: list[MappingEntry] = [
-        MappingEntry(object_id=o, predicate=p, lifecycle=lc, confidence=c)
-        for rows in upstream.values()
-        for (o, p, lc, c) in rows
-    ]
-    entries.extend(
-        MappingEntry(object_id=s, predicate=p, lifecycle=lc, confidence=c)
-        for rows in reverse.values()
-        for (s, p, lc, c) in rows
+    repository = await metadata.ncit()
+    if isinstance(repository, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, repository.model_dump(mode="json")
+        )
+    entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
+        x_icdo_entitlement
     )
-    return ConceptMappings(code=code, mappings=entries)
+    expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
+    try:
+        rows = await xref_store.mappings_for_identifiers({code}, expected=expected)
+    except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    entries = _mapping_entries(
+        code, rows.get(code, []), entitled_to_icdo=entitled_to_icdo
+    )
+    return ConceptMappings(
+        code=code,
+        repository_source_identity=repository.source_identity,
+        repository_manifest_identity=repository.manifest_identity,
+        mappings=entries,
+    )
 
 
 @router.get("/concepts/{code}/decomposition", response_model=ConceptDecomposition)
@@ -234,23 +333,39 @@ async def concept_decomposition(
     reader: DecompositionReads,
     store: NcitStore,
     xref_store: XrefReads,
+    metadata: RepositoryMetadataReads,
     code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> ConceptDecomposition:
     """Return the concept's decomposition from the additive ``ncit_decomposed`` graph.
 
     Resolves even for a concept the engine has not decomposed
     (``is_legacy_precoordinated = false``, no constituents) so the UI can show "not
     decomposed" rather than a 404. Filler labels are resolved for display, and
-    upstream xref mappings (Uberon/CL equivalents) are attached per constituent.
+    typed terminology alignments are attached per constituent. ICD-O mappings require
+    the server capability and a valid ``X-ICDO-Entitlement``.
     """
     try:
         rows = await reader.rows_for(code)
     except ValueError as exc:  # code failed the IRI-safety guard
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invalid code: {code}") from exc
     decomposition = decomposition_from_rows(code, rows)
+    entitled_to_icdo = get_settings().enable_licensed_mappings and has_icdo_entitlement(
+        x_icdo_entitlement
+    )
+    expected = await _xref_expected(metadata, include_icdo=entitled_to_icdo)
     filler_codes = [c.filler for c in decomposition.constituents]
     labels = await store.labels_for(filler_codes) if filler_codes else {}
     for constituent in decomposition.constituents:
         constituent.filler_label = labels.get(constituent.filler)
-    decomposition = await _attach_xref_upstream(decomposition, xref_store, filler_codes)
+    try:
+        decomposition = await _attach_xref_upstream(
+            decomposition,
+            xref_store,
+            filler_codes,
+            expected=expected,
+            entitled_to_icdo=entitled_to_icdo,
+        )
+    except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return decomposition

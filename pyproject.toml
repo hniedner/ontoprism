@@ -26,6 +26,8 @@ dependencies = [
     "typer>=0.9.0",
     "pyyaml>=6.0.3",
     "defusedxml>=0.7.1",
+    "openpyxl==3.1.5",
+    "xlrd==2.0.2",
 ]
 
 [project.optional-dependencies]
@@ -320,8 +322,3 @@ token = { env = "GH_TOKEN" }
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = false
-
-[dependency-groups]
-dev = [
-    "openpyxl>=3.1.5",
-]

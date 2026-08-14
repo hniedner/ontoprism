@@ -941,7 +941,7 @@ async def test_owned_write(connection):
             ("HTTP write",),
         ),
         (
-            "await store.upsert_records(records)",
+            "await store.prepare_generation(records)",
             ("repository write",),
         ),
         (

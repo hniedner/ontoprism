@@ -3,6 +3,9 @@ import { buildBreadcrumbs } from './breadcrumbs';
 
 const DYNAMIC_SEGMENT_EXAMPLES: Readonly<Record<string, string>> = {
 	code: 'C27262',
+	curie: 'UBERON:0002048',
+	edition: '4.0',
+	axis: 'morphology',
 	id: '6686721',
 	nct: 'NCT00000001',
 	pmid: '12345678'
@@ -44,7 +47,7 @@ describe('buildBreadcrumbs', () => {
 		const pagePaths = new Set(Object.keys(pageModules).map(concretePagePath));
 		const repositoryPaths = [...pagePaths].filter((path) => path.startsWith('/repositories/'));
 
-		expect(repositoryPaths).toHaveLength(8);
+		expect(repositoryPaths).toHaveLength(14);
 		for (const routePath of repositoryPaths) {
 			for (const crumb of buildBreadcrumbs(routePath)) {
 				expect(pagePaths, `${routePath} generated missing page ${crumb.href}`).toContain(crumb.href);

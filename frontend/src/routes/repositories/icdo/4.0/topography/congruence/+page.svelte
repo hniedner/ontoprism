@@ -1,0 +1,6 @@
+<script lang="ts">import type { PageProps } from './$types'; let { data }: PageProps = $props();</script>
+<svelte:head><title>ICD-O-4 topography congruence | OntoPrism</title></svelte:head>
+<section class="mx-auto max-w-7xl px-6 py-8"><p class="text-sm font-semibold uppercase tracking-wider text-primary-700">Protected inspection report</p><h1 class="mt-2 text-3xl font-bold">ICD-O-4 topography versus Uberon congruence</h1><p class="mt-3 text-secondary">All {data.report.total} ICD-O-4 topography codes are classified once. Candidate evidence is not a published mapping.</p>
+	<div class="my-6 flex flex-wrap gap-3">{#each Object.entries(data.report.counts) as [kind, count] (kind)}<span class="rounded-full border border-default bg-card px-3 py-1 text-sm">{kind}: {count}</span>{/each}</div>
+	<div class="overflow-x-auto rounded-xl border border-default bg-card"><table class="w-full text-left text-sm"><thead><tr><th class="p-3">Code</th><th class="p-3">Classification</th><th class="p-3">Reason</th><th class="p-3">Candidates</th></tr></thead><tbody>{#each data.report.rows as row (row.code)}<tr class="border-t border-default"><td class="p-3 font-mono">{row.code}</td><td class="p-3">{row.classification}</td><td class="p-3">{row.reason}</td><td class="p-3">{row.candidates.join(', ') || 'None'}</td></tr>{/each}</tbody></table></div>
+</section>

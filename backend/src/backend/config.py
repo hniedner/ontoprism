@@ -51,7 +51,8 @@ class Settings(BaseSettings):
     # activated or renamed by the sibling workflow (#148 owns replacement).
     ncit_store_dir: str = "data/qlever-ncit"
 
-    # Full Uberon product (including its Cell Ontology dependency) and immutable index.
+    # Full Uberon product, including classes derived from Cell Ontology,
+    # and its immutable index.
     uberon_owl_url: str = (
         "https://github.com/obophenotype/uberon/releases/download/"
         "v2026-06-23/uberon.owl"
@@ -62,6 +63,14 @@ class Settings(BaseSettings):
     uberon_expected_sha256: str = (
         "938f51e7c3fc9fcbe5a2863eb346da8033737e568af5836958891c4c6bfb1192"
     )
+    uberon_expected_serving_sha256: str = (
+        "2828f839070e49a56d843694b674663d28072ae454c94297ef9e3f2c157e7a81"
+    )
+    uberon_expected_serving_rows: Annotated[int, Field(gt=0)] = 223_834
+    uberon_expected_uberon_classes: Annotated[int, Field(gt=0)] = 16_362
+    uberon_expected_cl_classes: int = 1_484
+    uberon_expected_uberon_searchable_classes: Annotated[int, Field(gt=0)] = 16_071
+    uberon_expected_cl_searchable_classes: Annotated[int, Field(gt=0)] = 1_484
     uberon_owl_dir: str = "data/uberon"
     uberon_owl_max_retries: int = 3
     uberon_store_dir: str = "data/qlever-uberon"
@@ -78,9 +87,26 @@ class Settings(BaseSettings):
     # at a mirror or a test double.
     clinicaltrials_api_url: str = "https://clinicaltrials.gov/api/v2"
 
-    # SNOMED/ICD-O-3 mappings require license confirmation (D26).
-    # When False, the $translate endpoint refuses to serve licensed sources.
+    # SNOMED/ICD-O-3 alignments require license confirmation (D26).
+    # When False, NCIt mapping/decomposition and translation projections suppress them.
     enable_licensed_mappings: bool = False
+    # Separate consumer entitlement for protected ICD-O repository content.
+    icdo_entitlement_key: str | None = None
+    icdo_32_morphology_source_sha256: str = (
+        "7ca51dcb66107d6462b43212b26aa65d52f6b0e306c6295e8c751416b3278a21"
+    )
+    icdo_32_morphology_serving_sha256: str = (
+        "e3f60fc47d4f3bff332501299d3050fe662fdc93b8132d788afa7bd5f791ebf2"
+    )
+    icdo_40_source_sha256: str = (
+        "280ae87dc8bfea873a2346e7a5bee380877da1c84f8339697155fa5e77f3deef"
+    )
+    icdo_40_morphology_serving_sha256: str = (
+        "b1757b0a5184862a5ba64b843b0b46d7739fa9e03d2a0e4d78592662ef38d86a"
+    )
+    icdo_40_topography_serving_sha256: str = (
+        "f2ed3c5a29dd416d9f9df339fdf825015a133b2f0fb64c2fdd1b148811852439"
+    )
 
     # PubMed / NCBI E-utilities client. An API key (optional) raises the rate limit from
     # 3 to 10 req/s; pubmed_requests_per_second throttles to stay within NCBI's policy.

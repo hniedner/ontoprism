@@ -4,8 +4,54 @@ from __future__ import annotations
 
 import pytest
 
-from ontolib.repositories.xref.models import SSSOMRecord
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    MappingResult,
+    SSSOMRecord,
+    XrefReadPolicy,
+)
 from ontolib.repositories.xref.vocab import BROAD_MATCH, CLOSE_MATCH, EXACT_MATCH
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("predicate", "lifecycle", "message"),
+    [
+        ("https://example.test/not-skos", "proposed", "predicate not allowed"),
+        (CLOSE_MATCH, "invented", "lifecycle not allowed"),
+    ],
+)
+def test_mapping_result_rejects_malformed_database_values(
+    predicate: str, lifecycle: str, message: str
+) -> None:
+    endpoint = EndpointIdentity("ncit", "v", "C1")
+    with pytest.raises(ValueError, match=message):
+        MappingResult(
+            subject=endpoint,
+            predicate=predicate,  # type: ignore[arg-type]
+            object=endpoint,
+            lifecycle=lifecycle,  # type: ignore[arg-type]
+            confidence=0.5,
+        )
+
+
+@pytest.mark.unit
+def test_mapping_result_rejects_out_of_range_database_confidence() -> None:
+    endpoint = EndpointIdentity("ncit", "v", "C1")
+    with pytest.raises(ValueError, match="confidence out of range"):
+        MappingResult(
+            subject=endpoint,
+            predicate=CLOSE_MATCH,
+            object=endpoint,
+            lifecycle="proposed",
+            confidence=1.1,
+        )
+
+
+@pytest.mark.unit
+def test_xref_read_policy_requires_a_source_family() -> None:
+    with pytest.raises(ValueError, match="source family"):
+        XrefReadPolicy()
 
 
 @pytest.mark.unit

@@ -6,6 +6,9 @@ test('every repository breadcrumb link resolves and the final crumb remains iner
 	const repositoryRoutes = [
 		'/repositories/ncit',
 		'/repositories/ncit/C27262',
+		'/repositories/uberon',
+		'/repositories/uberon/UBERON:0002048',
+		'/repositories/icdo',
 		'/repositories/cadsr',
 		'/repositories/cadsr/2001',
 		'/repositories/clinicaltrials',
@@ -33,6 +36,74 @@ test('every repository breadcrumb link resolves and the final crumb remains iner
 		expect(await finalCrumb.evaluate((element) => element.tagName)).toBe('SPAN');
 		expect(await finalCrumb.getAttribute('href')).toBeNull();
 	}
+});
+
+test('ICD-O entitlement is server-side, no-leak, and slash codes use one safe segment', async ({
+	browser,
+	request
+}) => {
+	const refused = await request.get('/repositories/icdo/3.2/morphology');
+	expect(refused.status()).toBe(403);
+	const refusedHtml = await refused.text();
+	expect(refusedHtml).not.toContain('Protected intraductal papilloma');
+	expect(refusedHtml).not.toContain('Protected papilloma synonym');
+
+	const context = await browser.newContext();
+	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
+	const page = await context.newPage();
+	const list = await page.goto('/repositories/icdo/3.2/morphology');
+	expect(list?.status()).toBe(200);
+	expect(await list?.text()).toContain('Protected intraductal papilloma');
+	await page.getByRole('link', { name: '8503/0' }).click();
+	await expect(page).toHaveURL('/repositories/icdo/3.2/morphology/ODUwMy8w');
+	expect(new URL(page.url()).pathname.split('/').at(-1)).toBe('ODUwMy8w');
+	await expect(page.getByText('Protected papilloma synonym')).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('heading', { name: '8503/0' })).toBeVisible();
+	await context.close();
+});
+
+test('P334 reciprocal alignment links are accessible in both entitled directions', async ({ browser, page }) => {
+	const ncit = await page.goto('/repositories/ncit/C188218');
+	expect(ncit?.status()).toBe(200);
+	const publicHtml = await ncit?.text();
+	expect(publicHtml).not.toContain('8240/3');
+	expect(publicHtml).not.toContain('8241/3');
+	expect(publicHtml).not.toContain('8248/1');
+	expect(publicHtml).not.toContain('8503/0');
+
+	const context = await browser.newContext();
+	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
+	const protectedPage = await context.newPage();
+	const entitledNcit = await protectedPage.goto('/repositories/ncit/C188218');
+	expect(entitledNcit?.status()).toBe(200);
+	for (const [code, segment] of [['8240/3', 'ODI0MC8z'], ['8241/3', 'ODI0MS8z'], ['8248/1', 'ODI0OC8x']] as const) {
+		await expect(protectedPage.getByRole('link', { name: `Open aligned ICD-O-3.2 morphology code ${code}` })).toHaveAttribute(
+			'href',
+			`/repositories/icdo/3.2/morphology/${segment}`
+		);
+	}
+
+	await protectedPage.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
+	for (const code of ['C45194', 'C71720', 'C80281', 'C80289', 'C80291', 'C8851', 'C9496']) {
+		await expect(protectedPage.getByRole('link', { name: `Open aligned NCIt concept ${code}` })).toBeVisible();
+	}
+	await context.close();
+});
+
+test('protected congruence report is present in entitled initial HTML only', async ({ browser, request }) => {
+	const refused = await request.get('/repositories/icdo/4.0/topography/congruence');
+	expect(refused.status()).toBe(403);
+	expect(await refused.text()).not.toContain('C34.9');
+	const context = await browser.newContext();
+	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
+	const response = await context.request.get('/repositories/icdo/4.0/topography/congruence');
+	expect(response.status()).toBe(200);
+	const html = await response.text();
+	expect(html).toContain('All 406 ICD-O-4 topography codes are classified once.');
+	expect(html).toContain('C34.9');
+	expect(html).not.toContain('exactMatch');
+	await context.close();
 });
 
 test('built adapter-node SSR includes NCIt browse data and hydration does not fetch it twice', async ({
@@ -128,6 +199,16 @@ test('NCIt detail and graph placeholder SSR once before browser-only graph hydra
 	expect(counts[`GET /api/v1/ncit/concepts/${code}/neighborhood?depth=1`]).toBe(1);
 });
 
+test('Uberon list and detail critical data are present in initial HTML', async ({ request }) => {
+	const list = await request.get('/repositories/uberon');
+	expect(list.status()).toBe(200);
+	expect(await list.text()).toContain('SSR lung');
+
+	const detail = await request.get('/repositories/uberon/UBERON:0002048');
+	expect(detail.status()).toBe(200);
+	expect(await detail.text()).toContain('SSR Uberon concept definition from FastAPI.');
+});
+
 test('ClinicalTrials and PubMed search URLs and detail routes render initial content', async ({
 	request
 }) => {
@@ -146,9 +227,48 @@ test('ClinicalTrials and PubMed search URLs and detail routes render initial con
 	expect(await article.text()).toContain('SSR abstract from FastAPI.');
 });
 
-test('refresh structure is SSR and its slow mutation uses the shared delayed status', async ({ page }) => {
+test('repository kind is persistent on navigation, list, and detail surfaces', async ({ page }) => {
+	await page.goto('/repositories/ncit');
+	await expect(page.getByRole('navigation').getByText('Local', { exact: true }).first()).toBeVisible();
+	await expect(page.getByText('Local certified proxy', { exact: true })).toBeVisible();
+
+	await page.goto('/repositories/pubmed/12345678');
+	await expect(page.getByText('Remote live service', { exact: true })).toBeVisible();
+});
+
+test('remote search discloses live queries and renders typed failures without identity fields', async ({
+	page
+}) => {
+	for (const [repository, query, state, message] of [
+		['pubmed', 'rate-limit-private-query', 'rate-limited', 'PubMed rate limit reached'],
+		['pubmed', 'timeout-private-query', 'timeout', 'PubMed request timed out'],
+		['pubmed', 'unavailable-private-query', 'unavailable', 'PubMed is temporarily unavailable'],
+		['clinicaltrials', 'rate-limit-private-query', 'rate-limited', 'ClinicalTrials.gov rate limit reached'],
+		['clinicaltrials', 'timeout-private-query', 'timeout', 'ClinicalTrials.gov request timed out'],
+		['clinicaltrials', 'unavailable-private-query', 'unavailable', 'ClinicalTrials.gov is temporarily unavailable']
+	] as const) {
+		await page.goto(`/repositories/${repository}?q=${query}`);
+		await expect(page.getByText(message, { exact: false })).toBeVisible();
+		await expect(page.locator(`[data-remote-state="${state}"]`)).toBeVisible();
+		await expect(page.getByText(query, { exact: false })).toHaveCount(0);
+		await expect(page.getByText('Release', { exact: true })).toHaveCount(0);
+		await expect(page.getByText('Source identity', { exact: true })).toHaveCount(0);
+	}
+
+	await page.goto('/repositories/pubmed');
+	await expect(page.getByRole('note').getByText(/NCBI PubMed is queried live/)).toBeVisible();
+	await page.goto('/repositories/pubmed/12345678');
+	await expect(page.getByRole('note').getByText(/not reproducible from certified local state/)).toBeVisible();
+	await page.goto('/repositories/clinicaltrials');
+	await expect(page.getByRole('note').getByText(/ClinicalTrials.gov is queried live/)).toBeVisible();
+	await page.goto('/repositories/clinicaltrials/NCT01234567');
+	await expect(page.getByRole('note')).toContainText('Query and request data are sent to ClinicalTrials.gov');
+});
+
+test('refresh is explicitly local-only and its slow mutation uses the shared delayed status', async ({ page }) => {
 	const response = await page.goto('/refresh');
-	expect(await response?.text()).toContain('Re-certify the active NCIt and caDSR proxies');
+	expect(await response?.text()).toContain('Re-certify the active NCIt, caDSR, Uberon/CL, and ICD-O local repositories');
+	expect(await response?.text()).toContain('Remote live services are not refreshed');
 	expect(page.getByRole('status')).not.toBeVisible();
 
 	await page.getByRole('button', { name: 'Refresh repositories' }).click();

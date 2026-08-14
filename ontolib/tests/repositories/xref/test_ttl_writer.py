@@ -74,3 +74,20 @@ def test_invalid_curie_raises_value_error() -> None:
 def test_empty_curie_raises_value_error() -> None:
     with pytest.raises(ValueError, match="object_id is not a CURIE"):
         _object_iri("")
+
+
+@pytest.mark.unit
+def test_render_refuses_unsupported_endpoint_system() -> None:
+    record = SSSOMRecord(
+        subject_id="C3262",
+        predicate_id=CLOSE_MATCH,
+        object_id="OTHER:1",
+        object_system="other",
+        mapping_justification="semapv:LexicalMatching",
+        confidence=0.8,
+        subject_source_version="26.02d",
+        object_source_version="other-1",
+    )
+
+    with pytest.raises(KeyError, match="unsupported xref endpoint system"):
+        render_ttl([record])

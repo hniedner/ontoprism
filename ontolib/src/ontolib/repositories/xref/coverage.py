@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from ontolib.repositories.xref.models import XrefReadPolicy
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
@@ -266,6 +267,7 @@ async def generate_coverage_report(
     store: XrefStore,
     client: SparqlHttpClient,
     *,
+    expected: XrefReadPolicy,
     role_codes: frozenset[str],
     in_scope_only: bool = True,
 ) -> CoverageReport:
@@ -276,7 +278,7 @@ async def generate_coverage_report(
     else:
         all_codes = frozenset(c for cde in anchor_map.values() for c in cde.codes)
     live_status = await check_liveness(all_codes, client)
-    strength = await store.mapping_strength_by_subject()
+    strength = await store.mapping_strength_by_subject(expected=expected)
     return build_coverage_report(
         anchor_map,
         live_status=live_status,

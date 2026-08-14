@@ -16,22 +16,29 @@ from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Awaitable, Callable, Iterable
 
     from ontolib.repositories.xref.store import XrefStore
     from ontolib.terminologies.sparql_http_client import SparqlHttpClient
 
-from ontolib.repositories.xref.models import SSSOMRecord
-from ontolib.repositories.xref.ttl_writer import render_ttl
+from ontolib.repositories.xref.models import (
+    SSSOMRecord,
+    UberonCandidateGenerationMetadata,
+)
+from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     COMPOSITE_MATCHING,
     DATABASE_CROSS_REFERENCE,
     LEXICAL_MATCHING,
-    NCIT_UPSTREAM_XREF_GRAPH_IRI,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
+
+
+class CandidateSourceInventoryError(RuntimeError):
+    """The NCIt source cannot supply the filler inventory required for ingest."""
+
 
 # Which pass(es) produced a candidate for a filler — the coverage report's buckets.
 # `SOURCE_XREF` / `SOURCE_LEXICAL` / `SOURCE_NONE` partition the filler set;
@@ -274,8 +281,10 @@ def _records_for_filler(
         records.append(
             SSSOMRecord(
                 subject_id=filler,
+                subject_system="ncit",
                 predicate_id=CLOSE_MATCH,
                 object_id=curie,
+                object_system="uberon-cl",
                 mapping_justification=justification,
                 confidence=confidence,
                 subject_source_version=ncit_version,
@@ -362,6 +371,10 @@ async def ingest_candidates(
     ncit_version: str,
     uberon_version: str,
     *,
+    ncit_source_identity: str,
+    uberon_source_identity: str,
+    uberon_serving_identity: str,
+    observe_source_identities: Callable[[], Awaitable[tuple[str, str, str]]],
     run_id: str | None = None,
     source: str = "uberon-cl",
 ) -> dict[str, Any]:
@@ -369,16 +382,26 @@ async def ingest_candidates(
 
     1. Creates an ``xref_run``.
     2. Generates candidates via :func:`generate_candidates`.
-    3. Upserts records via *store*.
-    4. Renders Turtle and loads it into ``NCIT_UPSTREAM_XREF_GRAPH_IRI``.
-    5. Updates the run with the coverage report (metrics).
+    3. Publishes records as one immutable, source-specific PostgreSQL/RDF generation.
+    4. Updates the run with the coverage report (metrics).
 
     Returns the coverage report dict.
     """
     rid = run_id or uuid.uuid4().hex
     records, filler_to_source = await generate_candidates(
-        ncit_client, uberon_client, ncit_version, uberon_version
+        ncit_client,
+        uberon_client,
+        ncit_version,
+        uberon_version,
     )
+    if not filler_to_source:
+        raise CandidateSourceInventoryError("NCIt filler inventory is empty")
+    if await observe_source_identities() != (
+        ncit_source_identity,
+        uberon_source_identity,
+        uberon_serving_identity,
+    ):
+        raise ValueError("candidate source identity changed during generation")
     fillers = set(filler_to_source)
 
     await store.upsert_run(
@@ -387,24 +410,24 @@ async def ingest_candidates(
         ncit_version=ncit_version,
         source_version=uberon_version,
     )
-
-    inserted = await store.upsert_records(rid, records)
-    if inserted != len(records):
-        raise RuntimeError(
-            f"expected {len(records)} upserted records, got {inserted}. "
-            "The DB state no longer matches the in-memory report."
+    async with fail_run_on_error(store, rid):
+        await publish_generation(
+            store,
+            ncit_client,
+            source=source,
+            run_id=rid,
+            records=records,
+            source_metadata=UberonCandidateGenerationMetadata(
+                ncit_source_identity=ncit_source_identity,
+                uberon_source_identity=uberon_source_identity,
+                uberon_serving_identity=uberon_serving_identity,
+            ),
         )
 
-    ttl = render_ttl(records)
-    await ncit_client.load(
-        ttl.encode("utf-8"),
-        content_type="text/turtle",
-        graph_iri=NCIT_UPSTREAM_XREF_GRAPH_IRI,
-        replace=False,
-    )
-
-    report = candidate_coverage_report(fillers, records, filler_to_source)
-    await store.update_run_metrics(rid, report)
+        report = candidate_coverage_report(fillers, records, filler_to_source)
+        report["ncit_source_identity"] = ncit_source_identity
+        report["uberon_source_identity"] = uberon_source_identity
+        await store.update_run_metrics(rid, report)
 
     return report
 

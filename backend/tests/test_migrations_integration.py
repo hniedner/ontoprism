@@ -74,7 +74,8 @@ async def _schema_facts(dsn: str) -> dict[str, Any]:
                 "SELECT count(*) FROM information_schema.tables "
                 "WHERE table_name IN ('ncit_concepts', 'cde_repository', "
                 "'embedding_corpus_manifest', 'embedding_corpus_staging', "
-                "'ncit_search_manifest')"
+                "'ncit_search_manifest', 'uberon_search', "
+                "'uberon_search_manifest')"
             ),
             "per_table": {
                 table: await _table_facts(conn, table) for table in _EMBEDDING_TABLES
@@ -108,6 +109,28 @@ async def _schema_facts(dsn: str) -> dict[str, Any]:
                     "'ncit_search'::regclass AND contype = 'c'"
                 )
             ],
+            "uberon_search_columns": {
+                row["column_name"]: row["data_type"]
+                for row in await conn.fetch(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_name = 'uberon_search'"
+                )
+            },
+            "uberon_search_checks": [
+                row["definition"]
+                for row in await conn.fetch(
+                    "SELECT pg_get_constraintdef(oid) AS definition "
+                    "FROM pg_constraint WHERE conrelid = "
+                    "'uberon_search'::regclass AND contype = 'c'"
+                )
+            ],
+            "uberon_search_manifest_columns": {
+                row["column_name"]: row["data_type"]
+                for row in await conn.fetch(
+                    "SELECT column_name, data_type FROM information_schema.columns "
+                    "WHERE table_name = 'uberon_search_manifest'"
+                )
+            },
             "staging_primary_key": await conn.fetchval(
                 "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
                 "WHERE conrelid = 'embedding_corpus_staging'::regclass "
@@ -480,7 +503,7 @@ async def _decomposition_outcome_schema_is_absent(dsn: str) -> bool:
 
 def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     assert facts["has_vector_ext"] == 1
-    assert facts["tables"] == 5
+    assert facts["tables"] == 7
     for table in _EMBEDDING_TABLES:
         t = facts["per_table"][table]
         assert t["embedding_type"] == "vector(768)", table  # dim matters for similarity
@@ -525,6 +548,23 @@ def _assert_embedding_schema(facts: dict[str, Any]) -> None:
     }
     search_checks = " ".join(facts["search_checks"])
     assert "representation_status = 'legacy-precoordinated'::text" in search_checks
+    assert facts["uberon_search_columns"] == {
+        "code": "text",
+        "source": "text",
+        "label": "text",
+        "synonyms": "text",
+        "tsv": "tsvector",
+    }
+    uberon_search_checks = " ".join(facts["uberon_search_checks"])
+    assert "UBERON:" in uberon_search_checks
+    assert "CL:" in uberon_search_checks
+    assert facts["uberon_search_manifest_columns"] == {
+        "singleton": "boolean",
+        "source_identity": "text",
+        "source_hash": "text",
+        "row_count": "bigint",
+        "built_at": "timestamp with time zone",
+    }
     assert facts["staging_primary_key"] == "PRIMARY KEY (build_id, doc_id)"
     active_index = facts["active_index"] or ""
     assert "UNIQUE" in active_index
@@ -602,7 +642,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0016_ncit_representation_status"
+    assert revision == "0019_icdo_repositories"
     assert legacy_rows == 1
     assert publication_tables == 2
 

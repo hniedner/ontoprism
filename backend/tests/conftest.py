@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.config import get_settings
-from backend.dependencies import get_cadsr_repo, get_repository_metadata
+from backend.dependencies import get_cadsr_repo, get_ncit_store, get_repository_metadata
 from backend.main import create_app
 from backend.repository_metadata import NcitRepositoryReady, RepositoryUnhealthy
 from ontolib.repositories.cadsr.repository import CdeRepository
@@ -48,6 +48,11 @@ class _IsolatedRepositoryMetadata:
         )
 
 
+class _EmptyNcitStore:
+    async def get_concept_detail(self, _code: str) -> None:
+        return None
+
+
 def _store_reachable(url: str) -> bool:
     try:
         resp = httpx.post(
@@ -67,7 +72,10 @@ def _store_reachable(url: str) -> bool:
 @pytest.fixture
 def app_client() -> Iterator[TestClient]:
     """TestClient with lifespan active (client/store wired); no live store needed."""
-    with TestClient(create_app()) as client:
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = _IsolatedRepositoryMetadata
+    app.dependency_overrides[get_ncit_store] = _EmptyNcitStore
+    with TestClient(app) as client:
         yield client
 
 

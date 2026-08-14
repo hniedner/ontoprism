@@ -17,8 +17,15 @@ from backend.dependencies import (
     NcitSearch,
     NcitStore,
     RepositoryMetadataReads,
+    UberonSearch,
+    UberonStore,
 )
-from backend.repository_metadata import RepositoryMetadata, RepositoryUnhealthy
+from backend.repository_metadata import (
+    RepositoryMetadata,
+    RepositoryMetadataError,
+    RepositoryUnhealthy,
+    observe_uberon_repository,
+)
 from backend.security import RequireApiKey
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
@@ -29,6 +36,12 @@ from ontolib.terminologies.ncit.owl_download import (
     download_ncit_owl_pair,
 )
 from ontolib.terminologies.ncit.search_index import populate_from_store
+from ontolib.terminologies.uberon.search_index import (
+    UberonSearchPublicationError,
+)
+from ontolib.terminologies.uberon.search_index import (
+    populate_from_store as populate_uberon_search,
+)
 
 logger = get_logger(__name__)
 
@@ -42,33 +55,21 @@ class RefreshReport(BaseModel):
     repositories: list[RepositoryMetadata]
 
 
-class ReloadRequest(BaseModel):
-    """Legacy request retained only to return an explicit fail-closed response."""
-
-    source_path: str
-    replace: bool = True
-
-
 @router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
 async def refresh(
     metadata: RepositoryMetadataReads,
 ) -> RefreshReport:
-    """Re-certify NCIt and caDSR and return their exact active identities."""
+    """Re-certify local proxies and return their certified repository identities."""
     repositories: list[RepositoryMetadata] = [
         await metadata.ncit(),
         metadata.cadsr(),
+        await metadata.uberon(force=True),
+        await metadata.icdo("3.2", "morphology"),
+        await metadata.icdo("4.0", "morphology"),
+        await metadata.icdo("4.0", "topography"),
     ]
     return RefreshReport(
         refreshed_at=datetime.now(UTC).isoformat(), repositories=repositories
-    )
-
-
-@router.post("/ncit/reload", dependencies=[RequireApiKey])
-async def reload_ncit(_body: ReloadRequest) -> None:
-    """Reject the removed generic source-ontology HTTP loader."""
-    raise HTTPException(
-        status.HTTP_410_GONE,
-        "NCIt HTTP reload is disabled; build a validated sibling store offline.",
     )
 
 
@@ -159,7 +160,7 @@ async def download_cadsr() -> CdeDownloadReport:
 
 
 class SearchIndexReport(BaseModel):
-    """Result of rebuilding the NCIt full-text search cache."""
+    """Result of rebuilding one terminology full-text search cache."""
 
     concepts_indexed: int
 
@@ -197,9 +198,60 @@ async def rebuild_ncit_search_index(
         source_after = await ncit_source_fingerprint(store)
         if source_after != source_before:
             raise StorageError("NCIt source changed during search-index rebuild")
-    except (StorageError, SQLAlchemyError) as exc:
+    except (RepositoryMetadataError, StorageError, SQLAlchemyError) as exc:
         logger.exception("NCIt search-index rebuild failed")
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, "NCIt search-index rebuild failed."
+        ) from exc
+    return SearchIndexReport(concepts_indexed=count)
+
+
+@router.post(
+    "/uberon/search-index",
+    response_model=SearchIndexReport,
+    dependencies=[RequireApiKey],
+)
+async def rebuild_uberon_search_index(
+    store: UberonStore,
+    index: UberonSearch,
+    metadata: RepositoryMetadataReads,
+) -> SearchIndexReport:
+    """Rebuild Uberon/CL FTS from the exact certified immutable source."""
+    repository = await metadata.uberon(force=True)
+    if isinstance(repository, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            repository.model_dump(mode="json"),
+        )
+    try:
+
+        async def validate_source() -> None:
+            observation_after, counts_after = await observe_uberon_repository(
+                get_settings().uberon_sparql_url
+            )
+            if (
+                observation_after != repository.observation
+                or counts_after != repository.class_counts
+            ):
+                raise StorageError(
+                    "Uberon/CL source changed during search-index rebuild"
+                )
+
+        count = await populate_uberon_search(
+            store,
+            index,
+            source_identity=repository.source_identity,
+            source_hash=repository.observation.serving.sha256,
+            validate_source=validate_source,
+            expected_row_count=(
+                repository.class_counts.uberon_searchable
+                + repository.class_counts.cl_searchable
+            ),
+        )
+    except (UberonSearchPublicationError, StorageError, SQLAlchemyError) as exc:
+        logger.exception("Uberon/CL search-index rebuild failed")
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Uberon/CL search-index rebuild failed.",
         ) from exc
     return SearchIndexReport(concepts_indexed=count)

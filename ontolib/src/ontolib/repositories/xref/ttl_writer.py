@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from ontolib.terminologies.namespaces import NCIT_NS
 
@@ -39,9 +40,21 @@ def _object_iri(curie: str) -> str:
     return f"<{object_iri(curie)}>"
 
 
+def _endpoint_iri(system: str, identifier: str) -> str:
+    if system == "ncit":
+        return f"<{NCIT_NS}{identifier}>"
+    if system in {"uberon", "uberon-cl"}:
+        return _object_iri(identifier)
+    if system == "icdo":
+        code = quote(identifier, safe="")
+        return f"<https://ontoprism.org/id/icdo/3.2/morphology/{code}>"
+    raise KeyError(f"unsupported xref endpoint system: {system}")
+
+
 def render_ttl(records: Iterable[SSSOMRecord]) -> str:
     lines: list[str] = []
     for r in records:
-        subj = f"<{NCIT_NS}{r.subject_id}>"
-        lines.append(f"{subj} <{r.predicate_id}> {_object_iri(r.object_id)} .")
+        subject = _endpoint_iri(r.subject_system, r.subject_id)
+        obj = _endpoint_iri(r.object_system, r.object_id)
+        lines.append(f"{subject} <{r.predicate_id}> {obj} .")
     return "\n".join(lines) + "\n"

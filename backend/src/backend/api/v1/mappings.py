@@ -1,10 +1,24 @@
 """Mappings + FHIR-style $translate endpoints (issue #82, design §8.4)."""
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
+from backend.api.v1.alignment import mapping_relative_to
 from backend.config import get_settings
-from backend.dependencies import XrefReads
+from backend.dependencies import RepositoryMetadataReads, XrefReads
+from backend.repository_metadata import RepositoryUnhealthy
+from backend.security import has_icdo_entitlement
+from ontolib.repositories.xref.models import (
+    EndpointIdentity,
+    IcdoReadIdentity,
+    MappingResult,
+    StaleXrefGenerationError,
+    UberonReadIdentity,
+    UnavailableXrefGenerationError,
+    XrefReadPolicy,
+)
 from ontolib.repositories.xref.vocab import (
     BROAD_MATCH,
     CLOSE_MATCH,
@@ -24,9 +38,13 @@ _SKOS_TO_EQUIVALENCE: dict[str, str] = {
 _ACTIVE_LIFECYCLES = frozenset({"validated", "active"})
 
 
-def _is_licensed(object_id: str) -> bool:
-    prefix = object_id.split(":", maxsplit=1)[0] if ":" in object_id else ""
-    return prefix in _LICENSED_PREFIXES
+def _is_licensed(endpoint: EndpointIdentity) -> bool:
+    prefix = (
+        endpoint.identifier.split(":", maxsplit=1)[0]
+        if ":" in endpoint.identifier
+        else ""
+    )
+    return endpoint.system == "icdo" or prefix in _LICENSED_PREFIXES
 
 
 router = APIRouter(prefix="/api/v1/mappings", tags=["mappings"])
@@ -47,6 +65,7 @@ class TranslateConcept(BaseModel):
 
     code: str
     system: str | None = None
+    version: str | None = None
 
 
 class TranslateEntry(BaseModel):
@@ -63,64 +82,134 @@ class TranslateResponse(BaseModel):
     result: list[TranslateEntry]
 
 
-def _translate_entry(code: str, pred: str, confidence: float) -> TranslateEntry:
+def _translate_entry(
+    code: str,
+    pred: str,
+    confidence: float,
+    *,
+    system: str | None = None,
+    version: str | None = None,
+) -> TranslateEntry:
     return TranslateEntry(
         equivalence=_SKOS_TO_EQUIVALENCE.get(pred, "unmatched"),
-        concept=TranslateConcept(code=code),
+        concept=TranslateConcept(code=code, system=system, version=version),
         confidence=confidence,
     )
 
 
+def _is_eligible(
+    row: MappingResult, *, target: EndpointIdentity, licensed_allowed: bool
+) -> bool:
+    return row.lifecycle in _ACTIVE_LIFECYCLES and (
+        licensed_allowed or not _is_licensed(target)
+    )
+
+
 def _collect_entries(
-    rows_by_key: dict[str, list[tuple[str, str, str, float]]],
+    rows_by_key: dict[str, list[MappingResult]],
     *,
     licensed_allowed: bool,
-    seen: set[tuple[str, str]],
+    seen: set[tuple[str, str, str, str]],
 ) -> list[TranslateEntry]:
     entries: list[TranslateEntry] = []
-    for rows in rows_by_key.values():
-        for target_id, pred, lifecycle, confidence in rows:
-            if lifecycle not in _ACTIVE_LIFECYCLES:
+    for requested_identifier, rows in rows_by_key.items():
+        for row in rows:
+            target, predicate = mapping_relative_to(row, requested_identifier)
+            if not _is_eligible(
+                row,
+                target=target,
+                licensed_allowed=licensed_allowed,
+            ):
                 continue
-            if not licensed_allowed and _is_licensed(target_id):
-                continue
-            key = (target_id, pred)
+            key = (target.system, target.version, target.identifier, predicate)
             if key in seen:
                 continue
             seen.add(key)
-            entries.append(_translate_entry(target_id, pred, confidence))
+            entries.append(
+                _translate_entry(
+                    target.identifier,
+                    predicate,
+                    row.confidence,
+                    system=target.system,
+                    version=target.version,
+                )
+            )
     return entries
+
+
+async def _read_policy(
+    metadata: RepositoryMetadataReads, *, include_icdo: bool
+) -> XrefReadPolicy:
+    ncit = await metadata.ncit()
+    uberon = await metadata.uberon()
+    icdo = await metadata.icdo("3.2", "morphology") if include_icdo else None
+    if isinstance(ncit, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Mapping sources are unavailable."
+        )
+    if isinstance(uberon, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Mapping sources are unavailable."
+        )
+    if isinstance(icdo, RepositoryUnhealthy):
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Mapping sources are unavailable."
+        )
+    return XrefReadPolicy(
+        uberon=UberonReadIdentity(
+            ncit_source_identity=ncit.source_identity,
+            uberon_source_identity=uberon.source_identity,
+            uberon_serving_identity=uberon.observation.serving.sha256,
+        ),
+        icdo=(
+            IcdoReadIdentity(
+                ncit_source_identity=ncit.source_identity,
+                icdo_generation_identity=icdo.activation_identity,
+                icdo_serving_identity=icdo.serving_identity,
+            )
+            if icdo is not None
+            else None
+        ),
+    )
 
 
 @router.post("/$translate", response_model=TranslateResponse)
 async def translate(
     xref_store: XrefReads,
+    metadata: RepositoryMetadataReads,
     body: TranslateRequest,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> TranslateResponse:
     """FHIR-style ConceptMap ``$translate`` for NCIt↔upstream.
 
     Serves ``validated``/``active`` mappings, filtering
     ``proposed``, ``quarantined``, and other non-active lifecycles.  Licensed sources
-    (SNOMED, ICD-O-3) are filtered out when
-    ``enable_licensed_mappings`` is False (D26).  Returns ``unmatched``
-    when no valid mapping exists.
+    (SNOMED, ICD-O-3) require both server capability and valid consumer
+    entitlement (D26, D71). Returns ``unmatched`` when no valid mapping exists.
     """
     settings = get_settings()
     code = body.code
+    licensed_allowed = settings.enable_licensed_mappings and has_icdo_entitlement(
+        x_icdo_entitlement
+    )
 
-    upstream = await xref_store.mappings_by_subjects({code})
-    reverse = await xref_store.mappings_by_objects({code})
+    expected = await _read_policy(metadata, include_icdo=licensed_allowed)
+    try:
+        upstream = await xref_store.mappings_by_subjects({code}, expected=expected)
+        reverse = await xref_store.mappings_by_objects({code}, expected=expected)
+    except (StaleXrefGenerationError, UnavailableXrefGenerationError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     entries = _collect_entries(
         upstream,
-        licensed_allowed=settings.enable_licensed_mappings,
+        licensed_allowed=licensed_allowed,
         seen=seen,
     )
     entries.extend(
         _collect_entries(
             reverse,
-            licensed_allowed=settings.enable_licensed_mappings,
+            licensed_allowed=licensed_allowed,
             seen=seen,
         )
     )

@@ -17,7 +17,7 @@
 	import ForceAtlas2LayoutSupervisor from 'graphology-layout-forceatlas2/worker';
 	import NoverlapLayoutSupervisor from 'graphology-layout-noverlap/worker';
 	import type Graph from 'graphology';
-	import { getNeighborhood } from '$lib/api';
+	import { getNeighborhood, getUberonNeighborhood } from '$lib/api';
 	import type { Neighborhood } from '$lib/types';
 	import {
 		createGraph,
@@ -62,9 +62,24 @@
 		/** Optional pre-fetched neighborhood to seed without a round-trip. */
 		initial?: Neighborhood | null;
 		height?: string;
+		repository?: 'ncit' | 'uberon';
 	}
 
-	let { code, initial = null, height = '32rem' }: Props = $props();
+	let { code, initial = null, height = '32rem', repository = 'ncit' }: Props = $props();
+	const legacyControlClass = $derived(repository === 'ncit' ? '' : 'hidden');
+
+	async function fetchNeighborhood(target: string, signal?: AbortSignal): Promise<Neighborhood> {
+		if (repository === 'ncit') return getNeighborhood(target, 1, undefined, signal);
+		const raw = await getUberonNeighborhood(target, 1, undefined, signal);
+		return {
+			...raw,
+			nodes: raw.nodes.map((node) => ({
+				...node,
+				semantic_type: node.source === 'cl' ? 'Cell Ontology' : 'Uberon',
+				representation_status: null
+			}))
+		};
+	}
 
 	let container = $state<HTMLDivElement | null>(null);
 	let sigma = $state<Sigma | null>(null);
@@ -84,6 +99,7 @@
 	let expanding = $state(false);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let truncated = $state(false);
 	let search = $state('');
 	let fullscreen = $state(false);
 	let hideIsolated = $state(false);
@@ -260,7 +276,7 @@
 			hiddenTypes,
 			hideIsolated,
 			representationStatus: attrs.representationStatus,
-			showLegacyOnly
+			showLegacyOnly: repository === 'ncit' && showLegacyOnly
 		});
 	}
 
@@ -277,7 +293,7 @@
 		// Pseudo-nodes (e.g. a caDSR "cde:<id>:<ver>" seed) aren't NCIt concepts, so
 		// they have no /neighborhood — skip rather than fetch a guaranteed 404.
 		return (
-			!target.includes(':') &&
+			(repository === 'uberon' || !target.includes(':')) &&
 			!(candidate.hasNode(target) && candidate.getNodeAttribute(target, 'expanded'))
 		);
 	}
@@ -293,11 +309,12 @@
 		expanding = true;
 		error = null; // a prior transient error must not stick across expansions
 		try {
-			const nb = await getNeighborhood(target, 1, undefined, lease.signal);
+			const nb = await fetchNeighborhood(target, lease.signal);
 			if (!ownsGraph(lease, activeGraph)) return;
 			layoutController.cancel();
 			layoutRunning = false;
 			mergeNeighborhood(activeGraph, nb);
+			truncated = activeGraph.getAttribute('truncated') === true;
 			refreshStats(activeGraph);
 			runLayout(activeGraph);
 			sigma?.refresh();
@@ -338,7 +355,7 @@
 								'representationStatus'
 							) as NodeAttrs['representationStatus'])
 						: null,
-					showLegacyOnly
+					showLegacyOnly: repository === 'ncit' && showLegacyOnly
 				})
 			};
 		});
@@ -432,6 +449,7 @@
 		sigma?.kill();
 		sigma = null;
 		graph = null;
+		truncated = false;
 		expanding = false;
 		selected = null;
 		hovered = null;
@@ -449,10 +467,10 @@
 		const nextGraph = createGraph();
 		graph = nextGraph;
 		try {
-			const nb =
-				nextInitial ?? (await getNeighborhood(nextCode, 1, undefined, lease.signal));
+			const nb = nextInitial ?? (await fetchNeighborhood(nextCode, lease.signal));
 			if (!lease.isCurrent() || graph !== nextGraph) return;
 			mergeNeighborhood(nextGraph, nb);
+			truncated = nextGraph.getAttribute('truncated') === true;
 			seedPositions(nextGraph);
 			refreshStats(nextGraph);
 			const labelTheme = graphLabelTheme(theme.current);
@@ -545,7 +563,7 @@
 	}
 
 	function exportPng() {
-		if (sigma) void downloadAsImage(sigma, { fileName: `ncit-${code}-graph` });
+		if (sigma) void downloadAsImage(sigma, { fileName: `${repository}-${code}-graph` });
 	}
 
 	function toggleType(t: string) {
@@ -575,7 +593,12 @@
 		if (!menu) return;
 		const { node } = menu;
 		if (action === 'expand') void expand(node.code);
-		else if (action === 'open') void goto(resolve('/repositories/ncit/[code]', { code: node.code }));
+		else if (action === 'open')
+			void goto(
+				repository === 'ncit'
+					? resolve('/repositories/ncit/[code]', { code: node.code })
+					: resolve('/repositories/uberon/[curie]', { curie: node.code })
+			);
 		else if (action === 'unpin') unpinNode(node.code);
 		else if (action === 'hide-type' && node.semanticType) toggleType(node.semanticType);
 		menu = null;
@@ -686,7 +709,7 @@
 		>
 		<button
 			type="button"
-			class="rounded-lg border border-default px-2 py-1 text-xs {showLegacyOnly
+			class="{legacyControlClass} rounded-lg border border-default px-2 py-1 text-xs {showLegacyOnly
 				? 'bg-amber-500 text-neutral-950'
 				: 'text-secondary hover:bg-subtle'}"
 			onclick={toggleLegacyOnly}
@@ -745,7 +768,7 @@
 			<GraphMinimap {graph} {sigma} version={graphVersion} />
 		{/if}
 
-		<GraphCanvasState {loading} {error} {visibleNodeCount} {expanding} />
+		<GraphCanvasState {loading} {error} {visibleNodeCount} {expanding} {truncated} />
 
 		{#if menu}
 			<!-- Right-click context menu, positioned over the canvas. -->
@@ -785,7 +808,7 @@
 			{semanticTypes}
 			{hiddenTypes}
 			onexpand={(c) => expand(c)}
-			onopen={(c) => goto(resolve('/repositories/ncit/[code]', { code: c }))}
+			onopen={(c) => goto(repository === 'ncit' ? resolve('/repositories/ncit/[code]', { code: c }) : resolve('/repositories/uberon/[curie]', { curie: c }))}
 			onfocus={(c) => {
 				search = c;
 				focusNode();

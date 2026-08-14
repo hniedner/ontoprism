@@ -1,5 +1,5 @@
 /**
- * Pure, WebGL-free helpers for the interactive NCIt graph explorer.
+ * Pure, WebGL-free helpers for the interactive terminology graph explorer.
  *
  * Builds and grows a graphology graph from the backend `Neighborhood` payloads
  * (expand-on-demand), and derives network-analysis attributes — Louvain
@@ -17,7 +17,9 @@ export const KIND_COLOR: Record<EdgeKind, string> = {
 	subClassOf: '#94a3b8',
 	role: '#3b9de0',
 	association: '#42979a',
-	'cde-concept': '#e0a53b' // amber: the caDSR CDE → NCIt concept join edge
+	'cde-concept': '#e0a53b', // amber: the caDSR CDE → NCIt concept join edge
+	part_of: '#0d9488',
+	'other-restriction': '#f97316'
 };
 
 /** Distinct, theme-neutral palette cycled across detected communities. */
@@ -80,6 +82,7 @@ export function mergeNeighborhood(
 	{ centerExpanded = true }: { centerExpanded?: boolean } = {}
 ): number {
 	let added = 0;
+	if (nb.truncated) graph.setAttribute('truncated', true);
 	for (const node of nb.nodes) {
 		if (graph.hasNode(node.code)) {
 			// A previously-referenced neighbor now arrives with real attributes.

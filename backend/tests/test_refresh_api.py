@@ -1,5 +1,6 @@
 """Refresh endpoint tests: report (live), and reload guards (no store mutation)."""
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator, Sequence
 from types import SimpleNamespace
 from typing import Any
@@ -9,14 +10,19 @@ from fastapi.testclient import TestClient
 
 from backend.config import get_settings
 from backend.dependencies import (
-    get_ncit_client,
     get_ncit_search_index,
     get_ncit_store,
     get_repository_metadata,
+    get_uberon_search_index,
+    get_uberon_store,
 )
 from backend.main import create_app
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import RepositoryUnhealthy, UberonClassCounts
 from ontolib.core.exceptions import StorageError
+from ontolib.terminologies.uberon.store import (
+    UberonIndexObservation,
+    UberonServingFingerprint,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -24,24 +30,6 @@ def _clear_settings_cache() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
-
-
-@pytest.mark.api
-def test_generic_reload_is_permanently_fail_closed_without_store_access() -> None:
-    app = create_app()
-
-    def _store_must_not_be_resolved() -> None:
-        raise AssertionError("retired reload endpoint resolved the NCIt store")
-
-    app.dependency_overrides[get_ncit_client] = _store_must_not_be_resolved
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/refresh/ncit/reload",
-            json={"source_path": "data/Thesaurus.owl", "replace": True},
-        )
-
-    assert response.status_code == 410
-    assert "offline" in response.json()["detail"]
 
 
 class _FakeNcitStore:
@@ -93,12 +81,38 @@ class _FakeSearchIndex:
         *,
         source_identity: str,
         source_hash: str,
+        validate_source: Any = None,
+        expected_row_count: int | None = None,
     ) -> int:
         self.source = (source_identity, source_hash)
         total = 0
         async for records in batches:
             total += len(records) if records else 0
+        if validate_source is not None:
+            await validate_source()
+        del expected_row_count
         return total
+
+
+class _FakeUberonStore:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def search_records(
+        self, *, limit: int, offset: int
+    ) -> list[dict[str, str | None]]:
+        del limit, offset
+        self.calls += 1
+        if self.calls > 1:
+            return []
+        return [
+            {
+                "code": "UBERON:0002048",
+                "source": "uberon",
+                "label": "lung",
+                "synonyms": "",
+            }
+        ]
 
 
 @pytest.mark.api
@@ -122,6 +136,68 @@ def test_rebuild_search_index_success() -> None:
 
 async def _ready_ncit() -> SimpleNamespace:
     return SimpleNamespace(source_identity="f" * 64)
+
+
+async def _ready_uberon(*, force: bool = False) -> SimpleNamespace:
+    assert force is True
+    return SimpleNamespace(
+        source_identity="a" * 64,
+        source_sha256="b" * 64,
+        class_counts=UberonClassCounts(
+            uberon=16_362,
+            cl=1_484,
+            uberon_searchable=16_071,
+            cl_searchable=1_484,
+        ),
+        observation=UberonIndexObservation(
+            version_iri="expected",
+            triples=900_000,
+            has_uberon_lung=True,
+            has_cell_class=True,
+            has_ncit_xref=True,
+            serving=UberonServingFingerprint(
+                rows=100,
+                sha256="f" * 64,
+                uberon_classes=16_362,
+                cl_classes=1_484,
+                uberon_searchable_classes=16_071,
+                cl_searchable_classes=1_484,
+            ),
+        ),
+    )
+
+
+@pytest.mark.api
+def test_rebuild_uberon_search_index_binds_certified_source() -> None:
+    app = create_app()
+    store = _FakeUberonStore()
+    index = _FakeSearchIndex()
+    app.dependency_overrides[get_uberon_store] = lambda: store
+    app.dependency_overrides[get_uberon_search_index] = lambda: index
+    app.dependency_overrides[get_repository_metadata] = lambda: SimpleNamespace(
+        uberon=_ready_uberon
+    )
+    ready = asyncio.run(_ready_uberon(force=True))
+
+    async def stable_observation(
+        _url: str,
+    ) -> tuple[UberonIndexObservation, UberonClassCounts]:
+        return ready.observation, ready.class_counts
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        "backend.api.v1.refresh.observe_uberon_repository", stable_observation
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/v1/refresh/uberon/search-index")
+    finally:
+        monkeypatch.undo()
+
+    assert response.status_code == 200
+    assert response.json() == {"concepts_indexed": 1}
+    assert index.source == ("a" * 64, "f" * 64)
 
 
 class _FailingSearchIndex:

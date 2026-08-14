@@ -1,15 +1,18 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
+	import type { RepositoryKind } from '$lib/repository-registry';
 
 	interface Props {
 		title: string;
 		description: string;
 		/** Total item count for the repository, shown as a chip. */
 		total?: number | null;
+		kind: RepositoryKind;
 		help?: Snippet;
 	}
 
-	let { title, description, total = null, help }: Props = $props();
+	let { title, description, total = null, kind, help }: Props = $props();
 
 	let showHelp = $state(false);
 </script>
@@ -19,6 +22,7 @@
 		<div class="min-w-0">
 			<div class="flex items-center gap-3">
 				<h1 class="text-2xl font-semibold text-default">{title}</h1>
+				<RepositoryKindBadge {kind} />
 				{#if total != null}
 					<span
 						class="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"

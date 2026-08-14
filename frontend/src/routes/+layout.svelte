@@ -7,22 +7,23 @@
 	import { buildBreadcrumbs } from '$lib/breadcrumbs';
 	import { cn } from '$lib/utils/cn';
 	import LoadingState from '$lib/components/LoadingState.svelte';
+	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
+	import { repositories } from '$lib/repository-registry';
 
 	let { children } = $props();
 
 	const crumbs = $derived(buildBreadcrumbs(page.url.pathname));
 
-	const nav = [
-		{ href: resolve('/repositories/ncit'), path: '/repositories/ncit', label: 'NCIt' },
-		{ href: resolve('/repositories/cadsr'), path: '/repositories/cadsr', label: 'caDSR' },
-		{
-			href: resolve('/repositories/clinicaltrials'),
-			path: '/repositories/clinicaltrials',
-			label: 'Trials'
-		},
-		{ href: resolve('/repositories/pubmed'), path: '/repositories/pubmed', label: 'PubMed' },
-		{ href: resolve('/refresh'), path: '/refresh', label: 'Refresh' }
-	];
+	const repositoryHrefs = {
+		ncit: resolve('/repositories/ncit'), cadsr: resolve('/repositories/cadsr'),
+		uberon: resolve('/repositories/uberon'), icdo: resolve('/repositories/icdo'),
+		clinicaltrials: resolve('/repositories/clinicaltrials'), pubmed: resolve('/repositories/pubmed')
+	} as const;
+	const nav = repositories.map((entry) => ({
+		...entry,
+		href: repositoryHrefs[entry.id],
+		label: entry.id === 'clinicaltrials' ? 'Trials' : entry.label
+	}));
 
 	function isActive(path: string): boolean {
 		return page.url.pathname.startsWith(path);
@@ -41,7 +42,7 @@
 	<header
 		class="bg-gradient-to-r from-primary-800 to-primary-600 text-white shadow-md dark:from-neutral-900 dark:to-primary-900"
 	>
-		<div class="mx-auto flex items-center justify-between gap-4 px-[2%] py-3">
+		<div class="mx-auto flex flex-wrap items-center justify-between gap-4 px-[2%] py-3">
 			<a href={resolve('/')} class="group flex items-center gap-3 no-underline">
 				<span
 					class="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25 backdrop-blur"
@@ -64,12 +65,12 @@
 				<span class="leading-tight">
 					<span class="block text-lg font-bold tracking-wide text-white">ONTOPRISM</span>
 					<span class="block text-[0.7rem] font-medium text-white/70"
-						>Ontology Explorer · NCIt &amp; caDSR</span
+						>NCIt · caDSR · Uberon/CL · ICD-O</span
 					>
 				</span>
 			</a>
 
-			<nav class="flex items-center gap-1">
+			<nav class="flex max-w-full flex-wrap items-center justify-end gap-1">
 				{#each nav as item (item.path)}
 					<a
 						href={item.href}
@@ -80,9 +81,11 @@
 								: 'text-white/80 hover:bg-white/10 hover:text-white'
 						)}
 					>
-						{item.label}
+						<span>{item.label}</span>
+						<RepositoryKindBadge kind={item.kind} compact />
 					</a>
 				{/each}
+				<a href={resolve('/refresh')} class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 no-underline hover:bg-white/10 hover:text-white">Refresh</a>
 				<button
 					type="button"
 					onclick={() => theme.toggle()}
@@ -153,7 +156,7 @@
 			class="mx-auto flex flex-col items-center justify-between gap-1 px-[2%] py-4 text-xs text-muted sm:flex-row"
 		>
 			<span>ONTOPRISM · Ontology vertical slice</span>
-			<span>NCIt &amp; caDSR terminology explorer</span>
+			<span>NCIt · caDSR · Uberon/CL · ICD-O</span>
 		</div>
 	</footer>
 </div>

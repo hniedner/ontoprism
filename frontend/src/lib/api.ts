@@ -7,13 +7,19 @@ import type {
 	CdeSummary,
 	ConceptDecomposition,
 	ConceptDetail,
-	ConceptMappings,
+	ConceptAlignments,
 	Neighborhood,
 	RepresentationStatus,
 	RefreshReport,
 	SearchPage,
 	SimilarCde,
 	SimilarConcept
+	, UberonConceptDetail
+	, UberonAlignments
+	, UberonNeighborhood
+	, UberonSearchPage
+	, UberonSource
+	, IcdoPage
 } from './types';
 
 const BASE = '';
@@ -21,11 +27,27 @@ const BASE = '';
 export class ApiRequestError extends Error {
 	constructor(
 		readonly status: number,
-		message: string
+		message: string,
+		readonly remoteState?: RemoteFailureState
 	) {
 		super(message);
 		this.name = 'ApiRequestError';
 	}
+}
+
+export type RemoteFailureState = 'unavailable' | 'timeout' | 'rate-limited';
+
+function remoteFailure(detail: unknown): { state: RemoteFailureState; message: string } | null {
+	if (typeof detail !== 'object' || detail === null) return null;
+	const value = detail as Record<string, unknown>;
+	if (
+		(value.state === 'unavailable' || value.state === 'timeout' || value.state === 'rate-limited') &&
+		typeof value.message === 'string' &&
+		value.message.trim()
+	) {
+		return { state: value.state, message: value.message };
+	}
+	return null;
 }
 
 async function failedResponse(response: Response, url: string): Promise<ApiRequestError> {
@@ -35,10 +57,9 @@ async function failedResponse(response: Response, url: string): Promise<ApiReque
 	} catch {
 		// A non-JSON upstream error still has an unambiguous HTTP status.
 	}
-	const message =
-		typeof detail === 'string' && detail.trim()
-			? detail
-			: `Request failed (${response.status}): ${url}`;
+	const remote = remoteFailure(detail);
+	if (remote) return new ApiRequestError(response.status, remote.message, remote.state);
+	const message = typeof detail === 'string' && detail.trim() ? detail : `Request failed (${response.status}): ${url}`;
 	return new ApiRequestError(response.status, message);
 }
 
@@ -144,6 +165,89 @@ export function getNeighborhood(
 	);
 }
 
+export function searchUberon(
+	q: string,
+	opts: { limit?: number; offset?: number; source?: UberonSource; fetch?: typeof fetch } = {}
+): Promise<UberonSearchPage> {
+	const params: Record<string, string | number> = {
+		q,
+		limit: opts.limit ?? 25,
+		offset: opts.offset ?? 0
+	};
+	if (opts.source) params.source = opts.source;
+	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/search', params), opts.fetch);
+}
+
+export function listUberon(
+	opts: { limit?: number; offset?: number; source?: UberonSource; fetch?: typeof fetch } = {}
+): Promise<UberonSearchPage> {
+	const params: Record<string, string | number> = {
+		limit: opts.limit ?? 25,
+		offset: opts.offset ?? 0
+	};
+	if (opts.source) params.source = opts.source;
+	return getJson<UberonSearchPage>(apiUrl('/api/v1/uberon/list', params), opts.fetch);
+}
+
+export function getUberonConcept(
+	code: string,
+	fetchImpl?: typeof fetch
+): Promise<UberonConceptDetail> {
+	return getJson<UberonConceptDetail>(
+		apiUrl(`/api/v1/uberon/concepts/${encodeURIComponent(code)}`),
+		fetchImpl
+	);
+}
+
+export function getUberonAlignments(
+	code: string,
+	fetchImpl?: typeof fetch
+): Promise<UberonAlignments> {
+	return getJson<UberonAlignments>(
+		apiUrl(`/api/v1/uberon/concepts/${encodeURIComponent(code)}/alignments`),
+		fetchImpl
+	);
+}
+
+export function getUberonNeighborhood(
+	code: string,
+	depth = 1,
+	fetchImpl?: typeof fetch,
+	signal?: AbortSignal
+): Promise<UberonNeighborhood> {
+	return getJson<UberonNeighborhood>(
+		apiUrl(`/api/v1/uberon/concepts/${encodeURIComponent(code)}/neighborhood`, { depth }),
+		fetchImpl,
+		signal
+	);
+}
+
+export function icdoCodeSegment(code: string): string {
+	const bytes = new TextEncoder().encode(code);
+	let binary = '';
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+export function listIcdo<E extends IcdoPage['edition'], A extends Extract<IcdoPage, { edition: E }>['axis']>(edition: E, axis: A, opts: {
+	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
+} = {}): Promise<Extract<IcdoPage, { edition: E; axis: A }>> {
+	const params: Record<string, string | number> = { limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
+	if (opts.behaviour) params.behaviour = opts.behaviour;
+	if (opts.level) params.level = opts.level;
+	return getJson<Extract<IcdoPage, { edition: E; axis: A }>>(apiUrl(`/api/v1/icdo/${edition}/${axis}/list`, params), opts.fetch);
+}
+
+export function searchIcdo<E extends IcdoPage['edition'], A extends Extract<IcdoPage, { edition: E }>['axis']>(edition: E, axis: A, q: string, opts: {
+	limit?: number; offset?: number; behaviour?: string; level?: string; fetch?: typeof fetch
+} = {}): Promise<Extract<IcdoPage, { edition: E; axis: A }>> {
+	const params: Record<string, string | number> = { q, limit: opts.limit ?? 25, offset: opts.offset ?? 0 };
+	if (opts.behaviour) params.behaviour = opts.behaviour;
+	if (opts.level) params.level = opts.level;
+	return getJson<Extract<IcdoPage, { edition: E; axis: A }>>(apiUrl(`/api/v1/icdo/${edition}/${axis}/search`, params), opts.fetch);
+}
+
+
 /** The concept's decomposition (constituents by axis + legacy flag) from ncit_decomposed. */
 export function getDecomposition(
 	code: string,
@@ -157,13 +261,13 @@ export function getDecomposition(
 	);
 }
 
-/** All upstream mappings for an NCIt concept (both directions). */
-export function getMappings(
+/** All terminology alignments for an NCIt concept (both directions). */
+export function getAlignments(
 	code: string,
 	fetchImpl?: typeof fetch,
 	signal?: AbortSignal
-): Promise<ConceptMappings> {
-	return getJson<ConceptMappings>(
+): Promise<ConceptAlignments> {
+	return getJson<ConceptAlignments>(
 		apiUrl(`/api/v1/ncit/concepts/${encodeURIComponent(code)}/mappings`),
 		fetchImpl,
 		signal
@@ -265,7 +369,7 @@ export function similarCdes(
 
 // --- refresh ---
 
-/** Re-probe repositories and return their live version/counts. */
+/** Re-certify local repositories, returning identities or typed refusal details. */
 export function refreshRepositories(fetchImpl?: typeof fetch): Promise<RefreshReport> {
 	return postJson<RefreshReport>(apiUrl('/api/v1/refresh'), fetchImpl);
 }

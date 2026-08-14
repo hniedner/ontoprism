@@ -1,7 +1,7 @@
 """FastAPI application entrypoint.
 
-Owns the process-wide QLever SPARQL client (opened for the app lifespan) and the
-NCIt repository read model; the frontend talks only to this backend.
+Owns process-wide QLever clients and repository read models; the frontend talks
+only to this backend.
 """
 
 import asyncio
@@ -17,10 +17,12 @@ from backend.api.v1 import (
     cadsr,
     clinicaltrials,
     decomposition,
+    icdo,
     mappings,
     ncit,
     pubmed,
     refresh,
+    uberon,
 )
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -32,18 +34,22 @@ from backend.middleware import (
     install_error_handlers,
 )
 from backend.repository_metadata import RepositoryMetadataService, RepositoryUnhealthy
+from backend.repository_registry import local_repository_ids
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.repositories.cadsr.repository import CdeRepository
 from ontolib.repositories.clinicaltrials.client import ClinicalTrialsClient
 from ontolib.repositories.embeddings.store import EmbeddingStore
+from ontolib.repositories.icdo.store import IcdoRepository
 from ontolib.repositories.pubmed.client import PubMedClient
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.graph_store import NcitGraphStore
 from ontolib.terminologies.ncit.search_index import NcitSearchIndex
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
+from ontolib.terminologies.uberon.graph_store import UberonGraphStore
+from ontolib.terminologies.uberon.search_index import UberonSearchIndex
 
 logger = get_logger(__name__)
 
@@ -76,7 +82,7 @@ async def check_ncit_version(client: SparqlHttpClient, expected: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Open the SPARQL client, NCIt store, caDSR repo, and embedding store."""
+    """Open terminology clients, repository stores, and publication stores."""
     settings = get_settings()
     if not settings.api_key:
         # Surface an intended-auth misconfiguration (blank/unset key) instead of
@@ -86,17 +92,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "(open mode). Set api_key to require X-API-Key."
         )
     client = ncit_sparql_client(settings.ncit_sparql_url)
+    uberon_client = SparqlHttpClient.for_qlever(settings.uberon_sparql_url)
     engine = make_engine(settings.database_url)
     app.state.ncit_client = client
     app.state.ncit_store = NcitGraphStore(client)
+    app.state.uberon_client = uberon_client
+    app.state.uberon_store = UberonGraphStore(uberon_client)
     app.state.decomposition_reader = DecompositionReader(client)
     app.state.cadsr_repo = CdeRepository(settings.cadsr_db_path)
+    sessions = make_sessionmaker(engine)
+    app.state.icdo_repository = IcdoRepository(sessions)
     app.state.repository_metadata = RepositoryMetadataService(
         settings=settings,
         cadsr=app.state.cadsr_repo,
+        icdo=app.state.icdo_repository,
     )
     app.state.embedding_store = EmbeddingStore(make_sessionmaker(engine))
     app.state.ncit_search_index = NcitSearchIndex(make_sessionmaker(engine))
+    app.state.uberon_search_index = UberonSearchIndex(make_sessionmaker(engine))
     app.state.provenance_store = ProvenanceStore(make_sessionmaker(engine))
     app.state.xref_store = XrefStore(make_sessionmaker(engine))
     app.state.clinicaltrials_client = ClinicalTrialsClient(
@@ -119,6 +132,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with contextlib.suppress(asyncio.CancelledError):
             await version_check
         await client.aclose()
+        await uberon_client.aclose()
         await app.state.clinicaltrials_client.aclose()
         await app.state.pubmed_client.aclose()
         await dispose_engine(engine)
@@ -148,22 +162,53 @@ def create_app() -> FastAPI:
 
     @app.get("/ready", tags=["meta"])
     async def ready(metadata: RepositoryMetadataReads) -> dict[str, object]:
-        """Readiness — certify the live NCIt proxy or return a typed refusal."""
-        repository = await metadata.ncit()
-        if isinstance(repository, RepositoryUnhealthy):
+        """Readiness — certify each local terminology proxy or refuse."""
+        repositories = []
+        for repository_id in local_repository_ids():
+            if repository_id == "ncit":
+                repositories.append(await metadata.ncit())
+            elif repository_id == "cadsr":
+                repositories.append(metadata.cadsr())
+            elif repository_id == "uberon":
+                repositories.append(await metadata.uberon(force=True))
+            else:
+                repositories.extend(
+                    [
+                        await metadata.icdo("3.2", "morphology"),
+                        await metadata.icdo("4.0", "morphology"),
+                        await metadata.icdo("4.0", "topography"),
+                    ]
+                )
+        unhealthy = next(
+            (
+                repository
+                for repository in repositories
+                if isinstance(repository, RepositoryUnhealthy)
+            ),
+            None,
+        )
+        if unhealthy is not None:
             logger.warning(
                 "Readiness certification failed — %s: %s",
-                repository.reason,
-                repository.message,
+                unhealthy.reason,
+                unhealthy.message,
             )
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
-                repository.model_dump(mode="json"),
+                unhealthy.model_dump(mode="json"),
             )
-        return {"ready": True, "repository": repository.model_dump(mode="json")}
+        return {
+            "ready": True,
+            "repository": repositories[0].model_dump(mode="json"),
+            "repositories": [
+                repository.model_dump(mode="json") for repository in repositories
+            ],
+        }
 
     app.include_router(ncit.router)
+    app.include_router(uberon.router)
     app.include_router(mappings.router)
+    app.include_router(icdo.router)
     app.include_router(cadsr.router)
     app.include_router(refresh.router)
     app.include_router(clinicaltrials.router)

@@ -50,9 +50,9 @@ def test_migration_down_revision_chain_has_no_duplicates() -> None:
 
 
 @pytest.mark.unit
-def test_migration_head_includes_ncit_representation_status() -> None:
+def test_migration_head_includes_icdo_repositories() -> None:
     modules = [_load_module(path) for path in _migration_files()]
     referenced = {module.down_revision for module in modules}
     heads = {module.revision for module in modules} - referenced
 
-    assert heads == {"0016_ncit_representation_status"}
+    assert heads == {"0019_icdo_repositories"}

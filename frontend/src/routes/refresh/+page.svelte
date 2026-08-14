@@ -30,7 +30,8 @@
 <div class="mb-6">
 	<h1 class="text-2xl font-semibold text-default">Repository Refresh</h1>
 	<p class="mt-1 max-w-3xl text-sm text-muted">
-		Re-certify the active NCIt and caDSR proxies and report their manifest-bound identities.
+		Re-certify the active NCIt, caDSR, Uberon/CL, and ICD-O local repositories. Each result reports its certified identity or exact refusal reason.
+		Remote live services are not refreshed.
 	</p>
 </div>
 

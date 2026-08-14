@@ -5,6 +5,11 @@ import {
 	listNcit,
 	getConcept,
 	getNeighborhood,
+	getUberonConcept,
+	getUberonAlignments,
+	getUberonNeighborhood,
+	listUberon,
+	searchUberon,
 	getDecomposition,
 	getCdeNeighborhood,
 	searchCadsr,
@@ -93,6 +98,27 @@ describe('getRelatedArticles', () => {
 });
 
 describe('error handling', () => {
+	it('preserves a typed remote failure without exposing the submitted query', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					detail: {
+						state: 'rate-limited',
+						service: 'pubmed',
+						message: 'PubMed rate limit reached; try again later.'
+					}
+				}),
+				{ status: 429, headers: { 'Content-Type': 'application/json' } }
+			)
+		);
+
+		await expect(searchPubmed('private patient query', 25, fetchImpl)).rejects.toMatchObject({
+			status: 429,
+			remoteState: 'rate-limited',
+			message: 'PubMed rate limit reached; try again later.'
+		});
+	});
+
 	it('surfaces the backend HTTPException `detail` string on a failed POST', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify({ detail: 'Invalid trial phase filter.' }), {
@@ -216,6 +242,40 @@ describe('NCIt endpoints', () => {
 		);
 		await getDecomposition('C 6135', fetchImpl);
 		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/ncit/concepts/C%206135/decomposition');
+	});
+});
+
+describe('Uberon/CL endpoints', () => {
+	it('searchUberon includes the source facet', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse({ query: 'cell', total: 0, limit: 25, offset: 0, hits: [] })
+		);
+		await searchUberon('cell', { source: 'cl', fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe(
+			'/api/v1/uberon/search?q=cell&limit=25&offset=0&source=cl'
+		);
+	});
+
+	it('listUberon omits the source facet when browsing both sources', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse({ query: '', total: 0, limit: 25, offset: 0, hits: [] })
+		);
+		await listUberon({ fetch: fetchImpl });
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/uberon/list?limit=25&offset=0');
+	});
+
+	it('encodes Uberon CURIEs in detail and neighborhood paths', async () => {
+		const fetchImpl = vi.fn().mockImplementation(() =>
+			Promise.resolve(jsonResponse({ code: 'UBERON:0002048' }))
+		);
+		await getUberonConcept('UBERON:0002048', fetchImpl);
+		await getUberonAlignments('UBERON:0002048', fetchImpl);
+		await getUberonNeighborhood('UBERON:0002048', 2, fetchImpl);
+		expect(fetchImpl.mock.calls[0][0]).toBe('/api/v1/uberon/concepts/UBERON%3A0002048');
+		expect(fetchImpl.mock.calls[1][0]).toBe('/api/v1/uberon/concepts/UBERON%3A0002048/alignments');
+		expect(fetchImpl.mock.calls[2][0]).toBe(
+			'/api/v1/uberon/concepts/UBERON%3A0002048/neighborhood?depth=2'
+		);
 	});
 });
 

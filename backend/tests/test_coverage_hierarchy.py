@@ -394,6 +394,12 @@ def test_repository_manifest_is_complete_and_owned() -> None:
     manifest = load_manifest(repo_root / "coverage-surfaces.toml", repo_root)
 
     assert validate_manifest(manifest, repo_root) == []
+    assert {
+        "frontend/src/lib/components/AlignmentLinks.svelte.test.ts",
+        "frontend/src/routes/repositories/uberon/[curie]/UberonConceptSummary.svelte.test.ts",
+        "frontend/e2e/repositories.spec.ts",
+        "frontend/e2e/ssr-bff.spec.ts",
+    }.issubset(manifest.required_test_paths)
 
 
 def test_python_report_keeps_unmeasured_release_workflow_visible() -> None:

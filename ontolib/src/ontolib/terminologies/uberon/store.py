@@ -5,14 +5,22 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import iterparse
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    model_validator,
+)
 
 from ontolib.core.data_build_tools import (
     JENA_JRE_IMAGE,
@@ -52,6 +60,7 @@ _HEX_64 = re.compile(r"[0-9a-f]{64}")
 _OWNER = re.compile(r"[0-9a-f]{32}")
 _MIN_TRIPLES = 500_000
 _MAX_TRIPLES = 2_000_000
+UBERON_INDEX_SCHEMA_VERSION = 3
 
 
 class UberonArtifactError(RuntimeError):
@@ -107,6 +116,17 @@ class UberonArtifactManifest(_Proof):
         return self
 
 
+class UberonServingFingerprint(_Proof):
+    """Canonical identity of every Uberon/CL value exposed by repository reads."""
+
+    rows: int = Field(gt=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    uberon_classes: int = Field(gt=0)
+    cl_classes: int = Field(gt=0)
+    uberon_searchable_classes: int = Field(gt=0)
+    cl_searchable_classes: int = Field(gt=0)
+
+
 class UberonIndexObservation(_Proof):
     """Production-shaped facts queried from a candidate default-graph index."""
 
@@ -115,23 +135,36 @@ class UberonIndexObservation(_Proof):
     has_uberon_lung: bool
     has_cell_class: bool
     has_ncit_xref: bool
+    serving: UberonServingFingerprint | None = None
+
+
+class CertifiedUberonIndexObservation(_Proof):
+    """Validated observation admitted to an installed index and ready response."""
+
+    version_iri: str
+    triples: PositiveInt
+    has_uberon_lung: Literal[True]
+    has_cell_class: Literal[True]
+    has_ncit_xref: Literal[True]
+    serving: UberonServingFingerprint
 
 
 class UberonIndexManifest(_Proof):
     """Exact source, toolchain, and observations for a published QLever index."""
 
-    schema_version: int = 1
+    schema_version: int = UBERON_INDEX_SCHEMA_VERSION
     owner: str
     target_path: str
     artifact_manifest_path: str
     artifact_identity: str
     source_identity: str
     loader: LoaderIdentity
-    observation: UberonIndexObservation
+    installed_at: AwareDatetime
+    observation: CertifiedUberonIndexObservation
 
     @model_validator(mode="after")
     def _canonical_fields(self) -> UberonIndexManifest:
-        if self.schema_version != 1:
+        if self.schema_version != UBERON_INDEX_SCHEMA_VERSION:
             raise ValueError("unsupported Uberon index schema")
         if _OWNER.fullmatch(self.owner) is None:
             raise ValueError("Uberon index owner is not canonical")
@@ -365,8 +398,10 @@ def validate_uberon_artifact(manifest_path: Path) -> UberonArtifactManifest:
 
 
 def _validate_observation(
-    observation: UberonIndexObservation, *, expected_version_iri: str
-) -> None:
+    observation: UberonIndexObservation | CertifiedUberonIndexObservation,
+    *,
+    expected_version_iri: str,
+) -> CertifiedUberonIndexObservation:
     if observation.version_iri != expected_version_iri:
         raise UberonArtifactError("candidate Uberon version does not match its source")
     if not _MIN_TRIPLES <= observation.triples <= _MAX_TRIPLES:
@@ -377,14 +412,17 @@ def _validate_observation(
         raise UberonArtifactError("candidate lacks required Cell Ontology content")
     if not observation.has_ncit_xref:
         raise UberonArtifactError("candidate lacks an NCIt cross-reference")
+    if observation.serving is None:
+        raise UberonArtifactError("candidate lacks a serving-content fingerprint")
+    return CertifiedUberonIndexObservation.model_validate(observation.model_dump())
 
 
 def _index_source_identity(
     *,
     artifact_identity: str,
     loader: LoaderIdentity,
-    observation: UberonIndexObservation,
-    schema_version: int = 1,
+    observation: UberonIndexObservation | CertifiedUberonIndexObservation,
+    schema_version: int = UBERON_INDEX_SCHEMA_VERSION,
 ) -> str:
     return _identity(
         {
@@ -470,8 +508,10 @@ def _validate_index_source(
         raise UberonArtifactError("Uberon source identity does not match index proof")
 
 
-def validate_uberon_index_manifest(manifest_path: Path) -> UberonIndexManifest:
-    """Revalidate the owner, source, toolchain, and observations of one index."""
+def validate_uberon_index_proof(
+    manifest_path: Path,
+) -> tuple[UberonIndexManifest, UberonArtifactManifest]:
+    """Revalidate and return one index manifest with its source artifact proof."""
     manifest = _read_index_manifest(manifest_path)
     _validate_index_owner(manifest_path, manifest)
     artifact = validate_uberon_artifact(Path(manifest.artifact_manifest_path))
@@ -479,6 +519,12 @@ def validate_uberon_index_manifest(manifest_path: Path) -> UberonIndexManifest:
         raise UberonArtifactError("Uberon artifact identity does not match index proof")
     _validate_index_loader(manifest.loader)
     _validate_index_source(manifest, artifact)
+    return manifest, artifact
+
+
+def validate_uberon_index_manifest(manifest_path: Path) -> UberonIndexManifest:
+    """Revalidate the owner, source, toolchain, and observations of one index."""
+    manifest, _artifact = validate_uberon_index_proof(manifest_path)
     return manifest
 
 
@@ -504,11 +550,14 @@ async def build_uberon_index(
     (candidate / UBERON_OWNER_MARKER_FILENAME).write_text(owner + "\n")
     loader = runtime.identify_loader()
     runtime.load_default_graph(Path(artifact.file_path), candidate, owner)
-    observation = await runtime.observe_default_graph(
+    raw_observation = await runtime.observe_default_graph(
         candidate, owner, observe_uberon_index
     )
-    _validate_observation(observation, expected_version_iri=artifact.version_iri)
+    observation = _validate_observation(
+        raw_observation, expected_version_iri=artifact.version_iri
+    )
     manifest = UberonIndexManifest(
+        schema_version=UBERON_INDEX_SCHEMA_VERSION,
         owner=owner,
         target_path=str(target),
         artifact_manifest_path=str(artifact_manifest_path.resolve()),
@@ -517,8 +566,10 @@ async def build_uberon_index(
             artifact_identity=artifact.artifact_identity,
             loader=loader,
             observation=observation,
+            schema_version=UBERON_INDEX_SCHEMA_VERSION,
         ),
         loader=loader,
+        installed_at=datetime.now(UTC),
         observation=observation,
     )
     _write_json(candidate / UBERON_INDEX_MANIFEST_FILENAME, manifest)
@@ -559,4 +610,85 @@ async def observe_uberon_index(endpoint_url: str) -> UberonIndexObservation:
                 "<http://www.geneontology.org/formats/oboInOwl#hasDbXref> ?xref "
                 'FILTER(STRSTARTS(STR(?xref), "NCIT:")) }'
             ),
+            serving=await observe_uberon_serving_fingerprint(client),
         )
+
+
+async def observe_uberon_serving_fingerprint(
+    client: SparqlHttpClient,
+) -> UberonServingFingerprint:
+    """Hash canonical rows for every value exposed by Uberon repository reads."""
+    query = """
+    PREFIX owl: <http://www.w3.org/2002/07/owl#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX oio: <http://www.geneontology.org/formats/oboInOwl#>
+    SELECT ?kind ?subject ?predicate ?object WHERE {
+      {
+        ?subject a owl:Class .
+        FILTER(STRSTARTS(STR(?subject), "http://purl.obolibrary.org/obo/UBERON_") ||
+               STRSTARTS(STR(?subject), "http://purl.obolibrary.org/obo/CL_"))
+        BIND("class" AS ?kind) BIND("" AS ?predicate) BIND("" AS ?object)
+      } UNION {
+        ?subject a owl:Class ; rdfs:label ?object .
+        BIND("label" AS ?kind) BIND("" AS ?predicate)
+      } UNION {
+        ?subject a owl:Class ; oio:hasExactSynonym ?object .
+        BIND("synonym" AS ?kind) BIND("" AS ?predicate)
+      } UNION {
+        ?subject a owl:Class ;
+          <http://purl.obolibrary.org/obo/IAO_0000115> ?object .
+        BIND("definition" AS ?kind) BIND("" AS ?predicate)
+      } UNION {
+        ?subject a owl:Class ; oio:hasDbXref ?object .
+        BIND("xref" AS ?kind) BIND("" AS ?predicate)
+      } UNION {
+        ?subject a owl:Class ; rdfs:subClassOf ?object . FILTER(isIRI(?object))
+        BIND("subclass" AS ?kind) BIND("" AS ?predicate)
+      } UNION {
+        ?subject a owl:Class ; rdfs:subClassOf ?restriction .
+        ?restriction a owl:Restriction ; owl:onProperty ?predicate ;
+          owl:someValuesFrom ?object .
+        BIND("restriction" AS ?kind)
+      } UNION {
+        ?subject a owl:Class ; rdfs:subClassOf ?restriction .
+        ?restriction a owl:Restriction ; owl:onProperty ?predicate .
+        ?predicate rdfs:label ?object .
+        BIND("relation-label" AS ?kind)
+      }
+      FILTER(STRSTARTS(STR(?subject), "http://purl.obolibrary.org/obo/UBERON_") ||
+             STRSTARTS(STR(?subject), "http://purl.obolibrary.org/obo/CL_"))
+    } ORDER BY ?kind ?subject ?predicate ?object
+    """
+    rows = await client.select(
+        query, required_variables={"kind", "subject", "predicate", "object"}
+    )
+    digest = hashlib.sha256()
+    uberon_classes = 0
+    cl_classes = 0
+    uberon_searchable_classes: set[str] = set()
+    cl_searchable_classes: set[str] = set()
+    for row in rows:
+        canonical = json.dumps(
+            [row["kind"], row["subject"], row["predicate"], row["object"]],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode()
+        digest.update(canonical + b"\n")
+        if row["kind"] == "class":
+            if row["subject"].startswith("http://purl.obolibrary.org/obo/UBERON_"):
+                uberon_classes += 1
+            else:
+                cl_classes += 1
+        elif row["kind"] == "label":
+            if row["subject"].startswith("http://purl.obolibrary.org/obo/UBERON_"):
+                uberon_searchable_classes.add(row["subject"])
+            else:
+                cl_searchable_classes.add(row["subject"])
+    return UberonServingFingerprint(
+        rows=len(rows),
+        sha256=digest.hexdigest(),
+        uberon_classes=uberon_classes,
+        cl_classes=cl_classes,
+        uberon_searchable_classes=len(uberon_searchable_classes),
+        cl_searchable_classes=len(cl_searchable_classes),
+    )

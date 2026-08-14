@@ -361,17 +361,21 @@ replaces stable rows plus the active manifest in one transaction.
 
 ### Repository readiness and refresh metadata
 
-`GET /ready` returns HTTP 200 only when the active NCIt manifest, completed activation
-journal (including `activated_at`), release, and live default/stated observation agree.
-Its ready value includes `source_identity`, exact manifest-byte `manifest_identity`,
-release, activation time, and observation. A refusal is HTTP 503 with a typed reason such
-as `manifest-missing`, `activation-incomplete`, `release-mismatch`, or
-`observation-mismatch`; the unhealthy value deliberately contains no identity fields.
+`GET /ready` returns HTTP 200 only when every local repository is certified: NCIt,
+caDSR, Uberon/CL, and all configured ICD-O edition/axis datasets. NCIt additionally
+requires its active manifest, completed activation journal (including `activated_at`),
+release, and live default/stated observation to agree. Ready values carry each
+repository's certified identities and observations. A single refusal returns HTTP 503
+with that repository's typed reason, such as `manifest-missing`,
+`activation-incomplete`, `release-mismatch`, or `observation-mismatch`; an unhealthy
+value deliberately contains no certified identity fields.
 
-The refresh report returns the same discriminated metadata for NCIt and caDSR. caDSR's
-ready value identifies the persisted source archive and the canonical serving-row
-fingerprint/count. The refresh page displays these values and the exact unhealthy reason;
-it does not turn endpoint reachability into a ready claim (D68).
+The refresh report returns discriminated metadata for NCIt, caDSR, Uberon/CL, and each
+served ICD-O edition/axis dataset. caDSR identifies its persisted source archive and
+canonical serving rows; Uberon/CL identifies its certified combined index; ICD-O binds
+the active generation to its source digest, exact serving digest, and row count. The
+refresh page displays these values and the exact unhealthy reason; it does not turn
+endpoint reachability into a ready claim (D68).
 
 ## Validation tools (ROBOT + ELK)
 
@@ -479,7 +483,7 @@ Notes:
 - The embedding step is heavy (multi-GB model + compute over ~200k concepts + ~80k
   CDEs) and is a batch/offline operation. CI runs deterministic encoders against
   disposable pgvector to prove staged-batch invisibility, failure rollback, validation,
-  retry, independent corpora, and atomic activation. Explicit `full_build` contracts
+  retry, independent corpora, and reconcilable ordered activation. Explicit `full_build` contracts
   verify the real encoder shape and inspect configured full-build artifacts; the
   expensive end-to-end build remains an operator run.
 - The QLever indexes, caDSR SQLite, and pgvector rows produced are the same shapes the

@@ -29,11 +29,14 @@ _STUDY = {
 class _Handler(BaseHTTPRequestHandler):
     # When set, every response uses this status (drives the upstream-failure path).
     fail_status: ClassVar[int | None] = None
+    fail_body: ClassVar[bytes] = b""
 
     def do_GET(self) -> None:
         if _Handler.fail_status is not None:
             self.send_response(_Handler.fail_status)
+            self.send_header("Content-Length", str(len(_Handler.fail_body)))
             self.end_headers()
+            self.wfile.write(_Handler.fail_body)
             return
         path = urlparse(self.path).path
         if path == "/studies":
@@ -62,6 +65,7 @@ class _Handler(BaseHTTPRequestHandler):
 @pytest.fixture
 def ct_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     _Handler.fail_status = None
+    _Handler.fail_body = b""
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     host, port = srv.server_address[:2]
@@ -119,11 +123,31 @@ def test_search_limit_out_of_bounds_is_422(ct_app: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_search_upstream_failure_is_502(ct_app: TestClient) -> None:
-    # An upstream 5xx from ClinicalTrials.gov surfaces as a clean 502, not a 500.
+def test_search_upstream_unavailable_is_explicit(ct_app: TestClient) -> None:
     _Handler.fail_status = 500
     resp = ct_app.post("/api/v1/clinicaltrials/search", json={"condition": "melanoma"})
-    assert resp.status_code == 502
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == {
+        "state": "unavailable",
+        "service": "clinicaltrials",
+        "message": "ClinicalTrials.gov is temporarily unavailable.",
+    }
+
+
+@pytest.mark.api
+def test_search_rate_limit_is_explicit_and_private(
+    ct_app: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    _Handler.fail_status = 429
+    _Handler.fail_body = b"upstream-secret-body"
+    query = "private patient condition"
+    resp = ct_app.post("/api/v1/clinicaltrials/search", json={"condition": query})
+
+    assert resp.status_code == 429
+    assert resp.json()["detail"]["state"] == "rate-limited"
+    exposed = resp.text + caplog.text
+    assert query not in exposed
+    assert "upstream-secret-body" not in exposed
 
 
 @pytest.mark.api
@@ -146,7 +170,7 @@ def test_trial_detail_malformed_id_is_400(ct_app: TestClient) -> None:
 
 
 @pytest.mark.api
-def test_trial_detail_upstream_failure_is_502(ct_app: TestClient) -> None:
+def test_trial_detail_upstream_unavailable_is_503(ct_app: TestClient) -> None:
     _Handler.fail_status = 500
     resp = ct_app.get("/api/v1/clinicaltrials/NCT01234567")
-    assert resp.status_code == 502
+    assert resp.status_code == 503

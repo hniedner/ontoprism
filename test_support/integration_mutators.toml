@@ -1,4 +1,8 @@
 [[mutator]]
+path = "ontolib/tests/repositories/xref/test_generation_store_integration.py"
+fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
+
+[[mutator]]
 path = "backend/tests/test_data_build_integration.py"
 fixtures = ["isolated_postgres_settings", "isolated_qlever_settings"]
 
@@ -212,6 +216,10 @@ path = "ontolib/tests/terminologies/test_ncit_search_ranking_integration.py"
 fixtures = ["isolated_postgres_settings"]
 
 [[mutator]]
+path = "ontolib/tests/terminologies/test_uberon_search_index_integration.py"
+fixtures = ["isolated_postgres_settings"]
+
+[[mutator]]
 path = "ontolib/tests/terminologies/test_sparql_client_http.py"
 tests = ["test_version_cardinality_verdict_matches_real_qlever_and_http_double"]
 fixtures = ["isolated_qlever_url"]
@@ -223,3 +231,6 @@ fixtures = ["qlever_sibling_store_root", "integration_connection_scope"]
 [[mutator]]
 path = "ontolib/tests/terminologies/test_ncit_activation_integration.py"
 fixtures = ["qlever_sibling_store_root", "integration_connection_scope"]
+[[mutator]]
+path = "ontolib/tests/repositories/icdo/test_icdo_publication_integration.py"
+fixtures = ["isolated_postgres_settings"]

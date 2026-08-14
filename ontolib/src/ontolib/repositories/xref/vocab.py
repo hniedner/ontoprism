@@ -1,9 +1,11 @@
-"""Constants for the external-ontology xref layer (design §8.1-8.2)."""
+"""Vocabulary for NCIt alignments derived from other terminologies (design §8)."""
 
 from __future__ import annotations
 
-# Single additive named graph that holds all NCIt<->upstream mapping triples.
-# Never write mappings to the stated NCIt graph or the decomposed graph.
+from typing import Literal
+
+# Base IRI for immutable, source-specific generation graphs. Never write mappings to
+# the stated NCIt graph or the decomposed graph.
 NCIT_UPSTREAM_XREF_GRAPH_IRI = (
     "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus-upstream-xref.owl"
 )
@@ -11,11 +13,29 @@ NCIT_UPSTREAM_XREF_GRAPH_IRI = (
 # SSSOM predicate vocabulary (SKOS mapping properties — ANNOTATION ONLY,
 # never fed to a reasoner).
 SKOS_NS = "http://www.w3.org/2004/02/skos/core#"
-EXACT_MATCH = f"{SKOS_NS}exactMatch"
-CLOSE_MATCH = f"{SKOS_NS}closeMatch"
-BROAD_MATCH = f"{SKOS_NS}broadMatch"
-NARROW_MATCH = f"{SKOS_NS}narrowMatch"
-RELATED_MATCH = f"{SKOS_NS}relatedMatch"
+EXACT_MATCH: Literal["http://www.w3.org/2004/02/skos/core#exactMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#exactMatch"
+)
+CLOSE_MATCH: Literal["http://www.w3.org/2004/02/skos/core#closeMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#closeMatch"
+)
+BROAD_MATCH: Literal["http://www.w3.org/2004/02/skos/core#broadMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#broadMatch"
+)
+NARROW_MATCH: Literal["http://www.w3.org/2004/02/skos/core#narrowMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#narrowMatch"
+)
+RELATED_MATCH: Literal["http://www.w3.org/2004/02/skos/core#relatedMatch"] = (
+    "http://www.w3.org/2004/02/skos/core#relatedMatch"
+)
+
+type MappingPredicate = Literal[
+    "http://www.w3.org/2004/02/skos/core#exactMatch",
+    "http://www.w3.org/2004/02/skos/core#closeMatch",
+    "http://www.w3.org/2004/02/skos/core#broadMatch",
+    "http://www.w3.org/2004/02/skos/core#narrowMatch",
+    "http://www.w3.org/2004/02/skos/core#relatedMatch",
+]
 
 ALLOWED_PREDICATES = frozenset(
     {EXACT_MATCH, CLOSE_MATCH, BROAD_MATCH, NARROW_MATCH, RELATED_MATCH}
@@ -25,12 +45,10 @@ ALLOWED_PREDICATES = frozenset(
 #
 # `LEXICAL_MATCHING` and `COMPOSITE_MATCHING` are published semapv terms
 # (`mapping-commons/semantic-mapping-vocabulary`, `semapv-terms.tsv`).
-# `DATABASE_CROSS_REFERENCE` is NOT: semapv has no term for "an upstream database
-# asserts a cross-reference", and this one predates the vocabulary check. It is kept
-# because it is the string persisted in `concept_xref.mapping_justification` on every
-# ingested row; renaming it is a data migration, not a constant edit.
+# A publisher database cross-reference is represented by an explicit project-local
+# process identifier because SEMAPV does not publish that term.
 LEXICAL_MATCHING = "semapv:LexicalMatching"
-DATABASE_CROSS_REFERENCE = "semapv:DatabaseCrossReference"
+DATABASE_CROSS_REFERENCE = "https://ontoprism.org/vocab#PublisherDatabaseCrossReference"
 # Both passes independently produced the same pair (D34): the upstream class xrefs the
 # NCIt code AND the two labels agree. semapv defines this as "a matching process based
 # on multiple matching processes" — which is exactly the claim, and the reason the pair
@@ -41,3 +59,6 @@ COMPOSITE_MATCHING = "semapv:CompositeMatching"
 LIFECYCLE_STATES = frozenset(
     {"proposed", "validated", "active", "quarantined", "retired"}
 )
+type MappingLifecycle = Literal[
+    "proposed", "validated", "active", "quarantined", "retired"
+]

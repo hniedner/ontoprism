@@ -1,0 +1,38 @@
+[
+	{
+		"id": "ncit",
+		"label": "NCIt",
+		"path": "/repositories/ncit",
+		"kind": "local-certified-proxy"
+	},
+	{
+		"id": "cadsr",
+		"label": "caDSR",
+		"path": "/repositories/cadsr",
+		"kind": "local-certified-proxy"
+	},
+	{
+		"id": "uberon",
+		"label": "Uberon/CL",
+		"path": "/repositories/uberon",
+		"kind": "local-certified-proxy"
+	},
+	{
+		"id": "icdo",
+		"label": "ICD-O",
+		"path": "/repositories/icdo",
+		"kind": "local-certified-proxy"
+	},
+	{
+		"id": "clinicaltrials",
+		"label": "ClinicalTrials.gov",
+		"path": "/repositories/clinicaltrials",
+		"kind": "remote-live-service"
+	},
+	{
+		"id": "pubmed",
+		"label": "PubMed",
+		"path": "/repositories/pubmed",
+		"kind": "remote-live-service"
+	}
+]

@@ -2,11 +2,18 @@ import { describe, it, expect } from 'vitest';
 import type { GraphNode, Neighborhood } from '$lib/types';
 import {
 	createGraph,
+	KIND_COLOR,
 	mergeNeighborhood,
 	assignAnalytics,
 	degreeToSize,
 	communityColor
 } from './neighborhood-graph';
+
+describe('edge kinds', () => {
+	it('keeps Uberon restriction kinds distinct', () => {
+		expect(KIND_COLOR.part_of).not.toBe(KIND_COLOR['other-restriction']);
+	});
+});
 
 type TestGraphNode = Omit<GraphNode, 'representation_status'> &
 	Partial<Pick<GraphNode, 'representation_status'>>;
@@ -189,6 +196,21 @@ describe('mergeNeighborhood', () => {
 			{ centerExpanded: false }
 		);
 		expect(g.getNodeAttribute('C1', 'expanded')).toBe(false);
+	});
+
+	it('retains a truncation signal when a partial neighborhood is merged', () => {
+		const g = createGraph();
+		mergeNeighborhood(
+			g,
+			nb({
+				center: 'UBERON:1',
+				nodes: [{ code: 'UBERON:1', label: null, semantic_type: 'Uberon' }],
+				truncated: true
+			})
+		);
+
+		expect(g.getAttribute('truncated')).toBe(true);
+		expect(g.getNodeAttribute('UBERON:1', 'label')).toBe('UBERON:1');
 	});
 
 	it('uses the bare relation code as the edge label when no relation_label is given', () => {

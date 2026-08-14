@@ -51,7 +51,13 @@ export interface GraphNode {
 	representation_status: RepresentationStatus | null;
 }
 
-export type EdgeKind = 'subClassOf' | 'role' | 'association' | 'cde-concept';
+export type EdgeKind =
+	| 'subClassOf'
+	| 'role'
+	| 'association'
+	| 'cde-concept'
+	| 'part_of'
+	| 'other-restriction';
 
 export interface GraphEdge {
 	source: string;
@@ -67,6 +73,177 @@ export interface Neighborhood {
 	edges: GraphEdge[];
 	/** True when the node cap was hit and some neighbors were dropped (partial graph). */
 	truncated?: boolean;
+}
+
+export type UberonSource = 'uberon' | 'cl';
+
+export interface UberonConceptRef {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+}
+
+export interface UberonRelationship {
+	relation: string;
+	relation_label: string | null;
+	kind: 'subClassOf' | 'part_of' | 'other-restriction';
+	target: UberonConceptRef;
+}
+
+export interface UberonConceptDetail {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+	definition: string | null;
+	synonyms: string[];
+	xrefs: string[];
+	parents: UberonConceptRef[];
+	children: UberonConceptRef[];
+	relations: UberonRelationship[];
+	truncated: boolean;
+}
+
+export type MappingPredicate =
+	| 'http://www.w3.org/2004/02/skos/core#exactMatch'
+	| 'http://www.w3.org/2004/02/skos/core#closeMatch'
+	| 'http://www.w3.org/2004/02/skos/core#broadMatch'
+	| 'http://www.w3.org/2004/02/skos/core#narrowMatch'
+	| 'http://www.w3.org/2004/02/skos/core#relatedMatch';
+export type MappingLifecycle = 'proposed' | 'validated' | 'active' | 'quarantined' | 'retired';
+
+export interface Alignment {
+	code: string;
+	system: 'ncit' | 'uberon-cl' | 'icdo';
+	version: string;
+	predicate: MappingPredicate;
+	lifecycle: MappingLifecycle;
+}
+
+export interface NcitAlignment extends Omit<Alignment, 'system'> {
+	system: 'ncit';
+}
+
+export interface UberonAlignments {
+	code: string;
+	repository_source_identity: string;
+	repository_serving_identity: string;
+	alignments: NcitAlignment[];
+}
+
+export interface UberonSearchHit {
+	code: string;
+	source: UberonSource;
+	label: string | null;
+	matched_synonym: string | null;
+}
+
+export interface UberonSearchPage {
+	query: string;
+	total: number;
+	limit: number;
+	offset: number;
+	hits: UberonSearchHit[];
+}
+
+export interface UberonNeighborhood {
+	center: string;
+	nodes: Array<{ code: string; source: UberonSource; label: string | null }>;
+	edges: Array<{
+		source: string;
+		target: string;
+		relation: string;
+		relation_label: string | null;
+		kind: 'subClassOf' | 'part_of' | 'other-restriction';
+	}>;
+	truncated: boolean;
+}
+
+export type IcdoEdition = '3.2' | '4.0';
+export type IcdoAxis = 'morphology' | 'topography';
+interface IcdoRecordBase {
+	code: string;
+	preferred: string | null;
+	synonyms: string[];
+	related: string[];
+	notes: string[];
+	code_references: string[];
+	see_also: string[];
+	see_notes: string[];
+	includes: string[];
+	excludes: string[];
+	other_text: string[];
+}
+
+export interface IcdoMorphology32Record extends IcdoRecordBase {
+	level: 'morphology';
+	parent_code: null;
+	base_morphology: string;
+	specificity: null;
+	behaviour: string;
+}
+
+export interface IcdoMorphology40Record extends IcdoRecordBase {
+	level: 'morphology';
+	parent_code: null;
+	base_morphology: string;
+	specificity: string;
+	behaviour: string;
+}
+
+export interface IcdoTopographyCategoryRecord extends IcdoRecordBase {
+	level: 'category';
+	parent_code: null;
+	base_morphology: null;
+	specificity: null;
+	behaviour: null;
+}
+
+export interface IcdoTopographyLeafRecord extends IcdoRecordBase {
+	level: 'leaf';
+	parent_code: string;
+	base_morphology: null;
+	specificity: null;
+	behaviour: null;
+}
+
+interface IcdoDetailBase {
+	activation_identity: string;
+	serving_identity: string;
+	ncit_alignments: NcitAlignment[];
+}
+
+export type IcdoDetail =
+	| (IcdoDetailBase & { edition: '3.2'; axis: 'morphology'; record: IcdoMorphology32Record })
+	| (IcdoDetailBase & { edition: '4.0'; axis: 'morphology'; record: IcdoMorphology40Record })
+	| (IcdoDetailBase & { edition: '4.0'; axis: 'topography'; record: IcdoTopographyCategoryRecord | IcdoTopographyLeafRecord });
+
+interface IcdoPageBase {
+	activation_identity: string;
+	serving_identity: string;
+	query: string;
+	total: number;
+	limit: number;
+	offset: number;
+}
+
+export type IcdoPage =
+	| (IcdoPageBase & { edition: '3.2'; axis: 'morphology'; hits: IcdoMorphology32Record[] })
+	| (IcdoPageBase & { edition: '4.0'; axis: 'morphology'; hits: IcdoMorphology40Record[] })
+	| (IcdoPageBase & { edition: '4.0'; axis: 'topography'; hits: Array<IcdoTopographyCategoryRecord | IcdoTopographyLeafRecord> });
+
+export interface IcdoCongruenceReport {
+	report_identity: string;
+	icdo_serving_identity: string;
+	uberon_serving_identity: string;
+	total: number;
+	counts: Record<string, number>;
+	rows: Array<{
+		code: string;
+		classification: 'one-supported-candidate' | 'multiple-candidates' | 'no-candidate' | 'broader-narrower-mismatch' | 'intentionally-unresolved' | 'source-data-anomaly';
+		reason: string;
+		candidates: string[];
+		evidence: Array<{ kind: string; candidate: string; value: string }>;
+	}>;
 }
 
 // caDSR CDE read models (backend ontolib.repositories.cadsr.models).
@@ -116,19 +293,23 @@ export interface SimilarConcept {
 	score: number;
 }
 
-// External mapping (issue #82).
+// Terminology alignment (issue #82).
 
-export interface ExternalMapping {
+export interface AlignmentMapping {
 	object_id: string;
-	predicate: string;
-	lifecycle: string;
+	system: string;
+	version: string;
+	predicate: MappingPredicate;
+	lifecycle: MappingLifecycle;
 	confidence: number;
 	is_identity: boolean;
 }
 
-export interface ConceptMappings {
+export interface ConceptAlignments {
 	code: string;
-	mappings: ExternalMapping[];
+	repository_source_identity: string;
+	repository_manifest_identity: string;
+	mappings: AlignmentMapping[];
 }
 
 // Decomposition (non-pre-coordinated) read models (backend ontolib.decomposition).
@@ -204,6 +385,37 @@ export interface CadsrRepositoryReady {
 	source: CadsrSourceMetadata;
 }
 
+export interface UberonRepositoryReady {
+	state: 'ready';
+	repository: 'uberon';
+	source_identity: string;
+	manifest_identity: string;
+	source_sha256: string;
+	version_iri: string;
+	class_counts: {
+		uberon: number;
+		cl: number;
+		uberon_searchable: number;
+		cl_searchable: number;
+	};
+	observation: {
+		version_iri: string;
+		triples: number;
+		has_uberon_lung: true;
+		has_cell_class: true;
+		has_ncit_xref: true;
+		serving: {
+			rows: number;
+			sha256: string;
+			uberon_classes: number;
+			cl_classes: number;
+			uberon_searchable_classes: number;
+			cl_searchable_classes: number;
+		};
+	};
+	activated_at: string;
+}
+
 export type RepositoryUnhealthyReason =
 	| 'manifest-missing'
 	| 'manifest-invalid'
@@ -215,14 +427,28 @@ export type RepositoryUnhealthyReason =
 
 export interface RepositoryUnhealthy {
 	state: 'unhealthy';
-	repository: 'ncit' | 'cadsr';
+	repository: 'ncit' | 'cadsr' | 'uberon' | 'icdo';
 	reason: RepositoryUnhealthyReason;
 	message: string;
+}
+
+export interface IcdoRepositoryReady {
+	state: 'ready';
+	repository: 'icdo';
+	edition: IcdoEdition;
+	axis: IcdoAxis;
+	source_identity: string;
+	serving_identity: string;
+	activation_identity: string;
+	row_count: number;
+	activated_at: string;
 }
 
 export type RepositoryMetadata =
 	| NcitRepositoryReady
 	| CadsrRepositoryReady
+	| UberonRepositoryReady
+	| IcdoRepositoryReady
 	| RepositoryUnhealthy;
 
 export interface RefreshReport {

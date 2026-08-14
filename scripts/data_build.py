@@ -24,14 +24,20 @@ import json
 import logging
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID, uuid4
 
 import typer
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from backend.repository_metadata import (
+    RepositoryMetadataService,
+    RepositoryUnhealthy,
+    icdo_expectation,
+)
 from ontolib.core.data_build_tools import configured_robot_installation
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.provenance import ProvenanceStore
@@ -56,6 +62,8 @@ from ontolib.repositories.embeddings.publication import (
     corpus_manifests,
     replacing_corpus_source,
 )
+from ontolib.repositories.icdo.ingest import ingest_icdo4, ingest_icdo32_morphology
+from ontolib.repositories.icdo.store import IcdoRepository, publish_dataset
 from ontolib.repositories.xref.candidate_ingest import ingest_candidates
 from ontolib.repositories.xref.coverage import (
     detect_coverage_regression,
@@ -65,7 +73,14 @@ from ontolib.repositories.xref.coverage import (
     save_coverage_baseline,
 )
 from ontolib.repositories.xref.mapping_score import load_golden_mappings
+from ontolib.repositories.xref.models import (
+    UberonPromotionGenerationMetadata,
+    UberonReadIdentity,
+    XrefReadPolicy,
+)
+from ontolib.repositories.xref.p334_alignment import publish_p334_alignments
 from ontolib.repositories.xref.promotion import run_promotion
+from ontolib.repositories.xref.publisher_xref import publish_uberon_xrefs
 from ontolib.repositories.xref.store import XrefStore
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 from ontolib.terminologies.ncit.activation import (
@@ -113,6 +128,57 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 app = typer.Typer(help="Standalone data build for ontoprism.", no_args_is_help=True)
+
+
+@app.command("icdo")
+def build_icdo(
+    source_directory: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+) -> None:
+    """Validate and atomically publish all three certified ICD-O datasets."""
+    settings = get_settings()
+    old = ingest_icdo32_morphology(
+        source_directory / "ICD-O-3.2_final_update09102020.xls"
+    )
+    new = ingest_icdo4(
+        source_directory / "ICD-O-4.zip",
+        morphology_annex_path=source_directory / "Morphology_annexes.xlsx",
+        topography_annex_path=source_directory / "Topography_annexes.xlsx",
+    )
+
+    async def publish() -> None:
+        engine = make_engine(settings.database_url)
+        try:
+            sessions = make_sessionmaker(engine)
+            published_at = datetime.now(UTC)
+            manifests = [
+                await publish_dataset(
+                    sessions,
+                    old,
+                    publisher_url="http://www.iacr.com.fr/index.php?option=com_content&view=category&layout=blog&id=100&Itemid=577",
+                    published_at=published_at,
+                ),
+                await publish_dataset(
+                    sessions,
+                    new.morphology,
+                    publisher_url="https://tumourclassification.iarc.who.int/icd-o-4/",
+                    published_at=published_at,
+                ),
+                await publish_dataset(
+                    sessions,
+                    new.topography,
+                    publisher_url="https://tumourclassification.iarc.who.int/icd-o-4/",
+                    published_at=published_at,
+                ),
+            ]
+            for manifest in manifests:
+                typer.echo(
+                    f"{manifest.edition}/{manifest.axis}: "
+                    f"{manifest.generation_id} {manifest.serving_sha256}"
+                )
+        finally:
+            await dispose_engine(engine)
+
+    asyncio.run(publish())
 
 
 def _require_ncit_source(
@@ -654,18 +720,98 @@ async def _build_xref() -> None:
             SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
         ):
             store = XrefStore(sf)
-            ncit_version = (await ncit_client.version()) or "unknown"
-            uberon_version = "uberon-2026-01"
+            metadata = RepositoryMetadataService(
+                settings=settings,
+                cadsr=CdeRepository(settings.cadsr_db_path),
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("candidate sources are not certified ready")
+
+            async def observe_source_identities() -> tuple[str, str, str]:
+                ncit_after = await metadata.ncit()
+                uberon_after = await metadata.uberon(force=True)
+                if isinstance(ncit_after, RepositoryUnhealthy) or isinstance(
+                    uberon_after, RepositoryUnhealthy
+                ):
+                    raise RuntimeError("candidate source certification changed")
+                return (
+                    ncit_after.source_identity,
+                    uberon_after.source_identity,
+                    uberon_after.observation.serving.sha256,
+                )
+
             report = await ingest_candidates(
                 store,
                 ncit_client,
                 uberon_client,
-                ncit_version=ncit_version,
-                uberon_version=uberon_version,
+                ncit_version=ncit_ready.release,
+                uberon_version=uberon_ready.version_iri,
+                ncit_source_identity=ncit_ready.source_identity,
+                uberon_source_identity=uberon_ready.source_identity,
+                uberon_serving_identity=uberon_ready.observation.serving.sha256,
+                observe_source_identities=observe_source_identities,
             )
     finally:
         await dispose_engine(engine)
     typer.echo(f"xref candidates ingested: {report}")
+
+
+async def _build_uberon_publisher_xrefs() -> None:
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    try:
+        async with (
+            ncit_sparql_client(settings.ncit_sparql_url) as ncit_client,
+            SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
+        ):
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("publisher xref sources are not certified ready")
+            report = await publish_uberon_xrefs(
+                XrefStore(make_sessionmaker(engine)),
+                ncit_client,
+                uberon_client,
+                ncit_source_identity=ncit_ready.source_identity,
+                uberon_source_identity=uberon_ready.source_identity,
+                uberon_serving_identity=uberon_ready.observation.serving.sha256,
+            )
+    finally:
+        await dispose_engine(engine)
+    typer.echo(report.model_dump_json(indent=2))
+
+
+async def _build_p334_alignments() -> None:
+    settings = get_settings()
+    engine = make_engine(settings.database_url)
+    try:
+        async with ncit_sparql_client(settings.ncit_sparql_url) as ncit_client:
+            sessions = make_sessionmaker(engine)
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            if isinstance(ncit_ready, RepositoryUnhealthy):
+                raise RuntimeError("P334 NCIt source is not certified ready")
+            report = await publish_p334_alignments(
+                XrefStore(sessions),
+                ncit_client,
+                IcdoRepository(sessions),
+                icdo_expected=icdo_expectation(settings, "3.2", "morphology"),
+                ncit_source_identity=ncit_ready.source_identity,
+            )
+    finally:
+        await dispose_engine(engine)
+    typer.echo(report.model_dump_json(indent=2))
 
 
 async def _build_xref_coverage() -> None:
@@ -676,11 +822,29 @@ async def _build_xref_coverage() -> None:
     try:
         async with ncit_sparql_client(settings.ncit_sparql_url) as client:
             store = XrefStore(sf)
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("coverage sources are not certified ready")
             role_codes = await fetch_role_codes(client)
             report = await generate_coverage_report(
                 settings.cadsr_db_path,
                 store,
                 client,
+                expected=XrefReadPolicy(
+                    uberon=UberonReadIdentity(
+                        ncit_source_identity=ncit_ready.source_identity,
+                        uberon_source_identity=uberon_ready.source_identity,
+                        uberon_serving_identity=(
+                            uberon_ready.observation.serving.sha256
+                        ),
+                    )
+                ),
                 role_codes=role_codes,
             )
     finally:
@@ -816,6 +980,15 @@ async def _build_xref_promote(
             ncit_sparql_client(settings.ncit_sparql_url) as ncit_client,
             SparqlHttpClient.for_qlever(settings.uberon_sparql_url) as uberon_client,
         ):
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("promotion sources are not certified ready")
             ncit_version, endpoint_uberon = await _endpoint_versions(
                 ncit_client, uberon_client
             )
@@ -829,6 +1002,11 @@ async def _build_xref_promote(
                 # default would let a Uberon run quarantine every Mondo bridge.
                 source="uberon-cl-promotion",
                 tool_identity=robot_identity,
+                source_metadata=UberonPromotionGenerationMetadata(
+                    ncit_source_identity=ncit_ready.source_identity,
+                    uberon_source_identity=uberon_ready.source_identity,
+                    uberon_serving_identity=uberon_ready.observation.serving.sha256,
+                ),
                 curated_pairs=_curated_pairs(golden, trust_unsigned=trust_unsigned),
             )
     finally:
@@ -896,7 +1074,10 @@ def embeddings(
     publish: bool = typer.Option(
         False,
         "--publish",
-        help="Build, validate, and atomically replace each selected active corpus.",
+        help=(
+            "Build, validate, and replace each selected corpus with ordered "
+            "reconciliation."
+        ),
     ),
     corpus: Corpus | None = typer.Option(  # noqa: B008 — typer option factory
         None,
@@ -918,6 +1099,18 @@ def xref() -> None:
 def xref_coverage() -> None:
     """Print the CDE-level caDSR coverage report (COV)."""
     asyncio.run(_build_xref_coverage())
+
+
+@app.command(name="uberon-publisher-xrefs")
+def uberon_publisher_xrefs() -> None:
+    """Publish alignments labelled with releases observed from both active stores."""
+    asyncio.run(_build_uberon_publisher_xrefs())
+
+
+@app.command(name="p334-alignments")
+def p334_alignments() -> None:
+    """Publish P334 after certifying both observed active source identities."""
+    asyncio.run(_build_p334_alignments())
 
 
 @app.command(name="xref-promote")
