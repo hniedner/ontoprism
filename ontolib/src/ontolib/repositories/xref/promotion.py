@@ -99,7 +99,7 @@ from ontolib.repositories.xref.models import (
     StaleXrefGenerationError,
     UberonReadIdentity,
 )
-from ontolib.repositories.xref.publication import publish_generation
+from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES, object_iri
 from ontolib.repositories.xref.validation import (
     ReasonerUnavailableError,
@@ -1442,6 +1442,7 @@ async def persist_promotions(
     source_metadata: UberonPromotionGenerationMetadata,
     record_run_ids: Sequence[str] | None = None,
     _finalize: bool = True,
+    _publication_locked: bool = False,
 ) -> str:
     """Write the promoted ``exactMatch/validated`` records as their own xref run.
 
@@ -1457,38 +1458,35 @@ async def persist_promotions(
         ncit_version=ncit_version,
         source_version=source_version,
     )
-    metrics: dict[str, Any] = report.as_dict()
-    if tool_identity is not None:
-        metrics["tools"] = [tool_identity.as_dict()]
-    if report.failed:
-        if _finalize:
-            await store.update_run_metrics(rid, metrics, status="failed")
-        return rid
-    # Re-stamp with the versions this run actually validated against.  The candidate
-    # carried its *ingest-time* versions, and promote_candidate copies them through; if
-    # they differ from the run's by so much as a character, successor-generation stale
-    # planning would quarantine every row this run just promoted, and
-    # the run would still report success.  The row asserts "validated against these
-    # endpoint versions" — so it must say which ones.
-    stamped = [
-        replace(
-            r,
-            subject_source_version=ncit_version,
-            object_source_version=source_version,
+    async with fail_run_on_error(store, rid):
+        metrics: dict[str, Any] = report.as_dict()
+        if tool_identity is not None:
+            metrics["tools"] = [tool_identity.as_dict()]
+        if report.failed:
+            if _finalize:
+                await store.update_run_metrics(rid, metrics, status="failed")
+            return rid
+        # Re-stamp with the versions this run actually validated against.
+        stamped = [
+            replace(
+                r,
+                subject_source_version=ncit_version,
+                object_source_version=source_version,
+            )
+            for r in promoted
+        ]
+        await publish_generation(
+            store,
+            ncit_client,
+            source=source,
+            run_id=rid,
+            records=stamped,
+            record_run_ids=record_run_ids,
+            source_metadata=source_metadata,
+            _publication_locked=_publication_locked,
         )
-        for r in promoted
-    ]
-    await publish_generation(
-        store,
-        ncit_client,
-        source=source,
-        run_id=rid,
-        records=stamped,
-        record_run_ids=record_run_ids,
-        source_metadata=source_metadata,
-    )
-    if _finalize:
-        await store.update_run_metrics(rid, metrics)
+        if _finalize:
+            await store.update_run_metrics(rid, metrics)
     return rid
 
 
@@ -1607,7 +1605,7 @@ async def _load_previous_promotions(
     return await store.records_for_generation(generation_id)
 
 
-async def run_promotion(
+async def _run_promotion_locked(
     store: XrefStore,
     ncit_client: SparqlHttpClient,
     uberon_client: SparqlHttpClient,
@@ -1695,6 +1693,7 @@ async def run_promotion(
         source_metadata=source_metadata,
         record_run_ids=record_run_ids,
         _finalize=False,
+        _publication_locked=True,
     )
     outcome_dict = {
         **report.as_dict(),
@@ -1704,9 +1703,39 @@ async def run_promotion(
         "stale_pending": 0,
         "status": "failed" if report.failed else "completed",
     }
-    await store.update_run_metrics(
-        run_id,
-        {k: v for k, v in outcome_dict.items() if k != "run_id"},
-        status="failed" if report.failed else "completed",
-    )
+    async with fail_run_on_error(store, run_id):
+        await store.update_run_metrics(
+            run_id,
+            {k: v for k, v in outcome_dict.items() if k != "run_id"},
+            status="failed" if report.failed else "completed",
+        )
     return outcome_dict
+
+
+async def run_promotion(
+    store: XrefStore,
+    ncit_client: SparqlHttpClient,
+    uberon_client: SparqlHttpClient,
+    *,
+    ncit_version: str,
+    source_version: str,
+    source: str,
+    tool_identity: DataBuildToolIdentity,
+    source_metadata: UberonPromotionGenerationMetadata,
+    curated_pairs: frozenset[tuple[str, str]] = frozenset(),
+    reasoner: Reasoner = elk_reasoner,
+) -> dict[str, Any]:
+    """Run promotion against locked candidate and promotion snapshots."""
+    async with store.publication_locks(("uberon-cl", source)):
+        return await _run_promotion_locked(
+            store,
+            ncit_client,
+            uberon_client,
+            ncit_version=ncit_version,
+            source_version=source_version,
+            source=source,
+            tool_identity=tool_identity,
+            source_metadata=source_metadata,
+            curated_pairs=curated_pairs,
+            reasoner=reasoner,
+        )

@@ -436,11 +436,12 @@ downstream decisions inherited the error before it was caught.
    submitted → accepted-in-ncit`. `locally-approved` means our SME accepted it; it does not mean
    NCI did. No status short of `accepted-in-ncit` may be presented as NCIt-authored.
 
-3. **Derivation is recorded as provenance and alignment, never as ownership.** Where a concept or
-   relation of ours corresponds to an external one, that correspondence is a mapping annotation
-   alongside our content — the pattern `AxisContract.ro_parent` already uses, where `op:PrimarySite`
-   is *our* relation and `RO:0004026` is what it aligns to. External identifiers are never the
-   values our definitions must resolve to (D-R7, D38 correction).
+3. **Derivation is recorded as provenance and alignment, never as ownership.** Emitted definitions
+   use NCIt identifiers for their concepts and fillers. Where a concept or relation of ours
+   corresponds to one in a corroborating terminology, that identifier is a mapping or provenance
+   annotation alongside our content, never an authored definition filler — the pattern
+   `AxisContract.ro_parent` already uses, where `op:PrimarySite` is *our* relation and `RO:0004026`
+   is what it aligns to (D38, D60).
 
 4. **Provenance is instrumental.** It exists so that Metathesaurus integration and cross-terminology
    mapping actually work, and so a reviewer can see what evidence supported a proposal. It is not

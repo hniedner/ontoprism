@@ -8,6 +8,7 @@ against the older release rather than keep serving them (D29).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -812,7 +813,7 @@ async def test_run_promotion_never_lets_an_unexpandable_candidate_reach_the_merg
     "switch_after", ["proposed_candidates", "validated_anchors", "stale_anchors"]
 )
 @pytest.mark.integration
-async def test_promotion_rejects_a_candidate_pointer_change_before_writes(
+async def test_promotion_serializes_a_candidate_pointer_change_until_after_publication(
     store: tuple[XrefStore, list[str]], switch_after: str
 ) -> None:
     xref_store, run_ids = store
@@ -844,11 +845,15 @@ async def test_promotion_rejects_a_candidate_pointer_change_before_writes(
 
     class SwitchingStore(XrefStore):
         switched = False
+        switch_task: asyncio.Task[bool] | None = None
 
         async def _switch(self, phase: str) -> None:
             if phase == switch_after and not self.switched:
                 self.switched = True
-                await xref_store.activate_generation("uberon-cl", second_generation)
+                self.switch_task = asyncio.create_task(
+                    xref_store.activate_generation("uberon-cl", second_generation)
+                )
+                await asyncio.sleep(0.05)
 
         async def proposed_candidates(self, **kwargs: object) -> list[SSSOMRecord]:
             rows = await xref_store.proposed_candidates(**kwargs)  # type: ignore[arg-type]
@@ -898,30 +903,26 @@ async def test_promotion_rejects_a_candidate_pointer_change_before_writes(
         }
     )
 
-    with pytest.raises(StaleXrefGenerationError, match="changed during the run"):
-        await run_promotion(
-            switching_store,
-            ncit,  # type: ignore[arg-type]
-            uberon,  # type: ignore[arg-type]
-            ncit_version=_NCIT_VERSION,
-            source_version=_UBERON_VERSION,
-            source="uberon-cl-promotion",
-            tool_identity=_REASONER_TOOL,
-            curated_pairs=frozenset({("C-SNAPSHOT", "UBERON:0002048")}),
-            reasoner=_echo_reasoner,
-        )
+    report = await run_promotion(
+        switching_store,
+        ncit,  # type: ignore[arg-type]
+        uberon,  # type: ignore[arg-type]
+        ncit_version=_NCIT_VERSION,
+        source_version=_UBERON_VERSION,
+        source="uberon-cl-promotion",
+        tool_identity=_REASONER_TOOL,
+        curated_pairs=frozenset({("C-SNAPSHOT", "UBERON:0002048")}),
+        reasoner=_echo_reasoner,
+    )
+    run_ids.append(str(report["run_id"]))
+    assert switching_store.switch_task is not None
+    await switching_store.switch_task
 
     assert captured_generation != await xref_store.active_generation("uberon-cl")
-    assert await xref_store.active_generation("uberon-cl-promotion") is None
-    engine = make_engine(get_settings().database_url)
-    try:
-        async with engine.connect() as connection:
-            promotion_runs = await connection.scalar(
-                text("SELECT count(*) FROM xref_run WHERE source='uberon-cl-promotion'")
-            )
-        assert promotion_runs == 0
-    finally:
-        await dispose_engine(engine)
+    assert report["status"] == "completed"
+    assert ("C-SNAPSHOT", "UBERON:0002048") in await xref_store.validated_anchors(
+        source="uberon-cl-promotion"
+    )
 
 
 @pytest.mark.integration

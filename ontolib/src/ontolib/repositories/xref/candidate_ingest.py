@@ -25,7 +25,7 @@ from ontolib.repositories.xref.models import (
     SSSOMRecord,
     UberonCandidateGenerationMetadata,
 )
-from ontolib.repositories.xref.publication import publish_generation
+from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
 from ontolib.repositories.xref.vocab import (
     CLOSE_MATCH,
     COMPOSITE_MATCHING,
@@ -411,24 +411,24 @@ async def ingest_candidates(
         ncit_version=ncit_version,
         source_version=uberon_version,
     )
+    async with fail_run_on_error(store, rid):
+        await publish_generation(
+            store,
+            ncit_client,
+            source=source,
+            run_id=rid,
+            records=records,
+            source_metadata=UberonCandidateGenerationMetadata(
+                ncit_source_identity=ncit_source_identity,
+                uberon_source_identity=uberon_source_identity,
+                uberon_serving_identity=uberon_serving_identity,
+            ),
+        )
 
-    await publish_generation(
-        store,
-        ncit_client,
-        source=source,
-        run_id=rid,
-        records=records,
-        source_metadata=UberonCandidateGenerationMetadata(
-            ncit_source_identity=ncit_source_identity,
-            uberon_source_identity=uberon_source_identity,
-            uberon_serving_identity=uberon_serving_identity,
-        ),
-    )
-
-    report = candidate_coverage_report(fillers, records, filler_to_source)
-    report["ncit_source_identity"] = ncit_source_identity
-    report["uberon_source_identity"] = uberon_source_identity
-    await store.update_run_metrics(rid, report)
+        report = candidate_coverage_report(fillers, records, filler_to_source)
+        report["ncit_source_identity"] = ncit_source_identity
+        report["uberon_source_identity"] = uberon_source_identity
+        await store.update_run_metrics(rid, report)
 
     return report
 

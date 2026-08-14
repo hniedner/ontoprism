@@ -73,8 +73,10 @@ def _metadata_for(source: str) -> GenerationSourceMetadata:
     return _SOURCE_METADATA
 
 
-def generation_identity(source: str, records: list[SSSOMRecord]) -> tuple[str, str]:
-    return _generation_identity(source, records, _metadata_for(source))
+def generation_identity(
+    source: str, records: list[SSSOMRecord], record_run_ids: list[str] | None = None
+) -> tuple[str, str]:
+    return _generation_identity(source, records, _metadata_for(source), record_run_ids)
 
 
 async def publish_generation(*args: object, **kwargs: object) -> object:
@@ -283,7 +285,7 @@ async def test_crash_reconciliation_is_idempotent_without_pointer_churn(
     await dispose_engine(engine)
 
 
-async def test_generation_retry_rejects_a_different_originating_run(
+async def test_different_originating_run_creates_a_distinct_generation(
     isolated_qlever_url: str,
 ) -> None:
     engine = make_engine(get_settings().database_url)
@@ -295,13 +297,13 @@ async def test_generation_retry_rejects_a_different_originating_run(
     async with SparqlHttpClient.for_qlever(
         isolated_qlever_url, named_graphs=()
     ) as client:
-        await publish_generation(
+        first = await publish_generation(
             store, client, source=source, run_id=first_run, records=records
         )
-        with pytest.raises(ValueError, match="different originating run"):
-            await publish_generation(
-                store, client, source=source, run_id=second_run, records=records
-            )
+        second = await publish_generation(
+            store, client, source=source, run_id=second_run, records=records
+        )
+        assert first.generation_id != second.generation_id
     await dispose_engine(engine)
 
 
@@ -441,13 +443,14 @@ async def test_pointer_cancellation_reconciles_before_propagating(
 
     client = Client()
     records = [_record("CANCEL", "UBERON:CANCEL", "u1")]
-    result_id, _ = generation_identity(source, records)
+    run_id = await _run(store, source, "u1")
+    result_id, _ = generation_identity(source, records, [run_id])
     with pytest.raises(asyncio.CancelledError):
         await publish_generation(
             store,
             client,  # type: ignore[arg-type]
             source=source,
-            run_id=await _run(store, source, "u1"),
+            run_id=run_id,
             records=records,
         )
     assert client.select_calls == 2

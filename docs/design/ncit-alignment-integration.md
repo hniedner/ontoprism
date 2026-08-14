@@ -150,12 +150,10 @@ cheap; upgrading candidates to inference-grade `owl:equivalentClass` is curation
 (§4, §14). The work is *ingest → normalize → curate/validate → serve*, and the curate step is the
 cost centre, not a formality.
 
-The oncology concept itself is then expressible as an OBO-style **cross-product / logical
-definition** (lit review §4.2, GO cross-products [26]): an NCIt neoplasm's decomposed `op:` axes
-point at upstream fillers, so the concept reads as *«a Mondo disease genus» that `op:PrimarySite`
-some «Uberon site» and `op:CellType` some «SNOMED/ICD-O-3 morphology»* — NCIt supplying the
-oncology-specific specialization, the substrate supplying the reusable parts. That is precisely what
-"NCIt as an extension/specialization of these ontologies" means, made concrete.
+The current architecture emits NCIt definitions whose concepts and fillers use NCIt identifiers.
+Corroborating terminology identifiers are retained only in mapping, alignment, and derivation
+provenance; they are not authored as fillers in emitted definitions (D60). The historical
+cross-product proposal that follows is retained only in the explicitly superseded sections below.
 
 **What this plan is not.** It is not a re-platforming, not a migration off NCIt, and not a mutation
 of the stated OWL. caDSR is never touched: its CDEs keep resolving exactly as today (an additivity
@@ -176,11 +174,11 @@ Every row below is existing, decided, or built work that the new architecture co
 | Prior work | Decision / doc | Role in the new architecture |
 |---|---|---|
 | Roles-first decomposition; 100% filler coverage | assessment §3.2; README | The ~20K role-target atoms are **one** of the two mapping-target sets (§13); the caDSR anchor set `C_cadsr` is the other and is *not* a subset. Bounded, enumerable, already extracted. |
-| `op:` univocal axes (`op:PrimarySite`, `op:CellType`, `op:MetastaticSite`, `op:StageSystem`, `op:MolecularAbnormality`, …) | D17, D20, D22, D23 | These **are** the Relation-Ontology `has_location`/`derives_from`-style univocal relations the feedback asks for. We already have them. We now give each a stated domain/range that references **upstream** classes. |
+| `op:` univocal axes (`op:PrimarySite`, `op:CellType`, `op:MetastaticSite`, `op:StageSystem`, `op:MolecularAbnormality`, …) | D17, D20, D22, D23, D60 | Emitted axes and their fillers are NCIt content using NCIt identifiers. RO and corroborating terminology identifiers are alignment/provenance only. |
 | SNOMED-style relationship groups | D19 | Already the target representation for co-equal axes. The SNOMED morphology axis and multi-valued site axes slot straight in. |
 | Future complete lossless `owl:equivalentClass` unfolding (#153) | D19, D21, D43 | Becomes the **cross-product** artifact only after the proof-bearing representation exists; the current reserved flag rejects every request. |
 | Single-most-specific view as an explicitly-lossy curated projection | D15, D19 | Unchanged. Projection now optionally renders upstream labels. |
-| SCG / ECL / MRCM grammar template for goal 4 (#6) | D22 | The post-coordination grammar now **sanctions over upstream ranges** (MRCM ranges reference Uberon/SNOMED). Interoperable by construction. |
+| SCG / ECL / MRCM grammar template for goal 4 (#6) | D22, D60 | Historical upstream-range proposal; current emitted definitions use NCIt identifiers and expose mappings separately. |
 | FHIR `ConceptMap.$translate` as the pre-↔post equivalence surface | D22, lit §8.4 | Becomes the alignment join surface between NCIt and corroborating terminology identifiers. |
 | Uberon store already running at `:7889` | assessment §8, D16, DATA_SETUP | Infra already present. Re-purposed from "validation cross-check" to "xref + validation target" (D16 revisit — §11). |
 | Stated-OWL additivity; named-graph separation (`ncit_decomposed`) | D4, D12, D19 | The xref triples live in **new named graphs alongside** `ncit_decomposed`. Same discipline. |
@@ -339,11 +337,11 @@ bridge; they never equate a cell with a morphology (M1).
 
 ### 4.3 Provenance & confidence (governance parity with decomposition)
 
-Every mapping triple carries, in a sidecar Postgres table (`concept_xref`, mirroring `decomp_*`):
-source (`ncim` | `mondo_xref` | `uberon_xref` | `cl_xref` | `lexical` | `manual`), SKOS relation,
-confidence, UMLS CUI where applicable, curator review status (`proposed`/`approved`/`rejected`, reusing
-D23's governance model), and run/version provenance. No mapping is trusted silently; the ≥0.9 gate
-concept (D21/#44) extends to mapping precision against a golden mapping set.
+Every mapping row carries source, SKOS relation, confidence, evidence, and run/version provenance in
+`concept_xref`. Its current `review_status` is `unreviewed`; review status is separate from the D29
+mapping lifecycle (`proposed`, `validated`, `active`, `quarantined`, `deprecated`) and does not imply
+that a mapping was approved or rejected. No mapping is trusted silently; validation evidence and
+lifecycle determine how it may be served.
 
 ### 4.4 Validation — non-circular, EL-profiled, with committed reasoner infrastructure (D21 extended, D28)
 

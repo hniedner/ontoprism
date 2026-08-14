@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import Result, text
@@ -147,6 +147,14 @@ class XrefStore:
                     text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
                     {"key": f"xref:{source}"},
                 )
+
+    @asynccontextmanager
+    async def publication_locks(self, sources: Sequence[str]) -> AsyncIterator[None]:
+        """Acquire distinct source locks in one deterministic global order."""
+        async with AsyncExitStack() as stack:
+            for source in sorted(set(sources)):
+                await stack.enter_async_context(self.publication_lock(source))
+            yield
 
     async def prepare_generation(
         self,

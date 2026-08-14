@@ -15,7 +15,7 @@ from ontolib.repositories.xref.models import (
     SSSOMRecord,
     UberonPublisherGenerationMetadata,
 )
-from ontolib.repositories.xref.publication import publish_generation
+from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -282,19 +282,20 @@ async def publish_uberon_xrefs(
         ncit_version=ncit_version,
         source_version=uberon_version,
     )
-    await publish_generation(
-        store,
-        ncit_client,
-        source=PUBLISHER_XREF_SOURCE,
-        run_id=rid,
-        records=records,
-        source_metadata=UberonPublisherGenerationMetadata(
-            ncit_source_identity=ncit_source_identity,
-            uberon_source_identity=uberon_source_identity,
-            uberon_serving_identity=uberon_serving_identity,
-            uberon_assertion_identity=uberon_assertion_identity,
-            ncit_target_identity=ncit_target_identity,
-        ),
-    )
-    await store.update_run_metrics(rid, report.model_dump(mode="json"))
+    async with fail_run_on_error(store, rid):
+        await publish_generation(
+            store,
+            ncit_client,
+            source=PUBLISHER_XREF_SOURCE,
+            run_id=rid,
+            records=records,
+            source_metadata=UberonPublisherGenerationMetadata(
+                ncit_source_identity=ncit_source_identity,
+                uberon_source_identity=uberon_source_identity,
+                uberon_serving_identity=uberon_serving_identity,
+                uberon_assertion_identity=uberon_assertion_identity,
+                ncit_target_identity=ncit_target_identity,
+            ),
+        )
+        await store.update_run_metrics(rid, report.model_dump(mode="json"))
     return report

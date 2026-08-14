@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict
 
 from ontolib.repositories.xref.models import P334GenerationMetadata, SSSOMRecord
-from ontolib.repositories.xref.publication import publish_generation
+from ontolib.repositories.xref.publication import fail_run_on_error, publish_generation
 from ontolib.repositories.xref.vocab import CLOSE_MATCH, DATABASE_CROSS_REFERENCE
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -254,18 +254,19 @@ async def publish_p334_alignments(
         ncit_version=ncit_version,
         source_version="3.2",
     )
-    await publish_generation(
-        store,
-        ncit_client,
-        source=P334_ALIGNMENT_SOURCE,
-        run_id=rid,
-        records=records,
-        source_metadata=P334GenerationMetadata(
-            ncit_source_identity=ncit_source_identity,
-            ncit_p334_identity=ncit_p334_identity,
-            icdo_generation_identity=resolution.generation_id,
-            icdo_serving_identity=resolution.serving_sha256,
-        ),
-    )
-    await store.update_run_metrics(rid, report.model_dump(mode="json"))
+    async with fail_run_on_error(store, rid):
+        await publish_generation(
+            store,
+            ncit_client,
+            source=P334_ALIGNMENT_SOURCE,
+            run_id=rid,
+            records=records,
+            source_metadata=P334GenerationMetadata(
+                ncit_source_identity=ncit_source_identity,
+                ncit_p334_identity=ncit_p334_identity,
+                icdo_generation_identity=resolution.generation_id,
+                icdo_serving_identity=resolution.serving_sha256,
+            ),
+        )
+        await store.update_run_metrics(rid, report.model_dump(mode="json"))
     return report

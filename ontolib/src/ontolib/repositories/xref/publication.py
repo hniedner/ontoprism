@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import re
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -13,7 +14,7 @@ from ontolib.repositories.xref.ttl_writer import render_ttl
 from ontolib.repositories.xref.vocab import NCIT_UPSTREAM_XREF_GRAPH_IRI
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Sequence
 
     from ontolib.repositories.xref.models import GenerationSourceMetadata, SSSOMRecord
     from ontolib.repositories.xref.store import XrefStore
@@ -32,6 +33,36 @@ class PublicationResult:
     generation_id: str
     graph_iri: str
     changed: bool
+
+
+def _failure_metrics(error: BaseException) -> dict[str, object]:
+    message = (
+        "run cancelled" if isinstance(error, asyncio.CancelledError) else str(error)
+    )
+    return {"failure": {"type": type(error).__name__, "message": message}}
+
+
+@asynccontextmanager
+async def fail_run_on_error(store: XrefStore, run_id: str) -> AsyncIterator[None]:
+    """Terminalize an already-created run without replacing its original failure."""
+    try:
+        yield
+    except BaseException as original:
+        cleanup = asyncio.create_task(
+            store.update_run_metrics(
+                run_id, _failure_metrics(original), status="failed"
+            )
+        )
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+        except BaseException as failure:
+            original.add_note(
+                "Xref failed-run finalization also failed: "
+                f"{type(failure).__name__}: {failure}"
+            )
+        raise
 
 
 def generation_graph_iri(source: str, generation_id: str) -> str:
@@ -138,6 +169,7 @@ def generation_identity(
     source: str,
     records: Sequence[SSSOMRecord],
     source_metadata: GenerationSourceMetadata,
+    record_run_ids: Sequence[str] | None = None,
 ) -> tuple[str, str]:
     """Return deterministic generation and exact-content identities."""
     rows = [
@@ -154,6 +186,8 @@ def generation_identity(
         }
         for r in records
     ]
+    if record_run_ids is not None and len(record_run_ids) != len(rows):
+        raise ValueError("record_run_ids must match records")
     ordered = sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
     payload = json.dumps(
         ordered,
@@ -162,7 +196,13 @@ def generation_identity(
     ).encode()
     content = hashlib.sha256(payload).hexdigest()
     metadata = source_metadata.model_dump_json(exclude_none=True)
-    generation = hashlib.sha256(f"{source}\0{content}\0{metadata}".encode()).hexdigest()
+    provenance = json.dumps(
+        list(record_run_ids) if record_run_ids is not None else [],
+        separators=(",", ":"),
+    )
+    generation = hashlib.sha256(
+        f"{source}\0{content}\0{metadata}\0{provenance}".encode()
+    ).hexdigest()
     return generation, content
 
 
@@ -176,15 +216,18 @@ async def publish_generation(
     source_metadata: GenerationSourceMetadata,
     record_run_ids: Sequence[str] | None = None,
     failpoint: PublicationFailpoint | None = None,
+    _publication_locked: bool = False,
 ) -> PublicationResult:
     """Prepare, materialize, then reconcile the ordered cross-store activation."""
+    originating_runs = record_run_ids or [run_id] * len(records)
     generation_id, content_sha256 = generation_identity(
-        source, records, source_metadata
+        source, records, source_metadata, originating_runs
     )
     graph_iri = generation_graph_iri(source, generation_id)
-    async with store.publication_lock(source):
+
+    async def publish_locked() -> bool:
         await _reconcile_pointers(store, client, source)
-        changed = await store.prepare_generation(
+        prepared = await store.prepare_generation(
             source=source,
             generation_id=generation_id,
             content_sha256=content_sha256,
@@ -192,7 +235,7 @@ async def publish_generation(
             graph_iri=graph_iri,
             run_id=run_id,
             records=records,
-            record_run_ids=record_run_ids,
+            record_run_ids=originating_runs,
             _publication_locked=True,
         )
         if failpoint == "after_postgres":
@@ -210,6 +253,13 @@ async def publish_generation(
             raise XrefPublicationError("injected failure before pointer switch")
         await store.activate_generation(source, generation_id, _publication_locked=True)
         await _write_pointer(store, client, source, generation_id)
+        return prepared
+
+    if _publication_locked:
+        changed = await publish_locked()
+    else:
+        async with store.publication_lock(source):
+            changed = await publish_locked()
     return PublicationResult(
         generation_id=generation_id,
         graph_iri=graph_iri,
