@@ -34,6 +34,7 @@ from ontolib.repositories.xref.models import (
     UberonPublisherGenerationMetadata,
     UberonReadIdentity,
     UnavailableXrefGenerationError,
+    XrefReadPolicy,
 )
 from ontolib.repositories.xref.promotion import (
     PromotionReport,
@@ -366,7 +367,9 @@ async def test_promotion_persists_as_validated_exact_match(
 
     # the promoted bridge is identity-grade …
     assert ("C12468", "UBERON:0002048") in await xref_store.validated_anchors()
-    strength = await xref_store.mapping_strength_by_subject()
+    strength = await xref_store.mapping_strength_by_subject(
+        expected=XrefReadPolicy(uberon=_CANDIDATE_IDENTITY)
+    )
     assert (EXACT_MATCH, "validated") in strength["C12468"]
     # … and the candidate it came from is still there, untouched and auditable
     assert (CLOSE_MATCH, "proposed") in strength["C12468"]

@@ -1,11 +1,14 @@
 """Mappings + FHIR-style $translate endpoints (issue #82, design §8.4)."""
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from backend.config import get_settings
 from backend.dependencies import RepositoryMetadataReads, XrefReads
 from backend.repository_metadata import RepositoryUnhealthy
+from backend.security import has_icdo_entitlement
 from ontolib.repositories.xref.models import (
     EndpointIdentity,
     IcdoReadIdentity,
@@ -185,21 +188,22 @@ async def translate(
     xref_store: XrefReads,
     metadata: RepositoryMetadataReads,
     body: TranslateRequest,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> TranslateResponse:
     """FHIR-style ConceptMap ``$translate`` for NCIt↔upstream.
 
     Serves ``validated``/``active`` mappings, filtering
     ``proposed``, ``quarantined``, and other non-active lifecycles.  Licensed sources
-    (SNOMED, ICD-O-3) are filtered out when
-    ``enable_licensed_mappings`` is False (D26).  Returns ``unmatched``
-    when no valid mapping exists.
+    (SNOMED, ICD-O-3) require both server capability and valid consumer
+    entitlement (D26, D71). Returns ``unmatched`` when no valid mapping exists.
     """
     settings = get_settings()
     code = body.code
-
-    expected = await _read_policy(
-        metadata, include_icdo=settings.enable_licensed_mappings
+    licensed_allowed = settings.enable_licensed_mappings and has_icdo_entitlement(
+        x_icdo_entitlement
     )
+
+    expected = await _read_policy(metadata, include_icdo=licensed_allowed)
     try:
         upstream = await xref_store.mappings_by_subjects({code}, expected=expected)
         reverse = await xref_store.mappings_by_objects({code}, expected=expected)
@@ -210,14 +214,14 @@ async def translate(
     entries = _collect_entries(
         upstream,
         reverse=False,
-        licensed_allowed=settings.enable_licensed_mappings,
+        licensed_allowed=licensed_allowed,
         seen=seen,
     )
     entries.extend(
         _collect_entries(
             reverse,
             reverse=True,
-            licensed_allowed=settings.enable_licensed_mappings,
+            licensed_allowed=licensed_allowed,
             seen=seen,
         )
     )

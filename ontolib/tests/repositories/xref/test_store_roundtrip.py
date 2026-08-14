@@ -12,6 +12,7 @@ from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.repositories.xref.models import (
     SSSOMRecord,
+    StaleXrefGenerationError,
     UberonCandidateGenerationMetadata,
     UberonReadIdentity,
     XrefReadPolicy,
@@ -265,12 +266,52 @@ async def test_mapping_strength_by_subject() -> None:
         await activate_records(
             store, source="uberon-cl", run_id=run_id, records=records
         )
-        strength = await store.mapping_strength_by_subject()
+        strength = await store.mapping_strength_by_subject(expected=_READ_POLICY)
         assert "C3262" in strength
         assert (EXACT_MATCH, "validated") in strength["C3262"]
         assert (CLOSE_MATCH, "proposed") in strength["C3262"]
         assert "C12345" in strength
         assert (CLOSE_MATCH, "proposed") in strength["C12345"]
+    finally:
+        await _clear_xref_tables(sf)
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+async def test_mapping_strength_rejects_stale_active_generation() -> None:
+    engine = make_engine(get_settings().database_url)
+    sf = make_sessionmaker(engine)
+    run_id = f"test-stale-strength-{uuid.uuid4().hex}"
+    try:
+        store = XrefStore(sf)
+        await store.upsert_run(run_id, "uberon-cl", "26.02d", "test-1")
+        await activate_records(
+            store,
+            source="uberon-cl",
+            run_id=run_id,
+            records=[
+                SSSOMRecord(
+                    subject_id="C3262",
+                    predicate_id=EXACT_MATCH,
+                    object_id="UBERON:0002107",
+                    mapping_justification="semapv:ManualMappingCuration",
+                    confidence=1.0,
+                    subject_source_version="26.02d",
+                    object_source_version="uberon-2026-01",
+                    lifecycle_state="validated",
+                )
+            ],
+        )
+
+        stale_policy = XrefReadPolicy(
+            uberon=UberonReadIdentity(
+                ncit_source_identity="d" * 64,
+                uberon_source_identity="b" * 64,
+                uberon_serving_identity="c" * 64,
+            )
+        )
+        with pytest.raises(StaleXrefGenerationError, match="ncit_source_identity"):
+            await store.mapping_strength_by_subject(expected=stale_policy)
     finally:
         await _clear_xref_tables(sf)
         await dispose_engine(engine)

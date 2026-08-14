@@ -73,7 +73,11 @@ from ontolib.repositories.xref.coverage import (
     save_coverage_baseline,
 )
 from ontolib.repositories.xref.mapping_score import load_golden_mappings
-from ontolib.repositories.xref.models import UberonPromotionGenerationMetadata
+from ontolib.repositories.xref.models import (
+    UberonPromotionGenerationMetadata,
+    UberonReadIdentity,
+    XrefReadPolicy,
+)
 from ontolib.repositories.xref.p334_alignment import publish_p334_alignments
 from ontolib.repositories.xref.promotion import run_promotion
 from ontolib.repositories.xref.publisher_xref import publish_uberon_xrefs
@@ -818,11 +822,29 @@ async def _build_xref_coverage() -> None:
     try:
         async with ncit_sparql_client(settings.ncit_sparql_url) as client:
             store = XrefStore(sf)
+            metadata = RepositoryMetadataService(
+                settings=settings, cadsr=CdeRepository(settings.cadsr_db_path)
+            )
+            ncit_ready = await metadata.ncit()
+            uberon_ready = await metadata.uberon(force=True)
+            if isinstance(ncit_ready, RepositoryUnhealthy) or isinstance(
+                uberon_ready, RepositoryUnhealthy
+            ):
+                raise RuntimeError("coverage sources are not certified ready")
             role_codes = await fetch_role_codes(client)
             report = await generate_coverage_report(
                 settings.cadsr_db_path,
                 store,
                 client,
+                expected=XrefReadPolicy(
+                    uberon=UberonReadIdentity(
+                        ncit_source_identity=ncit_ready.source_identity,
+                        uberon_source_identity=uberon_ready.source_identity,
+                        uberon_serving_identity=(
+                            uberon_ready.observation.serving.sha256
+                        ),
+                    )
+                ),
                 role_codes=role_codes,
             )
     finally:

@@ -83,7 +83,7 @@ built code, not only a forward plan. Verified against the tree:
 | Validation machinery — evidence policy, merged-EL bridge, ELK gate, D29 lifecycle (#73) | **Code landed (PR #117); promotion unblocked (D33 Option 1 / D34)** | `repositories/xref/evidence.py`, `bridge.py`, `promotion.py`, `store.py`; `data-build xref-promote`. The gate promoted **only curated pairs** until D33/D34: the xref pass filtered on the prefix `NCI:` while Uberon writes `NCIT:` (so `XREF_ASSERTION` never fired at all), and ingest partitioned the fillers so no candidate could hold two signals. Both fixed; a pair both passes produce is now one `semapv:CompositeMatching` candidate and promotes on **source agreement**. Option 2 (make #78 `part_of` an *effective* second signal) still open. |
 | `op:Morphology` from taxonomic parent (#81) | **Done** | delivered via #59 / PR #116 (`decomposition/stated_queries.py::build_morphology_query`, `filler_selection.py`) |
 | Uberon `part_of` structural corroboration (#78) | **Landed (PR #117); does not yet fire** | the mixed `subClassOf`/`part_of` walk exists (D32) but rarely fires on cold data. Now **D33 Option 2**: the second signal for pairs source agreement cannot reach — no longer the sole lever, since #119 made source agreement a live promotion path |
-| **Backend serve** `/concept/{id}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 license gate, D29 lifecycle filter, confidence badges. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). Tracked as **#120**. |
+| **Backend serve** `/api/v1/ncit/concepts/{code}/mappings` + `$translate` (#82) | **Landed & wired** | `backend/api/v1/mappings.py` (`$translate`), `GET mappings` via `ncit.py`; D26 capability flag, D71 consumer entitlement, D29 lifecycle filter. **Caveat:** `$translate` emits **non-FHIR-standard** equivalence codes (`equivalent/close/broad/narrow`) and the test re-encodes that same invented shape — no FHIR ConceptMap contract test (the "guessed-in-both" trap). Tracked as **#120**. |
 | **Published** caDSR coverage number (#83) | **Landed (PR #118)** | `coverage.py` (`fetch_role_codes`, `save_coverage_baseline`, `detect_coverage_regression`); `data-build xref-coverage` fails on a drop. Whole-corpus, not a sample. **Gaps (#124):** no breakdown by target ontology, no `permissible_value.meaning_code` cross-check. The regression gate is inert until a real run commits `data/cov-baseline.json` (#121). |
 | **Reserved (design-heavy; historical upstream-IRI shape superseded by D60)**: cross-product write-side; Mondo genus alignment (#79); SNOMED/ICD-O-3 provenance (#80, licensing); value/qualifier mapping (#75); grammar (#84/#6). Any emitted concepts and definition values are NCIt; other terminology IDs are provenance/alignment only. | **Not started** | needs design/SME/licensing |
 
@@ -638,16 +638,15 @@ the currently certified repository identities before looking up identifiers.
 
 ### 8.4 `backend` — API
 
-- `GET /concept/{id}/mappings` — typed terminology alignments for an NCIt concept (and reverse).
+- `GET /api/v1/ncit/concepts/{code}/mappings` — typed terminology alignments for an NCIt concept (and reverse).
 - `POST /api/v1/mappings/$translate` — FHIR-style ConceptMap translate, both directions, honoring SKOS
   relation and confidence.
-- Extend the existing concept-detail response to include `mappings` (feature-flagged for the
-  licensed sources).
+- Licensed sources require both server capability and valid consumer entitlement.
 
 ### 8.5 `frontend` — SvelteKit
 
-- Concept-detail panel: an "Aligned concepts" section (Uberon/CL/SNOMED/ICD-O-3/Mondo links,
-  relation + confidence badges).
+- Concept-detail panel: an "Aligned concepts" section (Uberon/CL/SNOMED/ICD-O-3/Mondo links
+  and relations).
 - Graph explorer: optional overlay rendering an NCIt atom's alignment as a linked node
   (the "dual-plane" view), off by default.
 
@@ -685,7 +684,7 @@ Phase C (morphology + licensing)
   C2  Morphology-from-parent query (owed since engine §6)                  [enables op:Morphology]
 
 Phase D (serve + interop)
-  D1  /concept/{id}/mappings + $translate endpoints                        [depends A1]
+  D1  /api/v1/ncit/concepts/{code}/mappings + $translate endpoints         [depends A1]
   D2  Frontend alignment panel + optional graph overlay
   D3  caDSR enumerated alignment coverage (CDE → NCIt → qualified mapping) [proves §6]
 
@@ -819,7 +818,7 @@ Let:
    grade/units → NCIt-native or SNOMED qualifier hierarchy); where no faithful substrate exists,
    record `no-upstream-equivalent` rather than forcing one.
 6. **Coverage report** (§13.3) — the deliverable.
-7. **Serve** via `/concept/{id}/mappings` and `$translate`, honest predicate, licensed sources gated.
+7. **Serve** via `/api/v1/ncit/concepts/{code}/mappings` and `$translate`, honest predicate, licensed sources gated.
 
 ### 13.3 The coverage report (the artifact that *proves* the guarantee)
 
@@ -944,7 +943,7 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 > ≥0.9 threshold.
 
 **Issue #9 (Read/serve surface) — add comment**
-> Extend serve surface with `GET /concept/{id}/mappings` and `POST /api/v1/mappings/$translate` (Phase D1).
+> Extend serve surface with `GET /api/v1/ncit/concepts/{code}/mappings` and `POST /api/v1/mappings/$translate` (Phase D1).
 > Additive to the existing concept-detail response; feature-flag the license-gated (SNOMED/ICD-O-3) fields.
 
 **Issue #6 (Post-coordination grammar) — add comment**
@@ -1036,9 +1035,9 @@ mutation), every `exactMatch` passes the D21 DL oracle, scope gate (no gene/prot
 
 ### New issues — Phase D (serve + interop)
 
-**#82: `/concept/{id}/mappings` + FHIR-style `$translate` endpoints + frontend panel**
+**#82: `/api/v1/ncit/concepts/{code}/mappings` + FHIR-style `$translate` endpoints + frontend panel**
 > Serve mappings both directions; frontend alignment panel + optional graph overlay.
-> **AC:** `$translate` round-trips NCIt↔aligned identifiers; license-gated fields feature-flagged.
+> **AC:** `$translate` round-trips NCIt↔aligned identifiers; licensed fields require server capability and consumer entitlement.
 > Depends: #71, #77.
 
 **#83: caDSR coverage report (not a sample walk) — the published guarantee**

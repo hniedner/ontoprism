@@ -40,6 +40,8 @@ class _FakeClient:
 
 
 class _FakeMetadata:
+    icdo_calls = 0
+
     async def ncit(self) -> object:
         return type(
             "NcitReady",
@@ -57,6 +59,7 @@ class _FakeMetadata:
         )()
 
     async def icdo(self, edition: str, axis: str) -> object:
+        type(self).icdo_calls += 1
         del edition, axis
         return type(
             "IcdoReady",
@@ -99,6 +102,10 @@ class _FakeXrefStore:
             ],
             "C12345": [
                 mapping("C12345", "ICD-O-3:1234", EXACT_MATCH, "validated", 0.9),
+            ],
+            "C12346": [
+                mapping("C12346", "UBERON:0002046", EXACT_MATCH, "validated", 0.95),
+                mapping("C12346", "ICD-O-3:1234", EXACT_MATCH, "validated", 0.9),
             ],
             "C188218": [
                 MappingResult(
@@ -447,11 +454,11 @@ def test_translate_reverse_narrow_match_becomes_broad() -> None:
 def test_translate_refuses_each_requested_uncertified_family(
     repository: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    headers: dict[str, str] = {}
     if repository == "icdo":
-        monkeypatch.setattr(
-            "backend.api.v1.mappings.get_settings",
-            lambda: type(get_settings())(enable_licensed_mappings=True),
-        )
+        monkeypatch.setattr(get_settings(), "enable_licensed_mappings", True)
+        monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+        headers["X-ICDO-Entitlement"] = "licensed"
 
     class _Unhealthy(_FakeMetadata):
         async def ncit(self) -> object:
@@ -480,7 +487,11 @@ def test_translate_refuses_each_requested_uncertified_family(
     app.dependency_overrides[get_repository_metadata] = _Unhealthy
 
     with TestClient(app) as client:
-        response = client.post("/api/v1/mappings/$translate", json={"code": "C12400"})
+        response = client.post(
+            "/api/v1/mappings/$translate",
+            json={"code": "C12400"},
+            headers=headers,
+        )
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Mapping sources are unavailable."
@@ -609,19 +620,42 @@ def test_translate_filters_quarantined_lifecycle() -> None:
 
 
 @pytest.mark.api
-def test_translate_serves_licensed_sources_when_enabled(
+@pytest.mark.parametrize("entitlement", [None, "invalid"])
+def test_translate_filters_icdo_without_valid_consumer_entitlement(
     monkeypatch: pytest.MonkeyPatch,
+    entitlement: str | None,
 ) -> None:
-    """$translate serves ICD-O-3 when enable_licensed_mappings is True."""
-    monkeypatch.setattr(
-        "backend.api.v1.mappings.get_settings",
-        lambda: type(get_settings())(enable_licensed_mappings=True),
-    )
+    """Server capability alone must not expose or resolve ICD-O mappings."""
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", True)
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    _FakeMetadata.icdo_calls = 0
     client = next(_client())
+    headers = {"X-ICDO-Entitlement": entitlement} if entitlement is not None else {}
     resp = client.post(
         "/api/v1/mappings/$translate",
-        json={"code": "C12345"},
+        json={"code": "C12346"},
+        headers=headers,
     )
     assert resp.status_code == 200
-    body = resp.json()
-    assert any(e["concept"]["code"] == "ICD-O-3:1234" for e in body["result"])
+    codes = [entry["concept"]["code"] for entry in resp.json()["result"]]
+    assert codes == ["UBERON:0002046"]
+    assert _FakeMetadata.icdo_calls == 0
+
+
+@pytest.mark.api
+def test_translate_serves_icdo_with_capability_and_consumer_entitlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "enable_licensed_mappings", True)
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    _FakeMetadata.icdo_calls = 0
+    response = next(_client()).post(
+        "/api/v1/mappings/$translate",
+        json={"code": "C12345"},
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+    assert response.status_code == 200
+    assert [entry["concept"]["code"] for entry in response.json()["result"]] == [
+        "ICD-O-3:1234"
+    ]
+    assert _FakeMetadata.icdo_calls == 1

@@ -7,7 +7,7 @@ import json
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from sqlalchemy import Result, text
+from sqlalchemy import Result, bindparam, text
 
 from ontolib.repositories.xref.evidence import Evidence
 from ontolib.repositories.xref.models import (
@@ -606,8 +606,10 @@ class XrefStore:
             )
             return [dict(row) for row in result.mappings().all()]
 
-    async def mapping_strength_by_subject(self) -> dict[str, set[tuple[str, str]]]:
-        """Return mapping strengths per subject from active generations.
+    async def mapping_strength_by_subject(
+        self, *, expected: XrefReadPolicy
+    ) -> dict[str, set[tuple[str, str]]]:
+        """Return mapping strengths from current, policy-selected generations.
 
         Because rows from multiple active sources coalesce in the same set, callers
         should be aware that the same ``(subject, predicate)`` may appear
@@ -619,12 +621,14 @@ class XrefStore:
         cross-source conflicts are resolved by dataset design, not by this query.
         """
         sql = text(
-            "SELECT x.subject_id, x.predicate_id, x.lifecycle_state "
-            "FROM concept_xref x JOIN xref_active_generation a "
-            "ON a.generation_id = x.generation_id"
-        )
+            "SELECT subject_id, predicate_id, lifecycle_state FROM concept_xref "
+            "WHERE generation_id IN :generation_ids"
+        ).bindparams(bindparam("generation_ids", expanding=True))
         async with self._sf() as s:
-            result = await s.execute(sql)
+            generation_ids = await self._validated_active_generations(s, expected)
+            result = await s.execute(
+                sql, {"generation_ids": tuple(generation_ids.values())}
+            )
             out: dict[str, set[tuple[str, str]]] = {}
             for r in result.mappings().all():
                 key = r["subject_id"]
