@@ -342,7 +342,7 @@ bridge; they never equate a cell with a morphology (M1).
 
 Every mapping row carries source, SKOS relation, confidence, evidence, and run/version provenance in
 `concept_xref`. Its current `review_status` is `unreviewed`; review status is separate from the D29
-mapping lifecycle (`proposed`, `validated`, `active`, `quarantined`, `deprecated`) and does not imply
+mapping lifecycle (`proposed`, `validated`, `active`, `quarantined`, `retired`) and does not imply
 that a mapping was approved or rejected. No mapping is trusted silently; validation evidence and
 lifecycle determine how it may be served.
 
