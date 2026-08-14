@@ -10,6 +10,7 @@ import pytest
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import (
     CadsrRepositoryReady,
+    IcdoAccessCertification,
     IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryMetadataError,
@@ -198,17 +199,29 @@ async def test_icdo_readiness_reuses_certification_until_forced() -> None:
         ) -> IcdoManifest:
             del expected
             self.calls += 1
+            source = (
+                settings.icdo_32_morphology_source_sha256
+                if edition == "3.2"
+                else settings.icdo_40_source_sha256
+            )
             return IcdoManifest(
                 generation_id="a" * 64,
-                edition="4.0",
-                axis="topography",
+                edition="3.2" if edition == "3.2" else "4.0",
+                axis="topography" if axis == "topography" else "morphology",
                 publisher_url="https://example.test",
-                source_sha256=settings.icdo_40_source_sha256,
+                source_sha256=source,
                 archive_sha256=None,
                 annex_sha256=None,
                 reader_identity="reader",
-                serving_sha256=settings.icdo_40_topography_serving_sha256,
-                row_count=406,
+                serving_sha256=getattr(
+                    settings,
+                    f"icdo_{edition.replace('.', '')}_{axis}_serving_sha256",
+                ),
+                row_count={
+                    ("3.2", "morphology"): 1143,
+                    ("4.0", "morphology"): 2390,
+                    ("4.0", "topography"): 406,
+                }[(edition, axis)],
                 term_counts={},
                 published_at=datetime.now(UTC),
             )
@@ -225,6 +238,25 @@ async def test_icdo_readiness_reuses_certification_until_forced() -> None:
     assert first is second
     assert all(isinstance(result, IcdoRepositoryReady) for result in forced.values())
     assert repository.calls == 6
+
+
+def test_icdo_access_certification_rejects_misassigned_ready_dataset() -> None:
+    topography = IcdoRepositoryReady(
+        edition="4.0",
+        axis="topography",
+        source_identity="a" * 64,
+        serving_identity="b" * 64,
+        activation_identity="c" * 64,
+        row_count=406,
+        activated_at=datetime.now(UTC),
+    )
+
+    with pytest.raises(ValueError, match="dataset mismatch"):
+        IcdoAccessCertification(
+            morphology_32=topography,
+            morphology_40=topography,
+            topography_40=topography,
+        )
 
 
 @pytest.mark.asyncio

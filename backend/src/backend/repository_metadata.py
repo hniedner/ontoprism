@@ -190,6 +190,23 @@ class IcdoAccessCertification:
     morphology_40: IcdoCertificationResult
     topography_40: IcdoCertificationResult
 
+    def __post_init__(self) -> None:
+        expected = (
+            (self.morphology_32, ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            (self.morphology_40, ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            (self.topography_40, ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
+        )
+        for result, dataset in expected:
+            if (
+                isinstance(result, IcdoRepositoryReady)
+                and (
+                    result.edition,
+                    result.axis,
+                )
+                != dataset.value
+            ):
+                raise ValueError("ICD-O access certification dataset mismatch")
+
     def values(
         self,
     ) -> tuple[
