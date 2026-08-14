@@ -19,6 +19,176 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.20.0 (2026-08-14)
+
+### Bug Fixes
+
+- **ci**: Isolate tests and share frontend manifest
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **deps**: Install ICD-O readers at runtime
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **mappings**: Authorize licensed translation reads
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **mappings**: Orient protected alignment responses
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **mappings**: Preserve reverse relation direction
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **repositories**: Bind reads to certified generations
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **repositories**: Enforce certified serving invariants
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **repositories**: Reconcile exact source identities
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **uberon**: Bind serving to the certified source
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **uberon**: Enforce certified serving contracts
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **uberon**: Harden certified serving recovery
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Certify active mapping sources ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Enforce source-specific metadata
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Fail closed on missing candidates
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Finalize locked publication failures
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Pin validated generations during reads
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Preserve immutable promotion generations
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Require active mapping families ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Scope generation history reads ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Validate active generation metadata
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Verify immutable generation retries
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+### Documentation
+
+- Update README code line-count table
+  ([`b530493`](https://github.com/hniedner/ontoprism/commit/b5304937f4117163f7abd321e763af2864dc52b6))
+
+- **process**: Define milestone branch workflow
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **process**: Require milestone review convergence
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Describe immutable publication flow
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Describe pinned promotion inputs
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: State required mapping fields ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Use retired lifecycle state ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+### Features
+
+- **icdo**: Serve certified edition repositories
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **repositories**: Add certified ontology alignment surfaces
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **repositories**: Distinguish live services from local proxies
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **uberon**: Add certified Uberon and Cell Ontology repository
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Make publication generation atomic
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Surface NCIt P334 alignments ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Surface Uberon publisher alignments
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+### Testing
+
+- **mappings**: Cover authorized decomposition links
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **mappings**: Cover reverse narrow relations
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **mappings**: Reject invalid decomposition entitlement
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Cover source validation branches
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Detect ICD-O validation changes ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Isolate ICD-O identity drift ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+- **xref**: Reject unsupported endpoint systems
+  ([#292](https://github.com/hniedner/ontoprism/pull/292),
+  [`c58d282`](https://github.com/hniedner/ontoprism/commit/c58d282cfe69c9d90ab8104f5debe3897993065b))
+
+
 ## v0.19.0 (2026-08-12)
 
 ### Bug Fixes
