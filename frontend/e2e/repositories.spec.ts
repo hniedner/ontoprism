@@ -100,10 +100,7 @@ test('PubMed: copied URL restores search → open a server-loaded article', asyn
 	await expect(page.getByText('SSR abstract from FastAPI.')).toBeVisible();
 });
 
-test('ICD-O: entitled detail renders all publisher fields', async ({ page, context }) => {
-	await context.addCookies([
-		{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173' }
-	]);
+test('ICD-O: entitled detail renders all publisher fields', async ({ page }) => {
 	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
 	for (const value of [
 		'Publisher note',
@@ -179,13 +176,13 @@ test('NCIt: published representation status survives browse, search, detail, and
 	await graphSearch.fill('C3262');
 	await graphSearch.press('Enter');
 	await expect(page.getByRole('heading', { name: 'SSR Detail Concept', level: 4 })).toBeVisible();
-	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(3);
 
 	await page.getByRole('button', { name: 'Semantic type' }).click();
 	await expect(page.locator('html')).toHaveClass(/dark/);
 	await page.getByRole('button', { name: 'Toggle theme' }).click();
 	await expect(page.locator('html')).not.toHaveClass(/dark/);
-	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(3);
 	await page.getByRole('button', { name: 'Communities' }).click();
 
 	await page.getByRole('button', { name: 'Legacy pre-coordinated only' }).click();

@@ -62,7 +62,7 @@ required_production_paths = [
   "frontend/src/lib/server/fastapi.ts",
   "frontend/src/lib/server/fastapi-config.ts",
   "frontend/src/lib/server/fastapi-transport.ts",
-  "frontend/src/lib/server/icdo-fetch.ts",
+  "frontend/src/lib/server/icdo-access.ts",
   "scripts/data_build.py",
   "scripts/decompose.py",
   "scripts/dev/reconstruct_versions.py",

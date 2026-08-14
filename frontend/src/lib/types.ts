@@ -160,6 +160,10 @@ export interface UberonNeighborhood {
 
 export type IcdoEdition = '3.2' | '4.0';
 export type IcdoAxis = 'morphology' | 'topography';
+export type IcdoAccessStatus =
+	| 'ready-and-entitled'
+	| 'entitlement-required'
+	| 'unavailable';
 interface IcdoRecordBase {
 	code: string;
 	preferred: string | null;

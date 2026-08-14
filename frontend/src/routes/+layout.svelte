@@ -7,10 +7,12 @@
 	import { buildBreadcrumbs } from '$lib/breadcrumbs';
 	import { cn } from '$lib/utils/cn';
 	import LoadingState from '$lib/components/LoadingState.svelte';
+	import IcdoAccessBadge from '$lib/components/IcdoAccessBadge.svelte';
 	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
 	import { repositories } from '$lib/repository-registry';
+	import type { LayoutProps } from './$types';
 
-	let { children } = $props();
+	let { children, data }: LayoutProps = $props();
 
 	const crumbs = $derived(buildBreadcrumbs(page.url.pathname));
 
@@ -83,6 +85,9 @@
 					>
 						<span>{item.label}</span>
 						<RepositoryKindBadge kind={item.kind} compact />
+						{#if item.id === 'icdo'}
+							<IcdoAccessBadge status={data.icdoAccess} compact />
+						{/if}
 					</a>
 				{/each}
 				<a href={resolve('/refresh')} class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 no-underline hover:bg-white/10 hover:text-white">Refresh</a>

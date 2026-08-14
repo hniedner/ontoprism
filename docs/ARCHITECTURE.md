@@ -78,6 +78,12 @@ client-address header from bypassing FastAPI rate limits and prevents redirects 
 late-stalling bodies from escaping the gateway contract. It replaces the removed address
 with SvelteKit's `getClientAddress()` value, which is socket-derived unless adapter-node
 is explicitly configured to trust an operator-selected `ADDRESS_HEADER` and `XFF_DEPTH`.
+For protected ICD-O paths it also removes browser-supplied cookies and entitlement
+headers, then injects the private runtime `ICDO_ENTITLEMENT_KEY`. FastAPI independently
+checks that consumer key, while `ENABLE_LICENSED_MAPPINGS` remains a separate capability
+gate for ICD-O-bearing NCIt responses (`cd frontend && npx vitest run
+src/lib/server/fastapi.test.ts && cd .. && pdm run pytest
+backend/tests/test_icdo_api.py backend/tests/test_mappings_api.py -q`, 2026-08-14).
 
 In development, Vite and the built Node server exercise the same SvelteKit `/api` route;
 there is no Vite-only proxy path. The supported process wrapper loads the repository

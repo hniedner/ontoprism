@@ -40,6 +40,11 @@ router = APIRouter(
 )
 Edition = Literal["3.2", "4.0"]
 Axis = Literal["morphology", "topography"]
+_SERVED_DATASETS: tuple[tuple[Edition, Axis], ...] = (
+    ("3.2", "morphology"),
+    ("4.0", "morphology"),
+    ("4.0", "topography"),
+)
 
 
 class NcitAlignment(BaseModel):
@@ -48,6 +53,12 @@ class NcitAlignment(BaseModel):
     version: str
     predicate: MappingPredicate
     lifecycle: MappingLifecycle
+
+
+class IcdoAccessReport(BaseModel):
+    """Opaque consumer access state after all served datasets are certified."""
+
+    status: Literal["ready-and-entitled"] = "ready-and-entitled"
 
 
 class _RecordBase(BaseModel):
@@ -194,6 +205,16 @@ async def _ready(
             status.HTTP_503_SERVICE_UNAVAILABLE, result.model_dump(mode="json")
         )
     return result
+
+
+@router.get("/access", response_model=IcdoAccessReport)
+async def access_status(
+    repository_metadata: RepositoryMetadataReads,
+) -> IcdoAccessReport:
+    """Confirm entitlement and all served datasets without exposing metadata."""
+    for edition, axis in _SERVED_DATASETS:
+        await _ready(repository_metadata, edition, axis)
+    return IcdoAccessReport()
 
 
 def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:

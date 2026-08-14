@@ -62,6 +62,20 @@ def _morphology32() -> CanonicalDataset:
 
 
 @pytest.mark.integration
+async def test_exact_unpublished_generation_is_unavailable() -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        repository = IcdoRepository(make_sessionmaker(engine))
+
+        assert (
+            await repository.dataset("4.0", "topography", generation_id="f" * 64)
+            is None
+        )
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
 async def test_active_morphology32_codes_resolve_in_one_indexed_generation_join() -> (
     None
 ):

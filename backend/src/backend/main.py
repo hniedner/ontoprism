@@ -171,14 +171,10 @@ def create_app() -> FastAPI:
                 repositories.append(metadata.cadsr())
             elif repository_id == "uberon":
                 repositories.append(await metadata.uberon(force=True))
-            else:
-                repositories.extend(
-                    [
-                        await metadata.icdo("3.2", "morphology"),
-                        await metadata.icdo("4.0", "morphology"),
-                        await metadata.icdo("4.0", "topography"),
-                    ]
-                )
+            elif repository_id == "icdo":
+                # Protected readiness is exposed by /api/v1/icdo/access only after
+                # the router-level consumer entitlement check succeeds.
+                continue
         unhealthy = next(
             (
                 repository

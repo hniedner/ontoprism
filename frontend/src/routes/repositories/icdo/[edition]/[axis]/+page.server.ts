@@ -4,19 +4,15 @@ import { critical } from '$lib/server/critical-load';
 import type { IcdoAxis, IcdoEdition } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ cookies, fetch, params, url }) => {
+export const load: PageServerLoad = async ({ fetch, params, url }) => {
 	const edition = params.edition as IcdoEdition;
 	const axis = params.axis as IcdoAxis;
 	if (!(['3.2', '4.0'].includes(edition)) || !(['morphology', 'topography'].includes(axis)) || (edition === '3.2' && axis === 'topography')) error(404, 'ICD-O dataset not found.');
-	const entitlement = cookies.get('icdo_entitlement');
-	const protectedFetch: typeof fetch = (input, init = {}) => fetch(input, {
-		...init, headers: { ...Object.fromEntries(new Headers(init.headers)), ...(entitlement ? { 'X-ICDO-Entitlement': entitlement } : {}) }
-	});
 	const query = url.searchParams.get('q')?.trim() ?? '';
 	const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
 	const behaviour = url.searchParams.get('behaviour') ?? undefined;
 	const level = url.searchParams.get('level') ?? undefined;
-	const result = await critical(query ? searchIcdo(edition, axis, query, { offset, behaviour, level, fetch: protectedFetch })
-		: listIcdo(edition, axis, { offset, behaviour, level, fetch: protectedFetch }));
-	return { edition, axis, query, result };
+	const result = await critical(query ? searchIcdo(edition, axis, query, { offset, behaviour, level, fetch })
+		: listIcdo(edition, axis, { offset, behaviour, level, fetch }));
+	return { edition, axis, query, behaviour, level, result };
 };

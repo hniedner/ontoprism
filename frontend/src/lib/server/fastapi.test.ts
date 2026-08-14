@@ -67,6 +67,98 @@ describe('FastAPI BFF transport', () => {
 		expect(await response.json()).toEqual({ accepted: true });
 	});
 
+	it.each([
+		'/api/v1/icdo/4.0/morphology/list',
+		'/api/v1/ncit/concepts/C1234/mappings',
+		'/api/v1/ncit/concepts/C1234/decomposition',
+		'/api/v1/mappings/$translate',
+		'/api/v1/refresh'
+	])('injects the configured entitlement for protected path %s', async (apiPath) => {
+		let headers = new Headers();
+		await forwardFastApiWith(
+			new Request(`http://node.test${apiPath}`, {
+				headers: {
+					cookie: 'icdo_entitlement=browser-secret',
+					'x-icdo-entitlement': 'forged-browser-secret'
+				}
+			}),
+			apiPath,
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				icdoEntitlement: 'server-only-entitlement',
+				fetch: async (_input, init) => {
+					headers = new Headers(init?.headers);
+					return Response.json({ ok: true });
+				}
+			},
+			'203.0.113.9'
+		);
+
+		expect(headers.get('x-icdo-entitlement')).toBe('server-only-entitlement');
+		expect(headers.has('cookie')).toBe(false);
+	});
+
+	it('strips browser entitlement when the server has no configured entitlement', async () => {
+		let headers = new Headers();
+		await forwardFastApiWith(
+			new Request('http://node.test/api/v1/icdo/3.2/morphology/list', {
+				headers: { 'x-icdo-entitlement': 'forged-browser-secret' }
+			}),
+			'/api/v1/icdo/3.2/morphology/list',
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				fetch: async (_input, init) => {
+					headers = new Headers(init?.headers);
+					return new Response('refused', { status: 403 });
+				}
+			},
+			'203.0.113.9'
+		);
+
+		expect(headers.has('x-icdo-entitlement')).toBe(false);
+	});
+
+	it('does not send the configured entitlement to public FastAPI paths', async () => {
+		let headers = new Headers();
+		await forwardFastApiWith(
+			new Request('http://node.test/api/v1/ncit/list'),
+			'/api/v1/ncit/list',
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				icdoEntitlement: 'server-only-entitlement',
+				fetch: async (_input, init) => {
+					headers = new Headers(init?.headers);
+					return Response.json({ ok: true });
+				}
+			},
+			'203.0.113.9'
+		);
+
+		expect(headers.has('x-icdo-entitlement')).toBe(false);
+	});
+
+	it('does not expose the entitlement when an upstream request fails', async () => {
+		const response = await forwardFastApiWith(
+			new Request('http://node.test/api/v1/icdo/access'),
+			'/api/v1/icdo/access',
+			{
+				origin: new URL('http://fastapi.test:8011'),
+				timeoutMs: 200,
+				icdoEntitlement: 'server-only-entitlement',
+				fetch: async () => {
+					throw new Error('server-only-entitlement');
+				}
+			},
+			'203.0.113.9'
+		);
+
+		expect(response.status).toBe(503);
+		expect(await response.text()).not.toContain('server-only-entitlement');
+	});
+
 	it('does not follow or expose cross-origin upstream redirects', async () => {
 		const response = await forwardFastApiWith(
 			new Request('http://node.test/api/v1/redirect'),

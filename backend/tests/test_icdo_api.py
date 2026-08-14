@@ -184,6 +184,45 @@ def test_entitlement_refuses_before_repository_read(
 
 
 @pytest.mark.api
+@pytest.mark.parametrize("entitlement", [None, "stale"])
+def test_access_status_refuses_before_metadata_read(
+    monkeypatch: pytest.MonkeyPatch, entitlement: str | None
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    metadata = _ReadinessMetadata(healthy=True)
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+    headers = {"X-ICDO-Entitlement": entitlement} if entitlement is not None else {}
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/icdo/access", headers=headers)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "ICD-O entitlement required."
+    assert metadata.calls == 0
+
+
+@pytest.mark.api
+def test_access_status_certifies_all_served_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    metadata = _ReadinessMetadata(healthy=True)
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/icdo/access",
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready-and-entitled"}
+    assert metadata.calls == 3
+
+
+@pytest.mark.api
 def test_detail_entitlement_refuses_before_repository_or_xref_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -270,6 +270,14 @@ def _require_icdo(value: str | None) -> None:
         raise HTTPException(403, "ICD-O entitlement required.")
 
 
+@app.get("/api/v1/icdo/access")
+async def icdo_access(
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, str]:
+    _require_icdo(x_icdo_entitlement)
+    return {"status": "ready-and-entitled"}
+
+
 @app.get("/api/v1/icdo/{edition}/{axis}/list")
 async def list_icdo(
     edition: str,
@@ -279,20 +287,33 @@ async def list_icdo(
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
+    if edition == "4.0" and axis == "topography":
+        record = {
+            "code": "C34.9",
+            "level": "leaf",
+            "parent_code": "C34",
+            "preferred": "Protected bronchus or lung",
+        }
+    else:
+        code = "8503/0" if edition == "3.2" else "8240/3"
+        record = {
+            "code": code,
+            "level": "morphology",
+            "preferred": f"Protected ICD-O-{edition} morphology",
+            "behaviour": code[-1],
+            "base_morphology": code.split("/", maxsplit=1)[0],
+            **({"specificity": "specific"} if edition == "4.0" else {}),
+        }
     return {
         "edition": edition,
         "axis": axis,
         "query": "",
-        "total": 1,
+        "total": 51,
         "limit": limit,
         "offset": offset,
         "hits": [
             {
-                "code": "8503/0",
-                "level": "morphology",
-                "preferred": "Protected intraductal papilloma",
-                "behaviour": "0",
-                "base_morphology": "8503",
+                **record,
                 "synonyms": [],
                 "related": [],
                 "notes": [],
@@ -323,21 +344,45 @@ async def search_icdo(
 
 @app.get("/api/v1/icdo/{edition}/{axis}/concepts/{code}")
 async def icdo_detail(
+    edition: str,
+    axis: str,
     code: str,
     x_icdo_entitlement: Annotated[str | None, Header()] = None,
 ) -> dict[str, object]:
     _require_icdo(x_icdo_entitlement)
-    if code != "ODUwMy8w":
-        raise HTTPException(404, "ICD-O code not found.")
-    return {
-        "activation_identity": "d" * 64,
-        "serving_identity": "e" * 64,
-        "record": {
+    records = {
+        ("3.2", "morphology", "ODUwMy8w"): {
             "code": "8503/0",
             "level": "morphology",
             "preferred": "Protected intraductal papilloma",
             "base_morphology": "8503",
             "behaviour": "0",
+        },
+        ("4.0", "morphology", "ODI0MC8z"): {
+            "code": "8240/3",
+            "level": "morphology",
+            "preferred": "Protected carcinoid tumour",
+            "base_morphology": "8240",
+            "specificity": "specific",
+            "behaviour": "3",
+        },
+        ("4.0", "topography", "QzM0Ljk"): {
+            "code": "C34.9",
+            "level": "leaf",
+            "parent_code": "C34",
+            "preferred": "Protected bronchus or lung",
+        },
+    }
+    record = records.get((edition, axis, code))
+    if record is None:
+        raise HTTPException(404, "ICD-O code not found.")
+    return {
+        "edition": edition,
+        "axis": axis,
+        "activation_identity": "d" * 64,
+        "serving_identity": "e" * 64,
+        "record": {
+            **record,
             "synonyms": ["Protected papilloma synonym"],
             "related": [],
             "notes": ["Publisher note"],
@@ -543,6 +588,41 @@ async def get_ncit_mappings(
         else []
     )
     return {"code": code, "mappings": mappings}
+
+
+@app.get("/api/v1/ncit/concepts/{code}/decomposition")
+async def get_ncit_decomposition(
+    code: str,
+    x_icdo_entitlement: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    upstream = (
+        [
+            {
+                "object_id": "8503/0",
+                "predicate": "http://www.w3.org/2004/02/skos/core#closeMatch",
+                "lifecycle": "proposed",
+                "confidence": 0.9,
+            }
+        ]
+        if x_icdo_entitlement == "licensed"
+        else []
+    )
+    return {
+        "code": code,
+        "is_legacy_precoordinated": True,
+        "decomposed_on": "2026-08-14T00:00:00Z",
+        "constituents": [
+            {
+                "axis": "op:Morphology",
+                "axis_label": "Morphology",
+                "filler": "C3262",
+                "filler_label": "Neoplasm",
+                "axis_source": "normalization",
+                "most_specific": True,
+                "upstream": upstream,
+            }
+        ],
+    }
 
 
 @app.get("/api/v1/cadsr/list")
