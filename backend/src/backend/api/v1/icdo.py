@@ -2,7 +2,7 @@
 
 import base64
 import binascii
-from typing import Annotated, Literal, NamedTuple
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ from backend.dependencies import (
     UberonStore,
     XrefReads,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import IcdoRepositoryReady, RepositoryUnhealthy
 from backend.security import RequireIcdoEntitlement
 from ontolib.repositories.icdo.congruence import (
@@ -40,16 +41,6 @@ router = APIRouter(
 )
 Edition = Literal["3.2", "4.0"]
 Axis = Literal["morphology", "topography"]
-_SERVED_DATASETS: tuple[tuple[Edition, Axis], ...] = (
-    ("3.2", "morphology"),
-    ("4.0", "morphology"),
-    ("4.0", "topography"),
-)
-
-
-class ServedDataset(NamedTuple):
-    edition: Edition
-    axis: Axis
 
 
 class NcitAlignment(BaseModel):
@@ -194,12 +185,13 @@ def _ncit_alignments(
     return sorted(alignments, key=lambda alignment: alignment.code)
 
 
-def _dataset(edition: Edition, axis: Axis) -> ServedDataset:
-    if edition == "3.2" and axis == "topography":
+def _dataset(edition: Edition, axis: Axis) -> ServedIcdoDataset:
+    dataset = ServedIcdoDataset.parse(edition, axis)
+    if dataset is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "ICD-O-3.2 topography is not served."
         )
-    return ServedDataset(edition, axis)
+    return dataset
 
 
 async def _ready(
@@ -250,7 +242,7 @@ async def metadata(
     repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
 ) -> object:
     dataset = _dataset(edition, axis)
-    result = await _ready(repository_metadata, *dataset)
+    result = await _ready(repository_metadata, dataset.edition, dataset.axis)
     return result.model_dump(mode="json")
 
 
@@ -319,10 +311,11 @@ async def list_records(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     dataset = _dataset(edition, axis)
-    ready = await _ready(repository_metadata, *dataset)
+    ready = await _ready(repository_metadata, dataset.edition, dataset.axis)
     try:
         result = await repository.search(
-            *dataset,
+            dataset.edition,
+            dataset.axis,
             query="",
             behaviour=behaviour,
             level=level,
@@ -354,10 +347,11 @@ async def search(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
     dataset = _dataset(edition, axis)
-    ready = await _ready(repository_metadata, *dataset)
+    ready = await _ready(repository_metadata, dataset.edition, dataset.axis)
     try:
         result = await repository.search(
-            *dataset,
+            dataset.edition,
+            dataset.axis,
             query=q,
             behaviour=behaviour,
             level=level,
@@ -386,11 +380,14 @@ async def detail(
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
     dataset = _dataset(edition, axis)
-    ready = await _ready(repository_metadata, *dataset)
-    canonical = _decode_code(code, *dataset)
+    ready = await _ready(repository_metadata, dataset.edition, dataset.axis)
+    canonical = _decode_code(code, dataset.edition, dataset.axis)
     try:
         result = await repository.detail(
-            *dataset, canonical, generation_id=ready.activation_identity
+            dataset.edition,
+            dataset.axis,
+            canonical,
+            generation_id=ready.activation_identity,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -399,7 +396,7 @@ async def detail(
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ICD-O code not found.")
     rows: dict[str, list[MappingResult]] = {}
-    if dataset == ("3.2", "morphology"):
+    if dataset is ServedIcdoDataset.ICDO_32_MORPHOLOGY:
         ncit = await repository_metadata.ncit()
         if isinstance(ncit, RepositoryUnhealthy):
             raise HTTPException(

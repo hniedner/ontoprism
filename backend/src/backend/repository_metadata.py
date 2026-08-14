@@ -19,6 +19,7 @@ from pydantic import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.icdo_datasets import ServedIcdoDataset
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.icdo.store import (
     CertificationExpectation,
@@ -650,11 +651,12 @@ class RepositoryMetadataService:
     ) -> tuple[IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]], ...]:
         """Certify all served ICD-O datasets once for the process access marker."""
         if force or self._icdo_access is None:
-            self._icdo_access = (
-                await self.icdo("3.2", "morphology"),
-                await self.icdo("4.0", "morphology"),
-                await self.icdo("4.0", "topography"),
-            )
+            results: list[
+                IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]
+            ] = []
+            for dataset in ServedIcdoDataset:
+                results.append(await self.icdo(dataset.edition, dataset.axis))
+            self._icdo_access = tuple(results)
         return self._icdo_access
 
 
