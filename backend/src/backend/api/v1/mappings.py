@@ -31,6 +31,11 @@ _SKOS_TO_EQUIVALENCE: dict[str, str] = {
     NARROW_MATCH: "narrow",
 }
 
+_REVERSE_PREDICATE: dict[str, str] = {
+    BROAD_MATCH: NARROW_MATCH,
+    NARROW_MATCH: BROAD_MATCH,
+}
+
 _ACTIVE_LIFECYCLES = frozenset({"validated", "active"})
 
 
@@ -112,20 +117,25 @@ def _collect_entries(
     for rows in rows_by_key.values():
         for row in rows:
             target = row.subject if reverse else row.object
+            predicate = (
+                _REVERSE_PREDICATE.get(row.predicate, row.predicate)
+                if reverse
+                else row.predicate
+            )
             if not _is_eligible(
                 row,
                 target=target,
                 licensed_allowed=licensed_allowed,
             ):
                 continue
-            key = (target.system, target.version, target.identifier, row.predicate)
+            key = (target.system, target.version, target.identifier, predicate)
             if key in seen:
                 continue
             seen.add(key)
             entries.append(
                 _translate_entry(
                     target.identifier,
-                    row.predicate,
+                    predicate,
                     row.confidence,
                     system=target.system,
                     version=target.version,

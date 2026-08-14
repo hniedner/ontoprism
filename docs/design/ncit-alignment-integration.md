@@ -124,8 +124,8 @@ terminologies. NCIt remains the identity of everything OntoPrism emits:
   from and aligned to Uberon/CL/SNOMED/ICD-O-3/Mondo records; those projects do not own the emitted
   content.
 - **Join — a mapping layer** (`skos:*Match` + RO relations + FHIR `ConceptMap.$translate`) that
-  translates any atom between the two planes, in both directions, with stated confidence and
-  provenance; individual mappings carry their actual validation evidence and are never
+  translates mapped atoms in either direction, with stated confidence, while leaving unmapped atoms
+  explicitly unmatched; individual mappings carry their actual validation evidence and are never
   inferred from `rdfs:subClassOf+` alone.
 
 The mapping target is a **bounded, enumerable set of NCIt concepts** — but it is *not* simply the
