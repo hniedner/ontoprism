@@ -1621,12 +1621,11 @@ async def _run_promotion_locked(
     """Promote every proposed candidate, then quarantine bridges a release left stale.
 
     *ncit_version* / *source_version* are the endpoint versions this run validates
-    against; they stamp the promoted rows and drive the D29 staleness sweep.
+    against; they stamp promoted rows and identify stale prior alignments.
 
-    The sweep runs whenever the run is sound — a release makes old bridges stale whether
-    or not this run promoted anything — but is **skipped when the reasoner failed**: a
-    run that established nothing must not also demote bridges a working run validated.
-    In that case the run performs no publication, quarantine, or staleness query.
+    Stale alignments are inspected while building the candidate successor generation.
+    If the reasoner fails, that inspection produces no publication or lifecycle change;
+    a run that established nothing cannot replace a working generation.
     """
     expected = UberonReadIdentity(
         ncit_source_identity=source_metadata.ncit_source_identity,

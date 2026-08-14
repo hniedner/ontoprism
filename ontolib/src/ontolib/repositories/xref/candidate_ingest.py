@@ -382,9 +382,8 @@ async def ingest_candidates(
 
     1. Creates an ``xref_run``.
     2. Generates candidates via :func:`generate_candidates`.
-    3. Upserts records via *store*.
-    4. Publishes one immutable, source-specific PostgreSQL/RDF generation.
-    5. Updates the run with the coverage report (metrics).
+    3. Publishes records as one immutable, source-specific PostgreSQL/RDF generation.
+    4. Updates the run with the coverage report (metrics).
 
     Returns the coverage report dict.
     """
