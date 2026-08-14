@@ -123,9 +123,12 @@ async def test_icdo_readiness_is_bound_to_certified_active_dataset(
 
     class _Icdo:
         async def certified_metadata(
-            self, observed_edition: str, observed_axis: str, expected: object
+            self,
+            edition: str,
+            axis: str,
+            expected: CertificationExpectation,
         ) -> IcdoManifest:
-            assert (observed_edition, observed_axis) == dataset.value
+            assert (edition, axis) == dataset.value
             source = (
                 settings.icdo_32_morphology_source_sha256
                 if dataset.edition == "3.2"
@@ -135,6 +138,13 @@ async def test_icdo_readiness_is_bound_to_certified_active_dataset(
                 settings,
                 "icdo_"
                 f"{dataset.edition.replace('.', '')}_{dataset.axis}_serving_sha256",
+            )
+            assert expected == CertificationExpectation(
+                source_sha256=source,
+                edition=dataset.edition,
+                axis=dataset.axis,
+                row_count=count,
+                serving_sha256=serving,
             )
             return IcdoManifest(
                 generation_id="a" * 64,
