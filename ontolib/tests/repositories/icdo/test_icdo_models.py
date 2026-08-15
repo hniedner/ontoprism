@@ -11,6 +11,33 @@ from ontolib.repositories.icdo.models import (
 )
 
 
+def test_canonical_dataset_rejects_empty_and_duplicate_record_sets() -> None:
+    shape = SourceShape(
+        sheet_names=("Topography",),
+        headers=("ICDO4",),
+        merged_ranges=(),
+        trailing_blank_rows=0,
+    )
+    record = IcdoRecord(code="C34", level="category", preferred="LUNG")
+
+    with pytest.raises(ValueError, match="at least one record"):
+        CanonicalDataset(
+            edition="4.0",
+            axis="topography",
+            records=(),
+            source_shape=shape,
+            source_sha256="a" * 64,
+        )
+    with pytest.raises(ValueError, match="duplicate record code"):
+        CanonicalDataset(
+            edition="4.0",
+            axis="topography",
+            records=(record, record),
+            source_shape=shape,
+            source_sha256="a" * 64,
+        )
+
+
 def test_dataset_refuses_invalid_edition_axis_combination() -> None:
     with pytest.raises(ValueError, match=r"3\.2 topography"):
         CanonicalDataset(

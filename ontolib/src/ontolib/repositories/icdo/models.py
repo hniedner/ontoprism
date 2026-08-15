@@ -200,6 +200,11 @@ class CanonicalDataset(_StrictModel):
     def validate_edition_axis(self) -> CanonicalDataset:
         if (self.edition, self.axis) == ("3.2", "topography"):
             raise ValueError("ICD-O-3.2 topography is not served")
+        if not self.records:
+            raise ValueError("ICD-O dataset requires at least one record")
+        codes = [record.code for record in self.records]
+        if len(codes) != len(set(codes)):
+            raise ValueError("ICD-O dataset contains a duplicate record code")
         _validate_dataset_records(self)
         return self
 

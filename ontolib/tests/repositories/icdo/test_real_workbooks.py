@@ -73,6 +73,13 @@ def test_real_sources_are_deterministic_complete_and_preserve_optional_preferred
     exceptional = next(row for row in first.morphology.records if row.code == "85032/0")
     assert exceptional.preferred is None
     assert exceptional.synonyms or exceptional.related
+    category = next(row for row in first.topography.records if row.code == "C08")
+    assert category.notes == (
+        "Neoplasms of minor salivary glands should be classified according to their "
+        "anatomical site; if location is not specified, classify to C06.3",
+    )
+    leaf = next(row for row in first.topography.records if row.code == "C10.4")
+    assert leaf.other_text == ("site of neoplasm",)
     assert canonical_bytes(first.morphology) == canonical_bytes(second.morphology)
     assert canonical_bytes(first.topography) == canonical_bytes(second.topography)
 
