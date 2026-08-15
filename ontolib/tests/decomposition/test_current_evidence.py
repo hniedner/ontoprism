@@ -174,7 +174,7 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 axis="op:PrimarySite",
                 filler_code="C12400",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
                 source_definition_ids=(fact_id,),
                 source_occurrence_ids=tuple(
                     occurrence.occurrence_id for occurrence in occurrences

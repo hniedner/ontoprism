@@ -921,15 +921,14 @@ def _role_source_ids(
     constituent: Constituent,
     restrictions: Iterable[RestrictionDefinitionFact],
 ) -> tuple[str, ...]:
-    # Constituent.__post_init__ guarantees source_role is present on every
+    # Constituent.__post_init__ guarantees source_roles is nonempty on every
     # role-derived constituent, and this is the only path that reaches here.
-    source_role = constituent.source_role
     return tuple(
         sorted(
             fact.fact_id
             for fact in restrictions
             if fact.filler_code == constituent.filler_code
-            and source_role == fact.role_code
+            and fact.role_code in constituent.source_roles
         )
     )
 
@@ -943,7 +942,7 @@ def _role_occurrence_ids(
             occurrence.occurrence_id
             for occurrence in occurrences
             if occurrence.filler_code == constituent.filler_code
-            and occurrence.role_code == constituent.source_role
+            and occurrence.role_code in constituent.source_roles
         )
     )
 

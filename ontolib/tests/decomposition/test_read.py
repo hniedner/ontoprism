@@ -79,7 +79,7 @@ def test_op_axis_keeps_its_prefix() -> None:
 
 
 @pytest.mark.unit
-def test_normalized_axis_preserves_valid_ncit_source_role() -> None:
+def test_normalized_axis_preserves_valid_ncit_source_roles() -> None:
     d = decomposition_from_rows(
         "C6135",
         [
@@ -93,7 +93,26 @@ def test_normalized_axis_preserves_valid_ncit_source_role() -> None:
     )
 
     assert d.constituents[0].axis == "op:PrimarySite"
-    assert d.constituents[0].source_role == "R101"
+    assert d.constituents[0].source_roles == ("R101",)
+
+
+@pytest.mark.unit
+def test_repeated_role_rows_merge_to_canonical_source_roles() -> None:
+    common = {
+        "axis": f"{vocab.ONTOPRISM_NS}PrimarySite",
+        "filler": _ncit("C12316"),
+    }
+
+    decomposition = decomposition_from_rows(
+        "C150094",
+        [
+            _row(**common, sourceRole=_ncit("R101")),
+            _row(**common, sourceRole=_ncit("R100")),
+        ],
+    )
+
+    assert len(decomposition.constituents) == 1
+    assert decomposition.constituents[0].source_roles == ("R100", "R101")
 
 
 @pytest.mark.unit

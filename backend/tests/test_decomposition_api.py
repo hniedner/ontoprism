@@ -144,6 +144,15 @@ _DECOMPOSED_ROWS = [
         sourceRole=f"{NCIT_NS}R101",
         mostSpecific="true",
     ),
+    _row(
+        status=vocab.LEGACY_PRECOORDINATED,
+        decomposedOn="2026-07-06",
+        axis=f"{vocab.ONTOPRISM_NS}PrimarySite",
+        filler=f"{NCIT_NS}C12400",
+        axisSource="role",
+        sourceRole=f"{NCIT_NS}R100",
+        mostSpecific="true",
+    ),
 ]
 
 
@@ -169,9 +178,9 @@ def test_decomposition_returns_flagged_constituents_with_labels() -> None:
     # Filler labels are resolved for display; most-specific flag round-trips.
     assert by_axis["op:PrimarySite"]["filler"] == "C12400"
     assert by_axis["op:PrimarySite"]["filler_label"] == "Thyroid Gland"
-    assert by_axis["op:PrimarySite"]["source_role"] == "R101"
+    assert by_axis["op:PrimarySite"]["source_roles"] == ["R100", "R101"]
     assert by_axis["op:PrimarySite"]["most_specific"] is True
-    assert by_axis["op:StageValue"]["source_role"] == "R88"
+    assert by_axis["op:StageValue"]["source_roles"] == ["R88"]
     assert by_axis["op:StageValue"]["most_specific"] is False
 
 

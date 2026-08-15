@@ -101,7 +101,11 @@ def _constituent_from_row(
         axis=_axis_code(axis_iri),
         filler=_local(filler_iri),
         axis_source=_axis_source(row.get("axisSource")),
-        source_role=_source_role(row.get("sourceRole")),
+        source_roles=(
+            (source_role,)
+            if (source_role := _source_role(row.get("sourceRole")))
+            else ()
+        ),
         most_specific=_as_bool(row.get("mostSpecific")),
         needs_review=_as_bool(row.get("needsReview")),
         group=row.get("group"),
@@ -109,10 +113,12 @@ def _constituent_from_row(
     )
 
 
-def _without_source_ids(
+def _without_repeated_fields(
     constituent: DecompositionConstituent,
 ) -> DecompositionConstituent:
-    return constituent.model_copy(update={"source_definition_ids": ()})
+    return constituent.model_copy(
+        update={"source_definition_ids": (), "source_roles": ()}
+    )
 
 
 def _merge_constituent(
@@ -121,14 +127,19 @@ def _merge_constituent(
 ) -> DecompositionConstituent:
     if existing is None:
         return candidate
-    if _without_source_ids(existing) != _without_source_ids(candidate):
+    if _without_repeated_fields(existing) != _without_repeated_fields(candidate):
         raise ValueError("one constituent resolved to conflicting persisted fields")
     source_ids = tuple(
         sorted(
             set(existing.source_definition_ids) | set(candidate.source_definition_ids)
         )
     )
-    return existing.model_copy(update={"source_definition_ids": source_ids})
+    source_roles = tuple(
+        sorted(set(existing.source_roles) | set(candidate.source_roles))
+    )
+    return existing.model_copy(
+        update={"source_definition_ids": source_ids, "source_roles": source_roles}
+    )
 
 
 def decomposition_from_rows(code: str, rows: Iterable[Row]) -> ConceptDecomposition:

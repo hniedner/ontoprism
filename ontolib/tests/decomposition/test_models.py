@@ -31,17 +31,41 @@ def test_constituent_defaults_are_conservative() -> None:
     # A constituent is not assumed most-specific or reviewed unless stated.
     assert c.most_specific is False
     assert c.needs_review is False
-    assert c.source_role == "R101"
+    assert c.source_roles == ("R101",)
 
 
 @pytest.mark.unit
-def test_normalized_role_constituent_requires_source_role() -> None:
-    with pytest.raises(ValueError, match="source_role"):
+def test_normalized_role_constituent_requires_source_roles() -> None:
+    with pytest.raises(ValueError, match="source_roles"):
         Constituent(
             axis="op:PrimarySite",
             filler_code="C12400",
             axis_source="role",
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("axis_source", ["parent", "nlp"])
+def test_non_role_constituent_rejects_source_roles(axis_source: str) -> None:
+    with pytest.raises(ValueError, match="empty source_roles"):
+        Constituent(
+            axis="op:Morphology",
+            filler_code="C12400",
+            axis_source=axis_source,  # type: ignore[arg-type]
+            source_roles=("R101",),
+        )
+
+
+@pytest.mark.unit
+def test_constituent_canonicalizes_source_roles() -> None:
+    constituent = Constituent(
+        axis="op:PrimarySite",
+        filler_code="C12400",
+        axis_source="role",
+        source_roles=("R101", "R100", "R101"),
+    )
+
+    assert constituent.source_roles == ("R100", "R101")
 
 
 @pytest.mark.unit
@@ -144,13 +168,13 @@ def test_decomposition_rejects_multiple_primary_sites() -> None:
                     axis="op:PrimarySite",
                     filler_code="C12400",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                 ),
                 Constituent(
                     axis="op:PrimarySite",
                     filler_code="C12401",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                 ),
             ),
         )
@@ -200,7 +224,7 @@ def test_constituent_accepts_group_id() -> None:
         axis="op:AssociatedRegion",
         filler_code="C12418",
         axis_source="role",
-        source_role="R101",
+        source_roles=("R101",),
         group="op:AssociatedRegion",
     )
     assert c.group == "op:AssociatedRegion"
@@ -215,21 +239,23 @@ def test_role_restriction_anchoring_genus_defaults_none() -> None:
 @pytest.mark.parametrize(
     "source_role", ["101", "R", "R101x", "R101 ", "op:PrimarySite"]
 )
-def test_explicit_source_role_must_be_an_ncit_role_code(source_role: str) -> None:
+def test_explicit_source_roles_must_be_ncit_role_codes(source_role: str) -> None:
     """Only the ABSENT source_role case was covered.
 
-    `decomp_constituent.source_role` does carry a `^R[0-9]+$` CHECK (migration
-    0010), so persistence fails closed; this validator is what makes the failure
+    `decomp_constituent.source_roles` carries equivalent JSONB checks (migration
+    0022), so persistence fails closed; this validator is what makes the failure
     happen at construction rather than at run commit, and it is the only guard on
     the non-persisting path -- `legacy_writer` renders `source_role` straight into
     an NCIt IRI.
     """
-    with pytest.raises(ValueError, match="source_role must be an NCIt role code"):
+    with pytest.raises(
+        ValueError, match="source_roles must contain only NCIt role codes"
+    ):
         Constituent(
             axis="op:PrimarySite",
             filler_code="C12400",
             axis_source="role",
-            source_role=source_role,
+            source_roles=(source_role,),
         )
 
 

@@ -1706,7 +1706,7 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
                         axis="op:PrimarySite",
                         filler_code="C12345",
                         axis_source="role",
-                        source_role="R101",
+                        source_roles=("R101",),
                     )
                 ],
             )

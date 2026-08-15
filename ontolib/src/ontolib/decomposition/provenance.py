@@ -365,7 +365,10 @@ def _constituent_rows(
             "axis": constituent.axis,
             "filler_code": constituent.filler_code,
             "axis_source": constituent.axis_source,
-            "source_role": constituent.source_role,
+            "source_roles": _json.dumps(
+                constituent.source_roles,
+                separators=(",", ":"),
+            ),
             "most_specific": constituent.most_specific,
             "needs_review": constituent.needs_review,
             "relationship_group": constituent.group,
@@ -567,10 +570,11 @@ async def _persist_completion_rows(
     await _insert_completion_rows(
         session,
         "INSERT INTO decomp_constituent "
-        "(run_id, concept_code, axis, filler_code, axis_source, source_role, "
+        "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
         "most_specific, needs_review, relationship_group, source_definition_ids) "
         "VALUES (:run_id, :concept_code, :axis, :filler_code, :axis_source, "
-        ":source_role, :most_specific, :needs_review, :relationship_group, "
+        "CAST(:source_roles AS jsonb), :most_specific, :needs_review, "
+        ":relationship_group, "
         "CAST(:source_definition_ids AS jsonb))",
         _constituent_rows(run_id, concept_code, constituents),
     )
@@ -917,7 +921,7 @@ async def _load_decomposition_rows(
     )
     constituent_result = await session.execute(
         text(
-            "SELECT concept_code, axis, filler_code, axis_source, source_role, "
+            "SELECT concept_code, axis, filler_code, axis_source, source_roles, "
             "most_specific, needs_review, relationship_group, source_definition_ids "
             "FROM decomp_constituent WHERE run_id = :run_id "
             "ORDER BY concept_code, axis, filler_code"
@@ -991,12 +995,15 @@ def _constituents_by_code(
         raw_source_ids = row["source_definition_ids"]
         if isinstance(raw_source_ids, str):
             raw_source_ids = _json.loads(raw_source_ids)
+        raw_source_roles = row["source_roles"]
+        if isinstance(raw_source_roles, str):
+            raw_source_roles = _json.loads(raw_source_roles)
         by_code.setdefault(row["concept_code"], []).append(
             Constituent(
                 axis=row["axis"],
                 filler_code=row["filler_code"],
                 axis_source=row["axis_source"],
-                source_role=row["source_role"],
+                source_roles=tuple(raw_source_roles),
                 most_specific=row["most_specific"],
                 needs_review=row["needs_review"],
                 group=row["relationship_group"],

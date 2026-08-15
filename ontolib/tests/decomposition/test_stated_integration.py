@@ -883,8 +883,9 @@ async def test_2607d_unsupported_r103_fact_is_conserved_but_not_projected(
         if isinstance(fact, RestrictionDefinitionFact)
     }
     projected_pairs = {
-        (constituent.source_role, constituent.filler_code)
+        (source_role, constituent.filler_code)
         for constituent in decomposition.constituents
+        for source_role in constituent.source_roles
     }
     assert ("R103", "C54105") in source_pairs
     assert ("R103", "C54105") not in projected_pairs
@@ -1140,6 +1141,58 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.full_store
+async def test_c150094_combines_r100_and_r101_primary_site_evidence() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            "C150094",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    matching = [
+        constituent
+        for constituent in decomposition.constituents
+        if (constituent.axis, constituent.filler_code) == ("op:PrimarySite", "C12316")
+    ]
+    assert len(matching) == 1
+    constituent = matching[0]
+    assert constituent.source_roles == ("R100", "R101")
+    facts_by_id = {
+        fact.fact_id: fact for fact in decomposition.complete_definition.facts
+    }
+    assert {
+        fact.role_code
+        for fact_id in constituent.source_definition_ids
+        if isinstance((fact := facts_by_id[fact_id]), RestrictionDefinitionFact)
+    } == {"R100", "R101"}
+    occurrences_by_id = {
+        occurrence.occurrence_id: occurrence
+        for occurrence in decomposition.complete_definition.occurrences
+    }
+    assert {
+        occurrences_by_id[occurrence_id].role_code
+        for occurrence_id in constituent.source_occurrence_ids
+    } == {"R100", "R101"}
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
 async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
     """Pin the D59 projection while preserving both stated region facts."""
     url = _url()
@@ -1186,7 +1239,7 @@ async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
     ]
     assert all(
         constituent.group is None
-        and constituent.source_role == "R101"
+        and constituent.source_roles == ("R101",)
         and constituent.source_definition_ids
         and constituent.needs_review is False
         for constituent in regions
@@ -1285,7 +1338,7 @@ async def test_complete_record_matches_real_multi_parent_group_and_review_cases(
         }, review.constituents
         assert all(
             not constituent.needs_review
-            and constituent.source_role == "R105"
+            and constituent.source_roles == ("R105",)
             and constituent.source_definition_ids
             for constituent in retained_cell_types
         )

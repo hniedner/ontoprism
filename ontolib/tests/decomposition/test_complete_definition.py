@@ -995,7 +995,7 @@ def test_complete_definition_identity_and_projection_loss_are_deterministic() ->
         Decomposition(
             code="C1",
             semantic_type=None,
-            constituents=[replace(constituents[0], source_role="R105")],
+            constituents=[replace(constituents[0], source_roles=("R105",))],
             complete_definition=complete,
         )
 
@@ -1024,7 +1024,7 @@ def test_routed_axis_trace_does_not_claim_an_unrelated_role_with_same_filler() -
                 axis="op:AssociatedRegion",
                 filler_code="C200",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
             )
         ],
         complete,
@@ -1556,7 +1556,7 @@ def test_complete_record_matches_structural_golden_contract() -> None:
             axis=item["axis"],
             filler_code=item["filler"],
             axis_source=item["axis_source"],
-            source_role=item["source_role"],
+            source_roles=(item["source_role"],),
             group=item["group"],
             needs_review=item["needs_review"],
         )

@@ -198,7 +198,7 @@ def _r101_semantic_type_constituents(
             axis=axes.PRIMARY_SITE_AXIS,
             filler_code=filler,
             axis_source="role",
-            source_role=axes.PRIMARY_SITE_ROLE,
+            source_roles=(axes.PRIMARY_SITE_ROLE,),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=organ_ambiguous,
         )
@@ -221,7 +221,7 @@ def _associated_region_constituents(
             axis=axes.ASSOCIATED_REGION_AXIS,
             filler_code=filler,
             axis_source="role",
-            source_role=axes.PRIMARY_SITE_ROLE,
+            source_roles=(axes.PRIMARY_SITE_ROLE,),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=False,
             group=group,
@@ -238,18 +238,18 @@ def _primary_subsite_constituents(
             axis=axes.PRIMARY_SUBSITE_AXIS,
             filler_code=filler,
             axis_source="role",
-            source_role=axes.PRIMARY_SITE_ROLE,
+            source_roles=(axes.PRIMARY_SITE_ROLE,),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
         )
         for filler in subsites
     ]
 
 
-def _source_role_for_axis(axis_name: str) -> str | None:
+def _source_roles_for_axis(axis_name: str) -> tuple[str, ...]:
     contract = AXIS_CONTRACTS.get(axis_name)
     if contract is not None and len(contract.source_roles) == 1:
-        return contract.source_roles[0]
-    return axis_name if axis_name.startswith("R") else None
+        return contract.source_roles
+    return (axis_name,) if axis_name.startswith("R") else ()
 
 
 def _requires_review(axis_name: str, *, ambiguous: bool) -> bool:
@@ -263,7 +263,7 @@ def _standard_constituents(
     leaves: set[str],
     fillers: set[str],
     is_ancestor: IsAncestor,
-    source_roles: dict[tuple[str, str], str] | None = None,
+    source_roles: dict[tuple[str, str], tuple[str, ...]] | None = None,
 ) -> list[Constituent]:
     ambiguous = len(leaves) > 1
     is_routed = axis_name in _REVIEW_EXEMPT_AXES
@@ -273,8 +273,8 @@ def _standard_constituents(
             axis=axis_name,
             filler_code=filler,
             axis_source="role",
-            source_role=(source_roles or {}).get(
-                (axis_name, filler), _source_role_for_axis(axis_name)
+            source_roles=(source_roles or {}).get(
+                (axis_name, filler), _source_roles_for_axis(axis_name)
             ),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
             needs_review=_requires_review(axis_name, ambiguous=ambiguous),
@@ -288,20 +288,17 @@ def _group_by_routed_axis(
     restrictions: Iterable[RoleRestriction],
     parent_morphology: str | None = None,
     concept_code: str | None = None,
-) -> tuple[dict[str, set[str]], dict[tuple[str, str], str]]:
+) -> tuple[dict[str, set[str]], dict[tuple[str, str], tuple[str, ...]]]:
     by_axis: dict[str, set[str]] = defaultdict(set)
-    source_roles: dict[tuple[str, str], str] = {}
+    source_role_sets: dict[tuple[str, str], set[str]] = defaultdict(set)
     for r in filter_excluded(restrictions, concept_code=concept_code):
         axis_name = route_axis(r, parent_morphology)
         by_axis[axis_name].add(r.filler_code)
         key = (axis_name, r.filler_code)
-        existing_role = source_roles.get(key)
-        if existing_role is not None and existing_role != r.role_code:
-            raise ValueError(
-                f"routed axis/filler {key!r} has multiple source roles: "
-                f"{existing_role!r}, {r.role_code!r}"
-            )
-        source_roles[key] = r.role_code
+        source_role_sets[key].add(r.role_code)
+    source_roles = {
+        key: tuple(sorted(roles)) for key, roles in source_role_sets.items()
+    }
     return by_axis, source_roles
 
 
@@ -341,7 +338,7 @@ def _resolve_r101_with_organ_lookup(
     is_ancestor: IsAncestor,
     parent_morphology: str | None,
     semantic_type_of: Callable[[str], str | None] | None,
-    source_roles: dict[tuple[str, str], str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
     is_part_of: IsPartOf,
     axis_name: str = "",
 ) -> list[Constituent] | None:
@@ -353,8 +350,8 @@ def _resolve_r101_with_organ_lookup(
         axis=axes.PRIMARY_SITE_AXIS,
         filler_code=organ,
         axis_source="role",
-        source_role=source_roles.get(
-            (axes.PRIMARY_SITE_AXIS, organ), axes.PRIMARY_SITE_ROLE
+        source_roles=source_roles.get(
+            (axes.PRIMARY_SITE_AXIS, organ), (axes.PRIMARY_SITE_ROLE,)
         ),
         most_specific=_is_most_specific(organ, fillers, is_ancestor),
         needs_review=False,
@@ -385,7 +382,7 @@ def _resolve_r101_with_organ_lookup(
 
 def _iter_axis_constituents(
     by_axis: dict[str, set[str]],
-    source_roles: dict[tuple[str, str], str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
     is_ancestor: IsAncestor,
     semantic_type_of: Callable[[str], str | None] | None,
     parent_morphology: str | None = None,
@@ -414,7 +411,7 @@ def _constituents_for_axis(
     is_ancestor: IsAncestor,
     semantic_type_of: Callable[[str], str | None] | None,
     parent_morphology: str | None,
-    source_roles: dict[tuple[str, str], str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
     is_part_of: IsPartOf,
 ) -> list[Constituent]:
     resolved = _resolve_r101_with_organ_lookup(

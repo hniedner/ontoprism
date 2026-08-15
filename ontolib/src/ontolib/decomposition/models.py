@@ -45,21 +45,26 @@ def _require_sha256(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} must be a lowercase SHA-256 value")
 
 
-def _canonical_source_role(
+def _canonical_source_roles(
     axis: str,
     axis_source: AxisSource,
-    source_role: str | None,
-) -> str | None:
-    if axis_source != "role" or source_role is not None:
-        return source_role
-    if _ROLE_CODE.fullmatch(axis):
-        return axis
-    raise ValueError("role-derived constituent requires source_role")
+    source_roles: tuple[str, ...],
+) -> tuple[str, ...]:
+    canonical = tuple(sorted(set(source_roles)))
+    if axis_source == "role":
+        if not canonical and _ROLE_CODE.fullmatch(axis):
+            return (axis,)
+        if not canonical:
+            raise ValueError("role-derived constituent requires source_roles")
+        return canonical
+    if canonical:
+        raise ValueError("parent/NLP constituents must have empty source_roles")
+    return ()
 
 
-def _require_source_role(value: str | None) -> None:
-    if value is not None and _ROLE_CODE.fullmatch(value) is None:
-        raise ValueError("source_role must be an NCIt role code")
+def _require_source_roles(values: tuple[str, ...]) -> None:
+    if any(_ROLE_CODE.fullmatch(value) is None for value in values):
+        raise ValueError("source_roles must contain only NCIt role codes")
 
 
 def _definition_digest(*parts: str) -> str:
@@ -523,7 +528,7 @@ class Constituent:
     """A single decomposed constituent: an axis and the concept that fills it.
 
     ``axis`` is the normalized ``op:`` relation (or an unknown legacy NCIt role);
-    ``source_role`` preserves the defining NCIt role independently. ``most_specific``
+    ``source_roles`` preserves every defining NCIt role independently. ``most_specific``
     records that the filler was chosen over a strictly broader is-a candidate;
     ``needs_review`` flags an unresolved ordinary axis for curation. ``group`` is a D19
     relationship-group id shared by ambiguous fillers on the same routed axis.
@@ -532,7 +537,7 @@ class Constituent:
     axis: str
     filler_code: str
     axis_source: AxisSource
-    source_role: str | None = None
+    source_roles: tuple[str, ...] = ()
     most_specific: bool = False
     needs_review: bool = False
     group: str | None = None
@@ -542,13 +547,13 @@ class Constituent:
     def __post_init__(self) -> None:
         _require_code(self.axis, _AXIS_OR_ROLE, "axis")
         _require_code(self.filler_code, _FILLER_CODE, "filler_code")
-        source_role = _canonical_source_role(
+        source_roles = _canonical_source_roles(
             self.axis,
             self.axis_source,
-            self.source_role,
+            self.source_roles,
         )
-        _require_source_role(source_role)
-        object.__setattr__(self, "source_role", source_role)
+        _require_source_roles(source_roles)
+        object.__setattr__(self, "source_roles", source_roles)
         canonical = tuple(sorted(set(self.source_definition_ids)))
         for source_id in canonical:
             _require_sha256(source_id, "source_definition_ids item")
@@ -599,7 +604,7 @@ def _validate_role_fact(constituent: Constituent, fact: DefinitionFact) -> None:
         fact.filler_code != constituent.filler_code
     ):
         raise ValueError("role constituent references an unrelated restriction")
-    if fact.role_code != constituent.source_role:
+    if fact.role_code not in constituent.source_roles:
         raise ValueError("role constituent references a different source role")
 
 

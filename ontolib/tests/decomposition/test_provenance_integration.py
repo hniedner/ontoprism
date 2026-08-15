@@ -193,7 +193,7 @@ def _shared_genus_decomposition(root_code: str, depth: int) -> Decomposition:
                 axis="R101",
                 filler_code="C200",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
                 source_definition_ids=(fact_id,),
             ),
         ),
@@ -247,7 +247,7 @@ def _repeated_occurrence_decomposition() -> Decomposition:
                 axis="op:PrimarySite",
                 filler_code="C12400",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
                 source_definition_ids=(fact_id,),
                 source_occurrence_ids=tuple(
                     occurrence.occurrence_id for occurrence in occurrences
@@ -406,7 +406,7 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
         assert await store.pending_codes(_RUN_ID) == []
         persisted = await store.decompositions_for_run(_RUN_ID)
         assert persisted[0].constituents[0].axis == "op:PrimarySite"
-        assert persisted[0].constituents[0].source_role == "R101"
+        assert persisted[0].constituents[0].source_roles == ("R101",)
         complete_definition = persisted[0].complete_definition
         assert complete_definition is not None
         assert len(complete_definition.occurrences) == 2
