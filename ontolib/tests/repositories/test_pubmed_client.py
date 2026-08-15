@@ -503,6 +503,20 @@ def test_esummary_model_validation_failure_is_an_upstream_error() -> None:
 
 
 @pytest.mark.unit
+def test_esummary_null_authors_is_an_upstream_error() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "111", "authors": None}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_requires_a_source_bound_linkset() -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids({"linksets": []}, "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
 async def test_throttle_sleeps_on_concurrent_calls() -> None:
     dispatches: list[tuple[str, float]] = []
     client = PubMedClient(requests_per_second=10)

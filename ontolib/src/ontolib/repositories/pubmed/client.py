@@ -250,7 +250,7 @@ def _parse_esummary_docs(summary: Any, pmids: list[str]) -> list[PubMedArticleSu
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     try:
         return [parse_esummary(uid, docs[uid]) for uid in uids]
-    except ValidationError as exc:
+    except (TypeError, ValidationError) as exc:
         raise UpstreamUnavailableError(
             "pubmed", "PubMed returned an invalid response."
         ) from exc
@@ -295,7 +295,7 @@ def _extract_elink_pmids(data: Any, linkname: str, *, source_pmid: str) -> list[
     if not isinstance(data, dict):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     linksets = data.get("linksets")
-    if not isinstance(linksets, list):
+    if not isinstance(linksets, list) or not linksets:
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     pmids: list[str] = []
     for linkset in linksets:
