@@ -20,13 +20,17 @@ from scripts.research.current_evidence import (
     CurrentSourceOccurrence,
     HistoricalOraclePairCitation,
     PartitionDiagnosisEvidence,
+    RowReplayStatus,
+    _row_replay,
     generate_current_evidence,
     validate_current_comparison,
 )
 from scripts.research.golden_review import (
     GoldenSetValidationError,
+    KeptRow,
     evaluate_adjudication,
     load_adjudication,
+    load_row_decisions,
 )
 
 from ontolib.decomposition.evaluation import PartitionDiagnosis
@@ -248,6 +252,38 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
     ]
     assert comparison.metrics.exact_pair_precision.rate == 0.0
     assert comparison.metrics.full_partition_agreement.denominator == 20
+    assert len(comparison.row_replay.results) == 189
+    assert comparison.row_replay.aggregates.model_dump() == {
+        "retained_exact": 0,
+        "retained_revised": 0,
+        "excluded_still_emitted": 0,
+        "excluded_not_emitted": 16,
+        "missing_kept": 90,
+        "added": 0,
+        "selection_miss": 0,
+        "proposal_only": 1,
+        "unavailable_source_evidence": 63,
+        "explicitly_out_of_scope": 19,
+    }
+    assert [
+        (
+            result.code,
+            result.row_type,
+            result.sme_action,
+            result.engine,
+            result.expected,
+        )
+        for result in comparison.row_replay.results
+    ] == [
+        (
+            row.code,
+            row.row_type,
+            row.sme_action,
+            row.engine,
+            getattr(row, "expected", None),
+        )
+        for row in load_row_decisions(_ROWS).rows
+    ]
     assert comparison.concepts[0].full_partition.eligible is True
     assert comparison.concepts[0].common_pair_partition.ineligibility_reason in {
         "zero-shared-pairs",
@@ -266,6 +302,122 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
             json.loads(engine_output.read_text()),
             {},
         )
+
+
+@pytest.mark.unit
+def test_row_replay_classifies_every_status() -> None:
+    rows = load_row_decisions(_ROWS)
+    adjudication = load_adjudication(_ORACLE, load_proposal_registry(_REGISTRY))
+    concepts = {
+        concept.code: CurrentConceptEvidence(
+            code=concept.code,
+            outcome="decomposed",
+            semantic_types=("Neoplastic Process",),
+            all_source_occurrences=(),
+            constituents=(),
+        )
+        for concept in adjudication.concepts
+    }
+
+    def emit(row: KeptRow) -> None:
+        code = row.code
+        pair = row.expected
+        concept = concepts[code]
+        concepts[code] = concept.model_copy(
+            update={
+                "constituents": (
+                    *concept.constituents,
+                    CurrentConstituent(
+                        axis=pair.axis,
+                        filler=pair.filler,
+                        relationship_group=None,
+                        needs_review=False,
+                        source_occurrence_ids=(),
+                        source_occurrences=(),
+                    ),
+                )
+            }
+        )
+
+    exact = next(
+        row
+        for row in rows.rows
+        if isinstance(row, KeptRow)
+        and row.row_type == "ENGINE SUGGESTION"
+        and row.pair_preserved
+    )
+    revised = next(
+        row
+        for row in rows.rows
+        if isinstance(row, KeptRow)
+        and row.row_type == "ENGINE SUGGESTION"
+        and not row.pair_preserved
+    )
+    excluded = next(
+        row
+        for row in rows.rows
+        if row.row_type == "ENGINE SUGGESTION" and row.sme_action == "exclude"
+    )
+    added = next(
+        row
+        for row in rows.rows
+        if isinstance(row, KeptRow)
+        and row.row_type == "ADD IF MISSING"
+        and row.expected.filler.startswith("C")
+    )
+    for row in (exact, revised, added):
+        emit(row)
+    excluded_pair = excluded.engine
+    assert excluded_pair is not None
+    excluded_concept = concepts[excluded.code]
+    concepts[excluded.code] = excluded_concept.model_copy(
+        update={
+            "constituents": (
+                *excluded_concept.constituents,
+                CurrentConstituent(
+                    axis=excluded_pair.axis,
+                    filler=excluded_pair.filler,
+                    relationship_group=None,
+                    needs_review=False,
+                    source_occurrence_ids=(),
+                    source_occurrences=(),
+                ),
+            )
+        }
+    )
+    selection_miss = next(
+        row
+        for row in rows.rows
+        if isinstance(row, KeptRow)
+        and row.row_type == "ADD IF MISSING"
+        and row.expected.axis == "op:CellType"
+        and row.expected.filler.startswith("C")
+        and row.code not in {exact.code, revised.code, excluded.code, added.code}
+    )
+    occurrence = CurrentSourceOccurrence(
+        occurrence_id="a" * 64,
+        root_code=selection_miss.code,
+        source_fact_id="b" * 64,
+        source_group_id="c" * 64,
+        anchor_code=selection_miss.code,
+        depth=0,
+        role_code="R105",
+        filler_code=selection_miss.expected.filler,
+        structural_path=(0,),
+        member_position=0,
+    )
+    concepts[selection_miss.code] = concepts[selection_miss.code].model_copy(
+        update={"all_source_occurrences": (occurrence,)}
+    )
+
+    replay = _row_replay(
+        rows,
+        adjudication.concepts,
+        load_proposal_registry(_REGISTRY),
+        tuple(concepts.values()),
+    )
+
+    assert {result.status for result in replay.results} == set(RowReplayStatus)
 
 
 @pytest.mark.unit
@@ -572,6 +724,32 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
             },
         }
         raw["concepts"] = ()
+        raw["row_replay"] = {
+            "results": tuple(
+                {
+                    "ordinal": ordinal,
+                    "code": "C1",
+                    "row_type": "ADD IF MISSING",
+                    "sme_action": "not-needed",
+                    "engine": None,
+                    "expected": None,
+                    "status": "explicitly-out-of-scope",
+                }
+                for ordinal in range(189)
+            ),
+            "aggregates": {
+                "retained_exact": 0,
+                "retained_revised": 0,
+                "excluded_still_emitted": 0,
+                "excluded_not_emitted": 0,
+                "missing_kept": 0,
+                "added": 0,
+                "selection_miss": 0,
+                "proposal_only": 0,
+                "unavailable_source_evidence": 0,
+                "explicitly_out_of_scope": 189,
+            },
+        }
         raw["comparison_identity"] = "0" * 64
     with pytest.raises(ValueError, match="identity"):
         model.model_validate(copy.deepcopy(raw))  # type: ignore[attr-defined]

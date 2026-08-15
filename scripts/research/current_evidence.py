@@ -6,12 +6,15 @@ import hashlib
 import json
 import os
 import tempfile
+from collections import Counter
 from dataclasses import asdict
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ontolib.decomposition.axis_contracts import normalized_axis_for_role
 from ontolib.decomposition.evaluation import (
     PairPartition,
     PartitionComparison,
@@ -19,7 +22,10 @@ from ontolib.decomposition.evaluation import (
     compare_common_pair_partition,
     compare_full_partition,
 )
-from ontolib.decomposition.proposal_registry import load_proposal_registry
+from ontolib.decomposition.proposal_registry import (
+    ProposalRegistry,
+    load_proposal_registry,
+)
 from ontolib.decomposition.publication import validate_artifact
 from ontolib.decomposition.sampling import (
     DecompositionSampleManifest,
@@ -29,14 +35,24 @@ from ontolib.decomposition.sampling import (
 try:
     from scripts.research.golden_review import (
         AdjudicatedConcept,
+        ConstituentRowDecision,
+        EngineSuggestion,
+        ExpectedPair,
         GoldenSetValidationError,
+        KeptRow,
+        RowDecisionExport,
         load_adjudication,
         load_row_decisions,
     )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.golden_review import (  # type: ignore[no-redef]
         AdjudicatedConcept,
+        ConstituentRowDecision,
+        EngineSuggestion,
+        ExpectedPair,
         GoldenSetValidationError,
+        KeptRow,
+        RowDecisionExport,
         load_adjudication,
         load_row_decisions,
     )
@@ -235,6 +251,92 @@ class CurrentConceptComparison(_StrictModel):
     extra_pairs: tuple[tuple[str, str], ...]
 
 
+class RowReplayStatus(StrEnum):
+    RETAINED_EXACT = "retained-exact"
+    RETAINED_REVISED = "retained-revised"
+    EXCLUDED_STILL_EMITTED = "excluded-still-emitted"
+    EXCLUDED_NOT_EMITTED = "excluded-not-emitted"
+    MISSING_KEPT = "missing-kept"
+    ADDED = "added"
+    SELECTION_MISS = "selection-miss"
+    PROPOSAL_ONLY = "proposal-only"
+    UNAVAILABLE_SOURCE_EVIDENCE = "unavailable-source-evidence"
+    EXPLICITLY_OUT_OF_SCOPE = "explicitly-out-of-scope"
+
+
+EngineReplayStatus = Literal[
+    RowReplayStatus.RETAINED_EXACT,
+    RowReplayStatus.RETAINED_REVISED,
+    RowReplayStatus.EXCLUDED_STILL_EMITTED,
+    RowReplayStatus.EXCLUDED_NOT_EMITTED,
+    RowReplayStatus.MISSING_KEPT,
+]
+CandidateReplayStatus = Literal[
+    RowReplayStatus.ADDED,
+    RowReplayStatus.SELECTION_MISS,
+    RowReplayStatus.PROPOSAL_ONLY,
+    RowReplayStatus.UNAVAILABLE_SOURCE_EVIDENCE,
+    RowReplayStatus.EXPLICITLY_OUT_OF_SCOPE,
+]
+
+
+class _RowReplayResult(_StrictModel):
+    ordinal: int = Field(ge=0)
+    code: str = Field(pattern=r"^C[0-9]+$")
+    expected: ExpectedPair | None
+
+
+class EngineSuggestionReplayResult(_RowReplayResult):
+    row_type: Literal["ENGINE SUGGESTION"]
+    sme_action: Literal["include", "revise", "exclude"]
+    engine: EngineSuggestion
+    status: EngineReplayStatus
+
+
+class AddIfMissingReplayResult(_RowReplayResult):
+    row_type: Literal["ADD IF MISSING"]
+    sme_action: Literal["include", "revise", "exclude", "not-needed"]
+    engine: None
+    status: CandidateReplayStatus
+
+
+RowReplayResult = Annotated[
+    EngineSuggestionReplayResult | AddIfMissingReplayResult,
+    Field(discriminator="row_type"),
+]
+
+
+class RowReplayAggregates(_StrictModel):
+    retained_exact: int = Field(ge=0)
+    retained_revised: int = Field(ge=0)
+    excluded_still_emitted: int = Field(ge=0)
+    excluded_not_emitted: int = Field(ge=0)
+    missing_kept: int = Field(ge=0)
+    added: int = Field(ge=0)
+    selection_miss: int = Field(ge=0)
+    proposal_only: int = Field(ge=0)
+    unavailable_source_evidence: int = Field(ge=0)
+    explicitly_out_of_scope: int = Field(ge=0)
+
+
+class CurrentRowReplay(_StrictModel):
+    results: tuple[RowReplayResult, ...] = Field(min_length=189, max_length=189)
+    aggregates: RowReplayAggregates
+
+    @model_validator(mode="after")
+    def _covers_each_row_once(self) -> Self:
+        if tuple(result.ordinal for result in self.results) != tuple(range(189)):
+            raise ValueError("row replay must contain every source row exactly once")
+        counts = Counter(result.status.value for result in self.results)
+        expected = {
+            field: counts[field.replace("_", "-")]
+            for field in RowReplayAggregates.model_fields
+        }
+        if self.aggregates.model_dump() != expected:
+            raise ValueError("row replay aggregates do not match replay results")
+        return self
+
+
 class CurrentComparison(_StrictModel):
     schema_version: Literal[2]
     ncit_version: str
@@ -251,6 +353,7 @@ class CurrentComparison(_StrictModel):
     current_evidence_identity: str = Field(pattern=_SHA256)
     metrics: CurrentMetrics
     concepts: tuple[CurrentConceptComparison, ...]
+    row_replay: CurrentRowReplay
     comparison_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
@@ -448,6 +551,132 @@ def _comparison_payload(
         ),
     )
     return metrics, tuple(reports)
+
+
+def _emitted_pairs(concept: CurrentConceptEvidence) -> set[tuple[str, str]]:
+    return {(item.axis, item.filler) for item in concept.constituents}
+
+
+def _oracle_proposals(
+    oracle_concepts: tuple[AdjudicatedConcept, ...], registry: ProposalRegistry
+) -> set[tuple[str, str, str]]:
+    proposal_ids = {proposal.id for proposal in registry.proposals}
+    proposals: set[tuple[str, str, str]] = set()
+    for concept in oracle_concepts:
+        if concept.expected is None:
+            continue
+        for constituent in concept.expected.constituents:
+            if constituent.proposal_id is None:
+                continue
+            if constituent.proposal_id not in proposal_ids:
+                raise CurrentEvidenceValidationError(
+                    "oracle constituent proposal is absent from proposal registry"
+                )
+            proposals.add((concept.code, constituent.axis, constituent.filler))
+    return proposals
+
+
+def _source_supports_expected(
+    expected: ExpectedPair, concept: CurrentConceptEvidence
+) -> bool:
+    return any(
+        occurrence.filler_code == expected.filler
+        and normalized_axis_for_role(occurrence.role_code) == expected.axis
+        for occurrence in concept.all_source_occurrences
+    )
+
+
+def _engine_replay_status(
+    row: ConstituentRowDecision, emitted: set[tuple[str, str]]
+) -> EngineReplayStatus:
+    if row.engine is None:
+        raise CurrentEvidenceValidationError(
+            "engine suggestion replay row lacks an engine pair"
+        )
+    engine_pair = (row.engine.axis, row.engine.filler)
+    if row.sme_action == "exclude":
+        if engine_pair in emitted:
+            return RowReplayStatus.EXCLUDED_STILL_EMITTED
+        return RowReplayStatus.EXCLUDED_NOT_EMITTED
+    if not isinstance(row, KeptRow):
+        raise CurrentEvidenceValidationError(
+            "kept engine suggestion replay row lacks an expected pair"
+        )
+    expected_pair = (row.expected.axis, row.expected.filler)
+    if expected_pair == engine_pair and engine_pair in emitted:
+        return RowReplayStatus.RETAINED_EXACT
+    if expected_pair != engine_pair and expected_pair in emitted:
+        return RowReplayStatus.RETAINED_REVISED
+    return RowReplayStatus.MISSING_KEPT
+
+
+def _candidate_replay_status(
+    row: ConstituentRowDecision,
+    concept: CurrentConceptEvidence,
+    proposals: set[tuple[str, str, str]],
+) -> CandidateReplayStatus:
+    if row.sme_action in {"exclude", "not-needed"}:
+        return RowReplayStatus.EXPLICITLY_OUT_OF_SCOPE
+    if not isinstance(row, KeptRow):
+        raise CurrentEvidenceValidationError(
+            "kept add-if-missing replay row lacks an expected pair"
+        )
+    expected_pair = (row.expected.axis, row.expected.filler)
+    if expected_pair in _emitted_pairs(concept):
+        return RowReplayStatus.ADDED
+    if (row.code, *expected_pair) in proposals:
+        return RowReplayStatus.PROPOSAL_ONLY
+    if _source_supports_expected(row.expected, concept):
+        return RowReplayStatus.SELECTION_MISS
+    return RowReplayStatus.UNAVAILABLE_SOURCE_EVIDENCE
+
+
+def _row_replay(
+    rows: RowDecisionExport,
+    oracle_concepts: tuple[AdjudicatedConcept, ...],
+    registry: ProposalRegistry,
+    current_concepts: tuple[CurrentConceptEvidence, ...],
+) -> CurrentRowReplay:
+    current_by_code = {concept.code: concept for concept in current_concepts}
+    proposals = _oracle_proposals(oracle_concepts, registry)
+    results: list[RowReplayResult] = []
+    for ordinal, row in enumerate(rows.rows):
+        concept = current_by_code.get(row.code)
+        if concept is None:
+            raise CurrentEvidenceValidationError(
+                f"row replay concept is absent from current evidence: {row.code}"
+            )
+        common = {
+            "ordinal": ordinal,
+            "code": row.code,
+            "sme_action": row.sme_action,
+            "engine": row.engine,
+            "expected": getattr(row, "expected", None),
+        }
+        if row.row_type == "ENGINE SUGGESTION":
+            results.append(
+                EngineSuggestionReplayResult(
+                    **common,
+                    row_type=row.row_type,
+                    status=_engine_replay_status(row, _emitted_pairs(concept)),
+                )
+            )
+        else:
+            results.append(
+                AddIfMissingReplayResult(
+                    **common,
+                    row_type=row.row_type,
+                    status=_candidate_replay_status(row, concept, proposals),
+                )
+            )
+    counts = Counter(result.status.value for result in results)
+    aggregates = RowReplayAggregates.model_validate(
+        {
+            field: counts[field.replace("_", "-")]
+            for field in RowReplayAggregates.model_fields
+        }
+    )
+    return CurrentRowReplay(results=tuple(results), aggregates=aggregates)
 
 
 def _rate(numerator: int, denominator: int) -> float:
@@ -746,11 +975,13 @@ async def generate_current_evidence(
         {**evidence_payload, "evidence_identity": _identity(evidence_payload)}
     )
     metrics, reports = _comparison_payload(adjudication.concepts, evidence)
+    row_replay = _row_replay(rows, adjudication.concepts, registry, evidence.concepts)
     comparison_payload = {
         **common,
         "current_evidence_identity": evidence.evidence_identity,
         "metrics": metrics,
         "concepts": reports,
+        "row_replay": row_replay,
     }
     comparison = CurrentComparison.model_validate(
         {

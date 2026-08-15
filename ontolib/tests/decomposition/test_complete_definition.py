@@ -497,7 +497,7 @@ async def test_linked_list_reader_accepts_bound_and_rejects_overflow() -> None:
 
 
 @pytest.mark.unit
-async def test_linked_list_normalizes_equivalent_defined_genus_bindings() -> None:
+async def test_linked_list_rejects_duplicate_source_bindings() -> None:
     rows = _linked_definition_rows(1)
     rows[0]["childExpression"] = "_:definition-a"
     rows.append(dict(rows[0], childExpression="_:definition-b"))
@@ -507,19 +507,23 @@ async def test_linked_list_normalizes_equivalent_defined_genus_bindings() -> Non
     ) -> list[dict[str, str | None]]:
         return rows if _iri("C900") in query else []
 
-    complete = await read_complete_definition(select, "C900")
+    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*RDF list cell"):
+        await read_complete_definition(select, "C900")
 
-    assert len(complete.facts) == 1
-    genus = complete.facts[0]
-    assert isinstance(genus, GenusDefinitionFact)
-    assert genus.is_defined is True
-    assert genus.fact_id == canonical_definition_fact_id(
-        genus.anchor_code,
-        genus.group_id,
-        "genus",
-        genus.genus_code,
-        "defined",
-    )
+
+@pytest.mark.unit
+async def test_linked_list_rejects_an_identical_duplicate_source_row() -> None:
+    rows = _linked_definition_rows(1)
+    rows.append(dict(rows[0]))
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*RDF list cell"):
+        await read_complete_definition(select, "C900")
 
 
 @pytest.mark.unit
@@ -1291,6 +1295,16 @@ def test_row_parser_rejects_conflicts_gaps_and_collapses_duplicate_groups() -> N
 
 
 @pytest.mark.unit
+def test_row_parser_rejects_an_identical_duplicate_position_binding() -> None:
+    rows = _definition_rows(
+        "_:expression", ("_:restriction", _iri("R101"), _iri("C2"), False)
+    )
+
+    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*position"):
+        definition_facts_from_rows("C9", depth=0, rows=[*rows, dict(rows[0])])
+
+
+@pytest.mark.unit
 def test_definition_identity_ignores_semantically_irrelevant_intersection_order() -> (
     None
 ):
@@ -1418,6 +1432,36 @@ async def test_repeated_restrictions_keep_stable_source_occurrences() -> None:
     assert traced[0].source_occurrence_ids == tuple(
         sorted(occurrence.occurrence_id for occurrence in complete.occurrences)
     )
+
+
+@pytest.mark.unit
+async def test_linked_repeated_restrictions_at_distinct_cells_are_preserved() -> None:
+    rows = _linked_definition_rows(3)
+    rows[1].update(
+        member="_:restriction-a",
+        role=_iri("R101"),
+        target=_iri("C2"),
+    )
+    rows[2].update(
+        member="_:restriction-b",
+        role=_iri("R101"),
+        target=_iri("C2"),
+    )
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    complete = await read_complete_definition(select, "C9")
+
+    assert [occurrence.member_position for occurrence in complete.occurrences] == [1, 2]
+    assert {
+        (occurrence.role_code, occurrence.filler_code)
+        for occurrence in complete.occurrences
+    } == {("R101", "C2")}
+    assert len({occurrence.occurrence_id for occurrence in complete.occurrences}) == 2
 
 
 @pytest.mark.unit

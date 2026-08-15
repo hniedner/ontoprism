@@ -240,6 +240,20 @@ def _linked_cell_signature(row: Row) -> tuple[str | None, ...]:
     return (row.get("next"), *_member_key(row))
 
 
+def _record_linked_cell(expression_cells: dict[str, Row], cell: str, row: Row) -> None:
+    previous = expression_cells.get(cell)
+    if previous is None:
+        expression_cells[cell] = row
+        return
+    if _linked_cell_signature(previous) != _linked_cell_signature(row):
+        raise CompleteDefinitionError(
+            "one RDF list cell resolved to conflicting members"
+        )
+    raise CompleteDefinitionError(
+        "complete-definition response has a duplicate RDF list cell binding"
+    )
+
+
 def _collect_linked_rows(
     rows: list[Row],
 ) -> tuple[dict[str, str], dict[str, dict[str, Row]], dict[str, set[str]]]:
@@ -255,11 +269,7 @@ def _collect_linked_rows(
             raise CompleteDefinitionError(
                 "one definition expression resolved to conflicting RDF lists"
             )
-        previous_cell = cells[expression].setdefault(cell, row)
-        if _linked_cell_signature(previous_cell) != _linked_cell_signature(row):
-            raise CompleteDefinitionError(
-                "one RDF list cell resolved to conflicting members"
-            )
+        _record_linked_cell(cells[expression], cell, row)
         parent = row.get("parentExpression")
         if isinstance(parent, str) and parent:
             parents[expression].add(parent)
@@ -439,9 +449,13 @@ def _record_group_position(
         raise CompleteDefinitionError(
             "one definition position resolved to conflicting members"
         )
+    if previous is not None:
+        raise CompleteDefinitionError(
+            "complete-definition response has a duplicate position binding"
+        )
     positions[position] = (
         member,
-        is_defined or (previous[1] if previous else False),
+        is_defined,
     )
 
 
