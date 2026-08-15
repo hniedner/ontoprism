@@ -103,6 +103,15 @@ def _valid_study_rows(value: object) -> TypeIs[list[dict[str, Any]]]:
     )
 
 
+def _valid_search_total(total: object, studies: list[dict[str, Any]]) -> TypeIs[int]:
+    return (
+        isinstance(total, int)
+        and not isinstance(total, bool)
+        and total >= 0
+        and (total == 0 or bool(studies))
+    )
+
+
 def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
     if not isinstance(data, Mapping):
         raise _invalid_search_response()
@@ -110,7 +119,7 @@ def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
     total = data.get("totalCount")
     if not _valid_study_rows(raw):
         raise _invalid_search_response()
-    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+    if not _valid_search_total(total, raw):
         raise _invalid_search_response()
     return raw, total
 

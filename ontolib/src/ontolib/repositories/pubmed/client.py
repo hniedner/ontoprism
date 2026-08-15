@@ -219,20 +219,26 @@ class PubMedClient:
         )
 
 
+def _validate_esearch_identities(pmids: list[str], total: int) -> None:
+    if any(not pmid or not pmid.isdigit() for pmid in pmids):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    if len(pmids) > total or (total > 0 and not pmids):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+
+
 def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
     """Return (pmids, total) from an ESearch JSON document."""
-    if not isinstance(esearch, dict) or not isinstance(
-        esearch.get("esearchresult"), dict
-    ):
+    if not isinstance(esearch, dict):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
-    result = esearch["esearchresult"]
+    result = esearch.get("esearchresult")
+    if not isinstance(result, dict):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     pmids = _string_list(result.get("idlist"))
     count = result.get("count")
     if not isinstance(count, str) or not count.isdigit():
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     total = int(count)
-    if total > 0 and not pmids:
-        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    _validate_esearch_identities(pmids, total)
     return pmids, total
 
 
@@ -240,8 +246,19 @@ def _valid_summary_authors(value: object) -> bool:
     return isinstance(value, list) and all(
         isinstance(author, dict)
         and isinstance(author.get("name"), str)
-        and bool(author["name"])
+        and bool(author["name"].strip())
         for author in value
+    )
+
+
+def _valid_summary_article_ids(value: object) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(article_id, dict)
+        and isinstance(article_id.get("idtype"), str)
+        and isinstance(article_id.get("value"), str)
+        and bool(article_id["idtype"].strip())
+        and bool(article_id["value"].strip())
+        for article_id in value
     )
 
 
@@ -250,6 +267,7 @@ def _valid_summary_doc(doc: object, uid: str) -> bool:
         isinstance(doc, dict)
         and doc.get("uid") == uid
         and _valid_summary_authors(doc.get("authors", []))
+        and _valid_summary_article_ids(doc.get("articleids", []))
     )
 
 

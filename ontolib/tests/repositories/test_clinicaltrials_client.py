@@ -293,6 +293,24 @@ async def test_search_rejects_boolean_total_count() -> None:
 
 
 @pytest.mark.unit
+async def test_search_positive_total_requires_a_returned_study() -> None:
+    class _MissingRows(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [], "totalCount": 1})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _MissingRows)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 async def test_transport_error_raises_storage_error() -> None:
     # Unreachable host → transport error → retried to exhaustion, then StorageError.
     async with ClinicalTrialsClient("http://127.0.0.1:9") as client:
