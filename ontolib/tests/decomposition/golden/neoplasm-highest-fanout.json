@@ -1,0 +1,20 @@
+{
+  "baseline_identity": "0487839fe9c37f8c6f53767e3413d4cd696bc246c48c6a62c6c97c76209c2d0f",
+  "branch": "neoplasm",
+  "concept_codes": [
+    "C9379",
+    "C9423"
+  ],
+  "discovery_algorithm": "production-complete-definition-corpus-closure-v1",
+  "discovery_query_identity": "11fa5dafb573ba0fab978ac05f927ea198128beac77197610ff60154b918ac07",
+  "logical_select_count_budget": 31,
+  "ontology_release": "26.07d",
+  "restriction_fact_count": 83,
+  "restriction_occurrence_count": 83,
+  "scanned_concept_count": 15633,
+  "schema_version": 1,
+  "scope_root": "C3262",
+  "scope_version": "stated-genus-subclass-v1",
+  "select_once_r82_count_budget": 9,
+  "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+}
