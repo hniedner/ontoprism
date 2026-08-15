@@ -36,7 +36,7 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="flex min-h-screen flex-col bg-page-bg-subtle dark:bg-neutral-950">
+<div class="flex min-h-screen flex-col bg-page-bg-subtle text-default dark:bg-neutral-950">
 	<div class="pointer-events-none fixed inset-x-0 top-24 z-50" aria-live="polite">
 		<LoadingState active={navigating.to !== null} label="Loading page" minHeight="0" />
 	</div>

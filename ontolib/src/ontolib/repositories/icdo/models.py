@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
@@ -148,6 +151,29 @@ class IcdoRecord(_StrictModel):
     def validate_shape(self) -> IcdoRecord:
         _validate_record_shape(self)
         return self
+
+
+_RECORD_ARRAY_FIELDS = (
+    "synonyms",
+    "related",
+    "notes",
+    "code_references",
+    "see_also",
+    "see_notes",
+    "includes",
+    "excludes",
+    "other_text",
+)
+
+
+def decode_icdo_record(value: Mapping[str, object]) -> IcdoRecord:
+    """Decode JSON arrays at the persistence boundary, then validate strictly."""
+    normalized = dict(value)
+    for field in _RECORD_ARRAY_FIELDS:
+        field_value = normalized.get(field)
+        if isinstance(field_value, list):
+            normalized[field] = tuple(field_value)
+    return IcdoRecord.model_validate(normalized)
 
 
 def _validate_dataset_records(dataset: CanonicalDataset) -> None:

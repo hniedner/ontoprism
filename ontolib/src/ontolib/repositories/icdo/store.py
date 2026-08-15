@@ -10,7 +10,11 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
 from ontolib.repositories.icdo.ingest import canonical_bytes
-from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
+from ontolib.repositories.icdo.models import (
+    CanonicalDataset,
+    SourceShape,
+    decode_icdo_record,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -180,10 +184,7 @@ class IcdoRepository:
         dataset = CanonicalDataset(
             edition=manifest.edition,
             axis=manifest.axis,
-            records=tuple(
-                IcdoRecord.model_validate_json(json.dumps(payload))
-                for _, payload in rows
-            ),
+            records=tuple(decode_icdo_record(payload) for _, payload in rows),
             source_shape=SourceShape(
                 sheet_names=(), headers=(), merged_ranges=(), trailing_blank_rows=0
             ),
@@ -273,10 +274,7 @@ class IcdoRepository:
             "total": total,
             "limit": limit,
             "offset": offset,
-            "hits": [
-                IcdoRecord.model_validate_json(json.dumps(row)).model_dump(mode="json")
-                for row in rows
-            ],
+            "hits": [decode_icdo_record(row).model_dump(mode="json") for row in rows],
         }
 
     async def detail(
@@ -301,7 +299,7 @@ class IcdoRepository:
             ).scalar_one_or_none()
         if row is None:
             return None
-        return IcdoRecord.model_validate_json(json.dumps(row)).model_dump(mode="json")
+        return decode_icdo_record(row).model_dump(mode="json")
 
     async def resolve_active_morphology32_codes(
         self, codes: set[str], expected: CertificationExpectation

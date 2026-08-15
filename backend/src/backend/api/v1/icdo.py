@@ -22,10 +22,10 @@ from ontolib.repositories.icdo.congruence import (
     build_congruence_report,
 )
 from ontolib.repositories.icdo.models import (
-    IcdoRecord,
     MorphologyCode32,
     MorphologyCode40,
     TopographyCode40,
+    decode_icdo_record,
 )
 from ontolib.repositories.xref.models import (
     IcdoReadIdentity,
@@ -430,6 +430,6 @@ async def detail(
         axis=axis,
         activation_identity=ready.activation_identity,
         serving_identity=ready.serving_identity,
-        record=IcdoRecord.model_validate(result).model_dump(),
+        record=decode_icdo_record(result).model_dump(),
         ncit_alignments=_ncit_alignments(canonical, edition, rows.get(canonical, [])),
     )

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { CdeSummary } from '$lib/types';
 	import RepoBrowsePage from '$lib/components/RepoBrowsePage.svelte';
 	import CdeResultsTable from '$lib/components/CdeResultsTable.svelte';
@@ -10,7 +11,7 @@
 
 <RepoBrowsePage
 	title="caDSR CDEs"
-	route="/repositories/cadsr"
+	route={resolve('/repositories/cadsr')}
 	description="Browse and search caDSR Common Data Elements. Each CDE links to NCIt concepts (ISO-11179 roles), permissible values, and semantically similar elements."
 	placeholder="Search by name, definition, or CDE ID…"
 	ariaLabel="Search caDSR"

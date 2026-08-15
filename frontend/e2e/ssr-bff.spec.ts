@@ -112,7 +112,7 @@ test('all ICD-O datasets support search, pagination, detail, and explicit access
 	] as const) {
 		await page.goto(`/repositories/icdo/${edition}/${axis}?q=protected`);
 		await expect(page.getByRole('heading', { name: `ICD-O-${edition} ${axis}` })).toBeVisible();
-		await page.getByRole('link', { name: 'Next' }).click();
+		await page.getByRole('button', { name: 'Next page' }).click();
 		await expect(page).toHaveURL(new RegExp(`q=protected&offset=25$`));
 		await page.getByRole('link', { name: code }).click();
 		await expect(page.getByRole('heading', { name: code })).toBeVisible();

@@ -115,6 +115,38 @@ test('ICD-O: entitled detail renders all publisher fields', async ({ page }) => 
 	}
 });
 
+test('ICD-O: repository text remains readable in dark mode', async ({ page }) => {
+	await page.addInitScript(() => localStorage.setItem('ontoprism-theme', 'dark'));
+	for (const [path, selector] of [
+		['/repositories/icdo', 'main section'],
+		['/repositories/icdo/3.2/morphology', 'main td'],
+		['/repositories/icdo/3.2/morphology/ODUwMy8w', 'main']
+	] as const) {
+		await page.goto(path);
+		const color = await page.locator(selector).first().evaluate((element) => getComputedStyle(element).color);
+		expect(color, path).toBe('rgb(245, 245, 245)');
+	}
+	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
+	await expect(page.getByText('Protected intraductal papilloma')).toHaveCSS(
+		'color',
+		'rgb(212, 212, 212)'
+	);
+});
+
+test('local repository text inherits an accessible dark foreground', async ({ page }) => {
+	await page.addInitScript(() => localStorage.setItem('ontoprism-theme', 'dark'));
+	for (const path of [
+		'/repositories/ncit',
+		'/repositories/cadsr',
+		'/repositories/uberon',
+		'/repositories/icdo/3.2/morphology'
+	]) {
+		await page.goto(path);
+		const color = await page.locator('main').evaluate((element) => getComputedStyle(element).color);
+		expect(color, path).toBe('rgb(245, 245, 245)');
+	}
+});
+
 test('NCIt: server-loaded concept hydrates the browser-only graph explorer', async ({ page }) => {
 	await page.goto('/repositories/ncit/C3262');
 	await expect(page.getByText('SSR concept definition from FastAPI.')).toBeVisible();

@@ -208,6 +208,12 @@ export interface IcdoTopographyLeafRecord extends IcdoRecordBase {
 	behaviour: null;
 }
 
+export type IcdoRecord =
+	| IcdoMorphology32Record
+	| IcdoMorphology40Record
+	| IcdoTopographyCategoryRecord
+	| IcdoTopographyLeafRecord;
+
 interface IcdoDetailBase {
 	activation_identity: string;
 	serving_identity: string;

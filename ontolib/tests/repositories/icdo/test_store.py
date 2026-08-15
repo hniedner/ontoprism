@@ -2,7 +2,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
+from ontolib.repositories.icdo.models import (
+    CanonicalDataset,
+    IcdoRecord,
+    SourceShape,
+    decode_icdo_record,
+)
 from ontolib.repositories.icdo.store import canonical_sha256, dataset_manifest
 
 pytestmark = pytest.mark.unit
@@ -60,3 +65,37 @@ def test_manifest_changes_when_one_served_term_changes() -> None:
     )
 
     assert canonical_sha256(original) != canonical_sha256(changed)
+
+
+def test_persisted_json_arrays_decode_without_weakening_strict_fields() -> None:
+    record = decode_icdo_record(
+        {
+            "code": "C00.0",
+            "level": "leaf",
+            "parent_code": "C00",
+            "synonyms": [],
+            "related": ["Upper lip, NOS"],
+            "notes": [],
+            "code_references": [],
+            "see_also": [],
+            "see_notes": [],
+            "includes": [],
+            "excludes": [],
+            "other_text": ["excludes skin of upper lip C44.0"],
+        }
+    )
+
+    assert record.related == ("Upper lip, NOS",)
+    assert record.other_text == ("excludes skin of upper lip C44.0",)
+
+
+def test_persisted_record_decoder_rejects_non_array_collection_fields() -> None:
+    with pytest.raises(ValueError, match="valid tuple"):
+        decode_icdo_record(
+            {
+                "code": "C00.0",
+                "level": "leaf",
+                "parent_code": "C00",
+                "related": "Upper lip, NOS",
+            }
+        )
