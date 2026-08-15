@@ -8,8 +8,9 @@ extraction and reranking (fairdata's LLM layer) are intentionally not ported.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any, Self
+from typing import Any, Self, TypeIs
 
 import httpx
 
@@ -77,6 +78,41 @@ def is_valid_nct_id(nct_id: str) -> bool:
     return (
         len(nct_id) == _NCT_ID_LEN and nct_id.startswith("NCT") and nct_id[3:].isdigit()
     )
+
+
+def _has_valid_study_identity(study: dict[str, Any]) -> bool:
+    protocol = study.get("protocolSection")
+    if not isinstance(protocol, Mapping):
+        return False
+    identification = protocol.get("identificationModule")
+    if not isinstance(identification, Mapping):
+        return False
+    nct_id = identification.get("nctId")
+    return isinstance(nct_id, str) and is_valid_nct_id(nct_id)
+
+
+def _invalid_search_response() -> UpstreamUnavailableError:
+    return UpstreamUnavailableError(
+        "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
+    )
+
+
+def _valid_study_rows(value: object) -> TypeIs[list[dict[str, Any]]]:
+    return isinstance(value, list) and all(
+        isinstance(row, dict) and _has_valid_study_identity(row) for row in value
+    )
+
+
+def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
+    if not isinstance(data, Mapping):
+        raise _invalid_search_response()
+    raw = data.get("studies")
+    total = data.get("totalCount")
+    if not _valid_study_rows(raw):
+        raise _invalid_search_response()
+    if not isinstance(total, int):
+        raise _invalid_search_response()
+    return raw, total
 
 
 def _filter_params(status: str | None, phase: str | None) -> dict[str, str]:
@@ -189,17 +225,7 @@ class ClinicalTrialsClient:
             page_size=page_size,
         )
         data = await self._request_json("/studies", params)
-        raw = data.get("studies")
-        if not isinstance(raw, list) or not all(isinstance(row, dict) for row in raw):
-            raise UpstreamUnavailableError(
-                "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
-            )
-        studies = raw
-        total = data.get("totalCount")
-        if not isinstance(total, int):
-            raise UpstreamUnavailableError(
-                "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
-            )
+        studies, total = _validate_search_response(data)
         return CTStudySearchPage(
             condition=condition,
             intervention=intervention,

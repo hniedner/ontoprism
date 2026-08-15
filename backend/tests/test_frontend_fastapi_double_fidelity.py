@@ -1,4 +1,4 @@
-"""The built-browser FastAPI double must satisfy production API contracts."""
+"""Validate the built-browser double's ICD-O, refresh, and mapping DTOs."""
 
 import pytest
 from fastapi.testclient import TestClient

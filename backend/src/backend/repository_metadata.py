@@ -591,7 +591,6 @@ class RepositoryMetadataService:
         self._uberon_live_observation: (
             tuple[str, UberonIndexObservation, UberonClassCounts] | None
         ) = None
-        self._icdo_access: IcdoAccessCertification | None = None
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         """Return a manifest/journal/live-observation-bound NCIt identity."""
@@ -684,19 +683,13 @@ class RepositoryMetadataService:
             return _unhealthy("icdo", "manifest-invalid", exc)
 
     async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification:
-        """Certify all served ICD-O datasets once for the process access marker."""
-        if force or self._icdo_access is None:
-            observed = IcdoAccessCertification(
-                morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
-                morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
-                topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
-            )
-            if not any(
-                isinstance(result, RepositoryUnhealthy) for result in observed.values()
-            ):
-                self._icdo_access = observed
-            return observed
-        return self._icdo_access
+        """Certify the current active state of all served ICD-O datasets."""
+        del force
+        return IcdoAccessCertification(
+            morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
+        )
 
 
 def icdo_expectation(

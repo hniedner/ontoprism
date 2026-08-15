@@ -38,7 +38,7 @@ test('every repository breadcrumb link resolves and the final crumb remains iner
 	}
 });
 
-test('ICD-O entitlement is server-side, no-leak, and slash codes use one safe segment', async ({ page, request }) => {
+test('ICD-O entitlement stays out of browser-visible content and slash codes use one safe segment', async ({ page, request }) => {
 	const refused = await request.get('http://127.0.0.1:4174/repositories/icdo/3.2/morphology', {
 		headers: { 'X-ICDO-Entitlement': 'licensed' }
 	});

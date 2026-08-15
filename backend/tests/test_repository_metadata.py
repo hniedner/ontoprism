@@ -193,7 +193,7 @@ async def test_icdo_readiness_returns_typed_drift_and_unavailable_refusals() -> 
 
 
 @pytest.mark.asyncio
-async def test_icdo_readiness_reuses_certification_until_forced() -> None:
+async def test_icdo_access_recertifies_each_request() -> None:
     settings = _Settings(
         ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
     )
@@ -243,11 +243,11 @@ async def test_icdo_readiness_reuses_certification_until_forced() -> None:
 
     first = await service.icdo_access()
     second = await service.icdo_access()
-    forced = await service.icdo_access(force=True)
+    third = await service.icdo_access(force=True)
 
-    assert first is second
-    assert all(isinstance(result, IcdoRepositoryReady) for result in forced.values())
-    assert repository.calls == 6
+    assert first is not second
+    assert all(isinstance(result, IcdoRepositoryReady) for result in third.values())
+    assert repository.calls == 9
 
 
 def test_icdo_access_certification_rejects_misassigned_ready_dataset() -> None:

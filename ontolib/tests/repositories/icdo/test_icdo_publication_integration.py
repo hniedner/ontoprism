@@ -281,6 +281,39 @@ async def test_relational_icdo_columns_cannot_drift_from_payload(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("payload", "constraint"),
+    [
+        ("null", "ck_icdo_record_code_payload"),
+        ("[]", "ck_icdo_record_code_payload"),
+        ('{"preferred":"LUNG"}', "ck_icdo_record_code_payload"),
+    ],
+)
+async def test_icdo_record_payload_requires_an_identity_object(
+    payload: str, constraint: str
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        manifest = await publish_dataset(
+            make_sessionmaker(engine),
+            _dataset("LUNG"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+        with pytest.raises(IntegrityError, match=constraint):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE icdo_record SET payload=CAST(:payload AS jsonb) "
+                        "WHERE generation_id=:generation"
+                    ),
+                    {"payload": payload, "generation": manifest.generation_id},
+                )
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
 async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None:
     engine = make_engine(get_settings().database_url)
     sessions = make_sessionmaker(engine)

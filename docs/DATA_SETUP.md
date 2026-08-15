@@ -385,9 +385,9 @@ replaces stable rows plus the active manifest in one transaction.
 NCIt, caDSR, and Uberon/CL. Protected ICD-O metadata is deliberately excluded from that
 public response. `GET /api/v1/icdo/access` checks consumer entitlement before certifying
 all three served ICD-O datasets and returns only `ready-and-entitled`; its 403 and 503
-responses drive the navigation access marker. The successful certification snapshot is
-cached for the process; entitlement-gated `POST /api/v1/refresh` forces and replaces it,
-while ordinary repository reads continue to certify their requested active generation
+responses drive the navigation access marker. Each access check and entitlement-gated
+`POST /api/v1/refresh` certifies the current active generations, while ordinary repository
+reads continue to certify their requested active generation
 (`pdm run pytest
 backend/tests/test_repository_metadata_api.py backend/tests/test_icdo_api.py -q`,
 2026-08-14). NCIt additionally

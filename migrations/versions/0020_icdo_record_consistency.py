@@ -17,12 +17,13 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_icdo_record_code_payload",
         "icdo_record",
-        "code = payload->>'code'",
+        "jsonb_typeof(payload) = 'object' "
+        "AND code IS NOT DISTINCT FROM payload->>'code'",
     )
     op.create_check_constraint(
         "ck_icdo_record_level_payload",
         "icdo_record",
-        "level = payload->>'level'",
+        "level IS NOT DISTINCT FROM payload->>'level'",
     )
     op.create_check_constraint(
         "ck_icdo_record_behaviour_payload",

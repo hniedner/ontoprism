@@ -227,6 +227,24 @@ async def test_get_article_missing_returns_none(pubmed_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_get_article_rejects_xml_with_the_wrong_root() -> None:
+    class _WrongRoot(_Handler):
+        def do_GET(self) -> None:
+            self._xml('<?xml version="1.0"?><eFetchResult></eFetchResult>')
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _WrongRoot)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with _client(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.get_article("999999")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 async def test_related_pmids_drops_self(pubmed_url: str) -> None:
     async with _client(pubmed_url) as client:
         related = await client.get_related_pmids("111", link_type="similar")

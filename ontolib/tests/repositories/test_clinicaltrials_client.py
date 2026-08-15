@@ -144,6 +144,47 @@ async def test_search_maps_query_params_and_parses_summaries(ct_base_url: str) -
 
 
 @pytest.mark.unit
+async def test_search_rejects_a_non_object_response() -> None:
+    class _Scalar(_Handler):
+        def do_GET(self) -> None:
+            body = b"[]"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Scalar)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_a_study_without_a_valid_nct_id() -> None:
+    class _MissingIdentity(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [{}], "totalCount": 1})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _MissingIdentity)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 async def test_status_and_phase_filters_are_sent(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
         await client.search_studies(

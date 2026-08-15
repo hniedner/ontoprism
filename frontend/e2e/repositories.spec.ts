@@ -100,7 +100,7 @@ test('PubMed: copied URL restores search → open a server-loaded article', asyn
 	await expect(page.getByText('SSR abstract from FastAPI.')).toBeVisible();
 });
 
-test('ICD-O: entitled detail renders all publisher fields', async ({ page }) => {
+test('ICD-O: entitled detail renders publisher annotation fields', async ({ page }) => {
 	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
 	for (const value of [
 		'Publisher note',
@@ -133,7 +133,7 @@ test('ICD-O: repository text remains readable in dark mode', async ({ page }) =>
 	);
 });
 
-test('local repository text inherits an accessible dark foreground', async ({ page }) => {
+test('local repository text inherits the configured dark foreground', async ({ page }) => {
 	await page.addInitScript(() => localStorage.setItem('ontoprism-theme', 'dark'));
 	for (const path of [
 		'/repositories/ncit',
