@@ -511,6 +511,23 @@ def test_esummary_null_authors_is_an_upstream_error() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("authors", ["Smith", {}, ["Smith"], [{}]])
+def test_esummary_malformed_authors_is_an_upstream_error(authors: object) -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "111", "authors": authors}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_esearch_positive_count_requires_a_returned_identity() -> None:
+    payload = {"esearchresult": {"count": "1", "idlist": []}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esearch(payload)
+
+
+@pytest.mark.unit
 def test_extract_elink_pmids_requires_a_source_bound_linkset() -> None:
     with pytest.raises(UpstreamUnavailableError, match="invalid response"):
         _extract_elink_pmids({"linksets": []}, "pubmed_pubmed", source_pmid="111")

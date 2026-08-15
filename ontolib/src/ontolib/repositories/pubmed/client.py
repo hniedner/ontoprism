@@ -231,13 +231,30 @@ def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
     if not isinstance(count, str) or not count.isdigit():
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     total = int(count)
+    if total > 0 and not pmids:
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     return pmids, total
 
 
-def _valid_summary_docs(docs: dict[str, Any], uids: list[str]) -> bool:
-    return all(
-        isinstance(docs.get(uid), dict) and docs[uid].get("uid") == uid for uid in uids
+def _valid_summary_authors(value: object) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(author, dict)
+        and isinstance(author.get("name"), str)
+        and bool(author["name"])
+        for author in value
     )
+
+
+def _valid_summary_doc(doc: object, uid: str) -> bool:
+    return (
+        isinstance(doc, dict)
+        and doc.get("uid") == uid
+        and _valid_summary_authors(doc.get("authors", []))
+    )
+
+
+def _valid_summary_docs(docs: dict[str, Any], uids: list[str]) -> bool:
+    return all(_valid_summary_doc(docs.get(uid), uid) for uid in uids)
 
 
 def _parse_esummary_docs(summary: Any, pmids: list[str]) -> list[PubMedArticleSummary]:
