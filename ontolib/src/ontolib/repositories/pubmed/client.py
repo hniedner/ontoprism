@@ -233,13 +233,20 @@ def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
     return pmids, total
 
 
+def _valid_summary_docs(docs: dict[str, Any], uids: list[str]) -> bool:
+    return all(
+        isinstance(docs.get(uid), dict) and str(docs[uid].get("uid", "")) == uid
+        for uid in uids
+    )
+
+
 def _parse_esummary_docs(summary: Any, pmids: list[str]) -> list[PubMedArticleSummary]:
     """Map an ESummary JSON document (keyed by uid) to article summaries."""
     if not isinstance(summary, dict) or not isinstance(summary.get("result"), dict):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     docs = summary["result"]
     uids = _string_list(docs.get("uids"))
-    if uids != pmids or not all(isinstance(docs.get(uid), dict) for uid in uids):
+    if uids != pmids or not _valid_summary_docs(docs, uids):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     return [parse_esummary(uid, docs[uid]) for uid in uids]
 

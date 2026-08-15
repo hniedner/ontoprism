@@ -8,7 +8,7 @@ across separate protocol requests). Also avoids `rest*` inside owl:intersectionO
 (`rdf:rest/rdf:first`, `rdf:rest/rdf:rest/rdf:first`, ...) instead, each anchored at
 the concept itself, until a hop returns nothing.
 
-Prints, per level: the named genus class walked into, and the own-differentia roles
+Returns, per level: the named genus class walked into, and the own-differentia roles
 found strictly AT that level (i.e., roles in that level's intersectionOf list, never
 the ones inherited from further up the chain) — this is the "per-level differentia
 diffing" boundary the engine design (§6.2) proposed as the fix for the naive

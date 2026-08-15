@@ -392,6 +392,32 @@ async def test_efetch_mismatched_requested_pmid_fails_closed() -> None:
 
 
 @pytest.mark.unit
+async def test_efetch_malformed_article_fails_closed() -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = b"<PubmedArticleSet><PubmedArticle/></PubmedArticleSet>"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with _client(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.get_article("111")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 def test_extract_elink_pmids_drops_source_pmid() -> None:
     data = {
         "linksets": [
@@ -429,6 +455,14 @@ def test_esummary_missing_requested_document_fails_closed() -> None:
 
     with pytest.raises(UpstreamUnavailableError, match="invalid response"):
         _parse_esummary_docs(payload, ["111", "222"])
+
+
+@pytest.mark.unit
+def test_esummary_mismatched_internal_uid_fails_closed() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "222"}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
 
 
 @pytest.mark.unit

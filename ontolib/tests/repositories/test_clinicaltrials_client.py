@@ -249,6 +249,50 @@ async def test_get_study_rejects_malformed_nct_id(ct_base_url: str) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("payload", [[], _STUDY_TWO])
+async def test_get_study_rejects_malformed_or_mismatched_identity(
+    payload: object,
+) -> None:
+    class _Detail(_Handler):
+        def do_GET(self) -> None:
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Detail)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.get_study("NCT01234567")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_boolean_total_count() -> None:
+    class _BooleanTotal(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [], "totalCount": True})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _BooleanTotal)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 async def test_transport_error_raises_storage_error() -> None:
     # Unreachable host → transport error → retried to exhaustion, then StorageError.
     async with ClinicalTrialsClient("http://127.0.0.1:9") as client:

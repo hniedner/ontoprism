@@ -110,7 +110,7 @@ def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
     total = data.get("totalCount")
     if not _valid_study_rows(raw):
         raise _invalid_search_response()
-    if not isinstance(total, int):
+    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
         raise _invalid_search_response()
     return raw, total
 
@@ -226,16 +226,19 @@ class ClinicalTrialsClient:
         )
         data = await self._request_json("/studies", params)
         studies, total = _validate_search_response(data)
-        return CTStudySearchPage(
-            condition=condition,
-            intervention=intervention,
-            term=term,
-            total=total,
-            studies=[
-                parse_study_summary(s, index=i, total=max(len(studies), 1))
-                for i, s in enumerate(studies)
-            ],
-        )
+        try:
+            return CTStudySearchPage(
+                condition=condition,
+                intervention=intervention,
+                term=term,
+                total=total,
+                studies=[
+                    parse_study_summary(s, index=i, total=max(len(studies), 1))
+                    for i, s in enumerate(studies)
+                ],
+            )
+        except ValueError as exc:
+            raise _invalid_search_response() from exc
 
     async def get_study(self, nct_id: str) -> CTStudyDetail | None:
         """Fetch one trial by NCT id, or None if it does not exist (404).
@@ -249,7 +252,15 @@ class ClinicalTrialsClient:
         data = await self._request_json(f"/studies/{nct_id}", None, allow_404=True)
         if data is None:
             return None
-        return parse_study_detail(data)
+        if not isinstance(data, dict) or not _has_valid_study_identity(data):
+            raise _invalid_search_response()
+        try:
+            detail = parse_study_detail(data)
+        except ValueError as exc:
+            raise _invalid_search_response() from exc
+        if detail.nct_id != nct_id:
+            raise _invalid_search_response()
+        return detail
 
     async def _request_json(
         self, path: str, params: dict[str, Any] | None, *, allow_404: bool = False
