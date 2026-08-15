@@ -64,8 +64,28 @@ async def _xref_columns() -> dict[str, set[str]]:
     return observed
 
 
+async def _icdo_record_constraints() -> set[str]:
+    connection = await asyncpg.connect(_asyncpg_dsn())
+    try:
+        rows = await connection.fetch(
+            "SELECT conname FROM pg_constraint "
+            "WHERE conrelid='icdo_record'::regclass AND contype='c'"
+        )
+    finally:
+        await connection.close()
+    return {str(row["conname"]) for row in rows}
+
+
 def test_configured_xref_schema_matches_current_read_contract() -> None:
     assert asyncio.run(_xref_columns()) == _XREF_COLUMNS
+
+
+def test_configured_icdo_schema_binds_relational_columns_to_payload() -> None:
+    assert {
+        "ck_icdo_record_code_payload",
+        "ck_icdo_record_level_payload",
+        "ck_icdo_record_behaviour_payload",
+    } <= asyncio.run(_icdo_record_constraints())
 
 
 @pytest.mark.parametrize(

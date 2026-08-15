@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -227,7 +228,7 @@ async def test_search_refuses_denormalized_column_corruption() -> None:
         async with engine.begin() as connection:
             await connection.execute(
                 text(
-                    "UPDATE icdo_record SET search_text='corrupt', behaviour='9' "
+                    "UPDATE icdo_record SET search_text='corrupt' "
                     "WHERE generation_id=:id"
                 ),
                 {"id": manifest.generation_id},
@@ -242,6 +243,39 @@ async def test_search_refuses_denormalized_column_corruption() -> None:
             generation_id=manifest.generation_id,
         )
         assert result["total"] == 0
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("column", "value", "constraint"),
+    [
+        ("code", "C35", "ck_icdo_record_code_payload"),
+        ("level", "leaf", "ck_icdo_record_level_payload"),
+        ("behaviour", "9", "ck_icdo_record_behaviour_payload"),
+    ],
+)
+async def test_relational_icdo_columns_cannot_drift_from_payload(
+    column: str, value: str, constraint: str
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        manifest = await publish_dataset(
+            make_sessionmaker(engine),
+            _dataset("LUNG"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+        with pytest.raises(IntegrityError, match=constraint):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        f"UPDATE icdo_record SET {column}=:value "  # noqa: S608
+                        "WHERE generation_id=:generation"
+                    ),
+                    {"value": value, "generation": manifest.generation_id},
+                )
     finally:
         await dispose_engine(engine)
 
