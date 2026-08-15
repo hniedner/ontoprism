@@ -108,6 +108,7 @@ def _valid_search_total(total: object, studies: list[dict[str, Any]]) -> TypeIs[
         isinstance(total, int)
         and not isinstance(total, bool)
         and total >= 0
+        and len(studies) <= total
         and (total == 0 or bool(studies))
     )
 

@@ -535,6 +535,7 @@ def test_esearch_positive_count_requires_a_returned_identity() -> None:
         {"esearchresult": {"count": "1", "idlist": ["not-a-pmid"]}},
         {"esearchresult": {"count": "0", "idlist": ["111"]}},
         {"esearchresult": {"count": "1", "idlist": ["111", "222"]}},
+        {"esearchresult": {"count": "2", "idlist": ["111", "111"]}},
     ],
 )
 def test_esearch_rejects_invalid_or_inconsistent_identities(payload: object) -> None:
@@ -564,6 +565,21 @@ def test_esummary_rejects_malformed_nested_fields(changes: dict[str, object]) ->
 def test_extract_elink_pmids_requires_a_source_bound_linkset() -> None:
     with pytest.raises(UpstreamUnavailableError, match="invalid response"):
         _extract_elink_pmids({"linksets": []}, "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_rejects_non_numeric_targets() -> None:
+    data = {
+        "linksets": [
+            {
+                "ids": ["111"],
+                "linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["not-a-pmid"]}],
+            }
+        ]
+    }
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids(data, "pubmed_pubmed", source_pmid="111")
 
 
 @pytest.mark.unit

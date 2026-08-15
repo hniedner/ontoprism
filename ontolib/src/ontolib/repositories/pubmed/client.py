@@ -220,7 +220,7 @@ class PubMedClient:
 
 
 def _validate_esearch_identities(pmids: list[str], total: int) -> None:
-    if any(not pmid or not pmid.isdigit() for pmid in pmids):
+    if not _valid_pmids(pmids) or len(pmids) != len(set(pmids)):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     if len(pmids) > total or (total > 0 and not pmids):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
@@ -249,6 +249,10 @@ def _valid_summary_authors(value: object) -> bool:
         and bool(author["name"].strip())
         for author in value
     )
+
+
+def _valid_pmids(pmids: list[str]) -> bool:
+    return all(bool(pmid) and pmid.isdigit() for pmid in pmids)
 
 
 def _valid_summary_article_ids(value: object) -> bool:
@@ -301,6 +305,10 @@ def _linkset_pmids(linkset: Any, linkname: str) -> list[str]:
         links = db.get("links")
         parsed_links = [] if links is None else _string_list(links)
         if db.get("linkname") == linkname:
+            if not _valid_pmids(parsed_links):
+                raise UpstreamUnavailableError(
+                    "pubmed", "PubMed returned an invalid response."
+                )
             pmids.extend(parsed_links)
     return pmids
 
