@@ -38,6 +38,7 @@ from ontolib.decomposition.models import (
     SourceDefinitionOccurrence,
 )
 from ontolib.decomposition.provenance_models import (
+    CompletedRunForEvidence,
     CompletionRunMetrics,
     MintedConcept,
     PersistedRunMetrics,
@@ -1584,6 +1585,47 @@ class ProvenanceStore:
             )
             for row in work_item_rows
         ]
+
+    async def completed_run_for_evidence(self, run_id: str) -> CompletedRunForEvidence:
+        """Return only a completed, published run with validated immutable identity."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT status, ncit_version, source_identity, fingerprint, "
+                    "fingerprint_sha256, publication_state, "
+                    "representation_identity, publication_artifact_path "
+                    "FROM decomp_run WHERE id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+            row = result.mappings().first()
+            if row is None:
+                raise RunStateError(f"decomposition run {run_id!r} does not exist")
+            if row["status"] != "complete" or row["publication_state"] != "published":
+                raise RunStateError(
+                    f"decomposition run {run_id!r} is not complete and published"
+                )
+            fingerprint = self._validated_fingerprint(
+                row["fingerprint"], row["fingerprint_sha256"]
+            )
+            await self._require_materialized_worklist(session, run_id, fingerprint)
+            if row["source_identity"] != fingerprint.source_identity:
+                raise RunIdentityMismatchError(
+                    "persisted run source identity does not match its fingerprint"
+                )
+            representation_identity = row["representation_identity"]
+            artifact_path = row["publication_artifact_path"]
+            if representation_identity is None or artifact_path is None:
+                raise RunStateError(
+                    f"decomposition run {run_id!r} lacks publication evidence"
+                )
+            return CompletedRunForEvidence(
+                run_id=run_id,
+                ncit_version=row["ncit_version"],
+                fingerprint=fingerprint,
+                representation_identity=representation_identity,
+                publication_artifact_path=artifact_path,
+            )
 
     async def outcome_counts(self, run_id: str) -> RunOutcomeCounts:
         """Return cumulative counters over the materialized exact worklist."""

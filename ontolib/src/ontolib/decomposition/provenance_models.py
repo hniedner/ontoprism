@@ -135,6 +135,18 @@ class RunFingerprint(BaseModel):
         return hashlib.sha256(encoded).hexdigest()
 
 
+class CompletedRunForEvidence(BaseModel):
+    """Validated completed publication fields needed by evidence generation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    run_id: str = Field(pattern=r"^[A-Za-z0-9_.:-]+$", min_length=1)
+    ncit_version: str = Field(min_length=1)
+    fingerprint: RunFingerprint
+    representation_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    publication_artifact_path: str = Field(min_length=1)
+
+
 class RunResumeIdentity(BaseModel):
     """Caller-controlled dimensions that must match a persisted resumable run."""
 
