@@ -55,7 +55,21 @@ def _workbook(path: Path) -> None:
         ]
     )
     topography.append([None, "3", "OTHER AND ILL-DEFINED SITES"])
-    topography.append(["C76.0", "Preferred", "Head, face or neck, NOS"])
+    topography.append(
+        [
+            "C76.0",
+            "Preferred",
+            "Head, face or neck, NOS",
+            "Publisher note",
+            "Code reference",
+            "Observation",
+            "See also",
+            "See note",
+            "Included term",
+            "Excluded term",
+            "Other publisher text",
+        ]
+    )
     topography.append(["C76.0", "Related", "Head NOS"])
     workbook.save(path)
 
@@ -73,6 +87,14 @@ def test_synthetic_xlsx_preserves_optional_state_and_category_hierarchy(
     assert result.morphology.records[1].preferred is None
     assert result.topography.records[0].code == "C76"
     assert result.topography.records[1].parent_code == "C76"
+    detail = result.topography.records[1]
+    assert detail.notes == ("Publisher note", "Observation")
+    assert detail.code_references == ("Code reference",)
+    assert detail.see_also == ("See also",)
+    assert detail.see_notes == ("See note",)
+    assert detail.includes == ("Included term",)
+    assert detail.excludes == ("Excluded term",)
+    assert detail.other_text == ("Other publisher text",)
 
 
 def test_zip_and_annex_digest_contracts(
@@ -144,3 +166,9 @@ def test_term_and_cell_gates_fail_closed() -> None:
         )
     with pytest.raises(ingest.SourceFormatError, match="unsupported source cell type"):
         ingest._text(object())
+    with pytest.raises(ingest.SourceFormatError, match=r"row 3: invalid .* code"):
+        ingest._records(
+            [("NOT-A-CODE", "Preferred", "Malformed")],
+            edition="4.0",
+            axis="topography",
+        )

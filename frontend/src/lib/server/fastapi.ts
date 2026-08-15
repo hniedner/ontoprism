@@ -6,6 +6,7 @@ function configuredTransport(): FastApiTransport {
 	return {
 		origin: parseFastApiOrigin(env.ONTOPRISM_FASTAPI_ORIGIN),
 		timeoutMs: parseFastApiTimeout(env.ONTOPRISM_FASTAPI_TIMEOUT_MS),
+		icdoEntitlement: env.ICDO_ENTITLEMENT_KEY || undefined,
 		fetch
 	};
 }

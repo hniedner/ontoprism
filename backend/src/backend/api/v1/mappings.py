@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from backend.api.v1.alignment import mapping_relative_to
 from backend.config import get_settings
 from backend.dependencies import RepositoryMetadataReads, XrefReads
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
 from ontolib.repositories.xref.models import (
@@ -142,7 +143,11 @@ async def _read_policy(
 ) -> XrefReadPolicy:
     ncit = await metadata.ncit()
     uberon = await metadata.uberon()
-    icdo = await metadata.icdo("3.2", "morphology") if include_icdo else None
+    icdo = (
+        await metadata.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY)
+        if include_icdo
+        else None
+    )
     if isinstance(ncit, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Mapping sources are unavailable."

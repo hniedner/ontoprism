@@ -25,6 +25,7 @@ const UNTRUSTED_FORWARDING_HEADERS = new Set([
 export interface FastApiTransport {
 	readonly origin: URL;
 	readonly timeoutMs: number;
+	readonly icdoEntitlement?: string;
 	readonly fetch: typeof fetch;
 }
 
@@ -49,12 +50,26 @@ function copyHeaders(source: Headers, omitted: ReadonlySet<string>): Headers {
 	return headers;
 }
 
-function requestHeaders(source: Headers, clientAddress: string): Headers {
+function requestHeaders(
+	source: Headers,
+	clientAddress: string,
+	pathname: string,
+	icdoEntitlement: string | undefined
+): Headers {
 	const headers = copyHeaders(
 		source,
-		new Set(['content-length', 'host', ...UNTRUSTED_FORWARDING_HEADERS])
+		new Set([
+			'content-length',
+			'cookie',
+			'host',
+			'x-icdo-entitlement',
+			...UNTRUSTED_FORWARDING_HEADERS
+		])
 	);
 	headers.set('x-forwarded-for', clientAddress);
+	if (icdoEntitlement && isIcdoProtectedPath(pathname)) {
+		headers.set('x-icdo-entitlement', icdoEntitlement);
+	}
 	return headers;
 }
 
@@ -84,7 +99,12 @@ export async function forwardFastApiWith(
 	const method = request.method.toUpperCase();
 	const init: RequestInit = {
 		method,
-		headers: requestHeaders(request.headers, clientAddress),
+		headers: requestHeaders(
+			request.headers,
+			clientAddress,
+			upstream.pathname,
+			transport.icdoEntitlement
+		),
 		redirect: 'manual',
 		signal: AbortSignal.any([request.signal, AbortSignal.timeout(transport.timeoutMs)])
 	};
@@ -112,3 +132,4 @@ export async function forwardFastApiWith(
 		return gatewayFailure(503, 'FastAPI is unreachable');
 	}
 }
+import { isIcdoProtectedPath } from '$lib/icdo-routes';

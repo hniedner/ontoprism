@@ -8,8 +8,9 @@ extraction and reranking (fairdata's LLM layer) are intentionally not ported.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any, Self
+from typing import Any, Self, TypeIs
 
 import httpx
 
@@ -77,6 +78,58 @@ def is_valid_nct_id(nct_id: str) -> bool:
     return (
         len(nct_id) == _NCT_ID_LEN and nct_id.startswith("NCT") and nct_id[3:].isdigit()
     )
+
+
+def _has_valid_study_identity(study: dict[str, Any]) -> bool:
+    protocol = study.get("protocolSection")
+    if not isinstance(protocol, Mapping):
+        return False
+    identification = protocol.get("identificationModule")
+    if not isinstance(identification, Mapping):
+        return False
+    nct_id = identification.get("nctId")
+    return isinstance(nct_id, str) and is_valid_nct_id(nct_id)
+
+
+def _study_nct_id(study: dict[str, Any]) -> str:
+    return study["protocolSection"]["identificationModule"]["nctId"]
+
+
+def _invalid_search_response() -> UpstreamUnavailableError:
+    return UpstreamUnavailableError(
+        "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
+    )
+
+
+def _valid_study_rows(value: object) -> TypeIs[list[dict[str, Any]]]:
+    if not isinstance(value, list) or not all(
+        isinstance(row, dict) and _has_valid_study_identity(row) for row in value
+    ):
+        return False
+    identities = [_study_nct_id(row) for row in value]
+    return len(identities) == len(set(identities))
+
+
+def _valid_search_total(total: object, studies: list[dict[str, Any]]) -> TypeIs[int]:
+    return (
+        isinstance(total, int)
+        and not isinstance(total, bool)
+        and total >= 0
+        and len(studies) <= total
+        and (total == 0 or bool(studies))
+    )
+
+
+def _validate_search_response(data: object) -> tuple[list[dict[str, Any]], int]:
+    if not isinstance(data, Mapping):
+        raise _invalid_search_response()
+    raw = data.get("studies")
+    total = data.get("totalCount")
+    if not _valid_study_rows(raw):
+        raise _invalid_search_response()
+    if not _valid_search_total(total, raw):
+        raise _invalid_search_response()
+    return raw, total
 
 
 def _filter_params(status: str | None, phase: str | None) -> dict[str, str]:
@@ -178,7 +231,7 @@ class ClinicalTrialsClient:
 
         Raises:
             ValueError: if *status*/*phase* is not a valid CT.gov v2 enum value.
-            StorageError: on a transport error or a non-2xx response.
+            StorageError: on transport, HTTP, or invalid upstream response data.
         """
         params = self._build_search_params(
             condition=condition,
@@ -189,38 +242,42 @@ class ClinicalTrialsClient:
             page_size=page_size,
         )
         data = await self._request_json("/studies", params)
-        # Guard present-but-null (not just absent): a `"studies": null` body would make
-        # `.get("studies", [])` return None and crash the len()/enumerate below.
-        raw = data.get("studies")
-        studies = raw if isinstance(raw, list) else []
-        total = data.get("totalCount")
-        if not isinstance(total, int):
-            total = len(studies)
-        return CTStudySearchPage(
-            condition=condition,
-            intervention=intervention,
-            term=term,
-            total=total,
-            studies=[
-                parse_study_summary(s, index=i, total=max(len(studies), 1))
-                for i, s in enumerate(studies)
-                if isinstance(s, dict)
-            ],
-        )
+        studies, total = _validate_search_response(data)
+        try:
+            return CTStudySearchPage(
+                condition=condition,
+                intervention=intervention,
+                term=term,
+                total=total,
+                studies=[
+                    parse_study_summary(s, index=i, total=max(len(studies), 1))
+                    for i, s in enumerate(studies)
+                ],
+            )
+        except ValueError as exc:
+            raise _invalid_search_response() from exc
 
     async def get_study(self, nct_id: str) -> CTStudyDetail | None:
         """Fetch one trial by NCT id, or None if it does not exist (404).
 
         Raises:
             ValueError: if *nct_id* is not the ``NCT`` + 8-digit shape.
-            StorageError: on a transport error or a non-2xx (non-404) response.
+            StorageError: on transport, HTTP, or invalid upstream response data.
         """
         if not is_valid_nct_id(nct_id):
             raise ValueError(f"Invalid NCT id: {nct_id!r}")
         data = await self._request_json(f"/studies/{nct_id}", None, allow_404=True)
         if data is None:
             return None
-        return parse_study_detail(data)
+        if not isinstance(data, dict) or not _has_valid_study_identity(data):
+            raise _invalid_search_response()
+        try:
+            detail = parse_study_detail(data)
+        except ValueError as exc:
+            raise _invalid_search_response() from exc
+        if detail.nct_id != nct_id:
+            raise _invalid_search_response()
+        return detail
 
     async def _request_json(
         self, path: str, params: dict[str, Any] | None, *, allow_404: bool = False

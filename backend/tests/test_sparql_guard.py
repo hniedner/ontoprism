@@ -26,6 +26,7 @@ _APP_OPERATIONS = {
     ("GET", "/api/v1/uberon/concepts/{code}"),
     ("GET", "/api/v1/uberon/concepts/{code}/alignments"),
     ("GET", "/api/v1/uberon/concepts/{code}/neighborhood"),
+    ("GET", "/api/v1/icdo/access"),
     ("GET", "/api/v1/icdo/{edition}/{axis}/metadata"),
     ("GET", "/api/v1/icdo/{edition}/{axis}/list"),
     ("GET", "/api/v1/icdo/{edition}/{axis}/search"),

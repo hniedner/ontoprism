@@ -38,72 +38,97 @@ test('every repository breadcrumb link resolves and the final crumb remains iner
 	}
 });
 
-test('ICD-O entitlement is server-side, no-leak, and slash codes use one safe segment', async ({
-	browser,
-	request
-}) => {
-	const refused = await request.get('/repositories/icdo/3.2/morphology');
+test('ICD-O entitlement key stays out of browser-visible content and slash codes use one safe segment', async ({ page, request }) => {
+	const refused = await request.get('http://127.0.0.1:4174/repositories/icdo/3.2/morphology', {
+		headers: { 'X-ICDO-Entitlement': 'licensed' }
+	});
 	expect(refused.status()).toBe(403);
 	const refusedHtml = await refused.text();
 	expect(refusedHtml).not.toContain('Protected intraductal papilloma');
 	expect(refusedHtml).not.toContain('Protected papilloma synonym');
 
-	const context = await browser.newContext();
-	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
-	const page = await context.newPage();
 	const list = await page.goto('/repositories/icdo/3.2/morphology');
 	expect(list?.status()).toBe(200);
-	expect(await list?.text()).toContain('Protected intraductal papilloma');
+	expect(await list?.text()).toContain('Protected ICD-O-3.2 morphology');
 	await page.getByRole('link', { name: '8503/0' }).click();
 	await expect(page).toHaveURL('/repositories/icdo/3.2/morphology/ODUwMy8w');
 	expect(new URL(page.url()).pathname.split('/').at(-1)).toBe('ODUwMy8w');
 	await expect(page.getByText('Protected papilloma synonym')).toBeVisible();
 	await page.reload();
 	await expect(page.getByRole('heading', { name: '8503/0' })).toBeVisible();
-	await context.close();
+	expect(await page.context().cookies()).toEqual([]);
+	const browserStorage = await page.evaluate(() =>
+		JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } })
+	);
+	expect(browserStorage).not.toContain('licensed');
+	expect(browserStorage).not.toContain('icdo_entitlement');
+	expect(page.url()).not.toContain('licensed');
+	expect(await list?.text()).not.toContain('licensed');
+	const javascriptUrls = await page.evaluate(() =>
+		performance
+			.getEntriesByType('resource')
+			.map((entry) => entry.name)
+			.filter((url) => url.endsWith('.js'))
+	);
+	expect(javascriptUrls.length).toBeGreaterThan(0);
+	for (const url of javascriptUrls) {
+		expect(await (await request.get(url)).text()).not.toContain('licensed');
+	}
 });
 
-test('P334 reciprocal alignment links are accessible in both entitled directions', async ({ browser, page }) => {
+test('P334 reciprocal alignment links are accessible in both entitled directions', async ({ page }) => {
 	const ncit = await page.goto('/repositories/ncit/C188218');
 	expect(ncit?.status()).toBe(200);
-	const publicHtml = await ncit?.text();
-	expect(publicHtml).not.toContain('8240/3');
-	expect(publicHtml).not.toContain('8241/3');
-	expect(publicHtml).not.toContain('8248/1');
-	expect(publicHtml).not.toContain('8503/0');
-
-	const context = await browser.newContext();
-	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
-	const protectedPage = await context.newPage();
-	const entitledNcit = await protectedPage.goto('/repositories/ncit/C188218');
-	expect(entitledNcit?.status()).toBe(200);
 	for (const [code, segment] of [['8240/3', 'ODI0MC8z'], ['8241/3', 'ODI0MS8z'], ['8248/1', 'ODI0OC8x']] as const) {
-		await expect(protectedPage.getByRole('link', { name: `Open aligned ICD-O-3.2 morphology code ${code}` })).toHaveAttribute(
+		await expect(page.getByRole('link', { name: `Open aligned ICD-O-3.2 morphology code ${code}` })).toHaveAttribute(
 			'href',
 			`/repositories/icdo/3.2/morphology/${segment}`
 		);
 	}
 
-	await protectedPage.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
+	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
 	for (const code of ['C45194', 'C71720', 'C80281', 'C80289', 'C80291', 'C8851', 'C9496']) {
-		await expect(protectedPage.getByRole('link', { name: `Open aligned NCIt concept ${code}` })).toBeVisible();
+		await expect(page.getByRole('link', { name: `Open aligned NCIt concept ${code}` })).toBeVisible();
 	}
-	await context.close();
 });
 
-test('protected congruence report is present in entitled initial HTML only', async ({ browser, request }) => {
-	const refused = await request.get('/repositories/icdo/4.0/topography/congruence');
+test('protected congruence report is present in entitled initial HTML only', async ({ request }) => {
+	const refused = await request.get('http://127.0.0.1:4174/repositories/icdo/4.0/topography/congruence');
 	expect(refused.status()).toBe(403);
 	expect(await refused.text()).not.toContain('C34.9');
-	const context = await browser.newContext();
-	await context.addCookies([{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173', httpOnly: true }]);
-	const response = await context.request.get('/repositories/icdo/4.0/topography/congruence');
+	const response = await request.get('/repositories/icdo/4.0/topography/congruence');
 	expect(response.status()).toBe(200);
 	const html = await response.text();
 	expect(html).toContain('All 406 ICD-O-4 topography codes are classified once.');
 	expect(html).toContain('C34.9');
 	expect(html).not.toContain('exactMatch');
-	await context.close();
+});
+
+test('all ICD-O datasets support search, pagination, detail, and explicit access status', async ({ page, request }) => {
+	for (const [edition, axis, code] of [
+		['3.2', 'morphology', '8503/0'],
+		['4.0', 'morphology', '8240/3'],
+		['4.0', 'topography', 'C34.9']
+	] as const) {
+		await page.goto(`/repositories/icdo/${edition}/${axis}?q=protected`);
+		await expect(page.getByRole('heading', { name: `ICD-O-${edition} ${axis}` })).toBeVisible();
+		await page.getByRole('button', { name: 'Next page' }).click();
+		await expect(page).toHaveURL(new RegExp(`q=protected&offset=25$`));
+		await page.getByRole('link', { name: code }).click();
+		await expect(page.getByRole('heading', { name: code })).toBeVisible();
+	}
+
+	await page.goto('/repositories/icdo');
+	await expect(page.getByLabel('Ready and entitled').first()).toBeVisible();
+	const refused = await request.get('http://127.0.0.1:4174/repositories/icdo');
+	expect(await refused.text()).toContain('Entitlement required');
+});
+
+test('browser-side decomposition receives entitled ICD-O mappings through the BFF', async ({ request }) => {
+	const response = await request.get('/api/v1/ncit/concepts/C3262/decomposition');
+	expect(response.status()).toBe(200);
+	const body = await response.json();
+	expect(body.constituents[0].upstream[0].object_id).toBe('8503/0');
 });
 
 test('built adapter-node SSR includes NCIt browse data and hydration does not fetch it twice', async ({

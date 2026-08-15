@@ -13,6 +13,7 @@ from backend.dependencies import (
     get_repository_metadata,
     get_xref_store,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from ontolib.core.exceptions import StorageError
 from ontolib.decomposition import vocab
@@ -101,8 +102,8 @@ class _FakeMetadata:
             {"source_identity": "c" * 64, "observation": observation},
         )()
 
-    async def icdo(self, edition: str, axis: str) -> object:
-        del edition, axis
+    async def icdo(self, dataset: ServedIcdoDataset) -> object:
+        del dataset
         return type(
             "IcdoReady",
             (),

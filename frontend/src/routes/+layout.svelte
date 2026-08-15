@@ -7,10 +7,12 @@
 	import { buildBreadcrumbs } from '$lib/breadcrumbs';
 	import { cn } from '$lib/utils/cn';
 	import LoadingState from '$lib/components/LoadingState.svelte';
+	import IcdoAccessBadge from '$lib/components/IcdoAccessBadge.svelte';
 	import RepositoryKindBadge from '$lib/components/RepositoryKindBadge.svelte';
 	import { repositories } from '$lib/repository-registry';
+	import type { LayoutProps } from './$types';
 
-	let { children } = $props();
+	let { children, data }: LayoutProps = $props();
 
 	const crumbs = $derived(buildBreadcrumbs(page.url.pathname));
 
@@ -34,7 +36,7 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="flex min-h-screen flex-col bg-page-bg-subtle dark:bg-neutral-950">
+<div class="flex min-h-screen flex-col bg-page-bg-subtle text-default dark:bg-neutral-950">
 	<div class="pointer-events-none fixed inset-x-0 top-24 z-50" aria-live="polite">
 		<LoadingState active={navigating.to !== null} label="Loading page" minHeight="0" />
 	</div>
@@ -83,6 +85,9 @@
 					>
 						<span>{item.label}</span>
 						<RepositoryKindBadge kind={item.kind} compact />
+						{#if item.id === 'icdo'}
+							<IcdoAccessBadge status={data.icdoAccess} compact />
+						{/if}
 					</a>
 				{/each}
 				<a href={resolve('/refresh')} class="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 no-underline hover:bg-white/10 hover:text-white">Refresh</a>

@@ -33,6 +33,7 @@ import typer
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import (
     RepositoryMetadataService,
     RepositoryUnhealthy,
@@ -806,7 +807,9 @@ async def _build_p334_alignments() -> None:
                 XrefStore(sessions),
                 ncit_client,
                 IcdoRepository(sessions),
-                icdo_expected=icdo_expectation(settings, "3.2", "morphology"),
+                icdo_expected=icdo_expectation(
+                    settings, ServedIcdoDataset.ICDO_32_MORPHOLOGY
+                ),
                 ncit_source_identity=ncit_ready.source_identity,
             )
     finally:

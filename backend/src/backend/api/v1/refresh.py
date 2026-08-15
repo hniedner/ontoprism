@@ -26,7 +26,7 @@ from backend.repository_metadata import (
     RepositoryUnhealthy,
     observe_uberon_repository,
 )
-from backend.security import RequireApiKey
+from backend.security import RequireApiKey, RequireIcdoEntitlement
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
@@ -55,18 +55,21 @@ class RefreshReport(BaseModel):
     repositories: list[RepositoryMetadata]
 
 
-@router.post("", response_model=RefreshReport, dependencies=[RequireApiKey])
+@router.post(
+    "",
+    response_model=RefreshReport,
+    dependencies=[RequireApiKey, RequireIcdoEntitlement],
+)
 async def refresh(
     metadata: RepositoryMetadataReads,
 ) -> RefreshReport:
     """Re-certify local proxies and return their certified repository identities."""
+    icdo = await metadata.icdo_access(force=True)
     repositories: list[RepositoryMetadata] = [
         await metadata.ncit(),
         metadata.cadsr(),
         await metadata.uberon(force=True),
-        await metadata.icdo("3.2", "morphology"),
-        await metadata.icdo("4.0", "morphology"),
-        await metadata.icdo("4.0", "topography"),
+        *icdo.values(),
     ]
     return RefreshReport(
         refreshed_at=datetime.now(UTC).isoformat(), repositories=repositories

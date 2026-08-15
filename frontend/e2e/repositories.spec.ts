@@ -100,10 +100,7 @@ test('PubMed: copied URL restores search → open a server-loaded article', asyn
 	await expect(page.getByText('SSR abstract from FastAPI.')).toBeVisible();
 });
 
-test('ICD-O: entitled detail renders all publisher fields', async ({ page, context }) => {
-	await context.addCookies([
-		{ name: 'icdo_entitlement', value: 'licensed', url: 'http://localhost:4173' }
-	]);
+test('ICD-O: entitled detail renders publisher annotation fields', async ({ page }) => {
 	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
 	for (const value of [
 		'Publisher note',
@@ -115,6 +112,38 @@ test('ICD-O: entitled detail renders all publisher fields', async ({ page, conte
 		'Other publisher text'
 	]) {
 		await expect(page.getByRole('listitem').filter({ hasText: value })).toBeVisible();
+	}
+});
+
+test('ICD-O: repository text remains readable in dark mode', async ({ page }) => {
+	await page.addInitScript(() => localStorage.setItem('ontoprism-theme', 'dark'));
+	for (const [path, selector] of [
+		['/repositories/icdo', 'main section'],
+		['/repositories/icdo/3.2/morphology', 'main td'],
+		['/repositories/icdo/3.2/morphology/ODUwMy8w', 'main']
+	] as const) {
+		await page.goto(path);
+		const color = await page.locator(selector).first().evaluate((element) => getComputedStyle(element).color);
+		expect(color, path).toBe('rgb(245, 245, 245)');
+	}
+	await page.goto('/repositories/icdo/3.2/morphology/ODUwMy8w');
+	await expect(page.getByText('Protected intraductal papilloma')).toHaveCSS(
+		'color',
+		'rgb(212, 212, 212)'
+	);
+});
+
+test('local repository text inherits the configured dark foreground', async ({ page }) => {
+	await page.addInitScript(() => localStorage.setItem('ontoprism-theme', 'dark'));
+	for (const path of [
+		'/repositories/ncit',
+		'/repositories/cadsr',
+		'/repositories/uberon',
+		'/repositories/icdo/3.2/morphology'
+	]) {
+		await page.goto(path);
+		const color = await page.locator('main').evaluate((element) => getComputedStyle(element).color);
+		expect(color, path).toBe('rgb(245, 245, 245)');
 	}
 });
 
@@ -179,13 +208,13 @@ test('NCIt: published representation status survives browse, search, detail, and
 	await graphSearch.fill('C3262');
 	await graphSearch.press('Enter');
 	await expect(page.getByRole('heading', { name: 'SSR Detail Concept', level: 4 })).toBeVisible();
-	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(3);
 
 	await page.getByRole('button', { name: 'Semantic type' }).click();
 	await expect(page.locator('html')).toHaveClass(/dark/);
 	await page.getByRole('button', { name: 'Toggle theme' }).click();
 	await expect(page.locator('html')).not.toHaveClass(/dark/);
-	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(2);
+	await expect(page.getByText('Legacy pre-coordinated', { exact: true })).toHaveCount(3);
 	await page.getByRole('button', { name: 'Communities' }).click();
 
 	await page.getByRole('button', { name: 'Legacy pre-coordinated only' }).click();

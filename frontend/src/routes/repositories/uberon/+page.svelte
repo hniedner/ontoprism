@@ -22,7 +22,7 @@
 
 <RepoBrowsePage
 	title="Uberon/CL Concepts"
-	route="/repositories/uberon"
+	route={resolve('/repositories/uberon')}
 	description="Browse the certified combined Uberon and Cell Ontology index, including named hierarchy and OWL restriction relations."
 	placeholder="Search Uberon/CL concepts… e.g. lung"
 	ariaLabel="Search Uberon and Cell Ontology"

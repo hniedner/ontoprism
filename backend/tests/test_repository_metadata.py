@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import (
     CadsrRepositoryReady,
+    IcdoAccessCertification,
     IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryMetadataError,
@@ -23,7 +25,11 @@ from backend.repository_metadata import (
 )
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.cadsr.archive import CadsrSource
-from ontolib.repositories.icdo.store import IcdoCertificationError, IcdoManifest
+from ontolib.repositories.icdo.store import (
+    CertificationExpectation,
+    IcdoCertificationError,
+    IcdoManifest,
+)
 from ontolib.terminologies.ncit.activation import ActivationJournal
 from ontolib.terminologies.ncit.sibling_store import (
     QLEVER_IMAGE,
@@ -101,15 +107,15 @@ def _uberon_counts() -> UberonClassCounts:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("edition", "axis", "count"),
+    ("dataset", "count"),
     [
-        ("3.2", "morphology", 1143),
-        ("4.0", "morphology", 2390),
-        ("4.0", "topography", 406),
+        (ServedIcdoDataset.ICDO_32_MORPHOLOGY, 1143),
+        (ServedIcdoDataset.ICDO_40_MORPHOLOGY, 2390),
+        (ServedIcdoDataset.ICDO_40_TOPOGRAPHY, 406),
     ],
 )
 async def test_icdo_readiness_is_bound_to_certified_active_dataset(
-    edition: str, axis: str, count: int
+    dataset: ServedIcdoDataset, count: int
 ) -> None:
     settings = _Settings(
         ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
@@ -117,21 +123,33 @@ async def test_icdo_readiness_is_bound_to_certified_active_dataset(
 
     class _Icdo:
         async def certified_metadata(
-            self, observed_edition: str, observed_axis: str, expected: object
+            self,
+            edition: str,
+            axis: str,
+            expected: CertificationExpectation,
         ) -> IcdoManifest:
-            assert (observed_edition, observed_axis) == (edition, axis)
+            assert (edition, axis) == dataset.value
             source = (
                 settings.icdo_32_morphology_source_sha256
-                if edition == "3.2"
+                if dataset.edition == "3.2"
                 else settings.icdo_40_source_sha256
             )
             serving = getattr(
-                settings, f"icdo_{edition.replace('.', '')}_{axis}_serving_sha256"
+                settings,
+                "icdo_"
+                f"{dataset.edition.replace('.', '')}_{dataset.axis}_serving_sha256",
+            )
+            assert expected == CertificationExpectation(
+                source_sha256=source,
+                edition=dataset.edition,
+                axis=dataset.axis,
+                row_count=count,
+                serving_sha256=serving,
             )
             return IcdoManifest(
                 generation_id="a" * 64,
-                edition=edition,
-                axis=axis,
+                edition=dataset.edition,
+                axis=dataset.axis,
                 publisher_url="https://example.test",
                 source_sha256=source,
                 archive_sha256=None,
@@ -145,9 +163,9 @@ async def test_icdo_readiness_is_bound_to_certified_active_dataset(
 
     result = await RepositoryMetadataService(
         settings=settings, cadsr=_CertifiedCadsr(), icdo=_Icdo()
-    ).icdo(edition, axis)
+    ).icdo(dataset)
     assert isinstance(result, IcdoRepositoryReady)
-    assert (result.edition, result.axis, result.row_count) == (edition, axis, count)
+    assert (result.edition, result.axis, result.row_count) == (*dataset.value, count)
 
 
 @pytest.mark.asyncio
@@ -164,14 +182,159 @@ async def test_icdo_readiness_returns_typed_drift_and_unavailable_refusals() -> 
 
     drift = await RepositoryMetadataService(
         settings=settings, cadsr=_CertifiedCadsr(), icdo=_Drift()
-    ).icdo("4.0", "topography")
+    ).icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY)
     unavailable = await RepositoryMetadataService(
         settings=settings, cadsr=_CertifiedCadsr()
-    ).icdo("4.0", "topography")
+    ).icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY)
     assert isinstance(drift, RepositoryUnhealthy)
     assert drift.reason == "observation-mismatch"
     assert isinstance(unavailable, RepositoryUnhealthy)
     assert unavailable.reason == "repository-unreachable"
+
+
+@pytest.mark.asyncio
+async def test_icdo_access_recertifies_each_request() -> None:
+    settings = _Settings(
+        ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
+    )
+
+    class _Icdo:
+        calls = 0
+
+        async def certified_metadata(
+            self,
+            edition: str,
+            axis: str,
+            expected: CertificationExpectation,
+        ) -> IcdoManifest:
+            del expected
+            self.calls += 1
+            source = (
+                settings.icdo_32_morphology_source_sha256
+                if edition == "3.2"
+                else settings.icdo_40_source_sha256
+            )
+            return IcdoManifest(
+                generation_id="a" * 64,
+                edition="3.2" if edition == "3.2" else "4.0",
+                axis="topography" if axis == "topography" else "morphology",
+                publisher_url="https://example.test",
+                source_sha256=source,
+                archive_sha256=None,
+                annex_sha256=None,
+                reader_identity="reader",
+                serving_sha256=getattr(
+                    settings,
+                    f"icdo_{edition.replace('.', '')}_{axis}_serving_sha256",
+                ),
+                row_count={
+                    ("3.2", "morphology"): 1143,
+                    ("4.0", "morphology"): 2390,
+                    ("4.0", "topography"): 406,
+                }[(edition, axis)],
+                term_counts={},
+                published_at=datetime.now(UTC),
+            )
+
+    repository = _Icdo()
+    service = RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr(), icdo=repository
+    )
+
+    first = await service.icdo_access()
+    second = await service.icdo_access()
+    third = await service.icdo_access(force=True)
+
+    assert first is not second
+    assert all(isinstance(result, IcdoRepositoryReady) for result in third.values())
+    assert repository.calls == 9
+
+
+def test_icdo_access_certification_rejects_misassigned_ready_dataset() -> None:
+    topography = IcdoRepositoryReady(
+        edition="4.0",
+        axis="topography",
+        source_identity="a" * 64,
+        serving_identity="b" * 64,
+        activation_identity="c" * 64,
+        row_count=406,
+        activated_at=datetime.now(UTC),
+    )
+
+    with pytest.raises(ValueError, match="dataset mismatch"):
+        IcdoAccessCertification(
+            morphology_32=topography,
+            morphology_40=topography,
+            topography_40=topography,
+        )
+
+
+def test_icdo_ready_metadata_rejects_an_unserved_dataset() -> None:
+    with pytest.raises(ValueError, match="served dataset"):
+        IcdoRepositoryReady(
+            edition="3.2",
+            axis="topography",
+            source_identity="a" * 64,
+            serving_identity="b" * 64,
+            activation_identity="c" * 64,
+            row_count=1,
+            activated_at=datetime.now(UTC),
+        )
+
+
+@pytest.mark.asyncio
+async def test_icdo_access_retries_after_an_unhealthy_snapshot() -> None:
+    settings = _Settings(
+        ncit_store_dir="/missing", ncit_sparql_url="http://example.test"
+    )
+
+    class _Icdo:
+        calls = 0
+
+        async def certified_metadata(
+            self, edition: str, axis: str, expected: CertificationExpectation
+        ) -> IcdoManifest:
+            del expected
+            self.calls += 1
+            if self.calls == 1:
+                raise IcdoCertificationError("transient observation failure")
+            return IcdoManifest(
+                generation_id="a" * 64,
+                edition="3.2" if edition == "3.2" else "4.0",
+                axis="topography" if axis == "topography" else "morphology",
+                publisher_url="https://example.test",
+                source_sha256=(
+                    settings.icdo_32_morphology_source_sha256
+                    if edition == "3.2"
+                    else settings.icdo_40_source_sha256
+                ),
+                archive_sha256=None,
+                annex_sha256=None,
+                reader_identity="reader",
+                serving_sha256=getattr(
+                    settings,
+                    f"icdo_{edition.replace('.', '')}_{axis}_serving_sha256",
+                ),
+                row_count={
+                    ("3.2", "morphology"): 1143,
+                    ("4.0", "morphology"): 2390,
+                    ("4.0", "topography"): 406,
+                }[(edition, axis)],
+                term_counts={},
+                published_at=datetime.now(UTC),
+            )
+
+    repository = _Icdo()
+    service = RepositoryMetadataService(
+        settings=settings, cadsr=_CertifiedCadsr(), icdo=repository
+    )
+
+    first = await service.icdo_access()
+    second = await service.icdo_access()
+
+    assert isinstance(first.morphology_32, RepositoryUnhealthy)
+    assert all(isinstance(result, IcdoRepositoryReady) for result in second.values())
+    assert repository.calls == 6
 
 
 def _certified_uberon_observation(

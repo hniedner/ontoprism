@@ -55,4 +55,4 @@ def test_migration_head_includes_icdo_repositories() -> None:
     referenced = {module.down_revision for module in modules}
     heads = {module.revision for module in modules} - referenced
 
-    assert heads == {"0019_icdo_repositories"}
+    assert heads == {"0020_icdo_record_consistency"}

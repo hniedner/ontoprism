@@ -52,6 +52,7 @@ _HEADERS = (
     "Excludes",
     "Other text",
 )
+_ROW_WIDTH = {"morphology": 10, "topography": 11}
 
 
 class SourceFormatError(ValueError):
@@ -104,8 +105,11 @@ def _topography_category_code(
     return code
 
 
-def _valid_row(code: str | None, level: str | None) -> bool:
-    return code is not None and level in {"Preferred", "Synonym", "Related", "3"}
+def _valid_row(code: str | None, level: str | None, *, axis: str) -> bool:
+    record_levels = {"Preferred", "Synonym", "Related"}
+    if axis == "topography":
+        record_levels.add("3")
+    return code is not None and level in record_levels
 
 
 def _term_key(level: str) -> str:
@@ -150,6 +154,29 @@ def _structural_fields(
     return {"parent_code": code[:3]} if level == "leaf" else {}
 
 
+def _optional_fields(axis: str) -> tuple[tuple[str, int], ...]:
+    if axis == "topography":
+        return (
+            ("notes", 3),
+            ("code_references", 4),
+            ("notes", 5),
+            ("see_also", 6),
+            ("see_notes", 7),
+            ("includes", 8),
+            ("excludes", 9),
+            ("other_text", 10),
+        )
+    return (
+        ("code_references", 3),
+        ("notes", 4),
+        ("see_also", 5),
+        ("see_notes", 6),
+        ("includes", 7),
+        ("excludes", 8),
+        ("other_text", 9),
+    )
+
+
 def _collect_rows(
     rows: Iterable[tuple[object, ...]], *, edition: str, axis: str
 ) -> tuple[
@@ -159,10 +186,11 @@ def _collect_rows(
     values: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     levels: dict[str, Literal["morphology", "category", "leaf"]] = {}
     for row_number, row in enumerate(rows, start=3):
-        padded = (*row, *(None for _ in range(max(0, 10 - len(row)))))
+        width = _ROW_WIDTH[axis]
+        padded = (*row, *(None for _ in range(max(0, width - len(row)))))
         code, level, term = (_text(padded[index]) for index in range(3))
         code = _topography_category_code(code, level, term, axis=axis)
-        if not _valid_row(code, level):
+        if not _valid_row(code, level, axis=axis):
             continue
         code = cast("str", code)
         level = cast("str", level)
@@ -172,18 +200,12 @@ def _collect_rows(
             _parse_code(code, edition=edition, axis=axis),
         )
         if record_level is None:
-            continue
+            raise SourceFormatError(
+                f"row {row_number}: invalid ICD-O-{edition} {axis} code: {code}"
+            )
         levels[code] = record_level
         _append(values[code], _term_key(level), term)
-        for name, index in (
-            ("code_references", 3),
-            ("notes", 4),
-            ("see_also", 5),
-            ("see_notes", 6),
-            ("includes", 7),
-            ("excludes", 8),
-            ("other_text", 9),
-        ):
+        for name, index in _optional_fields(axis):
             _append(values[code], name, padded[index])
     return values, levels
 

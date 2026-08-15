@@ -190,20 +190,29 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                     {"id": "a" * 64},
                 )
 
-        for column, value in (
-            ("predicate_id", "https://example.test/not-skos"),
-            ("lifecycle_state", "invented"),
+        for column, value, constraint in (
+            (
+                "predicate_id",
+                "https://example.test/not-skos",
+                "concept_xref_predicate_id_check",
+            ),
+            (
+                "lifecycle_state",
+                "invented",
+                "concept_xref_lifecycle_state_check",
+            ),
         ):
-            with pytest.raises(IntegrityError):
+            with pytest.raises(IntegrityError, match=constraint):
                 async with engine.begin() as conn:
                     await conn.execute(
                         text(
                             "INSERT INTO concept_xref "
-                            "(generation_id,generation_source,subject_system,"
+                            "(generation_id,generation_source,run_id,subject_system,"
                             "subject_version,subject_id,predicate_id,object_system,"
                             "object_version,object_id,mapping_justification,confidence,"
                             "lifecycle_state,review_status,author) VALUES "
-                            "(:generation,'uberon-cl','ncit','v','C1',:predicate,"
+                            "(:generation,'uberon-cl','schema-candidate','ncit','v',"
+                            "'C1',:predicate,"
                             "'uberon-cl','v','U1','j',0.5,:lifecycle,'unreviewed','')"
                         ),
                         {
@@ -239,16 +248,17 @@ async def test_generation_schema_constraints_and_indexes() -> None:
                     ),
                 },
             )
-        with pytest.raises(IntegrityError):
+        with pytest.raises(IntegrityError, match="concept_xref_check"):
             async with engine.begin() as conn:
                 await conn.execute(
                     text(
                         "INSERT INTO concept_xref "
-                        "(generation_id,generation_source,subject_system,"
+                        "(generation_id,generation_source,run_id,subject_system,"
                         "subject_version,subject_id,predicate_id,object_system,"
                         "object_version,object_id,mapping_justification,confidence,"
                         "lifecycle_state,review_status,author) VALUES "
-                        "(:generation,'uberon-cl-promotion','uberon-cl','v','U1',"
+                        "(:generation,'uberon-cl-promotion','schema-promotion',"
+                        "'uberon-cl','v','U1',"
                         ":predicate,'ncit','v','C1','j',1,'validated','reviewed','')"
                     ),
                     {"generation": "f" * 64, "predicate": CLOSE_MATCH},

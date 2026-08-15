@@ -8,7 +8,10 @@ protocol in project memory. These are enforced, not aspirational.
 **Strict TDD for all new implementations.** Write the RED test first (a real,
 behavioral test that fails for the right reason), then the minimum code to make it
 GREEN, then refactor with the tests green. No production code without a failing test
-that motivated it.
+that motivated it. The RED step is an executed observation, not intent: run the exact
+new test before production edits and confirm its failure names the missing/wrong
+behavior. A test written after the implementation, or one that was never observed red,
+does not satisfy TDD.
 
 **Coverage: maintain > 90%** (line and branch) across the backend (`ontolib/src`,
 `backend/src`) and the frontend library (`frontend/src/lib`). The CI gates enforce
@@ -26,6 +29,13 @@ not lower a gate to make a change pass — raise coverage instead.
   QLever/pgvector, real SQLite) over mocking the unit under test.
 - Tests must be resilient to reasonable refactoring — assert contracts and outputs,
   not implementation details.
+- A retained test must be a reliable regression indicator: a relevant wrong production
+  behavior must make it fail for the intended reason. Tests that merely execute code,
+  assert mock choreography, mirror implementation logic in a fake, or prove fixture
+  self-consistency are dead test code and must be deleted or replaced, never padded with
+  token assertions.
+- Every declared test suite must collect and execute at least one contract. Exit code 5
+  / “no tests collected” is a failure, never a green empty lane.
 
 **Contract / double-fidelity / data-shape tests are mandatory for external dependencies.**
 TDD does not catch false assumptions about an external tool or about the real data: the test
@@ -50,6 +60,14 @@ nonce-owned disposable services and excludes `full_store`.
 resources), `full_store` (read-only configured real corpora), `full_build` (pinned build
 / real embeddings, excluded from the seeded-fixture CI run). Frontend: vitest unit +
 component (jsdom) and Playwright e2e. `pdm run test` shows the per-type breakdown.
+
+**A double-only green result is never acceptance for a real boundary.** Any change that
+depends on PostgreSQL schema/data, QLever/SPARQL behavior, persisted JSON, an HTTP
+upstream, a CLI/tool, adapter-node/browser behavior, Docker, or filesystem atomicity must
+also run a production-path contract against the real disposable or configured boundary.
+The real-boundary test must be part of the acceptance gate and must be observed RED for
+the defect being fixed. A hand-authored FastAPI/QLever/store double may remain only when
+the same input has a double-fidelity test against the production collaborator.
 
 **If a change genuinely cannot reach 90% for a specific module** (e.g. a thin CLI glue
 or an optional-dependency branch), that is a deliberate, justified exception — call it

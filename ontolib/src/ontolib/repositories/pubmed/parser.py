@@ -163,5 +163,10 @@ def parse_efetch_article(pubmed_article: Element) -> PubMedArticleDetail | None:
 def parse_efetch_xml(xml_text: str) -> list[PubMedArticleDetail]:
     """Parse an EFetch ``PubmedArticleSet`` document into article details."""
     root = DefusedET.fromstring(xml_text)
-    articles = [parse_efetch_article(node) for node in root.findall(".//PubmedArticle")]
-    return [a for a in articles if a is not None]
+    if root.tag != "PubmedArticleSet":
+        raise ValueError("EFetch response root is not PubmedArticleSet")
+    nodes = root.findall(".//PubmedArticle")
+    articles = [parse_efetch_article(node) for node in nodes]
+    if any(article is None for article in articles):
+        raise ValueError("EFetch response contains a malformed PubmedArticle")
+    return [article for article in articles if article is not None]

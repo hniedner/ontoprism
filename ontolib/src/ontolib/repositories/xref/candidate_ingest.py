@@ -130,6 +130,11 @@ def build_uberon_xref_query() -> str:
 PREFIX oboInOwl: <{_OBO_INOWL_NS}>
 SELECT ?upstream ?xref WHERE {{
     ?upstream oboInOwl:hasDbXref ?xref .
+    FILTER(isIRI(?upstream))
+    FILTER(
+      STRSTARTS(STR(?upstream), "http://purl.obolibrary.org/obo/UBERON_") ||
+      STRSTARTS(STR(?upstream), "http://purl.obolibrary.org/obo/CL_")
+    )
     FILTER(STRSTARTS(?xref, "{_OBO_NCIT_PREFIX}"))
 }}
 """
@@ -144,8 +149,9 @@ async def fetch_uberon_xrefs(
     for row in rows:
         upstream = row.get("upstream")
         xref = row.get("xref")
-        if upstream and xref:
-            result.append({"upstream": str(upstream), "xref": str(xref)})
+        if not upstream or not xref:
+            raise CandidateSourceInventoryError("incomplete xref row")
+        result.append({"upstream": str(upstream), "xref": str(xref)})
     return result
 
 

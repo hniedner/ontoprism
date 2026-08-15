@@ -144,6 +144,47 @@ async def test_search_maps_query_params_and_parses_summaries(ct_base_url: str) -
 
 
 @pytest.mark.unit
+async def test_search_rejects_a_non_object_response() -> None:
+    class _Scalar(_Handler):
+        def do_GET(self) -> None:
+            body = b"[]"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Scalar)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_a_study_without_a_valid_nct_id() -> None:
+    class _MissingIdentity(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [{}], "totalCount": 1})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _MissingIdentity)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 async def test_status_and_phase_filters_are_sent(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
         await client.search_studies(
@@ -205,6 +246,104 @@ async def test_get_study_rejects_malformed_nct_id(ct_base_url: str) -> None:
     async with ClinicalTrialsClient(ct_base_url) as client:
         with pytest.raises(ValueError, match="NCT id"):
             await client.get_study("NCT123")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("payload", [[], _STUDY_TWO])
+async def test_get_study_rejects_malformed_or_mismatched_identity(
+    payload: object,
+) -> None:
+    class _Detail(_Handler):
+        def do_GET(self) -> None:
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Detail)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.get_study("NCT01234567")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_boolean_total_count() -> None:
+    class _BooleanTotal(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [], "totalCount": True})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _BooleanTotal)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_positive_total_requires_a_returned_study() -> None:
+    class _MissingRows(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [], "totalCount": 1})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _MissingRows)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_more_studies_than_total() -> None:
+    class _InconsistentTotal(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [_STUDY_ONE], "totalCount": 0})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _InconsistentTotal)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_search_rejects_duplicate_study_identities() -> None:
+    class _DuplicateRows(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [_STUDY_ONE, _STUDY_ONE], "totalCount": 2})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _DuplicateRows)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 @pytest.mark.unit
@@ -311,17 +450,57 @@ class _NullHandler(BaseHTTPRequestHandler):
 
 
 @pytest.mark.unit
-async def test_null_studies_body_parses_to_empty_page() -> None:
-    # A `"studies": null` body must not crash — it yields an empty page (total 0).
+async def test_null_studies_body_fails_closed() -> None:
     srv, base = _serve(_NullHandler)
     try:
         async with ClinicalTrialsClient(base) as client:
-            page = await client.search_studies(condition="x")
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="x")
     finally:
         srv.shutdown()
         srv.server_close()
-    assert page.total == 0
-    assert page.studies == []
+
+
+@pytest.mark.unit
+async def test_non_object_study_member_fails_closed() -> None:
+    class Handler(_NullHandler):
+        def do_GET(self) -> None:
+            body = json.dumps({"studies": ["not-an-object"], "totalCount": 1}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv, base = _serve(Handler)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="x")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_malformed_total_with_valid_empty_studies_fails_closed() -> None:
+    class Handler(_NullHandler):
+        def do_GET(self) -> None:
+            body = json.dumps({"studies": [], "totalCount": None}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv, base = _serve(Handler)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="x")
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 @pytest.mark.unit

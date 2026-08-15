@@ -239,6 +239,36 @@ def test_clean_machine_instructions_do_not_require_a_sibling_checkout() -> None:
     assert "docker compose up -d" in data_setup
 
 
+def test_full_app_routes_icdo_entitlement_through_the_private_bff() -> None:
+    compose = yaml.safe_load((_ROOT / "docker-compose.app.yml").read_text())
+    services = compose["services"]
+
+    assert services["api"]["environment"]["ICDO_ENTITLEMENT_KEY"] == (
+        "${ICDO_ENTITLEMENT_KEY:-}"
+    )
+    assert services["api"]["environment"]["ENABLE_LICENSED_MAPPINGS"] == (
+        "${ENABLE_LICENSED_MAPPINGS:-false}"
+    )
+    assert services["web"]["environment"]["ICDO_ENTITLEMENT_KEY"] == (
+        "${ICDO_ENTITLEMENT_KEY:-}"
+    )
+    assert services["web"]["environment"]["ONTOPRISM_FASTAPI_ORIGIN"] == (
+        "http://api:8011"
+    )
+    assert services["web"]["build"] == {
+        "context": ".",
+        "dockerfile": "frontend/Dockerfile",
+    }
+
+    caddy = (_ROOT / "Caddyfile").read_text()
+    assert "handle /api/*" not in caddy
+    assert "reverse_proxy web:3000" in caddy
+
+    env_example = (_ROOT / ".env.example").read_text()
+    assert "# ICDO_ENTITLEMENT_KEY=" in env_example
+    assert "ENABLE_LICENSED_MAPPINGS=false" in env_example
+
+
 def test_active_runtime_has_no_oxigraph_dependency() -> None:
     active_paths = (
         "docker-compose.yml",

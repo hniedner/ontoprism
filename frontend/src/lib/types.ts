@@ -158,8 +158,10 @@ export interface UberonNeighborhood {
 	truncated: boolean;
 }
 
-export type IcdoEdition = '3.2' | '4.0';
-export type IcdoAxis = 'morphology' | 'topography';
+export type IcdoAccessStatus =
+	| 'ready-and-entitled'
+	| 'entitlement-required'
+	| 'unavailable';
 interface IcdoRecordBase {
 	code: string;
 	preferred: string | null;
@@ -205,6 +207,12 @@ export interface IcdoTopographyLeafRecord extends IcdoRecordBase {
 	specificity: null;
 	behaviour: null;
 }
+
+export type IcdoRecord =
+	| IcdoMorphology32Record
+	| IcdoMorphology40Record
+	| IcdoTopographyCategoryRecord
+	| IcdoTopographyLeafRecord;
 
 interface IcdoDetailBase {
 	activation_identity: string;
@@ -432,17 +440,22 @@ export interface RepositoryUnhealthy {
 	message: string;
 }
 
-export interface IcdoRepositoryReady {
+interface IcdoRepositoryReadyBase {
 	state: 'ready';
 	repository: 'icdo';
-	edition: IcdoEdition;
-	axis: IcdoAxis;
 	source_identity: string;
 	serving_identity: string;
 	activation_identity: string;
 	row_count: number;
 	activated_at: string;
 }
+
+export type IcdoRepositoryReady = IcdoRepositoryReadyBase &
+	(
+		| { edition: '3.2'; axis: 'morphology' }
+		| { edition: '4.0'; axis: 'morphology' }
+		| { edition: '4.0'; axis: 'topography' }
+	);
 
 export type RepositoryMetadata =
 	| NcitRepositoryReady

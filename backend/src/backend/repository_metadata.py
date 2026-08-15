@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -19,6 +19,7 @@ from pydantic import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.icdo_datasets import ServedIcdoDataset
 from ontolib.core.exceptions import StorageError
 from ontolib.repositories.icdo.store import (
     CertificationExpectation,
@@ -168,6 +169,12 @@ class IcdoRepositoryReady(_RepositoryModel):
     row_count: PositiveInt
     activated_at: AwareDatetime
 
+    @model_validator(mode="after")
+    def served_dataset(self) -> IcdoRepositoryReady:
+        if ServedIcdoDataset.parse(self.edition, self.axis) is None:
+            raise ValueError("ICD-O ready metadata requires a served dataset")
+        return self
+
 
 class RepositoryUnhealthy[RepositoryNameT: RepositoryName](_RepositoryModel):
     """Typed refusal with no fields that could be mistaken for an active identity."""
@@ -176,6 +183,42 @@ class RepositoryUnhealthy[RepositoryNameT: RepositoryName](_RepositoryModel):
     repository: RepositoryNameT
     reason: RepositoryUnhealthyReason
     message: str
+
+
+IcdoCertificationResult = IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]
+
+
+@dataclass(frozen=True, slots=True)
+class IcdoAccessCertification:
+    """Exact certification result for each served ICD-O dataset."""
+
+    morphology_32: IcdoCertificationResult
+    morphology_40: IcdoCertificationResult
+    topography_40: IcdoCertificationResult
+
+    def __post_init__(self) -> None:
+        expected = (
+            (self.morphology_32, ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            (self.morphology_40, ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            (self.topography_40, ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
+        )
+        for result, dataset in expected:
+            if (
+                isinstance(result, IcdoRepositoryReady)
+                and (
+                    result.edition,
+                    result.axis,
+                )
+                != dataset.value
+            ):
+                raise ValueError("ICD-O access certification dataset mismatch")
+
+    def values(
+        self,
+    ) -> tuple[
+        IcdoCertificationResult, IcdoCertificationResult, IcdoCertificationResult
+    ]:
+        return (self.morphology_32, self.morphology_40, self.topography_40)
 
 
 RepositoryMetadata = (
@@ -612,9 +655,7 @@ class RepositoryMetadataService:
             return _unhealthy("uberon", "repository-unreachable", exc)
 
     async def icdo(
-        self,
-        edition: Literal["3.2", "4.0"],
-        axis: Literal["morphology", "topography"],
+        self, dataset: ServedIcdoDataset
     ) -> IcdoRepositoryReady | RepositoryUnhealthy[Literal["icdo"]]:
         """Return an active-row/manifest/configuration-bound ICD-O identity."""
         if self._icdo is None:
@@ -625,7 +666,7 @@ class RepositoryMetadataService:
             )
         try:
             manifest = await self._icdo.certified_metadata(
-                edition, axis, icdo_expectation(self._settings, edition, axis)
+                dataset.edition, dataset.axis, icdo_expectation(self._settings, dataset)
             )
             if manifest is None:
                 raise RepositoryMetadataError(
@@ -641,11 +682,19 @@ class RepositoryMetadataService:
         except ValueError as exc:
             return _unhealthy("icdo", "manifest-invalid", exc)
 
+    async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification:
+        """Certify the current active state of all served ICD-O datasets."""
+        del force
+        return IcdoAccessCertification(
+            morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
+        )
+
 
 def icdo_expectation(
     settings: _MetadataSettings,
-    edition: Literal["3.2", "4.0"],
-    axis: Literal["morphology", "topography"],
+    dataset: ServedIcdoDataset,
 ) -> CertificationExpectation:
     configured = {
         ("3.2", "morphology"): (
@@ -664,11 +713,11 @@ def icdo_expectation(
             406,
         ),
     }
-    source, serving, count = configured[(edition, axis)]
+    source, serving, count = configured[dataset.value]
     return CertificationExpectation(
         source_sha256=source,
-        edition=edition,
-        axis=axis,
+        edition=dataset.edition,
+        axis=dataset.axis,
         row_count=count,
         serving_sha256=serving,
     )

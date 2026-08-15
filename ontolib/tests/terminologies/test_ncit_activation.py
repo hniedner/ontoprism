@@ -720,11 +720,14 @@ def test_health_accepts_exact_base_with_the_known_additive_projection_graph() ->
         )
     )
 
-    validate_activation_health(
-        expected=expected,
-        observed=observed,
-        complete_definition_identity=EXPECTED_C27262_DEFINITION_IDENTITY,
-        browse_codes=("C1000",),
+    assert (
+        validate_activation_health(
+            expected=expected,
+            observed=observed,
+            complete_definition_identity=EXPECTED_C27262_DEFINITION_IDENTITY,
+            browse_codes=("C1000",),
+        )
+        is None
     )
 
 

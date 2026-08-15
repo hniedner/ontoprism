@@ -321,7 +321,10 @@ def test_current_identity_allows_downloaded_artifacts_outside_source_inventory()
         }
     )
 
-    verify_identities_against_current((artifact,), current_with_auxiliary_outputs)
+    assert (
+        verify_identities_against_current((artifact,), current_with_auxiliary_outputs)
+        is None
+    )
 
 
 def test_coverage_py_contract_exposes_native_functions_classes_and_branches(

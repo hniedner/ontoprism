@@ -62,7 +62,7 @@ required_production_paths = [
   "frontend/src/lib/server/fastapi.ts",
   "frontend/src/lib/server/fastapi-config.ts",
   "frontend/src/lib/server/fastapi-transport.ts",
-  "frontend/src/lib/server/icdo-fetch.ts",
+  "frontend/src/lib/server/icdo-access.ts",
   "scripts/data_build.py",
   "scripts/decompose.py",
   "scripts/dev/reconstruct_versions.py",
@@ -367,16 +367,6 @@ owner = "ontolib maintainers"
 rationale = "The async loop has the same validated positive-attempt invariant as the synchronous loop."
 behavioral_test = "ontolib/tests/terminologies/test_retry_backoff.py"
 review_issue = 169
-review_after = "2027-01-25"
-
-[[exemption]]
-path = "ontolib/src/ontolib/decomposition/walker.py"
-line = 174
-kind = "pragma-no-cover"
-owner = "decomposition research maintainers"
-rationale = "This research-only module guard delegates directly to a behaviorally tested async main function."
-behavioral_test = "ontolib/tests/decomposition/test_walker.py"
-review_issue = 170
 review_after = "2027-01-25"
 
 [[exemption]]

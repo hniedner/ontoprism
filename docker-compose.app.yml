@@ -25,9 +25,13 @@ services:
       # built offline as an inactive sibling via `pdm run data-build ncit-store`.
       CADSR_DATA_DIR: /app/refresh/cadsr
       NCIT_OWL_DIR: /app/refresh/ncit-owl
-      # Set API_KEY in your environment to require X-API-Key on the mutating endpoints
-      # (unset = open mode; the proxy is bound to localhost only).
+      # Set API_KEY to protect mutating endpoints; unset remains open development mode.
+      # The aggregate refresh independently requires ICDO_ENTITLEMENT_KEY because it
+      # returns protected ICD-O metadata.
       API_KEY: ${API_KEY:-}
+      # Consumer entitlement and licensed-mapping capability are independent gates.
+      ICDO_ENTITLEMENT_KEY: ${ICDO_ENTITLEMENT_KEY:-}
+      ENABLE_LICENSED_MAPPINGS: ${ENABLE_LICENSED_MAPPINGS:-false}
     volumes:
       # The caDSR SQLite DB is read-only reference data.
       - ./data/cadsr:/app/data/cadsr:ro
@@ -43,12 +47,16 @@ services:
 
   web:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: ontoprism-web
     environment:
       # adapter-node listens on 3000; the proxy fronts it.
       PORT: "3000"
+      ORIGIN: http://localhost:8080
+      ONTOPRISM_FASTAPI_ORIGIN: http://api:8011
+      ONTOPRISM_FASTAPI_TIMEOUT_MS: ${ONTOPRISM_FASTAPI_TIMEOUT_MS:-5000}
+      ICDO_ENTITLEMENT_KEY: ${ICDO_ENTITLEMENT_KEY:-}
     depends_on:
       - api
     restart: unless-stopped

@@ -18,6 +18,7 @@ from ontolib.repositories.xref.candidate_ingest import (
     build_filler_codes_query,
     build_uberon_xref_query,
     candidate_coverage_report,
+    fetch_uberon_xrefs,
     generate_candidates,
     ingest_candidates,
 )
@@ -55,6 +56,24 @@ class _MockClient:
 
     async def __aexit__(self, *args: object) -> None:
         pass
+
+
+@pytest.mark.unit
+async def test_uberon_xref_projection_fails_closed_on_partial_row() -> None:
+    client = _MockClient(
+        {
+            "hasDbXref": [
+                {
+                    "upstream": "http://purl.obolibrary.org/obo/UBERON_0002048",
+                    "xref": "NCIT:C12468",
+                },
+                {"upstream": "http://purl.obolibrary.org/obo/UBERON_0000171"},
+            ]
+        }
+    )
+
+    with pytest.raises(CandidateSourceInventoryError, match="incomplete xref row"):
+        await fetch_uberon_xrefs(client)  # type: ignore[arg-type]
 
 
 # -- Shared test data ---------------------------------------------------
