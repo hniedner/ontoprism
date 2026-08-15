@@ -19,6 +19,19 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.20.1 (2026-08-15)
+
+### Bug Fixes
+
+- **icdo**: Support local server-side entitlement
+  ([`0cf2894`](https://github.com/hniedner/ontoprism/commit/0cf2894be4e189f7778e2940950b8c7031d82092))
+
+### Documentation
+
+- Update README code line-count table
+  ([`a17d07b`](https://github.com/hniedner/ontoprism/commit/a17d07b2daf4e5aacc68834f611144482c661c5c))
+
+
 ## v0.20.0 (2026-08-14)
 
 ### Bug Fixes
