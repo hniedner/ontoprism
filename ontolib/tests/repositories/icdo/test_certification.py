@@ -28,6 +28,22 @@ def _dataset() -> CanonicalDataset:
     )
 
 
+def test_certification_accepts_an_exact_source_and_serving_identity() -> None:
+    dataset = _dataset()
+    manifest = dataset_manifest(
+        dataset, publisher_url="https://example.test", published_at=datetime.now(UTC)
+    )
+    expected = CertificationExpectation(
+        source_sha256=manifest.source_sha256,
+        edition=manifest.edition,
+        axis=manifest.axis,
+        row_count=manifest.row_count,
+        serving_sha256=manifest.serving_sha256,
+    )
+
+    assert certify_dataset(manifest, dataset, expected) is manifest
+
+
 @pytest.mark.parametrize(
     "field", ["source_sha256", "edition", "axis", "row_count", "serving_sha256"]
 )

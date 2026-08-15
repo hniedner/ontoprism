@@ -2,7 +2,6 @@
 	import type { Snippet } from 'svelte';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { navigating, page } from '$app/state';
 	import RepoPageHeader from '$lib/components/RepoPageHeader.svelte';
 	import RepoSearchBar from '$lib/components/RepoSearchBar.svelte';
@@ -15,7 +14,7 @@
 	interface Props {
 		title: string;
 		description: string;
-		route: '/repositories/ncit' | '/repositories/cadsr' | '/repositories/uberon';
+		route: string;
 		helpText: Snippet;
 		placeholder: string;
 		ariaLabel: string;
@@ -56,11 +55,8 @@
 		if (nextOffset) params.set('offset', String(nextOffset));
 		else params.delete('offset');
 		const search: '' | `?${string}` = params.size ? `?${params}` : '';
-		const target = route === '/repositories/ncit'
-			? resolve(`/repositories/ncit${search}`)
-			: route === '/repositories/cadsr'
-				? resolve(`/repositories/cadsr${search}`)
-				: resolve(`/repositories/uberon${search}`);
+		const target = `${route}${search}`;
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- callers pass a typed, resolved repository route; only URL state is appended here
 		await goto(target);
 	}
 

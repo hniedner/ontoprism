@@ -1378,9 +1378,17 @@ async def test_prepare_rejects_metadata_for_another_source() -> None:
 
 async def test_database_rejects_invalid_source_metadata_and_endpoint_systems() -> None:
     engine = make_engine(get_settings().database_url)
-    for source, metadata in (
-        ("unknown", {"source": "unknown", "ncit_source_identity": "1" * 64}),
-        ("uberon-cl", {"source": "uberon-cl", "ncit_source_identity": "1" * 64}),
+    for source, metadata, constraint in (
+        (
+            "unknown",
+            {"source": "unknown", "ncit_source_identity": "1" * 64},
+            "xref_generation_check",
+        ),
+        (
+            "uberon-cl",
+            {"source": "uberon-cl", "ncit_source_identity": "1" * 64},
+            "xref_generation_check",
+        ),
         (
             "uberon-cl",
             {
@@ -1389,22 +1397,34 @@ async def test_database_rejects_invalid_source_metadata_and_endpoint_systems() -
                 "uberon_source_identity": "2" * 64,
                 "uberon_serving_identity": "3" * 64,
             },
+            "xref_generation_check",
         ),
     ):
+        run_id = f"invalid-metadata-{secrets.token_hex(8)}"
         async with engine.begin() as connection:
-            with pytest.raises(IntegrityError):
+            await connection.execute(
+                text(
+                    "INSERT INTO xref_run "
+                    "(id,source,status,ncit_version,source_version,started_at) "
+                    "VALUES (:run,:source,'running','n','u',now())"
+                ),
+                {"run": run_id, "source": source},
+            )
+            with pytest.raises(IntegrityError, match=constraint):
                 await connection.execute(
                     text(
                         "INSERT INTO xref_generation "
-                        "(id,source,content_sha256,source_metadata,graph_iri,state) "
+                        "(id,source,content_sha256,source_metadata,graph_iri,"
+                        "run_id,state) "
                         "VALUES (:id,:source,:id,CAST(:metadata AS jsonb),"
-                        ":graph,'prepared')"
+                        ":graph,:run,'prepared')"
                     ),
                     {
                         "id": secrets.token_hex(32),
                         "source": source,
                         "metadata": json.dumps(metadata),
                         "graph": f"https://example.test/{secrets.token_hex(8)}",
+                        "run": run_id,
                     },
                 )
 
@@ -1425,7 +1445,7 @@ async def test_database_rejects_invalid_source_metadata_and_endpoint_systems() -
         object_source_version="3.2",
     )
     generation_id, content = _generation_identity("uberon-cl", [cross_system], metadata)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError, match="concept_xref_check"):
         await store.prepare_generation(
             source="uberon-cl",
             generation_id=generation_id,

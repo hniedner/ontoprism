@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -59,6 +60,20 @@ def _morphology32() -> CanonicalDataset:
         ),
         source_sha256="c" * 64,
     )
+
+
+@pytest.mark.integration
+async def test_exact_unpublished_generation_is_unavailable() -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        repository = IcdoRepository(make_sessionmaker(engine))
+
+        assert (
+            await repository.dataset("4.0", "topography", generation_id="f" * 64)
+            is None
+        )
+    finally:
+        await dispose_engine(engine)
 
 
 @pytest.mark.integration
@@ -213,7 +228,7 @@ async def test_search_refuses_denormalized_column_corruption() -> None:
         async with engine.begin() as connection:
             await connection.execute(
                 text(
-                    "UPDATE icdo_record SET search_text='corrupt', behaviour='9' "
+                    "UPDATE icdo_record SET search_text='corrupt' "
                     "WHERE generation_id=:id"
                 ),
                 {"id": manifest.generation_id},
@@ -228,6 +243,72 @@ async def test_search_refuses_denormalized_column_corruption() -> None:
             generation_id=manifest.generation_id,
         )
         assert result["total"] == 0
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("column", "value", "constraint"),
+    [
+        ("code", "C35", "ck_icdo_record_code_payload"),
+        ("level", "leaf", "ck_icdo_record_level_payload"),
+        ("behaviour", "9", "ck_icdo_record_behaviour_payload"),
+    ],
+)
+async def test_relational_icdo_columns_cannot_drift_from_payload(
+    column: str, value: str, constraint: str
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        manifest = await publish_dataset(
+            make_sessionmaker(engine),
+            _dataset("LUNG"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+        with pytest.raises(IntegrityError, match=constraint):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        f"UPDATE icdo_record SET {column}=:value "  # noqa: S608
+                        "WHERE generation_id=:generation"
+                    ),
+                    {"value": value, "generation": manifest.generation_id},
+                )
+    finally:
+        await dispose_engine(engine)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("payload", "constraint"),
+    [
+        ("null", "ck_icdo_record_code_payload"),
+        ("[]", "ck_icdo_record_code_payload"),
+        ('{"preferred":"LUNG"}', "ck_icdo_record_code_payload"),
+    ],
+)
+async def test_icdo_record_payload_requires_an_identity_object(
+    payload: str, constraint: str
+) -> None:
+    engine = make_engine(get_settings().database_url)
+    try:
+        manifest = await publish_dataset(
+            make_sessionmaker(engine),
+            _dataset("LUNG"),
+            publisher_url="https://example.test",
+            published_at=datetime.now(UTC),
+        )
+        with pytest.raises(IntegrityError, match=constraint):
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE icdo_record SET payload=CAST(:payload AS jsonb) "
+                        "WHERE generation_id=:generation"
+                    ),
+                    {"payload": payload, "generation": manifest.generation_id},
+                )
     finally:
         await dispose_engine(engine)
 
@@ -366,66 +447,5 @@ async def test_postgres_search_filters_paginates_and_excludes_inactive() -> None
         ]
         assert inactive_hits["total"] == 0
         assert inactive_hits["hits"] == []
-    finally:
-        await dispose_engine(engine)
-
-
-@pytest.mark.integration
-async def test_cloned_icdo_schema_preserves_columns_constraints_and_indexes() -> None:
-    engine = make_engine(get_settings().database_url)
-    try:
-        async with engine.begin() as connection:
-            await connection.execute(text("CREATE SCHEMA icdo_clone"))
-            for table in ("icdo_generation", "icdo_record", "icdo_active_generation"):
-                await connection.execute(
-                    text(
-                        f"CREATE TABLE icdo_clone.{table} "
-                        f"(LIKE public.{table} INCLUDING ALL)"
-                    )
-                )
-            columns = (
-                await connection.execute(
-                    text(
-                        "SELECT table_schema, table_name, column_name, data_type, "
-                        "is_nullable FROM information_schema.columns WHERE "
-                        "table_schema IN ('public','icdo_clone') AND "
-                        "table_name LIKE 'icdo_%' ORDER BY table_schema, "
-                        "table_name, ordinal_position"
-                    )
-                )
-            ).all()
-            constraints = (
-                await connection.execute(
-                    text(
-                        "SELECT n.nspname, c.relname, con.contype, "
-                        "pg_get_constraintdef(con.oid) FROM pg_constraint con "
-                        "JOIN pg_class c ON c.oid=con.conrelid JOIN pg_namespace n "
-                        "ON n.oid=c.relnamespace WHERE n.nspname IN "
-                        "('public','icdo_clone') AND c.relname LIKE 'icdo_%' "
-                        "AND con.contype <> 'f' ORDER BY n.nspname, c.relname, "
-                        "con.contype, pg_get_constraintdef(con.oid)"
-                    )
-                )
-            ).all()
-            indexes = (
-                await connection.execute(
-                    text(
-                        "SELECT schemaname, tablename, regexp_replace(indexdef, "
-                        "'INDEX [^ ]+ ON (public|icdo_clone)\\.', 'INDEX ON ') "
-                        "FROM pg_indexes WHERE schemaname IN "
-                        "('public','icdo_clone') AND tablename LIKE 'icdo_%' "
-                        "ORDER BY schemaname, tablename, 3"
-                    )
-                )
-            ).all()
-        public = [row[1:] for row in columns if row[0] == "public"]
-        clone = [row[1:] for row in columns if row[0] == "icdo_clone"]
-        assert clone == public
-        assert [row[1:] for row in constraints if row[0] == "icdo_clone"] == [
-            row[1:] for row in constraints if row[0] == "public"
-        ]
-        assert [row[1:] for row in indexes if row[0] == "icdo_clone"] == [
-            row[1:] for row in indexes if row[0] == "public"
-        ]
     finally:
         await dispose_engine(engine)

@@ -19,9 +19,9 @@
 	}
 </script>
 
-<RepoBrowsePage
+	<RepoBrowsePage
 	title="NCIt Concepts"
-	route="/repositories/ncit"
+	route={resolve('/repositories/ncit')}
 	description="Browse and search NCI Thesaurus concepts. Explore the biomedical ontology hierarchy, concept roles, and semantically similar terms."
 	placeholder="Search NCIt concepts… e.g. breast cancer subtypes"
 	ariaLabel="Search NCIt"

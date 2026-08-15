@@ -314,11 +314,14 @@ def test_publication_retry_refuses_an_intent_predating_predecessor_capture() -> 
 @pytest.mark.unit
 def test_publication_retry_accepts_a_captured_intent_without_a_predecessor() -> None:
     """A first publication legitimately has captured=True and predecessor=None."""
-    provenance_module._validate_publication_retry(
-        cast("Any", _retry_row()),
-        state="failed",
-        requested_identity=_RETRY_IDENTITY,
-        requested_predecessor=None,
+    assert (
+        provenance_module._validate_publication_retry(
+            cast("Any", _retry_row()),
+            state="failed",
+            requested_identity=_RETRY_IDENTITY,
+            requested_predecessor=None,
+        )
+        is None
     )
 
 

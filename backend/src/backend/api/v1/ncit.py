@@ -17,6 +17,7 @@ from backend.dependencies import (
     RepositoryMetadataReads,
     XrefReads,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
 from ontolib.core.logging_config import get_logger
@@ -64,7 +65,11 @@ async def _xref_expected(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, uberon.model_dump(mode="json")
         )
-    icdo = await metadata.icdo("3.2", "morphology") if include_icdo else None
+    icdo = (
+        await metadata.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY)
+        if include_icdo
+        else None
+    )
     if isinstance(icdo, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, icdo.model_dump(mode="json")

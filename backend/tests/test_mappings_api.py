@@ -12,6 +12,7 @@ from backend.dependencies import (
     get_repository_metadata,
     get_xref_store,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.xref.models import (
@@ -59,9 +60,9 @@ class _FakeMetadata:
             {"source_identity": "c" * 64, "observation": observation},
         )()
 
-    async def icdo(self, edition: str, axis: str) -> object:
+    async def icdo(self, dataset: ServedIcdoDataset) -> object:
         type(self).icdo_calls += 1
-        del edition, axis
+        del dataset
         return type(
             "IcdoReady",
             (),
@@ -401,12 +402,12 @@ def test_concept_mappings_refuses_each_uncertified_source(repository: str) -> No
                 )
             return await super().uberon()
 
-        async def icdo(self, edition: str, axis: str) -> object:
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
             if repository == "icdo":
                 return RepositoryUnhealthy(
                     repository="icdo", reason="observation-mismatch", message="drift"
                 )
-            return await super().icdo(edition, axis)
+            return await super().icdo(dataset)
 
     store = _FakeXrefStore()
     app = create_app()
@@ -426,8 +427,8 @@ def test_concept_mappings_refuses_each_uncertified_source(repository: str) -> No
 @pytest.mark.api
 def test_public_concept_mappings_does_not_request_licensed_family() -> None:
     class _UnhealthyIcdo(_FakeMetadata):
-        async def icdo(self, edition: str, axis: str) -> object:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            del dataset
             raise AssertionError("public mapping read requested ICD-O metadata")
 
     app = create_app()
@@ -450,8 +451,8 @@ def test_entitled_concept_mappings_refuses_uncertified_licensed_family(
     monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
 
     class _UnhealthyIcdo(_FakeMetadata):
-        async def icdo(self, edition: str, axis: str) -> object:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            del dataset
             return RepositoryUnhealthy(
                 repository="icdo", reason="observation-mismatch", message="drift"
             )
@@ -560,12 +561,12 @@ def test_translate_refuses_each_requested_uncertified_family(
                 )
             return await super().uberon()
 
-        async def icdo(self, edition: str, axis: str) -> object:
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
             if repository == "icdo":
                 return RepositoryUnhealthy(
                     repository="icdo", reason="observation-mismatch", message="drift"
                 )
-            return await super().icdo(edition, axis)
+            return await super().icdo(dataset)
 
     app = create_app()
     app.dependency_overrides[get_xref_store] = _FakeXrefStore

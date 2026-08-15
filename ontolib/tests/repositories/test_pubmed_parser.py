@@ -23,13 +23,14 @@ def test_esummary_minimal_doc_uses_safe_defaults() -> None:
 
 
 @pytest.mark.unit
-def test_efetch_article_without_pmid_is_dropped() -> None:
+def test_efetch_article_without_pmid_fails_closed() -> None:
     xml = (
         "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
         "<Article><ArticleTitle>No PMID</ArticleTitle></Article>"
         "</MedlineCitation></PubmedArticle></PubmedArticleSet>"
     )
-    assert parse_efetch_xml(xml) == []
+    with pytest.raises(ValueError, match="malformed PubmedArticle"):
+        parse_efetch_xml(xml)
 
 
 @pytest.mark.unit

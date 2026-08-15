@@ -7,9 +7,11 @@ import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 
 from ontolib.core.exceptions import StorageError
@@ -17,6 +19,8 @@ from ontolib.repositories.pubmed.client import (
     PubMedClient,
     _extract_elink_pmids,
     _linkset_pmids,
+    _parse_esearch,
+    _parse_esummary_docs,
 )
 from ontolib.repositories.upstream import (
     UpstreamRateLimitedError,
@@ -83,7 +87,12 @@ _EFETCH = """<?xml version="1.0"?>
 </PubmedArticleSet>"""
 _ELINK = {
     "linksets": [
-        {"linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["111", "333", "444"]}]}
+        {
+            "ids": ["111"],
+            "linksetdbs": [
+                {"linkname": "pubmed_pubmed", "links": ["111", "333", "444"]}
+            ],
+        }
     ]
 }
 
@@ -223,6 +232,24 @@ async def test_get_article_missing_returns_none(pubmed_url: str) -> None:
 
 
 @pytest.mark.unit
+async def test_get_article_rejects_xml_with_the_wrong_root() -> None:
+    class _WrongRoot(_Handler):
+        def do_GET(self) -> None:
+            self._xml('<?xml version="1.0"?><eFetchResult></eFetchResult>')
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _WrongRoot)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with _client(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.get_article("999999")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 async def test_related_pmids_drops_self(pubmed_url: str) -> None:
     async with _client(pubmed_url) as client:
         related = await client.get_related_pmids("111", link_type="similar")
@@ -317,12 +344,13 @@ async def test_api_key_is_sent_when_configured(pubmed_url: str) -> None:
 
 
 @pytest.mark.unit
-def test_linkset_pmids_non_dict_returns_empty() -> None:
-    assert _linkset_pmids("not a dict", "pubmed_pubmed") == []
+def test_linkset_pmids_non_dict_fails_closed() -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _linkset_pmids("not a dict", "pubmed_pubmed")
 
 
 @pytest.mark.unit
-def test_linkset_pmids_skips_non_dict_entries() -> None:
+def test_linkset_pmids_rejects_non_dict_entries() -> None:
     linkset = {
         "linksetdbs": [
             "string_entry",
@@ -330,12 +358,68 @@ def test_linkset_pmids_skips_non_dict_entries() -> None:
             None,
         ]
     }
-    assert _linkset_pmids(linkset, "pubmed_pubmed") == ["333", "444"]
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _linkset_pmids(linkset, "pubmed_pubmed")
 
 
 @pytest.mark.unit
-def test_extract_elink_pmids_non_dict_returns_empty() -> None:
-    assert _extract_elink_pmids([], "pubmed_pubmed", source_pmid="111") == []
+def test_extract_elink_pmids_non_dict_fails_closed() -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids([], "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
+async def test_efetch_mismatched_requested_pmid_fails_closed() -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = _EFETCH.replace("<PMID>111</PMID>", "<PMID>222</PMID>").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with PubMedClient(
+            f"http://{host}:{port}", requests_per_second=0
+        ) as client:
+            with pytest.raises(UpstreamUnavailableError, match="identity"):
+                await client.get_article("111")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_efetch_malformed_article_fails_closed() -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = b"<PubmedArticleSet><PubmedArticle/></PubmedArticleSet>"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with _client(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.get_article("111")
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 @pytest.mark.unit
@@ -343,9 +427,10 @@ def test_extract_elink_pmids_drops_source_pmid() -> None:
     data = {
         "linksets": [
             {
+                "ids": ["111"],
                 "linksetdbs": [
                     {"linkname": "pubmed_pubmed", "links": ["111", "333", "444"]}
-                ]
+                ],
             }
         ]
     }
@@ -356,34 +441,186 @@ def test_extract_elink_pmids_drops_source_pmid() -> None:
 
 
 @pytest.mark.unit
+def test_extract_elink_pmids_rejects_mismatched_source_identity() -> None:
+    data = {
+        "linksets": [
+            {
+                "ids": ["222"],
+                "linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["333"]}],
+            }
+        ]
+    }
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids(data, "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"esearchresult": None},
+        {"esearchresult": {"count": "not-a-count", "idlist": []}},
+        {"esearchresult": {"count": "1", "idlist": [123]}},
+    ],
+)
+def test_esearch_malformed_container_fails_closed(payload: object) -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esearch(payload)
+
+
+@pytest.mark.unit
+def test_esummary_missing_requested_document_fails_closed() -> None:
+    payload = {"result": {"uids": ["111", "222"], "111": _ESUMMARY["result"]["111"]}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111", "222"])
+
+
+@pytest.mark.unit
+def test_esummary_mismatched_internal_uid_fails_closed() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "222"}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_esummary_numeric_internal_uid_fails_closed() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": 111}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_esummary_model_validation_failure_is_an_upstream_error() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "111", "title": []}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_esummary_null_authors_is_an_upstream_error() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "111", "authors": None}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("authors", ["Smith", {}, ["Smith"], [{}]])
+def test_esummary_malformed_authors_is_an_upstream_error(authors: object) -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "111", "authors": authors}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_esearch_positive_count_requires_a_returned_identity() -> None:
+    payload = {"esearchresult": {"count": "1", "idlist": []}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esearch(payload)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"esearchresult": {"count": "1", "idlist": [""]}},
+        {"esearchresult": {"count": "1", "idlist": ["not-a-pmid"]}},
+        {"esearchresult": {"count": "0", "idlist": ["111"]}},
+        {"esearchresult": {"count": "1", "idlist": ["111", "222"]}},
+        {"esearchresult": {"count": "2", "idlist": ["111", "111"]}},
+    ],
+)
+def test_esearch_rejects_invalid_or_inconsistent_identities(payload: object) -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esearch(payload)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"authors": [{"name": "   "}]},
+        {"articleids": {}},
+        {"articleids": ["not-an-object"]},
+        {"articleids": [{"idtype": "doi"}]},
+    ],
+)
+def test_esummary_rejects_malformed_nested_fields(changes: dict[str, object]) -> None:
+    doc = {"uid": "111", **changes}
+    payload = {"result": {"uids": ["111"], "111": doc}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_requires_a_source_bound_linkset() -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids({"linksets": []}, "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_rejects_non_numeric_targets() -> None:
+    data = {
+        "linksets": [
+            {
+                "ids": ["111"],
+                "linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["not-a-pmid"]}],
+            }
+        ]
+    }
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids(data, "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_rejects_duplicate_targets() -> None:
+    data = {
+        "linksets": [
+            {
+                "ids": ["111"],
+                "linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["222", "222"]}],
+            }
+        ]
+    }
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids(data, "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
 async def test_throttle_sleeps_on_concurrent_calls() -> None:
-    class _FastHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            self._json(_ESEARCH)
+    dispatches: list[tuple[str, float]] = []
+    client = PubMedClient(requests_per_second=10)
 
-        def _json(self, payload: dict[str, Any]) -> None:
-            body = json.dumps(payload).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+    async def dispatch(path: str, params: dict[str, Any]) -> httpx.Response:
+        dispatches.append((path, time.monotonic()))
+        payload = _ESUMMARY if path == "/esummary.fcgi" else _ESEARCH
+        request = httpx.Request("GET", f"https://example.test{path}", params=params)
+        return httpx.Response(200, json=payload, request=request)
 
-        def log_message(self, *_a: object) -> None:
-            pass
-
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), _FastHandler)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    host, port = srv.server_address[:2]
-    async with (
-        PubMedClient(f"http://{host}:{port}", requests_per_second=10) as client,
-        asyncio.TaskGroup() as tg,
-    ):
+    client._get = dispatch  # type: ignore[method-assign]
+    client._get_client()
+    async with asyncio.TaskGroup() as tg:
         tg.create_task(client.search_articles("first"))
-        await asyncio.sleep(0)
         tg.create_task(client.search_articles("second"))
-    srv.shutdown()
-    srv.server_close()
+    await client.aclose()
+
+    assert [path for path, _timestamp in dispatches].count("/esearch.fcgi") == 2
+    assert [path for path, _timestamp in dispatches].count("/esummary.fcgi") == 2
+    ordered = [timestamp for _path, timestamp in dispatches]
+    assert all(later - earlier >= 0.07 for earlier, later in pairwise(ordered)), (
+        dispatches
+    )
 
 
 @pytest.mark.unit

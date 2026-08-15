@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Research script (#44): walk a defined class's genus chain level by level, where
+"""Walk a defined class's genus chain level by level, where
 each level's query is freshly anchored at a NAMED class code (never a blank node
 carried across separate HTTP requests — re-querying a returned blank node's label
 in a follow-up request produced a multi-hundred-MB runaway match against this store,
@@ -9,7 +8,7 @@ across separate protocol requests). Also avoids `rest*` inside owl:intersectionO
 (`rdf:rest/rdf:first`, `rdf:rest/rdf:rest/rdf:first`, ...) instead, each anchored at
 the concept itself, until a hop returns nothing.
 
-Prints, per level: the named genus class walked into, and the own-differentia roles
+Returns, per level: the named genus class walked into, and the own-differentia roles
 found strictly AT that level (i.e., roles in that level's intersectionOf list, never
 the ones inherited from further up the chain) — this is the "per-level differentia
 diffing" boundary the engine design (§6.2) proposed as the fix for the naive
@@ -18,12 +17,9 @@ genus-walk's over-collection.
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from dataclasses import dataclass, field
 
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
-from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient, safe_iri
 
@@ -153,23 +149,3 @@ async def walk_chain(
                 levels.append(level)
         frontier = next_frontier
     return levels
-
-
-async def main() -> None:
-    code = sys.argv[1] if len(sys.argv) > 1 else "C6135"
-    async with ncit_sparql_client("http://localhost:7888") as client:
-        levels = await walk_chain(client, code)
-        print(f"{code}: {len(levels)} level(s) visited in the genus DAG\n")
-        for i, level in enumerate(levels):
-            genera = ", ".join(
-                f"{g}({'DEFINED' if d else 'PRIMITIVE'})"
-                for g, _lbl, d in level.genus_codes
-            )
-            print(f"Level {i}: genus/genera = {genera or '(none)'}")
-            for r in level.roles:
-                print(f"    {r.code} ({r.label}) -> {r.filler_code} ({r.filler_label})")
-            print()
-
-
-if __name__ == "__main__":  # pragma: no cover
-    asyncio.run(main())

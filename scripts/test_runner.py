@@ -25,8 +25,6 @@ from pathlib import Path
 from rich.console import Console
 
 _REPO_ROOT = str(Path(__file__).resolve().parents[1])
-# pytest exit 5 = "no tests collected" (e.g. a marker selected nothing) — not a failure.
-_PYTEST_NO_TESTS = 5
 
 
 @dataclass
@@ -185,7 +183,7 @@ def run_suite(suite: Suite, console: Console) -> Result:
     # Verdict: a good return code AND no failures/errors — and a raw FAILED/ERROR line
     # flips it red even if a merged summary somehow read clean (worker-drop guard).
     ok = (
-        returncode in (0, _PYTEST_NO_TESTS)
+        returncode == 0
         and failed == 0
         and errors == 0
         and not _RAW_FAILURE.search(output)

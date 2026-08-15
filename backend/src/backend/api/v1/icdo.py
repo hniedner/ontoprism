@@ -14,6 +14,7 @@ from backend.dependencies import (
     UberonStore,
     XrefReads,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import IcdoRepositoryReady, RepositoryUnhealthy
 from backend.security import RequireIcdoEntitlement
 from ontolib.repositories.icdo.congruence import (
@@ -21,10 +22,10 @@ from ontolib.repositories.icdo.congruence import (
     build_congruence_report,
 )
 from ontolib.repositories.icdo.models import (
-    IcdoRecord,
     MorphologyCode32,
     MorphologyCode40,
     TopographyCode40,
+    decode_icdo_record,
 )
 from ontolib.repositories.xref.models import (
     IcdoReadIdentity,
@@ -48,6 +49,12 @@ class NcitAlignment(BaseModel):
     version: str
     predicate: MappingPredicate
     lifecycle: MappingLifecycle
+
+
+class IcdoAccessReport(BaseModel):
+    """Opaque consumer access state after all served datasets are certified."""
+
+    status: Literal["ready-and-entitled"] = "ready-and-entitled"
 
 
 class _RecordBase(BaseModel):
@@ -178,22 +185,45 @@ def _ncit_alignments(
     return sorted(alignments, key=lambda alignment: alignment.code)
 
 
-def _dataset(edition: Edition, axis: Axis) -> None:
-    if edition == "3.2" and axis == "topography":
+def _dataset(edition: Edition, axis: Axis) -> ServedIcdoDataset:
+    dataset = ServedIcdoDataset.parse(edition, axis)
+    if dataset is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "ICD-O-3.2 topography is not served."
         )
+    return dataset
 
 
 async def _ready(
-    repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
+    repository_metadata: RepositoryMetadataReads, dataset: ServedIcdoDataset
 ) -> IcdoRepositoryReady:
-    result = await repository_metadata.icdo(edition, axis)
+    result = await repository_metadata.icdo(dataset)
     if isinstance(result, RepositoryUnhealthy):
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, result.model_dump(mode="json")
         )
     return result
+
+
+@router.get("/access", response_model=IcdoAccessReport)
+async def access_status(
+    repository_metadata: RepositoryMetadataReads,
+) -> IcdoAccessReport:
+    """Confirm entitlement and all served datasets without exposing metadata."""
+    results = await repository_metadata.icdo_access()
+    unhealthy = next(
+        (
+            result
+            for result in results.values()
+            if isinstance(result, RepositoryUnhealthy)
+        ),
+        None,
+    )
+    if unhealthy is not None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, unhealthy.model_dump(mode="json")
+        )
+    return IcdoAccessReport()
 
 
 def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
@@ -216,8 +246,8 @@ def _decode_code(segment: str, edition: Edition, axis: Axis) -> str:
 async def metadata(
     repository_metadata: RepositoryMetadataReads, edition: Edition, axis: Axis
 ) -> object:
-    _dataset(edition, axis)
-    result = await _ready(repository_metadata, edition, axis)
+    dataset = _dataset(edition, axis)
+    result = await _ready(repository_metadata, dataset)
     return result.model_dump(mode="json")
 
 
@@ -227,7 +257,7 @@ async def congruence_report(
     uberon: UberonStore,
     repository_metadata: RepositoryMetadataReads,
 ) -> CongruenceReport:
-    icdo_metadata = await repository_metadata.icdo("4.0", "topography")
+    icdo_metadata = await repository_metadata.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY)
     uberon_metadata = await repository_metadata.uberon()
     if isinstance(icdo_metadata, RepositoryUnhealthy) or isinstance(
         uberon_metadata, RepositoryUnhealthy
@@ -285,12 +315,12 @@ async def list_records(
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
-    _dataset(edition, axis)
-    ready = await _ready(repository_metadata, edition, axis)
+    dataset = _dataset(edition, axis)
+    ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
-            edition,
-            axis,
+            dataset.edition,
+            dataset.axis,
             query="",
             behaviour=behaviour,
             level=level,
@@ -321,12 +351,12 @@ async def search(
     limit: Annotated[int, Query(ge=1, le=200)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> object:
-    _dataset(edition, axis)
-    ready = await _ready(repository_metadata, edition, axis)
+    dataset = _dataset(edition, axis)
+    ready = await _ready(repository_metadata, dataset)
     try:
         result = await repository.search(
-            edition,
-            axis,
+            dataset.edition,
+            dataset.axis,
             query=q,
             behaviour=behaviour,
             level=level,
@@ -354,21 +384,25 @@ async def detail(
     axis: Axis,
     code: Annotated[str, Path(min_length=1)],
 ) -> object:
-    _dataset(edition, axis)
-    ready = await _ready(repository_metadata, edition, axis)
-    canonical = _decode_code(code, edition, axis)
+    dataset = _dataset(edition, axis)
+    ready = await _ready(repository_metadata, dataset)
+    canonical = _decode_code(code, dataset.edition, dataset.axis)
     try:
         result = await repository.detail(
-            edition, axis, canonical, generation_id=ready.activation_identity
+            dataset.edition,
+            dataset.axis,
+            canonical,
+            generation_id=ready.activation_identity,
         )
+        record = decode_icdo_record(result) if result is not None else None
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
         ) from exc
-    if result is None:
+    if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ICD-O code not found.")
     rows: dict[str, list[MappingResult]] = {}
-    if (edition, axis) == ("3.2", "morphology"):
+    if dataset is ServedIcdoDataset.ICDO_32_MORPHOLOGY:
         ncit = await repository_metadata.ncit()
         if isinstance(ncit, RepositoryUnhealthy):
             raise HTTPException(
@@ -397,6 +431,6 @@ async def detail(
         axis=axis,
         activation_identity=ready.activation_identity,
         serving_identity=ready.serving_identity,
-        record=IcdoRecord.model_validate(result).model_dump(),
+        record=record.model_dump(),
         ncit_alignments=_ncit_alignments(canonical, edition, rows.get(canonical, [])),
     )

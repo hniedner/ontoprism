@@ -162,7 +162,7 @@ def create_app() -> FastAPI:
 
     @app.get("/ready", tags=["meta"])
     async def ready(metadata: RepositoryMetadataReads) -> dict[str, object]:
-        """Readiness — certify each local terminology proxy or refuse."""
+        """Readiness — certify each public local terminology proxy or refuse."""
         repositories = []
         for repository_id in local_repository_ids():
             if repository_id == "ncit":
@@ -171,14 +171,10 @@ def create_app() -> FastAPI:
                 repositories.append(metadata.cadsr())
             elif repository_id == "uberon":
                 repositories.append(await metadata.uberon(force=True))
-            else:
-                repositories.extend(
-                    [
-                        await metadata.icdo("3.2", "morphology"),
-                        await metadata.icdo("4.0", "morphology"),
-                        await metadata.icdo("4.0", "topography"),
-                    ]
-                )
+            elif repository_id == "icdo":
+                # Protected readiness is exposed by /api/v1/icdo/access only after
+                # the router-level consumer entitlement check succeeds.
+                continue
         unhealthy = next(
             (
                 repository

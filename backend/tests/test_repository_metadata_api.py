@@ -6,11 +6,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.config import get_settings
 from backend.dependencies import get_repository_metadata
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from backend.repository_metadata import (
     CadsrRepositoryReady,
     CadsrSourceMetadata,
+    IcdoAccessCertification,
     IcdoRepositoryReady,
     NcitRepositoryReady,
     RepositoryUnhealthy,
@@ -107,6 +110,7 @@ class _Metadata:
         self._uberon = uberon or _uberon_ready()
         self._cadsr = cadsr or _cadsr_ready()
         self._icdo = icdo
+        self.icdo_calls = 0
 
     async def ncit(self) -> NcitRepositoryReady | RepositoryUnhealthy:
         return self._ncit
@@ -121,16 +125,25 @@ class _Metadata:
         return self._uberon
 
     async def icdo(
-        self, edition: str, axis: str
+        self, dataset: ServedIcdoDataset
     ) -> IcdoRepositoryReady | RepositoryUnhealthy:
+        self.icdo_calls += 1
         return self._icdo or IcdoRepositoryReady(
-            edition=edition,
-            axis=axis,
+            edition=dataset.edition,
+            axis=dataset.axis,
             source_identity="3" * 64,
             serving_identity="4" * 64,
             activation_identity="5" * 64,
             row_count=1,
             activated_at=datetime(2026, 8, 12, tzinfo=UTC),
+        )
+
+    async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification:
+        del force
+        return IcdoAccessCertification(
+            morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
         )
 
 
@@ -150,22 +163,6 @@ def test_ready_reports_manifest_bound_active_ncit_identity() -> None:
             _ncit_ready().model_dump(mode="json"),
             _cadsr_ready().model_dump(mode="json"),
             _uberon_ready().model_dump(mode="json"),
-            *[
-                IcdoRepositoryReady(
-                    edition=edition,
-                    axis=axis,
-                    source_identity="3" * 64,
-                    serving_identity="4" * 64,
-                    activation_identity="5" * 64,
-                    row_count=1,
-                    activated_at=datetime(2026, 8, 12, tzinfo=UTC),
-                ).model_dump(mode="json")
-                for edition, axis in (
-                    ("3.2", "morphology"),
-                    ("4.0", "morphology"),
-                    ("4.0", "topography"),
-                )
-            ],
         ],
     }
 
@@ -227,29 +224,55 @@ def test_ready_refuses_when_manifest_declared_cadsr_is_unhealthy() -> None:
 
 
 @pytest.mark.api
-def test_ready_refuses_when_any_served_icdo_dataset_is_unhealthy() -> None:
+def test_ready_does_not_read_protected_icdo_metadata() -> None:
     unhealthy = RepositoryUnhealthy(
         repository="icdo",
         reason="observation-mismatch",
         message="ICD-O serving fingerprint drift",
     )
     app = create_app()
-    app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(
-        _ncit_ready(), icdo=unhealthy
-    )
+    metadata = _Metadata(_ncit_ready(), icdo=unhealthy)
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
     with TestClient(app) as client:
         response = client.get("/ready")
-    assert response.status_code == 503
-    assert response.json()["detail"] == unhealthy.model_dump(mode="json")
+    assert response.status_code == 200
+    assert all(
+        repository["repository"] != "icdo"
+        for repository in response.json()["repositories"]
+    )
+    assert metadata.icdo_calls == 0
 
 
 @pytest.mark.api
-def test_refresh_returns_discriminated_local_repository_metadata() -> None:
+@pytest.mark.parametrize("entitlement", [None, "stale"])
+def test_refresh_refuses_before_protected_metadata_read(
+    monkeypatch: pytest.MonkeyPatch, entitlement: str | None
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    metadata = _Metadata(_ncit_ready())
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+    headers = {"X-ICDO-Entitlement": entitlement} if entitlement is not None else {}
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/refresh", headers=headers)
+
+    assert response.status_code == 403
+    assert metadata.icdo_calls == 0
+
+
+@pytest.mark.api
+def test_refresh_returns_discriminated_local_repository_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
     app = create_app()
     app.dependency_overrides[get_repository_metadata] = lambda: _Metadata(_ncit_ready())
 
     with TestClient(app) as client:
-        response = client.post("/api/v1/refresh")
+        response = client.post(
+            "/api/v1/refresh", headers={"X-ICDO-Entitlement": "licensed"}
+        )
 
     assert response.status_code == 200
     repositories = response.json()["repositories"]

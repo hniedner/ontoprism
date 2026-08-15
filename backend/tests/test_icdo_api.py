@@ -1,5 +1,6 @@
 import base64
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -13,8 +14,13 @@ from backend.dependencies import (
     get_uberon_store,
     get_xref_store,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
-from backend.repository_metadata import RepositoryUnhealthy
+from backend.repository_metadata import (
+    IcdoAccessCertification,
+    IcdoRepositoryReady,
+    RepositoryUnhealthy,
+)
 from ontolib.repositories.icdo.models import CanonicalDataset, IcdoRecord, SourceShape
 from ontolib.repositories.icdo.store import IcdoCertificationError
 from ontolib.repositories.xref.models import (
@@ -99,17 +105,30 @@ class _ReadinessMetadata:
         self.healthy = healthy
         self.calls = 0
 
-    async def icdo(self, edition: str, axis: str) -> object:
+    async def icdo(
+        self, dataset: ServedIcdoDataset
+    ) -> IcdoRepositoryReady | RepositoryUnhealthy:
         self.calls += 1
         if not self.healthy:
             return RepositoryUnhealthy(
                 repository="icdo", reason="observation-mismatch", message="drift"
             )
-        return SimpleNamespace(
-            edition=edition,
-            axis=axis,
+        return IcdoRepositoryReady(
+            edition=dataset.edition,
+            axis=dataset.axis,
+            source_identity="c" * 64,
             activation_identity="a" * 64,
             serving_identity="b" * 64,
+            row_count=1,
+            activated_at=datetime(2026, 8, 14, tzinfo=UTC),
+        )
+
+    async def icdo_access(self, *, force: bool = False) -> IcdoAccessCertification:
+        del force
+        return IcdoAccessCertification(
+            morphology_32=await self.icdo(ServedIcdoDataset.ICDO_32_MORPHOLOGY),
+            morphology_40=await self.icdo(ServedIcdoDataset.ICDO_40_MORPHOLOGY),
+            topography_40=await self.icdo(ServedIcdoDataset.ICDO_40_TOPOGRAPHY),
         )
 
 
@@ -145,9 +164,11 @@ def _client(
         async def ncit(self) -> object:
             return SimpleNamespace(source_identity="c" * 64)
 
-        async def icdo(self, edition: str, axis: str) -> object:
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
             try:
-                result = await store.certified_metadata(edition, axis, object())
+                result = await store.certified_metadata(
+                    dataset.edition, dataset.axis, object()
+                )
             except IcdoCertificationError as exc:
                 return RepositoryUnhealthy(
                     repository="icdo",
@@ -181,6 +202,65 @@ def test_entitlement_refuses_before_repository_read(
     assert response.status_code == 403
     assert store.calls == 0
     assert "Intraductal" not in response.text
+
+
+@pytest.mark.api
+@pytest.mark.parametrize("entitlement", [None, "stale"])
+def test_access_status_refuses_before_metadata_read(
+    monkeypatch: pytest.MonkeyPatch, entitlement: str | None
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    metadata = _ReadinessMetadata(healthy=True)
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+    headers = {"X-ICDO-Entitlement": entitlement} if entitlement is not None else {}
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/icdo/access", headers=headers)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "ICD-O entitlement required."
+    assert metadata.calls == 0
+
+
+@pytest.mark.api
+def test_access_status_certifies_all_served_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    metadata = _ReadinessMetadata(healthy=True)
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/icdo/access",
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready-and-entitled"}
+    assert metadata.calls == 3
+
+
+@pytest.mark.api
+def test_access_status_refuses_an_unhealthy_served_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "icdo_entitlement_key", "licensed")
+    metadata = _ReadinessMetadata(healthy=False)
+    app = create_app()
+    app.dependency_overrides[get_repository_metadata] = lambda: metadata
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/icdo/access",
+            headers={"X-ICDO-Entitlement": "licensed"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["reason"] == "observation-mismatch"
+    assert metadata.calls == 3
 
 
 @pytest.mark.api
@@ -227,6 +307,67 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
         "C3",
     ]
     assert metadata.json() == {"edition": "3.2", "axis": "morphology", "row_count": 1}
+
+
+@pytest.mark.api
+def test_topography_detail_decodes_production_shaped_json_arrays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PersistedLists(_Store):
+        async def detail(
+            self, edition: str, axis: str, code: str, **kwargs: object
+        ) -> dict[str, object] | None:
+            del kwargs
+            assert (edition, axis, code) == ("4.0", "topography", "C00.0")
+            return {
+                "code": "C00.0",
+                "level": "leaf",
+                "parent_code": "C00",
+                "preferred": "External upper lip",
+                "synonyms": [],
+                "related": ["Upper lip, NOS"],
+                "notes": [],
+                "code_references": [],
+                "see_also": [],
+                "see_notes": [],
+                "includes": [],
+                "excludes": [],
+                "other_text": ["excludes skin of upper lip C44.0"],
+            }
+
+    response = next(_client(_PersistedLists(), monkeypatch)).get(
+        "/api/v1/icdo/4.0/topography/concepts/QzAwLjA",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["record"]["related"] == ["Upper lip, NOS"]
+    assert response.json()["record"]["other_text"] == [
+        "excludes skin of upper lip C44.0"
+    ]
+
+
+@pytest.mark.api
+def test_detail_refuses_malformed_persisted_collection_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _MalformedCollection(_Store):
+        async def detail(self, *args: object, **kwargs: object) -> dict[str, object]:
+            del args, kwargs
+            return {
+                "code": "C00.0",
+                "level": "leaf",
+                "parent_code": "C00",
+                "related": "Upper lip, NOS",
+            }
+
+    response = next(_client(_MalformedCollection(), monkeypatch)).get(
+        "/api/v1/icdo/4.0/topography/concepts/QzAwLjA",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 503
+    assert "Upper lip, NOS" not in response.text
 
 
 @pytest.mark.api
@@ -467,8 +608,8 @@ def test_congruence_classifies_active_sources_and_pages_uberon_inventory(
             )
 
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> object:
-            assert (edition, axis) == ("4.0", "topography")
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            assert dataset is ServedIcdoDataset.ICDO_40_TOPOGRAPHY
             return SimpleNamespace(
                 serving_identity="b" * 64, activation_identity="a" * 64
             )
@@ -508,8 +649,8 @@ def test_congruence_refuses_unhealthy_uberon_without_inventory_read(
             return object()
 
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> object:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            del dataset
             return SimpleNamespace(
                 serving_identity="b" * 64, activation_identity="a" * 64
             )
@@ -547,8 +688,8 @@ def test_congruence_refuses_uncertified_icdo_before_protected_rows_are_read(
             return object()
 
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> RepositoryUnhealthy:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> RepositoryUnhealthy:
+            del dataset
             return RepositoryUnhealthy(
                 repository="icdo",
                 reason="observation-mismatch",
@@ -581,8 +722,8 @@ def test_congruence_refuses_missing_active_topography_after_certification(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _Metadata:
-        async def icdo(self, edition: str, axis: str) -> object:
-            del edition, axis
+        async def icdo(self, dataset: ServedIcdoDataset) -> object:
+            del dataset
             return SimpleNamespace(
                 serving_identity="b" * 64, activation_identity="a" * 64
             )

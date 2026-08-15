@@ -3,8 +3,10 @@
 import importlib.util
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from rich.console import Console
 
 _RUNNER_PATH = Path(__file__).resolve().parents[2] / "scripts" / "test_runner.py"
 _spec = importlib.util.spec_from_file_location("summary_runner", _RUNNER_PATH)
@@ -64,3 +66,28 @@ def test_run_suite_verdict_flips_on_raw_failure_line() -> None:
     # The summary parse sees only "60 passed", but the raw guard catches the failure.
     assert (passed, failed, errors) == (60, 0, 0)
     assert test_runner._RAW_FAILURE.search(text) is not None
+
+
+@pytest.mark.unit
+def test_declared_suite_fails_when_no_tests_are_collected(tmp_path: Path) -> None:
+    suite = test_runner.Suite(
+        name="empty",
+        group="backend",
+        kind="unit",
+        runner="pytest",
+        cmd=["pytest", "-m", "marker-with-no-tests"],
+    )
+    process = type(
+        "Process",
+        (),
+        {
+            "stdout": iter(["no tests ran in 0.01s\n"]),
+            "wait": lambda self: 5,
+        },
+    )()
+    with patch.object(test_runner.subprocess, "Popen", return_value=process):
+        result = test_runner.run_suite(
+            suite, Console(file=(tmp_path / "runner.log").open("w"))
+        )
+
+    assert result.ok is False

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
@@ -150,6 +153,29 @@ class IcdoRecord(_StrictModel):
         return self
 
 
+_RECORD_ARRAY_FIELDS = (
+    "synonyms",
+    "related",
+    "notes",
+    "code_references",
+    "see_also",
+    "see_notes",
+    "includes",
+    "excludes",
+    "other_text",
+)
+
+
+def decode_icdo_record(value: Mapping[str, object]) -> IcdoRecord:
+    """Decode JSON arrays at the persistence boundary, then validate strictly."""
+    normalized = dict(value)
+    for field in _RECORD_ARRAY_FIELDS:
+        field_value = normalized.get(field)
+        if isinstance(field_value, list):
+            normalized[field] = tuple(field_value)
+    return IcdoRecord.model_validate(normalized)
+
+
 def _validate_dataset_records(dataset: CanonicalDataset) -> None:
     morphology = dataset.axis == "morphology"
     if any((row.level == "morphology") != morphology for row in dataset.records):
@@ -174,6 +200,11 @@ class CanonicalDataset(_StrictModel):
     def validate_edition_axis(self) -> CanonicalDataset:
         if (self.edition, self.axis) == ("3.2", "topography"):
             raise ValueError("ICD-O-3.2 topography is not served")
+        if not self.records:
+            raise ValueError("ICD-O dataset requires at least one record")
+        codes = [record.code for record in self.records]
+        if len(codes) != len(set(codes)):
+            raise ValueError("ICD-O dataset contains a duplicate record code")
         _validate_dataset_records(self)
         return self
 

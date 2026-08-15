@@ -267,7 +267,9 @@ pdm run start-all                # backend :8011 + frontend :5175
 ```
 
 Open [localhost:5175](http://localhost:5175). See [docs/DATA_SETUP.md](docs/DATA_SETUP.md)
-for first-run provisioning.
+for first-run provisioning. Entitled ICD-O operators set the server-only
+`ICDO_ENTITLEMENT_KEY` in `.env`; `ENABLE_LICENSED_MAPPINGS` remains a separate opt-in for
+ICD-O-bearing NCIt responses.
 
 ## Project structure
 

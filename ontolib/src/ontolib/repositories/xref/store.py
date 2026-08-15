@@ -8,6 +8,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy import Result, bindparam, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from ontolib.repositories.xref.evidence import Evidence
 from ontolib.repositories.xref.models import (
@@ -925,13 +926,18 @@ class XrefStore:
         sources: frozenset[str] | None = None,
     ) -> dict[str, str]:
         """Capture and validate active generation IDs in the caller's transaction."""
-        result = await session.execute(
-            text(
-                "SELECT a.source, a.generation_id, g.source_metadata "
-                "FROM xref_active_generation a JOIN xref_generation g "
-                "ON g.source=a.source AND g.id=a.generation_id ORDER BY a.source"
+        try:
+            result = await session.execute(
+                text(
+                    "SELECT a.source, a.generation_id, g.source_metadata "
+                    "FROM xref_active_generation a JOIN xref_generation g "
+                    "ON g.source=a.source AND g.id=a.generation_id ORDER BY a.source"
+                )
             )
-        )
+        except SQLAlchemyError as exc:
+            raise UnavailableXrefGenerationError(
+                "xref generation storage unavailable"
+            ) from exc
         generation_ids: dict[str, str] = {}
         active_sources: set[str] = set()
         for row in result.mappings().all():

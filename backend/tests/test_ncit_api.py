@@ -22,6 +22,7 @@ from backend.dependencies import (
     get_repository_metadata,
     get_xref_store,
 )
+from backend.icdo_datasets import ServedIcdoDataset
 from backend.main import create_app
 from backend.repository_metadata import RepositoryUnhealthy
 from ontolib.repositories.embeddings.publication import Corpus, CorpusUnavailableError
@@ -172,8 +173,8 @@ class _Metadata:
             observation=SimpleNamespace(serving=SimpleNamespace(sha256="b" * 64)),
         )
 
-    async def icdo(self, edition: str, axis: str) -> SimpleNamespace:
-        del edition, axis
+    async def icdo(self, dataset: ServedIcdoDataset) -> SimpleNamespace:
+        del dataset
         return SimpleNamespace(activation_identity="c" * 64, serving_identity="d" * 64)
 
 

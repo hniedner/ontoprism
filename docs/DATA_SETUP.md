@@ -29,6 +29,21 @@ ONTOPRISM_FASTAPI_ORIGIN=http://127.0.0.1:8011
 ONTOPRISM_FASTAPI_TIMEOUT_MS=5000
 ```
 
+An entitled local operator configures the same private consumer key for SvelteKit and
+FastAPI by setting it once in the root `.env`:
+
+```dotenv
+ICDO_ENTITLEMENT_KEY=<operator-provided-entitlement>
+ENABLE_LICENSED_MAPPINGS=false
+```
+
+Leave `ENABLE_LICENSED_MAPPINGS=false` unless the operator is separately authorized to
+include ICD-O alignments in NCIt mapping and decomposition responses. Restart both
+application processes after changing either value. The supported workflow never enters
+the key in a browser cookie, header, form, or URL (`pdm run pytest
+backend/tests/test_icdo_api.py backend/tests/test_repository_metadata_api.py -q` and
+`cd frontend && npx playwright test e2e/ssr-bff.spec.ts`, 2026-08-14).
+
 `pdm run start-all` exports that file to both application processes. Direct Vite
 development reads the repository root through `envDir`. A production adapter-node build
 does not load `.env` automatically; inject the same private variables into the process,
@@ -38,6 +53,11 @@ when a trusted reverse proxy overwrites them; accepting client-supplied forwarde
 would allow origin spoofing. The SvelteKit BFF strips browser-supplied `Forwarded`,
 `X-Forwarded-*`, `X-Real-IP`, and hop-by-hop headers before calling FastAPI; configure
 the public proxy-to-SvelteKit hop independently from the private SvelteKit-to-FastAPI hop.
+The BFF strips browser cookies from every proxied request. On protected FastAPI paths it
+also replaces caller entitlement headers with `ICDO_ENTITLEMENT_KEY`. The key remains
+private process configuration and only an
+opaque access state reaches rendered page data (`cd frontend && npx vitest run
+src/lib/server/fastapi.test.ts src/lib/server/icdo-access.test.ts`, 2026-08-14).
 The BFF supplies FastAPI with SvelteKit's socket-derived client address. Behind a trusted
 proxy, set adapter-node `ADDRESS_HEADER` (and `XFF_DEPTH` for `x-forwarded-for`) only when
 that proxy overwrites the selected header; otherwise leave them unset.
@@ -361,8 +381,16 @@ replaces stable rows plus the active manifest in one transaction.
 
 ### Repository readiness and refresh metadata
 
-`GET /ready` returns HTTP 200 only when every local repository is certified: NCIt,
-caDSR, Uberon/CL, and all configured ICD-O edition/axis datasets. NCIt additionally
+`GET /ready` returns HTTP 200 only when the public local repositories are certified:
+NCIt, caDSR, and Uberon/CL. Protected ICD-O metadata is deliberately excluded from that
+public response. `GET /api/v1/icdo/access` checks consumer entitlement before certifying
+all three served ICD-O datasets and returns only `ready-and-entitled`; its 403 and 503
+responses drive the navigation access marker. Each access check and entitlement-gated
+`POST /api/v1/refresh` certifies the current active generations, while ordinary repository
+reads continue to certify their requested active generation
+(`pdm run pytest
+backend/tests/test_repository_metadata_api.py backend/tests/test_icdo_api.py -q`,
+2026-08-14). NCIt additionally
 requires its active manifest, completed activation journal (including `activated_at`),
 release, and live default/stated observation to agree. Ready values carry each
 repository's certified identities and observations. A single refusal returns HTTP 503
@@ -370,7 +398,8 @@ with that repository's typed reason, such as `manifest-missing`,
 `activation-incomplete`, `release-mismatch`, or `observation-mismatch`; an unhealthy
 value deliberately contains no certified identity fields.
 
-The refresh report returns discriminated metadata for NCIt, caDSR, Uberon/CL, and each
+The entitlement-gated refresh report returns discriminated metadata for NCIt, caDSR,
+Uberon/CL, and each
 served ICD-O edition/axis dataset. caDSR identifies its persisted source archive and
 canonical serving rows; Uberon/CL identifies its certified combined index; ICD-O binds
 the active generation to its source digest, exact serving digest, and row count. The
