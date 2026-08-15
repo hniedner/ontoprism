@@ -19,6 +19,7 @@ exact resume).
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -34,6 +35,7 @@ from ontolib.decomposition.provenance_models import NcitSourceSnapshot
 from ontolib.decomposition.run import (
     RunConfig,
     RunMetrics,
+    RunProgress,
     SourceIdentityChangedError,
     run_pipeline,
 )
@@ -48,6 +50,8 @@ from ontolib.terminologies.ncit.sibling_store import (
 )
 
 logger = get_logger(__name__)
+
+_PROGRESS_COMPLETION_INTERVAL = 100
 
 # Graphs ontoprism publishes into the same store; they are not part of the NCIt
 # source identity and must not read as drift.
@@ -68,6 +72,41 @@ def _make_label_lookup(store: NcitGraphStore):  # type: ignore[no-untyped-def]
         return None
 
     return lookup
+
+
+def _progress_message(progress: RunProgress) -> str | None:
+    visible = (
+        progress.phase == "heartbeat"
+        or (progress.phase == "started" and progress.session_completed == 0)
+        or (
+            progress.phase == "completed"
+            and (
+                progress.completed == progress.total
+                or progress.completed % _PROGRESS_COMPLETION_INTERVAL == 0
+            )
+        )
+    )
+    if not visible:
+        return None
+    rate = (
+        progress.session_completed / progress.elapsed_seconds
+        if progress.elapsed_seconds > 0
+        else 0.0
+    )
+    remaining = progress.total - progress.completed
+    eta = remaining / rate if rate > 0 else None
+    eta_text = f"{eta:.0f}s" if eta is not None else "unknown"
+    return (
+        f"run={progress.run_id} phase={progress.phase} "
+        f"completed={progress.completed}/{progress.total} "
+        f"active={progress.concept_code} elapsed={progress.elapsed_seconds:.0f}s "
+        f"rate={rate:.2f}/s eta={eta_text}"
+    )
+
+
+def _print_progress(progress: RunProgress) -> None:
+    if message := _progress_message(progress):
+        print(message, file=sys.stderr, flush=True)
 
 
 async def _source_snapshot(
@@ -143,6 +182,7 @@ async def _run(
                             get_labels=store.labels_for,
                             label_lookup=_make_label_lookup(store),
                             total_limit=total_limit,
+                            progress=_print_progress,
                         )
                     except BaseException as exc:
                         primary_error = exc

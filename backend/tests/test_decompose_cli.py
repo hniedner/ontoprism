@@ -18,7 +18,7 @@ from click import unstyle
 from scripts import decompose
 
 from ontolib.decomposition import vocab
-from ontolib.decomposition.run import SourceIdentityChangedError
+from ontolib.decomposition.run import RunProgress, SourceIdentityChangedError
 from ontolib.decomposition.sampling import (
     REQUIRED_SAMPLE_STRATA,
     DecompositionSampleManifest,
@@ -30,6 +30,39 @@ from ontolib.terminologies.ncit.sibling_store import (
     CandidateGraph,
     CandidateObservation,
 )
+
+
+@pytest.mark.unit
+def test_progress_message_reports_resume_rate_eta_and_active_concept() -> None:
+    progress = RunProgress(
+        run_id="neoplasm-run",
+        phase="heartbeat",
+        concept_code="C219638",
+        completed=7324,
+        total=15633,
+        session_completed=3404,
+        elapsed_seconds=1702.0,
+    )
+
+    assert decompose._progress_message(progress) == (
+        "run=neoplasm-run phase=heartbeat completed=7324/15633 "
+        "active=C219638 elapsed=1702s rate=2.00/s eta=4154s"
+    )
+
+
+@pytest.mark.unit
+def test_progress_message_suppresses_nonmilestone_completions() -> None:
+    progress = RunProgress(
+        run_id="run",
+        phase="completed",
+        concept_code="C1",
+        completed=101,
+        total=1000,
+        session_completed=101,
+        elapsed_seconds=10.0,
+    )
+
+    assert decompose._progress_message(progress) is None
 
 
 class _RunClient:

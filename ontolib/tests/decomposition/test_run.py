@@ -1495,6 +1495,70 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
 
 
 @pytest.mark.unit
+async def test_pending_work_emits_heartbeat_while_concept_is_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = run_module._RunSetup(
+        run_id="run-1",
+        source_snapshot=NcitSourceSnapshot(
+            source_identity="a" * 64,
+            ontology_version="26.07d",
+        ),
+        fingerprint=RunFingerprint(
+            source_identity="a" * 64,
+            branch="neoplasm",
+            scope_root="C3262",
+            scope_version="stated-genus-subclass-v1",
+            semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+            worklist=("C1",),
+            total_limit=None,
+            algorithm_version="decomposition-v3",
+            config_version="nested-definition-v2",
+            walker_max_depth=5,
+            output_mode="file",
+            load_mode="named-graph",
+            emitted_at=datetime(2026, 8, 15, 12, 0, tzinfo=UTC),
+        ),
+        pending=["C1"],
+        labels={},
+    )
+    release = asyncio.Event()
+
+    async def blocked(*_args: object, **_kwargs: object) -> None:
+        await release.wait()
+
+    events: list[run_module.RunProgress] = []
+    heartbeat = asyncio.Event()
+
+    def record(event: run_module.RunProgress) -> None:
+        events.append(event)
+        if event.phase == "heartbeat":
+            heartbeat.set()
+
+    monkeypatch.setattr(run_module, "_process_work_item", blocked)
+    monkeypatch.setattr(run_module, "_PROGRESS_HEARTBEAT_SECONDS", 0.001)
+    task = asyncio.create_task(
+        run_module._process_pending_work(
+            setup,
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            MagicMock(),
+            AsyncMock(return_value=None),
+            record,
+        )
+    )
+    await heartbeat.wait()
+    release.set()
+    await task
+
+    assert [event.phase for event in events] == [
+        "started",
+        "heartbeat",
+        "completed",
+    ]
+
+
+@pytest.mark.unit
 def test_run_ids_are_collision_safe_within_one_clock_tick() -> None:
     first = _new_run_id("neoplasm")
     second = _new_run_id("neoplasm")

@@ -31,10 +31,12 @@ Scope of this orchestrator (documented boundaries, not oversights):
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
 
 from ontolib.core.logging_config import get_logger
@@ -79,6 +81,8 @@ from ontolib.decomposition.publication import (
 )
 
 logger = get_logger(__name__)
+
+_PROGRESS_HEARTBEAT_SECONDS = 15.0
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
@@ -641,6 +645,22 @@ class _RunSetup:
     labels: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class RunProgress:
+    """Observable progress over one exact persisted worklist."""
+
+    run_id: str
+    phase: Literal["started", "heartbeat", "completed"]
+    concept_code: str
+    completed: int
+    total: int
+    session_completed: int
+    elapsed_seconds: float
+
+
+ProgressCallback = Callable[[RunProgress], None]
+
+
 async def _fetch_labels(
     get_labels: GetLabels | None, pending: list[str]
 ) -> dict[str, str]:
@@ -929,16 +949,80 @@ async def _process_pending_work(
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     label_lookup: LabelLookup,
+    progress: ProgressCallback | None,
 ) -> None:
-    for code in setup.pending:
-        await _process_work_item(
+    total = len(setup.fingerprint.worklist)
+    initially_complete = total - len(setup.pending)
+    started_at = time.monotonic()
+    for session_index, code in enumerate(setup.pending):
+        _report_progress(
+            progress,
             setup,
-            code,
-            client,
-            provenance,
-            label_lookup=label_lookup,
-            walker_max_depth=config.walker_max_depth,
+            phase="started",
+            code=code,
+            completed=initially_complete + session_index,
+            session_completed=session_index,
+            started_at=started_at,
         )
+        task = asyncio.create_task(
+            _process_work_item(
+                setup,
+                code,
+                client,
+                provenance,
+                label_lookup=label_lookup,
+                walker_max_depth=config.walker_max_depth,
+            )
+        )
+        while not task.done():
+            done, _pending = await asyncio.wait(
+                {task}, timeout=_PROGRESS_HEARTBEAT_SECONDS
+            )
+            if not done:
+                _report_progress(
+                    progress,
+                    setup,
+                    phase="heartbeat",
+                    code=code,
+                    completed=initially_complete + session_index,
+                    session_completed=session_index,
+                    started_at=started_at,
+                )
+        await task
+        _report_progress(
+            progress,
+            setup,
+            phase="completed",
+            code=code,
+            completed=initially_complete + session_index + 1,
+            session_completed=session_index + 1,
+            started_at=started_at,
+        )
+
+
+def _report_progress(
+    callback: ProgressCallback | None,
+    setup: _RunSetup,
+    *,
+    phase: Literal["started", "heartbeat", "completed"],
+    code: str,
+    completed: int,
+    session_completed: int,
+    started_at: float,
+) -> None:
+    if callback is None:
+        return
+    callback(
+        RunProgress(
+            run_id=setup.run_id,
+            phase=phase,
+            concept_code=code,
+            completed=completed,
+            total=len(setup.fingerprint.worklist),
+            session_completed=session_completed,
+            elapsed_seconds=time.monotonic() - started_at,
+        )
+    )
 
 
 async def _reconstructed_metrics(
@@ -1155,6 +1239,7 @@ async def run_pipeline(
     get_labels: GetLabels | None = None,
     label_lookup: LabelLookup = _never_resolves,
     total_limit: int | None = None,
+    progress: ProgressCallback | None = None,
 ) -> RunMetrics:
     """Execute the decomposition pipeline for a given branch (design §9).
 
@@ -1184,6 +1269,7 @@ async def run_pipeline(
             client,
             provenance,
             label_lookup,
+            progress,
         )
         return await _finish_run(
             setup,
