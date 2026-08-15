@@ -19,6 +19,11 @@ _CANONICAL_SAMPLE = (
 _SME_SAMPLE = (
     Path(__file__).resolve().parents[3] / "samples" / "ncit-26.07d-m1-sme-review.json"
 )
+_CURRENT_REPLAY_SAMPLE = (
+    Path(__file__).resolve().parents[3]
+    / "samples"
+    / "ncit-26.07d-m1-current-replay.json"
+)
 
 
 def _concept(
@@ -241,3 +246,20 @@ def test_tracked_sme_sample_extends_m1_sample_with_required_review_seeds() -> No
     assert adjudication.identity == (
         "9c32b36c482879f030aca0ec8f2bd84542a3f53fe541c9a4372cfe050b94b87c"
     )
+
+
+@pytest.mark.unit
+def test_current_replay_manifest_preserves_the_exact_historical_cohort() -> None:
+    historical = load_sample_manifest(_SME_SAMPLE)
+    current = load_sample_manifest(_CURRENT_REPLAY_SAMPLE)
+
+    assert current.name == "ncit-26.07d-m1-current-replay"
+    assert current.source_identity == (
+        "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+    )
+    assert current.ontology_version == historical.ontology_version == "26.07d"
+    assert current.branch == historical.branch == "neoplasm"
+    assert current.scope_root == historical.scope_root == "C3262"
+    assert current.scope_version == historical.scope_version
+    assert current.codes == historical.codes
+    assert current.identity != historical.identity
