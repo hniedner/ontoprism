@@ -583,6 +583,21 @@ def test_extract_elink_pmids_rejects_non_numeric_targets() -> None:
 
 
 @pytest.mark.unit
+def test_extract_elink_pmids_rejects_duplicate_targets() -> None:
+    data = {
+        "linksets": [
+            {
+                "ids": ["111"],
+                "linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["222", "222"]}],
+            }
+        ]
+    }
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids(data, "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
 async def test_throttle_sleeps_on_concurrent_calls() -> None:
     dispatches: list[tuple[str, float]] = []
     client = PubMedClient(requests_per_second=10)

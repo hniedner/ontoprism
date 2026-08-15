@@ -333,6 +333,11 @@ def _require_linkset_source(linkset: object, source_pmid: str) -> dict[str, Any]
     return linkset
 
 
+def _require_unique_pmids(pmids: list[str]) -> None:
+    if len(pmids) != len(set(pmids)):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+
+
 def _extract_elink_pmids(data: Any, linkname: str, *, source_pmid: str) -> list[str]:
     """Pull the target PMIDs for *linkname* out of an ELink JSON document."""
     if not isinstance(data, dict):
@@ -345,5 +350,6 @@ def _extract_elink_pmids(data: Any, linkname: str, *, source_pmid: str) -> list[
         pmids.extend(
             _linkset_pmids(_require_linkset_source(linkset, source_pmid), linkname)
         )
+    _require_unique_pmids(pmids)
     # A source article can appear in its own similar-articles set; drop it.
     return [p for p in pmids if p != source_pmid]
