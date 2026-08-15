@@ -792,6 +792,8 @@ async def test_completion_detects_claim_change_after_locked_validation() -> None
         MagicMock(),
         MagicMock(),
         MagicMock(),
+        MagicMock(),
+        MagicMock(),
         update_lost_claim,
     ]
 
@@ -1161,6 +1163,10 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     ]
     edges = MagicMock()
     edges.mappings.return_value.all.return_value = []
+    occurrences = MagicMock()
+    occurrences.mappings.return_value.all.return_value = []
+    occurrence_links = MagicMock()
+    occurrence_links.mappings.return_value.all.return_value = []
     sf().execute.side_effect = [
         consistent_counts,
         work_items,
@@ -1168,6 +1174,8 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
         definitions,
         groups,
         edges,
+        occurrences,
+        occurrence_links,
     ]
     store = ProvenanceStore(sf)
 

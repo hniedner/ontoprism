@@ -642,7 +642,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0020_icdo_record_consistency"
+    assert revision == "0021_source_occurrences"
     assert legacy_rows == 1
     assert publication_tables == 2
 

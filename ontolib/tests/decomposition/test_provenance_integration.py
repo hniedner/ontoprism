@@ -27,8 +27,10 @@ from ontolib.decomposition.models import (
     Decomposition,
     DefinitionGroup,
     RestrictionDefinitionFact,
+    SourceDefinitionOccurrence,
     canonical_definition_fact_id,
     canonical_definition_group_id,
+    canonical_source_occurrence_id,
 )
 from ontolib.decomposition.provenance import (
     ProvenanceStore,
@@ -210,6 +212,60 @@ def _shared_genus_decomposition(root_code: str, depth: int) -> Decomposition:
     )
 
 
+def _repeated_occurrence_decomposition() -> Decomposition:
+    group_id = canonical_definition_group_id("C6135", ("restriction:R101:C12400",))
+    fact_id = canonical_definition_fact_id(
+        "C6135", group_id, "restriction", "R101", "C12400"
+    )
+    occurrences = tuple(
+        SourceDefinitionOccurrence(
+            occurrence_id=canonical_source_occurrence_id(
+                "C6135", fact_id, (0, position)
+            ),
+            root_code="C6135",
+            source_fact_id=fact_id,
+            source_group_id=group_id,
+            anchor_code="C6135",
+            depth=0,
+            role_code="R101",
+            filler_code="C12400",
+            structural_path=(0, position),
+            member_position=position,
+        )
+        for position in (0, 1)
+    )
+    return Decomposition(
+        code="C6135",
+        semantic_type="Neoplastic Process",
+        constituents=(
+            Constituent(
+                axis="op:PrimarySite",
+                filler_code="C12400",
+                axis_source="role",
+                source_role="R101",
+                source_definition_ids=(fact_id,),
+                source_occurrence_ids=tuple(
+                    occurrence.occurrence_id for occurrence in occurrences
+                ),
+            ),
+        ),
+        complete_definition=CompleteDefinition(
+            root_code="C6135",
+            facts=(
+                RestrictionDefinitionFact(
+                    fact_id=fact_id,
+                    anchor_code="C6135",
+                    group_id=group_id,
+                    depth=0,
+                    role_code="R101",
+                    filler_code="C12400",
+                ),
+            ),
+            occurrences=occurrences,
+        ),
+    )
+
+
 def _residual_decomposition(code: str) -> Decomposition:
     """A residual concept: a complete definition, but no surviving constituents.
 
@@ -338,18 +394,7 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
             _RUN_ID,
             "C6135",
             claim,
-            decomposition=Decomposition(
-                code="C6135",
-                semantic_type="Neoplastic Process",
-                constituents=[
-                    Constituent(
-                        axis="op:PrimarySite",
-                        filler_code="C12400",
-                        axis_source="role",
-                        source_role="R101",
-                    )
-                ],
-            ),
+            decomposition=_repeated_occurrence_decomposition(),
             minted=(),
             semantic_types=("Neoplastic Process",),
         )
@@ -357,6 +402,23 @@ async def test_run_manifest_round_trips_against_real_postgres() -> None:
         persisted = await store.decompositions_for_run(_RUN_ID)
         assert persisted[0].constituents[0].axis == "op:PrimarySite"
         assert persisted[0].constituents[0].source_role == "R101"
+        complete_definition = persisted[0].complete_definition
+        assert complete_definition is not None
+        assert len(complete_definition.occurrences) == 2
+        expected_occurrence_ids = tuple(
+            sorted(
+                canonical_source_occurrence_id(
+                    "C6135",
+                    complete_definition.occurrences[0].source_fact_id,
+                    (0, position),
+                )
+                for position in (0, 1)
+            )
+        )
+        assert (
+            persisted[0].constituents[0].source_occurrence_ids
+            == expected_occurrence_ids
+        )
 
         finished = await store.finish_run(
             _RUN_ID,

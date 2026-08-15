@@ -84,6 +84,19 @@ def canonical_definition_group_id(
     return _definition_digest(anchor_code, *sorted(set(member_signatures)))
 
 
+def canonical_source_occurrence_id(
+    root_code: str,
+    source_fact_id: str,
+    structural_path: Sequence[int],
+) -> str:
+    """Return the stable identity for one structural source-fact occurrence."""
+    return _definition_digest(
+        root_code,
+        source_fact_id,
+        *(str(position) for position in structural_path),
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DefinitionGroup:
     """One canonical stated ``owl:intersectionOf`` expression.
@@ -155,6 +168,60 @@ DefinitionFact = GenusDefinitionFact | RestrictionDefinitionFact
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SourceDefinitionOccurrence:
+    """One restriction occurrence at a normalized stated-definition path."""
+
+    occurrence_id: str
+    root_code: str
+    source_fact_id: str
+    source_group_id: str
+    anchor_code: str
+    depth: int
+    role_code: str
+    filler_code: str
+    structural_path: tuple[int, ...]
+    member_position: int
+
+    def __post_init__(self) -> None:
+        _validate_occurrence_fields(self)
+        _validate_occurrence_path(self)
+        _validate_occurrence_identity(self)
+
+
+def _validate_occurrence_fields(occurrence: SourceDefinitionOccurrence) -> None:
+    _require_sha256(occurrence.occurrence_id, "occurrence_id")
+    _require_code(occurrence.root_code, _CONCEPT_CODE, "root_code")
+    _require_sha256(occurrence.source_fact_id, "source_fact_id")
+    _require_sha256(occurrence.source_group_id, "source_group_id")
+    _require_code(occurrence.anchor_code, _CONCEPT_CODE, "anchor_code")
+    _require_code(occurrence.role_code, _ROLE_CODE, "role_code")
+    _require_code(occurrence.filler_code, _CONCEPT_CODE, "filler_code")
+    if occurrence.depth < 0:
+        raise ValueError("depth must be non-negative")
+
+
+def _validate_occurrence_path(occurrence: SourceDefinitionOccurrence) -> None:
+    if not occurrence.structural_path or any(
+        item < 0 for item in occurrence.structural_path
+    ):
+        raise ValueError("structural_path must contain non-negative positions")
+    if (
+        occurrence.member_position < 0
+        or occurrence.structural_path[-1] != occurrence.member_position
+    ):
+        raise ValueError("member_position must end structural_path")
+
+
+def _validate_occurrence_identity(occurrence: SourceDefinitionOccurrence) -> None:
+    if occurrence.occurrence_id != canonical_source_occurrence_id(
+        occurrence.root_code,
+        occurrence.source_fact_id,
+        occurrence.structural_path,
+    ):
+        raise ValueError("source occurrence ID is not canonical")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CompleteDefinition:
     """Canonical stated definition DAG for one decomposed source concept."""
 
@@ -162,6 +229,7 @@ class CompleteDefinition:
     facts: tuple[DefinitionFact, ...]
     groups: tuple[DefinitionGroup, ...] = ()
     root_group_ids: tuple[str, ...] = ()
+    occurrences: tuple[SourceDefinitionOccurrence, ...] = ()
 
     def __post_init__(self) -> None:
         _require_code(self.root_code, _CONCEPT_CODE, "root_code")
@@ -179,9 +247,13 @@ class CompleteDefinition:
         _validate_definition_roots(roots, group_by_id, child_group_ids)
         _validate_definition_fact_groups(canonical, group_by_id)
         _validate_canonical_definition_ids(canonical, groups)
+        occurrences = _canonical_definition_occurrences(
+            self.root_code, self.occurrences, canonical
+        )
         object.__setattr__(self, "facts", canonical)
         object.__setattr__(self, "groups", groups)
         object.__setattr__(self, "root_group_ids", roots)
+        object.__setattr__(self, "occurrences", occurrences)
 
     @property
     def identity(self) -> str:
@@ -208,6 +280,54 @@ class CompleteDefinition:
             "utf-8"
         )
         return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_definition_occurrences(
+    root_code: str,
+    occurrences: tuple[SourceDefinitionOccurrence, ...],
+    facts: tuple[DefinitionFact, ...],
+) -> tuple[SourceDefinitionOccurrence, ...]:
+    canonical = tuple(
+        sorted(occurrences, key=lambda item: (item.anchor_code, item.structural_path))
+    )
+    if len({item.occurrence_id for item in canonical}) != len(canonical):
+        raise ValueError("complete-definition occurrence IDs must be unique")
+    if len({(item.anchor_code, item.structural_path) for item in canonical}) != len(
+        canonical
+    ):
+        raise ValueError("complete-definition occurrence paths must be unique")
+    _validate_occurrence_semantics(root_code, canonical, facts)
+    return canonical
+
+
+def _validate_occurrence_semantics(
+    root_code: str,
+    occurrences: tuple[SourceDefinitionOccurrence, ...],
+    facts: tuple[DefinitionFact, ...],
+) -> None:
+    facts_by_id = {fact.fact_id: fact for fact in facts}
+    for occurrence in occurrences:
+        if occurrence.root_code != root_code:
+            raise ValueError(
+                "source occurrence root does not match complete definition"
+            )
+        fact = facts_by_id.get(occurrence.source_fact_id)
+        if not isinstance(fact, RestrictionDefinitionFact):
+            raise ValueError("source occurrence references an unknown restriction fact")
+        if (
+            occurrence.source_group_id,
+            occurrence.anchor_code,
+            occurrence.depth,
+            occurrence.role_code,
+            occurrence.filler_code,
+        ) != (
+            fact.group_id,
+            fact.anchor_code,
+            fact.depth,
+            fact.role_code,
+            fact.filler_code,
+        ):
+            raise ValueError("source occurrence does not match its restriction fact")
 
 
 def _canonical_definition_facts(
@@ -417,6 +537,7 @@ class Constituent:
     needs_review: bool = False
     group: str | None = None
     source_definition_ids: tuple[str, ...] = ()
+    source_occurrence_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_code(self.axis, _AXIS_OR_ROLE, "axis")
@@ -432,6 +553,10 @@ class Constituent:
         for source_id in canonical:
             _require_sha256(source_id, "source_definition_ids item")
         object.__setattr__(self, "source_definition_ids", canonical)
+        occurrence_ids = tuple(sorted(set(self.source_occurrence_ids)))
+        for occurrence_id in occurrence_ids:
+            _require_sha256(occurrence_id, "source_occurrence_ids item")
+        object.__setattr__(self, "source_occurrence_ids", occurrence_ids)
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,7 +604,9 @@ def _validate_role_fact(constituent: Constituent, fact: DefinitionFact) -> None:
 
 
 def _require_no_definition_references(constituents: Sequence[Constituent]) -> None:
-    if _referenced_source_ids(constituents):
+    if _referenced_source_ids(constituents) or any(
+        constituent.source_occurrence_ids for constituent in constituents
+    ):
         raise ValueError(
             "constituent source-definition references require a complete definition"
         )
@@ -499,9 +626,28 @@ def _validate_definition_link(
     unknown = _referenced_source_ids(constituents) - known.keys()
     if unknown:
         raise ValueError(f"unknown complete-definition fact referenced: {min(unknown)}")
+    known_occurrences = {
+        occurrence.occurrence_id: occurrence
+        for occurrence in complete_definition.occurrences
+    }
     for constituent in constituents:
-        for source_id in constituent.source_definition_ids:
-            _validate_referenced_fact(constituent, known[source_id])
+        _validate_constituent_definition_links(constituent, known, known_occurrences)
+
+
+def _validate_constituent_definition_links(
+    constituent: Constituent,
+    facts: dict[str, DefinitionFact],
+    occurrences: dict[str, SourceDefinitionOccurrence],
+) -> None:
+    for source_id in constituent.source_definition_ids:
+        _validate_referenced_fact(constituent, facts[source_id])
+    for occurrence_id in constituent.source_occurrence_ids:
+        occurrence = occurrences.get(occurrence_id)
+        if occurrence is None:
+            raise ValueError(f"unknown source occurrence referenced: {occurrence_id}")
+        if occurrence.source_fact_id not in constituent.source_definition_ids:
+            raise ValueError("source occurrence link requires its semantic fact link")
+        _validate_referenced_fact(constituent, facts[occurrence.source_fact_id])
 
 
 def _validate_axis_cardinality(constituents: Sequence[Constituent]) -> None:

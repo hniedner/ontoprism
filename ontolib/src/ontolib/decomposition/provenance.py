@@ -35,6 +35,7 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    SourceDefinitionOccurrence,
 )
 from ontolib.decomposition.provenance_models import (
     CompletionRunMetrics,
@@ -457,6 +458,49 @@ def _definition_group_edge_rows(
     ]
 
 
+def _source_occurrence_rows(
+    run_id: str,
+    concept_code: str,
+    complete_definition: CompleteDefinition | None,
+) -> list[dict[str, object]]:
+    if complete_definition is None:
+        return []
+    return [
+        {
+            "run_id": run_id,
+            "concept_code": concept_code,
+            "occurrence_id": occurrence.occurrence_id,
+            "source_fact_id": occurrence.source_fact_id,
+            "source_group_id": occurrence.source_group_id,
+            "anchor_code": occurrence.anchor_code,
+            "depth": occurrence.depth,
+            "role_code": occurrence.role_code,
+            "filler_code": occurrence.filler_code,
+            "structural_path": list(occurrence.structural_path),
+            "member_position": occurrence.member_position,
+        }
+        for occurrence in complete_definition.occurrences
+    ]
+
+
+def _constituent_occurrence_rows(
+    run_id: str,
+    concept_code: str,
+    constituents: list[Constituent],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "run_id": run_id,
+            "concept_code": concept_code,
+            "axis": constituent.axis,
+            "filler_code": constituent.filler_code,
+            "occurrence_id": occurrence_id,
+        }
+        for constituent in constituents
+        for occurrence_id in constituent.source_occurrence_ids
+    ]
+
+
 def _proposal_rows(
     run_id: str,
     concept_code: str,
@@ -483,6 +527,10 @@ async def _delete_completion_rows(
 ) -> None:
     params = {"run_id": run_id, "concept_code": concept_code}
     for statement in (
+        "DELETE FROM decomp_constituent_occurrence "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
+        "DELETE FROM decomp_source_occurrence "
+        "WHERE run_id = :run_id AND concept_code = :concept_code",
         "DELETE FROM decomp_definition_fact "
         "WHERE run_id = :run_id AND concept_code = :concept_code",
         "DELETE FROM decomp_definition_group_edge "
@@ -546,6 +594,23 @@ async def _persist_completion_rows(
         "VALUES (:run_id, :concept_code, :fact_id, :anchor_code, :group_id, "
         ":depth, :fact_kind, :genus_code, :is_defined, :role_code, :filler_code)",
         _definition_fact_rows(run_id, concept_code, complete_definition),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_source_occurrence "
+        "(run_id, concept_code, occurrence_id, source_fact_id, source_group_id, "
+        "anchor_code, depth, role_code, filler_code, structural_path, "
+        "member_position) VALUES (:run_id, :concept_code, :occurrence_id, "
+        ":source_fact_id, :source_group_id, :anchor_code, :depth, :role_code, "
+        ":filler_code, :structural_path, :member_position)",
+        _source_occurrence_rows(run_id, concept_code, complete_definition),
+    )
+    await _insert_completion_rows(
+        session,
+        "INSERT INTO decomp_constituent_occurrence "
+        "(run_id, concept_code, axis, filler_code, occurrence_id) VALUES "
+        "(:run_id, :concept_code, :axis, :filler_code, :occurrence_id)",
+        _constituent_occurrence_rows(run_id, concept_code, constituents),
     )
     await _insert_completion_rows(
         session,
@@ -836,6 +901,8 @@ async def _load_decomposition_rows(
     Sequence[RowMapping],
     Sequence[RowMapping],
     Sequence[RowMapping],
+    Sequence[RowMapping],
+    Sequence[RowMapping],
 ]:
     work_items = await session.execute(
         text(
@@ -880,19 +947,44 @@ async def _load_decomposition_rows(
         ),
         {"run_id": run_id},
     )
+    occurrence_result = await session.execute(
+        text(
+            "SELECT concept_code, occurrence_id, source_fact_id, source_group_id, "
+            "anchor_code, depth, role_code, filler_code, structural_path, "
+            "member_position FROM decomp_source_occurrence WHERE run_id = :run_id "
+            "ORDER BY concept_code, occurrence_id"
+        ),
+        {"run_id": run_id},
+    )
+    occurrence_link_result = await session.execute(
+        text(
+            "SELECT concept_code, axis, filler_code, occurrence_id "
+            "FROM decomp_constituent_occurrence WHERE run_id = :run_id "
+            "ORDER BY concept_code, axis, filler_code, occurrence_id"
+        ),
+        {"run_id": run_id},
+    )
     return (
         work_items.mappings().all(),
         constituent_result.mappings().all(),
         definition_result.mappings().all(),
         group_result.mappings().all(),
         edge_result.mappings().all(),
+        occurrence_result.mappings().all(),
+        occurrence_link_result.mappings().all(),
     )
 
 
 def _constituents_by_code(
     rows: Sequence[RowMapping],
+    occurrence_link_rows: Sequence[RowMapping],
 ) -> dict[str, list[Constituent]]:
     by_code: dict[str, list[Constituent]] = {}
+    occurrence_ids_by_constituent: dict[tuple[str, str, str], list[str]] = {}
+    for link in occurrence_link_rows:
+        occurrence_ids_by_constituent.setdefault(
+            (link["concept_code"], link["axis"], link["filler_code"]), []
+        ).append(link["occurrence_id"])
     for row in rows:
         raw_source_ids = row["source_definition_ids"]
         if isinstance(raw_source_ids, str):
@@ -907,6 +999,11 @@ def _constituents_by_code(
                 needs_review=row["needs_review"],
                 group=row["relationship_group"],
                 source_definition_ids=tuple(raw_source_ids),
+                source_occurrence_ids=tuple(
+                    occurrence_ids_by_constituent.get(
+                        (row["concept_code"], row["axis"], row["filler_code"]), []
+                    )
+                ),
             )
         )
     return by_code
@@ -981,6 +1078,7 @@ def _complete_definition_for_code(
     facts_by_code: dict[str, list[GenusDefinitionFact | RestrictionDefinitionFact]],
     groups_by_code: dict[str, list[DefinitionGroup]],
     roots_by_code: dict[str, list[str]],
+    occurrences_by_code: dict[str, list[SourceDefinitionOccurrence]],
 ) -> CompleteDefinition | None:
     if not has_complete_definition:
         return None
@@ -989,7 +1087,30 @@ def _complete_definition_for_code(
         facts=tuple(facts_by_code.get(concept_code, [])),
         groups=tuple(groups_by_code.get(concept_code, [])),
         root_group_ids=tuple(roots_by_code.get(concept_code, [])),
+        occurrences=tuple(occurrences_by_code.get(concept_code, [])),
     )
+
+
+def _occurrences_by_code(
+    rows: Sequence[RowMapping],
+) -> dict[str, list[SourceDefinitionOccurrence]]:
+    by_code: dict[str, list[SourceDefinitionOccurrence]] = {}
+    for row in rows:
+        by_code.setdefault(row["concept_code"], []).append(
+            SourceDefinitionOccurrence(
+                occurrence_id=row["occurrence_id"],
+                root_code=row["concept_code"],
+                source_fact_id=row["source_fact_id"],
+                source_group_id=row["source_group_id"],
+                anchor_code=row["anchor_code"],
+                depth=row["depth"],
+                role_code=row["role_code"],
+                filler_code=row["filler_code"],
+                structural_path=tuple(row["structural_path"]),
+                member_position=row["member_position"],
+            )
+        )
+    return by_code
 
 
 class ProvenanceStore:
@@ -1434,14 +1555,19 @@ class ProvenanceStore:
                 definition_rows,
                 group_rows,
                 edge_rows,
+                occurrence_rows,
+                occurrence_link_rows,
             ) = await _load_decomposition_rows(session, run_id)
 
-        constituents_by_code = _constituents_by_code(constituent_rows)
+        constituents_by_code = _constituents_by_code(
+            constituent_rows, occurrence_link_rows
+        )
         facts_by_code = _definition_facts_by_code(definition_rows)
         groups_by_code, roots_by_code = _definition_groups_by_code(
             group_rows,
             edge_rows,
         )
+        occurrences_by_code = _occurrences_by_code(occurrence_rows)
         return [
             Decomposition(
                 code=row["concept_code"],
@@ -1453,6 +1579,7 @@ class ProvenanceStore:
                     facts_by_code,
                     groups_by_code,
                     roots_by_code,
+                    occurrences_by_code,
                 ),
             )
             for row in work_item_rows

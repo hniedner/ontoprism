@@ -21,8 +21,10 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    SourceDefinitionOccurrence,
     canonical_definition_fact_id,
     canonical_definition_group_id,
+    canonical_source_occurrence_id,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -1329,6 +1331,141 @@ def test_definition_identity_ignores_semantically_irrelevant_intersection_order(
     assert CompleteDefinition(root_code="C9", facts=repeated_member).identity == (
         CompleteDefinition(root_code="C9", facts=single_member).identity
     )
+
+
+@pytest.mark.unit
+async def test_repeated_restrictions_keep_stable_source_occurrences() -> None:
+    rows = _definition_rows(
+        "_:expression-a",
+        (_iri("C1"), None, None, False),
+        ("_:restriction-a", _iri("R101"), _iri("C2"), False),
+        ("_:restriction-b", _iri("R101"), _iri("C2"), False),
+    )
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    complete = await read_complete_definition(select, "C9")
+    restriction = next(
+        fact for fact in complete.facts if isinstance(fact, RestrictionDefinitionFact)
+    )
+
+    assert len(complete.facts) == 2
+    assert complete.occurrences == (
+        SourceDefinitionOccurrence(
+            occurrence_id=complete.occurrences[0].occurrence_id,
+            root_code="C9",
+            source_fact_id=restriction.fact_id,
+            source_group_id=restriction.group_id,
+            anchor_code="C9",
+            depth=0,
+            role_code="R101",
+            filler_code="C2",
+            structural_path=(0, 1),
+            member_position=1,
+        ),
+        SourceDefinitionOccurrence(
+            occurrence_id=complete.occurrences[1].occurrence_id,
+            root_code="C9",
+            source_fact_id=restriction.fact_id,
+            source_group_id=restriction.group_id,
+            anchor_code="C9",
+            depth=0,
+            role_code="R101",
+            filler_code="C2",
+            structural_path=(0, 2),
+            member_position=2,
+        ),
+    )
+    assert (
+        complete.occurrences[0].occurrence_id != complete.occurrences[1].occurrence_id
+    )
+
+    renamed = [
+        {
+            key: value.replace("_:expression-a", "_:expression-z")
+            if isinstance(value, str)
+            else value
+            for key, value in row.items()
+        }
+        for row in reversed(rows)
+    ]
+
+    async def select_renamed(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return renamed
+
+    assert await read_complete_definition(select_renamed, "C9") == complete
+
+    canonical_only = CompleteDefinition(
+        root_code=complete.root_code,
+        facts=complete.facts,
+        groups=complete.groups,
+        root_group_ids=complete.root_group_ids,
+    )
+    assert complete.identity == canonical_only.identity
+
+    traced = trace_curated_projection(
+        [Constituent(axis="R101", filler_code="C2", axis_source="role")],
+        complete,
+    )
+    assert traced[0].source_definition_ids == (restriction.fact_id,)
+    assert traced[0].source_occurrence_ids == tuple(
+        sorted(occurrence.occurrence_id for occurrence in complete.occurrences)
+    )
+
+
+@pytest.mark.unit
+def test_decomposition_validates_source_occurrence_links() -> None:
+    group_id = canonical_definition_group_id("C1", ("restriction:R101:C2",))
+    fact_id = canonical_definition_fact_id("C1", group_id, "restriction", "R101", "C2")
+    occurrence = SourceDefinitionOccurrence(
+        occurrence_id=canonical_source_occurrence_id("C1", fact_id, (0, 0)),
+        root_code="C1",
+        source_fact_id=fact_id,
+        source_group_id=group_id,
+        anchor_code="C1",
+        depth=0,
+        role_code="R101",
+        filler_code="C2",
+        structural_path=(0, 0),
+        member_position=0,
+    )
+    complete = CompleteDefinition(
+        root_code="C1",
+        facts=(
+            RestrictionDefinitionFact(
+                fact_id=fact_id,
+                anchor_code="C1",
+                group_id=group_id,
+                depth=0,
+                role_code="R101",
+                filler_code="C2",
+            ),
+        ),
+        occurrences=(occurrence,),
+    )
+
+    with pytest.raises(ValueError, match="unknown source occurrence"):
+        Decomposition(
+            code="C1",
+            semantic_type=None,
+            constituents=(
+                Constituent(
+                    axis="R101",
+                    filler_code="C2",
+                    axis_source="role",
+                    source_definition_ids=(fact_id,),
+                    source_occurrence_ids=("b" * 64,),
+                ),
+            ),
+            complete_definition=complete,
+        )
 
 
 @pytest.mark.unit

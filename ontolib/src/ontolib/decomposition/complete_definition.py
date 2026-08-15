@@ -14,8 +14,10 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    SourceDefinitionOccurrence,
     canonical_definition_fact_id,
     canonical_definition_group_id,
+    canonical_source_occurrence_id,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -52,6 +54,7 @@ class _DefinitionSlice:
     facts: tuple[DefinitionFact, ...]
     groups: tuple[DefinitionGroup, ...]
     root_group_ids: tuple[str, ...]
+    occurrences: tuple[SourceDefinitionOccurrence, ...]
 
 
 def _expression_pattern(concept_iri: str, nesting_depth: int) -> str:
@@ -580,6 +583,7 @@ def _validate_group_metadata(
 
 
 def _materialize_definition_slice(
+    root_code: str,
     anchor_code: str,
     *,
     depth: int,
@@ -590,6 +594,8 @@ def _materialize_definition_slice(
     fact_by_id: dict[str, DefinitionFact] = {}
     group_by_id: dict[str, DefinitionGroup] = {}
     roots: set[str] = set()
+    occurrences: list[SourceDefinitionOccurrence] = []
+    group_paths = _structural_group_paths(grouped, group_ids, inbound_parents)
     for expression, positions in grouped.items():
         canonical_id = group_ids[expression]
         group = _materialized_group(
@@ -609,11 +615,58 @@ def _materialize_definition_slice(
             positions=positions,
         ):
             _record_materialized_fact(fact_by_id, fact)
+        for position, (member, _is_defined) in positions.items():
+            if member[0] != "restriction":
+                continue
+            fact = _definition_fact(anchor_code, canonical_id, depth, member, False)
+            structural_path = (*group_paths[expression], position)
+            occurrences.append(
+                SourceDefinitionOccurrence(
+                    occurrence_id=canonical_source_occurrence_id(
+                        root_code, fact.fact_id, structural_path
+                    ),
+                    root_code=root_code,
+                    source_fact_id=fact.fact_id,
+                    source_group_id=canonical_id,
+                    anchor_code=anchor_code,
+                    depth=depth,
+                    role_code=member[1],
+                    filler_code=member[2],
+                    structural_path=structural_path,
+                    member_position=position,
+                )
+            )
     return _DefinitionSlice(
         facts=tuple(sorted(fact_by_id.values(), key=lambda fact: fact.fact_id)),
         groups=tuple(sorted(group_by_id.values(), key=lambda group: group.group_id)),
         root_group_ids=tuple(sorted(roots)),
+        occurrences=tuple(occurrences),
     )
+
+
+def _structural_group_paths(
+    grouped: GroupedMembers,
+    group_ids: Mapping[str, str],
+    inbound_parents: Mapping[str, set[str]],
+) -> dict[str, tuple[int, ...]]:
+    roots = sorted(
+        (expression for expression in grouped if not inbound_parents.get(expression)),
+        key=lambda expression: group_ids[expression],
+    )
+    paths: dict[str, tuple[int, ...]] = {}
+
+    def visit(expression: str, path: tuple[int, ...]) -> None:
+        previous = paths.get(expression)
+        if previous is not None and previous <= path:
+            return
+        paths[expression] = path
+        for position, (member, _is_defined) in sorted(grouped[expression].items()):
+            if member[0] == "group":
+                visit(member[1], (*path, position))
+
+    for root_position, expression in enumerate(roots):
+        visit(expression, (root_position,))
+    return paths
 
 
 def _materialized_group(
@@ -663,6 +716,7 @@ def _definition_slice_from_rows(
     *,
     depth: int,
     rows: Iterable[Row],
+    root_code: str | None = None,
 ) -> _DefinitionSlice:
     grouped, declared_parents, nesting_depths = _group_definition_rows(rows)
     group_ids = _canonical_group_ids(anchor_code, grouped)
@@ -674,6 +728,7 @@ def _definition_slice_from_rows(
         inbound_parents,
     )
     return _materialize_definition_slice(
+        root_code or anchor_code,
         anchor_code,
         depth=depth,
         grouped=grouped,
@@ -752,6 +807,7 @@ async def read_complete_definition(
     facts: list[DefinitionFact] = []
     groups: list[DefinitionGroup] = []
     root_group_ids: list[str] = []
+    occurrences: list[SourceDefinitionOccurrence] = []
     while queue:
         anchor_code, depth = queue.popleft()
         rows = await _read_anchor_definition_rows(select_fn, anchor_code)
@@ -759,11 +815,13 @@ async def read_complete_definition(
             anchor_code,
             depth=depth,
             rows=rows,
+            root_code=root_code,
         )
         direct = definition_slice.facts
         facts.extend(direct)
         groups.extend(definition_slice.groups)
         root_group_ids.extend(definition_slice.root_group_ids)
+        occurrences.extend(definition_slice.occurrences)
         for genus_code in _defined_genera(direct):
             _schedule_defined_genus(
                 root_code=root_code,
@@ -779,6 +837,7 @@ async def read_complete_definition(
         facts=tuple(facts),
         groups=tuple(groups),
         root_group_ids=tuple(root_group_ids),
+        occurrences=tuple(occurrences),
     )
 
 
@@ -847,6 +906,20 @@ def _role_source_ids(
     )
 
 
+def _role_occurrence_ids(
+    constituent: Constituent,
+    occurrences: Iterable[SourceDefinitionOccurrence],
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            occurrence.occurrence_id
+            for occurrence in occurrences
+            if occurrence.filler_code == constituent.filler_code
+            and occurrence.role_code == constituent.source_role
+        )
+    )
+
+
 def _parent_source_ids(
     constituent: Constituent,
     genera: Iterable[GenusDefinitionFact],
@@ -888,6 +961,11 @@ def trace_curated_projection(
                 constituent,
                 restrictions,
                 genera,
+            ),
+            source_occurrence_ids=(
+                _role_occurrence_ids(constituent, complete.occurrences)
+                if constituent.axis_source == "role"
+                else ()
             ),
         )
         for constituent in constituents
