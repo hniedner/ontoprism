@@ -214,7 +214,7 @@ class ClinicalTrialsClient:
 
         Raises:
             ValueError: if *status*/*phase* is not a valid CT.gov v2 enum value.
-            StorageError: on a transport error or a non-2xx response.
+            StorageError: on transport, HTTP, or invalid upstream response data.
         """
         params = self._build_search_params(
             condition=condition,
@@ -245,7 +245,7 @@ class ClinicalTrialsClient:
 
         Raises:
             ValueError: if *nct_id* is not the ``NCT`` + 8-digit shape.
-            StorageError: on a transport error or a non-2xx (non-404) response.
+            StorageError: on transport, HTTP, or invalid upstream response data.
         """
         if not is_valid_nct_id(nct_id):
             raise ValueError(f"Invalid NCT id: {nct_id!r}")

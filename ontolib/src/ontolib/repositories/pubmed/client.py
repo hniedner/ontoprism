@@ -15,6 +15,7 @@ from typing import Any, Self
 from xml.etree.ElementTree import ParseError
 
 import httpx
+from pydantic import ValidationError
 
 from ontolib.common.error_handling import retry_with_backoff
 from ontolib.core.logging_config import get_logger
@@ -141,7 +142,7 @@ class PubMedClient:
         """Search PubMed for *query*; resolve the id list to article summaries.
 
         Raises:
-            StorageError: on a transport error or a non-2xx / non-JSON response.
+            StorageError: on transport, HTTP, or invalid upstream response data.
         """
         esearch = await self._json(
             "/esearch.fcgi",
@@ -168,7 +169,7 @@ class PubMedClient:
         """Fetch one article by PMID via EFetch, or None if PubMed returns no record.
 
         Raises:
-            StorageError: on a transport error or a non-2xx response.
+            StorageError: on transport, HTTP, or invalid upstream response data.
         """
         response = await self._request(
             "/efetch.fcgi",
@@ -197,7 +198,7 @@ class PubMedClient:
 
         Raises:
             ValueError: if *link_type* is not one of similar/cited_by/references.
-            StorageError: on a transport error or a non-2xx / non-JSON response.
+            StorageError: on transport, HTTP, or invalid upstream response data.
         """
         linkname = _LINK_NAMES.get(link_type)
         if linkname is None:
@@ -235,8 +236,7 @@ def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
 
 def _valid_summary_docs(docs: dict[str, Any], uids: list[str]) -> bool:
     return all(
-        isinstance(docs.get(uid), dict) and str(docs[uid].get("uid", "")) == uid
-        for uid in uids
+        isinstance(docs.get(uid), dict) and docs[uid].get("uid") == uid for uid in uids
     )
 
 
@@ -248,7 +248,12 @@ def _parse_esummary_docs(summary: Any, pmids: list[str]) -> list[PubMedArticleSu
     uids = _string_list(docs.get("uids"))
     if uids != pmids or not _valid_summary_docs(docs, uids):
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
-    return [parse_esummary(uid, docs[uid]) for uid in uids]
+    try:
+        return [parse_esummary(uid, docs[uid]) for uid in uids]
+    except ValidationError as exc:
+        raise UpstreamUnavailableError(
+            "pubmed", "PubMed returned an invalid response."
+        ) from exc
 
 
 def _linkset_pmids(linkset: Any, linkname: str) -> list[str]:
@@ -277,6 +282,14 @@ def _string_list(value: Any) -> list[str]:
     return value
 
 
+def _require_linkset_source(linkset: object, source_pmid: str) -> dict[str, Any]:
+    if not isinstance(linkset, dict) or _string_list(linkset.get("ids")) != [
+        source_pmid
+    ]:
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    return linkset
+
+
 def _extract_elink_pmids(data: Any, linkname: str, *, source_pmid: str) -> list[str]:
     """Pull the target PMIDs for *linkname* out of an ELink JSON document."""
     if not isinstance(data, dict):
@@ -286,6 +299,8 @@ def _extract_elink_pmids(data: Any, linkname: str, *, source_pmid: str) -> list[
         raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     pmids: list[str] = []
     for linkset in linksets:
-        pmids.extend(_linkset_pmids(linkset, linkname))
+        pmids.extend(
+            _linkset_pmids(_require_linkset_source(linkset, source_pmid), linkname)
+        )
     # A source article can appear in its own similar-articles set; drop it.
     return [p for p in pmids if p != source_pmid]

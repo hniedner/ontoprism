@@ -27,7 +27,12 @@ _EFETCH = (
 )
 _EFETCH_EMPTY = '<?xml version="1.0"?><PubmedArticleSet></PubmedArticleSet>'
 _ELINK = {
-    "linksets": [{"linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["222"]}]}]
+    "linksets": [
+        {
+            "ids": ["111"],
+            "linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["222"]}],
+        }
+    ]
 }
 
 

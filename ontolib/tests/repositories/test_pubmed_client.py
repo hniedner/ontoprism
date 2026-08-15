@@ -87,7 +87,12 @@ _EFETCH = """<?xml version="1.0"?>
 </PubmedArticleSet>"""
 _ELINK = {
     "linksets": [
-        {"linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["111", "333", "444"]}]}
+        {
+            "ids": ["111"],
+            "linksetdbs": [
+                {"linkname": "pubmed_pubmed", "links": ["111", "333", "444"]}
+            ],
+        }
     ]
 }
 
@@ -422,9 +427,10 @@ def test_extract_elink_pmids_drops_source_pmid() -> None:
     data = {
         "linksets": [
             {
+                "ids": ["111"],
                 "linksetdbs": [
                     {"linkname": "pubmed_pubmed", "links": ["111", "333", "444"]}
-                ]
+                ],
             }
         ]
     }
@@ -432,6 +438,21 @@ def test_extract_elink_pmids_drops_source_pmid() -> None:
         "333",
         "444",
     ]
+
+
+@pytest.mark.unit
+def test_extract_elink_pmids_rejects_mismatched_source_identity() -> None:
+    data = {
+        "linksets": [
+            {
+                "ids": ["222"],
+                "linksetdbs": [{"linkname": "pubmed_pubmed", "links": ["333"]}],
+            }
+        ]
+    }
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids(data, "pubmed_pubmed", source_pmid="111")
 
 
 @pytest.mark.unit
@@ -460,6 +481,22 @@ def test_esummary_missing_requested_document_fails_closed() -> None:
 @pytest.mark.unit
 def test_esummary_mismatched_internal_uid_fails_closed() -> None:
     payload = {"result": {"uids": ["111"], "111": {"uid": "222"}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_esummary_numeric_internal_uid_fails_closed() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": 111}}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111"])
+
+
+@pytest.mark.unit
+def test_esummary_model_validation_failure_is_an_upstream_error() -> None:
+    payload = {"result": {"uids": ["111"], "111": {"uid": "111", "title": []}}}
 
     with pytest.raises(UpstreamUnavailableError, match="invalid response"):
         _parse_esummary_docs(payload, ["111"])
