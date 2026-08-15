@@ -310,6 +310,67 @@ def test_list_search_metadata_and_safe_detail(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.api
+def test_topography_detail_decodes_production_shaped_json_arrays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PersistedLists(_Store):
+        async def detail(
+            self, edition: str, axis: str, code: str, **kwargs: object
+        ) -> dict[str, object] | None:
+            del kwargs
+            assert (edition, axis, code) == ("4.0", "topography", "C00.0")
+            return {
+                "code": "C00.0",
+                "level": "leaf",
+                "parent_code": "C00",
+                "preferred": "External upper lip",
+                "synonyms": [],
+                "related": ["Upper lip, NOS"],
+                "notes": [],
+                "code_references": [],
+                "see_also": [],
+                "see_notes": [],
+                "includes": [],
+                "excludes": [],
+                "other_text": ["excludes skin of upper lip C44.0"],
+            }
+
+    response = next(_client(_PersistedLists(), monkeypatch)).get(
+        "/api/v1/icdo/4.0/topography/concepts/QzAwLjA",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["record"]["related"] == ["Upper lip, NOS"]
+    assert response.json()["record"]["other_text"] == [
+        "excludes skin of upper lip C44.0"
+    ]
+
+
+@pytest.mark.api
+def test_detail_refuses_malformed_persisted_collection_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _MalformedCollection(_Store):
+        async def detail(self, *args: object, **kwargs: object) -> dict[str, object]:
+            del args, kwargs
+            return {
+                "code": "C00.0",
+                "level": "leaf",
+                "parent_code": "C00",
+                "related": "Upper lip, NOS",
+            }
+
+    response = next(_client(_MalformedCollection(), monkeypatch)).get(
+        "/api/v1/icdo/4.0/topography/concepts/QzAwLjA",
+        headers={"X-ICDO-Entitlement": "licensed"},
+    )
+
+    assert response.status_code == 503
+    assert "Upper lip, NOS" not in response.text
+
+
+@pytest.mark.api
 @pytest.mark.parametrize(
     ("stored", "exposed"),
     [(BROAD_MATCH, NARROW_MATCH), (NARROW_MATCH, BROAD_MATCH)],

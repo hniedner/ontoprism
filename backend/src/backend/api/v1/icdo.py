@@ -394,11 +394,12 @@ async def detail(
             canonical,
             generation_id=ready.activation_identity,
         )
+        record = decode_icdo_record(result) if result is not None else None
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "ICD-O generation is invalid."
         ) from exc
-    if result is None:
+    if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ICD-O code not found.")
     rows: dict[str, list[MappingResult]] = {}
     if dataset is ServedIcdoDataset.ICDO_32_MORPHOLOGY:
@@ -430,6 +431,6 @@ async def detail(
         axis=axis,
         activation_identity=ready.activation_identity,
         serving_identity=ready.serving_identity,
-        record=decode_icdo_record(result).model_dump(),
+        record=record.model_dump(),
         ncit_alignments=_ncit_alignments(canonical, edition, rows.get(canonical, [])),
     )
