@@ -26,7 +26,7 @@ export default defineConfig({
 			timeout: 120_000
 		},
 		{
-			command: `pdm run uvicorn test_support.frontend_fastapi_double:app --host 127.0.0.1 --port ${FASTAPI_PORT}`,
+			command: `env ENABLE_LICENSED_MAPPINGS=true pdm run uvicorn test_support.frontend_fastapi_double:app --host 127.0.0.1 --port ${FASTAPI_PORT}`,
 			cwd: '..',
 			url: `http://127.0.0.1:${FASTAPI_PORT}/health`,
 			reuseExistingServer: false,

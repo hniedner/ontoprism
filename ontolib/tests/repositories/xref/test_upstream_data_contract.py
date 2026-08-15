@@ -56,6 +56,9 @@ from ontolib.repositories.xref.publisher_xref import (
     EXPECTED_ASSERTIONS,
     EXPECTED_SOURCE_CLASSES,
 )
+from ontolib.repositories.xref.publisher_xref import (
+    _parse_assertions as parse_publisher_assertions,
+)
 from ontolib.repositories.xref.ttl_writer import SUPPORTED_PREFIXES
 from ontolib.repositories.xref.vocab import COMPOSITE_MATCHING
 from ontolib.terminologies.sparql_http_client import SparqlHttpClient
@@ -382,6 +385,7 @@ async def test_publisher_xref_counts_are_bound_to_named_active_releases() -> Non
 
     classes = len({row["upstream"] for row in rows})
     assertions = len(rows)
+    parsed = parse_publisher_assertions(rows)
     deltas = {
         "classes": classes - EXPECTED_SOURCE_CLASSES,
         "assertions": assertions - EXPECTED_ASSERTIONS,
@@ -403,6 +407,7 @@ async def test_publisher_xref_counts_are_bound_to_named_active_releases() -> Non
         f"Uberon publisher xrefs {direction}: observed classes={classes}, "
         f"assertions={assertions}, delta={deltas} against 2026-06-19/26.07d"
     )
+    assert len(parsed) == assertions
 
 
 async def test_the_real_stores_co_generate_source_agreeing_candidates() -> None:

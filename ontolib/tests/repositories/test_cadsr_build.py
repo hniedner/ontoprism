@@ -286,9 +286,14 @@ def test_build_orders_members_by_sequence_and_counts_final_unique_cdes(
 def test_candidate_validation_accepts_complete_standalone_database(
     built_db: Path,
 ) -> None:
-    validate_database(
-        built_db, expected_source=_database_source(built_db), expected_cde_count=2
+    expected_source = _database_source(built_db)
+    candidate = validate_database(
+        built_db, expected_source=expected_source, expected_cde_count=2
     )
+
+    assert candidate.path == built_db
+    assert candidate.source == expected_source
+    assert candidate.cde_count == 2
 
 
 @pytest.mark.unit

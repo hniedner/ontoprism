@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 
 from ontolib.repositories.xref.publisher_xref import (
+    EXPECTED_ASSERTIONS,
+    EXPECTED_SOURCE_CLASSES,
     PublisherXrefCountDriftError,
     PublisherXrefSourceError,
     _observed_version,
@@ -237,9 +239,19 @@ async def test_publisher_xrefs_fail_closed_on_malformed_source_assertion() -> No
 @pytest.mark.parametrize(
     ("classes", "assertions", "class_kind", "assertion_kind"),
     [
-        (2577, 2618, "unchanged", "unchanged"),
-        (2578, 2618, "increased", "unchanged"),
-        (2576, 2617, "decreased", "decreased"),
+        (EXPECTED_SOURCE_CLASSES, EXPECTED_ASSERTIONS, "unchanged", "unchanged"),
+        (
+            EXPECTED_SOURCE_CLASSES + 1,
+            EXPECTED_ASSERTIONS,
+            "increased",
+            "unchanged",
+        ),
+        (
+            EXPECTED_SOURCE_CLASSES - 1,
+            EXPECTED_ASSERTIONS - 1,
+            "decreased",
+            "decreased",
+        ),
     ],
 )
 async def test_publisher_count_drift_is_independent_and_precedes_all_writes(
@@ -255,12 +267,12 @@ async def test_publisher_count_drift_is_independent_and_precedes_all_writes(
     rows.extend(rows[: assertions - classes])
     rows = rows[:assertions]
     store = _Store()
-    if (classes, assertions) == (2577, 2618):
+    if (classes, assertions) == (EXPECTED_SOURCE_CLASSES, EXPECTED_ASSERTIONS):
         await publish_uberon_xrefs(
             store,
             _Client([], set()),
             _Client(rows, set()),
-            expected_counts=(2577, 2618),
+            expected_counts=(EXPECTED_SOURCE_CLASSES, EXPECTED_ASSERTIONS),
         )
         assert store.run_writes == 1
         return

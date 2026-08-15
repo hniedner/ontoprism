@@ -286,8 +286,8 @@ async def test_successful_run_does_not_write_failure_metrics() -> None:
         async def update_run_metrics(self, *_args: object, **_kwargs: object) -> None:
             raise AssertionError("successful run must not be terminalized as failed")
 
-    async with fail_run_on_error(Store(), "run-1"):  # type: ignore[arg-type]
-        pass
+    async with fail_run_on_error(Store(), "run-1") as result:  # type: ignore[arg-type]
+        assert result is None
 
 
 @pytest.mark.unit

@@ -4,13 +4,17 @@ import type { Neighborhood } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ fetch, params }) => {
-	const [detail, rawGraph, alignments] = await critical(
+	const [repository, alignments] = await critical(
 		Promise.all([
-			getUberonConcept(params.curie, fetch),
-			getUberonNeighborhood(params.curie, 1, fetch),
+			(async () => {
+				const detail = await getUberonConcept(params.curie, fetch);
+				const rawGraph = await getUberonNeighborhood(params.curie, 1, fetch);
+				return { detail, rawGraph };
+			})(),
 			getUberonAlignments(params.curie, fetch)
 		])
 	);
+	const { detail, rawGraph } = repository;
 	const graph: Neighborhood = {
 		...rawGraph,
 		nodes: rawGraph.nodes.map((node) => ({

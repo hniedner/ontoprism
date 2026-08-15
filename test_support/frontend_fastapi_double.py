@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections import Counter
 from typing import TYPE_CHECKING, Annotated
 
@@ -149,34 +150,7 @@ async def refresh_repositories() -> dict[str, object]:
                 "repository": "ncit",
                 "reason": "repository-unreachable",
                 "message": "fixture metadata",
-            },
-            {
-                "state": "ready",
-                "repository": "uberon",
-                "source_identity": "a" * 64,
-                "manifest_identity": "b" * 64,
-                "source_sha256": "c" * 64,
-                "version_iri": "http://example.test/uberon/2026-06-19",
-                "class_counts": {"uberon": 16071, "cl": 1484},
-                "observation": {
-                    "version_iri": "http://example.test/uberon/2026-06-19",
-                    "triples": 900000,
-                    "has_uberon_lung": True,
-                    "has_cell_class": True,
-                    "has_ncit_xref": True,
-                    "serving": {
-                        "rows": 223834,
-                        "sha256": (
-                            "ed3efa224d1e7445d2dc17fb053cea61feee698232dc8404e"
-                            "1c615525b0dffb0"
-                        ),
-                        "uberon_classes": 16362,
-                        "cl_classes": 1484,
-                        "uberon_searchable_classes": 16071,
-                        "cl_searchable_classes": 1484,
-                    },
-                },
-            },
+            }
         ],
     }
 
@@ -305,6 +279,8 @@ async def list_icdo(
             **({"specificity": "specific"} if edition == "4.0" else {}),
         }
     return {
+        "activation_identity": "d" * 64,
+        "serving_identity": "e" * 64,
         "edition": edition,
         "axis": axis,
         "query": "",
@@ -314,6 +290,10 @@ async def list_icdo(
         "hits": [
             {
                 **record,
+                "parent_code": record.get("parent_code"),
+                "base_morphology": record.get("base_morphology"),
+                "specificity": record.get("specificity"),
+                "behaviour": record.get("behaviour"),
                 "synonyms": [],
                 "related": [],
                 "notes": [],
@@ -584,10 +564,17 @@ async def get_ncit_mappings(
             }
             for value in ("8240/3", "8241/3", "8248/1")
         ]
-        if code == "C188218" and x_icdo_entitlement == "licensed"
+        if code == "C188218"
+        and os.getenv("ENABLE_LICENSED_MAPPINGS", "").lower() == "true"
+        and x_icdo_entitlement == "licensed"
         else []
     )
-    return {"code": code, "mappings": mappings}
+    return {
+        "code": code,
+        "repository_source_identity": "a" * 64,
+        "repository_manifest_identity": "b" * 64,
+        "mappings": mappings,
+    }
 
 
 @app.get("/api/v1/ncit/concepts/{code}/decomposition")
@@ -604,7 +591,8 @@ async def get_ncit_decomposition(
                 "confidence": 0.9,
             }
         ]
-        if x_icdo_entitlement == "licensed"
+        if os.getenv("ENABLE_LICENSED_MAPPINGS", "").lower() == "true"
+        and x_icdo_entitlement == "licensed"
         else []
     )
     return {

@@ -7,6 +7,7 @@ import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
@@ -357,8 +358,11 @@ def test_extract_elink_pmids_drops_source_pmid() -> None:
 
 @pytest.mark.unit
 async def test_throttle_sleeps_on_concurrent_calls() -> None:
+    request_times: list[float] = []
+
     class _FastHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            request_times.append(time.monotonic())
             self._json(_ESEARCH)
 
         def _json(self, payload: dict[str, Any]) -> None:
@@ -382,6 +386,11 @@ async def test_throttle_sleeps_on_concurrent_calls() -> None:
         tg.create_task(client.search_articles("first"))
         await asyncio.sleep(0)
         tg.create_task(client.search_articles("second"))
+    srv.shutdown()
+    srv.server_close()
+
+    assert len(request_times) == 4
+    assert all(later - earlier >= 0.08 for earlier, later in pairwise(request_times))
     srv.shutdown()
     srv.server_close()
 

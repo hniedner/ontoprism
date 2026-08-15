@@ -202,6 +202,19 @@ pdm run test-smoke           # frontend vitest via npm
   `frontend/src/lib` is a hard project rule, enforced by CI and a pre-commit
   test-quality hook that blocks mock-only / coverage-padding tests. Full test-quality
   rules are in `CLAUDE.local.md` — read it before writing tests.
+- **Strict TDD means an observed RED run.** Before production edits, execute the exact
+  behavioral test and confirm it fails for the intended missing/wrong contract. Never
+  backfill tests after implementation and call that TDD. A declared suite collecting zero
+  tests is a failed gate.
+- **Every test must be a reliable regression indicator.** If a relevant production
+  mutation does not make it fail for the right reason, delete or replace it. No execution-
+  only tests, mock choreography, implementation-clone fakes, fixture self-consistency, or
+  assertions added solely to satisfy coverage/test-quality tooling.
+- **Double-only acceptance is forbidden.** PostgreSQL/schema, QLever, persisted JSON,
+  external HTTP/tooling, adapter-node/browser, Docker, and filesystem changes require a
+  real disposable/configured-boundary contract in addition to unit doubles. Run the
+  applicable configured full-store and built-browser contracts before claiming the work
+  complete; a green hand-authored double does not certify production behavior.
 - **TDD does NOT catch false assumptions about external systems. Three extra test types
   are mandatory whenever code depends on an external tool, library, or real data.**
   Learned the hard way on #73 (PR #117): ~12 bugs shipped past a green, strictly-TDD'd

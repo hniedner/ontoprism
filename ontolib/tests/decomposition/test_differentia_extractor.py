@@ -333,29 +333,6 @@ class TestExtract:
 
 class TestMain:
     @pytest.mark.unit
-    async def test_main_runs_with_default_code(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr("sys.argv", ["differentia_extractor.py"])
-        client = AsyncMock()
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=False)
-        with monkeypatch.context() as mp:
-            mp.setattr(
-                "scripts.research.differentia_extractor.ncit_sparql_client",
-                lambda *a, **kw: client,
-            )
-            mp.setattr(
-                "scripts.research.differentia_extractor.walk_chain",
-                AsyncMock(return_value=[]),
-            )
-            mp.setattr(
-                "scripts.research.differentia_extractor._load_golden",
-                lambda p: SimpleNamespace(expected={}, review_exclusions={}),
-            )
-            await differentia_main()
-
-    @pytest.mark.unit
     async def test_main_prints_vs_golden(
         self, monkeypatch: pytest.MonkeyPatch, capsys: Any
     ) -> None:

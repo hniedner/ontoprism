@@ -15,9 +15,6 @@ from ontolib.decomposition.walker import (
     one_level,
     walk_chain,
 )
-from ontolib.decomposition.walker import (
-    main as walker_main,
-)
 from ontolib.terminologies.namespaces import NCIT_NS
 
 
@@ -434,56 +431,3 @@ class TestWalkChain:
             mp.setattr("ontolib.decomposition.walker._process_frontier", fake_process)
             levels = await walk_chain(client, "C1")
         assert levels == []
-
-
-class TestMain:
-    @staticmethod
-    def _mock_client() -> AsyncMock:
-        client = AsyncMock()
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=False)
-        return client
-
-    @pytest.mark.unit
-    async def test_main_uses_default_code_when_no_args(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr("sys.argv", ["walker.py"])
-        level = Level(
-            genus_codes=[("C2", None, True)],
-            roles=[
-                Role(
-                    code="R88",
-                    label="Stage",
-                    filler_code="C27970",
-                    filler_label="Stage III",
-                )
-            ],
-        )
-        client = self._mock_client()
-        with monkeypatch.context() as mp:
-            mp.setattr(
-                "ontolib.decomposition.walker.SparqlHttpClient",
-                lambda *a, **kw: client,
-            )
-            mp.setattr(
-                "ontolib.decomposition.walker.walk_chain",
-                AsyncMock(return_value=[level]),
-            )
-            await walker_main()
-
-    @pytest.mark.unit
-    async def test_main_uses_provided_code(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr("sys.argv", ["walker.py", "C4791"])
-        client = self._mock_client()
-        with monkeypatch.context() as mp:
-            mp.setattr(
-                "ontolib.decomposition.walker.SparqlHttpClient",
-                lambda *a, **kw: client,
-            )
-            mp.setattr(
-                "ontolib.decomposition.walker.walk_chain", AsyncMock(return_value=[])
-            )
-            await walker_main()

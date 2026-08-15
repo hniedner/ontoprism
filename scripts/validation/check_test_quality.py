@@ -42,9 +42,31 @@ class TestQualityVisitor(ast.NodeVisitor):
         if assertions:
             self._check_mock_only_assertions(node, assertions)
             self._check_callable_only_assertions(node, assertions)
+        elif not self._has_behavioral_assertion_call(node):
+            self.failures.append(
+                f"{self.filename}:{node.lineno}: test '{node.name}' has no observable "
+                "assertion — delete it or assert the production contract it protects"
+            )
 
         self._check_excessive_patches(node)
         self.generic_visit(node)
+
+    def _has_behavioral_assertion_call(self, node: ast.AST) -> bool:
+        """Recognize assertion context managers and shared assertion helpers."""
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Call):
+                continue
+            function = child.func
+            if isinstance(function, ast.Attribute):
+                if function.attr in {"raises", "warns"}:
+                    return True
+                if function.attr.startswith(("assert_", "check_")):
+                    return True
+            elif isinstance(function, ast.Name) and function.id.startswith(
+                ("assert_", "_assert_", "check_", "_check_")
+            ):
+                return True
+        return False
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         """Delegate to visit_FunctionDef."""
