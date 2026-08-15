@@ -10,11 +10,16 @@ from typing import Protocol, cast
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
+from ontolib.decomposition.corpus_baseline import (
+    generate_corpus_baseline,
+    write_corpus_baseline,
+)
 from ontolib.decomposition.proposal_registry import (
     load_proposal_registry,
     write_submission_exports,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
 
 try:
     from scripts.research.golden_review import (
@@ -88,6 +93,13 @@ class _CurrentEvidenceArgs(Protocol):
     comparison_output: Path
 
 
+class _CorpusBaselineArgs(Protocol):
+    source_manifest: Path
+    run_id: str
+    artifact: Path
+    output: Path
+
+
 async def _generate_current(args: _CurrentEvidenceArgs) -> None:
     engine = make_engine(get_settings().database_url)
     try:
@@ -102,6 +114,22 @@ async def _generate_current(args: _CurrentEvidenceArgs) -> None:
             comparison_output=args.comparison_output,
             store=ProvenanceStore(make_sessionmaker(engine)),
         )
+    finally:
+        await dispose_engine(engine)
+
+
+async def _generate_corpus(args: _CorpusBaselineArgs) -> None:
+    manifest = validate_ncit_sibling_manifest(args.source_manifest)
+    engine = make_engine(get_settings().database_url)
+    try:
+        baseline = await generate_corpus_baseline(
+            run_id=args.run_id,
+            artifact=args.artifact,
+            store=ProvenanceStore(make_sessionmaker(engine)),
+            expected_source_identity=manifest.source_identity,
+            expected_release=manifest.ontology_version,
+        )
+        write_corpus_baseline(args.output, baseline)
     finally:
         await dispose_engine(engine)
 
@@ -147,6 +175,11 @@ def _parser() -> argparse.ArgumentParser:
     current_parser.add_argument("--artifact", required=True, type=Path)
     current_parser.add_argument("--engine-output", required=True, type=Path)
     current_parser.add_argument("--comparison-output", required=True, type=Path)
+    corpus_parser = subparsers.add_parser("generate-corpus-baseline")
+    corpus_parser.add_argument("--source-manifest", required=True, type=Path)
+    corpus_parser.add_argument("--run-id", required=True)
+    corpus_parser.add_argument("--artifact", required=True, type=Path)
+    corpus_parser.add_argument("--output", required=True, type=Path)
     return parser
 
 
@@ -163,6 +196,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "generate-current-evidence":
         asyncio.run(_generate_current(cast("_CurrentEvidenceArgs", args)))
+        return
+    if args.command == "generate-corpus-baseline":
+        asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))
         return
     _evaluate(
         args.adjudication,

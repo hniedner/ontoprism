@@ -18,6 +18,7 @@ import asyncpg
 import pytest
 from pydantic import ValidationError
 from scripts.research.current_evidence import generate_current_evidence
+from sqlalchemy import event
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -791,6 +792,32 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
             metrics=await _completion_metrics(store, _CURRENT_EVIDENCE_RUN_ID),
             representation_identity=representation_identity,
         )
+
+        aggregate_query_count = 0
+
+        def count_aggregate_queries(*_args: object) -> None:
+            nonlocal aggregate_query_count
+            aggregate_query_count += 1
+
+        event.listen(
+            engine.sync_engine, "before_cursor_execute", count_aggregate_queries
+        )
+        try:
+            aggregate = await store.corpus_baseline_aggregate(_CURRENT_EVIDENCE_RUN_ID)
+        finally:
+            event.remove(
+                engine.sync_engine, "before_cursor_execute", count_aggregate_queries
+            )
+        assert aggregate_query_count == 1
+        assert aggregate.worklist_count == len(manifest.codes)
+        assert aggregate.outcome_counts.decomposed == 1
+        assert aggregate.outcome_counts.atomic_noop == len(manifest.codes) - 1
+        assert aggregate.decomposed_codes == ("C6135",)
+        assert aggregate.emitted_constituent_pair_count == 1
+        assert aggregate.complete_semantic_fact_count == 1
+        assert aggregate.source_occurrence_count == 2
+        assert aggregate.selected_occurrence_count == 2
+        assert aggregate.minted_count == 0
 
         evidence, comparison = await generate_current_evidence(
             sample_manifest=_CURRENT_MANIFEST,

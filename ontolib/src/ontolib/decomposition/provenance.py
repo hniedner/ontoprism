@@ -40,6 +40,7 @@ from ontolib.decomposition.models import (
 from ontolib.decomposition.provenance_models import (
     CompletedRunForEvidence,
     CompletionRunMetrics,
+    CorpusBaselineAggregate,
     MintedConcept,
     PersistedRunMetrics,
     PublicationMarkerSnapshot,
@@ -1631,6 +1632,67 @@ class ProvenanceStore:
         """Return cumulative counters over the materialized exact worklist."""
         async with self._sf() as session:
             return await _persisted_outcome_counts(session, run_id)
+
+    async def corpus_baseline_aggregate(self, run_id: str) -> CorpusBaselineAggregate:
+        """Aggregate the complete baseline payload in one bounded SQL query."""
+        async with self._sf() as session:
+            result = await session.execute(
+                text(
+                    "SELECT "
+                    "(SELECT count(*) FROM decomp_work_item WHERE run_id = :run_id) "
+                    "AS worklist_count, "
+                    "(SELECT count(*) FROM decomp_work_item WHERE run_id = :run_id "
+                    "AND outcome = 'decomposed') AS decomposed, "
+                    "(SELECT count(*) FROM decomp_work_item WHERE run_id = :run_id "
+                    "AND outcome = 'residual') AS residual, "
+                    "(SELECT count(*) FROM decomp_work_item WHERE run_id = :run_id "
+                    "AND outcome = 'semantic-excluded') AS semantic_excluded, "
+                    "(SELECT count(*) FROM decomp_work_item WHERE run_id = :run_id "
+                    "AND outcome = 'atomic-no-op') AS atomic_noop, "
+                    "(SELECT count(*) FROM decomp_work_item WHERE run_id = :run_id "
+                    "AND outcome = 'unknown') AS unknown, "
+                    "(SELECT COALESCE(array_agg(concept_code ORDER BY ordinal) "
+                    "FILTER (WHERE outcome = 'decomposed'), ARRAY[]::text[]) "
+                    "FROM decomp_work_item WHERE run_id = :run_id) "
+                    "AS decomposed_codes, "
+                    "(SELECT count(*) FROM decomp_constituent WHERE run_id = :run_id) "
+                    "AS emitted_constituent_pair_count, "
+                    "(SELECT count(*) FROM decomp_definition_fact "
+                    "WHERE run_id = :run_id) AS complete_semantic_fact_count, "
+                    "(SELECT count(*) FROM decomp_source_occurrence "
+                    "WHERE run_id = :run_id) AS source_occurrence_count, "
+                    "(SELECT count(DISTINCT (concept_code, occurrence_id)) "
+                    "FROM decomp_constituent_occurrence WHERE run_id = :run_id) "
+                    "AS selected_occurrence_count, "
+                    "(SELECT count(*) FROM decomp_minted_proposal "
+                    "WHERE run_id = :run_id) AS minted_count"
+                ),
+                {"run_id": run_id},
+            )
+            row = dict(result.mappings().one())
+            return CorpusBaselineAggregate.model_validate(
+                {
+                    "worklist_count": row["worklist_count"],
+                    "outcome_counts": {
+                        name: row[name]
+                        for name in (
+                            "decomposed",
+                            "residual",
+                            "semantic_excluded",
+                            "atomic_noop",
+                            "unknown",
+                        )
+                    },
+                    "decomposed_codes": tuple(row["decomposed_codes"]),
+                    "emitted_constituent_pair_count": row[
+                        "emitted_constituent_pair_count"
+                    ],
+                    "complete_semantic_fact_count": row["complete_semantic_fact_count"],
+                    "source_occurrence_count": row["source_occurrence_count"],
+                    "selected_occurrence_count": row["selected_occurrence_count"],
+                    "minted_count": row["minted_count"],
+                }
+            )
 
     async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
         """Return the exact ordered per-concept outcomes for a run."""

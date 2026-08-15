@@ -227,6 +227,41 @@ class RunOutcomeCounts(BaseModel):
     minted_count: int = Field(ge=0)
 
 
+class CorpusOutcomeCounts(BaseModel):
+    """Exact outcome categories for a full-corpus baseline."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    decomposed: int = Field(ge=0)
+    residual: int = Field(ge=0)
+    semantic_excluded: int = Field(ge=0)
+    atomic_noop: int = Field(ge=0)
+    unknown: int = Field(ge=0)
+
+
+class CorpusBaselineAggregate(BaseModel):
+    """Counts derived from persisted rows in one bounded aggregate query."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    worklist_count: int = Field(ge=0)
+    outcome_counts: CorpusOutcomeCounts
+    decomposed_codes: tuple[str, ...]
+    emitted_constituent_pair_count: int = Field(ge=0)
+    complete_semantic_fact_count: int = Field(ge=0)
+    source_occurrence_count: int = Field(ge=0)
+    selected_occurrence_count: int = Field(ge=0)
+    minted_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _counts_are_complete(self) -> Self:
+        if sum(self.outcome_counts.model_dump().values()) != self.worklist_count:
+            raise ValueError("outcome counts do not sum to worklist count")
+        if len(self.decomposed_codes) != self.outcome_counts.decomposed:
+            raise ValueError("decomposed code count does not match outcome counts")
+        return self
+
+
 class PersistedRunMetrics(BaseModel):
     """Validated metrics stored in ``decomp_run.metrics``."""
 
