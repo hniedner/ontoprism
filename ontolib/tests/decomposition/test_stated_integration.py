@@ -891,6 +891,52 @@ async def test_2607d_unsupported_r103_fact_is_conserved_but_not_projected(
 
 
 @pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_union_definition_reaches_typed_unknown_outcome() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            "C114759",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+        )
+
+    assert result.outcome == "unknown"
+    assert result.decomposition is None
+    assert "Neoplastic Process" in result.semantic_types
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_2607d_c130035_r82_closure_stays_within_observed_bounds() -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            "C130035",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+        )
+
+    assert result.outcome in {"decomposed", "residual"}
+
+
+@pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.full_store
 async def test_2607d_m1_complete_role_audit_remains_source_complete() -> None:

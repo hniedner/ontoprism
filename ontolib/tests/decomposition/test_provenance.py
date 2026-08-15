@@ -185,7 +185,7 @@ async def test_completion_without_a_decomposition_requires_a_typed_outcome() -> 
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("outcome", ["semantic-excluded", "atomic-no-op"])
+@pytest.mark.parametrize("outcome", ["semantic-excluded", "atomic-no-op", "unknown"])
 async def test_completion_without_a_decomposition_accepts_a_typed_outcome(
     outcome: str,
 ) -> None:

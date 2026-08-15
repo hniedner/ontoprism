@@ -40,6 +40,10 @@ class CompleteDefinitionError(ValueError):
     """The stated definition cannot be represented completely and deterministically."""
 
 
+class UnsupportedDefinitionConstructorError(CompleteDefinitionError):
+    """A valid OWL constructor is outside the decomposition representation."""
+
+
 class SelectRows(Protocol):
     def __call__(
         self,
@@ -104,6 +108,7 @@ def build_complete_definition_query(
     return f"""{_PREFIXES}
 SELECT DISTINCT ?expression ?parentExpression ?nestingDepth ?requestedNestingDepth
        ?list ?cell ?next ?member ?role ?target ?childExpression ?nestedExpression
+       ?unionList
 WHERE {{
     GRAPH <{STATED_GRAPH_IRI}> {{
         {{
@@ -122,6 +127,7 @@ WHERE {{
                     owl:someValuesFrom ?target .
         }}
         OPTIONAL {{ ?member owl:equivalentClass ?childExpression }}
+        OPTIONAL {{ ?member owl:unionOf ?unionList }}
         OPTIONAL {{
             FILTER(isBlank(?member))
             ?member owl:equivalentClass? ?nestedExpression .
@@ -169,6 +175,13 @@ def _genus_member(row: Row) -> Member:
     )
 
 
+def _require_supported_member(row: Row) -> None:
+    if row.get("unionList") not in {None, ""}:
+        raise UnsupportedDefinitionConstructorError(
+            "complete definition contains unsupported owl:unionOf member"
+        )
+
+
 def _member_key(row: Row) -> Member:
     role = row.get("role")
     target = row.get("target")
@@ -181,6 +194,7 @@ def _member_key(row: Row) -> Member:
         return ("group", nested_expression)
     if role is not None or target is not None:
         return _restriction_member(role, target)
+    _require_supported_member(row)
     return _genus_member(row)
 
 

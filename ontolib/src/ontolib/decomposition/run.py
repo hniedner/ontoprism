@@ -379,18 +379,7 @@ async def _detect_concept(
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
     constituent is judged by the *same* detector as the concept it came from.
     """
-    semantic_types = tuple(
-        sorted(
-            set(
-                extract.semantic_types_from_rows(
-                    await client.select(
-                        stated_queries.build_semantic_type_query(code),
-                        required_variables={"semanticType"},
-                    )
-                )
-            )
-        )
-    )
+    semantic_types = await _semantic_types_for_concept(client, code)
     definition, roles = await stated_queries.read_complete_genus_chain(
         client.select, code, max_depth=walker_max_depth
     )
@@ -407,12 +396,64 @@ async def _detect_concept(
     return result, roles, morphology_filler, definition, semantic_types
 
 
+async def _semantic_types_for_concept(
+    client: SparqlClient, code: str
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            set(
+                extract.semantic_types_from_rows(
+                    await client.select(
+                        stated_queries.build_semantic_type_query(code),
+                        required_variables={"semanticType"},
+                    )
+                )
+            )
+        )
+    )
+
+
 def _non_candidate_outcome(
     semantic_types: tuple[str, ...],
 ) -> ConceptOutcome:
     if any(axes.is_in_scope(value) for value in semantic_types):
         return "atomic-no-op"
     return "semantic-excluded"
+
+
+async def _detect_candidate_or_unknown(
+    code: str,
+    client: DecompositionSparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+) -> (
+    tuple[
+        detector.DetectionResult,
+        list[RoleRestriction],
+        str | None,
+        CompleteDefinition,
+        tuple[str, ...],
+    ]
+    | _CandidateResult
+):
+    try:
+        return await _detect_concept(
+            code, client, label=label, walker_max_depth=walker_max_depth
+        )
+    except complete_definition.UnsupportedDefinitionConstructorError:
+        return _CandidateResult(
+            decomposition=None,
+            outcome="unknown",
+            semantic_types=await _semantic_types_for_concept(client, code),
+        )
+
+
+def _candidate_filler_codes(
+    roles: list[RoleRestriction], morphology_filler: str | None
+) -> set[str]:
+    codes = {role.filler_code for role in roles}
+    return codes | ({morphology_filler} if morphology_filler is not None else set())
 
 
 async def _decompose_one(
@@ -429,21 +470,16 @@ async def _decompose_one(
     # Phase 1: detect (semantic types + genus-chain roles + morphology-from-parent).
     # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
     # which is correct — nothing to decompose.
-    (
-        result,
-        roles,
-        morphology_filler,
-        definition,
-        semantic_types,
-    ) = await _detect_concept(
+    detected = await _detect_candidate_or_unknown(
         code, client, label=label, walker_max_depth=walker_max_depth
     )
+    if isinstance(detected, _CandidateResult):
+        return detected
+    result, roles, morphology_filler, definition, semantic_types = detected
 
     # Phase 1a: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
-    filler_codes = {r.filler_code for r in roles}
-    if morphology_filler:
-        filler_codes.add(morphology_filler)
+    filler_codes = _candidate_filler_codes(roles, morphology_filler)
     semantic_type_of: dict[str, list[str]] = {}
     if filler_codes:
         rows = await client.select(

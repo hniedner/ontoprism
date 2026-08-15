@@ -274,7 +274,7 @@ def _expected_completion_outcome(
     if is_residual:
         return "residual"
     if decomposition is None:
-        if outcome in {"semantic-excluded", "atomic-no-op"}:
+        if outcome in {"semantic-excluded", "atomic-no-op", "unknown"}:
             return outcome
         raise RunStateError(
             "non-decomposition completion requires an explicit typed outcome"
@@ -312,7 +312,7 @@ def _validated_completion_metadata(
         is_residual=is_residual,
     )
     resolved = expected if outcome is None else outcome
-    if resolved == "unknown" or resolved != expected:
+    if resolved != expected:
         raise RunStateError("completion outcome does not match decomposition result")
     return (
         resolved,

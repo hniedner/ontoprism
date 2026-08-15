@@ -9,6 +9,7 @@ import pytest
 
 from ontolib.decomposition.complete_definition import (
     CompleteDefinitionError,
+    UnsupportedDefinitionConstructorError,
     build_complete_definition_query,
     definition_facts_from_rows,
     read_complete_definition,
@@ -55,6 +56,7 @@ def test_complete_definition_query_is_bounded_and_stated_only() -> None:
     assert "?next" in query
     assert "?childExpression" in query
     assert "?nestedExpression" in query
+    assert "?unionList" in query
     assert "?parentExpression" in query
     assert "?pathMember1" not in query
     assert f"<{_iri('C6135')}> owl:equivalentClass ?rootExpression" in nested_query
@@ -79,6 +81,15 @@ def test_complete_definition_query_rejects_out_of_range_nesting_depth() -> None:
         build_complete_definition_query("C6135", nesting_depth=-1)
     with pytest.raises(ValueError, match="nesting depth"):
         build_complete_definition_query("C6135", nesting_depth=5)
+
+
+@pytest.mark.unit
+def test_union_definition_member_is_typed_as_unsupported() -> None:
+    rows = _definition_rows("_:expression", ("_:union", None, None, False))
+    rows[0]["unionList"] = "_:union-list"
+
+    with pytest.raises(UnsupportedDefinitionConstructorError, match="owl:unionOf"):
+        definition_facts_from_rows("C5136", depth=0, rows=rows)
 
 
 @pytest.mark.unit

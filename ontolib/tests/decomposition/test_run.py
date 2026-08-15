@@ -15,6 +15,9 @@ import pytest
 
 from ontolib.decomposition import axes
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.complete_definition import (
+    UnsupportedDefinitionConstructorError,
+)
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -1461,6 +1464,34 @@ def test_candidate_result_preserves_typed_atomic_no_op() -> None:
     assert result.outcome == "atomic-no-op"
     assert result.semantic_types == ("Neoplastic Process",)
     assert result.minted == []
+
+
+@pytest.mark.unit
+async def test_unsupported_definition_constructor_reaches_unknown_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.select = AsyncMock(return_value=[{"semanticType": "Neoplastic Process"}])
+    monkeypatch.setattr(
+        run_module.stated_queries,
+        "read_complete_genus_chain",
+        AsyncMock(
+            side_effect=UnsupportedDefinitionConstructorError(
+                "unsupported owl:unionOf member"
+            )
+        ),
+    )
+
+    result = await run_module._decompose_one(
+        "C114759",
+        client,
+        label=None,
+        label_lookup=AsyncMock(return_value=None),
+    )
+
+    assert result.outcome == "unknown"
+    assert result.decomposition is None
+    assert result.semantic_types == ("Neoplastic Process",)
 
 
 @pytest.mark.unit
