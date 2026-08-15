@@ -91,6 +91,10 @@ def _has_valid_study_identity(study: dict[str, Any]) -> bool:
     return isinstance(nct_id, str) and is_valid_nct_id(nct_id)
 
 
+def _study_nct_id(study: dict[str, Any]) -> str:
+    return study["protocolSection"]["identificationModule"]["nctId"]
+
+
 def _invalid_search_response() -> UpstreamUnavailableError:
     return UpstreamUnavailableError(
         "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
@@ -98,9 +102,12 @@ def _invalid_search_response() -> UpstreamUnavailableError:
 
 
 def _valid_study_rows(value: object) -> TypeIs[list[dict[str, Any]]]:
-    return isinstance(value, list) and all(
+    if not isinstance(value, list) or not all(
         isinstance(row, dict) and _has_valid_study_identity(row) for row in value
-    )
+    ):
+        return False
+    identities = [_study_nct_id(row) for row in value]
+    return len(identities) == len(set(identities))
 
 
 def _valid_search_total(total: object, studies: list[dict[str, Any]]) -> TypeIs[int]:

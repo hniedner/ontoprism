@@ -329,6 +329,24 @@ async def test_search_rejects_more_studies_than_total() -> None:
 
 
 @pytest.mark.unit
+async def test_search_rejects_duplicate_study_identities() -> None:
+    class _DuplicateRows(_Handler):
+        def do_GET(self) -> None:
+            self._json({"studies": [_STUDY_ONE, _STUDY_ONE], "totalCount": 2})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _DuplicateRows)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with ClinicalTrialsClient(f"http://{host}:{port}") as client:
+            with pytest.raises(UpstreamUnavailableError):
+                await client.search_studies(condition="melanoma")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
 async def test_transport_error_raises_storage_error() -> None:
     # Unreachable host → transport error → retried to exhaustion, then StorageError.
     async with ClinicalTrialsClient("http://127.0.0.1:9") as client:
