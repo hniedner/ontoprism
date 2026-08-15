@@ -311,17 +311,57 @@ class _NullHandler(BaseHTTPRequestHandler):
 
 
 @pytest.mark.unit
-async def test_null_studies_body_parses_to_empty_page() -> None:
-    # A `"studies": null` body must not crash — it yields an empty page (total 0).
+async def test_null_studies_body_fails_closed() -> None:
     srv, base = _serve(_NullHandler)
     try:
         async with ClinicalTrialsClient(base) as client:
-            page = await client.search_studies(condition="x")
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="x")
     finally:
         srv.shutdown()
         srv.server_close()
-    assert page.total == 0
-    assert page.studies == []
+
+
+@pytest.mark.unit
+async def test_non_object_study_member_fails_closed() -> None:
+    class Handler(_NullHandler):
+        def do_GET(self) -> None:
+            body = json.dumps({"studies": ["not-an-object"], "totalCount": 1}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv, base = _serve(Handler)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="x")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.unit
+async def test_malformed_total_with_valid_empty_studies_fails_closed() -> None:
+    class Handler(_NullHandler):
+        def do_GET(self) -> None:
+            body = json.dumps({"studies": [], "totalCount": None}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv, base = _serve(Handler)
+    try:
+        async with ClinicalTrialsClient(base) as client:
+            with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+                await client.search_studies(condition="x")
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 @pytest.mark.unit

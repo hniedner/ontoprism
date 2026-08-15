@@ -93,9 +93,9 @@ class PubMedClient:
         async with self._throttle_lock:
             now = time.monotonic()
             wait = max(0.0, self._next_allowed - now)
-            self._next_allowed = max(now, self._next_allowed) + self._min_interval
-        if wait:
-            await asyncio.sleep(wait)
+            if wait:
+                await asyncio.sleep(wait)
+            self._next_allowed = time.monotonic() + self._min_interval
 
     @retry_with_backoff(retryable_exceptions=_RETRYABLE)
     async def _get(self, path: str, params: dict[str, Any]) -> httpx.Response:
@@ -106,6 +106,7 @@ class PubMedClient:
         )
 
     async def _request(self, path: str, params: dict[str, Any]) -> httpx.Response:
+        self._get_client()
         await self._throttle()
         try:
             response = await self._get(path, params)
@@ -181,7 +182,13 @@ class PubMedClient:
             raise UpstreamUnavailableError(
                 "pubmed", "PubMed returned an invalid response."
             ) from exc
-        return articles[0] if articles else None
+        if not articles:
+            return None
+        if len(articles) != 1 or articles[0].pmid != pmid:
+            raise UpstreamUnavailableError(
+                "pubmed", "PubMed returned a mismatched article identity."
+            )
+        return articles[0]
 
     async def get_related_pmids(
         self, pmid: str, *, link_type: str = "similar", limit: int = 20
@@ -213,41 +220,65 @@ class PubMedClient:
 
 def _parse_esearch(esearch: Any) -> tuple[list[str], int]:
     """Return (pmids, total) from an ESearch JSON document."""
-    result = esearch.get("esearchresult", {}) if isinstance(esearch, dict) else {}
-    idlist = result.get("idlist") or []
-    pmids = [str(i) for i in idlist if isinstance(i, str)]
-    total = int(result.get("count", len(pmids)) or 0)
+    if not isinstance(esearch, dict) or not isinstance(
+        esearch.get("esearchresult"), dict
+    ):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    result = esearch["esearchresult"]
+    pmids = _string_list(result.get("idlist"))
+    count = result.get("count")
+    if not isinstance(count, str) or not count.isdigit():
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    total = int(count)
     return pmids, total
 
 
 def _parse_esummary_docs(summary: Any, pmids: list[str]) -> list[PubMedArticleSummary]:
     """Map an ESummary JSON document (keyed by uid) to article summaries."""
-    docs = summary.get("result", {}) if isinstance(summary, dict) else {}
-    uids = docs.get("uids") or pmids
-    return [
-        parse_esummary(str(uid), docs[uid])
-        for uid in uids
-        if isinstance(docs.get(uid), dict)
-    ]
+    if not isinstance(summary, dict) or not isinstance(summary.get("result"), dict):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    docs = summary["result"]
+    uids = _string_list(docs.get("uids"))
+    if uids != pmids or not all(isinstance(docs.get(uid), dict) for uid in uids):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    return [parse_esummary(uid, docs[uid]) for uid in uids]
 
 
 def _linkset_pmids(linkset: Any, linkname: str) -> list[str]:
     """Return the target PMIDs for *linkname* within one ELink linkset."""
     if not isinstance(linkset, dict):
-        return []
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    databases = _mapping_list(linkset.get("linksetdbs"))
     pmids: list[str] = []
-    for db in linkset.get("linksetdbs", []):
-        if isinstance(db, dict) and db.get("linkname") == linkname:
-            pmids.extend(str(i) for i in db.get("links", []) if isinstance(i, str))
+    for db in databases:
+        links = db.get("links")
+        parsed_links = [] if links is None else _string_list(links)
+        if db.get("linkname") == linkname:
+            pmids.extend(parsed_links)
     return pmids
+
+
+def _mapping_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    return value
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    return value
 
 
 def _extract_elink_pmids(data: Any, linkname: str, *, source_pmid: str) -> list[str]:
     """Pull the target PMIDs for *linkname* out of an ELink JSON document."""
     if not isinstance(data, dict):
-        return []
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
+    linksets = data.get("linksets")
+    if not isinstance(linksets, list):
+        raise UpstreamUnavailableError("pubmed", "PubMed returned an invalid response.")
     pmids: list[str] = []
-    for linkset in data.get("linksets", []):
+    for linkset in linksets:
         pmids.extend(_linkset_pmids(linkset, linkname))
     # A source article can appear in its own similar-articles set; drop it.
     return [p for p in pmids if p != source_pmid]

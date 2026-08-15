@@ -189,13 +189,17 @@ class ClinicalTrialsClient:
             page_size=page_size,
         )
         data = await self._request_json("/studies", params)
-        # Guard present-but-null (not just absent): a `"studies": null` body would make
-        # `.get("studies", [])` return None and crash the len()/enumerate below.
         raw = data.get("studies")
-        studies = raw if isinstance(raw, list) else []
+        if not isinstance(raw, list) or not all(isinstance(row, dict) for row in raw):
+            raise UpstreamUnavailableError(
+                "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
+            )
+        studies = raw
         total = data.get("totalCount")
         if not isinstance(total, int):
-            total = len(studies)
+            raise UpstreamUnavailableError(
+                "clinicaltrials", "ClinicalTrials.gov returned an invalid response."
+            )
         return CTStudySearchPage(
             condition=condition,
             intervention=intervention,
@@ -204,7 +208,6 @@ class ClinicalTrialsClient:
             studies=[
                 parse_study_summary(s, index=i, total=max(len(studies), 1))
                 for i, s in enumerate(studies)
-                if isinstance(s, dict)
             ],
         )
 

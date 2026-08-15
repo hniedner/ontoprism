@@ -11,6 +11,7 @@ from itertools import pairwise
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 
 from ontolib.core.exceptions import StorageError
@@ -18,6 +19,8 @@ from ontolib.repositories.pubmed.client import (
     PubMedClient,
     _extract_elink_pmids,
     _linkset_pmids,
+    _parse_esearch,
+    _parse_esummary_docs,
 )
 from ontolib.repositories.upstream import (
     UpstreamRateLimitedError,
@@ -318,12 +321,13 @@ async def test_api_key_is_sent_when_configured(pubmed_url: str) -> None:
 
 
 @pytest.mark.unit
-def test_linkset_pmids_non_dict_returns_empty() -> None:
-    assert _linkset_pmids("not a dict", "pubmed_pubmed") == []
+def test_linkset_pmids_non_dict_fails_closed() -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _linkset_pmids("not a dict", "pubmed_pubmed")
 
 
 @pytest.mark.unit
-def test_linkset_pmids_skips_non_dict_entries() -> None:
+def test_linkset_pmids_rejects_non_dict_entries() -> None:
     linkset = {
         "linksetdbs": [
             "string_entry",
@@ -331,12 +335,42 @@ def test_linkset_pmids_skips_non_dict_entries() -> None:
             None,
         ]
     }
-    assert _linkset_pmids(linkset, "pubmed_pubmed") == ["333", "444"]
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _linkset_pmids(linkset, "pubmed_pubmed")
 
 
 @pytest.mark.unit
-def test_extract_elink_pmids_non_dict_returns_empty() -> None:
-    assert _extract_elink_pmids([], "pubmed_pubmed", source_pmid="111") == []
+def test_extract_elink_pmids_non_dict_fails_closed() -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _extract_elink_pmids([], "pubmed_pubmed", source_pmid="111")
+
+
+@pytest.mark.unit
+async def test_efetch_mismatched_requested_pmid_fails_closed() -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = _EFETCH.replace("<PMID>111</PMID>", "<PMID>222</PMID>").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address[:2]
+    try:
+        async with PubMedClient(
+            f"http://{host}:{port}", requests_per_second=0
+        ) as client:
+            with pytest.raises(UpstreamUnavailableError, match="identity"):
+                await client.get_article("111")
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 @pytest.mark.unit
@@ -357,42 +391,52 @@ def test_extract_elink_pmids_drops_source_pmid() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"esearchresult": None},
+        {"esearchresult": {"count": "not-a-count", "idlist": []}},
+        {"esearchresult": {"count": "1", "idlist": [123]}},
+    ],
+)
+def test_esearch_malformed_container_fails_closed(payload: object) -> None:
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esearch(payload)
+
+
+@pytest.mark.unit
+def test_esummary_missing_requested_document_fails_closed() -> None:
+    payload = {"result": {"uids": ["111", "222"], "111": _ESUMMARY["result"]["111"]}}
+
+    with pytest.raises(UpstreamUnavailableError, match="invalid response"):
+        _parse_esummary_docs(payload, ["111", "222"])
+
+
+@pytest.mark.unit
 async def test_throttle_sleeps_on_concurrent_calls() -> None:
-    request_times: list[float] = []
+    dispatches: list[tuple[str, float]] = []
+    client = PubMedClient(requests_per_second=10)
 
-    class _FastHandler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            request_times.append(time.monotonic())
-            self._json(_ESEARCH)
+    async def dispatch(path: str, params: dict[str, Any]) -> httpx.Response:
+        dispatches.append((path, time.monotonic()))
+        payload = _ESUMMARY if path == "/esummary.fcgi" else _ESEARCH
+        request = httpx.Request("GET", f"https://example.test{path}", params=params)
+        return httpx.Response(200, json=payload, request=request)
 
-        def _json(self, payload: dict[str, Any]) -> None:
-            body = json.dumps(payload).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *_a: object) -> None:
-            pass
-
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), _FastHandler)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    host, port = srv.server_address[:2]
-    async with (
-        PubMedClient(f"http://{host}:{port}", requests_per_second=10) as client,
-        asyncio.TaskGroup() as tg,
-    ):
+    client._get = dispatch  # type: ignore[method-assign]
+    client._get_client()
+    async with asyncio.TaskGroup() as tg:
         tg.create_task(client.search_articles("first"))
-        await asyncio.sleep(0)
         tg.create_task(client.search_articles("second"))
-    srv.shutdown()
-    srv.server_close()
+    await client.aclose()
 
-    assert len(request_times) == 4
-    assert all(later - earlier >= 0.08 for earlier, later in pairwise(request_times))
-    srv.shutdown()
-    srv.server_close()
+    assert [path for path, _timestamp in dispatches].count("/esearch.fcgi") == 2
+    assert [path for path, _timestamp in dispatches].count("/esummary.fcgi") == 2
+    ordered = [timestamp for _path, timestamp in dispatches]
+    assert all(later - earlier >= 0.07 for earlier, later in pairwise(ordered)), (
+        dispatches
+    )
 
 
 @pytest.mark.unit
