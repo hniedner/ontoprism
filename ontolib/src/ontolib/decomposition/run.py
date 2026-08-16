@@ -622,6 +622,8 @@ async def _precoordinated_fillers(
                 label=labels.get(filler),
                 walker_max_depth=walker_max_depth,
             )
+        except complete_definition.UnsupportedDefinitionConstructorError:
+            continue
         except Exception:
             # Match the main loop's contextual log-then-reraise (this pass is not in
             # it): a bare traceback from the metric post-pass otherwise names no filler

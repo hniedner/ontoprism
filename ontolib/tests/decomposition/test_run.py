@@ -1310,6 +1310,23 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
 
 
 @pytest.mark.unit
+async def test_precoordinated_fillers_excludes_typed_unsupported_definitions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unsupported(*_args: object, **_kwargs: object) -> object:
+        raise UnsupportedDefinitionConstructorError("unsupported owl:unionOf member")
+
+    monkeypatch.setattr(run_module, "_detect_concept", unsupported)
+
+    assert (
+        await _precoordinated_fillers(
+            [_decomp("C1", "C9099")], MagicMock(), None, walker_max_depth=5
+        )
+        == set()
+    )
+
+
+@pytest.mark.unit
 async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
     """SEAM: the metric must be set by a real ``run_pipeline`` call, not only by the
     isolated helpers. Deleting the post-pass wiring in ``run_pipeline`` leaves every
