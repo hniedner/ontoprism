@@ -380,7 +380,7 @@ class CompletionRunMetrics(BaseModel):
     residual: int = Field(ge=0)
     semantic_excluded: int = Field(ge=0)
     atomic_noop: int = Field(ge=0)
-    unknown_outcome: Literal[0]
+    unknown_outcome: int = Field(ge=0)
     residual_precoordinated_count: int = Field(ge=0)
     residual_precoordination: float = Field(ge=0, le=1)
     minted_count: int = Field(ge=0)
