@@ -314,9 +314,9 @@ async def _rejected_complete_definition_writes(conn: Any) -> dict[str, bool]:
     constituent = (
         "INSERT INTO decomp_constituent "
         "(run_id, concept_code, axis, filler_code, axis_source, most_specific, "
-        "needs_review, source_definition_ids) VALUES "
+        "needs_review, source_roles, source_definition_ids) VALUES "
         "('definition-checks', 'C1', 'op:PrimarySite', 'C12400', 'role', false, "
-        "false, {value}::jsonb)"
+        "false, '[\"R101\"]'::jsonb, {value}::jsonb)"
     )
     fact = (
         "INSERT INTO decomp_definition_fact "

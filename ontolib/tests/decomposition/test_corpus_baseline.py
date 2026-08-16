@@ -329,3 +329,31 @@ def test_generate_corpus_baseline_cli_requires_explicit_inputs() -> None:
     assert args.run_id == "full-run"
     assert args.artifact == Path("run.ttl")
     assert args.output == Path("baseline.json")
+
+
+@pytest.mark.unit
+def test_tracked_current_corpus_baseline_binds_exact_persisted_counts() -> None:
+    baseline = load_corpus_baseline(
+        Path(__file__).with_name("golden") / "neoplasm-current-corpus-baseline.json"
+    )
+
+    assert baseline.run_id == "neoplasm-f9686bb3-4729-4484-8d64-4a280b67b3cf"
+    assert baseline.source_identity == (
+        "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+    )
+    assert baseline.representation_identity == (
+        "e32f10264163bc27fa1bd85dbdb8a2f7c03938279618dab6444ecf43164bf8ce"
+    )
+    assert baseline.worklist_count == 15_633
+    assert baseline.outcome_counts.model_dump() == {
+        "decomposed": 14_864,
+        "residual": 1,
+        "semantic_excluded": 3,
+        "atomic_noop": 626,
+        "unknown": 139,
+    }
+    assert baseline.emitted_constituent_pair_count == 104_424
+    assert baseline.complete_semantic_fact_count == 844_256
+    assert baseline.source_occurrence_count == 369_903
+    assert baseline.selected_occurrence_count == 95_508
+    assert baseline.minted_count == 2_719

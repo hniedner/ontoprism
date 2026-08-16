@@ -11,6 +11,10 @@
 | `neoplasm.json`, `neoplasm-draft.json` | `AUTO-DRAFT` review inputs. **Not** oracles. Retained as seeds. |
 | `proposal-registry.json` | The proposal registry bound to the oracle. |
 | `complete-definition.json`, `minted-concepts.json` | Fixtures for the complete-definition and minting paths. |
+| `neoplasm-current-engine-evidence.json` | Current-source 20-code replay evidence; never the historical attested run. |
+| `neoplasm-current-comparison.json` | Current replay metrics, grouping diagnoses, and all 189 row classifications. |
+| `neoplasm-current-corpus-baseline.json` | Current-source full-corpus pre-change counts and exact representation identity. |
+| `neoplasm-highest-fanout.json` | Current-source highest-fanout concepts and fixed query budgets. |
 
 All of these files are tracked (`git ls-files ontolib/tests/decomposition/golden`, 2026-08-09).
 The oracle status, NCIt version, reviewer, concept count, and expected-pair count come directly
@@ -205,3 +209,70 @@ require a workbook path
 (`pdm run pytest ontolib/tests/decomposition/test_m1_baseline.py -q`, 2026-08-09). Regeneration
 is intentionally not documented as an executable step here because no tracked workbook input
 exists; bind any future generated artifact only after every concrete input exists (D61).
+
+## Current-source replay and corpus baseline
+
+These commands generate new current-source evidence beside the immutable historical files. They
+do not regenerate or modify the SME oracle or row decisions.
+
+Required configured inputs:
+
+```bash
+test -f data/qlever-ncit/.ontoprism-ncit-candidate.json
+test -f samples/ncit-26.07d-m1-current-replay.json
+test -f ontolib/tests/decomposition/golden/neoplasm-adjudicated.json
+test -f ontolib/tests/decomposition/golden/neoplasm-row-decisions.json
+test -f ontolib/tests/decomposition/golden/proposal-registry.json
+```
+
+Run the exact current 20-code cohort, then generate both evidence outputs in one command:
+
+```bash
+pdm run decompose \
+  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
+  --branch neoplasm \
+  --sample-manifest samples/ncit-26.07d-m1-current-replay.json \
+  --out tmp/m1-6-current-replay.ttl
+
+pdm run adjudication generate-current-evidence \
+  --sample-manifest samples/ncit-26.07d-m1-current-replay.json \
+  --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json \
+  --row-decisions ontolib/tests/decomposition/golden/neoplasm-row-decisions.json \
+  --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json \
+  --run-id <completed-current-replay-run-id> \
+  --artifact tmp/m1-6-current-replay.ttl \
+  --engine-output ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json \
+  --comparison-output ontolib/tests/decomposition/golden/neoplasm-current-comparison.json
+```
+
+The generator derives every identity from those inputs and the completed persisted run. It refuses
+source, release, manifest, worklist, run, fingerprint, artifact, representation, detector, oracle,
+row-decision, registry, or evidence drift before replacing either output.
+
+Generate the exhaustive fanout observation against the configured current source:
+
+```bash
+pdm run python scripts/observe_decomposition_fanout.py \
+  --endpoint http://localhost:7888 \
+  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
+  --expected-source-identity b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092 \
+  --out ontolib/tests/decomposition/golden/neoplasm-highest-fanout.json
+```
+
+Generate the full-corpus pre-change baseline only after a complete file publication:
+
+```bash
+pdm run decompose \
+  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
+  --branch neoplasm \
+  --out tmp/m1-6-current-full-corpus.ttl
+
+pdm run adjudication generate-corpus-baseline \
+  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
+  --run-id <completed-current-full-corpus-run-id> \
+  --artifact tmp/m1-6-current-full-corpus.ttl \
+  --output ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json
+```
+
+The long-running CLI reports exact worklist progress and residual-metric progress. Interrupted runs
+must be resumed with `--resume <run-id>`; completed work items are fenced and are not reprocessed.
