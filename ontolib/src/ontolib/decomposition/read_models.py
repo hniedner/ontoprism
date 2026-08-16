@@ -36,7 +36,7 @@ class DecompositionConstituent(BaseModel):
     """One decomposed constituent: the axis and the concept that fills it.
 
     ``axis`` is a normalized ``op:`` relation (or a legacy NCIt role code);
-    ``source_role`` preserves the NCIt role from which a normalized relation was
+    ``source_roles`` preserves the NCIt roles from which a normalized relation was
     projected. ``filler`` is the constituent concept code. Labels are resolved for
     display when available.
     """
@@ -46,7 +46,7 @@ class DecompositionConstituent(BaseModel):
     filler: str
     filler_label: str | None = None
     axis_source: AxisSource
-    source_role: str | None = None
+    source_roles: tuple[str, ...] = ()
     most_specific: bool = False
     needs_review: bool = False
     group: str | None = None

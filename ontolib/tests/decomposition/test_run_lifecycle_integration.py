@@ -444,10 +444,10 @@ async def test_persisted_completion_counts_gate_reconstruction_and_finalization(
         elif child_table == "decomp_constituent":
             await conn.execute(
                 "INSERT INTO decomp_constituent "
-                "(run_id, concept_code, axis, filler_code, axis_source, source_role, "
+                "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
                 "most_specific, needs_review, relationship_group, "
                 "source_definition_ids) SELECT run_id, concept_code, 'op:Extra', "
-                "'C999999', axis_source, source_role, most_specific, needs_review, "
+                "'C999999', axis_source, source_roles, most_specific, needs_review, "
                 "relationship_group, source_definition_ids FROM decomp_constituent "
                 "WHERE run_id = $1 AND concept_code = 'C0' LIMIT 1",
                 run_id,

@@ -15,6 +15,9 @@ import pytest
 
 from ontolib.decomposition import axes
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.complete_definition import (
+    UnsupportedDefinitionConstructorError,
+)
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import Constituent, Decomposition
 from ontolib.decomposition.provenance import ProvenanceStore, RunStateError
@@ -1307,6 +1310,42 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
 
 
 @pytest.mark.unit
+async def test_precoordinated_fillers_excludes_typed_unsupported_definitions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unsupported(*_args: object, **_kwargs: object) -> object:
+        raise UnsupportedDefinitionConstructorError("unsupported owl:unionOf member")
+
+    monkeypatch.setattr(run_module, "_detect_concept", unsupported)
+
+    assert (
+        await _precoordinated_fillers(
+            [_decomp("C1", "C9099")], MagicMock(), None, walker_max_depth=5
+        )
+        == set()
+    )
+
+
+@pytest.mark.unit
+async def test_precoordinated_fillers_reports_post_pass_progress() -> None:
+    decompositions = [_decomp("C1", "C2", "C3")]
+    events: list[tuple[int, int, str]] = []
+    client = _FakeClient(semantic_types={"C2": [], "C3": []})
+
+    await _precoordinated_fillers(
+        decompositions,
+        client,
+        None,
+        walker_max_depth=5,
+        progress=lambda completed, total, filler: events.append(
+            (completed, total, filler)
+        ),
+    )
+
+    assert events == [(0, 2, "C2"), (1, 2, "C2"), (1, 2, "C3"), (2, 2, "C3")]
+
+
+@pytest.mark.unit
 async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
     """SEAM: the metric must be set by a real ``run_pipeline`` call, not only by the
     isolated helpers. Deleting the post-pass wiring in ``run_pipeline`` leaves every
@@ -1461,6 +1500,98 @@ def test_candidate_result_preserves_typed_atomic_no_op() -> None:
     assert result.outcome == "atomic-no-op"
     assert result.semantic_types == ("Neoplastic Process",)
     assert result.minted == []
+
+
+@pytest.mark.unit
+async def test_unsupported_definition_constructor_reaches_unknown_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = MagicMock()
+    client.select = AsyncMock(return_value=[{"semanticType": "Neoplastic Process"}])
+    monkeypatch.setattr(
+        run_module.stated_queries,
+        "read_complete_genus_chain",
+        AsyncMock(
+            side_effect=UnsupportedDefinitionConstructorError(
+                "unsupported owl:unionOf member"
+            )
+        ),
+    )
+
+    result = await run_module._decompose_one(
+        "C114759",
+        client,
+        label=None,
+        label_lookup=AsyncMock(return_value=None),
+    )
+
+    assert result.outcome == "unknown"
+    assert result.decomposition is None
+    assert result.semantic_types == ("Neoplastic Process",)
+
+
+@pytest.mark.unit
+async def test_pending_work_emits_heartbeat_while_concept_is_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = run_module._RunSetup(
+        run_id="run-1",
+        source_snapshot=NcitSourceSnapshot(
+            source_identity="a" * 64,
+            ontology_version="26.07d",
+        ),
+        fingerprint=RunFingerprint(
+            source_identity="a" * 64,
+            branch="neoplasm",
+            scope_root="C3262",
+            scope_version="stated-genus-subclass-v1",
+            semantic_types=tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES)),
+            worklist=("C1",),
+            total_limit=None,
+            algorithm_version="decomposition-v3",
+            config_version="nested-definition-v2",
+            walker_max_depth=5,
+            output_mode="file",
+            load_mode="named-graph",
+            emitted_at=datetime(2026, 8, 15, 12, 0, tzinfo=UTC),
+        ),
+        pending=["C1"],
+        labels={},
+    )
+    release = asyncio.Event()
+
+    async def blocked(*_args: object, **_kwargs: object) -> None:
+        await release.wait()
+
+    events: list[run_module.RunProgress] = []
+    heartbeat = asyncio.Event()
+
+    def record(event: run_module.RunProgress) -> None:
+        events.append(event)
+        if event.phase == "heartbeat":
+            heartbeat.set()
+
+    monkeypatch.setattr(run_module, "_process_work_item", blocked)
+    monkeypatch.setattr(run_module, "_PROGRESS_HEARTBEAT_SECONDS", 0.001)
+    task = asyncio.create_task(
+        run_module._process_pending_work(
+            setup,
+            RunConfig(branch="neoplasm"),
+            MagicMock(),
+            MagicMock(),
+            AsyncMock(return_value=None),
+            record,
+        )
+    )
+    await heartbeat.wait()
+    release.set()
+    await task
+
+    assert [event.phase for event in events] == [
+        "started",
+        "heartbeat",
+        "completed",
+    ]
 
 
 @pytest.mark.unit
@@ -1675,7 +1806,7 @@ async def test_source_swap_at_completion_leaves_no_publishable_artifact(
                         axis="op:PrimarySite",
                         filler_code="C12345",
                         axis_source="role",
-                        source_role="R101",
+                        source_roles=("R101",),
                     )
                 ],
             )

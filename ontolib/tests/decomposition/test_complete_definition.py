@@ -9,6 +9,7 @@ import pytest
 
 from ontolib.decomposition.complete_definition import (
     CompleteDefinitionError,
+    UnsupportedDefinitionConstructorError,
     build_complete_definition_query,
     definition_facts_from_rows,
     read_complete_definition,
@@ -21,8 +22,10 @@ from ontolib.decomposition.models import (
     DefinitionGroup,
     GenusDefinitionFact,
     RestrictionDefinitionFact,
+    SourceDefinitionOccurrence,
     canonical_definition_fact_id,
     canonical_definition_group_id,
+    canonical_source_occurrence_id,
 )
 from ontolib.terminologies.namespaces import NCIT_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -53,6 +56,7 @@ def test_complete_definition_query_is_bounded_and_stated_only() -> None:
     assert "?next" in query
     assert "?childExpression" in query
     assert "?nestedExpression" in query
+    assert "?unionList" in query
     assert "?parentExpression" in query
     assert "?pathMember1" not in query
     assert f"<{_iri('C6135')}> owl:equivalentClass ?rootExpression" in nested_query
@@ -77,6 +81,15 @@ def test_complete_definition_query_rejects_out_of_range_nesting_depth() -> None:
         build_complete_definition_query("C6135", nesting_depth=-1)
     with pytest.raises(ValueError, match="nesting depth"):
         build_complete_definition_query("C6135", nesting_depth=5)
+
+
+@pytest.mark.unit
+def test_union_definition_member_is_typed_as_unsupported() -> None:
+    rows = _definition_rows("_:expression", ("_:union", None, None, False))
+    rows[0]["unionList"] = "_:union-list"
+
+    with pytest.raises(UnsupportedDefinitionConstructorError, match="owl:unionOf"):
+        definition_facts_from_rows("C5136", depth=0, rows=rows)
 
 
 @pytest.mark.unit
@@ -495,7 +508,7 @@ async def test_linked_list_reader_accepts_bound_and_rejects_overflow() -> None:
 
 
 @pytest.mark.unit
-async def test_linked_list_normalizes_equivalent_defined_genus_bindings() -> None:
+async def test_linked_list_rejects_duplicate_source_bindings() -> None:
     rows = _linked_definition_rows(1)
     rows[0]["childExpression"] = "_:definition-a"
     rows.append(dict(rows[0], childExpression="_:definition-b"))
@@ -505,19 +518,23 @@ async def test_linked_list_normalizes_equivalent_defined_genus_bindings() -> Non
     ) -> list[dict[str, str | None]]:
         return rows if _iri("C900") in query else []
 
-    complete = await read_complete_definition(select, "C900")
+    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*RDF list cell"):
+        await read_complete_definition(select, "C900")
 
-    assert len(complete.facts) == 1
-    genus = complete.facts[0]
-    assert isinstance(genus, GenusDefinitionFact)
-    assert genus.is_defined is True
-    assert genus.fact_id == canonical_definition_fact_id(
-        genus.anchor_code,
-        genus.group_id,
-        "genus",
-        genus.genus_code,
-        "defined",
-    )
+
+@pytest.mark.unit
+async def test_linked_list_rejects_an_identical_duplicate_source_row() -> None:
+    rows = _linked_definition_rows(1)
+    rows.append(dict(rows[0]))
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*RDF list cell"):
+        await read_complete_definition(select, "C900")
 
 
 @pytest.mark.unit
@@ -978,7 +995,7 @@ def test_complete_definition_identity_and_projection_loss_are_deterministic() ->
         Decomposition(
             code="C1",
             semantic_type=None,
-            constituents=[replace(constituents[0], source_role="R105")],
+            constituents=[replace(constituents[0], source_roles=("R105",))],
             complete_definition=complete,
         )
 
@@ -1007,7 +1024,7 @@ def test_routed_axis_trace_does_not_claim_an_unrelated_role_with_same_filler() -
                 axis="op:AssociatedRegion",
                 filler_code="C200",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
             )
         ],
         complete,
@@ -1289,6 +1306,16 @@ def test_row_parser_rejects_conflicts_gaps_and_collapses_duplicate_groups() -> N
 
 
 @pytest.mark.unit
+def test_row_parser_rejects_an_identical_duplicate_position_binding() -> None:
+    rows = _definition_rows(
+        "_:expression", ("_:restriction", _iri("R101"), _iri("C2"), False)
+    )
+
+    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*position"):
+        definition_facts_from_rows("C9", depth=0, rows=[*rows, dict(rows[0])])
+
+
+@pytest.mark.unit
 def test_definition_identity_ignores_semantically_irrelevant_intersection_order() -> (
     None
 ):
@@ -1332,6 +1359,171 @@ def test_definition_identity_ignores_semantically_irrelevant_intersection_order(
 
 
 @pytest.mark.unit
+async def test_repeated_restrictions_keep_stable_source_occurrences() -> None:
+    rows = _definition_rows(
+        "_:expression-a",
+        (_iri("C1"), None, None, False),
+        ("_:restriction-a", _iri("R101"), _iri("C2"), False),
+        ("_:restriction-b", _iri("R101"), _iri("C2"), False),
+    )
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    complete = await read_complete_definition(select, "C9")
+    restriction = next(
+        fact for fact in complete.facts if isinstance(fact, RestrictionDefinitionFact)
+    )
+
+    assert len(complete.facts) == 2
+    assert complete.occurrences == (
+        SourceDefinitionOccurrence(
+            occurrence_id=complete.occurrences[0].occurrence_id,
+            root_code="C9",
+            source_fact_id=restriction.fact_id,
+            source_group_id=restriction.group_id,
+            anchor_code="C9",
+            depth=0,
+            role_code="R101",
+            filler_code="C2",
+            structural_path=(0, 1),
+            member_position=1,
+        ),
+        SourceDefinitionOccurrence(
+            occurrence_id=complete.occurrences[1].occurrence_id,
+            root_code="C9",
+            source_fact_id=restriction.fact_id,
+            source_group_id=restriction.group_id,
+            anchor_code="C9",
+            depth=0,
+            role_code="R101",
+            filler_code="C2",
+            structural_path=(0, 2),
+            member_position=2,
+        ),
+    )
+    assert (
+        complete.occurrences[0].occurrence_id != complete.occurrences[1].occurrence_id
+    )
+
+    renamed = [
+        {
+            key: value.replace("_:expression-a", "_:expression-z")
+            if isinstance(value, str)
+            else value
+            for key, value in row.items()
+        }
+        for row in reversed(rows)
+    ]
+
+    async def select_renamed(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return renamed
+
+    assert await read_complete_definition(select_renamed, "C9") == complete
+
+    canonical_only = CompleteDefinition(
+        root_code=complete.root_code,
+        facts=complete.facts,
+        groups=complete.groups,
+        root_group_ids=complete.root_group_ids,
+    )
+    assert complete.identity == canonical_only.identity
+
+    traced = trace_curated_projection(
+        [Constituent(axis="R101", filler_code="C2", axis_source="role")],
+        complete,
+    )
+    assert traced[0].source_definition_ids == (restriction.fact_id,)
+    assert traced[0].source_occurrence_ids == tuple(
+        sorted(occurrence.occurrence_id for occurrence in complete.occurrences)
+    )
+
+
+@pytest.mark.unit
+async def test_linked_repeated_restrictions_at_distinct_cells_are_preserved() -> None:
+    rows = _linked_definition_rows(3)
+    rows[1].update(
+        member="_:restriction-a",
+        role=_iri("R101"),
+        target=_iri("C2"),
+    )
+    rows[2].update(
+        member="_:restriction-b",
+        role=_iri("R101"),
+        target=_iri("C2"),
+    )
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    complete = await read_complete_definition(select, "C9")
+
+    assert [occurrence.member_position for occurrence in complete.occurrences] == [1, 2]
+    assert {
+        (occurrence.role_code, occurrence.filler_code)
+        for occurrence in complete.occurrences
+    } == {("R101", "C2")}
+    assert len({occurrence.occurrence_id for occurrence in complete.occurrences}) == 2
+
+
+@pytest.mark.unit
+def test_decomposition_validates_source_occurrence_links() -> None:
+    group_id = canonical_definition_group_id("C1", ("restriction:R101:C2",))
+    fact_id = canonical_definition_fact_id("C1", group_id, "restriction", "R101", "C2")
+    occurrence = SourceDefinitionOccurrence(
+        occurrence_id=canonical_source_occurrence_id("C1", fact_id, (0, 0)),
+        root_code="C1",
+        source_fact_id=fact_id,
+        source_group_id=group_id,
+        anchor_code="C1",
+        depth=0,
+        role_code="R101",
+        filler_code="C2",
+        structural_path=(0, 0),
+        member_position=0,
+    )
+    complete = CompleteDefinition(
+        root_code="C1",
+        facts=(
+            RestrictionDefinitionFact(
+                fact_id=fact_id,
+                anchor_code="C1",
+                group_id=group_id,
+                depth=0,
+                role_code="R101",
+                filler_code="C2",
+            ),
+        ),
+        occurrences=(occurrence,),
+    )
+
+    with pytest.raises(ValueError, match="unknown source occurrence"):
+        Decomposition(
+            code="C1",
+            semantic_type=None,
+            constituents=(
+                Constituent(
+                    axis="R101",
+                    filler_code="C2",
+                    axis_source="role",
+                    source_definition_ids=(fact_id,),
+                    source_occurrence_ids=("b" * 64,),
+                ),
+            ),
+            complete_definition=complete,
+        )
+
+
+@pytest.mark.unit
 def test_complete_record_matches_structural_golden_contract() -> None:
     golden_path = Path(__file__).parent / "golden" / "complete-definition.json"
     golden = json.loads(golden_path.read_text(encoding="utf-8"))
@@ -1364,7 +1556,7 @@ def test_complete_record_matches_structural_golden_contract() -> None:
             axis=item["axis"],
             filler_code=item["filler"],
             axis_source=item["axis_source"],
-            source_role=item["source_role"],
+            source_roles=(item["source_role"],),
             group=item["group"],
             needs_review=item["needs_review"],
         )

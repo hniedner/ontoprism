@@ -303,7 +303,7 @@ def test_supported_role_keeps_source_role_separate_from_normalized_axis() -> Non
     )
 
     assert constituent.axis == "op:MolecularAbnormality"
-    assert constituent.source_role == "R106"
+    assert constituent.source_roles == ("R106",)
     assert constituent.needs_review is False
 
 
@@ -315,7 +315,7 @@ def test_unknown_defining_role_is_preserved_and_review_required() -> None:
     )
 
     assert constituent.axis == "R999"
-    assert constituent.source_role == "R999"
+    assert constituent.source_roles == ("R999",)
     assert constituent.needs_review is True
 
 
@@ -572,7 +572,7 @@ def test_ratified_endometrial_primary_routes_cavity_to_subsite() -> None:
         ("op:Morphology", "C7558"),
     }
     primary = next(item for item in constituents if item.axis == "op:PrimarySite")
-    assert primary.source_role == "R100"
+    assert primary.source_roles == ("R100",)
 
 
 @pytest.mark.unit
@@ -653,7 +653,7 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("reverse", [False, True])
-def test_same_routed_pair_from_different_source_roles_fails_closed(
+def test_same_routed_pair_preserves_all_source_roles(
     reverse: bool,
 ) -> None:
     restrictions = [
@@ -663,12 +663,18 @@ def test_same_routed_pair_from_different_source_roles_fails_closed(
     if reverse:
         restrictions.reverse()
 
-    with pytest.raises(ValueError, match="multiple source roles"):
-        select_constituents(
-            restrictions,
-            lambda _ancestor, _descendant: False,
-            parent_morphology="C7558",
-        )
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        parent_morphology="C7558",
+    )
+
+    primary_site = next(
+        item
+        for item in constituents
+        if (item.axis, item.filler_code) == ("op:PrimarySite", "C12316")
+    )
+    assert primary_site.source_roles == ("R100", "R101")
 
 
 @pytest.mark.unit

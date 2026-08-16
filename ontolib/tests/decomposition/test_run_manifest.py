@@ -383,6 +383,13 @@ def test_completion_metrics_accept_a_partitioned_scope() -> None:
 
 
 @pytest.mark.unit
+def test_completion_metrics_accept_typed_unknown_outcomes() -> None:
+    metrics = _completion_metrics(atomic_noop=0, unknown_outcome=1)
+
+    assert metrics.unknown_outcome == 1
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "updates",
     [

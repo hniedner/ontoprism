@@ -31,10 +31,12 @@ Scope of this orchestrator (documented boundaries, not oversights):
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
 
 from ontolib.core.logging_config import get_logger
@@ -79,6 +81,8 @@ from ontolib.decomposition.publication import (
 )
 
 logger = get_logger(__name__)
+
+_PROGRESS_HEARTBEAT_SECONDS = 15.0
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
@@ -379,18 +383,7 @@ async def _detect_concept(
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
     constituent is judged by the *same* detector as the concept it came from.
     """
-    semantic_types = tuple(
-        sorted(
-            set(
-                extract.semantic_types_from_rows(
-                    await client.select(
-                        stated_queries.build_semantic_type_query(code),
-                        required_variables={"semanticType"},
-                    )
-                )
-            )
-        )
-    )
+    semantic_types = await _semantic_types_for_concept(client, code)
     definition, roles = await stated_queries.read_complete_genus_chain(
         client.select, code, max_depth=walker_max_depth
     )
@@ -407,12 +400,64 @@ async def _detect_concept(
     return result, roles, morphology_filler, definition, semantic_types
 
 
+async def _semantic_types_for_concept(
+    client: SparqlClient, code: str
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            set(
+                extract.semantic_types_from_rows(
+                    await client.select(
+                        stated_queries.build_semantic_type_query(code),
+                        required_variables={"semanticType"},
+                    )
+                )
+            )
+        )
+    )
+
+
 def _non_candidate_outcome(
     semantic_types: tuple[str, ...],
 ) -> ConceptOutcome:
     if any(axes.is_in_scope(value) for value in semantic_types):
         return "atomic-no-op"
     return "semantic-excluded"
+
+
+async def _detect_candidate_or_unknown(
+    code: str,
+    client: DecompositionSparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+) -> (
+    tuple[
+        detector.DetectionResult,
+        list[RoleRestriction],
+        str | None,
+        CompleteDefinition,
+        tuple[str, ...],
+    ]
+    | _CandidateResult
+):
+    try:
+        return await _detect_concept(
+            code, client, label=label, walker_max_depth=walker_max_depth
+        )
+    except complete_definition.UnsupportedDefinitionConstructorError:
+        return _CandidateResult(
+            decomposition=None,
+            outcome="unknown",
+            semantic_types=await _semantic_types_for_concept(client, code),
+        )
+
+
+def _candidate_filler_codes(
+    roles: list[RoleRestriction], morphology_filler: str | None
+) -> set[str]:
+    codes = {role.filler_code for role in roles}
+    return codes | ({morphology_filler} if morphology_filler is not None else set())
 
 
 async def _decompose_one(
@@ -429,21 +474,16 @@ async def _decompose_one(
     # Phase 1: detect (semantic types + genus-chain roles + morphology-from-parent).
     # For primitive concepts (no owl:equivalentClass) the walker returns zero roles,
     # which is correct — nothing to decompose.
-    (
-        result,
-        roles,
-        morphology_filler,
-        definition,
-        semantic_types,
-    ) = await _detect_concept(
+    detected = await _detect_candidate_or_unknown(
         code, client, label=label, walker_max_depth=walker_max_depth
     )
+    if isinstance(detected, _CandidateResult):
+        return detected
+    result, roles, morphology_filler, definition, semantic_types = detected
 
     # Phase 1a: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
-    filler_codes = {r.filler_code for r in roles}
-    if morphology_filler:
-        filler_codes.add(morphology_filler)
+    filler_codes = _candidate_filler_codes(roles, morphology_filler)
     semantic_type_of: dict[str, list[str]] = {}
     if filler_codes:
         rows = await client.select(
@@ -554,6 +594,7 @@ async def _precoordinated_fillers(
     get_labels: GetLabels | None,
     *,
     walker_max_depth: int,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> set[str]:
     """The constituent filler codes that are themselves pre-coordinated (D37).
 
@@ -568,32 +609,43 @@ async def _precoordinated_fillers(
         return set()
     labels = await get_labels(fillers) if get_labels is not None else {}
     precoordinated: set[str] = set()
-    for filler in fillers:
-        try:
-            (
-                result,
-                _roles,
-                _morph,
-                _definition,
-                _semantic_types,
-            ) = await _detect_concept(
-                filler,
-                client,
-                label=labels.get(filler),
-                walker_max_depth=walker_max_depth,
-            )
-        except Exception:
-            # Match the main loop's contextual log-then-reraise (this pass is not in
-            # it): a bare traceback from the metric post-pass otherwise names no filler
-            # and no phase. Still fail-fast — re-raise; the metric never swallows a
-            # store error into a quiet 0.
-            logger.exception(
-                "residual-precoordination detection failed for filler_code=%s", filler
-            )
-            raise
-        if result.is_precoordinated:
+    for index, filler in enumerate(fillers):
+        if progress is not None:
+            progress(index, len(fillers), filler)
+        if await _is_precoordinated_filler(
+            filler,
+            client,
+            label=labels.get(filler),
+            walker_max_depth=walker_max_depth,
+        ):
             precoordinated.add(filler)
+        if progress is not None:
+            progress(index + 1, len(fillers), filler)
     return precoordinated
+
+
+async def _is_precoordinated_filler(
+    filler: str,
+    client: SparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+) -> bool:
+    try:
+        result, _roles, _morph, _definition, _semantic_types = await _detect_concept(
+            filler,
+            client,
+            label=label,
+            walker_max_depth=walker_max_depth,
+        )
+    except complete_definition.UnsupportedDefinitionConstructorError:
+        return False
+    except Exception:
+        logger.exception(
+            "residual-precoordination detection failed for filler_code=%s", filler
+        )
+        raise
+    return result.is_precoordinated
 
 
 @dataclass(frozen=True)
@@ -603,6 +655,22 @@ class _RunSetup:
     fingerprint: RunFingerprint
     pending: list[str]
     labels: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class RunProgress:
+    """Observable progress over one exact persisted worklist."""
+
+    run_id: str
+    phase: Literal["started", "heartbeat", "completed"]
+    concept_code: str
+    completed: int
+    total: int
+    session_completed: int
+    elapsed_seconds: float
+
+
+ProgressCallback = Callable[[RunProgress], None]
 
 
 async def _fetch_labels(
@@ -893,16 +961,80 @@ async def _process_pending_work(
     client: DecompositionSparqlClient,
     provenance: ProvenanceStore,
     label_lookup: LabelLookup,
+    progress: ProgressCallback | None,
 ) -> None:
-    for code in setup.pending:
-        await _process_work_item(
+    total = len(setup.fingerprint.worklist)
+    initially_complete = total - len(setup.pending)
+    started_at = time.monotonic()
+    for session_index, code in enumerate(setup.pending):
+        _report_progress(
+            progress,
             setup,
-            code,
-            client,
-            provenance,
-            label_lookup=label_lookup,
-            walker_max_depth=config.walker_max_depth,
+            phase="started",
+            code=code,
+            completed=initially_complete + session_index,
+            session_completed=session_index,
+            started_at=started_at,
         )
+        task = asyncio.create_task(
+            _process_work_item(
+                setup,
+                code,
+                client,
+                provenance,
+                label_lookup=label_lookup,
+                walker_max_depth=config.walker_max_depth,
+            )
+        )
+        while not task.done():
+            done, _pending = await asyncio.wait(
+                {task}, timeout=_PROGRESS_HEARTBEAT_SECONDS
+            )
+            if not done:
+                _report_progress(
+                    progress,
+                    setup,
+                    phase="heartbeat",
+                    code=code,
+                    completed=initially_complete + session_index,
+                    session_completed=session_index,
+                    started_at=started_at,
+                )
+        await task
+        _report_progress(
+            progress,
+            setup,
+            phase="completed",
+            code=code,
+            completed=initially_complete + session_index + 1,
+            session_completed=session_index + 1,
+            started_at=started_at,
+        )
+
+
+def _report_progress(
+    callback: ProgressCallback | None,
+    setup: _RunSetup,
+    *,
+    phase: Literal["started", "heartbeat", "completed"],
+    code: str,
+    completed: int,
+    session_completed: int,
+    started_at: float,
+) -> None:
+    if callback is None:
+        return
+    callback(
+        RunProgress(
+            run_id=setup.run_id,
+            phase=phase,
+            concept_code=code,
+            completed=completed,
+            total=len(setup.fingerprint.worklist),
+            session_completed=session_completed,
+            elapsed_seconds=time.monotonic() - started_at,
+        )
+    )
 
 
 async def _reconstructed_metrics(
@@ -912,6 +1044,7 @@ async def _reconstructed_metrics(
     provenance: ProvenanceStore,
     *,
     get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> tuple[RunMetrics, list[Decomposition]]:
     """Rebuild metrics cumulatively from the full persisted worklist."""
     decompositions = await provenance.decompositions_for_run(setup.run_id)
@@ -947,6 +1080,7 @@ async def _reconstructed_metrics(
         client,
         get_labels,
         walker_max_depth=config.walker_max_depth,
+        progress=residual_progress,
     )
     metrics.residual_precoordinated_count = _residual_count(
         decompositions, precoordinated_fillers=precoordinated
@@ -1077,6 +1211,7 @@ async def _finish_run(
     *,
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> RunMetrics:
     metrics, decompositions = await _reconstructed_metrics(
         setup,
@@ -1084,6 +1219,7 @@ async def _finish_run(
         client,
         provenance,
         get_labels=get_labels,
+        residual_progress=residual_progress,
     )
     publication = _publication_paths(config, setup.run_id)
     await _write_staging_artifact(publication, decompositions, setup)
@@ -1119,6 +1255,8 @@ async def run_pipeline(
     get_labels: GetLabels | None = None,
     label_lookup: LabelLookup = _never_resolves,
     total_limit: int | None = None,
+    progress: ProgressCallback | None = None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> RunMetrics:
     """Execute the decomposition pipeline for a given branch (design §9).
 
@@ -1148,6 +1286,7 @@ async def run_pipeline(
             client,
             provenance,
             label_lookup,
+            progress,
         )
         return await _finish_run(
             setup,
@@ -1156,6 +1295,7 @@ async def run_pipeline(
             provenance,
             get_source_snapshot=get_source_snapshot,
             get_labels=get_labels,
+            residual_progress=residual_progress,
         )
     except (RunPublicationError, PublicationFinalizationError):
         # Retryable failures are already journaled; finalization failures occur after

@@ -94,7 +94,7 @@ async def test_writer_projection_trace_round_trips_through_real_qlever(
                 axis="op:PrimarySite",
                 filler_code="C12400",
                 axis_source="role",
-                source_role="R101",
+                source_roles=("R101",),
                 most_specific=True,
                 needs_review=True,
                 group="anatomy-1",
@@ -135,7 +135,7 @@ async def test_writer_projection_trace_round_trips_through_real_qlever(
 
     actual = decomposition_from_rows("C6135", rows)
     assert actual.constituents[0].axis == "op:PrimarySite"
-    assert actual.constituents[0].source_role == "R101"
+    assert actual.constituents[0].source_roles == ("R101",)
     assert actual.constituents[0].group == "anatomy-1"
     assert actual.constituents[0].needs_review is True
     assert actual.constituents[0].source_definition_ids == (fact_id,)

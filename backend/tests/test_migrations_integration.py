@@ -314,9 +314,9 @@ async def _rejected_complete_definition_writes(conn: Any) -> dict[str, bool]:
     constituent = (
         "INSERT INTO decomp_constituent "
         "(run_id, concept_code, axis, filler_code, axis_source, most_specific, "
-        "needs_review, source_definition_ids) VALUES "
+        "needs_review, source_roles, source_definition_ids) VALUES "
         "('definition-checks', 'C1', 'op:PrimarySite', 'C12400', 'role', false, "
-        "false, {value}::jsonb)"
+        "false, '[\"R101\"]'::jsonb, {value}::jsonb)"
     )
     fact = (
         "INSERT INTO decomp_definition_fact "
@@ -642,7 +642,7 @@ def test_legacy_embedding_tables_stamp_predecessor_then_upgrade() -> None:
     finally:
         command.upgrade(cfg, "head")
 
-    assert revision == "0020_icdo_record_consistency"
+    assert revision == "0022_constituent_source_roles"
     assert legacy_rows == 1
     assert publication_tables == 2
 
@@ -717,7 +717,7 @@ def test_decomposition_run_lifecycle_migration_roundtrip() -> None:
     assert {
         "needs_review": "boolean",
         "relationship_group": "text",
-        "source_role": "text",
+        "source_roles": "jsonb",
     }.items() <= facts["constituent_columns"].items()
     constraints = " ".join(facts["constraints"])
     assert "running" in constraints

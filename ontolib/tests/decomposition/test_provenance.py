@@ -185,7 +185,7 @@ async def test_completion_without_a_decomposition_requires_a_typed_outcome() -> 
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("outcome", ["semantic-excluded", "atomic-no-op"])
+@pytest.mark.parametrize("outcome", ["semantic-excluded", "atomic-no-op", "unknown"])
 async def test_completion_without_a_decomposition_accepts_a_typed_outcome(
     outcome: str,
 ) -> None:
@@ -592,6 +592,92 @@ async def test_finish_run_sets_complete() -> None:
 
 
 @pytest.mark.unit
+async def test_completed_run_for_evidence_returns_validated_publication() -> None:
+    sf = _make_mock_sf()
+    fingerprint = RunFingerprint(
+        schema_version=3,
+        source_identity="a" * 64,
+        branch="neoplasm",
+        scope_root="C3262",
+        scope_version="stated-genus-subclass-v1",
+        semantic_types=("Neoplastic Process",),
+        worklist=("C1",),
+        sample_manifest_identity="b" * 64,
+        algorithm_version="decomposition-v3",
+        config_version="nested-definition-v2",
+        walker_max_depth=5,
+        output_mode="file",
+        load_mode="named-graph",
+        emitted_at=datetime.datetime(2026, 8, 15, tzinfo=datetime.UTC),
+    )
+    run_result = MagicMock()
+    worklist_result = MagicMock()
+    run_result.mappings.return_value.first.return_value = {
+        "status": "complete",
+        "ncit_version": "26.07d",
+        "source_identity": fingerprint.source_identity,
+        "fingerprint": fingerprint.model_dump(mode="json"),
+        "fingerprint_sha256": fingerprint.identity,
+        "publication_state": "published",
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/current.ttl",
+    }
+    worklist_result.scalars.return_value.all.return_value = ["C1"]
+    sf().execute.side_effect = [run_result, worklist_result]
+
+    completed = await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+
+    assert completed.fingerprint == fingerprint
+    assert completed.representation_identity == "c" * 64
+    assert completed.publication_artifact_path == "artifacts/current.ttl"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        (None, "does not exist"),
+        (
+            {
+                "status": "running",
+                "publication_state": "published",
+            },
+            "not complete and published",
+        ),
+    ],
+)
+async def test_completed_run_for_evidence_rejects_missing_or_running_run(
+    row: dict[str, object] | None,
+    message: str,
+) -> None:
+    sf = _make_mock_sf()
+    sf().execute.return_value.mappings.return_value.first.return_value = row
+
+    with pytest.raises(RunStateError, match=message):
+        await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+
+
+@pytest.mark.unit
+async def test_completed_run_for_evidence_rejects_malformed_fingerprint() -> None:
+    sf = _make_mock_sf()
+    result = MagicMock()
+    result.mappings.return_value.first.return_value = {
+        "status": "complete",
+        "ncit_version": "26.07d",
+        "source_identity": "a" * 64,
+        "fingerprint": {"schema_version": 3},
+        "fingerprint_sha256": "b" * 64,
+        "publication_state": "published",
+        "representation_identity": "c" * 64,
+        "publication_artifact_path": "artifacts/current.ttl",
+    }
+    sf().execute.return_value = result
+
+    with pytest.raises(RunIdentityMismatchError, match="corrupt"):
+        await ProvenanceStore(sf).completed_run_for_evidence("run-1")
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -787,6 +873,8 @@ async def test_completion_detects_claim_change_after_locked_validation() -> None
     update_lost_claim = MagicMock(rowcount=0)
     sf().execute.side_effect = [
         locked,
+        MagicMock(),
+        MagicMock(),
         MagicMock(),
         MagicMock(),
         MagicMock(),
@@ -1115,7 +1203,7 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
             "axis": "op:PrimarySite",
             "filler_code": "C200",
             "axis_source": "role",
-            "source_role": "R101",
+            "source_roles": ["R101"],
             "most_specific": True,
             "needs_review": True,
             "relationship_group": "anatomy-1",
@@ -1161,6 +1249,10 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
     ]
     edges = MagicMock()
     edges.mappings.return_value.all.return_value = []
+    occurrences = MagicMock()
+    occurrences.mappings.return_value.all.return_value = []
+    occurrence_links = MagicMock()
+    occurrence_links.mappings.return_value.all.return_value = []
     sf().execute.side_effect = [
         consistent_counts,
         work_items,
@@ -1168,6 +1260,8 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
         definitions,
         groups,
         edges,
+        occurrences,
+        occurrence_links,
     ]
     store = ProvenanceStore(sf)
 
@@ -1180,7 +1274,7 @@ async def test_decompositions_for_run_reconstructs_complete_typed_record() -> No
                     axis="op:PrimarySite",
                     filler_code="C200",
                     axis_source="role",
-                    source_role="R101",
+                    source_roles=("R101",),
                     most_specific=True,
                     needs_review=True,
                     group="anatomy-1",

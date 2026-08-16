@@ -1,0 +1,27 @@
+{
+  "artifact_identity": "e32f10264163bc27fa1bd85dbdb8a2f7c03938279618dab6444ecf43164bf8ce",
+  "baseline_identity": "116e5f18a76ba1bbad5ba7974e282a4b77c3f708a903aa4bc4f104f72159415f",
+  "branch": "neoplasm",
+  "complete_semantic_fact_count": 844256,
+  "detector_identity": "4a482f745acb8c231d547e24bdb6eaa68fc1ddadc51f3a743cb3dec65fad4668",
+  "emitted_constituent_pair_count": 104424,
+  "minted_count": 2719,
+  "ontology_release": "26.07d",
+  "outcome_counts": {
+    "atomic_noop": 626,
+    "decomposed": 14864,
+    "residual": 1,
+    "semantic_excluded": 3,
+    "unknown": 139
+  },
+  "representation_identity": "e32f10264163bc27fa1bd85dbdb8a2f7c03938279618dab6444ecf43164bf8ce",
+  "run_fingerprint_identity": "9c892e66f8eefa173a034cc4c99e8287b1593ca393ea150acc5986bfa743eaa1",
+  "run_id": "neoplasm-f9686bb3-4729-4484-8d64-4a280b67b3cf",
+  "schema_version": 1,
+  "scope_root": "C3262",
+  "scope_version": "stated-genus-subclass-v1",
+  "selected_occurrence_count": 95508,
+  "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092",
+  "source_occurrence_count": 369903,
+  "worklist_count": 15633
+}
