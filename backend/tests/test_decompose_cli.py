@@ -65,6 +65,18 @@ def test_progress_message_suppresses_nonmilestone_completions() -> None:
     assert decompose._progress_message(progress) is None
 
 
+@pytest.mark.unit
+def test_residual_progress_prints_milestones(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    decompose._print_residual_progress(100, 450, "C123")
+    decompose._print_residual_progress(101, 450, "C124")
+
+    assert capsys.readouterr().err == (
+        "phase=residual-metric completed=100/450 active=C123\n"
+    )
+
+
 class _RunClient:
     def __init__(
         self,

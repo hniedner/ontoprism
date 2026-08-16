@@ -1327,6 +1327,25 @@ async def test_precoordinated_fillers_excludes_typed_unsupported_definitions(
 
 
 @pytest.mark.unit
+async def test_precoordinated_fillers_reports_post_pass_progress() -> None:
+    decompositions = [_decomp("C1", "C2", "C3")]
+    events: list[tuple[int, int, str]] = []
+    client = _FakeClient(semantic_types={"C2": [], "C3": []})
+
+    await _precoordinated_fillers(
+        decompositions,
+        client,
+        None,
+        walker_max_depth=5,
+        progress=lambda completed, total, filler: events.append(
+            (completed, total, filler)
+        ),
+    )
+
+    assert events == [(0, 2, "C2"), (1, 2, "C2"), (1, 2, "C3"), (2, 2, "C3")]
+
+
+@pytest.mark.unit
 async def test_run_pipeline_wires_residual_precoordination_end_to_end() -> None:
     """SEAM: the metric must be set by a real ``run_pipeline`` call, not only by the
     isolated helpers. Deleting the post-pass wiring in ``run_pipeline`` leaves every

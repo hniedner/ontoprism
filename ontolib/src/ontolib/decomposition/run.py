@@ -594,6 +594,7 @@ async def _precoordinated_fillers(
     get_labels: GetLabels | None,
     *,
     walker_max_depth: int,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> set[str]:
     """The constituent filler codes that are themselves pre-coordinated (D37).
 
@@ -608,34 +609,43 @@ async def _precoordinated_fillers(
         return set()
     labels = await get_labels(fillers) if get_labels is not None else {}
     precoordinated: set[str] = set()
-    for filler in fillers:
-        try:
-            (
-                result,
-                _roles,
-                _morph,
-                _definition,
-                _semantic_types,
-            ) = await _detect_concept(
-                filler,
-                client,
-                label=labels.get(filler),
-                walker_max_depth=walker_max_depth,
-            )
-        except complete_definition.UnsupportedDefinitionConstructorError:
-            continue
-        except Exception:
-            # Match the main loop's contextual log-then-reraise (this pass is not in
-            # it): a bare traceback from the metric post-pass otherwise names no filler
-            # and no phase. Still fail-fast — re-raise; the metric never swallows a
-            # store error into a quiet 0.
-            logger.exception(
-                "residual-precoordination detection failed for filler_code=%s", filler
-            )
-            raise
-        if result.is_precoordinated:
+    for index, filler in enumerate(fillers):
+        if progress is not None:
+            progress(index, len(fillers), filler)
+        if await _is_precoordinated_filler(
+            filler,
+            client,
+            label=labels.get(filler),
+            walker_max_depth=walker_max_depth,
+        ):
             precoordinated.add(filler)
+        if progress is not None:
+            progress(index + 1, len(fillers), filler)
     return precoordinated
+
+
+async def _is_precoordinated_filler(
+    filler: str,
+    client: SparqlClient,
+    *,
+    label: str | None,
+    walker_max_depth: int,
+) -> bool:
+    try:
+        result, _roles, _morph, _definition, _semantic_types = await _detect_concept(
+            filler,
+            client,
+            label=label,
+            walker_max_depth=walker_max_depth,
+        )
+    except complete_definition.UnsupportedDefinitionConstructorError:
+        return False
+    except Exception:
+        logger.exception(
+            "residual-precoordination detection failed for filler_code=%s", filler
+        )
+        raise
+    return result.is_precoordinated
 
 
 @dataclass(frozen=True)
@@ -1034,6 +1044,7 @@ async def _reconstructed_metrics(
     provenance: ProvenanceStore,
     *,
     get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> tuple[RunMetrics, list[Decomposition]]:
     """Rebuild metrics cumulatively from the full persisted worklist."""
     decompositions = await provenance.decompositions_for_run(setup.run_id)
@@ -1069,6 +1080,7 @@ async def _reconstructed_metrics(
         client,
         get_labels,
         walker_max_depth=config.walker_max_depth,
+        progress=residual_progress,
     )
     metrics.residual_precoordinated_count = _residual_count(
         decompositions, precoordinated_fillers=precoordinated
@@ -1199,6 +1211,7 @@ async def _finish_run(
     *,
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> RunMetrics:
     metrics, decompositions = await _reconstructed_metrics(
         setup,
@@ -1206,6 +1219,7 @@ async def _finish_run(
         client,
         provenance,
         get_labels=get_labels,
+        residual_progress=residual_progress,
     )
     publication = _publication_paths(config, setup.run_id)
     await _write_staging_artifact(publication, decompositions, setup)
@@ -1242,6 +1256,7 @@ async def run_pipeline(
     label_lookup: LabelLookup = _never_resolves,
     total_limit: int | None = None,
     progress: ProgressCallback | None = None,
+    residual_progress: Callable[[int, int, str], None] | None = None,
 ) -> RunMetrics:
     """Execute the decomposition pipeline for a given branch (design §9).
 
@@ -1280,6 +1295,7 @@ async def run_pipeline(
             provenance,
             get_source_snapshot=get_source_snapshot,
             get_labels=get_labels,
+            residual_progress=residual_progress,
         )
     except (RunPublicationError, PublicationFinalizationError):
         # Retryable failures are already journaled; finalization failures occur after

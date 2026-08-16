@@ -109,6 +109,15 @@ def _print_progress(progress: RunProgress) -> None:
         print(message, file=sys.stderr, flush=True)
 
 
+def _print_residual_progress(completed: int, total: int, filler: str) -> None:
+    if completed in (0, total) or completed % 100 == 0:
+        print(
+            f"phase=residual-metric completed={completed}/{total} active={filler}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 async def _source_snapshot(
     manifest_path: Path,
     endpoint_url: str,
@@ -183,6 +192,7 @@ async def _run(
                             label_lookup=_make_label_lookup(store),
                             total_limit=total_limit,
                             progress=_print_progress,
+                            residual_progress=_print_residual_progress,
                         )
                     except BaseException as exc:
                         primary_error = exc
