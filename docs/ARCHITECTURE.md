@@ -5,6 +5,11 @@ distinctive output is a **decomposed (non-pre-coordinated) NCIt**. It is built b
 the ontology vertical slice of the `fairdata` platform (see [DECISIONS.md](DECISIONS.md)
 D1–D2) and adding a decomposition engine.
 
+For plain-language definitions of decomposition, axes, fillers, genera, semantic types,
+curated projections, source occurrences, partonomies, and relationship groups, see the
+[shared terminology](../README.md#terminology). This document retains the precise ontology
+terms after that introduction.
+
 ## Layout (keep-names)
 
 ```
@@ -105,7 +110,7 @@ persisted `source_identity` matches that certified active proxy (D68).
 
 ## Key inherited mechanism: NCIt roles are OWL restrictions
 
-NCIt encodes pre-coordination as OWL existential restrictions
+NCIt encodes pre-coordination as relationship requirements (OWL existential restrictions)
 (`?c rdfs:subClassOf [ owl:onProperty ?R ; owl:someValuesFrom ?filler ]`), **not** as
 direct triples (0 direct R-triples in the store; associations are direct A-triples). The
 restriction-traversal query (`ontolib` `terminologies/ncit/graph_store_role_queries.py`)
@@ -114,7 +119,8 @@ builds on. Porting it faithfully is the keystone of M1/M2 ("roles must render").
 
 ## Decomposition model (additive; exact reversibility quarantined)
 
-Legacy pre-coordinated concepts are **flagged, never deleted**
+Decomposition exposes a complex concept's semantic parts without replacing it. Legacy
+pre-coordinated concepts are therefore **flagged, never deleted**
 (`representationStatus="legacy-precoordinated"`) and linked to constituents via
 `hasConstituent[axis, filler]`. Constituents come roles-first (100% already exist as
 active concepts) with NLP/label parsing as fallback for label-only axes (laterality,

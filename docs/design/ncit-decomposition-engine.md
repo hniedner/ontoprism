@@ -9,6 +9,10 @@ decomposition model come from the companion
 [NCIt decomposition assessment](./ncit-decomposition-assessment.md); this document turns
 that assessment into an implementable, test-driven build.
 
+For a plain-language entry point, see the [shared terminology](../../README.md#terminology).
+This engineering specification then uses `axis`, `filler`, `genus`, `semantic type`, source
+occurrence, partonomy, curated projection, and relationship group in their precise senses.
+
 ---
 
 ## 1. Goal & definition of done
@@ -31,7 +35,7 @@ Mapped to the issue's checklist:
 
 ## 2. Scope
 
-**Hierarchy populations:** `neoplasm` is rooted at NCIt Neoplasm (`C3262`);
+**Hierarchy populations:** `neoplasm` is rooted at Neoplasm (`C3262`);
 `disease` is rooted at Disease or Disorder (`C2991`) and therefore includes the
 neoplasm population. Both are strict descendant closures of the stated named-class DAG:
 direct named `rdfs:subClassOf` edges plus named genus members in
@@ -414,17 +418,17 @@ Full narrative: this §6 and DECISIONS D14–D20.
 Thyroid Gland) once most-specific selection also treats NCIt's own `R82
 Anatomic_Structure_Is_Physical_Part_Of` role as transitive-ancestor evidence, alongside
 `rdfs:subClassOf+` (is-a) — **no external Uberon lookup needed** for that case. Before
-writing that into this design as settled, it was checked against 3 more concepts
-(`C4791` Left Atrial Myxoma, `C35756` Stage IIIB Lung SCLC w/ Pleural Effusion, `C89995`
-Stage III Colon Cancer AJCC v7). Result: **the technique generalizes partially, not
-fully.**
+writing that into this design as settled, it was checked against 3 more concepts:
+Left Atrial Myxoma (`C4791`), Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion
+AJCC v7 (`C35756`), and Stage III Colon Cancer AJCC v7 (`C89995`). Result: **the
+technique generalizes partially, not fully.**
 
 | Concept | Raw R101 candidates | is-a ∪ part-of leaves | Outcome |
 |---|---|---|---|
 | `C6135` | 5 (Thyroid Gland, Endocrine Gland/System, Head and Neck, Neck) | **1** (Thyroid Gland) | Fully resolved |
 | `C89995` | 3 (Colon, Colorectal Region, Digestive System) | 2 (Colon, Colorectal Region) | Partially resolved (system eliminated; organ-vs-region tie remains) |
 | `C35756` | 4 (Lung, Bronchus, Endocrine Gland/System) | 3 (Lung, Bronchus, Endocrine Gland) | Partially resolved (Endocrine System eliminated; three unrelated siblings remain) |
-| `C4791` | 7 (Heart, Cardiac Atrium, Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity, Connective/Soft Tissue) | 4 (Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity) | Partially resolved (Heart/Cardiac Atrium eliminated as too-broad; Left Atrium still ties with 3 unrelated candidates) |
+| Left Atrial Myxoma (`C4791`) | 7 (Heart, Cardiac Atrium, Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity, Connective/Soft Tissue) | 4 (Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity) | Historical intermediate result. The reviewed projection uses Left Atrium (`C12869`) as `op:PrimarySite`; Endocardium (`C13004`) is tissue, not a region. |
 
 **What the technique reliably does:** correctly and consistently eliminates candidates
 that are genuine is-a or part-of *containers* of another candidate, in every case tested
@@ -579,8 +583,9 @@ additional metadata on a node *already visited*, not a new traversal.
 
 **Resolved (2026-07-08, DECISIONS D20): R101 gets two independent, composable refinements,
 applied in order** — not one. The region-vs-organ ties (`Colon`/`Colorectal Region`,
-`Left Atrium`/`Endocardium`) are a *second*, distinct phenomenon from lineage conflation:
-they aren't reached through a reusable, organ-agnostic ancestor the way `Endocrine Gland`
+Left Atrium (`C12869`)/Endocardium (`C13004`) are a *second*, distinct phenomenon from
+lineage conflation: Left Atrium is the organ chamber and Endocardium is tissue, not a region.
+They aren't reached through a reusable, organ-agnostic ancestor the way `Endocrine Gland`
 is. The resolution:
 
 1. **Genus-sense classification (this section, D17)** runs **first** and routes

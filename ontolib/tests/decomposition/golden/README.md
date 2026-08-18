@@ -1,5 +1,9 @@
 # Decomposition golden-set candidates and adjudicated oracle
 
+For plain-language definitions of decomposition, axes, fillers, source occurrences, curated
+projections, and relationship groups, see the [shared terminology](../../../../README.md#terminology).
+This evidence record retains the exact axis names used by the source rows.
+
 ## Files in this directory
 
 | File | What it is |
@@ -76,7 +80,8 @@ on 87, and axes match on 83
 these separately.
 
 Candidate rows have 63 `include` labels but 64 kept constituents because one `revise` row is
-also kept. Its revised pair, `C206219 op:PrimarySite C12316`, is absent from the recorded engine
+also kept. Its revised pair for Stage I Endometrial Cancer FIGO 2023 (`C206219`),
+`op:PrimarySite` Uterus (`C12316`), is absent from the recorded engine
 evidence
 (`jq -n --slurpfile rows ontolib/tests/decomposition/golden/neoplasm-row-decisions.json --slurpfile engine ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json '[$rows[0].rows[]|select(.row_type=="ADD IF MISSING")] as $r | {include:([$r[]|select(.sme_action=="include")]|length),kept:([$r[]|select(.sme_action=="include" or .sme_action=="revise")]|length),revised:([$r[]|select(.sme_action=="revise")|. as $x|{code,expected,in_engine:any($engine[0].concepts[];.code==$x.code and any(.constituents[];.axis==$x.expected.axis and .filler==$x.expected.filler))}])}'`,
 2026-08-09).
@@ -98,11 +103,15 @@ The three withdrawn expectations are pinned by the baseline test
 (`pdm run pytest ontolib/tests/decomposition/test_m1_baseline.py::test_three_withdrawn_expectations_sit_outside_the_oracle -q`,
 2026-08-09):
 
-```
-C6135    op:AssociatedRegion  C12418   (engine suggestion, excluded)
-C101539  op:AssociatedRegion  C12418   (candidate, excluded)
-C4791    op:AssociatedRegion  C12727   (candidate, excluded)
-```
+| Concept | Withdrawn source-row expectation | Disposition |
+|---|---|---|
+| Stage III Thyroid Gland Medullary Carcinoma AJCC v7 (`C6135`) | `op:AssociatedRegion` Head and Neck (`C12418`) | engine suggestion, excluded |
+| Stage I Differentiated Thyroid Gland Carcinoma Under 45 Years AJCC v7 (`C101539`) | `op:AssociatedRegion` Head and Neck (`C12418`) | candidate, excluded |
+| Left Atrial Myxoma (`C4791`) | `op:AssociatedRegion` Heart (`C12727`) | candidate, excluded |
+
+The last row does not make Heart (`C12727`) the primary site. The adjudicated primary site for
+Left Atrial Myxoma (`C4791`) is Left Atrium (`C12869`); Endocardium (`C13004`) is retained as
+tissue evidence, not described as an anatomical region.
 
 Blanking those three `expected` fields leaves the cross-tab unchanged but removes the recorded
 withdrawal evidence; the test above pins the evidence relation. The unchanged cross-tab and the
@@ -122,7 +131,8 @@ record the SME disposition, bind completed artifacts after generation, score onl
 `SME-ADJUDICATED` artifact, and never edit the oracle merely to match an engine result.
 
 The tracked oracle declares schema version 3, `SME-ADJUDICATED`, 20 concepts, and the required
-cohort codes `C4791`, `C35756`, and `C89995`
+cohort concepts Left Atrial Myxoma (`C4791`), Stage IIIB Lung Small Cell Carcinoma with Pleural
+Effusion AJCC v7 (`C35756`), and Stage III Colon Cancer AJCC v7 (`C89995`)
 (`jq '{schema_version:._meta.schema_version,status:._meta.status,concepts:(.concepts|length),required_codes:([.concepts[].code]|map(select(.=="C4791" or .=="C35756" or .=="C89995")))}' ontolib/tests/decomposition/golden/neoplasm-adjudicated.json`,
 2026-08-09). Loader tests cover draft rejection, metadata, outcome, constituent, proposal, and
 identity validation

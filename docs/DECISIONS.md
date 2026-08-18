@@ -2,6 +2,70 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+Decision records use precise ontology terminology. For plain-language definitions of
+decomposition, axis, filler, OWL existential restriction, genus, semantic type, curated
+projection, source occurrence, partonomy, and relationship group, see the
+[shared terminology](../README.md#terminology).
+
+## 2026-08-17 — full-corpus routing attribution requires depth-matched evidence
+
+### D76. Recover historical v3 at depth 7 rather than compare confounded runs
+
+The run inventory showed a full historical v3 baseline at walker depth 5 and a
+completed production v4 run at depth 7, with no full depth-matched counterpart
+(`docker exec ... psql ... SELECT id,status,fingerprint->>'algorithm_version',fingerprint->>'walker_max_depth',jsonb_array_length(fingerprint->'worklist') FROM decomp_run ...`,
+2026-08-17). The conservation generator correctly refused that comparison with
+`new run fingerprint dimension drift: walker_max_depth`
+(`pdm run adjudication generate-r101-conservation ...`, 2026-08-17). Historical
+recovery inputs were inspected with `git cat-file -t f2800654...`, `git diff
+--name-status f2800654... -- pdm.lock pyproject.toml compose files migrations`,
+and `git grep -n 'walker-max-depth|walker_max_depth' f2800654...` (2026-08-17).
+The active depth-matched recovery run is
+`neoplasm-d6b0df5e-aa18-4aa7-b8bb-9f8bc36c850a`, v3, depth 7, with a 15,633-item
+worklist (`docker exec ... psql ... SELECT id,status,fingerprint->>'algorithm_version',fingerprint->>'walker_max_depth',jsonb_array_length(fingerprint->'worklist') FROM decomp_run ...`,
+2026-08-17).
+
+**Decision:** full-corpus routing attribution requires equal walker depth and every
+other semantic dimension held constant. The minimum accepted recovery is the exact
+historical v3 bytes run at depth 7 in an isolated frozen environment against the same
+source, worklist, schema, and services, followed by occurrence-level comparison with
+the immutable v4 depth-7 run. A v4 depth-5 run is optional evidence for a factorial
+routing-by-depth interaction; it is not required for the minimum #267 claim.
+
+The historical run is separately identified, additive evidence and introduces no
+production legacy-compatibility code. Constituent conservation is not logical
+equivalence; SME judgment remains a separate decision boundary. Partial runs and any
+dimension-mismatched comparison fail closed.
+
+## 2026-08-17 — exclusion roles require release-bound semantic authority
+
+### D75. Exclusion facts remain lossless, typed, and nondefining
+
+The runtime classification surface includes `_EXCLUDES_MARKER`,
+`is_excluded_role`, `is_projectable_role`, `is_defining_role`, and `role_label`
+(`rg --no-ignore -n '_EXCLUDES_MARKER|def is_excluded_role|def is_projectable_role|def is_defining_role|role_label:' ontolib/src/ontolib/decomposition/{axes.py,models.py}`,
+2026-08-17). Decomposition fixtures mention R109, R110,
+`Disease_Excludes_Abnormal_Cell`, and `Disease_Excludes_Finding`
+(`rg --no-ignore -n 'R109|R110|Disease_Excludes_Abnormal_Cell|Disease_Excludes_Finding' ontolib/tests/decomposition`,
+2026-08-17).
+
+**Decision:** runtime exclusion-role classification is keyed by a release-bound NCIt
+role-code catalog derived from the exact certified stated OWL, never by optional labels.
+Labels and the EVS metadata API are corroborating drift signals and source-qualification
+evidence only, not runtime semantic authority. Preserve every exclusion fact and source
+occurrence losslessly, classify it as typed `negative-exclusion`, and exclude it from
+positive defining axes and accepted projections. Unknown role codes remain provenance-
+preserving `unknown-role/review-required` and nondefining until source evidence and an
+SME decision resolve them.
+
+R135–R142 are candidate exclusion-catalog evidence requiring exact NCIt 26.07d
+stated-OWL validation and SME decision before implementation. Correct fabricated or
+conflicting R109/R110 fixtures only with release-bound canary contracts. R166/R168/R170
+Procedure May_Have policy is deferred while procedures remain outside disease/neoplasm
+scope. #271 follows #267 as a prerequisite and must not alter its active partially
+completed run; #127 final publication consumes the resulting catalog and source
+qualification. This decision makes no equivalence or accepted-in-NCIt claim.
+
 ## 2026-08-14 — M1.6 release governance separates semantic gates from measurements
 
 ### D74. Semantic invariants block release; independently named metrics measure progress
@@ -441,7 +505,8 @@ measure filler accuracy, and `include` is strictly the SME label rate. In partic
 2026-08-09).
 
 Candidate rows contain 63 `include` labels, but 64 kept constituents: the remaining kept row is
-the `revise` decision for `C206219 op:PrimarySite C12316`, and that revised pair is absent from
+the `revise` decision for Stage I Endometrial Cancer FIGO 2023 (`C206219`) with
+`op:PrimarySite` Uterus (`C12316`), and that revised pair is absent from
 the recorded engine evidence
 (`jq -n --slurpfile rows ontolib/tests/decomposition/golden/neoplasm-row-decisions.json --slurpfile engine ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json '[$rows[0].rows[]|select(.row_type=="ADD IF MISSING")] as $r | {include:([$r[]|select(.sme_action=="include")]|length),kept:([$r[]|select(.sme_action=="include" or .sme_action=="revise")]|length),revised:([$r[]|select(.sme_action=="revise")|. as $x|{code,expected,in_engine:any($engine[0].concepts[];.code==$x.code and any(.constituents[];.axis==$x.expected.axis and .filler==$x.expected.filler))}])}'`,
 2026-08-09).
@@ -551,7 +616,7 @@ complete stated record, measured per role: v1 wrongly suppressed R108 C36122 (Be
 Cellular Infiltrate) on frequency drawn from R142 exclusions on malignant concepts. As a
 positive R108 finding it is asserted only on the benign genera C3677, C4776 and C5111 and
 covers 5.6% of the cohort against 61-100% for every retained entry, so v2 restores it and
-C4791 Left Atrial Myxoma regains a true constituent. Changes require a new list version and
+Left Atrial Myxoma (`C4791`) regains a true constituent. Changes require a new list version and
 the full-corpus routing impact gate from D58. Runtime stage system/value routing uses the
 versioned `ncit-26.07d-stage-kind-v1` reviewed code allowlist. Definitions informed its
 curation but are not consulted at runtime; semantic type alone is insufficient because
