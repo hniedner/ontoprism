@@ -701,7 +701,7 @@ async def _require_source_snapshot(
     return snapshot
 
 
-def _resume_identity(
+def build_resume_identity(
     config: RunConfig,
     snapshot: NcitSourceSnapshot,
     *,
@@ -878,7 +878,7 @@ async def _prepare_run(
         run_id = config.resume_from
         fingerprint = await provenance.resume_run(
             run_id,
-            _resume_identity(
+            build_resume_identity(
                 config,
                 snapshot,
                 semantic_types=semantic_types,

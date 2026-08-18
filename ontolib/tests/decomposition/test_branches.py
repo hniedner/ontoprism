@@ -30,7 +30,7 @@ def test_neoplasm_and_disease_are_nested_scopes_with_one_algorithm() -> None:
     assert neoplasm.semantic_types == tuple(sorted(axes.IN_SCOPE_SEMANTIC_TYPES))
     assert disease.semantic_types == neoplasm.semantic_types
     assert neoplasm.scope_version == disease.scope_version
-    assert neoplasm.algorithm_version == disease.algorithm_version == "decomposition-v3"
+    assert neoplasm.algorithm_version == disease.algorithm_version == "decomposition-v4"
 
 
 def test_disease_is_supported_but_regimen_remains_unimplemented() -> None:

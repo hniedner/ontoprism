@@ -182,31 +182,67 @@ def _r101_semantic_type_constituents(
     is_part_of: IsPartOf,
     semantic_type_of: Callable[[str], str | None],
 ) -> list[Constituent]:
-    organ_fillers = {
+    semantic_types = {filler: semantic_type_of(filler) for filler in fillers}
+    organ_fillers, region_fillers = _partition_location_fillers(fillers, semantic_types)
+    unknown_fillers = fillers - organ_fillers - region_fillers
+    location_broader = _location_broader(is_ancestor, is_part_of)
+    organ = most_specific(organ_fillers, location_broader) or organ_fillers
+    region = most_specific(region_fillers, location_broader) or region_fillers
+    return [
+        *_semantic_organ_constituents(organ, fillers, is_ancestor),
+        *_unknown_primary_site_constituents(unknown_fillers),
+        *_associated_region_constituents(region, fillers, is_ancestor),
+    ]
+
+
+def _partition_location_fillers(
+    fillers: set[str], semantic_types: dict[str, str | None]
+) -> tuple[set[str], set[str]]:
+    organs = {
         filler
         for filler in fillers
-        if semantic_type_of(filler) == axes.ORGAN_SEMANTIC_TYPE
+        if semantic_types[filler] == axes.ORGAN_SEMANTIC_TYPE
     }
-    region_fillers = fillers - organ_fillers
-    organ = most_specific(organ_fillers, is_ancestor) or organ_fillers
-    location_broader = _location_broader(is_ancestor, is_part_of)
-    region = most_specific(region_fillers, location_broader) or region_fillers
+    regions = {
+        filler
+        for filler in fillers
+        if semantic_types[filler] is not None and filler not in organs
+    }
+    return organs, regions
 
-    organ_ambiguous = len(organ) > 1
-    organ_constituents = [
+
+def _semantic_organ_constituents(
+    organs: set[str], fillers: set[str], is_ancestor: IsAncestor
+) -> list[Constituent]:
+    ambiguous = len(organs) > 1
+    return [
         Constituent(
             axis=axes.PRIMARY_SITE_AXIS,
             filler_code=filler,
             axis_source="role",
             source_roles=(axes.PRIMARY_SITE_ROLE,),
             most_specific=_is_most_specific(filler, fillers, is_ancestor),
-            needs_review=organ_ambiguous,
+            needs_review=ambiguous,
         )
-        for filler in organ
+        for filler in organs
     ]
+
+
+def _unknown_primary_site_constituents(
+    fillers: set[str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]] | None = None,
+) -> list[Constituent]:
     return [
-        *organ_constituents,
-        *_associated_region_constituents(region, fillers, is_ancestor),
+        Constituent(
+            axis=axes.PRIMARY_SITE_AXIS,
+            filler_code=filler,
+            axis_source="role",
+            source_roles=(source_roles or {}).get(
+                (axes.PRIMARY_SITE_AXIS, filler), (axes.PRIMARY_SITE_ROLE,)
+            ),
+            needs_review=True,
+        )
+        for filler in sorted(fillers)
     ]
 
 
@@ -346,7 +382,28 @@ def _resolve_r101_with_organ_lookup(
     organ = _known_r101_organ(fillers, parent_morphology, axis_name)
     if organ is None:
         return None
-    primary = Constituent(
+    primary = _known_organ_constituent(organ, fillers, source_roles, is_ancestor)
+    if semantic_type_of is None:
+        return [primary]
+    return _organ_context_constituents(
+        primary=primary,
+        organ=organ,
+        fillers=fillers,
+        parent_morphology=cast("str", parent_morphology),
+        semantic_type_of=semantic_type_of,
+        source_roles=source_roles,
+        is_ancestor=is_ancestor,
+        is_part_of=is_part_of,
+    )
+
+
+def _known_organ_constituent(
+    organ: str,
+    fillers: set[str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
+    is_ancestor: IsAncestor,
+) -> Constituent:
+    return Constituent(
         axis=axes.PRIMARY_SITE_AXIS,
         filler_code=organ,
         axis_source="role",
@@ -356,8 +413,19 @@ def _resolve_r101_with_organ_lookup(
         most_specific=_is_most_specific(organ, fillers, is_ancestor),
         needs_review=False,
     )
-    if semantic_type_of is None:
-        return [primary]
+
+
+def _organ_context_constituents(
+    *,
+    primary: Constituent,
+    organ: str,
+    fillers: set[str],
+    parent_morphology: str,
+    semantic_type_of: Callable[[str], str | None],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
+    is_ancestor: IsAncestor,
+    is_part_of: IsPartOf,
+) -> list[Constituent]:
     # Retained deliberately, not dead by construction: exhaustive enumeration of
     # 144,072 closed-form inputs, 9.0M production-shaped pipeline runs, and 14,604
     # hermetic-suite helper executions all found this set empty. The emptiness is
@@ -366,16 +434,23 @@ def _resolve_r101_with_organ_lookup(
     # ontolib.decomposition.site_resolution), not structural, so deleting the branch
     # would silently drop subsites the moment those tables overlap.
     subsites = set(primary_subsites_for_morphology(parent_morphology)) & fillers
+    # Partition the residual once. A missing P106 value is absence of evidence,
+    # never evidence that the source R101 filler denotes a region.
+    residual_fillers = fillers - {organ} - subsites
     regions = {
         filler
-        for filler in fillers - {organ} - subsites
-        if semantic_type_of(filler) != axes.ORGAN_SEMANTIC_TYPE
+        for filler in residual_fillers
+        if semantic_type_of(filler) not in {None, axes.ORGAN_SEMANTIC_TYPE}
+    }
+    unknown_fillers = {
+        filler for filler in residual_fillers if semantic_type_of(filler) is None
     }
     location_broader = _location_broader(is_ancestor, is_part_of)
     region_leaves = most_specific(regions, location_broader) or regions
     return [
         primary,
         *_primary_subsite_constituents(subsites, fillers, is_ancestor),
+        *_unknown_primary_site_constituents(unknown_fillers, source_roles),
         *_associated_region_constituents(region_leaves, fillers, is_ancestor),
     ]
 

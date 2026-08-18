@@ -654,6 +654,12 @@ def integration_resource_owner() -> IntegrationResourceOwner:
 
 
 @pytest.fixture(scope="session")
+def migration_resource_owner() -> IntegrationResourceOwner:
+    """Identity reserved for schema-changing tests, isolated from application data."""
+    return IntegrationResourceOwner(nonce=uuid.uuid4().hex)
+
+
+@pytest.fixture(scope="session")
 def isolated_postgres_url(
     integration_resource_owner: IntegrationResourceOwner,
 ) -> Iterator[str]:
@@ -667,6 +673,18 @@ def isolated_postgres_url(
     the absence of what they wrote.
     """
     with _provision_postgres(integration_resource_owner) as (
+        database_url,
+        _container_id,
+    ):
+        yield database_url
+
+
+@pytest.fixture(scope="session")
+def isolated_migration_postgres_url(
+    migration_resource_owner: IntegrationResourceOwner,
+) -> Iterator[str]:
+    """Yield a migrated database used only by destructive schema round-trips."""
+    with _provision_postgres(migration_resource_owner) as (
         database_url,
         _container_id,
     ):
@@ -1014,6 +1032,24 @@ def isolated_postgres_settings(isolated_postgres_url: str) -> Iterator[None]:
     """Point settings at the migrated disposable database for one mutating test."""
     prior = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = isolated_postgres_url
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        if prior is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = prior
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def isolated_migration_postgres_settings(
+    isolated_migration_postgres_url: str,
+) -> Iterator[None]:
+    """Point Alembic schema-roundtrip tests at their dedicated database."""
+    prior = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = isolated_migration_postgres_url
     get_settings.cache_clear()
     try:
         yield

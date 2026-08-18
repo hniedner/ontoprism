@@ -68,6 +68,35 @@ async def test_isolated_postgres_is_migrated_and_owner_marked(
 
 
 @pytest.mark.integration
+async def test_schema_migrations_use_a_distinct_fully_migrated_database(
+    isolated_postgres_url: str,
+    isolated_migration_postgres_url: str,
+) -> None:
+    assert isolated_migration_postgres_url != isolated_postgres_url
+    for database_url in (isolated_postgres_url, isolated_migration_postgres_url):
+        engine = make_engine(database_url)
+        try:
+            async with engine.connect() as connection:
+                tables = (
+                    await connection.execute(
+                        text(
+                            "SELECT ARRAY["
+                            "to_regclass('public.xref_generation')::text,"
+                            "to_regclass('public.embedding_corpus_manifest')::text,"
+                            "to_regclass('public.embedding_corpus_staging')::text]"
+                        )
+                    )
+                ).scalar_one()
+        finally:
+            await dispose_engine(engine)
+        assert tables == [
+            "xref_generation",
+            "embedding_corpus_manifest",
+            "embedding_corpus_staging",
+        ]
+
+
+@pytest.mark.integration
 async def test_isolated_qlever_accepts_owned_graph_data(
     isolated_qlever_url: str,
     integration_resource_owner: IntegrationResourceOwner,

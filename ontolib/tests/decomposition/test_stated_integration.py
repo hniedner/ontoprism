@@ -938,6 +938,59 @@ async def test_2607d_c130035_r82_closure_stays_within_observed_bounds() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.full_store
+@pytest.mark.parametrize(
+    ("concept_code", "expected_pair", "broader_pair"),
+    [
+        (
+            "C6135",
+            ("op:AssociatedRegion", "C13063"),
+            ("op:AssociatedRegion", "C12418"),
+        ),
+        (
+            "C101539",
+            ("op:AssociatedRegion", "C13063"),
+            ("op:AssociatedRegion", "C12418"),
+        ),
+        (
+            "C4791",
+            ("op:PrimarySite", "C12869"),
+            ("op:PrimarySite", "C12727"),
+        ),
+    ],
+)
+async def test_2607d_r101_collapse_is_limited_to_routed_axis(
+    concept_code: str,
+    expected_pair: tuple[str, str],
+    broader_pair: tuple[str, str],
+) -> None:
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        assert await client.version() == "26.07d"
+        result = await _decompose_one(
+            concept_code,
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=7,
+        )
+
+    assert result.decomposition is not None
+    pairs = {
+        (constituent.axis, constituent.filler_code)
+        for constituent in result.decomposition.constituents
+    }
+    assert expected_pair in pairs
+    assert broader_pair not in pairs
+
+
+@pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.full_store
 async def test_2607d_m1_complete_role_audit_remains_source_complete() -> None:

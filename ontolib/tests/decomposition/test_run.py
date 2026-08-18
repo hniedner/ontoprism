@@ -716,8 +716,7 @@ async def test_run_pipeline_decomposes_a_precoordinated_concept() -> None:
 async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
     """R101 organ fillers normalize to ``op:PrimarySite`` (D20).
 
-    Fillers without a recognized organ semantic type route to
-    ``op:AssociatedRegion`` (D19).
+    Known non-organ fillers route to ``op:AssociatedRegion`` (D19).
     """
     client = _FakeClient(
         pages=[["C1"]],
@@ -732,6 +731,7 @@ async def test_run_pipeline_semantic_type_of_routes_d19_d20_axis() -> None:
         semantic_type_of_rows=[
             {"code": "C12400", "st": "Anatomical Structure"},
             {"code": "C12400", "st": "Body Part, Organ, or Organ Component"},
+            {"code": "C13063", "st": "Anatomical Structure"},
         ],
     )
     provenance = _mock_provenance()

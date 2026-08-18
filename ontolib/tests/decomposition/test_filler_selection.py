@@ -678,6 +678,73 @@ def test_same_routed_pair_preserves_all_source_roles(
 
 
 @pytest.mark.unit
+def test_r101_organ_partition_collapses_broader_partonomic_site() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12727"),
+        RoleRestriction("R101", "C12869"),
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        semantic_type_of=lambda _code: "Body Part, Organ, or Organ Component",
+        is_part_of=lambda part, whole: (part, whole) == ("C12869", "C12727"),
+    )
+
+    assert [(item.axis, item.filler_code) for item in constituents] == [
+        ("op:PrimarySite", "C12869")
+    ]
+
+
+@pytest.mark.unit
+def test_r101_missing_semantic_type_remains_unresolved_primary_site() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12400"),
+        RoleRestriction("R101", "C99999"),
+    ]
+    semantic_types = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C99999": None,
+    }
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        semantic_type_of=semantic_types.get,
+    )
+
+    actual = [(item.axis, item.filler_code, item.needs_review) for item in constituents]
+    assert actual == [
+        ("op:PrimarySite", "C12400", False),
+        ("op:PrimarySite", "C99999", True),
+    ]
+
+
+@pytest.mark.unit
+def test_morphology_organ_partition_preserves_unknown_as_review_primary_site() -> None:
+    restrictions = [
+        RoleRestriction("R101", "C12400"),
+        RoleRestriction("R101", "C99999"),
+    ]
+    semantic_types = {
+        "C12400": "Body Part, Organ, or Organ Component",
+        "C99999": None,
+    }
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        parent_morphology="C3879",
+        semantic_type_of=semantic_types.get,
+    )
+
+    unknown = next(item for item in constituents if item.filler_code == "C99999")
+    assert unknown.axis == PRIMARY_SITE_AXIS
+    assert unknown.needs_review is True
+    assert unknown.source_roles == ("R101",)
+
+
+@pytest.mark.unit
 def test_organ_lookup_collapses_nested_regions_only_within_region_axis() -> None:
     semantic_types = {
         "C12400": "Body Part, Organ, or Organ Component",

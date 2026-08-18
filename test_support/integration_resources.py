@@ -480,6 +480,8 @@ def validate_integration_test_declaration(
         )
     reasons = set(detected_reasons)
     postgres_fixtures = {
+        "isolated_migration_postgres_settings",
+        "isolated_migration_postgres_url",
         "isolated_postgres_settings",
         "isolated_postgres_url",
         "postgres_resource_provisioner",
