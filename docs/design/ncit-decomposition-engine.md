@@ -283,6 +283,14 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   publication gate. The tracked report is mechanically complete but content-pending and blocked
   (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
   2026-08-19).
+- **R101 human review (D78):** the 3,291 R82-covered occurrences are presented as exactly 162
+  source-bound endpoint patterns plus a lossless occurrence appendix. Review asks whether a
+  directed stated-R82 path licenses broader PrimarySite coverage under project policy; it never
+  asks for or records equivalence. Packet import produces only a proposed registry. The preflight
+  authorization path is read-only and cannot mutate the pending report or publication state.
+  Registry provenance is identity-bound as `sme` or `test-only`; only dry-run accepts the latter.
+  Workbook sheet protection is anti-accident only, while strict import revalidation of every cell
+  and binding is the security boundary.
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 

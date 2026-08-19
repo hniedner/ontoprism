@@ -121,6 +121,9 @@ class CandidateObservation(_StrictProofModel):
     stated_has_stated_only_sentinel: bool
 
 
+NCIT_CANDIDATE_OBSERVATION_QUERY_COUNT = 9
+
+
 class CandidateValidationPolicy(_StrictProofModel):
     """Release-independent safety bounds for a full NCIt store."""
 

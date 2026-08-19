@@ -7,7 +7,7 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
@@ -38,6 +38,17 @@ from ontolib.decomposition.r101_conservation import (
     validate_r101_publication,
     write_r101_occurrence_ledger,
 )
+from ontolib.decomposition.r101_review import (
+    QLeverReviewLabels,
+    build_r101_review_packet,
+    dry_run_r101_authorization,
+    import_r101_review_decisions,
+    load_r101_decision_registry,
+    load_r101_review_packet,
+    write_r101_authorization_dry_run,
+    write_r101_review_packet,
+    write_r101_review_workbook,
+)
 from ontolib.decomposition.resume_dry_run import (
     build_resume_dry_run,
     inspect_resume_selection,
@@ -47,7 +58,10 @@ from ontolib.decomposition.resume_dry_run import (
 from ontolib.decomposition.run import RunConfig, build_resume_identity
 from ontolib.decomposition.stated_queries import resolve_part_of_paths
 from ontolib.terminologies.ncit.client import ncit_sparql_client
-from ontolib.terminologies.ncit.sibling_store import validate_ncit_sibling_manifest
+from ontolib.terminologies.ncit.sibling_store import (
+    NCIT_CANDIDATE_OBSERVATION_QUERY_COUNT,
+    validate_ncit_sibling_manifest,
+)
 
 try:
     from scripts.research.golden_review import (
@@ -148,6 +162,28 @@ class _R101ConservationArgs(Protocol):
 class _R101PublicationArgs(Protocol):
     report: Path
     authorization_digest: str
+
+
+class _PrepareR101ReviewArgs(Protocol):
+    report: Path
+    source_manifest: Path
+    endpoint: str
+    output_packet: Path
+    output_xlsx: Path
+
+
+class _ImportR101ReviewArgs(Protocol):
+    packet: Path
+    reviewed_xlsx: Path
+    output: Path
+    provenance: Literal["sme", "test-only"]
+
+
+class _DryRunR101AuthorizationArgs(Protocol):
+    report: Path
+    packet: Path
+    registry: Path
+    output: Path
 
 
 class _PreResumeArgs(Protocol):
@@ -304,6 +340,52 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
         await dispose_engine(engine)
 
 
+async def _prepare_r101_review(args: _PrepareR101ReviewArgs) -> None:
+    report = load_r101_conservation_report(args.report)
+    source = await _source_snapshot(args.source_manifest, args.endpoint)
+    if (
+        source.source_identity != report.source_identity
+        or source.ontology_version != report.source_release_id
+    ):
+        raise R101ConservationValidationError(
+            "live source does not match review report"
+        )
+    async with ncit_sparql_client(args.endpoint) as client:
+        labels = QLeverReviewLabels(client)
+        packet = await build_r101_review_packet(report, args.source_manifest, labels)
+    write_r101_review_packet(args.output_packet, packet)
+    write_r101_review_workbook(args.output_xlsx, packet)
+    print(
+        f"packet_identity={packet.packet_identity} patterns={len(packet.patterns)} "
+        f"occurrences={len(packet.occurrences)} "
+        f"source_checks={NCIT_CANDIDATE_OBSERVATION_QUERY_COUNT} "
+        f"label_reads={labels.query_count} "
+        f"qlever_reads={NCIT_CANDIDATE_OBSERVATION_QUERY_COUNT + labels.query_count}",
+        file=sys.stderr,
+    )
+
+
+def _import_r101_review(args: _ImportR101ReviewArgs) -> None:
+    packet = load_r101_review_packet(args.packet)
+    registry = import_r101_review_decisions(
+        packet,
+        args.reviewed_xlsx,
+        args.output,
+        provenance=args.provenance,
+    )
+    print(f"registry_identity={registry.registry_identity}", file=sys.stderr)
+
+
+def _dry_run_r101_review_authorization(args: _DryRunR101AuthorizationArgs) -> None:
+    result = dry_run_r101_authorization(
+        load_r101_conservation_report(args.report),
+        load_r101_review_packet(args.packet),
+        load_r101_decision_registry(args.registry),
+    )
+    write_r101_authorization_dry_run(args.output, result)
+    print(f"verdict={result.verdict} writes_performed=false", file=sys.stderr)
+
+
 async def _generate_pre_resume(args: _PreResumeArgs) -> None:
     source = await _source_snapshot(args.source_manifest, args.endpoint)
     engine = make_engine(get_settings().database_url)
@@ -404,6 +486,24 @@ def _add_r101_parsers(subparsers: Any) -> None:
     publication_parser = subparsers.add_parser("validate-r101-publication")
     publication_parser.add_argument("--report", required=True, type=Path)
     publication_parser.add_argument("--authorization-digest", required=True)
+    prepare_parser = subparsers.add_parser("prepare-r101-review-packet")
+    prepare_parser.add_argument("--report", required=True, type=Path)
+    prepare_parser.add_argument("--source-manifest", required=True, type=Path)
+    prepare_parser.add_argument("--endpoint", required=True)
+    prepare_parser.add_argument("--output-packet", required=True, type=Path)
+    prepare_parser.add_argument("--output-xlsx", required=True, type=Path)
+    import_parser = subparsers.add_parser("import-r101-review-decisions")
+    import_parser.add_argument("--packet", required=True, type=Path)
+    import_parser.add_argument("--reviewed-xlsx", required=True, type=Path)
+    import_parser.add_argument("--output", required=True, type=Path)
+    import_parser.add_argument(
+        "--provenance", required=True, choices=("sme", "test-only")
+    )
+    dry_run_parser = subparsers.add_parser("dry-run-r101-authorization")
+    dry_run_parser.add_argument("--report", required=True, type=Path)
+    dry_run_parser.add_argument("--packet", required=True, type=Path)
+    dry_run_parser.add_argument("--registry", required=True, type=Path)
+    dry_run_parser.add_argument("--output", required=True, type=Path)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -462,7 +562,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911
+def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
     args = _parser().parse_args(argv)
     if args.command == "import-workbook":
         _write_artifact(args.workbook, args.registry, args.output)
@@ -493,6 +593,15 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911
             raise R101ConservationValidationError(
                 "content-authorization-digest-mismatch"
             )
+        return
+    if args.command == "prepare-r101-review-packet":
+        asyncio.run(_prepare_r101_review(cast("_PrepareR101ReviewArgs", args)))
+        return
+    if args.command == "import-r101-review-decisions":
+        _import_r101_review(cast("_ImportR101ReviewArgs", args))
+        return
+    if args.command == "dry-run-r101-authorization":
+        _dry_run_r101_review_authorization(cast("_DryRunR101AuthorizationArgs", args))
         return
     if args.command == "generate-pre-resume-proof":
         asyncio.run(_generate_pre_resume(cast("_PreResumeArgs", args)))

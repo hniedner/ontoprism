@@ -351,6 +351,71 @@ Mechanical validation is complete, content authorization is pending, and publica
 2026-08-19). No authorization is recorded here. SME pattern review is deferred to the final M1.6
 milestone review; this ledger must not be described as published or accepted content.
 
+### Prepare the #267 human review packet
+
+The exact tracked inputs and configured read-only label endpoint are:
+
+```bash
+test -f ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz
+test -f data/qlever-ncit/.ontoprism-ncit-candidate.json
+
+pdm run adjudication prepare-r101-review-packet \
+  --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz \
+  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
+  --endpoint http://localhost:7888 \
+  --output-packet tmp/r101-review-packet.json \
+  --output-xlsx tmp/r101-review-workbook.xlsx
+```
+
+Before labels are read, this command reuses the decomposition source-snapshot certification path:
+nine bounded QLever checks require the live endpoint's exact NCIt source observation, source
+identity, and ontology release to match the explicit candidate manifest and report. It then reads
+all distinct values of the authoritative stated `rdfs:label` predicate in one bounded
+`SELECT DISTINCT` query and performs no database or ontology write. A requested code with zero or
+more than one distinct label refuses the packet; duplicate identical rows are deduplicated and do
+not create a false conflict
+(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_qlever_label_reader_refusal_gates_are_live ontolib/tests/decomposition/test_r101_review.py::test_real_reader_and_double_both_refuse_distinct_stated_labels -q`,
+2026-08-19). The command also refuses unless all 3,291 covered occurrences reconcile exactly to
+the 162 `grouping_presentation` patterns. The packet binds the exact report, semantic JSON,
+lossless TSV, source, release, old/new run and representation, baseline, detector, and
+continuation-proof identities. Labels and all directed code paths are included in row and packet
+identities; no portable semantic field is excluded except the self-referential identity field
+itself. Generated packet and workbook paths are gitignored review artifacts, not tracked evidence.
+The workbook is byte-deterministic for an identical packet: core and ZIP timestamps, member order,
+and ZIP metadata are normalized, so its SHA-256 is a reproducible delivered-artifact identity.
+
+Do not fill the generated real workbook for preflight. Copy it to the clearly named retained path
+`tmp/r101-review-workbook-TEST-ONLY.xlsx`, fill all 162 rows with conspicuous `TEST-ONLY`
+synthetic decisions, then run:
+
+```bash
+pdm run adjudication import-r101-review-decisions \
+  --packet tmp/r101-review-packet.json \
+  --reviewed-xlsx tmp/r101-review-workbook-TEST-ONLY.xlsx \
+  --output tmp/r101-review-registry-TEST-ONLY.json \
+  --provenance test-only
+
+pdm run adjudication dry-run-r101-authorization \
+  --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz \
+  --packet tmp/r101-review-packet.json \
+  --registry tmp/r101-review-registry-TEST-ONLY.json \
+  --output tmp/r101-review-preflight.json
+```
+
+The dry run uses the exact pure authorization application and publication validation path a later
+real authorization path must pass, but constructs its candidate only in memory. It never writes an
+authorized report or publication. Registry provenance (`sme` or `test-only`) is a required CLI
+argument and part of the registry identity. Only dry-run can consume `test-only`; the real
+application path mechanically refuses it.
+An all-approve synthetic registry is `logically-eligible`; any real or synthetic rejection is
+`blocked`; missing, stale, mismatched, or tampered inputs refuse without an output. The tracked
+report remains content-pending and publication-blocked. No SME approval is claimed here, and the
+real decision cells must remain blank until the packet is delivered to the human reviewer.
+Workbook protection is only an anti-accident aid, not password security; strict import
+revalidation of every evidence, decision, and binding cell is the security boundary. In the three
+sentinel columns, `FALSE` means that no covered occurrence for that sentinel belongs to the
+pattern, not that the sentinel was unchecked.
+
 The deleted schema-2 module defines 30 AST-level test functions; the schema-3 module defines 27
 AST-level test functions and pytest collects 39 cases after parametrization. Functions and
 collected cases are different counts, so neither is described as a count of semantic contracts

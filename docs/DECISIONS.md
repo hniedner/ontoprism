@@ -7,6 +7,48 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-08-19 — R101 coverage review is packet-bound and remains proposed
+
+### D78. Review directed R82 endpoint patterns without asserting equivalence
+
+The mechanically complete schema-3 ledger contains 3,291 occurrences covered by retained R82
+evidence and its `grouping_presentation` has 162 endpoint patterns
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.covered_by_retained_r82,len(r.grouping_presentation))'`,
+2026-08-19).
+
+**Decision:** #267 uses one purpose-built review packet, workbook, proposed decision registry,
+and read-only authorization dry run. A human decides whether each exact directed stated-R82
+endpoint pattern licenses broader PrimarySite coverage under OntoPrism policy. The decision is
+not equivalence, does not remove source occurrences, and applies only to the packet's exact
+report, source, run, representation, baseline, detector, and proof bindings. Release-bound NCIt
+labels are presentation evidence. Before reading them, the packet command reuses decomposition's
+candidate-proof source snapshot: nine bounded QLever checks require the live source observation,
+exact source identity, and ontology release to match the explicit candidate manifest and report.
+It then acquires every distinct stated `rdfs:label` value in one bounded `SELECT DISTINCT` query.
+Zero or more than one distinct preferred label for any requested code refuses the packet; duplicate
+identical result rows do not create a false conflict. The accepted labels are bound into every row
+and the packet identity
+(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_prepare_certifies_explicit_live_source_before_label_read ontolib/tests/decomposition/test_r101_review.py::test_prepare_refuses_source_identity_or_release_drift_before_labels ontolib/tests/decomposition/test_r101_review.py::test_real_reader_and_double_both_refuse_distinct_stated_labels -q`,
+2026-08-19).
+
+The workbook exposes exactly four sheets: instructions, hidden bindings, 162 pattern-decision
+rows, and the complete 3,291-row occurrence appendix. Only decision, rationale, reviewer
+identity, and review date cells are editable. Sheet protection prevents accidental edits; it is
+not password security. Import cell and binding revalidation is the security boundary. Import is
+total and fail-closed: it permits only
+`approve` or `reject`, requires every field for every pattern, and refuses stale, reordered,
+duplicate, missing, extra, formula-bearing, macro-bearing, externally linked, or evidence-edited
+workbooks. Import creates a `proposed` registry only. It does not authorize the report or make it
+publication eligible.
+
+Before a real SME request, synthetic `TEST-ONLY` decisions must be entered only in a clearly
+named workbook copy. Registry provenance is required, identity-bound, and propagated to preflight;
+the real application path refuses `test-only`. The dry run exercises the same pure authorization
+application and publication validation path on an in-memory candidate
+and writes only its verdict: all approvals are logically eligible for the same digest; a rejection
+is blocked; missing or mismatched evidence refuses. No authorized report or publication is written.
+This decision does not implement D75/#271.
+
 ## 2026-08-19 — R101 conservation is an occurrence ledger, not content approval
 
 ### D77. Bind every source occurrence and replayable stated-R82 edge before review
