@@ -19,6 +19,8 @@ This evidence record retains the exact axis names used by the source rows.
 | `neoplasm-current-comparison.json` | Current replay metrics, grouping diagnoses, and all 189 row classifications. |
 | `neoplasm-current-corpus-baseline.json` | Current-source full-corpus pre-change counts and exact representation identity. |
 | `neoplasm-highest-fanout.json` | Current-source highest-fanout concepts and fixed query budgets. |
+| `neoplasm-r101-v3-depth7-corpus-baseline.json` | Immutable depth-7 v3 baseline bound to the recovered completed run. |
+| `neoplasm-r101-v4-conservation.json.gz` | Deterministic gzip of the schema-3, occurrence-level v3→v4 mechanical ledger; not content authorization. |
 
 All of these files are tracked (`git ls-files ontolib/tests/decomposition/golden`, 2026-08-09).
 The oracle status, NCIt version, reviewer, concept count, and expected-pair count come directly
@@ -286,3 +288,91 @@ pdm run adjudication generate-corpus-baseline \
 
 The long-running CLI reports exact worklist progress and residual-metric progress. Interrupted runs
 must be resumed with `--resume <run-id>`; completed work items are fenced and are not reprocessed.
+
+## R101 v3-to-v4 occurrence ledger
+
+Regenerate the compressed report from the immutable completed runs (change only `--output` for a
+second determinism run):
+
+```bash
+pdm run adjudication generate-r101-conservation \
+  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
+  --baseline ontolib/tests/decomposition/golden/neoplasm-r101-v3-depth7-corpus-baseline.json \
+  --run-id neoplasm-d6b0df5e-aa18-4aa7-b8bb-9f8bc36c850a \
+  --new-run-id neoplasm-0e88b7c0-eba0-42e6-8836-fa10f2604f46 \
+  --endpoint http://localhost:7888 \
+  --output "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-1.json.gz" \
+  --pre-resume-proof-identity f3c321c38deb8478f7a1abfa5c1edb1ef9ac3daf793d0dfe8d1e758eb62d2018 \
+  --resume-dry-run-identity 2f5a0530f72028353a32b050a7e7a06a1880d7bcfe1aad4bcacd902333e7bd98 \
+  --mixed-cohort-identity dda9c71a8a777e451a08fe81e4e2bae799f85e5f2c4984a90e5d95d71784777a
+```
+
+The generated schema-3 report contains 43,414 source occurrences partitioned into 30,040
+projected, 10,083 unchanged-unprojected, 3,291 covered by stated R82 evidence, and zero
+unresolved rows; the R82 evidence is independently partitioned into 1,954 one-step and 1,337
+closure-only paths, and the non-R101 delta is zero
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
+2026-08-19). The observed budgets are three PostgreSQL queries, 177 QLever queries, batches of
+at most eight candidate pairs, eight R82 hops, and twenty asserted-superclass hops
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.query_metrics.model_dump())'`,
+2026-08-19).
+
+The self-excluding canonical semantic `json_identity` is
+`73ab4652f9489550ab0a5c1f8bb819567268a449e673b49dbaf596dc72da0776`, its lossless TSV
+identity is `b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d`, and its report
+identity is `40a5260c00c4775f40318eec3c8f313b8abf97909ba057c6f476737f96e56911`
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.json_identity,r.tsv_identity,r.report_identity)'`,
+2026-08-19). Two independent regenerations from the immutable completed runs produced byte-equal
+gzip files
+(`cmp -s ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-1.json.gz" && cmp -s "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-1.json.gz" "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-2.json.gz"`,
+2026-08-19).
+
+The tracked gzip is 3,926,793 bytes with file SHA-256
+`91631787ec9e1062c698cd456cfc5c3ae45276acea9200ef46cf2af829bf2343`; its decompressed,
+indented canonical JSON is 49,076,502 bytes with byte SHA-256
+`732bf5871979ada08b855aad093c4a99ae75f2e735b066d44655d0f7f6a70976`
+(`pdm run python -c 'import gzip,hashlib,pathlib; p=pathlib.Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"); raw=gzip.decompress(p.read_bytes()); print(p.stat().st_size,hashlib.sha256(p.read_bytes()).hexdigest(),len(raw),hashlib.sha256(raw).hexdigest())'`,
+2026-08-19). Both differ deliberately from `json_identity`, which hashes semantic JSON after
+excluding authorization, publication, and identity fields. `report_identity` covers the complete
+report except itself. The 22,220,891-byte TSV is not tracked; generating it on demand from
+decompressed occurrences produces SHA-256 `b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d`,
+equal to `tsv_identity`
+(`pdm run python -c 'import hashlib; from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report,r101_ledger_tsv_bytes; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); t=r101_ledger_tsv_bytes(r); print(len(t),hashlib.sha256(t).hexdigest(),r.tsv_identity)'`, 2026-08-19).
+
+The exact non-R101 delta evidence contains zero canonical rows and binds the old run, new run, and
+the SQL query contract identity
+`2ae560df8f11a233a77860458dc9a12b01b3ebf3f25b900afb369a69363bacf1`; the reported count is
+derived from those rows
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; e=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")).non_r101_delta_evidence; print(e.old_run_id,e.new_run_id,e.query_identity,len(e.rows))'`,
+2026-08-19).
+
+Mechanical validation is complete, content authorization is pending, and publication is blocked
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+2026-08-19). No authorization is recorded here. SME pattern review is deferred to the final M1.6
+milestone review; this ledger must not be described as published or accepted content.
+
+The deleted schema-2 module defines 30 AST-level test functions; the schema-3 module defines 27
+AST-level test functions and pytest collects 39 cases after parametrization. Functions and
+collected cases are different counts, so neither is described as a count of semantic contracts
+(`pdm run python -c 'import ast,subprocess,pathlib; old=subprocess.check_output(["git","show","HEAD:ontolib/tests/decomposition/test_r101_conservation.py"],text=True); new=pathlib.Path("ontolib/tests/decomposition/test_r101_occurrence_ledger.py").read_text(); f=lambda s:[n.name for n in ast.walk(ast.parse(s)) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name.startswith("test_")]; print({"schema2_ast_functions":len(f(old)),"schema3_ast_functions":len(f(new))})' && pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py --collect-only -q`,
+2026-08-19). The migration ledger is:
+
+| Schema-2 contract family | Schema-3 replacement |
+|---|---|
+| detector/schema drift | semantic-validator detector mutation plus stale-detector refusal |
+| total unique occurrence dispositions | exact structural-key inventory, duplicate, mismatched, or partial refusal, deterministic partition |
+| projected, unchanged, R82-covered, unresolved | explicit four-way occurrence partition and publication refusal |
+| R82 completeness and query bounds | replayable one-step/closure paths, loader-level reversal/disconnection/source/depth/axis refusal, real edge-removal test, bounded full-store C5356 and C5552 tie test |
+| R101 versus non-R101 deltas | canonical PostgreSQL delta rows bound to exact query and run identities, with count derived from evidence |
+| C4791 cohort behavior | generated C6135/C101539/C4791/C5356 sentinel contract |
+| schema/count/payload/authorization corruption | strict schema-3 loader, identity, count, state, and digest validators |
+| duplicate links and minted fillers | strict link models plus lossless minted old-link TSV roundtrip |
+| baseline/run/fingerprint/release binding | generated report bindings to both completed runs, baseline, source, release, detector, and three continuation identities |
+| atomic persistence | paired JSON/TSV rollback-on-replace-failure contract |
+
+The former progress heartbeat and semantic-lookup-double tests are not migrated: schema 3 consumes
+persisted v3/v4 occurrence links in one bounded PostgreSQL query and does not perform the removed
+per-concept semantic lookup loop. The focused schema-3 suite, disposable PostgreSQL/QLever
+contracts, and configured full-store contract execute the replacements
+(`pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py -q && pdm run python scripts/run_safe_integration.py ontolib/tests/decomposition/test_pre_resume_integration.py::test_r101_candidate_query_preserves_old_and_new_occurrence_origins ontolib/tests/decomposition/test_stated_integration.py::test_r82_paths_preserve_direct_edges_and_edge_removal_on_real_qlever -q && pdm run test-integration-full-store -k tied_highest_fanout_ledgers_and_paths_match_generated_report`,
+2026-08-19).

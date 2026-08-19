@@ -57,6 +57,7 @@ from ontolib.core.data_build_tools import (  # noqa: E402
     identify_jena_installation,
 )
 from ontolib.decomposition import vocab as decomp_vocab  # noqa: E402
+from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -728,6 +729,34 @@ def preserved_decomposed_graph(isolated_qlever_url: str) -> Iterator[None]:
         update(
             f"CLEAR SILENT GRAPH <{public}>; "
             f"ADD SILENT GRAPH <{backup}> TO GRAPH <{public}>; "
+            f"DROP SILENT GRAPH <{backup}>"
+        )
+
+
+@pytest.fixture
+def preserved_stated_graph(isolated_qlever_url: str) -> Iterator[None]:
+    """Restore the disposable stated graph after a mutating contract."""
+    backup = f"{STATED_GRAPH_IRI}/test-backup/{uuid.uuid4().hex}"
+
+    def update(statement: str) -> None:
+        response = httpx.post(
+            f"{isolated_qlever_url}/update",
+            content=statement.encode(),
+            headers={"Content-Type": "application/sparql-update"},
+            timeout=30,
+        )
+        response.raise_for_status()
+
+    update(
+        f"CLEAR SILENT GRAPH <{backup}>; "
+        f"ADD SILENT GRAPH <{STATED_GRAPH_IRI}> TO GRAPH <{backup}>"
+    )
+    try:
+        yield
+    finally:
+        update(
+            f"CLEAR SILENT GRAPH <{STATED_GRAPH_IRI}>; "
+            f"ADD SILENT GRAPH <{backup}> TO GRAPH <{STATED_GRAPH_IRI}>; "
             f"DROP SILENT GRAPH <{backup}>"
         )
 

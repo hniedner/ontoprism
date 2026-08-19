@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from scripts.adjudication import main as adjudication_main
 
 from backend.config import get_settings
-from backend.db import dispose_engine, make_engine
+from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.complete_definition import read_complete_definition
 from ontolib.decomposition.pre_resume import (
     acquire_candidate_evidence,
     affected_missing_p106,
-    canonical_pre_resume_json,
 )
-from ontolib.decomposition.resume_dry_run import canonical_resume_dry_run_json
-from ontolib.decomposition.stated_queries import resolve_part_of_pairs
+from ontolib.decomposition.provenance import ProvenanceStore
+from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.stated_queries import (
+    resolve_part_of_pairs,
+    resolve_part_of_paths,
+)
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 if TYPE_CHECKING:
@@ -67,9 +71,8 @@ async def test_completed_full_run_candidate_denominator_matches_reachability() -
 
 @pytest.mark.integration
 @pytest.mark.full_store
-def test_pre_resume_cli_is_repeatable_and_reports_freshness(tmp_path) -> None:
-    first = tmp_path / "first.json"
-    second = tmp_path / "second.json"
+def test_completed_run_refuses_stale_pre_resume_proof(tmp_path) -> None:
+    output = tmp_path / "proof.json"
     common = [
         "generate-pre-resume-proof",
         "--source-manifest",
@@ -80,78 +83,36 @@ def test_pre_resume_cli_is_repeatable_and_reports_freshness(tmp_path) -> None:
         "http://localhost:7888",
     ]
 
-    adjudication_main([*common, "--output", str(first)])
-    adjudication_main([*common, "--output", str(second)])
-
-    first_payload = __import__("json").loads(first.read_text())
-    second_payload = __import__("json").loads(second.read_text())
-    assert canonical_pre_resume_json(first_payload) == canonical_pre_resume_json(
-        second_payload
-    )
-    assert first_payload["proof_identity"] == second_payload["proof_identity"]
-    assert first_payload["postgres_reads"] > 0
-    assert first_payload["qlever_reads"] > 0
+    with pytest.raises(ValueError, match="failure snapshot drift"):
+        adjudication_main([*common, "--output", str(output)])
+    assert not output.exists()
 
 
 @pytest.mark.integration
 @pytest.mark.full_store
-def test_protected_resume_dry_run_is_repeatable_read_only_and_proof_bound(
+def test_completed_run_refusal_does_not_create_resume_dry_run_artifacts(
     tmp_path,
 ) -> None:
     proof = tmp_path / "proof.json"
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
-    adjudication_main(
-        [
-            "generate-pre-resume-proof",
-            "--source-manifest",
-            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-            "--run-id",
-            RUN_ID,
-            "--endpoint",
-            "http://localhost:7888",
-            "--output",
-            str(proof),
-        ]
-    )
-    common = [
-        "dry-run-resume",
-        "--source-manifest",
-        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
-        "--proof",
-        str(proof),
-        "--run-id",
-        RUN_ID,
-        "--endpoint",
-        "http://localhost:7888",
-        "--branch",
-        "neoplasm",
-        "--walker-max-depth",
-        "7",
-        "--out",
-        "tmp/neoplasm-r101-v4-full.ttl",
-    ]
-
-    adjudication_main([*common, "--output", str(first)])
-    adjudication_main([*common, "--output", str(second)])
-
-    first_payload = __import__("json").loads(first.read_text())
-    second_payload = __import__("json").loads(second.read_text())
-    assert canonical_resume_dry_run_json(
-        first_payload
-    ) == canonical_resume_dry_run_json(second_payload)
-    assert first_payload["identity"] == second_payload["identity"]
-    assert first_payload["pending_count"] == 9733
-    assert first_payload["pending_attempt_count"] == 0
-    assert first_payload["pending_digest"] == (
-        "8ebd90a8e143c6676d0ac70cdd58b0921724e81037e74ec03a93a175e6acabf1"
-    )
-    assert first_payload["completed_exclusion_count"] == 5900
-    assert first_payload["selected_complete_count"] == 0
-    assert first_payload["postgres_reads"] == 3
-    assert first_payload["qlever_reads"] > 0
-    assert first_payload["status"] == "failed"
-    assert first_payload["error_type"] == "BrokenPipeError"
+    with pytest.raises(ValueError, match="failure snapshot drift"):
+        adjudication_main(
+            [
+                "generate-pre-resume-proof",
+                "--source-manifest",
+                "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+                "--run-id",
+                RUN_ID,
+                "--endpoint",
+                "http://localhost:7888",
+                "--output",
+                str(proof),
+            ]
+        )
+    assert not proof.exists()
+    assert not first.exists()
+    assert not second.exists()
 
 
 @pytest.mark.integration
@@ -227,3 +188,63 @@ async def test_r101_highest_fanout_records_use_bounded_candidate_and_r82_queries
             await resolve_part_of_pairs(client, group)
 
     assert definition_reads == 50
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_tied_highest_fanout_ledgers_and_paths_match_generated_report() -> None:
+    report = load_r101_conservation_report(
+        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
+    )
+    engine = make_engine(get_settings().database_url)
+    try:
+        source = await ProvenanceStore(
+            make_sessionmaker(engine)
+        ).r101_occurrence_ledger(report.old_run_id, report.new_run_id)
+        async with ncit_sparql_client("http://localhost:7888") as client:
+            for concept_code in ("C5356", "C5552"):
+                expected = tuple(
+                    item
+                    for item in report.occurrences
+                    if item.concept_code == concept_code
+                )
+                actual = tuple(
+                    item
+                    for item in source.occurrences
+                    if item.old_occurrence.concept_code == concept_code
+                )
+                candidates = tuple(
+                    sorted(
+                        {
+                            (retained.filler_code, old.filler_code)
+                            for item in actual
+                            if item.old_links and not item.new_links
+                            for old in item.old_links
+                            for retained in item.retained_new_r101_links
+                            if old.axis == retained.axis
+                        }
+                    )
+                )
+                paths = await resolve_part_of_paths(
+                    client, candidates, source_identity=report.source_identity
+                )
+
+                assert len(actual) == len(expected) == 16
+                assert tuple(
+                    item.old_occurrence.structural_key for item in actual
+                ) == tuple(item.structural_key for item in expected)
+                expected_paths = {
+                    (
+                        item.retained_r82_target.filler_code,
+                        item.old_links[0].filler_code,
+                    ): item.r82_path
+                    for item in expected
+                    if item.retained_r82_target is not None and len(item.old_links) == 1
+                }
+                assert {
+                    key: value.edges for key, value in paths.paths.items()
+                } == expected_paths
+                assert paths.query_count <= 10
+                assert paths.max_pair_batch_size <= 8
+    finally:
+        await dispose_engine(engine)

@@ -7,6 +7,37 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-08-19 — R101 conservation is an occurrence ledger, not content approval
+
+### D77. Bind every source occurrence and replayable stated-R82 edge before review
+
+The generated schema-3 artifact partitions 43,414 R101 occurrences into 30,040 projected,
+10,083 unchanged-unprojected, 1,954 one-step-R82 covered, 1,337 closure-only-R82 covered, and
+zero unresolved rows, with zero non-R101 delta
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
+2026-08-19). Every path edge records the traversal endpoints, asserted restriction subject,
+restriction node, exact source identity, and recomputed fact identity; the persisted compressed
+JSON and on-demand TSV roundtrip contract passes
+(`pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_full_structural_key_survives_model_json_and_lossless_tsv ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_r82_edge_carries_replayable_asserted_subject_and_validates_fact_identity -q`,
+2026-08-19).
+
+**Decision:** the conservation boundary is one deterministic gzip file containing a strict
+schema-3 occurrence inventory, with no raw-JSON compatibility reader. The lossless TSV projection
+is generated on demand and bound by `tsv_identity`, not tracked separately. The report binds the
+v3 baseline, both completed runs, source release, detector, pre-resume proof,
+resume dry-run, and mixed-cohort identities separately; their aggregate proof identity does not
+replace those continuation bindings. One-step and closure-only stated R82 evidence remain distinct.
+Malformed, partial, duplicate, mismatched, cross-axis, reversed, broken, over-depth, source-drifted,
+or non-R101-changing evidence fails closed at report load as well as construction. Non-R101 delta
+evidence is the canonical sorted row set bound to both run IDs and the exact SQL query identity;
+its count is derived from those rows rather than accepted as an independent scalar.
+
+Mechanical completion, content authorization, and publication eligibility are independent states.
+The tracked report currently records `complete`, `pending`, and `blocked`, respectively
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+2026-08-19). This decision neither authorizes content nor changes D75/#271 semantics. SME pattern
+review remains a final M1.6 milestone decision before publication.
+
 ## 2026-08-17 — full-corpus routing attribution requires depth-matched evidence
 
 ### D76. Recover historical v3 at depth 7 rather than compare confounded runs

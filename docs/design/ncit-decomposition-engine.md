@@ -276,6 +276,13 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are retained; selected routed region/stage axes may receive synthetic groups, while lineage classifiers remain ungrouped.
+- **R101 change evidence (D77):** the v3→v4 boundary is a strict occurrence ledger keyed by the
+  complete persisted structural occurrence identity. A removed broader same-axis projection is
+  covered only by a retained new R101 link and a replayable directed stated-R82 path. One-step and
+  closure-only evidence remain distinct; report mechanics cannot authorize content or open the
+  publication gate. The tracked report is mechanically complete but content-pending and blocked
+  (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+  2026-08-19).
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 

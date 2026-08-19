@@ -26,7 +26,7 @@ if TYPE_CHECKING:
         Constituent,
         Decomposition,
     )
-    from ontolib.decomposition.r101_conservation import CandidateBaseline
+    from ontolib.decomposition.r101_conservation import R101LedgerSource
 
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -53,6 +53,14 @@ from ontolib.decomposition.provenance_models import (
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _same_delta_rows(previous: object | None, current: object) -> object:
+    if previous is not None and previous != current:
+        raise ValueError("non-R101 delta evidence differs across occurrence rows")
+    return current
+
+
 _PUBLICATION_LOCK_KEY = "decomposition:publication"
 
 
@@ -1712,139 +1720,66 @@ class ProvenanceStore:
                 }
             )
 
-    async def r101_conservation_candidates(
+    async def r101_occurrence_ledger(
         self, old_run_id: str, new_run_id: str
-    ) -> tuple[CandidateBaseline, ...]:
-        """Read exact old/new pairs and old R101 evidence for conservation."""
+    ) -> R101LedgerSource:
+        """Read both exact occurrence inventories and links in one bounded query."""
         from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
-            CandidateBaseline,
+            NonR101DeltaEvidence,
+            NonR101DeltaRow,
+            OccurrenceInput,
+            Pair,
+            R101ConservationValidationError,
+            R101LedgerSource,
+            StructuralOccurrence,
+            r101_ledger_query_identity,
+            r101_occurrence_ledger_query,
         )
 
+        sql = text(r101_occurrence_ledger_query())
         async with self._sf() as session:
             result = await session.execute(
-                text(
-                    "WITH candidates AS ("
-                    "SELECT DISTINCT concept_code FROM decomp_source_occurrence "
-                    "WHERE run_id = :old_run_id AND role_code = 'R101'"
-                    "), old_pairs AS ("
-                    "SELECT c.concept_code, jsonb_agg(jsonb_build_object("
-                    "'axis', c.axis, 'filler_code', c.filler_code) "
-                    "ORDER BY c.axis, c.filler_code) AS old_pairs "
-                    "FROM decomp_constituent c JOIN candidates x USING (concept_code) "
-                    "WHERE c.run_id = :old_run_id GROUP BY c.concept_code"
-                    "), new_pairs AS ("
-                    "SELECT c.concept_code, jsonb_agg(jsonb_build_object("
-                    "'axis', c.axis, 'filler_code', c.filler_code) "
-                    "ORDER BY c.axis, c.filler_code) AS new_pairs "
-                    "FROM decomp_constituent c JOIN candidates x USING (concept_code) "
-                    "WHERE c.run_id = :new_run_id GROUP BY c.concept_code"
-                    "), r101_old_pairs AS ("
-                    "SELECT DISTINCT co.concept_code, co.axis, co.filler_code "
-                    "FROM decomp_constituent_occurrence co "
-                    "JOIN decomp_source_occurrence o USING "
-                    "(run_id, concept_code, occurrence_id) "
-                    "JOIN candidates x USING (concept_code) "
-                    "WHERE co.run_id = :old_run_id AND o.role_code = 'R101' "
-                    "), r101_new_pairs AS ("
-                    "SELECT DISTINCT co.concept_code, co.axis, co.filler_code "
-                    "FROM decomp_constituent_occurrence co "
-                    "JOIN decomp_source_occurrence old_o ON "
-                    "old_o.run_id = :old_run_id "
-                    "AND old_o.concept_code = co.concept_code "
-                    "AND old_o.occurrence_id = co.occurrence_id "
-                    "JOIN candidates x ON x.concept_code = co.concept_code "
-                    "WHERE co.run_id = :new_run_id AND old_o.role_code = 'R101'"
-                    "), r101_old_json AS ("
-                    "SELECT concept_code, jsonb_agg(jsonb_build_object("
-                    "'axis', axis, 'filler_code', filler_code) "
-                    "ORDER BY axis, filler_code) AS r101_old_pairs "
-                    "FROM r101_old_pairs GROUP BY concept_code"
-                    "), r101_new_json AS ("
-                    "SELECT concept_code, jsonb_agg(jsonb_build_object("
-                    "'axis', axis, 'filler_code', filler_code) "
-                    "ORDER BY axis, filler_code) AS r101_new_pairs "
-                    "FROM r101_new_pairs GROUP BY concept_code"
-                    "), old_links AS ("
-                    "SELECT co.concept_code, co.occurrence_id, jsonb_agg("
-                    "jsonb_build_object('axis', co.axis, "
-                    "'filler_code', co.filler_code) "
-                    "ORDER BY co.axis, co.filler_code) AS pairs "
-                    "FROM decomp_constituent_occurrence co "
-                    "JOIN decomp_source_occurrence o USING "
-                    "(run_id, concept_code, occurrence_id) "
-                    "WHERE co.run_id = :old_run_id AND o.role_code = 'R101' "
-                    "GROUP BY co.concept_code, co.occurrence_id"
-                    "), new_links AS ("
-                    "SELECT co.concept_code, co.occurrence_id, jsonb_agg("
-                    "jsonb_build_object('axis', co.axis, "
-                    "'filler_code', co.filler_code) "
-                    "ORDER BY co.axis, co.filler_code) AS pairs "
-                    "FROM decomp_constituent_occurrence co "
-                    "JOIN decomp_source_occurrence old_o ON "
-                    "old_o.run_id = :old_run_id "
-                    "AND old_o.concept_code = co.concept_code "
-                    "AND old_o.occurrence_id = co.occurrence_id "
-                    "WHERE co.run_id = :new_run_id AND old_o.role_code = 'R101' "
-                    "GROUP BY co.concept_code, co.occurrence_id"
-                    "), occurrences AS ("
-                    "SELECT o.concept_code, jsonb_agg(jsonb_build_object("
-                    "'occurrence_id', o.occurrence_id, 'role_code', o.role_code, "
-                    "'filler_code', o.filler_code) ORDER BY o.occurrence_id) "
-                    "AS source_occurrences FROM decomp_source_occurrence o "
-                    "JOIN candidates x USING (concept_code) "
-                    "WHERE o.run_id = :old_run_id AND o.role_code = 'R101' "
-                    "GROUP BY o.concept_code"
-                    "), occurrence_links AS ("
-                    "SELECT o.concept_code, jsonb_agg(jsonb_build_object("
-                    "'occurrence_id', o.occurrence_id, "
-                    "'old_pairs', COALESCE(ol.pairs, '[]'::jsonb), "
-                    "'new_pairs', COALESCE(nl.pairs, '[]'::jsonb)) "
-                    "ORDER BY o.occurrence_id) AS occurrence_links "
-                    "FROM decomp_source_occurrence o "
-                    "JOIN candidates x ON x.concept_code = o.concept_code "
-                    "LEFT JOIN old_links ol ON ol.concept_code = o.concept_code "
-                    "AND ol.occurrence_id = o.occurrence_id "
-                    "LEFT JOIN new_links nl ON nl.concept_code = o.concept_code "
-                    "AND nl.occurrence_id = o.occurrence_id "
-                    "WHERE o.run_id = :old_run_id AND o.role_code = 'R101' "
-                    "GROUP BY o.concept_code"
-                    ") SELECT x.concept_code, COALESCE(op.old_pairs, '[]'::jsonb) "
-                    "AS old_pairs, COALESCE(np.new_pairs, '[]'::jsonb) AS new_pairs, "
-                    "COALESCE(r.r101_old_pairs, '[]'::jsonb) "
-                    "AS r101_old_pairs, COALESCE(rn.r101_new_pairs, '[]'::jsonb) "
-                    "AS r101_new_pairs, o.source_occurrences, l.occurrence_links "
-                    "FROM candidates x "
-                    "LEFT JOIN old_pairs op USING (concept_code) "
-                    "LEFT JOIN new_pairs np USING (concept_code) "
-                    "LEFT JOIN r101_old_json r USING (concept_code) "
-                    "LEFT JOIN r101_new_json rn USING (concept_code) "
-                    "JOIN occurrences o USING (concept_code) "
-                    "JOIN occurrence_links l USING (concept_code) "
-                    "ORDER BY x.concept_code"
-                ),
-                {"old_run_id": old_run_id, "new_run_id": new_run_id},
+                sql, {"old_run_id": old_run_id, "new_run_id": new_run_id}
             )
-            return tuple(
-                CandidateBaseline.model_validate(
-                    {
-                        **dict(row),
-                        "old_pairs": tuple(row["old_pairs"]),
-                        "new_pairs": tuple(row["new_pairs"]),
-                        "r101_old_pairs": tuple(row["r101_old_pairs"]),
-                        "r101_new_pairs": tuple(row["r101_new_pairs"]),
-                        "source_occurrences": tuple(row["source_occurrences"]),
-                        "occurrence_links": tuple(
-                            {
-                                **link,
-                                "old_pairs": tuple(link["old_pairs"]),
-                                "new_pairs": tuple(link["new_pairs"]),
-                            }
-                            for link in row["occurrence_links"]
-                        ),
-                    }
+            rows = result.mappings().all()
+        occurrences: list[OccurrenceInput] = []
+        delta_rows: object | None = None
+        for row in rows:
+            if row["old_occurrence"] is None or row["new_occurrence"] is None:
+                raise R101ConservationValidationError("structural-key-mismatch")
+            old_payload = dict(row["old_occurrence"])
+            new_payload = dict(row["new_occurrence"])
+            old_payload["structural_path"] = tuple(old_payload["structural_path"])
+            new_payload["structural_path"] = tuple(new_payload["structural_path"])
+            retained_links = cast("list[dict[str, str]]", row["retained_links"])
+            occurrences.append(
+                OccurrenceInput(
+                    old_occurrence=StructuralOccurrence.model_validate(old_payload),
+                    new_occurrence=StructuralOccurrence.model_validate(new_payload),
+                    old_links=tuple(row["old_links"]),
+                    new_links=tuple(row["new_links"]),
+                    retained_new_r101_links=tuple(
+                        Pair.model_validate(item)
+                        for item in sorted(
+                            retained_links,
+                            key=lambda item: (item["axis"], item["filler_code"]),
+                        )
+                    ),
                 )
-                for row in result.mappings().all()
             )
+            delta_rows = _same_delta_rows(delta_rows, row["non_r101_delta_rows"])
+        evidence = NonR101DeltaEvidence(
+            old_run_id=old_run_id,
+            new_run_id=new_run_id,
+            query_identity=r101_ledger_query_identity(),
+            rows=tuple(
+                NonR101DeltaRow.model_validate(item)
+                for item in cast("list[dict[str, str]]", delta_rows or [])
+            ),
+        )
+        return R101LedgerSource(
+            occurrences=tuple(occurrences), non_r101_delta_evidence=evidence
+        )
 
     async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
         """Return the exact ordered per-concept outcomes for a run."""

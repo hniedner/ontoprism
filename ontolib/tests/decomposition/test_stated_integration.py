@@ -666,6 +666,79 @@ async def test_part_of_closure_rejects_row_sentinel_and_malformed_target(
 
 
 @pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_r82_paths_preserve_direct_edges_and_edge_removal_on_real_qlever(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    source_identity = "e" * 64
+    direct_edges = [(f"C991{index:02d}", f"C992{index:02d}") for index in range(9)]
+    chain_edges = [("C99310", "C99320"), ("C99320", "C99330")]
+    parallel_chain_edges = [
+        edge
+        for index in range(8)
+        for edge in (
+            (f"C994{index:02d}", f"C995{index:02d}"),
+            (f"C995{index:02d}", f"C996{index:02d}"),
+        )
+    ]
+    parallel_pairs = tuple(
+        (f"C994{index:02d}", f"C996{index:02d}") for index in range(8)
+    )
+
+    def turtle(edges: list[tuple[str, str]]) -> bytes:
+        return "\n".join(
+            f"<{NCIT_NS}{part}> <{RDFS_NS}subClassOf> [ "
+            f"a <{OWL_NS}Restriction> ; <{OWL_NS}onProperty> <{NCIT_NS}R82> ; "
+            f"<{OWL_NS}someValuesFrom> <{NCIT_NS}{whole}> ] ."
+            for part, whole in edges
+        ).encode()
+
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            turtle(direct_edges + chain_edges + parallel_chain_edges),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=True,
+        )
+        result = await stated_queries.resolve_part_of_paths(
+            client,
+            (*direct_edges, ("C99310", "C99330")),
+            source_identity=source_identity,
+        )
+        reverse = await stated_queries.resolve_part_of_paths(
+            client,
+            (("C99330", "C99310"),),
+            source_identity=source_identity,
+        )
+        parallel = await stated_queries.resolve_part_of_paths(
+            client, parallel_pairs, source_identity=source_identity
+        )
+        await client.load(
+            turtle(direct_edges + chain_edges[:1]),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=True,
+        )
+        removed = await stated_queries.resolve_part_of_paths(
+            client,
+            (("C99310", "C99330"),),
+            source_identity=source_identity,
+        )
+
+    assert result.max_pair_batch_size == 8
+    assert result.paths[("C99100", "C99200")].edges[0].part_code == "C99100"
+    chain = result.paths[("C99310", "C99330")]
+    assert [(edge.part_code, edge.whole_code) for edge in chain.edges] == chain_edges
+    assert all(edge.source_identity == source_identity for edge in chain.edges)
+    assert all(edge.fact_identity and edge.restriction_node_id for edge in chain.edges)
+    assert len(parallel.paths) == 8
+    assert parallel.query_count <= 10
+    assert reverse.paths == {}
+    assert removed.paths == {}
+
+
+@pytest.mark.integration
 @pytest.mark.full_store
 async def test_part_of_pairs_query_matches_full_store_and_stays_healthy() -> None:
     url = _url()

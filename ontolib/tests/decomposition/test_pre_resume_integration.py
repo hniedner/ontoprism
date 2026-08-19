@@ -11,7 +11,17 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.pre_resume import PRE_RESUME_SQL, acquire_candidate_evidence
 from ontolib.decomposition.provenance import ProvenanceStore
 from ontolib.decomposition.provenance_models import RunFingerprint, RunResumeIdentity
-from ontolib.decomposition.r101_conservation import Pair
+from ontolib.decomposition.r101_conservation import (
+    STRUCTURAL_KEY_FIELDS,
+    LedgerBuildContext,
+    Pair,
+    QueryMetrics,
+    R101ConservationValidationError,
+    build_r101_occurrence_ledger,
+    r101_detector_identity,
+    r101_proof_identity,
+    validate_r101_consumer_dry_run,
+)
 from ontolib.decomposition.resume_dry_run import inspect_resume_selection
 
 
@@ -279,22 +289,91 @@ async def test_r101_candidate_query_preserves_old_and_new_occurrence_origins(
                 axis,
                 occurrence_id,
             )
+        for run_id, filler_code in (
+            ("old-r101", "C20"),
+            ("new-r101", "C21"),
+        ):
+            await connection.execute(
+                "INSERT INTO decomp_constituent "
+                "(run_id, concept_code, axis, filler_code, axis_source, source_roles, "
+                "most_specific, needs_review, source_definition_ids) "
+                "VALUES ($1, 'C1', 'op:Morphology', $2, 'parent', '[]'::jsonb, "
+                "true, false, '[]'::jsonb)",
+                run_id,
+                filler_code,
+            )
     finally:
         await connection.close()
 
     engine = make_engine(isolated_postgres_url)
     try:
         store = ProvenanceStore(make_sessionmaker(engine))
-        candidates = await store.r101_conservation_candidates("old-r101", "new-r101")
+        ledger = await store.r101_occurrence_ledger("old-r101", "new-r101")
     finally:
         await dispose_engine(engine)
 
-    assert len(candidates) == 1
-    assert candidates[0].r101_old_pairs == (
-        Pair(axis="op:PrimarySite", filler_code="C10"),
+    assert len(ledger.occurrences) == 1
+    item = ledger.occurrences[0]
+    assert item.old_links == (Pair(axis="op:PrimarySite", filler_code="C10"),)
+    assert item.new_links == (Pair(axis="op:AssociatedRegion", filler_code="C10"),)
+    assert item.retained_new_r101_links == item.new_links
+    assert tuple(
+        getattr(item.old_occurrence, field) for field in STRUCTURAL_KEY_FIELDS
+    ) == tuple(getattr(item.new_occurrence, field) for field in STRUCTURAL_KEY_FIELDS)
+    assert item.old_occurrence.source_fact_id == "c" * 64
+    assert item.old_occurrence.source_group_id == "d" * 64
+    assert item.old_occurrence.structural_path == (0,)
+    assert item.old_occurrence.member_position == 0
+    assert [row.model_dump() for row in ledger.non_r101_delta_evidence.rows] == [
+        {
+            "change": "added",
+            "concept_code": "C1",
+            "axis": "op:Morphology",
+            "filler_code": "C21",
+        },
+        {
+            "change": "removed",
+            "concept_code": "C1",
+            "axis": "op:Morphology",
+            "filler_code": "C20",
+        },
+    ]
+    assert ledger.non_r101_delta_evidence.old_run_id == "old-r101"
+    assert ledger.non_r101_delta_evidence.new_run_id == "new-r101"
+
+    prerequisite_ids = ("1" * 64, "2" * 64, "3" * 64)
+    context = LedgerBuildContext(
+        source_identity="b" * 64,
+        source_release_id="26.07d",
+        old_run_id="old-r101",
+        old_run_fingerprint_identity="4" * 64,
+        old_representation_identity="5" * 64,
+        old_baseline_identity="6" * 64,
+        new_run_id="new-r101",
+        new_run_fingerprint_identity="7" * 64,
+        new_representation_identity="8" * 64,
+        detector_identity=r101_detector_identity(),
+        pre_resume_proof_identity=prerequisite_ids[0],
+        resume_dry_run_identity=prerequisite_ids[1],
+        mixed_cohort_identity=prerequisite_ids[2],
+        proof_identity=r101_proof_identity(*prerequisite_ids),
+        adapter_id="ncit-stated-r82-v1",
+        query_metrics=QueryMetrics(
+            postgres_query_count=3,
+            qlever_query_count=0,
+            max_pair_batch_size=0,
+            max_r82_hops=8,
+            max_asserted_superclass_hops=20,
+        ),
+        non_r101_delta_evidence=ledger.non_r101_delta_evidence,
     )
-    assert candidates[0].r101_new_pairs == (
-        Pair(axis="op:AssociatedRegion", filler_code="C10"),
+    report = build_r101_occurrence_ledger(
+        ledger.occurrences,
+        paths={},
+        context=context,
     )
-    assert candidates[0].occurrence_links[0].old_pairs == candidates[0].r101_old_pairs
-    assert candidates[0].occurrence_links[0].new_pairs == candidates[0].r101_new_pairs
+    assert await validate_r101_consumer_dry_run(report, store) == report.json_identity
+
+    empty = build_r101_occurrence_ledger((), paths={}, context=context)
+    with pytest.raises(R101ConservationValidationError, match="inventory"):
+        await validate_r101_consumer_dry_run(empty, store)
