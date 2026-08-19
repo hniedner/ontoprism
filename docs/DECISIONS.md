@@ -31,14 +31,28 @@ and the packet identity
 (`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_prepare_certifies_explicit_live_source_before_label_read ontolib/tests/decomposition/test_r101_review.py::test_prepare_refuses_source_identity_or_release_drift_before_labels ontolib/tests/decomposition/test_r101_review.py::test_real_reader_and_double_both_refuse_distinct_stated_labels -q`,
 2026-08-19).
 
-The workbook exposes exactly four sheets: instructions, hidden bindings, 162 pattern-decision
-rows, and the complete 3,291-row occurrence appendix. Only decision, rationale, reviewer
-identity, and review date cells are editable. Sheet protection prevents accidental edits; it is
-not password security. Import cell and binding revalidation is the security boundary. Import is
-total and fail-closed: it permits only
+The workbook exposes instructions, hidden bindings, a locked dictionary for all 25 pattern and 12
+occurrence columns, locked synthetic approve/reject examples, 162 pattern-decision rows, and the
+complete 3,291-row occurrence appendix. The instructions explain purpose, generation, the limited
+meaning of approval, a row-by-row review procedure, approval criteria, error signs, escalation,
+and sentinel/import safeguards. Reviewers inspect both endpoints, every distinct directed path and
+length, affected contexts and appendix rows; ambiguity is rejected rather than guessed. Only
+decision, rationale, reviewer identity, and review date cells are editable. Sheet protection
+prevents accidental edits; it is not password security. Import cell and binding revalidation is
+the security boundary. The formula-free workbook uses automatic calculation mode without forced
+or full recalculation-on-load metadata
+(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries -q`,
+2026-08-19); its current SHA-256 is
+`96d4152aa89bfcd01489a9dfdf635bdcd9827d2e471200b093ecd103d7a621c8`
+(`shasum -a 256 tmp/r101-review-workbook-v2.xlsx`, 2026-08-20). The three sentinel names are
+release-bound labels acquired with all other packet labels, and the exact guidance cells have
+guidance identity `6cec67275359f0d47098cb7d5c14cb4e3c4b8429e38b17bdb14fae6bda245075`
+(`pdm run python -c 'import json; from pathlib import Path; p=json.loads(Path("tmp/r101-review-packet.json").read_text()); print(p["guidance_identity"],p["sentinel_labels"])'`,
+2026-08-20). Import is total and fail-closed: it permits only
 `approve` or `reject`, requires every field for every pattern, and refuses stale, reordered,
 duplicate, missing, extra, formula-bearing, macro-bearing, externally linked, or evidence-edited
-workbooks. Import creates a `proposed` registry only. It does not authorize the report or make it
+workbooks, including any edit to Instructions, Column Definitions, or Review Examples. Import
+creates a `proposed` registry only. It does not authorize the report or make it
 publication eligible.
 
 Before a real SME request, synthetic `TEST-ONLY` decisions must be entered only in a clearly

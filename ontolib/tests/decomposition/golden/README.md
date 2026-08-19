@@ -364,7 +364,7 @@ pdm run adjudication prepare-r101-review-packet \
   --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
   --endpoint http://localhost:7888 \
   --output-packet tmp/r101-review-packet.json \
-  --output-xlsx tmp/r101-review-workbook.xlsx
+  --output-xlsx tmp/r101-review-workbook-v2.xlsx
 ```
 
 Before labels are read, this command reuses the decomposition source-snapshot certification path:
@@ -383,15 +383,43 @@ identities; no portable semantic field is excluded except the self-referential i
 itself. Generated packet and workbook paths are gitignored review artifacts, not tracked evidence.
 The workbook is byte-deterministic for an identical packet: core and ZIP timestamps, member order,
 and ZIP metadata are normalized, so its SHA-256 is a reproducible delivered-artifact identity.
+The current formula-free workbook SHA-256 is
+`96d4152aa89bfcd01489a9dfdf635bdcd9827d2e471200b093ecd103d7a621c8`
+(`shasum -a 256 tmp/r101-review-workbook-v2.xlsx`, 2026-08-20). Its calculation mode is automatic,
+with no formula, calculation chain, external link, calculation-engine ID, or forced/full
+recalculation-on-load metadata.
+
+Read `Instructions` before review. It explains the exact packet-bound purpose and limits of
+approval, how the 3,291 occurrences became 162 patterns, the row-by-row procedure, approval
+criteria, rejection/error signs, escalation, sentinels, and import safeguards. `Column Definitions`
+defines every one of the 25 pattern and 12 occurrence headers, including which IDs are audit
+provenance rather than clinical concepts to interpret. `Review Examples` contains locked synthetic
+approve and reject/ambiguous examples that are explicitly not packet evidence and never supply real
+decision defaults. For every pattern, compare old broader and retained narrower PrimarySite,
+inspect every distinct directed stated-R82 path and length, inspect affected contexts and all
+appendix evidence, reject rather than guess when evidence is insufficient, and complete all four
+yellow decision fields. Do not edit evidence cells
+(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries -q`,
+2026-08-20).
+
+The three sentinel names are release-bound values read by the same single label query as all other
+packet labels: Stage III Thyroid Gland Medullary Carcinoma AJCC v7 (C6135), Stage I Differentiated
+Thyroid Gland Carcinoma Under 45 Years AJCC v7 (C101539), and Left Atrial Myxoma (C4791). They are
+not prompt constants. The packet binds those code-to-label values and deterministic guidance
+identity `6cec67275359f0d47098cb7d5c14cb4e3c4b8429e38b17bdb14fae6bda245075`; import revalidates
+every cell in Instructions, Column Definitions, and Review Examples, so altered criteria, names,
+or illustrative examples reject
+(`pdm run test-integration-full-store -k r101_review_labels_match_real_qlever_in_one_read && pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_import_rejects_any_guidance_edit_with_accepting_control -q`,
+2026-08-19).
 
 Do not fill the generated real workbook for preflight. Copy it to the clearly named retained path
-`tmp/r101-review-workbook-TEST-ONLY.xlsx`, fill all 162 rows with conspicuous `TEST-ONLY`
+`tmp/r101-review-workbook-v2-TEST-ONLY.xlsx`, fill all 162 rows with conspicuous `TEST-ONLY`
 synthetic decisions, then run:
 
 ```bash
 pdm run adjudication import-r101-review-decisions \
   --packet tmp/r101-review-packet.json \
-  --reviewed-xlsx tmp/r101-review-workbook-TEST-ONLY.xlsx \
+  --reviewed-xlsx tmp/r101-review-workbook-v2-TEST-ONLY.xlsx \
   --output tmp/r101-review-registry-TEST-ONLY.json \
   --provenance test-only
 

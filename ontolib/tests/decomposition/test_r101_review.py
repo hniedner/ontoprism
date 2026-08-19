@@ -10,6 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 import pytest_asyncio
+from defusedxml import ElementTree as DefusedET
 from openpyxl import load_workbook
 from openpyxl.cell import Cell
 from scripts import adjudication
@@ -51,12 +52,14 @@ SOURCE_MANIFEST = Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
 class _Labels:
     def __init__(self, overrides: dict[str, list[str]] | None = None) -> None:
         self.query_count = 0
+        self.requested_codes: tuple[str, ...] = ()
         self.overrides = overrides or {}
 
     async def labels_for_review(
         self, codes: tuple[str, ...]
     ) -> dict[str, tuple[str, ...]]:
         self.query_count += 1
+        self.requested_codes = codes
         return {
             code: tuple(self.overrides.get(code, [f"TEST label {code}"]))
             for code in codes
@@ -100,6 +103,13 @@ async def test_packet_exhaustively_binds_the_generated_report(
         if item.disposition == "covered-by-retained-r82"
     }
     assert labels.query_count == 1
+    assert len(labels.requested_codes) == 141
+    assert packet.sentinel_labels.model_dump() == {
+        "c6135": "TEST label C6135",
+        "c101539": "TEST label C101539",
+        "c4791": "TEST label C4791",
+    }
+    assert packet.guidance_identity
     assert packet.bindings.report_identity == report.report_identity
     assert packet.bindings.json_identity == report.json_identity
     assert packet.bindings.tsv_identity == report.tsv_identity
@@ -181,6 +191,8 @@ async def test_real_xlsx_roundtrip_and_exact_dry_run_path(
     assert book.sheetnames == [
         "Instructions",
         "Bindings",
+        "Column Definitions",
+        "Review Examples",
         "Pattern Decisions",
         "Occurrence Evidence",
     ]
@@ -610,6 +622,165 @@ async def test_prepare_refuses_source_identity_or_release_drift_before_labels(
     assert not (tmp_path / "packet.xlsx").exists()
 
 
+def _assert_formula_free_archive(first: Path) -> None:
+    with ZipFile(first) as archive:
+        assert archive.namelist() == sorted(archive.namelist())
+        assert {item.date_time for item in archive.infolist()} == {
+            (1980, 1, 1, 0, 0, 0)
+        }
+        assert not any(
+            name.startswith("xl/externalLinks/") for name in archive.namelist()
+        )
+        assert "xl/calcChain.xml" not in archive.namelist()
+        worksheet_roots = (
+            DefusedET.fromstring(archive.read(name))
+            for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        )
+        formula_tag = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f"
+        assert not any(
+            any(True for _ in root.iter(formula_tag)) for root in worksheet_roots
+        )
+        workbook_xml = DefusedET.fromstring(archive.read("xl/workbook.xml"))
+        namespace = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        calc_properties = workbook_xml.find("x:calcPr", namespace)
+        assert calc_properties is not None
+        assert calc_properties.attrib == {
+            "calcMode": "auto",
+            "fullCalcOnLoad": "0",
+            "forceFullCalc": "0",
+        }
+
+
+def _assert_reviewer_guidance(book) -> None:
+    instructions = "\n".join(
+        str(cell.value) for row in book["Instructions"].iter_rows() for cell in row
+    )
+    sections = (
+        "Purpose",
+        "What approval means",
+        "What approval does NOT mean",
+        "How this workbook was generated",
+        "Reviewer procedure",
+        "Approve only when",
+        "Reject or flag these problems",
+        "Escalation and incomplete reviews",
+        "TRUE/FALSE sentinels and workbook safeguards",
+    )
+    assert all(section in instructions for section in sections)
+    required = (
+        "retained narrower PrimarySite",
+        "omitted broader PrimarySite",
+        "every distinct path",
+        "no equivalence",
+        "source deletion",
+        "NCIt acceptance",
+        "general ontology rule",
+        "26.07d",
+        "3,291 covered occurrences",
+        "162 endpoint patterns",
+        "no SME decisions generated",
+        "review all rows",
+        "do not edit evidence",
+        "clinically important meaning",
+        "path direction",
+        "composite or system",
+        "reject rather than guess",
+        "rejection blocks authorization",
+        "no partial defaults",
+        "anti-accident",
+        "revalidates every cell",
+        "FALSE means no covered occurrence",
+    )
+    assert all(guidance in instructions for guidance in required)
+    assert "TEST label C6135 (C6135)" in instructions
+    assert "TEST label C101539 (C101539)" in instructions
+    assert "TEST label C4791 (C4791)" in instructions
+
+
+def _assert_column_dictionary(book) -> None:
+    definitions = book["Column Definitions"]
+    assert tuple(cell.value for cell in definitions[1]) == (
+        "Sheet",
+        "Header",
+        "Plain-language definition",
+        "Source / procedure",
+        "Reviewer action",
+        "Warning signs",
+    )
+    rows = {
+        (str(row[0].value), str(row[1].value)): tuple(
+            str(cell.value) for cell in row[2:]
+        )
+        for row in definitions.iter_rows(min_row=2)
+    }
+    decisions = book["Pattern Decisions"]
+    occurrences = book["Occurrence Evidence"]
+    expected = {("Pattern Decisions", str(cell.value)) for cell in decisions[1]} | {
+        ("Occurrence Evidence", str(cell.value)) for cell in occurrences[1]
+    }
+    assert set(rows) == expected
+    assert all(
+        all(value and value != "None" for value in values) for values in rows.values()
+    )
+    assert "provenance" in rows[("Pattern Decisions", "Pattern ID")][0]
+    assert "audit" in rows[("Pattern Decisions", "Row Identity")][0]
+    assert "directed" in rows[("Pattern Decisions", "Directed R82 Paths")][0]
+    assert "reviewer" in rows[("Pattern Decisions", "Decision")][2]
+    assert "provenance" in rows[("Occurrence Evidence", "Source Fact ID")][0]
+    assert "investigating" in rows[("Occurrence Evidence", "Path Identity")][2]
+    for code in ("C6135", "C101539", "C4791"):
+        assert (
+            f"TEST label {code} ({code})"
+            in rows[("Pattern Decisions", f"Sentinel {code}")][0]
+        )
+    assert definitions.protection.sheet
+    assert all(
+        cell.protection.locked for row in definitions.iter_rows() for cell in row
+    )
+
+
+def _assert_examples_and_editability(book) -> None:
+    examples = book["Review Examples"]
+    text = "\n".join(str(cell.value) for row in examples.iter_rows() for cell in row)
+    assert all(
+        value in text
+        for value in (
+            "ILLUSTRATIVE ONLY",
+            "not packet evidence",
+            "approve",
+            "reject",
+            "ambiguous",
+        )
+    )
+    assert examples.protection.sheet
+    assert all(cell.protection.locked for row in examples.iter_rows() for cell in row)
+
+    decisions = book["Pattern Decisions"]
+    editable = {"Decision", "Rationale", "Reviewer Identity", "Review Date"}
+    for sheet in book.worksheets:
+        assert sheet.protection.sheet
+        if sheet.title != "Pattern Decisions":
+            assert all(
+                cell.protection.locked for row in sheet.iter_rows() for cell in row
+            )
+    for row in decisions.iter_rows(min_row=2):
+        for column, cell in enumerate(row, start=1):
+            header = str(decisions.cell(1, column).value)
+            assert cell.protection.locked == (header not in editable)
+            if header in editable:
+                assert cell.fill.fill_type == "solid"
+    assert (
+        sum(
+            not cell.protection.locked
+            for sheet in book.worksheets
+            for row in sheet.iter_rows()
+            for cell in row
+        )
+        == 648
+    )
+
+
 @pytest.mark.unit
 async def test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries(
     packet_and_labels, tmp_path
@@ -617,23 +788,103 @@ async def test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries
     _, packet, _ = packet_and_labels
     first = tmp_path / "first.xlsx"
     second = tmp_path / "second.xlsx"
-
     write_r101_review_workbook(first, packet)
     write_r101_review_workbook(second, packet)
 
     assert first.read_bytes() == second.read_bytes()
-    with ZipFile(first) as archive:
-        assert archive.namelist() == sorted(archive.namelist())
-        assert {item.date_time for item in archive.infolist()} == {
-            (1980, 1, 1, 0, 0, 0)
-        }
+    _assert_formula_free_archive(first)
     book = load_workbook(first)
-    instructions = "\n".join(
-        str(cell.value) for row in book["Instructions"].iter_rows() for cell in row
+    assert book.calculation.calcMode == "auto"
+    assert book.calculation.fullCalcOnLoad is False
+    assert book.calculation.forceFullCalc is False
+    _assert_reviewer_guidance(book)
+    assert book.sheetnames == [
+        "Instructions",
+        "Bindings",
+        "Column Definitions",
+        "Review Examples",
+        "Pattern Decisions",
+        "Occurrence Evidence",
+    ]
+    decisions = book["Pattern Decisions"]
+    occurrences = book["Occurrence Evidence"]
+    _assert_column_dictionary(book)
+    _assert_examples_and_editability(book)
+    headers = _headers(decisions)
+    assert decisions.freeze_panes == "A2"
+    assert decisions.auto_filter.ref == decisions.dimensions
+    assert occurrences.freeze_panes == "A2"
+    assert occurrences.auto_filter.ref == occurrences.dimensions
+    assert all(
+        decisions.cell(1, headers[name]).comment is not None
+        for name in (
+            "Pattern ID",
+            "Old Broader Code",
+            "Retained Narrower Code",
+            "Directed R82 Paths",
+            "Decision",
+        )
     )
-    assert "anti-accident" in instructions
-    assert "revalidates every cell" in instructions
-    assert "FALSE means no covered occurrence" in instructions
+    binding_rows = {
+        str(row[0].value): row[1].value for row in book["Bindings"].iter_rows(min_row=2)
+    }
+    assert binding_rows["guidance_identity"] == packet.guidance_identity
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("sheet_name", "cell", "replacement"),
+    [
+        ("Instructions", "B7", "Approve without checking every context."),
+        ("Column Definitions", "C19", "Wrong sentinel label (C6135)."),
+        ("Review Examples", "B2", "This is real packet evidence."),
+    ],
+)
+async def test_import_rejects_any_guidance_edit_with_accepting_control(
+    packet_and_labels, tmp_path, sheet_name: str, cell: str, replacement: str
+) -> None:
+    _, packet, _ = packet_and_labels
+    control = tmp_path / "control.xlsx"
+    write_r101_review_workbook(control, packet)
+    _fill_test_only_decisions(control)
+    registry = import_r101_review_decisions(
+        packet, control, tmp_path / "control.json", provenance="test-only"
+    )
+    assert len(registry.decisions) == 162
+
+    tampered = tmp_path / "tampered.xlsx"
+    tampered.write_bytes(control.read_bytes())
+    book = load_workbook(tampered)
+    book[sheet_name][cell] = replacement
+    book.save(tampered)
+    with pytest.raises(R101ReviewValidationError, match="guidance"):
+        import_r101_review_decisions(
+            packet, tampered, tmp_path / "must-not-exist.json", provenance="test-only"
+        )
+    assert not (tmp_path / "must-not-exist.json").exists()
+
+
+@pytest.mark.unit
+async def test_import_rejects_workbook_bound_to_superseded_packet(tmp_path) -> None:
+    report = load_r101_conservation_report(REPORT_PATH)
+    old_packet = await build_r101_review_packet(report, SOURCE_MANIFEST, _Labels())
+    old_workbook = tmp_path / "old.xlsx"
+    write_r101_review_workbook(old_workbook, old_packet)
+    _fill_test_only_decisions(old_workbook)
+
+    new_packet = await build_r101_review_packet(
+        report,
+        SOURCE_MANIFEST,
+        _Labels({"C6135": ["TEST changed release-bound sentinel label"]}),
+    )
+    assert new_packet.packet_identity != old_packet.packet_identity
+    with pytest.raises(R101ReviewValidationError, match="binding"):
+        import_r101_review_decisions(
+            new_packet,
+            old_workbook,
+            tmp_path / "must-not-exist.json",
+            provenance="test-only",
+        )
 
 
 @pytest.mark.unit

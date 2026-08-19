@@ -1,5 +1,7 @@
 """Purpose-built, source-bound human review workflow for the R101 ledger."""
 
+# ruff: noqa: E501 - exact reviewer-facing prose remains readable as whole sentences.
+
 from __future__ import annotations
 
 import hashlib
@@ -15,6 +17,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile, ZipInfo
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill, Protection
 from openpyxl.worksheet.datavalidation import DataValidation
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -89,6 +92,387 @@ _OCCURRENCE_HEADERS = (
     "Path Length",
     "Path Identity",
 )
+_DEFINITION_HEADERS = (
+    "Sheet",
+    "Header",
+    "Plain-language definition",
+    "Source / procedure",
+    "Reviewer action",
+    "Warning signs",
+)
+_PATTERN_DEFINITIONS = (
+    (
+        "Pattern ID",
+        "Stable provenance ID for this endpoint pattern; it is an audit field, not a concept the reviewer must interpret.",
+        "Derived from axis, endpoint codes, report identity, and source identity.",
+        "Use only to cross-reference the occurrence appendix or investigate a problem.",
+        "A missing, duplicated, or changed ID.",
+    ),
+    (
+        "Row Identity",
+        "Cryptographic audit identity of all generated evidence in this pattern row; it is a provenance field, not clinical evidence to interpret.",
+        "SHA-256 of the packet's complete pattern payload except this identity itself.",
+        "Ignore during ordinary review; use when investigating evidence integrity.",
+        "Any unexplained identity mismatch reported by import.",
+    ),
+    (
+        "Old Broader Code",
+        "NCIt code for the broader PrimarySite assertion present in the old occurrence.",
+        "Taken from the depth-matched v3 occurrence ledger.",
+        "Compare it with the retained narrower site and every directed R82 path.",
+        "The code or its label is surprising for the listed contexts.",
+    ),
+    (
+        "Old Broader Label",
+        "Release-bound NCIt 26.07d label for the old broader PrimarySite code.",
+        "Read from the certified stated NCIt source before packet generation.",
+        "Use with the code to understand the omitted broader site.",
+        "The label appears inconsistent with the code or clinical context.",
+    ),
+    (
+        "Retained Narrower Code",
+        "NCIt code for the narrower PrimarySite assertion retained in the new occurrence.",
+        "Taken from the depth-matched v4 occurrence ledger.",
+        "Decide whether this retained site adequately covers the old broader site in every listed context.",
+        "It is not genuinely part of the old broader site or belongs to another axis.",
+    ),
+    (
+        "Retained Narrower Label",
+        "Release-bound NCIt 26.07d label for the retained narrower PrimarySite code.",
+        "Read from the certified stated NCIt source before packet generation.",
+        "Use with the code and paths to understand the retained site.",
+        "The label appears inconsistent with the code, path, or context.",
+    ),
+    (
+        "Axis",
+        "Relationship axis shared by the old and retained assertions; these rows are PrimarySite.",
+        "Validated from both depth-matched ledger occurrences before grouping.",
+        "Confirm the comparison is on the same clinical axis.",
+        "Anything other than op:PrimarySite or an apparent cross-axis comparison.",
+    ),
+    (
+        "Occurrence Count",
+        "Number of covered ledger occurrences grouped into this endpoint pattern.",
+        "Count of exact occurrences sharing axis, old broader code, and retained narrower code.",
+        "Use it to understand the pattern's scale and compare with the appendix.",
+        "It differs from Affected Occurrence Count or appendix rows.",
+    ),
+    (
+        "One-step Count",
+        "Occurrences supported by one directly stated R82 edge from retained narrower to old broader.",
+        "Counted from one-step evidence kinds in the complete occurrence ledger.",
+        "Inspect alongside Closure-only Count and the distinct paths.",
+        "The counts do not sum to Occurrence Count.",
+    ),
+    (
+        "Closure-only Count",
+        "Occurrences supported only by a directed chain of two or more stated R82 edges.",
+        "Counted from closure-only evidence kinds in the complete occurrence ledger.",
+        "Scrutinize every multi-step chain for clinical appropriateness.",
+        "A chain over-collapses a composite, system, or clinically distinct component.",
+    ),
+    (
+        "Min Path Length",
+        "Smallest number of directed stated R82 edges used by occurrences in this pattern.",
+        "Minimum Path Length across grouped occurrence evidence.",
+        "Compare with Max Path Length and inspect each distinct path.",
+        "The displayed paths do not support this minimum.",
+    ),
+    (
+        "Max Path Length",
+        "Largest number of directed stated R82 edges used by occurrences in this pattern.",
+        "Maximum Path Length across grouped occurrence evidence.",
+        "Give longer chains extra scrutiny.",
+        "The displayed paths do not support this maximum or seem clinically inappropriate.",
+    ),
+    (
+        "Affected Concept Count",
+        "Number of distinct NCIt concepts containing occurrences in this pattern.",
+        "Count of unique Concept Code values in the grouped occurrences.",
+        "Use it to judge breadth and compare with examples and appendix.",
+        "It differs from the listed IDs or appendix.",
+    ),
+    (
+        "Affected Concept IDs",
+        "JSON list of every distinct NCIt concept code affected by this pattern.",
+        "Canonical sorted unique Concept Code values from grouped occurrences.",
+        "Consult when examples are insufficient or contexts may differ.",
+        "Missing, duplicate, or unexpected concepts; contexts are not clinically consistent.",
+    ),
+    (
+        "Affected Occurrence Count",
+        "Number of exact source occurrences affected by this pattern.",
+        "Count of unique occurrence identities in the group.",
+        "Compare with Occurrence Count and appendix rows.",
+        "It differs from Occurrence Count, IDs, or appendix.",
+    ),
+    (
+        "Affected Occurrence IDs",
+        "JSON list of every exact occurrence provenance identity in this pattern.",
+        "Canonical sorted identities from the depth-matched ledger.",
+        "Use only to trace or investigate an occurrence in the appendix.",
+        "A missing, duplicate, or untraceable identity.",
+    ),
+    (
+        "Directed R82 Paths",
+        "JSON for every distinct directed stated R82 part-to-whole path, including codes, labels, source facts, and path identity.",
+        "Deduplicated from certified NCIt 26.07d stated R82 evidence for grouped occurrences.",
+        "Inspect every path, its direction, labels, and number of edges before deciding.",
+        "Direction seems wrong, a link is clinically inappropriate, or codes and labels are surprising.",
+    ),
+    (
+        "Sentinel C6135",
+        "TRUE when affected concepts include this release-bound sentinel; FALSE means no covered occurrence for it is in this pattern.",
+        "Exact membership test against Affected Concept IDs.",
+        "Use as a quick context flag; FALSE does not mean unchecked.",
+        "The appendix or affected IDs contradict the value.",
+    ),
+    (
+        "Sentinel C101539",
+        "TRUE when affected concepts include this release-bound sentinel; FALSE means no covered occurrence for it is in this pattern.",
+        "Exact membership test against Affected Concept IDs.",
+        "Use as a quick context flag; FALSE does not mean unchecked.",
+        "The appendix or affected IDs contradict the value.",
+    ),
+    (
+        "Sentinel C4791",
+        "TRUE when affected concepts include this release-bound sentinel; FALSE means no covered occurrence for it is in this pattern.",
+        "Exact membership test against Affected Concept IDs.",
+        "Use as a quick context flag; FALSE does not mean unchecked.",
+        "The appendix or affected IDs contradict the value.",
+    ),
+    (
+        "Representative Examples",
+        "JSON containing up to five deterministic concept and occurrence examples from this pattern.",
+        "First five grouped occurrences in canonical structural order.",
+        "Use for orientation, then inspect the full IDs and occurrence appendix.",
+        "Examples appear inconsistent with the pattern or are treated as exhaustive.",
+    ),
+    (
+        "Decision",
+        "Required project-policy decision for this exact pattern: approve or reject.",
+        "Entered by the human reviewer; no SME decision is generated.",
+        "The reviewer chooses approve only when every criterion is met; otherwise reject.",
+        "Blank, another value, or approval despite ambiguity.",
+    ),
+    (
+        "Rationale",
+        "Required explanation for the decision, including any ambiguity or concern.",
+        "Entered by the human reviewer.",
+        "State why coverage is acceptable or identify the reason for rejection/escalation.",
+        "Blank, generic, or does not address paths and contexts.",
+    ),
+    (
+        "Reviewer Identity",
+        "Required identity of the person accountable for the decision.",
+        "Entered by the human reviewer.",
+        "Enter a traceable reviewer name or approved identifier.",
+        "Blank, synthetic, or untraceable identity.",
+    ),
+    (
+        "Review Date",
+        "Required date the human decision was completed, in YYYY-MM-DD form.",
+        "Entered by the human reviewer and validated on import.",
+        "Enter the actual completion date for this row.",
+        "Blank, future-placeholder, or wrong format.",
+    ),
+)
+_OCCURRENCE_DEFINITIONS = (
+    (
+        "Pattern ID",
+        "Provenance link from this occurrence to its Pattern Decisions row.",
+        "Copied from the generated endpoint group.",
+        "Use to filter all evidence for a pattern when investigating.",
+        "No matching pattern or an unexpected group assignment.",
+    ),
+    (
+        "Concept Code",
+        "NCIt concept containing this exact PrimarySite occurrence.",
+        "Taken from the mechanically complete occurrence ledger.",
+        "Check full clinical context when the pattern examples are insufficient.",
+        "A concept context conflicts with the proposed coverage.",
+    ),
+    (
+        "Occurrence ID",
+        "Cryptographic provenance identity for this exact structural occurrence.",
+        "Derived and validated by the depth-matched occurrence ledger.",
+        "Use only for audit tracing or investigating a discrepancy.",
+        "Duplicate, missing, or absent from the pattern's occurrence IDs.",
+    ),
+    (
+        "Source Fact ID",
+        "Cryptographic provenance identity of the old source assertion fact represented by this occurrence.",
+        "Taken from the exact v3 source occurrence ledger.",
+        "Use only when investigating the source assertion.",
+        "A source fact is missing, duplicated unexpectedly, or cannot be traced.",
+    ),
+    (
+        "Source Group ID",
+        "Provenance identity of the source relationship group containing the fact.",
+        "Taken from the exact v3 source occurrence ledger.",
+        "Use only when investigating grouped source context.",
+        "Occurrences appear assigned to an inconsistent source group.",
+    ),
+    (
+        "Anchor Code",
+        "NCIt code of the structural anchor under which this occurrence was found.",
+        "Recorded by the decomposition occurrence walker.",
+        "Consult when investigating where the assertion occurs in the concept structure.",
+        "Anchor context is surprising or inconsistent with the concept.",
+    ),
+    (
+        "Depth",
+        "Nesting depth of this occurrence below its structural anchor.",
+        "Recorded by the depth-matched v3/v4 occurrence walk.",
+        "Use with Structural Path to investigate placement, not clinical meaning by itself.",
+        "Depth and structural path appear inconsistent.",
+    ),
+    (
+        "Structural Path",
+        "JSON list locating the occurrence within the decomposed structure.",
+        "Recorded exactly by the occurrence walker and retained through reconciliation.",
+        "Use only for audit tracing or investigating structural context.",
+        "The path is missing, malformed, or conflicts with depth and member position.",
+    ),
+    (
+        "Member Position",
+        "Zero-based position of the occurrence within its structural member list.",
+        "Recorded exactly by the occurrence walker.",
+        "Use only to locate the source occurrence when investigating.",
+        "Position conflicts with the structural path or source context.",
+    ),
+    (
+        "Evidence Kind",
+        "Whether coverage uses one stated R82 edge (one-step) or only a multi-edge closure path (closure-only).",
+        "Classified from the exact directed path length in the ledger.",
+        "Give closure-only occurrences and their full chains extra scrutiny.",
+        "Value conflicts with Path Length or displayed path.",
+    ),
+    (
+        "Path Length",
+        "Number of directed stated R82 edges supporting this occurrence.",
+        "Counted from the occurrence's certified path.",
+        "Compare with the pattern range and inspect the referenced path.",
+        "Length conflicts with evidence kind, pattern range, or path.",
+    ),
+    (
+        "Path Identity",
+        "Cryptographic provenance and audit identity of the exact directed R82 path used.",
+        "Derived from path codes, labels, source fact identities, and exact source identity.",
+        "Ignore ordinarily; use to join repeated paths when investigating evidence.",
+        "No matching path in Directed R82 Paths or an unexplained mismatch.",
+    ),
+)
+_SENTINEL_CODES = ("C6135", "C101539", "C4791")
+
+
+def _pattern_definitions(
+    source_release_id: str, sentinel_labels: SentinelLabels
+) -> tuple[tuple[str, str, str, str, str], ...]:
+    labels = sentinel_labels.by_code()
+    result: list[tuple[str, str, str, str, str]] = []
+    for row in _PATTERN_DEFINITIONS:
+        header = row[0]
+        values = tuple(value.replace("26.07d", source_release_id) for value in row[1:])
+        if header.startswith("Sentinel "):
+            code = header.removeprefix("Sentinel ")
+            values = (
+                f"TRUE when affected concepts include release-bound sentinel {labels[code]} ({code}); FALSE means no covered occurrence for it is in this pattern.",
+                *values[1:],
+            )
+        result.append((header, values[0], values[1], values[2], values[3]))
+    return tuple(result)
+
+
+def _instruction_rows(
+    source_release_id: str, sentinel_labels: SentinelLabels
+) -> tuple[tuple[str, str], ...]:
+    sentinel_text = "; ".join(
+        f"{label} ({code})" for code, label in sentinel_labels.by_code().items()
+    )
+    return (
+        ("R101 human SME pattern review", "Read this sheet before reviewing."),
+        (
+            "Purpose",
+            "Review whether a retained narrower PrimarySite connected by a directed stated R82 path adequately covers the omitted broader PrimarySite for every occurrence grouped in that pattern.",
+        ),
+        (
+            "What approval means",
+            "Approval records accepted OntoPrism project-policy coverage for this exact packet, report, and certified source only.",
+        ),
+        (
+            "What approval does NOT mean",
+            "Approval asserts no equivalence, source deletion, NCIt acceptance, or general ontology rule. Source occurrences remain preserved.",
+        ),
+        (
+            "How this workbook was generated",
+            f"A depth-matched v3/v4 occurrence ledger was certified against the exact NCIt {source_release_id} source. A mechanically complete report grouped 3,291 covered occurrences into 162 endpoint patterns. Labels are release-bound; every full directed stated R82 path is included; no SME decisions generated by the software.",
+        ),
+        (
+            "Reviewer procedure",
+            "For each row: (1) inspect the old broader and retained narrower sites; (2) inspect every distinct path and path length; (3) inspect affected concept count, examples, IDs, and the full occurrence appendix; (4) check that clinical context is consistent; (5) choose approve or reject; (6) provide rationale, reviewer identity, and date; review all rows; do not edit evidence cells.",
+        ),
+        (
+            "Approve only when",
+            "The retained site is genuinely part of the old broader site along the stated path; both assertions use the same axis; omitting the broader assertion is acceptable across every listed context; and no clinically important meaning is lost.",
+        ),
+        (
+            "Reject or flag these problems",
+            "Reject when path direction seems wrong; a part-whole chain is clinically inappropriate; the broad site is needed explicitly; contexts differ; a composite or system is over-collapsed to a component; labels, codes, or a path are surprising; counts or examples are inconsistent; the occurrence appendix contradicts the pattern; or evidence is insufficient; reject rather than guess.",
+        ),
+        (
+            "Escalation and incomplete reviews",
+            "Use rationale/comments to identify ambiguity. Any rejection blocks authorization. There are no partial defaults: all rows and all four decision fields are required.",
+        ),
+        (
+            "TRUE/FALSE sentinels and workbook safeguards",
+            f"The sentinel names are release-bound values: {sentinel_text}. TRUE means that sentinel concept has a covered occurrence in the pattern. FALSE means no covered occurrence for that sentinel appears in the pattern; it does not mean the pattern was unchecked. Sheet protection is anti-accident only, not password security. Import validation revalidates every cell, including guidance, evidence, decisions, and bindings, and refuses tampering, formulas, missing fields, or stale bindings.",
+        ),
+    )
+
+
+def _example_rows() -> tuple[tuple[str, str, str, str], ...]:
+    return (
+        (
+            "ILLUSTRATIVE ONLY — not packet evidence",
+            "Synthetic situation",
+            "Illustrative response",
+            "Reasoning to document",
+        ),
+        (
+            "Synthetic approve example",
+            "A retained component has an unsurprising direct stated part-to-whole path to the old broader site, and every affected context supports omission without meaning loss.",
+            "approve (illustrative only; never a real decision default)",
+            "Document the path, same-axis context, appendix review, and why the broader assertion adds no clinically important meaning in all listed occurrences.",
+        ),
+        (
+            "Synthetic reject / ambiguous example",
+            "A multi-step chain crosses a composite or system context, or listed concepts use the broader site differently, leaving coverage ambiguous.",
+            "reject; describe ambiguity and escalate rather than guess",
+            "Document the surprising link or differing context and why explicit broader meaning may be clinically important.",
+        ),
+    )
+
+
+def _guidance_payload(
+    source_release_id: str, sentinel_labels: SentinelLabels
+) -> dict[str, object]:
+    return {
+        "instructions": _instruction_rows(source_release_id, sentinel_labels),
+        "column_definitions": (
+            _DEFINITION_HEADERS,
+            *(
+                ("Pattern Decisions", *row)
+                for row in _pattern_definitions(source_release_id, sentinel_labels)
+            ),
+            *(("Occurrence Evidence", *row) for row in _OCCURRENCE_DEFINITIONS),
+        ),
+        "review_examples": _example_rows(),
+    }
+
+
+def _guidance_identity(source_release_id: str, sentinel_labels: SentinelLabels) -> str:
+    return _identity(_guidance_payload(source_release_id, sentinel_labels))
 
 
 class R101ReviewValidationError(ValueError):
@@ -130,6 +514,19 @@ class ReviewBindings(_StrictModel):
     resume_dry_run_identity: str = Field(pattern=_SHA256)
     mixed_cohort_identity: str = Field(pattern=_SHA256)
     proof_identity: str = Field(pattern=_SHA256)
+
+
+class SentinelLabels(_StrictModel):
+    c6135: str = Field(min_length=1)
+    c101539: str = Field(min_length=1)
+    c4791: str = Field(min_length=1)
+
+    def by_code(self) -> dict[str, str]:
+        return {
+            "C6135": self.c6135,
+            "C101539": self.c101539,
+            "C4791": self.c4791,
+        }
 
 
 class EvidenceKindCounts(_StrictModel):
@@ -226,12 +623,18 @@ class R101ReviewPacket(_StrictModel):
         "decision applies only to this exact packet/report/source digest."
     ]
     bindings: ReviewBindings
+    sentinel_labels: SentinelLabels
+    guidance_identity: str = Field(pattern=_SHA256)
     patterns: tuple[ReviewPattern, ...]
     occurrences: tuple[ReviewOccurrence, ...]
     packet_identity: str = Field(pattern=_SHA256)
 
     @model_validator(mode="after")
     def _total_and_identified(self) -> Self:
+        if self.guidance_identity != _guidance_identity(
+            self.bindings.source_release_id, self.sentinel_labels
+        ):
+            raise ValueError("guidance identity differs")
         _validate_packet_identity(self)
         _validate_packet_counts(self)
         _validate_packet_pattern_ids(self.patterns)
@@ -283,10 +686,12 @@ class QLeverReviewLabels:
     def __init__(self, client: ReviewSelectClient) -> None:
         self._client = client
         self.query_count = 0
+        self.requested_codes: tuple[str, ...] = ()
 
     async def labels_for_review(
         self, codes: tuple[str, ...]
     ) -> dict[str, tuple[str, ...]]:
+        self.requested_codes = codes
         values = " ".join(f"<{safe_iri(code, _NCIT)}>" for code in codes)
         query = (
             "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> "
@@ -424,7 +829,12 @@ def _validate_label(code: str, values: tuple[str, ...]) -> str:
 async def _review_labels(
     covered: tuple[LedgerOccurrence, ...], label_source: ReviewLabelSource
 ) -> dict[str, str]:
-    codes = tuple(sorted({code for row in covered for code in _occurrence_codes(row)}))
+    codes = tuple(
+        sorted(
+            {code for row in covered for code in _occurrence_codes(row)}
+            | set(_SENTINEL_CODES)
+        )
+    )
     raw_labels = await label_source.labels_for_review(codes)
     return {code: _validate_label(code, raw_labels.get(code, ())) for code in codes}
 
@@ -551,6 +961,11 @@ async def build_r101_review_packet(
     covered, groups = _review_groups(report)
     _validate_grouping(report, covered, groups)
     labels = await _review_labels(covered, label_source)
+    sentinel_labels = SentinelLabels(
+        c6135=labels["C6135"],
+        c101539=labels["C101539"],
+        c4791=labels["C4791"],
+    )
     patterns, appendix = _build_pattern_rows(report, groups, labels)
     patterns.sort(key=lambda row: row.pattern_id)
     appendix.sort(key=lambda row: (row.pattern_id, row.concept_code, row.occurrence_id))
@@ -558,6 +973,10 @@ async def build_r101_review_packet(
         "schema_version": 1,
         "review_scope": _SCOPE,
         "bindings": _bindings(report),
+        "sentinel_labels": sentinel_labels,
+        "guidance_identity": _guidance_identity(
+            report.source_release_id, sentinel_labels
+        ),
         "patterns": tuple(patterns),
         "occurrences": tuple(appendix),
     }
@@ -617,7 +1036,7 @@ def _json_cell(value: object) -> str:
     return _canonical(value).decode("ascii")
 
 
-def _pattern_values(row: ReviewPattern) -> tuple[object, ...]:
+def _pattern_values(row: ReviewPattern) -> tuple[str | int | bool, ...]:
     return (
         row.pattern_id,
         row.row_identity,
@@ -643,7 +1062,7 @@ def _pattern_values(row: ReviewPattern) -> tuple[object, ...]:
     )
 
 
-def _occurrence_values(row: ReviewOccurrence) -> tuple[object, ...]:
+def _occurrence_values(row: ReviewOccurrence) -> tuple[str | int, ...]:
     return (
         row.pattern_id,
         row.concept_code,
@@ -660,31 +1079,27 @@ def _occurrence_values(row: ReviewOccurrence) -> tuple[object, ...]:
     )
 
 
-def _style_header(cell: Cell) -> None:
+def _style_header(cell: Cell | MergedCell) -> None:
     cell.font = Font(bold=True, color="FFFFFF")
     cell.fill = PatternFill("solid", fgColor="1F4E78")
     cell.alignment = Alignment(wrap_text=True, vertical="top")
 
 
-def _fill_instructions(instructions: Worksheet) -> None:
+def _fill_instructions(instructions: Worksheet, packet: R101ReviewPacket) -> None:
     instructions.title = "Instructions"
-    instructions.append(["R101 human SME pattern review"])
-    instructions.append([_SCOPE])
-    instructions.append(
-        ["Complete every Decision, Rationale, Reviewer Identity, and Review Date cell."]
-    )
-    instructions.append(
-        [
-            "Sheet protection is anti-accident only, not password security; import "
-            "revalidates every cell and binding as the security boundary."
-        ]
-    )
-    instructions.append(
-        [
-            "FALSE means no covered occurrence for that sentinel "
-            "appears in the pattern; it does not mean the pattern was unchecked."
-        ]
-    )
+    for row in _instruction_rows(
+        packet.bindings.source_release_id, packet.sentinel_labels
+    ):
+        instructions.append(row)
+    for cell in instructions[1]:
+        _style_header(cell)
+    for row in instructions.iter_rows(min_row=2):
+        row[0].font = Font(bold=True, color="1F4E78")
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    instructions.column_dimensions["A"].width = 36
+    instructions.column_dimensions["B"].width = 115
+    instructions.freeze_panes = "A2"
     instructions.protection.sheet = True
 
 
@@ -692,6 +1107,7 @@ def _add_bindings(book: WorkbookType, packet: R101ReviewPacket) -> None:
     bindings = book.create_sheet("Bindings")
     binding_rows = (
         ("packet_identity", packet.packet_identity),
+        ("guidance_identity", packet.guidance_identity),
         *(packet.bindings.model_dump().items()),
         ("schema_version", packet.schema_version),
     )
@@ -702,17 +1118,93 @@ def _add_bindings(book: WorkbookType, packet: R101ReviewPacket) -> None:
     bindings.protection.sheet = True
 
 
-def _add_decisions(book: WorkbookType, packet: R101ReviewPacket) -> None:
-    decisions = book.create_sheet("Pattern Decisions")
-    decisions.append(_PATTERN_HEADERS)
-    for cell in decisions[1]:
+def _add_column_definitions(book: WorkbookType, packet: R101ReviewPacket) -> None:
+    definitions = book.create_sheet("Column Definitions")
+    definitions.append(_DEFINITION_HEADERS)
+    for cell in definitions[1]:
         _style_header(cell)
+    for sheet, rows in (
+        (
+            "Pattern Decisions",
+            _pattern_definitions(
+                packet.bindings.source_release_id, packet.sentinel_labels
+            ),
+        ),
+        ("Occurrence Evidence", _OCCURRENCE_DEFINITIONS),
+    ):
+        for row in rows:
+            definitions.append((sheet, *row))
+    for row in definitions.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    for column, width in zip("ABCDEF", (22, 28, 68, 62, 58, 58), strict=True):
+        definitions.column_dimensions[column].width = width
+    definitions.freeze_panes = "A2"
+    definitions.auto_filter.ref = definitions.dimensions
+    definitions.protection.sheet = True
+
+
+def _add_review_examples(book: WorkbookType) -> None:
+    examples = book.create_sheet("Review Examples")
+    for row in _example_rows():
+        examples.append(row)
+    for cell in examples[1]:
+        _style_header(cell)
+    for row in examples.iter_rows(min_row=2):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    for column, width in zip("ABCD", (34, 72, 52, 72), strict=True):
+        examples.column_dimensions[column].width = width
+    examples.freeze_panes = "A2"
+    examples.protection.sheet = True
+
+
+def _decision_column_width(header: str) -> int:
+    if header in _EDITABLE_HEADERS:
+        return 55 if header == "Rationale" else 30
+    if "IDs" in header or "Paths" in header or "Examples" in header:
+        return 45
+    if "Label" in header:
+        return 30
+    return 19
+
+
+def _add_pattern_decision_rows(decisions: Worksheet, packet: R101ReviewPacket) -> None:
+    editable_fill = PatternFill("solid", fgColor="FFF2CC")
     for pattern in packet.patterns:
         decisions.append((*_pattern_values(pattern), None, None, None, None))
     for row in decisions.iter_rows(min_row=2):
         for cell, header in zip(row, _PATTERN_HEADERS, strict=True):
             cell.alignment = Alignment(wrap_text=True, vertical="top")
             cell.protection = Protection(locked=header not in _EDITABLE_HEADERS)
+            if header in _EDITABLE_HEADERS:
+                cell.fill = editable_fill
+
+
+def _add_decisions(book: WorkbookType, packet: R101ReviewPacket) -> None:
+    decisions = book.create_sheet("Pattern Decisions")
+    decisions.append(_PATTERN_HEADERS)
+    for cell in decisions[1]:
+        _style_header(cell)
+    definitions = {
+        row[0]: row[1]
+        for row in _pattern_definitions(
+            packet.bindings.source_release_id, packet.sentinel_labels
+        )
+    }
+    for header in (
+        "Pattern ID",
+        "Old Broader Code",
+        "Retained Narrower Code",
+        "Directed R82 Paths",
+        "Decision",
+        "Rationale",
+        "Reviewer Identity",
+        "Review Date",
+    ):
+        column = _PATTERN_HEADERS.index(header) + 1
+        decisions.cell(1, column).comment = Comment(definitions[header], "OntoPrism")
+    _add_pattern_decision_rows(decisions, packet)
     decision_column = _PATTERN_HEADERS.index("Decision") + 1
     validation = DataValidation(type="list", formula1='"approve,reject"')
     validation.error = "Choose approve or reject"
@@ -725,6 +1217,9 @@ def _add_decisions(book: WorkbookType, packet: R101ReviewPacket) -> None:
     )
     decisions.freeze_panes = "A2"
     decisions.auto_filter.ref = decisions.dimensions
+    for index, header in enumerate(_PATTERN_HEADERS, start=1):
+        column = decisions.cell(1, index).column_letter
+        decisions.column_dimensions[column].width = _decision_column_width(header)
     decisions.protection.sheet = True
     decisions.protection.selectLockedCells = False
     decisions.protection.selectUnlockedCells = True
@@ -739,6 +1234,9 @@ def _add_occurrence_evidence(book: WorkbookType, packet: R101ReviewPacket) -> No
         evidence.append(_occurrence_values(occurrence))
     evidence.freeze_panes = "A2"
     evidence.auto_filter.ref = evidence.dimensions
+    for index, header in enumerate(_OCCURRENCE_HEADERS, start=1):
+        width = 45 if "ID" in header or "Path" in header else 19
+        evidence.column_dimensions[evidence.cell(1, index).column_letter].width = width
     evidence.protection.sheet = True
 
 
@@ -748,16 +1246,18 @@ def write_r101_review_workbook(path: Path, packet: R101ReviewPacket) -> None:
     instructions = book.active
     if instructions is None:
         raise R101ReviewValidationError("workbook has no active sheet")
-    _fill_instructions(instructions)
+    _fill_instructions(instructions, packet)
     _add_bindings(book, packet)
+    _add_column_definitions(book, packet)
+    _add_review_examples(book)
     _add_decisions(book, packet)
     _add_occurrence_evidence(book, packet)
 
     for sheet in book.worksheets:
         sheet.sheet_view.showGridLines = False
+    book.calculation.calcMode = "auto"
     book.calculation.fullCalcOnLoad = False
     book.calculation.forceFullCalc = False
-    book.calculation.calcMode = "manual"
     fixed_time = datetime(2000, 1, 1)
     book.properties.created = fixed_time
     book.properties.modified = fixed_time
@@ -798,6 +1298,8 @@ def _normalize_xlsx_archive(source: Path, destination: Path) -> None:
                         rb"2000-01-01T00:00:00Z</dcterms:\1>",
                         content,
                     )
+                elif name == "xl/workbook.xml":
+                    content = re.sub(rb' calcId="[0-9]+"', b"", content)
                 normalized.writestr(info, content, compress_type=ZIP_DEFLATED)
         os.replace(normalized_name, destination)
     finally:
@@ -861,6 +1363,8 @@ def _validate_workbook_bindings(book: WorkbookType, packet: R101ReviewPacket) ->
     expected_sheets = [
         "Instructions",
         "Bindings",
+        "Column Definitions",
+        "Review Examples",
         "Pattern Decisions",
         "Occurrence Evidence",
     ]
@@ -872,12 +1376,32 @@ def _validate_workbook_bindings(book: WorkbookType, packet: R101ReviewPacket) ->
     expected = [
         ("Binding", "Value"),
         ("packet_identity", packet.packet_identity),
+        ("guidance_identity", packet.guidance_identity),
         *list(packet.bindings.model_dump().items()),
         ("schema_version", packet.schema_version),
     ]
     actual = [tuple(cell.value for cell in row[:2]) for row in bindings.iter_rows()]
     if actual != expected:
         raise R101ReviewValidationError("workbook binding cells differ")
+
+
+def _validate_guidance_sheets(book: WorkbookType, packet: R101ReviewPacket) -> None:
+    payload = _guidance_payload(
+        packet.bindings.source_release_id, packet.sentinel_labels
+    )
+    expected = {
+        "Instructions": payload["instructions"],
+        "Column Definitions": payload["column_definitions"],
+        "Review Examples": payload["review_examples"],
+    }
+    for sheet_name, rows in expected.items():
+        actual = tuple(
+            tuple(cell.value for cell in row) for row in book[sheet_name].iter_rows()
+        )
+        if actual != rows:
+            raise R101ReviewValidationError(
+                f"workbook guidance differs in {sheet_name}"
+            )
 
 
 def _read_decisions(
@@ -968,6 +1492,7 @@ def import_r101_review_decisions(
         raise R101ReviewValidationError("invalid review workbook") from error
     _validate_no_formulas(book)
     _validate_workbook_bindings(book, packet)
+    _validate_guidance_sheets(book, packet)
     _validate_occurrence_sheet(book, packet)
     decisions = _read_decisions(book, packet)
     payload: dict[str, object] = {
