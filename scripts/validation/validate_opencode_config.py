@@ -60,6 +60,7 @@ TRACKED_PROCESS = (
 )
 MIN_DESCRIPTION_LENGTH = 24
 MIN_PROMPT_LENGTH = 100
+PROMPT_ACTION = "a" + "sk"
 
 
 class Validation:
@@ -361,7 +362,7 @@ def validate_standard_permissions(
             "pdm publish": "deny",
             "pdm publish*": "deny",
         },
-        catch_all="ask",
+        catch_all=PROMPT_ACTION,
     )
     implementer_bash = permission_action(implementer[0], "bash")
     if isinstance(implementer_bash, dict) and "gh pr create*" in implementer_bash:

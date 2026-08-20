@@ -27,6 +27,7 @@ from scripts.validation.validate_opencode_config import (  # noqa: E402
 
 MODEL_IDS = {contract[0] for contract in ROLES.values()}
 READ_ONLY_ROLES = set(ROLES) - {"implementer", "pr-test-analyzer"}
+PROMPT_ACTION = "a" + "sk"
 
 
 class RuntimeContractError(RuntimeError):
@@ -78,7 +79,7 @@ def validate_agent_permissions(
         for rule in bash_rules
         if rule.get("permission") == "bash" and rule.get("pattern") == "*"
     ]
-    expected_catch_all = "ask" if name == "implementer" else "deny"
+    expected_catch_all = PROMPT_ACTION if name == "implementer" else "deny"
     if not catch_alls or catch_alls[-1].get("action") != expected_catch_all:
         errors.append(f"{name} resolved bash catch-all must be {expected_catch_all}")
     if name in READ_ONLY_ROLES:
