@@ -20,6 +20,7 @@ from ontolib.decomposition.provenance_models import (
 def _fingerprint(**updates: object) -> RunFingerprint:
     values: dict[str, object] = {
         "source_identity": "a" * 64,
+        "collapse_policy_identity": "0" * 64,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -45,12 +46,13 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
     assert equivalent.identity == original.identity
     assert (
         original.identity
-        == "9707720a292ac5487abd396d4c0736c3bd8409e23ae67414a7ac664062a0c38f"
+        == "9b7abb633d44fe1b5189f954332eff57c425d46c30bade9450de473a2b0818f5"
     )
     assert len(original.identity) == 64
 
     mutations = (
         {"source_identity": "b" * 64},
+        {"collapse_policy_identity": "b" * 64},
         {"branch": "disease", "scope_root": "C2991"},
         {"semantic_types": ("Neoplastic Process",)},
         {"worklist": ("C2", "C1")},
@@ -70,19 +72,19 @@ def test_fingerprint_is_canonical_and_binds_every_run_dimension() -> None:
 @pytest.mark.unit
 def test_sample_fingerprint_binds_manifest_identity_and_resume_contract() -> None:
     sample = _fingerprint(
-        schema_version=3,
+        schema_version=5,
         total_limit=None,
         sample_manifest_identity="b" * 64,
     )
     different_sample = _fingerprint(
-        schema_version=3,
+        schema_version=5,
         total_limit=None,
         sample_manifest_identity="c" * 64,
     )
 
     assert sample.identity != different_sample.identity
     resume = RunResumeIdentity.from_fingerprint(sample)
-    assert resume.schema_version == 3
+    assert resume.schema_version == 5
     assert resume.sample_manifest_identity == "b" * 64
 
 

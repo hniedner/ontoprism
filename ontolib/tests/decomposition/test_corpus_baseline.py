@@ -27,6 +27,7 @@ from ontolib.decomposition.provenance_models import (
 def _fingerprint(**changes: object) -> RunFingerprint:
     values: dict[str, object] = {
         "source_identity": "a" * 64,
+        "collapse_policy_identity": "0" * 64,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -143,7 +144,7 @@ async def test_generate_full_corpus_baseline_binds_every_observed_value(
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"sample_manifest_identity": "b" * 64, "schema_version": 3}, "sample"),
+        ({"sample_manifest_identity": "b" * 64, "schema_version": 5}, "sample"),
         ({"total_limit": 5}, "total limit"),
         ({"branch": "disease", "scope_root": "C2991"}, "neoplasm"),
         ({"algorithm_version": "decomposition-v2"}, "algorithm"),

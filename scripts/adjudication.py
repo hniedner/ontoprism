@@ -12,6 +12,14 @@ from typing import Any, Literal, Protocol, cast
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.branches import DecompositionBranch
+from ontolib.decomposition.collapse_policy import (
+    load_packaged_collapse_veto_policy,
+    write_canonical_policy_json,
+    write_canonical_registry_gzip,
+)
+from ontolib.decomposition.collapse_policy_generation import (
+    build_authorized_collapse_veto_policy,
+)
 from ontolib.decomposition.corpus_baseline import (
     generate_corpus_baseline,
     load_corpus_baseline,
@@ -55,7 +63,7 @@ from ontolib.decomposition.resume_dry_run import (
     load_pre_resume_proof,
     write_resume_dry_run,
 )
-from ontolib.decomposition.run import RunConfig, build_resume_identity
+from ontolib.decomposition.run import RunConfig, _detect_concept, build_resume_identity
 from ontolib.decomposition.stated_queries import resolve_part_of_paths
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 from ontolib.terminologies.ncit.sibling_store import (
@@ -184,6 +192,16 @@ class _DryRunR101DecisionExpansionArgs(Protocol):
     packet: Path
     registry: Path
     output: Path
+
+
+class _GenerateR101CollapsePolicyArgs(Protocol):
+    registry: Path
+    packet: Path
+    report: Path
+    source_manifest: Path
+    endpoint: str
+    output_registry_gzip: Path
+    output_policy: Path
 
 
 class _PreResumeArgs(Protocol):
@@ -387,6 +405,51 @@ def _dry_run_r101_decision_expansion(args: _DryRunR101DecisionExpansionArgs) -> 
     print(f"verdict={result.verdict} writes_performed=false", file=sys.stderr)
 
 
+async def _generate_r101_collapse_policy(
+    args: _GenerateR101CollapsePolicyArgs,
+) -> None:
+    registry = load_r101_decision_registry(args.registry)
+    packet = load_r101_review_packet(args.packet)
+    report = load_r101_conservation_report(args.report)
+    source = await _source_snapshot(args.source_manifest, args.endpoint)
+    if (
+        source.source_identity != report.source_identity
+        or source.ontology_version != report.source_release_id
+    ):
+        raise R101ConservationValidationError(
+            "live source does not match collapse-policy evidence"
+        )
+    live_occurrences = []
+    concepts = sorted(
+        {
+            row.disease_code
+            for row in registry.atomic_decisions
+            if row.outcome == "rejected-retain-broader"
+        }
+    )
+    async with ncit_sparql_client(args.endpoint) as client:
+        for concept_code in concepts:
+            _detection, _roles, _morphology, definition, _types = await _detect_concept(
+                concept_code,
+                client,
+                label=None,
+                walker_max_depth=64,
+            )
+            live_occurrences.extend(definition.occurrences)
+    policy = build_authorized_collapse_veto_policy(
+        registry, packet, report, live_occurrences
+    )
+    write_canonical_registry_gzip(
+        args.output_registry_gzip, registry.model_dump(mode="json")
+    )
+    write_canonical_policy_json(args.output_policy, policy)
+    print(
+        f"registry_identity={registry.registry_identity} "
+        f"policy_identity={policy.policy_identity} entries={len(policy.entries)}",
+        file=sys.stderr,
+    )
+
+
 async def _generate_pre_resume(args: _PreResumeArgs) -> None:
     source = await _source_snapshot(args.source_manifest, args.endpoint)
     engine = make_engine(get_settings().database_url)
@@ -425,6 +488,7 @@ async def _dry_run_resume(args: _ResumeDryRunArgs) -> None:
         source,
         semantic_types=config.semantic_types,
         total_limit=None,
+        collapse_policy=load_packaged_collapse_veto_policy(),
     )
     engine = make_engine(get_settings().database_url)
     try:
@@ -505,6 +569,14 @@ def _add_r101_parsers(subparsers: Any) -> None:
     dry_run_parser.add_argument("--packet", required=True, type=Path)
     dry_run_parser.add_argument("--registry", required=True, type=Path)
     dry_run_parser.add_argument("--output", required=True, type=Path)
+    policy_parser = subparsers.add_parser("generate-r101-collapse-policy")
+    policy_parser.add_argument("--registry", required=True, type=Path)
+    policy_parser.add_argument("--packet", required=True, type=Path)
+    policy_parser.add_argument("--report", required=True, type=Path)
+    policy_parser.add_argument("--source-manifest", required=True, type=Path)
+    policy_parser.add_argument("--endpoint", required=True)
+    policy_parser.add_argument("--output-registry-gzip", required=True, type=Path)
+    policy_parser.add_argument("--output-policy", required=True, type=Path)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -603,6 +675,13 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "dry-run-r101-decision-expansion":
         _dry_run_r101_decision_expansion(cast("_DryRunR101DecisionExpansionArgs", args))
+        return
+    if args.command == "generate-r101-collapse-policy":
+        asyncio.run(
+            _generate_r101_collapse_policy(
+                cast("_GenerateR101CollapsePolicyArgs", args)
+            )
+        )
         return
     if args.command == "generate-pre-resume-proof":
         asyncio.run(_generate_pre_resume(cast("_PreResumeArgs", args)))

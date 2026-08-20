@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from types import MappingProxyType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from ontolib.decomposition import axes
 from ontolib.decomposition.axis_contracts import (
@@ -23,6 +23,9 @@ from ontolib.decomposition.site_resolution import (
     organ_for_morphology,
     primary_subsites_for_morphology,
 )
+
+if TYPE_CHECKING:
+    from ontolib.decomposition.collapse_policy import CollapseVetoPolicy
 
 # ``is_ancestor(a, b)`` means *a* is a proper superclass of *b*.
 # R82 containment is supplied independently through ``IsPartOf``.
@@ -324,10 +327,28 @@ def _group_by_routed_axis(
     restrictions: Iterable[RoleRestriction],
     parent_morphology: str | None = None,
     concept_code: str | None = None,
-) -> tuple[dict[str, set[str]], dict[tuple[str, str], tuple[str, ...]]]:
+    *,
+    source_identity: str | None = None,
+    collapse_policy: CollapseVetoPolicy | None = None,
+) -> tuple[
+    dict[str, set[str]],
+    dict[tuple[str, str], tuple[str, ...]],
+    set[tuple[str, str]],
+]:
     by_axis: dict[str, set[str]] = defaultdict(set)
     source_role_sets: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for r in filter_excluded(restrictions, concept_code=concept_code):
+    included = tuple(filter_excluded(restrictions, concept_code=concept_code))
+    protected = (
+        collapse_policy.protected_fillers(
+            included,
+            source_identity=source_identity,
+            concept_code=concept_code,
+            route_axis=lambda row: route_axis(row, parent_morphology),
+        )
+        if collapse_policy is not None
+        else set()
+    )
+    for r in included:
         axis_name = route_axis(r, parent_morphology)
         by_axis[axis_name].add(r.filler_code)
         key = (axis_name, r.filler_code)
@@ -335,7 +356,7 @@ def _group_by_routed_axis(
     source_roles = {
         key: tuple(sorted(roles)) for key, roles in source_role_sets.items()
     }
-    return by_axis, source_roles
+    return by_axis, source_roles, protected
 
 
 def comparison_filler_codes(
@@ -462,6 +483,7 @@ def _iter_axis_constituents(
     semantic_type_of: Callable[[str], str | None] | None,
     parent_morphology: str | None = None,
     is_part_of: IsPartOf | None = None,
+    protected: set[tuple[str, str]] | None = None,
 ) -> list[Constituent]:
     part_of = is_part_of or (lambda _part, _whole: False)
     result: list[Constituent] = []
@@ -475,6 +497,11 @@ def _iter_axis_constituents(
                 parent_morphology,
                 source_roles,
                 part_of,
+                {
+                    filler
+                    for protected_axis, filler in protected or set()
+                    if protected_axis == axis_name
+                },
             )
         )
     return result
@@ -488,7 +515,25 @@ def _constituents_for_axis(
     parent_morphology: str | None,
     source_roles: dict[tuple[str, str], tuple[str, ...]],
     is_part_of: IsPartOf,
+    protected_fillers: set[str],
 ) -> list[Constituent]:
+    if protected_fillers:
+        leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
+        retained = leaves | protected_fillers
+        return [
+            Constituent(
+                axis=axis_name,
+                filler_code=filler,
+                axis_source="role",
+                source_roles=source_roles.get(
+                    (axis_name, filler), _source_roles_for_axis(axis_name)
+                ),
+                most_specific=_is_most_specific(filler, fillers, is_ancestor),
+                needs_review=True,
+                group=axis_name,
+            )
+            for filler in retained
+        ]
     resolved = _resolve_r101_with_organ_lookup(
         fillers,
         is_ancestor,
@@ -554,6 +599,8 @@ def select_constituents(
     semantic_type_of: Callable[[str], str | None] | None = None,
     is_part_of: IsPartOf | None = None,
     concept_code: str | None = None,
+    source_identity: str | None,
+    collapse_policy: CollapseVetoPolicy,
 ) -> list[Constituent]:
     """Turn a concept's stated role restrictions into its selected constituents.
 
@@ -577,8 +624,12 @@ def select_constituents(
     assigns D19 relationship-group ids to ambiguous routed-axis values. Output is sorted
     (axis, filler) for deterministic, diffable results.
     """
-    by_axis, source_roles = _group_by_routed_axis(
-        restrictions, parent_morphology, concept_code
+    by_axis, source_roles, protected = _group_by_routed_axis(
+        restrictions,
+        parent_morphology,
+        concept_code,
+        source_identity=source_identity,
+        collapse_policy=collapse_policy,
     )
     constituents = _iter_axis_constituents(
         by_axis,
@@ -587,6 +638,7 @@ def select_constituents(
         semantic_type_of,
         parent_morphology,
         is_part_of,
+        protected,
     )
     _append_morphology(constituents, parent_morphology)
     return sorted(constituents, key=lambda c: (c.axis, c.filler_code))

@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from ontolib.decomposition.branches import DecompositionBranch
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.pre_resume import EXPECTED_PENDING_DIGEST
 from ontolib.decomposition.provenance_models import NcitSourceSnapshot, RunFingerprint
 from ontolib.decomposition.resume_dry_run import (
@@ -20,9 +21,16 @@ from ontolib.decomposition.resume_dry_run import (
     resume_dry_run_identity,
     validate_resume_selection,
 )
-from ontolib.decomposition.run import RunConfig, build_resume_identity
+from ontolib.decomposition.run import RunConfig
+from ontolib.decomposition.run import build_resume_identity as _build_resume_identity
 
 SOURCE_IDENTITY = "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+
+
+def build_resume_identity(*args: Any, **kwargs: Any):
+    return _build_resume_identity(
+        *args, **kwargs, collapse_policy=NO_COLLAPSE_VETO_POLICY
+    )
 
 
 def _fingerprint() -> RunFingerprint:
@@ -33,6 +41,7 @@ def _fingerprint() -> RunFingerprint:
     )
     return RunFingerprint(
         source_identity=SOURCE_IDENTITY,
+        collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",

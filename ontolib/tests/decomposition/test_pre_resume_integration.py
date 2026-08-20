@@ -141,6 +141,7 @@ async def test_production_resume_preview_is_read_only_at_exact_protected_scale(
     codes = tuple(f"C{index:05d}" for index in range(15633))
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",

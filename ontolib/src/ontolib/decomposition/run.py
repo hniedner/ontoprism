@@ -61,6 +61,10 @@ from ontolib.decomposition.branches import (
     branch_spec,
     parse_branch,
 )
+from ontolib.decomposition.collapse_policy import (
+    CollapseVetoPolicy,
+    load_packaged_collapse_veto_policy,
+)
 from ontolib.decomposition.legacy_writer import write_ttl
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -466,6 +470,8 @@ async def _decompose_one(
     *,
     label: str | None,
     label_lookup: LabelLookup,
+    source_identity: str,
+    collapse_policy: CollapseVetoPolicy,
     walker_max_depth: int = 5,
 ) -> _CandidateResult:
     """Detect, extract, and resolve one concept. ``decomposition`` is ``None`` when the
@@ -526,6 +532,8 @@ async def _decompose_one(
         semantic_type_of=_semantic_type_of,
         is_part_of=lambda part, whole: (part, whole) in part_of,
         concept_code=code,
+        source_identity=source_identity,
+        collapse_policy=collapse_policy,
     )
 
     aspects = nlp_fallback.parse_label_aspects(label)
@@ -653,6 +661,7 @@ class _RunSetup:
     run_id: str
     source_snapshot: NcitSourceSnapshot
     fingerprint: RunFingerprint
+    collapse_policy: CollapseVetoPolicy
     pending: list[str]
     labels: dict[str, str]
 
@@ -707,13 +716,15 @@ def build_resume_identity(
     *,
     semantic_types: tuple[str, ...],
     total_limit: int | None,
+    collapse_policy: CollapseVetoPolicy,
 ) -> RunResumeIdentity:
     sample_identity = (
         config.sample_manifest.identity if config.sample_manifest is not None else None
     )
     return RunResumeIdentity(
-        schema_version=3 if sample_identity is not None else 2,
+        schema_version=5 if sample_identity is not None else 4,
         source_identity=snapshot.source_identity,
+        collapse_policy_identity=collapse_policy.policy_identity,
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
@@ -738,6 +749,7 @@ async def _create_fresh_run(
     semantic_types: tuple[str, ...],
     total_limit: int | None,
     worklist: tuple[str, ...] | None = None,
+    collapse_policy: CollapseVetoPolicy,
 ) -> tuple[str, RunFingerprint]:
     run_id = _new_run_id(config.branch)
     codes = (
@@ -751,8 +763,9 @@ async def _create_fresh_run(
         expected=snapshot,
     )
     fingerprint = RunFingerprint(
-        schema_version=3 if config.sample_manifest is not None else 2,
+        schema_version=5 if config.sample_manifest is not None else 4,
         source_identity=snapshot.source_identity,
+        collapse_policy_identity=collapse_policy.policy_identity,
         branch=config.branch.value,
         scope_root=config.scope_root,
         scope_version=config.scope_version,
@@ -867,11 +880,12 @@ async def _prepare_run(
     get_source_snapshot: GetSourceSnapshot,
     get_labels: GetLabels | None,
     total_limit: int | None,
+    snapshot: NcitSourceSnapshot,
+    collapse_policy: CollapseVetoPolicy,
 ) -> _RunSetup:
     """Create or reopen one exact source-bound worklist."""
     if config.sample_manifest is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
-    snapshot = await _require_source_snapshot(client, get_source_snapshot)
     semantic_types = config.semantic_types
     sample_worklist = await _validated_sample_worklist(config, client, snapshot)
     if config.resume_from:
@@ -883,6 +897,7 @@ async def _prepare_run(
                 snapshot,
                 semantic_types=semantic_types,
                 total_limit=total_limit,
+                collapse_policy=collapse_policy,
             ),
         )
     else:
@@ -895,6 +910,7 @@ async def _prepare_run(
             semantic_types=semantic_types,
             total_limit=total_limit,
             worklist=sample_worklist,
+            collapse_policy=collapse_policy,
         )
     pending, labels = await _load_pending_run_data(
         provenance,
@@ -905,6 +921,7 @@ async def _prepare_run(
         run_id=run_id,
         source_snapshot=snapshot,
         fingerprint=fingerprint,
+        collapse_policy=collapse_policy,
         pending=pending,
         labels=labels,
     )
@@ -928,6 +945,8 @@ async def _process_work_item(
             client,
             label=setup.labels.get(code),
             label_lookup=label_lookup,
+            source_identity=setup.source_snapshot.source_identity,
+            collapse_policy=setup.collapse_policy,
             walker_max_depth=walker_max_depth,
         )
         await provenance.complete_work_item(
@@ -1244,6 +1263,44 @@ async def _finish_run(
 def _validate_run_request(config: RunConfig, total_limit: int | None) -> None:
     if config.load_to_store and total_limit is not None:
         raise ValueError("total_limit cannot be combined with load_to_store")
+    if config.sample_manifest is not None and total_limit is not None:
+        raise ValueError("sample manifest and total_limit are mutually exclusive")
+
+
+async def _qualify_collapse_policy(
+    policy: CollapseVetoPolicy,
+    client: DecompositionSparqlClient,
+    *,
+    source_identity: str,
+    walker_max_depth: int,
+) -> None:
+    """Qualify each distinct policy concept once before any run state is written."""
+    occurrences = []
+    for concept_code in sorted({entry.concept_code for entry in policy.entries}):
+        _result, _roles, _morphology, definition, _types = await _detect_concept(
+            concept_code,
+            client,
+            label=None,
+            walker_max_depth=walker_max_depth,
+        )
+        occurrences.extend(definition.occurrences)
+    policy.qualify_live_occurrences(occurrences, source_identity=source_identity)
+
+
+async def _active_collapse_policy(
+    requested: CollapseVetoPolicy | None,
+    client: DecompositionSparqlClient,
+    snapshot: NcitSourceSnapshot,
+    walker_max_depth: int,
+) -> CollapseVetoPolicy:
+    policy = requested or load_packaged_collapse_veto_policy()
+    await _qualify_collapse_policy(
+        policy,
+        client,
+        source_identity=snapshot.source_identity,
+        walker_max_depth=walker_max_depth,
+    )
+    return policy
 
 
 async def run_pipeline(
@@ -1257,6 +1314,7 @@ async def run_pipeline(
     total_limit: int | None = None,
     progress: ProgressCallback | None = None,
     residual_progress: Callable[[int, int, str], None] | None = None,
+    collapse_policy: CollapseVetoPolicy | None = None,
 ) -> RunMetrics:
     """Execute the decomposition pipeline for a given branch (design §9).
 
@@ -1270,6 +1328,10 @@ async def run_pipeline(
     cannot publish to the configured graph.
     """
     _validate_run_request(config, total_limit)
+    snapshot = await _require_source_snapshot(client, get_source_snapshot)
+    active_collapse_policy = await _active_collapse_policy(
+        collapse_policy, client, snapshot, config.walker_max_depth
+    )
     setup = await _prepare_run(
         config,
         client,
@@ -1277,6 +1339,8 @@ async def run_pipeline(
         get_source_snapshot=get_source_snapshot,
         get_labels=get_labels,
         total_limit=total_limit,
+        snapshot=snapshot,
+        collapse_policy=active_collapse_policy,
     )
 
     try:

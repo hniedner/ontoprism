@@ -21,6 +21,16 @@ This evidence record retains the exact axis names used by the source rows.
 | `neoplasm-highest-fanout.json` | Current-source highest-fanout concepts and fixed query budgets. |
 | `neoplasm-r101-v3-depth7-corpus-baseline.json` | Immutable depth-7 v3 baseline bound to the recovered completed run. |
 | `neoplasm-r101-v4-conservation.json.gz` | Deterministic gzip of the schema-3, occurrence-level v3→v4 mechanical ledger; not content authorization. |
+| `r101-review-registry-v3-sme.json.gz` | Deterministic test golden of the complete proposed review registry; it is not runtime package data or publication authorization. |
+
+The compressed review registry has schema 3/status `proposed`, identity
+`358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975`, and exactly
+3,291 atomic rows partitioned into 3,288 `approved-non-exclusive-coverage` and three
+`rejected-retain-broader` outcomes; all 2,800 disease-exception values are false
+(`pdm run pytest ontolib/tests/decomposition/test_collapse_veto_policy.py::test_tracked_registry_golden_has_exact_authorized_accounting -q`,
+2026-08-20). The three rejections are operational collapse vetoes only: their broader source
+sites remain review-required alongside Frontal Sulcus (C32639), while complete source facts,
+equivalence quarantine, publication state, and NCIt adoption state remain unchanged.
 
 All of these files are tracked (`git ls-files ontolib/tests/decomposition/golden`, 2026-08-09).
 The oracle status, NCIt version, reviewer, concept count, and expected-pair count come directly

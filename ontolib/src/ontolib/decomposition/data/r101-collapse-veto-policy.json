@@ -1,0 +1,40 @@
+{
+  "entries": [
+    {
+      "anchoring_genus": "C170814",
+      "atomic_decision_identity": "c100c0c50e22db0c1f89c2959e105bcd82d6ef66538e1085c92659f543b69821",
+      "broader_code": "C12439",
+      "concept_code": "C5292",
+      "narrower_code": "C32639",
+      "normalized_axis": "op:PrimarySite",
+      "occurrence_id": "febec3e451327eebaaf06bfc9ef3a50621f37ca9d069fb4f34c5ba94c4381977",
+      "role_code": "R101",
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+    },
+    {
+      "anchoring_genus": "C4807",
+      "atomic_decision_identity": "7d72cc8db2ba1f05aea37e74f13048ce74cd59e924244cbe959bec7af3ecce42",
+      "broader_code": "C12351",
+      "concept_code": "C5292",
+      "narrower_code": "C32639",
+      "normalized_axis": "op:PrimarySite",
+      "occurrence_id": "4a8c695aa34264fb7fb95a2afd4d8bfd0c6d49dab5f0313ef682a3b0fba39784",
+      "role_code": "R101",
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+    },
+    {
+      "anchoring_genus": "C7048",
+      "atomic_decision_identity": "56b693f87d806d8fc8de2e565c5e0ba0818bca7cb9f820be6af1303c092db0da",
+      "broader_code": "C12512",
+      "concept_code": "C5292",
+      "narrower_code": "C32639",
+      "normalized_axis": "op:PrimarySite",
+      "occurrence_id": "a426bd70ee9da26217d19ccf1948d185cbdbb1ec3185addaf1bd0aaac181da85",
+      "role_code": "R101",
+      "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
+    }
+  ],
+  "policy_identity": "8b372f9c8696b6ce2cc0acb01c8f8d8a4b9de8b260a2c00073f40e230aa21e6e",
+  "registry_identity": "358b42f8279c067fbd0543572073cd5f6887eea0dc74d148483328c02ceb6975",
+  "schema_version": 1
+}

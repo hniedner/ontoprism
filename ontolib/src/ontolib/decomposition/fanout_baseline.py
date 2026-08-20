@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING, Protocol, cast
 
 from ontolib.decomposition.branches import DecompositionBranch, branch_spec
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.models import RestrictionDefinitionFact
 from ontolib.decomposition.run import _decompose_one
 from ontolib.decomposition.scope import (
@@ -396,6 +397,8 @@ async def rerun_fanout_concept(
         cast("DecompositionSparqlClient", counted),
         label=None,
         label_lookup=no_label_match,
+        source_identity="0" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
     if result.decomposition is None:
         raise ValueError(f"highest-fanout concept {concept_code} did not decompose")

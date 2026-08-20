@@ -15,6 +15,7 @@ import pytest
 
 from ontolib.decomposition import axes
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import (
     UnsupportedDefinitionConstructorError,
 )
@@ -379,6 +380,7 @@ def _mock_provenance() -> Any:
         if fingerprint is None:
             fingerprint = RunFingerprint(
                 source_identity="a" * 64,
+                collapse_policy_identity="0" * 64,
                 branch="neoplasm",
                 scope_root="C3262",
                 scope_version="stated-genus-subclass-v1",
@@ -488,6 +490,7 @@ def _set_resume_worklist(
 ) -> None:
     provenance._test_state["fingerprint"] = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -522,6 +525,7 @@ async def run_pipeline(
         client,
         provenance,
         get_source_snapshot=get_source_snapshot,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
         **kwargs,
     )
 
@@ -1523,6 +1527,8 @@ async def test_unsupported_definition_constructor_reaches_unknown_outcome(
         client,
         label=None,
         label_lookup=AsyncMock(return_value=None),
+        source_identity="0" * 64,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
     )
 
     assert result.outcome == "unknown"
@@ -1542,6 +1548,7 @@ async def test_pending_work_emits_heartbeat_while_concept_is_active(
         ),
         fingerprint=RunFingerprint(
             source_identity="a" * 64,
+            collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
             branch="neoplasm",
             scope_root="C3262",
             scope_version="stated-genus-subclass-v1",
@@ -1555,6 +1562,7 @@ async def test_pending_work_emits_heartbeat_while_concept_is_active(
             load_mode="named-graph",
             emitted_at=datetime(2026, 8, 15, 12, 0, tzinfo=UTC),
         ),
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
         pending=["C1"],
         labels={},
     )
@@ -1650,6 +1658,7 @@ async def test_resume_uses_persisted_worklist_without_reenumerating_scope() -> N
     emitted_at = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -1698,8 +1707,9 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
 ) -> None:
     sample = _sample_manifest("C2", "C1")
     fingerprint = RunFingerprint(
-        schema_version=3,
+        schema_version=5,
         source_identity="a" * 64,
+        collapse_policy_identity=NO_COLLAPSE_VETO_POLICY.policy_identity,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -1734,7 +1744,7 @@ async def test_sample_resume_revalidates_scope_and_manifest_identity(
 
     expected = provenance.resume_run.await_args.args[1]
     assert metrics.total_in_scope == 2
-    assert expected.schema_version == 3
+    assert expected.schema_version == 5
     assert expected.sample_manifest_identity == sample.identity
     assert expected.config_version == "nested-definition-v2"
     assert any("SELECT DISTINCT ?child ?parent" in query for query in client.queries)
@@ -2094,7 +2104,7 @@ async def test_sample_order_and_identity_are_persisted_as_exact_worklist(
 
     fingerprint = provenance._test_state["fingerprint"]
     assert metrics.total_in_scope == 2
-    assert fingerprint.schema_version == 3
+    assert fingerprint.schema_version == 5
     assert fingerprint.worklist == ("C2", "C1")
     assert fingerprint.sample_manifest_identity == sample.identity
     assert fingerprint.total_limit is None

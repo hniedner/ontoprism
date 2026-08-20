@@ -1,6 +1,7 @@
 """Unit tests for filler selection: Excludes filter, most-specific, morphology."""
 
 from collections import defaultdict
+from typing import Any
 
 import pytest
 
@@ -11,6 +12,7 @@ from ontolib.decomposition.axes import (
     PRIMARY_SITE_AXIS,
     STAGE_VALUE_AXIS,
 )
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.filler_selection import (
     STAGE_CLASSIFICATION_VERSION,
     STAGE_SYSTEM_CODES,
@@ -18,9 +20,22 @@ from ontolib.decomposition.filler_selection import (
     filter_excluded,
     most_specific,
     route_axis,
-    select_constituents,
+)
+from ontolib.decomposition.filler_selection import (
+    select_constituents as _select_constituents,
 )
 from ontolib.decomposition.models import RoleRestriction
+
+
+def select_constituents(*args: Any, **kwargs: Any):
+    """Exercise ordinary selection with the explicit no-veto policy."""
+    return _select_constituents(
+        *args,
+        **kwargs,
+        source_identity=None,
+        collapse_policy=NO_COLLAPSE_VETO_POLICY,
+    )
+
 
 # A tiny fake hierarchy: (ancestor, descendant) pairs. Endocrine Gland and Neck are
 # both ancestors of Thyroid Gland (the inferred-graph ancestor bleed, assessment §4).

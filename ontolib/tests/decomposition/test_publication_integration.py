@@ -234,6 +234,7 @@ async def test_production_publication_reconciles_marker_ahead_and_clears_stale_g
     destination.mkdir()
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -348,6 +349,7 @@ async def test_concurrent_publishers_are_serialized_and_readers_see_complete_gra
         ):
             fingerprint = RunFingerprint(
                 source_identity="a" * 64,
+                collapse_policy_identity="0" * 64,
                 branch="neoplasm",
                 scope_root="C3262",
                 scope_version="stated-genus-subclass-v1",

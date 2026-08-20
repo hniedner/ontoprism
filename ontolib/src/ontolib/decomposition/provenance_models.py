@@ -21,8 +21,8 @@ from pydantic import (
 from ontolib.decomposition.branches import ScopeRoot, ScopeVersion  # noqa: TC001
 from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
 
-_STANDARD_RUN_SCHEMA = 2
-_SAMPLE_RUN_SCHEMA = 3
+_STANDARD_RUN_SCHEMA = 4
+_SAMPLE_RUN_SCHEMA = 5
 
 
 def _require_matching_scope_root(
@@ -74,8 +74,9 @@ class RunFingerprint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[2, 3] = 2
+    schema_version: Literal[4, 5] = 4
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
     scope_version: ScopeVersion
@@ -124,8 +125,6 @@ class RunFingerprint(BaseModel):
     def identity(self) -> str:
         """SHA-256 over the exact canonical JSON representation."""
         payload = self.model_dump(mode="json")
-        if self.schema_version == _STANDARD_RUN_SCHEMA:
-            payload.pop("sample_manifest_identity")
         encoded = json.dumps(
             payload,
             sort_keys=True,
@@ -152,8 +151,9 @@ class RunResumeIdentity(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    schema_version: Literal[2, 3] = 2
+    schema_version: Literal[4, 5] = 4
     source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    collapse_policy_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
     branch: Literal["neoplasm", "disease"]
     scope_root: ScopeRoot
     scope_version: ScopeVersion
@@ -186,6 +186,7 @@ class RunResumeIdentity(BaseModel):
         return cls(
             schema_version=fingerprint.schema_version,
             source_identity=fingerprint.source_identity,
+            collapse_policy_identity=fingerprint.collapse_policy_identity,
             branch=fingerprint.branch,
             scope_root=fingerprint.scope_root,
             scope_version=fingerprint.scope_version,
@@ -201,7 +202,7 @@ class RunResumeIdentity(BaseModel):
 
 
 def _require_matching_sample_schema(
-    schema_version: Literal[2, 3],
+    schema_version: Literal[4, 5],
     sample_manifest_identity: str | None,
     total_limit: int | None,
 ) -> None:

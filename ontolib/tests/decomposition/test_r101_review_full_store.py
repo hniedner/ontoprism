@@ -2,17 +2,24 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from openpyxl import load_workbook
 from scripts.decompose import _source_snapshot
 
+from ontolib.decomposition.collapse_policy import (
+    NO_COLLAPSE_VETO_POLICY,
+    load_packaged_collapse_veto_policy,
+)
+from ontolib.decomposition.fanout_baseline import _CountingClient
 from ontolib.decomposition.r101_conservation import load_r101_conservation_report
 from ontolib.decomposition.r101_review import (
     QLeverReviewLabels,
     build_r101_review_packet,
     write_r101_review_workbook,
 )
+from ontolib.decomposition.run import _decompose_one, _qualify_collapse_policy
 from ontolib.terminologies.ncit.client import ncit_sparql_client
 
 
@@ -80,3 +87,83 @@ async def test_r101_review_labels_match_real_qlever_in_bounded_batches(
     replay = await build_r101_review_packet(report, manifest_path, replay_labels)
     assert replay == packet
     assert replay_labels.requested_codes == labels.requested_codes
+
+
+@pytest.mark.integration
+@pytest.mark.full_store
+async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
+    report = load_r101_conservation_report(
+        Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
+    )
+    policy = load_packaged_collapse_veto_policy()
+
+    async def no_label_match(_surface: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client("http://localhost:7888") as client:
+        counted = _CountingClient(client)
+        await _qualify_collapse_policy(
+            policy,
+            cast("Any", counted),
+            source_identity=report.source_identity,
+            walker_max_depth=7,
+        )
+        qualification_queries = counted.logical_select_count
+        result = await _decompose_one(
+            "C5292",
+            cast("Any", counted),
+            label=None,
+            label_lookup=no_label_match,
+            source_identity=report.source_identity,
+            collapse_policy=policy,
+            walker_max_depth=7,
+        )
+        policy_item_queries = counted.logical_select_count - qualification_queries
+    async with ncit_sparql_client("http://localhost:7888") as client:
+        baseline_client = _CountingClient(client)
+        await _decompose_one(
+            "C5292",
+            cast("Any", baseline_client),
+            label=None,
+            label_lookup=no_label_match,
+            source_identity=report.source_identity,
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
+            walker_max_depth=7,
+        )
+
+    assert qualification_queries == 17
+    assert policy_item_queries == baseline_client.logical_select_count
+
+    assert result.decomposition is not None
+    assert result.decomposition.complete_definition is not None
+    source_r101 = {
+        row.filler_code
+        for row in result.decomposition.complete_definition.occurrences
+        if row.role_code == "R101"
+    }
+    assert source_r101 == {
+        "C12438",
+        "C12351",
+        "C32292",
+        "C32639",
+        "C12512",
+        "C12789",
+        "C12439",
+    }
+    assert "C12349" not in source_r101
+    primary_sites = {
+        row.filler_code: row
+        for row in result.decomposition.constituents
+        if row.axis == "op:PrimarySite"
+    }
+    assert {"C12351", "C12439", "C12512", "C32639"} <= set(primary_sites)
+    assert all(primary_sites[code].needs_review for code in primary_sites)
+    assert {primary_sites[code].group for code in primary_sites} == {"op:PrimarySite"}
+    prior = {
+        link.filler_code
+        for row in report.occurrences
+        if row.concept_code == "C5292" and row.new_links
+        for link in row.new_links
+        if link.axis == "op:PrimarySite"
+    }
+    assert {"C12351", "C12439", "C12512"}.isdisjoint(prior)

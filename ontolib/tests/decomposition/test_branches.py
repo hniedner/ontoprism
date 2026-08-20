@@ -42,6 +42,7 @@ def test_disease_is_supported_but_regimen_remains_unimplemented() -> None:
 def test_fingerprint_separates_hierarchy_scope_from_shared_algorithm() -> None:
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="disease",
         scope_root="C2991",
         scope_version="stated-genus-subclass-v1",
@@ -57,7 +58,7 @@ def test_fingerprint_separates_hierarchy_scope_from_shared_algorithm() -> None:
 
     resume = RunResumeIdentity.from_fingerprint(fingerprint)
 
-    assert fingerprint.schema_version == 2
+    assert fingerprint.schema_version == 4
     assert resume.branch == "disease"
     assert resume.scope_root == "C2991"
     assert resume.scope_version == "stated-genus-subclass-v1"
