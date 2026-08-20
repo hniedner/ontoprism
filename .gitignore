@@ -4,6 +4,9 @@ tmp/
 # Local Omnigent workspace metadata
 .omnigent/
 
+# Machine-local OpenCode project configuration
+/.opencode/opencode.json
+
 # macOS
 .DS_Store
 

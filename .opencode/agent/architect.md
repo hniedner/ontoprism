@@ -2,7 +2,7 @@
 description: Designs technical plans and acceptance contracts that preserve ONTOPRISM boundaries and end-to-end semantics.
 mode: subagent
 model: github-copilot/gpt-5.6-sol
-permission: &readonly
+permission:
   edit: deny
   task: deny
   bash:

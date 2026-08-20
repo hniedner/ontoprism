@@ -53,6 +53,7 @@ REVIEWERS = {
 TRACKED_PROCESS = (
     "opencode.json",
     "AGENTS.md",
+    ".gitignore",
     ".opencode/opencode-model-fallback.jsonc",
     ".opencode/agent",
     ".opencode/command",
@@ -104,19 +105,24 @@ def strip_jsonc_comments(text: str) -> str:
             while index < len(text) and text[index] not in "\r\n":
                 index += 1
         elif char == "/" and following == "*":
-            index += 2
-            end = text.find("*/", index)
-            index = len(text) if end == -1 else end + 2
+            index = block_comment_end(text, index + 2)
         else:
             output.append(char)
             index += 1
     return "".join(output)
 
 
+def block_comment_end(text: str, start: int) -> int:
+    end = text.find("*/", start)
+    if end == -1:
+        raise ValueError("unterminated block comment")
+    return end + 2
+
+
 def load_json(path: Path, validation: Validation, code: str) -> dict[str, Any]:
     try:
         value = json.loads(strip_jsonc_comments(path.read_text()))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         validation.error(
             code, f"cannot parse {path.relative_to(validation.root)}: {exc}"
         )
@@ -169,6 +175,38 @@ def require_bash_rules(
         if bash.get(pattern) != action:
             validation.error(
                 "ROLE_PERMISSION", f"{role} bash rule {pattern} must be {action}"
+            )
+    validate_deny_order(validation, "ROLE_PERMISSION", role, bash, required)
+
+
+def validate_deny_order(
+    validation: Validation,
+    code: str,
+    role: str,
+    bash: dict[str, Any],
+    required: dict[str, str] | tuple[str, ...],
+) -> None:
+    rules = list(bash.items())
+    for deny_pattern in required:
+        if bash.get(deny_pattern) != "deny":
+            continue
+        command = deny_pattern.split(maxsplit=1)[0]
+        if command not in {"git", "gh"}:
+            continue
+        deny_index = next(
+            index for index, (pattern, _) in enumerate(rules) if pattern == deny_pattern
+        )
+        allow_indices = [
+            index
+            for index, (pattern, action) in enumerate(rules)
+            if action == "allow"
+            and (pattern == "*" or pattern.split(maxsplit=1)[0] == command)
+        ]
+        if allow_indices and deny_index < max(allow_indices):
+            label = "Git" if command == "git" else "GH"
+            validation.error(
+                code,
+                f"{role} deny {deny_pattern} must follow all {label} allow rules",
             )
 
 
@@ -457,13 +495,13 @@ def validate_role_contracts(
         for pattern in required_denies:
             if bash.get(pattern) != "deny":
                 validation.error("R3_PERMISSION", f"R3 must deny {pattern}")
-        keys = list(bash)
-        if any(
-            pattern in keys and keys.index(pattern) == 0 for pattern in required_denies
-        ):
-            validation.error(
-                "R3_PERMISSION", "R3 narrow denies must follow its broad rule"
-            )
+        validate_deny_order(
+            validation,
+            "R3_PERMISSION",
+            "pr-test-analyzer",
+            bash,
+            required_denies,
+        )
 
 
 def validate_plugin(validation: Validation) -> dict[str, Any]:
@@ -563,6 +601,32 @@ def validate_agents_document(validation: Validation) -> None:
             "human merges",
         ),
     )
+    require_terms(
+        validation,
+        "AGENTS_GOVERNANCE",
+        "AGENTS.md governance process",
+        text,
+        (
+            "rg --no-ignore",
+            "`tmp/` is gitignored (`.gitignore:2`)",
+            "$TMPDIR/opencode/",
+            "see D49",
+            "Ephemeral planning/handover docs live in `tmp/plans/`",
+            "under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`",
+            "never reference a `tmp/` path from a tracked file or a GitHub issue",
+        ),
+    )
+
+
+def validate_gitignore(validation: Validation) -> None:
+    path = validation.require_file(".gitignore")
+    if path is None:
+        return
+    if "/.opencode/opencode.json" not in path.read_text().splitlines():
+        validation.error(
+            "GITIGNORE",
+            ".gitignore must contain exact line /.opencode/opencode.json",
+        )
 
 
 def validate_forbidden_content(validation: Validation) -> None:
@@ -576,11 +640,8 @@ def validate_forbidden_content(validation: Validation) -> None:
             ),
             "credential-shaped value",
         ),
-        (
-            re.compile(r"(?:^|[\s`'\"])(?:\./)?" + "tmp" + "/"),
-            "temporary repository path",
-        ),
     )
+    ephemeral_path = re.compile(r"(?:^|[\s`'\"])(?:\./)?" + "tmp" + "/")
     paths: list[Path] = []
     for relative in TRACKED_PROCESS:
         target = validation.root / relative
@@ -596,6 +657,15 @@ def validate_forbidden_content(validation: Validation) -> None:
                     "FORBIDDEN_CONTENT",
                     f"{path.relative_to(validation.root)} contains {label}",
                 )
+        relative = path.relative_to(validation.root)
+        if relative not in {
+            Path("AGENTS.md"),
+            Path(".gitignore"),
+        } and ephemeral_path.search(text):
+            validation.error(
+                "FORBIDDEN_CONTENT",
+                f"{relative} contains temporary repository path",
+            )
 
 
 def validate(root: Path) -> list[str]:
@@ -606,6 +676,7 @@ def validate(root: Path) -> list[str]:
     validate_plugin(validation)
     validate_command(validation)
     validate_agents_document(validation)
+    validate_gitignore(validation)
     validate_forbidden_content(validation)
     return validation.errors
 

@@ -87,8 +87,8 @@ Mechanical rules. Each is checkable by the reader, which is what forces the chec
 3. **Never pre-declare the hash of an artifact that does not yet exist.** Bind identities *after*
    generation. A hash over a payload containing `uuid4()` can never be matched by a later run —
    `corpus_evidence_identity` cost a full cycle proving exactly that.
-4. **Search artifacts with `rg --no-ignore`.** Ignored artifact directories are skipped by a
-   default `rg`, which can report absent files that are present without signalling the omission.
+4. **Search artifacts with `rg --no-ignore`.** `tmp/` is gitignored (`.gitignore:2`), so a default
+   `rg` reports absent files that are present and gives no signal that it skipped anything.
 5. **Never request an irreversible human sign-off before executing the step that follows it.**
    Dry-run the downstream path first. An attestation spent on an unverified critical path is the
    one thing you cannot refund.
@@ -349,8 +349,9 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   **Only the implementer makes lasting code, test, fix, commit, or PR edits. R3 is the sole
   transient exception and runs ALONE (see D49).** R3 may mutate production code only to
   prove that a relevant test rejects wrong behavior. Before each mutation it copies the
-  target outside the worktree, then restores the original bytes byte-exactly from that
-  external backup. It never fixes code, stages, commits, pushes, merges, rebases, stashes,
+  target outside the worktree (for example under `$TMPDIR/opencode/`, or another approved
+  session temp path), then restores the original bytes byte-exactly from that external
+  backup. It never fixes code, stages, commits, pushes, merges, rebases, stashes,
   resets, cleans, checks out, or uses Git to restore a target. Run the other non-converged
   dimensions in parallel, then R3 alone against the same commit. The orchestrator must
   verify `git status --porcelain` is empty and `git rev-parse HEAD` is unchanged before
@@ -370,3 +371,8 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   merges are the only GitHub PR merges. This does not prohibit the milestone procedure's
   local `git merge --no-ff` integration of a verified issue branch into its milestone
   branch. Record any genuinely unverifiable or unactionable exception and its reason.
+- **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
+  Plan-mode plan files and any implementation handover written for a follow-up session go
+  under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
+  the tracked docs (`docs/DECISIONS.md`, `docs/design/`) and the GitHub
+  issues; never reference a `tmp/` path from a tracked file or a GitHub issue.
