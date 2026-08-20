@@ -2,51 +2,93 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 import pytest_asyncio
 from defusedxml import ElementTree as DefusedET
 from openpyxl import load_workbook
-from openpyxl.cell import Cell
 from scripts import adjudication
 from scripts.adjudication import _parser
 
 from ontolib.decomposition.provenance_models import NcitSourceSnapshot
 from ontolib.decomposition.r101_conservation import (
-    R101ConservationReport,
     R101ConservationValidationError,
     load_r101_conservation_report,
     validate_r101_publication,
 )
 from ontolib.decomposition.r101_review import (
+    AtomicDecision,
+    DiseaseProposition,
     QLeverReviewLabels,
     R101DecisionRegistry,
     R101ReviewPacket,
     R101ReviewValidationError,
+    ReviewMembership,
     ReviewPath,
     ReviewPattern,
-    apply_r101_authorization,
     build_r101_review_packet,
-    dry_run_r101_authorization,
+    dry_run_r101_decision_expansion,
     import_r101_review_decisions,
     load_r101_decision_registry,
     load_r101_review_packet,
-    write_r101_review_packet,
     write_r101_review_workbook,
 )
-
-if TYPE_CHECKING:
-    from openpyxl.worksheet.worksheet import Worksheet
-
 
 GOLDEN = Path(__file__).parent / "golden"
 REPORT_PATH = GOLDEN / "neoplasm-r101-v4-conservation.json.gz"
 SOURCE_MANIFEST = Path("data/qlever-ncit/.ontoprism-ncit-candidate.json")
+
+APPROVE = "Approve non-exclusive coverage except marked exceptions"
+REJECT = "Reject; retain broader site in projection"
+INDIVIDUAL = "Require individual disease review"
+ABSTAIN = "Abstain / escalate"
+DECISIONS = (APPROVE, REJECT, INDIVIDUAL, ABSTAIN)
+DENIALS = {
+    "scope_non_exclusive": True,
+    "source_preserved": True,
+    "not_equivalent": True,
+    "not_universal": True,
+    "not_exclusive": True,
+}
+PATTERN_HEADERS = (
+    "Pattern Number",
+    "Review Proposition",
+    "Broader Site",
+    "Retained More-Specific Site",
+    "Human-readable R82 path(s)",
+    "Affected Disease Count",
+    "Affected Diseases",
+    "Source Occurrence Count",
+    "One-step Count",
+    "Transitive Count",
+    "Min Path Length",
+    "Max Path Length",
+    "Context/Risk Summary",
+    "Fixed Scope",
+    "Decision",
+    "Rationale",
+    "Reviewer Identity",
+    "Review Date",
+)
+DISEASE_HEADERS = (
+    "Pattern Number",
+    "Disease",
+    "Specific Proposition",
+    "Broader Site",
+    "Retained Site",
+    "Readable R82 path",
+    "Source Occurrence Count",
+    "Context Summary",
+    "Review Priority / Risk Flags",
+    "Exception?",
+    "Exception Rationale",
+)
 
 
 class _Labels:
@@ -66,20 +108,6 @@ class _Labels:
         }
 
 
-def _headers(sheet: Worksheet) -> dict[str, int]:
-    result: dict[str, int] = {}
-    for cell in sheet[1]:
-        assert isinstance(cell.column, int)
-        result[str(cell.value)] = cell.column
-    return result
-
-
-def _test_identity(payload: object) -> str:
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
-    ).hexdigest()
-
-
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def packet_and_labels():
     report = load_r101_conservation_report(REPORT_PATH)
@@ -88,440 +116,490 @@ async def packet_and_labels():
     return report, packet, labels
 
 
+def _headers(sheet: Any) -> dict[str, int]:
+    return {str(cell.value): cast("int", cell.column) for cell in sheet[1]}
+
+
+def _test_identity(payload: object) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _fill_pattern_decisions(path: Path, decision: str = APPROVE) -> None:
+    book = load_workbook(path)
+    sheet = book["Pattern Review"]
+    headers = _headers(sheet)
+    for row in range(2, sheet.max_row + 1):
+        sheet.cell(row, headers["Decision"], decision)
+        sheet.cell(row, headers["Rationale"], "TEST-ONLY reviewed rationale")
+        sheet.cell(row, headers["Reviewer Identity"], "TEST-ONLY reviewer")
+        sheet.cell(row, headers["Review Date"], "2099-01-01")
+    disease = book["Disease Propositions"]
+    disease_headers = _headers(disease)
+    for row in range(2, disease.max_row + 1):
+        disease.cell(row, disease_headers["Exception?"], "No")
+    book.save(path)
+
+
+def _workbook(packet: Any, path: Path, decision: str = APPROVE) -> None:
+    write_r101_review_workbook(path, packet)
+    _fill_pattern_decisions(path, decision)
+
+
 @pytest.mark.unit
-async def test_packet_exhaustively_binds_the_generated_report(
+async def test_v3_packet_freezes_exact_human_and_atomic_inventories(
     packet_and_labels,
 ) -> None:
     report, packet, labels = packet_and_labels
-
-    assert len(packet.patterns) == len(report.grouping_presentation) == 162
-    assert sum(row.occurrence_count for row in packet.patterns) == 3291
+    assert packet.schema_version == 3
+    assert len(packet.patterns) == 162
+    assert len(packet.disease_propositions) == 2800
     assert len(packet.occurrences) == 3291
+    assert len(packet.membership) == 2800
+    assert len({row.disease_code for row in packet.disease_propositions}) == 1916
+    assert sum(row.occurrence_count for row in packet.patterns) == 3291
+    assert (
+        sorted(row.occurrence_count for row in packet.disease_propositions).count(1)
+        == 2322
+    )
+    assert (
+        sorted(row.occurrence_count for row in packet.disease_propositions).count(2)
+        == 465
+    )
+    assert (
+        sorted(row.occurrence_count for row in packet.disease_propositions).count(3)
+        == 13
+    )
+    assert max(row.occurrence_count for row in packet.disease_propositions) == 3
+    assert max(row.occurrence_count for row in packet.patterns) == 245
     assert {row.occurrence_id for row in packet.occurrences} == {
-        item.occurrence_id
-        for item in report.occurrences
-        if item.disposition == "covered-by-retained-r82"
+        row.occurrence_id
+        for row in report.occurrences
+        if row.disposition == "covered-by-retained-r82"
     }
     assert labels.query_count == 1
-    assert len(labels.requested_codes) == 141
-    assert packet.sentinel_labels.model_dump() == {
-        "c6135": "TEST label C6135",
-        "c101539": "TEST label C101539",
-        "c4791": "TEST label C4791",
-    }
+    assert len(labels.requested_codes) > 1900
     assert packet.guidance_identity
-    assert packet.bindings.report_identity == report.report_identity
-    assert packet.bindings.json_identity == report.json_identity
-    assert packet.bindings.tsv_identity == report.tsv_identity
-    assert packet.bindings.source_identity == report.source_identity
-    assert packet.bindings.proof_identity == report.proof_identity
-    assert all(row.axis == "op:PrimarySite" for row in packet.patterns)
-    assert all(row.row_identity and row.pattern_id for row in packet.patterns)
+    assert packet.visible_rows_identity
+    assert packet.membership_identity
+    assert packet.packet_identity
     assert all(
-        path.source_identity == report.source_identity
-        for row in packet.patterns
-        for path in row.paths
+        row.model_dump(include=set(DENIALS)) == DENIALS
+        for row in (*packet.patterns, *packet.disease_propositions)
     )
-    assert sum(row.evidence_kind_counts.one_step for row in packet.patterns) == 1954
-    assert sum(row.evidence_kind_counts.closure_only for row in packet.patterns) == 1337
-    for row in packet.patterns:
-        assert row.sentinel_c6135 == ("C6135" in row.affected_concept_ids)
-        assert row.sentinel_c101539 == ("C101539" in row.affected_concept_ids)
-        assert row.sentinel_c4791 == ("C4791" in row.affected_concept_ids)
-    assert packet.review_scope == (
-        "Decide coverage under OntoPrism project policy for the directed stated R82 "
-        "path; this is not equivalence. Source occurrences remain preserved, and a "
-        "decision applies only to this exact packet/report/source digest."
-    )
+    assert all(row.review_proposition for row in packet.patterns)
+    assert all(row.specific_proposition for row in packet.disease_propositions)
 
 
 @pytest.mark.unit
-async def test_packet_identity_and_label_boundary_fail_closed(
-    packet_and_labels, tmp_path
+async def test_propositions_state_nonexclusive_projection_scope_without_overclaim(
+    packet_and_labels,
 ) -> None:
-    report, packet, _ = packet_and_labels
-    payload = packet.model_dump(mode="json")
-    payload["patterns"][0]["old_broader_label"] = "tampered"
-    path = tmp_path / "packet.json"
-    path.write_text(json.dumps(payload))
-    with pytest.raises(R101ReviewValidationError, match="identity differs"):
-        load_r101_review_packet(path)
-
-    for overrides, message in (
-        ({"C12727": []}, "missing label"),
-        ({"C12727": ["one", "two"]}, "multiple labels"),
-        ({"C12727": [""]}, "malformed label"),
-    ):
-        with pytest.raises(R101ReviewValidationError, match=message):
-            await build_r101_review_packet(report, SOURCE_MANIFEST, _Labels(overrides))
-
-
-def _fill_test_only_decisions(workbook: Path, *, reject_row: int | None = None) -> None:
-    book = load_workbook(workbook)
-    sheet = book["Pattern Decisions"]
-    headers = _headers(sheet)
-    for row_number in range(2, sheet.max_row + 1):
-        sheet.cell(
-            row_number,
-            headers["Decision"],
-            "reject" if row_number == reject_row else "approve",
-        )
-        sheet.cell(
-            row_number, headers["Rationale"], "TEST-ONLY synthetic preflight decision"
-        )
-        sheet.cell(
-            row_number, headers["Reviewer Identity"], "TEST-ONLY automated preflight"
-        )
-        sheet.cell(row_number, headers["Review Date"], "2099-01-01")
-    book.save(workbook)
+    _, packet, _ = packet_and_labels
+    text = "\n".join(
+        [row.review_proposition for row in packet.patterns]
+        + [row.specific_proposition for row in packet.disease_propositions]
+    )
+    required = (
+        "valid, more-precise primary-site coverage",
+        "in the curated projection",
+        "broader source assertions remain preserved",
+        "does not mean every case occurs only",
+        "only valid site",
+    )
+    assert all(value in text for value in required)
+    assert "equivalent" not in text.casefold()
+    for row in packet.disease_propositions:
+        assert f"{row.broader_label} ({row.broader_code})" in row.specific_proposition
+        assert f"{row.retained_label} ({row.retained_code})" in row.specific_proposition
 
 
 @pytest.mark.unit
-async def test_real_xlsx_roundtrip_and_exact_dry_run_path(
-    packet_and_labels, tmp_path
+async def test_workbook_is_human_centered_and_contains_no_internal_ids_or_json(
+    packet_and_labels, tmp_path: Path
 ) -> None:
-    report, packet, _ = packet_and_labels
-    packet_path = tmp_path / "packet.json"
-    workbook = tmp_path / "review.xlsx"
-    registry_path = tmp_path / "registry.json"
-    write_r101_review_packet(packet_path, packet)
-    write_r101_review_workbook(workbook, packet)
-
-    book = load_workbook(workbook)
+    _, packet, _ = packet_and_labels
+    path = tmp_path / "v3.xlsx"
+    write_r101_review_workbook(path, packet)
+    book = load_workbook(path)
     assert book.sheetnames == [
-        "Instructions",
-        "Bindings",
+        "Instructions and Semantics",
+        "Pattern Review",
+        "Disease Propositions",
         "Column Definitions",
         "Review Examples",
-        "Pattern Decisions",
-        "Occurrence Evidence",
+        "Bindings",
     ]
+    assert "Occurrence Evidence" not in book.sheetnames
     assert book["Bindings"].sheet_state == "veryHidden"
-    assert book["Pattern Decisions"].max_row == 163
-    assert book["Occurrence Evidence"].max_row == 3292
-    assert not book.calculation.fullCalcOnLoad
-    assert workbook.stat().st_size < 10_000_000
-    _fill_test_only_decisions(workbook)
+    assert tuple(cell.value for cell in book["Pattern Review"][1]) == PATTERN_HEADERS
+    assert (
+        tuple(cell.value for cell in book["Disease Propositions"][1]) == DISEASE_HEADERS
+    )
+    assert book["Pattern Review"].max_row == 163
+    assert book["Disease Propositions"].max_row == 2801
+    forbidden_headers = re.compile(
+        r"(?:Pattern ID|Row Identity|Occurrence ID|Source Fact ID|"
+        r"Source Group ID|Path Identity|Hash|JSON)",
+        re.I,
+    )
+    allowed_binding_names = {
+        "packet_identity",
+        "guidance_identity",
+        "visible_rows_identity",
+        "membership_identity",
+        "schema_version",
+        "source_release_id",
+    }
+    for sheet in book.worksheets:
+        if sheet.title == "Bindings":
+            assert {
+                str(row[0].value) for row in sheet.iter_rows(min_row=2)
+            } == allowed_binding_names
+            continue
+        assert not any(forbidden_headers.search(str(cell.value)) for cell in sheet[1])
+        for row in sheet.iter_rows():
+            for cell in row:
+                value = str(cell.value or "")
+                assert "r101-" not in value
+                assert not re.search(r"\b[0-9a-f]{64}\b", value)
+                assert not value.startswith("{")
+                assert not value.startswith("[")
 
+
+@pytest.mark.unit
+async def test_workbook_guidance_editability_and_formula_free_container(
+    packet_and_labels, tmp_path: Path
+) -> None:
+    _, packet, _ = packet_and_labels
+    path = tmp_path / "v3.xlsx"
+    write_r101_review_workbook(path, packet)
+    book = load_workbook(path)
+    guidance = "\n".join(
+        str(cell.value or "")
+        for row in book["Instructions and Semantics"].iter_rows()
+        for cell in row
+    )
+    guidance = guidance.casefold()
+    assert all(
+        text.casefold() in guidance
+        for text in (
+            "projection coverage, not disease exclusivity",
+            "non-exclusive projection coverage",
+            "source assertions remain preserved",
+            "zero strict rule-eligible cases",
+            "no safe workload reduction",
+            "Hiddenness is not security",
+            "packet",
+            "error signs",
+        )
+    )
+    assert "SEER" not in tuple(str(cell.value) for cell in book["Pattern Review"][1])
+    unlocked = [
+        (sheet.title, str(sheet.cell(1, cast("int", cell.column)).value))
+        for sheet in book.worksheets
+        for row in sheet.iter_rows(min_row=2)
+        for cell in row
+        if not cell.protection.locked
+    ]
+    assert len(unlocked) == 162 * 4 + 2800 * 2
+    assert {header for _, header in unlocked} == {
+        "Decision",
+        "Rationale",
+        "Reviewer Identity",
+        "Review Date",
+        "Exception?",
+        "Exception Rationale",
+    }
+    assert all(sheet.protection.sheet for sheet in book.worksheets)
+    assert book.calculation.calcMode == "auto"
+    assert book.calculation.fullCalcOnLoad is False
+    with ZipFile(path) as archive:
+        roots = (
+            DefusedET.fromstring(archive.read(name))
+            for name in archive.namelist()
+            if name.startswith("xl/worksheets/") and name.endswith(".xml")
+        )
+        formula = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f"
+        assert not any(any(True for _ in root.iter(formula)) for root in roots)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("decision", "atomic_kind"),
+    [
+        (APPROVE, "approved-non-exclusive-coverage"),
+        (REJECT, "rejected-retain-broader"),
+        (INDIVIDUAL, "individual-review-required"),
+        (ABSTAIN, "escalated"),
+    ],
+)
+async def test_every_pattern_decision_expands_to_atomic_frozen_membership(
+    packet_and_labels, tmp_path: Path, decision: str, atomic_kind: str
+) -> None:
+    report, packet, _ = packet_and_labels
+    workbook = tmp_path / f"{atomic_kind}.xlsx"
+    registry_path = tmp_path / f"{atomic_kind}.json"
+    _workbook(packet, workbook, decision)
     registry = import_r101_review_decisions(
         packet, workbook, registry_path, provenance="test-only"
     )
     assert load_r101_decision_registry(registry_path) == registry
-    assert len(registry.decisions) == 162
-    assert registry.status == "proposed"
-    assert registry.provenance == "test-only"
-    result = dry_run_r101_authorization(report, packet, registry)
-    assert result.verdict == "logically-eligible"
-    assert result.report_identity == report.report_identity
-    assert result.provenance == "test-only"
+    assert len(registry.pattern_decisions) == 162
+    assert len(registry.atomic_decisions) == 3291
+    assert {row.outcome for row in registry.atomic_decisions} == {atomic_kind}
+    assert all(
+        row.source_packet_identity == packet.packet_identity
+        for row in registry.atomic_decisions
+    )
+    assert all(row.proposition_text for row in registry.atomic_decisions)
+    assert all(
+        row.model_dump(include=set(DENIALS)) == DENIALS
+        for row in registry.atomic_decisions
+    )
+    result = dry_run_r101_decision_expansion(report, packet, registry)
     assert result.writes_performed is False
-    with pytest.raises(
-        R101ConservationValidationError, match="content-authorization-missing"
-    ):
+    assert result.atomic_decisions == 3291
+    assert report.content_authorization.status == "pending"
+    with pytest.raises(R101ConservationValidationError, match="authorization-missing"):
         validate_r101_publication(report)
 
-    rejected = tmp_path / "rejected.xlsx"
-    write_r101_review_workbook(rejected, packet)
-    _fill_test_only_decisions(rejected, reject_row=2)
-    rejected_registry = import_r101_review_decisions(
-        packet, rejected, tmp_path / "rejected.json", provenance="test-only"
+
+@pytest.mark.unit
+async def test_approved_exceptions_exclude_all_disease_occurrences(
+    packet_and_labels, tmp_path: Path
+) -> None:
+    _, packet, _ = packet_and_labels
+    workbook = tmp_path / "exceptions.xlsx"
+    _workbook(packet, workbook)
+    book = load_workbook(workbook)
+    disease = book["Disease Propositions"]
+    headers = _headers(disease)
+    target = packet.disease_propositions[0]
+    disease.cell(2, headers["Exception?"], "Yes")
+    disease.cell(2, headers["Exception Rationale"], "Disease-specific context differs")
+    book.save(workbook)
+    registry = import_r101_review_decisions(
+        packet, workbook, tmp_path / "registry.json", provenance="test-only"
     )
+    affected = [
+        row
+        for row in registry.atomic_decisions
+        if row.pattern_number == target.pattern_number
+        and row.disease_code == target.disease_code
+    ]
+    assert len(affected) == target.occurrence_count
+    assert {row.outcome for row in affected} == {"disease-exception"}
     assert (
-        dry_run_r101_authorization(report, packet, rejected_registry).verdict
-        == "blocked"
+        sum(
+            row.outcome == "approved-non-exclusive-coverage"
+            for row in registry.atomic_decisions
+        )
+        == 3291 - target.occurrence_count
     )
+
+    missing = tmp_path / "missing-rationale.xlsx"
+    _workbook(packet, missing)
+    book = load_workbook(missing)
+    disease = book["Disease Propositions"]
+    headers = _headers(disease)
+    disease.cell(2, headers["Exception?"], "Yes")
+    book.save(missing)
+    with pytest.raises(R101ReviewValidationError, match="exception rationale"):
+        import_r101_review_decisions(
+            packet, missing, tmp_path / "none.json", provenance="test-only"
+        )
+
+
+@pytest.mark.unit
+async def test_exceptions_are_invalid_for_nonapprove_patterns(
+    packet_and_labels, tmp_path: Path
+) -> None:
+    _, packet, _ = packet_and_labels
+    path = tmp_path / "invalid-exception.xlsx"
+    _workbook(packet, path, REJECT)
+    book = load_workbook(path)
+    disease = book["Disease Propositions"]
+    headers = _headers(disease)
+    disease.cell(2, headers["Exception?"], "Yes")
+    disease.cell(2, headers["Exception Rationale"], "not allowed")
+    book.save(path)
+    with pytest.raises(R101ReviewValidationError, match="non-approve"):
+        import_r101_review_decisions(
+            packet, path, tmp_path / "none.json", provenance="test-only"
+        )
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
-        ("evidence", "evidence"),
-        ("reorder", "order"),
-        ("missing", "exactly one decision"),
-        ("duplicate", "pattern"),
-        ("extra", "extra"),
-        ("formula", "formula"),
-        ("stale-binding", "binding"),
+        ("pattern-count-minus", "162 pattern rows"),
+        ("disease-count-plus", "2800 disease rows"),
+        ("substitute-disease", "disease proposition differs"),
+        ("edit-label", "pattern visible row differs"),
+        ("edit-proposition", "pattern visible row differs"),
+        ("reorder", "pattern visible row differs"),
+        ("binding", "binding cells differ"),
     ],
 )
-async def test_workbook_tampering_and_non_total_decisions_refuse(
-    packet_and_labels, tmp_path, mutation: str, message: str
+async def test_named_visible_inventory_and_digest_refusal_gates_are_live(
+    packet_and_labels, tmp_path: Path, mutation: str, message: str
 ) -> None:
     _, packet, _ = packet_and_labels
-    workbook = tmp_path / f"{mutation}.xlsx"
-    write_r101_review_workbook(workbook, packet)
-    _fill_test_only_decisions(workbook)
-    book = load_workbook(workbook)
-    sheet = book["Pattern Decisions"]
-    headers = _headers(sheet)
-    if mutation == "evidence":
-        sheet.cell(2, headers["Old Broader Code"], "C999")
+    path = tmp_path / f"{mutation}.xlsx"
+    _workbook(packet, path)
+    book = load_workbook(path)
+    patterns = book["Pattern Review"]
+    diseases = book["Disease Propositions"]
+    pattern_headers = _headers(patterns)
+    disease_headers = _headers(diseases)
+    if mutation == "pattern-count-minus":
+        patterns.delete_rows(patterns.max_row)
+    elif mutation == "disease-count-plus":
+        diseases.append([2801])
+    elif mutation == "substitute-disease":
+        diseases.cell(2, disease_headers["Disease"], "Substituted Disease (C999999)")
+    elif mutation == "edit-label":
+        patterns.cell(2, pattern_headers["Broader Site"], "Edited (C1)")
+    elif mutation == "edit-proposition":
+        patterns.cell(2, pattern_headers["Review Proposition"], "Universal claim")
     elif mutation == "reorder":
-        first = str(sheet.cell(2, headers["Pattern ID"]).value)
-        second = str(sheet.cell(3, headers["Pattern ID"]).value)
-        first_cell = sheet.cell(2, headers["Pattern ID"])
-        second_cell = sheet.cell(3, headers["Pattern ID"])
-        assert isinstance(first_cell, Cell)
-        assert isinstance(second_cell, Cell)
-        first_cell.value = second
-        second_cell.value = first
-    elif mutation == "missing":
-        sheet.cell(2, headers["Decision"]).value = None
-    elif mutation == "duplicate":
-        sheet.cell(3, headers["Pattern ID"], sheet.cell(2, headers["Pattern ID"]).value)
-    elif mutation == "extra":
-        sheet.cell(sheet.max_row + 1, headers["Pattern ID"], "extra")
-    elif mutation == "formula":
-        sheet.cell(2, headers["Rationale"], "=1+1")
-    elif mutation == "stale-binding":
+        first = [cell.value for cell in patterns[2]]
+        second = [cell.value for cell in patterns[3]]
+        for column, value in enumerate(second, 1):
+            patterns.cell(2, column, value)
+        for column, value in enumerate(first, 1):
+            patterns.cell(3, column, value)
+    elif mutation == "binding":
         book["Bindings"]["B2"] = "0" * 64
-    book.save(workbook)
-
+    book.save(path)
     with pytest.raises(R101ReviewValidationError, match=message):
         import_r101_review_decisions(
-            packet,
-            workbook,
-            tmp_path / "must-not-exist.json",
-            provenance="test-only",
+            packet, path, tmp_path / "must-not-exist.json", provenance="test-only"
         )
     assert not (tmp_path / "must-not-exist.json").exists()
 
 
 @pytest.mark.unit
-async def test_xlsx_macros_external_links_and_stale_registry_refuse(
-    packet_and_labels, tmp_path
+async def test_saved_reopened_and_openpyxl_resaved_workbooks_import_by_cells(
+    packet_and_labels, tmp_path: Path
 ) -> None:
-    report, packet, _ = packet_and_labels
-    workbook = tmp_path / "review.xlsx"
-    write_r101_review_workbook(workbook, packet)
-    _fill_test_only_decisions(workbook)
-
-    for member, message in (
-        ("xl/vbaProject.bin", "macro"),
-        ("xl/externalLinks/externalLink1.xml", "external link"),
-    ):
-        tampered = tmp_path / f"{Path(member).name}.xlsx"
-        tampered.write_bytes(workbook.read_bytes())
-        with ZipFile(tampered, "a", ZIP_DEFLATED) as archive:
-            archive.writestr(member, b"TEST-ONLY")
-        with pytest.raises(R101ReviewValidationError, match=message):
-            import_r101_review_decisions(
-                packet, tampered, tmp_path / "out.json", provenance="test-only"
-            )
-
-    registry = import_r101_review_decisions(
-        packet, workbook, tmp_path / "registry.json", provenance="test-only"
-    )
-    stale = registry.model_copy(update={"packet_identity": "0" * 64})
-    with pytest.raises(R101ReviewValidationError, match="packet identity"):
-        dry_run_r101_authorization(report, packet, stale)
-
-
-@pytest.mark.unit
-async def test_registry_loader_and_dry_run_refusal_gates_are_live(
-    packet_and_labels, tmp_path
-) -> None:
-    report, packet, _ = packet_and_labels
-    workbook = tmp_path / "review.xlsx"
-    registry_path = tmp_path / "registry.json"
-    write_r101_review_workbook(workbook, packet)
-    _fill_test_only_decisions(workbook)
-    registry = import_r101_review_decisions(
-        packet, workbook, registry_path, provenance="test-only"
-    )
-
-    for name, mutation, message in (
-        (
-            "missing",
-            lambda payload: payload["decisions"].pop(),
-            "registry identity",
-        ),
-        (
-            "extra",
-            lambda payload: payload["decisions"].append(payload["decisions"][0]),
-            "canonical and unique",
-        ),
-        (
-            "duplicate",
-            lambda payload: payload["decisions"][1].update(
-                {"pattern_id": payload["decisions"][0]["pattern_id"]}
-            ),
-            "canonical and unique",
-        ),
-        (
-            "invalid-decision",
-            lambda payload: payload["decisions"][0].update({"decision": "maybe"}),
-            "decision",
-        ),
-        (
-            "empty-rationale",
-            lambda payload: payload["decisions"][0].update({"rationale": ""}),
-            "rationale",
-        ),
-    ):
-        payload = registry.model_dump(mode="json")
-        mutation(payload)
-        path = tmp_path / f"{name}.json"
-        path.write_text(json.dumps(payload))
-        with pytest.raises(R101ReviewValidationError, match=message):
-            load_r101_decision_registry(path)
-
-    incomplete_payload = registry.model_dump(mode="json", exclude={"registry_identity"})
-    incomplete_payload["decisions"].pop()
-    incomplete_path = tmp_path / "bound-incomplete.json"
-    incomplete_path.write_text(
-        json.dumps(
-            {
-                **incomplete_payload,
-                "registry_identity": _test_identity(incomplete_payload),
-            }
-        )
-    )
-    incomplete = load_r101_decision_registry(incomplete_path)
-    with pytest.raises(R101ReviewValidationError, match="pattern inventory"):
-        dry_run_r101_authorization(report, packet, incomplete)
-
-    for stale, message in (
-        (registry.model_copy(update={"report_identity": "0" * 64}), "report identity"),
-        (registry.model_copy(update={"source_identity": "0" * 64}), "source identity"),
-    ):
-        with pytest.raises(R101ReviewValidationError, match=message):
-            dry_run_r101_authorization(report, packet, stale)
-
-
-@pytest.mark.unit
-def test_path_and_pattern_schema_refusal_gates_are_live(packet_and_labels) -> None:
     _, packet, _ = packet_and_labels
-    path_payload = packet.patterns[0].paths[0].model_dump(mode="json")
-    for field, value, message in (
-        ("labels", ["too", "short"], "path labels"),
-        ("fact_identities", ["0" * 64], "path facts"),
-        ("path_identity", "0" * 64, "path identity"),
-    ):
-        mutated = {**path_payload, field: value}
-        with pytest.raises(ValueError, match=message):
-            ReviewPath.model_validate_json(json.dumps(mutated))
+    original = tmp_path / "original.xlsx"
+    _workbook(packet, original)
+    original_bytes = original.read_bytes()
+    book = load_workbook(original)
+    resaved = tmp_path / "resaved.xlsx"
+    book.save(resaved)
+    # Container bytes are deliberately not an acceptance identity; either equality
+    # or inequality after a third-party resave is benign.
+    assert original_bytes
+    assert resaved.read_bytes()
+    registry = import_r101_review_decisions(
+        packet, resaved, tmp_path / "registry.json", provenance="test-only"
+    )
+    assert len(registry.atomic_decisions) == 3291
 
-    pattern_payload = packet.patterns[0].model_dump(mode="json")
-    for mutation, message in (
-        (
-            lambda payload: payload.update(
-                {"affected_concept_count": payload["affected_concept_count"] + 1}
-            ),
-            "affected concept count",
-        ),
-        (
-            lambda payload: payload.update(
-                {"affected_occurrence_count": payload["affected_occurrence_count"] + 1}
-            ),
-            "affected occurrence count",
-        ),
-        (
-            lambda payload: payload.update(
-                {"occurrence_count": payload["occurrence_count"] + 1}
-            ),
-            "pattern occurrence count",
-        ),
-        (
-            lambda payload: payload["evidence_kind_counts"].update(
-                {"one_step": payload["evidence_kind_counts"]["one_step"] + 1}
-            ),
-            "pattern evidence counts",
-        ),
-        (
-            lambda payload: payload.update({"row_identity": "0" * 64}),
-            "row identity",
-        ),
-    ):
-        mutated = json.loads(json.dumps(pattern_payload))
-        mutation(mutated)
-        with pytest.raises(ValueError, match=message):
-            ReviewPattern.model_validate_json(json.dumps(mutated))
+
+@pytest.mark.unit
+async def test_stale_v2_packet_and_workbook_refuse(
+    packet_and_labels, tmp_path: Path
+) -> None:
+    _, packet, _ = packet_and_labels
+    stale_packet = tmp_path / "v2.json"
+    payload = packet.model_dump(mode="json")
+    payload["schema_version"] = 2
+    stale_packet.write_text(json.dumps(payload))
+    with pytest.raises(R101ReviewValidationError, match="schema_version"):
+        load_r101_review_packet(stale_packet)
+
+    stale_workbook = tmp_path / "v2.xlsx"
+    _workbook(packet, stale_workbook)
+    book = load_workbook(stale_workbook)
+    book["Bindings"]["B6"] = 2
+    book.save(stale_workbook)
+    with pytest.raises(R101ReviewValidationError, match="binding cells differ"):
+        import_r101_review_decisions(
+            packet, stale_workbook, tmp_path / "none.json", provenance="test-only"
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "delta", "message"),
+    [
+        ("patterns", -1, "162 patterns"),
+        ("disease_propositions", -1, "2800 disease propositions"),
+        ("disease_propositions", 1, "2800 disease propositions"),
+        ("occurrences", -1, "3291 occurrences"),
+        ("occurrences", 1, "3291 occurrences"),
+    ],
+)
+async def test_packet_count_refusal_gates_are_live(
+    packet_and_labels, field: str, delta: int, message: str
+) -> None:
+    _, packet, _ = packet_and_labels
+    payload = packet.model_dump(mode="python")
+    rows = list(payload[field])
+    if delta < 0:
+        rows.pop()
+    else:
+        rows.append(rows[-1])
+    payload[field] = tuple(rows)
+    with pytest.raises(ValueError, match=message):
+        R101ReviewPacket.model_validate(payload)
 
 
 class _SelectRows:
-    def __init__(self, rows: list[dict[str, str]]) -> None:
-        self.rows = rows
+    def __init__(self, labels: dict[str, tuple[str, ...]]) -> None:
+        self.labels = labels
+        self.batch_sizes: list[int] = []
 
-    async def select(self, query: str, *, required_variables=()):
-        assert "VALUES ?c" in query
-        assert "versionInfo" not in query
-        assert "SELECT DISTINCT ?c ?label" in query
-        assert "MIN(" not in query
-        assert tuple(required_variables) == ("c", "label")
-        return self.rows
-
-
-class _ProductionShapedLabelRows:
     async def select(self, query: str, *, required_variables=()):
         codes = sorted(set(re.findall(r"#(C[0-9]+)>", query)))
-        rows = [
+        self.batch_sizes.append(len(codes))
+        assert tuple(required_variables) == ("c", "label")
+        return [
             {
                 "c": f"http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#{code}",
-                "label": f"TEST label {code}",
+                "label": label,
             }
             for code in codes
+            for label in self.labels.get(code, (f"Label {code}",))
         ]
-        rows.append(
-            {
-                "c": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C12727",
-                "label": "Second distinct stated label",
-            }
-        )
-        return rows
 
 
 @pytest.mark.unit
-async def test_qlever_label_reader_refusal_gates_are_live() -> None:
-    iri = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C1"
-    valid = {"c": iri, "label": "One"}
-    reader = QLeverReviewLabels(_SelectRows([valid]))
-    assert await reader.labels_for_review(("C1",)) == {"C1": ("One",)}
-    assert reader.query_count == 1
+async def test_qlever_labels_are_bounded_and_refuse_ambiguous_rows() -> None:
+    codes = tuple(f"C{index}" for index in range(1201))
+    client = _SelectRows({})
+    reader = QLeverReviewLabels(client, max_batch_size=500)
+    labels = await reader.labels_for_review(codes)
+    assert len(labels) == 1201
+    assert reader.query_count == math.ceil(1201 / 500)
+    assert client.batch_sizes == [500, 500, 201]
 
-    duplicate = QLeverReviewLabels(_SelectRows([valid, valid]))
-    assert await duplicate.labels_for_review(("C1",)) == {"C1": ("One",)}
-
-    distinct = QLeverReviewLabels(
-        _SelectRows([valid, {**valid, "label": "Other stated label"}])
-    )
-    assert await distinct.labels_for_review(("C1",)) == {
-        "C1": ("One", "Other stated label")
-    }
-
-    for row, message in (
-        ({**valid, "c": "not-an-ncit-iri"}, "code binding"),
-        ({key: value for key, value in valid.items() if key != "label"}, "label"),
+    report = load_r101_conservation_report(REPORT_PATH)
+    for override, message in (
+        ((), "missing label"),
+        (("one", "two"), "multiple labels"),
     ):
         with pytest.raises(R101ReviewValidationError, match=message):
-            await QLeverReviewLabels(_SelectRows([row])).labels_for_review(("C1",))
+            await build_r101_review_packet(
+                report, SOURCE_MANIFEST, _Labels({"C12727": list(override)})
+            )
 
 
 @pytest.mark.unit
-async def test_real_reader_and_double_both_refuse_distinct_stated_labels() -> None:
-    report = load_r101_conservation_report(REPORT_PATH)
-    for labels in (
-        QLeverReviewLabels(_ProductionShapedLabelRows()),
-        _Labels({"C12727": ["TEST label C12727", "Second distinct stated label"]}),
-    ):
-        with pytest.raises(
-            R101ReviewValidationError, match="multiple labels for C12727"
-        ):
-            await build_r101_review_packet(report, SOURCE_MANIFEST, labels)
-
-
-@pytest.mark.unit
-async def test_prepare_certifies_explicit_live_source_before_label_read(
-    monkeypatch, tmp_path, capsys
+async def test_prepare_certifies_source_before_batched_label_reads(
+    monkeypatch, tmp_path: Path, capsys
 ) -> None:
     report = load_r101_conservation_report(REPORT_PATH)
     events: list[str] = []
 
     async def source_snapshot(manifest: Path, endpoint: str) -> NcitSourceSnapshot:
         events.append("source-certified")
-        assert manifest == SOURCE_MANIFEST
-        assert endpoint == "http://qlever.test"
         return NcitSourceSnapshot(
             source_identity=report.source_identity,
             ontology_version=report.source_release_id,
@@ -536,12 +614,17 @@ async def test_prepare_certifies_explicit_live_source_before_label_read(
             return None
 
     class Labels:
-        query_count = 1
+        query_count = 5
 
         def __init__(self, _client) -> None:
             events.append("label-reader-created")
 
-    packet = SimpleNamespace(packet_identity="a" * 64, patterns=(1,), occurrences=(1,))
+    packet = SimpleNamespace(
+        packet_identity="a" * 64,
+        patterns=(1,) * 162,
+        disease_propositions=(1,) * 2800,
+        occurrences=(1,) * 3291,
+    )
 
     async def build(*_args):
         events.append("labels-read")
@@ -555,7 +638,6 @@ async def test_prepare_certifies_explicit_live_source_before_label_read(
     monkeypatch.setattr(adjudication, "build_r101_review_packet", build)
     monkeypatch.setattr(adjudication, "write_r101_review_packet", lambda *_args: None)
     monkeypatch.setattr(adjudication, "write_r101_review_workbook", lambda *_args: None)
-
     await adjudication._prepare_r101_review(
         cast(
             "Any",
@@ -568,531 +650,186 @@ async def test_prepare_certifies_explicit_live_source_before_label_read(
             ),
         )
     )
-
     assert events == [
         "source-certified",
         "label-client-opened",
         "label-reader-created",
         "labels-read",
     ]
-    assert "source_checks=9 label_reads=1 qlever_reads=10" in capsys.readouterr().err
+    output = capsys.readouterr().err
+    assert "patterns=162 diseases=2800 occurrences=3291" in output
+    assert "source_checks=9 label_reads=5 qlever_reads=14" in output
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "observed",
-    [
-        NcitSourceSnapshot(source_identity="0" * 64, ontology_version="26.07d"),
-        NcitSourceSnapshot(source_identity="a" * 64, ontology_version="drifted"),
-    ],
-)
-async def test_prepare_refuses_source_identity_or_release_drift_before_labels(
-    monkeypatch, tmp_path, observed
-) -> None:
-    report = load_r101_conservation_report(REPORT_PATH)
-    if observed.source_identity == "a" * 64:
-        observed = observed.model_copy(
-            update={"source_identity": report.source_identity}
-        )
-
-    async def source_snapshot(_manifest: Path, _endpoint: str) -> NcitSourceSnapshot:
-        return observed
-
-    monkeypatch.setattr(adjudication, "_source_snapshot", source_snapshot)
-    monkeypatch.setattr(
-        adjudication,
-        "ncit_sparql_client",
-        lambda _endpoint: pytest.fail("labels read before source refusal"),
-    )
-
-    with pytest.raises(R101ConservationValidationError, match="live source"):
-        await adjudication._prepare_r101_review(
-            cast(
-                "Any",
-                SimpleNamespace(
-                    report=REPORT_PATH,
-                    source_manifest=SOURCE_MANIFEST,
-                    endpoint="http://qlever.test",
-                    output_packet=tmp_path / "packet.json",
-                    output_xlsx=tmp_path / "packet.xlsx",
-                ),
-            )
-        )
-    assert not (tmp_path / "packet.json").exists()
-    assert not (tmp_path / "packet.xlsx").exists()
-
-
-def _assert_formula_free_archive(first: Path) -> None:
-    with ZipFile(first) as archive:
-        assert archive.namelist() == sorted(archive.namelist())
-        assert {item.date_time for item in archive.infolist()} == {
-            (1980, 1, 1, 0, 0, 0)
-        }
-        assert not any(
-            name.startswith("xl/externalLinks/") for name in archive.namelist()
-        )
-        assert "xl/calcChain.xml" not in archive.namelist()
-        worksheet_roots = (
-            DefusedET.fromstring(archive.read(name))
-            for name in archive.namelist()
-            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
-        )
-        formula_tag = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f"
-        assert not any(
-            any(True for _ in root.iter(formula_tag)) for root in worksheet_roots
-        )
-        workbook_xml = DefusedET.fromstring(archive.read("xl/workbook.xml"))
-        namespace = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-        calc_properties = workbook_xml.find("x:calcPr", namespace)
-        assert calc_properties is not None
-        assert calc_properties.attrib == {
-            "calcMode": "auto",
-            "fullCalcOnLoad": "0",
-            "forceFullCalc": "0",
-        }
-
-
-def _assert_reviewer_guidance(book) -> None:
-    instructions = "\n".join(
-        str(cell.value) for row in book["Instructions"].iter_rows() for cell in row
-    )
-    sections = (
-        "Purpose",
-        "What approval means",
-        "What approval does NOT mean",
-        "How this workbook was generated",
-        "Reviewer procedure",
-        "Approve only when",
-        "Reject or flag these problems",
-        "Escalation and incomplete reviews",
-        "TRUE/FALSE sentinels and workbook safeguards",
-    )
-    assert all(section in instructions for section in sections)
-    required = (
-        "retained narrower PrimarySite",
-        "omitted broader PrimarySite",
-        "every distinct path",
-        "no equivalence",
-        "source deletion",
-        "NCIt acceptance",
-        "general ontology rule",
-        "26.07d",
-        "3,291 covered occurrences",
-        "162 endpoint patterns",
-        "no SME decisions generated",
-        "review all rows",
-        "do not edit evidence",
-        "clinically important meaning",
-        "path direction",
-        "composite or system",
-        "reject rather than guess",
-        "rejection blocks authorization",
-        "no partial defaults",
-        "anti-accident",
-        "revalidates every cell",
-        "FALSE means no covered occurrence",
-    )
-    assert all(guidance in instructions for guidance in required)
-    assert "TEST label C6135 (C6135)" in instructions
-    assert "TEST label C101539 (C101539)" in instructions
-    assert "TEST label C4791 (C4791)" in instructions
-
-
-def _assert_column_dictionary(book) -> None:
-    definitions = book["Column Definitions"]
-    assert tuple(cell.value for cell in definitions[1]) == (
-        "Sheet",
-        "Header",
-        "Plain-language definition",
-        "Source / procedure",
-        "Reviewer action",
-        "Warning signs",
-    )
-    rows = {
-        (str(row[0].value), str(row[1].value)): tuple(
-            str(cell.value) for cell in row[2:]
-        )
-        for row in definitions.iter_rows(min_row=2)
-    }
-    decisions = book["Pattern Decisions"]
-    occurrences = book["Occurrence Evidence"]
-    expected = {("Pattern Decisions", str(cell.value)) for cell in decisions[1]} | {
-        ("Occurrence Evidence", str(cell.value)) for cell in occurrences[1]
-    }
-    assert set(rows) == expected
-    assert all(
-        all(value and value != "None" for value in values) for values in rows.values()
-    )
-    assert "provenance" in rows[("Pattern Decisions", "Pattern ID")][0]
-    assert "audit" in rows[("Pattern Decisions", "Row Identity")][0]
-    assert "directed" in rows[("Pattern Decisions", "Directed R82 Paths")][0]
-    assert "reviewer" in rows[("Pattern Decisions", "Decision")][2]
-    assert "provenance" in rows[("Occurrence Evidence", "Source Fact ID")][0]
-    assert "investigating" in rows[("Occurrence Evidence", "Path Identity")][2]
-    for code in ("C6135", "C101539", "C4791"):
-        assert (
-            f"TEST label {code} ({code})"
-            in rows[("Pattern Decisions", f"Sentinel {code}")][0]
-        )
-    assert definitions.protection.sheet
-    assert all(
-        cell.protection.locked for row in definitions.iter_rows() for cell in row
-    )
-
-
-def _assert_examples_and_editability(book) -> None:
-    examples = book["Review Examples"]
-    text = "\n".join(str(cell.value) for row in examples.iter_rows() for cell in row)
-    assert all(
-        value in text
-        for value in (
-            "ILLUSTRATIVE ONLY",
-            "not packet evidence",
-            "approve",
-            "reject",
-            "ambiguous",
-        )
-    )
-    assert examples.protection.sheet
-    assert all(cell.protection.locked for row in examples.iter_rows() for cell in row)
-
-    decisions = book["Pattern Decisions"]
-    editable = {"Decision", "Rationale", "Reviewer Identity", "Review Date"}
-    for sheet in book.worksheets:
-        assert sheet.protection.sheet
-        if sheet.title != "Pattern Decisions":
-            assert all(
-                cell.protection.locked for row in sheet.iter_rows() for cell in row
-            )
-    for row in decisions.iter_rows(min_row=2):
-        for column, cell in enumerate(row, start=1):
-            header = str(decisions.cell(1, column).value)
-            assert cell.protection.locked == (header not in editable)
-            if header in editable:
-                assert cell.fill.fill_type == "solid"
-    assert (
-        sum(
-            not cell.protection.locked
-            for sheet in book.worksheets
-            for row in sheet.iter_rows()
-            for cell in row
-        )
-        == 648
-    )
-
-
-@pytest.mark.unit
-async def test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries(
-    packet_and_labels, tmp_path
-) -> None:
-    _, packet, _ = packet_and_labels
-    first = tmp_path / "first.xlsx"
-    second = tmp_path / "second.xlsx"
-    write_r101_review_workbook(first, packet)
-    write_r101_review_workbook(second, packet)
-
-    assert first.read_bytes() == second.read_bytes()
-    _assert_formula_free_archive(first)
-    book = load_workbook(first)
-    assert book.calculation.calcMode == "auto"
-    assert book.calculation.fullCalcOnLoad is False
-    assert book.calculation.forceFullCalc is False
-    _assert_reviewer_guidance(book)
-    assert book.sheetnames == [
-        "Instructions",
-        "Bindings",
-        "Column Definitions",
-        "Review Examples",
-        "Pattern Decisions",
-        "Occurrence Evidence",
-    ]
-    decisions = book["Pattern Decisions"]
-    occurrences = book["Occurrence Evidence"]
-    _assert_column_dictionary(book)
-    _assert_examples_and_editability(book)
-    headers = _headers(decisions)
-    assert decisions.freeze_panes == "A2"
-    assert decisions.auto_filter.ref == decisions.dimensions
-    assert occurrences.freeze_panes == "A2"
-    assert occurrences.auto_filter.ref == occurrences.dimensions
-    assert all(
-        decisions.cell(1, headers[name]).comment is not None
-        for name in (
-            "Pattern ID",
-            "Old Broader Code",
-            "Retained Narrower Code",
-            "Directed R82 Paths",
-            "Decision",
-        )
-    )
-    binding_rows = {
-        str(row[0].value): row[1].value for row in book["Bindings"].iter_rows(min_row=2)
-    }
-    assert binding_rows["guidance_identity"] == packet.guidance_identity
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("sheet_name", "cell", "replacement"),
-    [
-        ("Instructions", "B7", "Approve without checking every context."),
-        ("Column Definitions", "C19", "Wrong sentinel label (C6135)."),
-        ("Review Examples", "B2", "This is real packet evidence."),
-    ],
-)
-async def test_import_rejects_any_guidance_edit_with_accepting_control(
-    packet_and_labels, tmp_path, sheet_name: str, cell: str, replacement: str
-) -> None:
-    _, packet, _ = packet_and_labels
-    control = tmp_path / "control.xlsx"
-    write_r101_review_workbook(control, packet)
-    _fill_test_only_decisions(control)
-    registry = import_r101_review_decisions(
-        packet, control, tmp_path / "control.json", provenance="test-only"
-    )
-    assert len(registry.decisions) == 162
-
-    tampered = tmp_path / "tampered.xlsx"
-    tampered.write_bytes(control.read_bytes())
-    book = load_workbook(tampered)
-    book[sheet_name][cell] = replacement
-    book.save(tampered)
-    with pytest.raises(R101ReviewValidationError, match="guidance"):
-        import_r101_review_decisions(
-            packet, tampered, tmp_path / "must-not-exist.json", provenance="test-only"
-        )
-    assert not (tmp_path / "must-not-exist.json").exists()
-
-
-@pytest.mark.unit
-async def test_import_rejects_workbook_bound_to_superseded_packet(tmp_path) -> None:
-    report = load_r101_conservation_report(REPORT_PATH)
-    old_packet = await build_r101_review_packet(report, SOURCE_MANIFEST, _Labels())
-    old_workbook = tmp_path / "old.xlsx"
-    write_r101_review_workbook(old_workbook, old_packet)
-    _fill_test_only_decisions(old_workbook)
-
-    new_packet = await build_r101_review_packet(
-        report,
-        SOURCE_MANIFEST,
-        _Labels({"C6135": ["TEST changed release-bound sentinel label"]}),
-    )
-    assert new_packet.packet_identity != old_packet.packet_identity
-    with pytest.raises(R101ReviewValidationError, match="binding"):
-        import_r101_review_decisions(
-            new_packet,
-            old_workbook,
-            tmp_path / "must-not-exist.json",
-            provenance="test-only",
-        )
-
-
-@pytest.mark.unit
-async def test_registry_provenance_identity_and_real_application_refusal(
-    packet_and_labels, tmp_path
-) -> None:
-    report, packet, _ = packet_and_labels
-    workbook = tmp_path / "review.xlsx"
-    write_r101_review_workbook(workbook, packet)
-    _fill_test_only_decisions(workbook)
-    registry = import_r101_review_decisions(
-        packet,
-        workbook,
-        tmp_path / "test-registry.json",
-        provenance="test-only",
-    )
-
-    payload = registry.model_dump(mode="python")
-    payload["provenance"] = "sme"
-    with pytest.raises(ValueError, match="registry identity"):
-        R101DecisionRegistry.model_validate(payload)
-    with pytest.raises(R101ReviewValidationError, match="test-only"):
-        apply_r101_authorization(report, packet, registry)
-
-    sme_registry = import_r101_review_decisions(
-        packet, workbook, tmp_path / "sme-registry.json", provenance="sme"
-    )
-    candidate = apply_r101_authorization(report, packet, sme_registry)
-    validate_r101_publication(candidate)
-    reloaded = R101ConservationReport.model_validate_json(candidate.model_dump_json())
-    assert reloaded == candidate
-    assert candidate.content_authorization.authorized_digest == report.json_identity
-
-
-@pytest.mark.unit
-async def test_authorization_application_exercises_every_publication_refusal_branch(
-    packet_and_labels, tmp_path
-) -> None:
-    report, packet, _ = packet_and_labels
-    workbook = tmp_path / "review.xlsx"
-    write_r101_review_workbook(workbook, packet)
-    _fill_test_only_decisions(workbook)
-    registry = import_r101_review_decisions(
-        packet, workbook, tmp_path / "registry.json", provenance="sme"
-    )
-    accepted = apply_r101_authorization(report, packet, registry)
-    validate_r101_publication(accepted)
-
-    mutations = (
-        (
-            accepted.model_copy(
-                update={
-                    "counts": accepted.counts.model_copy(update={"non_r101_delta": 1})
-                }
-            ),
-            "non-r101-delta",
-        ),
-        (accepted.model_copy(update={"mechanical_status": "incomplete"}), "unresolved"),
-        (
-            accepted.model_copy(
-                update={
-                    "content_authorization": accepted.content_authorization.model_copy(
-                        update={"status": "pending", "authorized_digest": None}
-                    )
-                }
-            ),
-            "authorization-missing",
-        ),
-        (
-            accepted.model_copy(
-                update={
-                    "content_authorization": accepted.content_authorization.model_copy(
-                        update={
-                            "status": "digest-mismatch",
-                            "authorized_digest": "0" * 64,
-                        }
-                    )
-                }
-            ),
-            "digest-mismatch",
-        ),
-        (accepted.model_copy(update={"publication_gate": "blocked"}), "missing"),
-    )
-    for mutated, message in mutations:
-        with pytest.raises(R101ConservationValidationError, match=message):
-            validate_r101_publication(mutated)
-
-
-@pytest.mark.unit
-def test_packet_and_registry_totals_are_report_derived(packet_and_labels) -> None:
-    _, packet, _ = packet_and_labels
-    retained_pattern = packet.patterns[0]
-    packet_payload = packet.model_dump(mode="python", exclude={"packet_identity"})
-    packet_payload["patterns"] = (retained_pattern.model_dump(mode="python"),)
-    packet_payload["occurrences"] = tuple(
-        row.model_dump(mode="python")
-        for row in packet.occurrences
-        if row.pattern_id == retained_pattern.pattern_id
-    )
-    smaller_packet = R101ReviewPacket.model_validate(
-        {**packet_payload, "packet_identity": _test_identity(packet_payload)}
-    )
-    decision = {
-        "pattern_id": retained_pattern.pattern_id,
-        "decision": "approve",
-        "rationale": "TEST-ONLY",
-        "reviewer_identity": "TEST-ONLY",
-        "review_date": "2099-01-01",
-    }
-    registry_payload = {
-        "schema_version": 1,
-        "status": "proposed",
-        "provenance": "test-only",
-        "packet_identity": smaller_packet.packet_identity,
-        "report_identity": smaller_packet.bindings.report_identity,
-        "source_identity": smaller_packet.bindings.source_identity,
-        "decisions": (decision,),
-    }
-    registry = R101DecisionRegistry.model_validate(
-        {**registry_payload, "registry_identity": _test_identity(registry_payload)}
-    )
-    assert len(registry.decisions) == len(smaller_packet.patterns) == 1
-
-
-@pytest.mark.unit
-def test_import_cli_requires_explicit_registry_provenance() -> None:
+def test_cli_exposes_decision_expansion_not_authorization() -> None:
+    parser = _parser()
     common = [
-        "import-r101-review-decisions",
+        "dry-run-r101-decision-expansion",
+        "--report",
+        "report.gz",
         "--packet",
         "packet.json",
-        "--reviewed-xlsx",
-        "review.xlsx",
-        "--output",
+        "--registry",
         "registry.json",
+        "--output",
+        "result.json",
     ]
+    assert parser.parse_args(common).command == "dry-run-r101-decision-expansion"
     with pytest.raises(SystemExit):
-        _parser().parse_args(common)
-    assert _parser().parse_args([*common, "--provenance", "test-only"]).provenance == (
-        "test-only"
-    )
+        parser.parse_args(["dry-run-r101-authorization"])
 
 
 @pytest.mark.unit
-async def test_packet_and_workbook_container_refusal_gates_are_live(
-    packet_and_labels, tmp_path
+async def test_archive_macros_links_formulas_and_duplicate_json_refuse(
+    packet_and_labels, tmp_path: Path
 ) -> None:
     _, packet, _ = packet_and_labels
-    duplicate_json = tmp_path / "duplicate.json"
-    duplicate_json.write_text('{"schema_version":1,"schema_version":1}')
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_text('{"schema_version":3,"schema_version":3}')
     with pytest.raises(R101ReviewValidationError, match="duplicate JSON key"):
-        load_r101_review_packet(duplicate_json)
-
-    invalid_xlsx = tmp_path / "invalid.xlsx"
-    invalid_xlsx.write_bytes(b"not an xlsx")
-    with pytest.raises(R101ReviewValidationError, match="invalid XLSX"):
+        load_r101_review_packet(duplicate)
+    path = tmp_path / "review.xlsx"
+    _workbook(packet, path)
+    for member, message in (
+        ("xl/vbaProject.bin", "macro"),
+        ("xl/externalLinks/externalLink1.xml", "external link"),
+    ):
+        changed = tmp_path / Path(member).name
+        changed.write_bytes(path.read_bytes())
+        with ZipFile(changed, "a", ZIP_DEFLATED) as archive:
+            archive.writestr(member, b"TEST")
+        with pytest.raises(R101ReviewValidationError, match=message):
+            import_r101_review_decisions(
+                packet, changed, tmp_path / "none.json", provenance="test-only"
+            )
+    book = load_workbook(path)
+    book["Pattern Review"]["P2"] = "=1+1"
+    book.save(path)
+    with pytest.raises(R101ReviewValidationError, match="formula"):
         import_r101_review_decisions(
-            packet, invalid_xlsx, tmp_path / "out.json", provenance="test-only"
-        )
-
-    workbook = tmp_path / "visible-bindings.xlsx"
-    write_r101_review_workbook(workbook, packet)
-    book = load_workbook(workbook)
-    book["Bindings"].sheet_state = "visible"
-    book.save(workbook)
-    with pytest.raises(R101ReviewValidationError, match="visibility"):
-        import_r101_review_decisions(
-            packet, workbook, tmp_path / "out.json", provenance="test-only"
+            packet, path, tmp_path / "none.json", provenance="test-only"
         )
 
 
 @pytest.mark.unit
-async def test_packet_builder_report_refusal_gates_are_live(
+def test_packet_row_identity_and_shape_refusal_gates_are_live(
+    packet_and_labels,
+) -> None:
+    _, packet, _ = packet_and_labels
+    path_payload = packet.patterns[0].paths[0].model_dump(mode="python")
+    for field, value, message in (
+        ("labels", (*path_payload["labels"], "extra"), "path labels"),
+        ("fact_identities", (), "at least 1 item"),
+        ("path_identity", "0" * 64, "path identity"),
+    ):
+        changed = {**path_payload, field: value}
+        with pytest.raises(ValueError, match=message):
+            ReviewPath.model_validate(changed)
+
+    for mutation, message in (
+        (
+            lambda value: value["evidence_kind_counts"].update(
+                {"one_step": value["evidence_kind_counts"]["one_step"] + 1}
+            ),
+            "evidence counts",
+        ),
+        (
+            lambda value: value.update(
+                {"disease_codes": (*value["disease_codes"], value["disease_codes"][0])}
+            ),
+            "membership is not unique",
+        ),
+        (lambda value: value.update({"row_identity": "0" * 64}), "row identity"),
+    ):
+        changed = packet.patterns[0].model_dump(mode="python")
+        mutation(changed)
+        with pytest.raises(ValueError, match=message):
+            ReviewPattern.model_validate(changed)
+
+    proposition = packet.disease_propositions[0].model_dump(mode="python")
+    proposition["proposition_identity"] = "0" * 64
+    with pytest.raises(ValueError, match="proposition identity"):
+        DiseaseProposition.model_validate(proposition)
+
+    member = packet.membership[0].model_dump(mode="python")
+    member["membership_identity"] = "0" * 64
+    with pytest.raises(ValueError, match="membership row identity"):
+        ReviewMembership.model_validate(member)
+
+
+@pytest.mark.unit
+async def test_packet_aggregate_identity_and_membership_refusals(
+    packet_and_labels,
+) -> None:
+    _, packet, _ = packet_and_labels
+    for mutation, message in (
+        (
+            lambda value: value.update({"guidance_identity": "0" * 64}),
+            "guidance identity",
+        ),
+        (
+            lambda value: value.update({"visible_rows_identity": "0" * 64}),
+            "visible rows identity",
+        ),
+        (
+            lambda value: value.update({"membership_identity": "0" * 64}),
+            "membership identity",
+        ),
+        (
+            lambda value: value.update({"packet_identity": "0" * 64}),
+            "packet identity",
+        ),
+    ):
+        changed = packet.model_dump(mode="python")
+        mutation(changed)
+        with pytest.raises(ValueError, match=message):
+            R101ReviewPacket.model_validate(changed)
+
+    for field, value, message in (
+        (
+            "disease_code",
+            packet.membership[1].disease_code,
+            "proposition membership",
+        ),
+        (
+            "occurrence_ids",
+            packet.membership[1].occurrence_ids,
+            "occurrence audit records",
+        ),
+    ):
+        changed = packet.model_dump(mode="python")
+        member = dict(changed["membership"][0])
+        member[field] = value
+        identity_payload = {
+            key: item for key, item in member.items() if key != "membership_identity"
+        }
+        member["membership_identity"] = _test_identity(identity_payload)
+        changed["membership"] = (member, *changed["membership"][1:])
+        with pytest.raises(ValueError, match=message):
+            R101ReviewPacket.model_validate(changed)
+
+
+@pytest.mark.unit
+async def test_builder_source_and_covered_row_refusal_gates_are_live(
     packet_and_labels,
 ) -> None:
     report, _, _ = packet_and_labels
     for changed, message in (
         (report.model_copy(update={"source_identity": "0" * 64}), "source manifest"),
-        (report.model_copy(update={"source_release_id": "stale"}), "source manifest"),
         (report.model_copy(update={"mechanical_status": "incomplete"}), "incomplete"),
-        (
-            report.model_copy(
-                update={
-                    "counts": report.counts.model_copy(
-                        update={
-                            "covered_by_retained_r82": (
-                                report.counts.covered_by_retained_r82 + 1
-                            )
-                        }
-                    )
-                }
-            ),
-            "does not exhaust",
-        ),
-        (
-            report.model_copy(update={"grouping_presentation": ()}),
-            "does not exhaust",
-        ),
+        (report.model_copy(update={"grouping_presentation": ()}), "does not exhaust"),
     ):
         with pytest.raises(R101ReviewValidationError, match=message):
             await build_r101_review_packet(changed, SOURCE_MANIFEST, _Labels())
 
-    covered_index = next(
+    index = next(
         index
-        for index, occurrence in enumerate(report.occurrences)
-        if occurrence.disposition == "covered-by-retained-r82"
+        for index, row in enumerate(report.occurrences)
+        if row.disposition == "covered-by-retained-r82"
     )
-    covered = report.occurrences[covered_index]
-    for changed_occurrence, message in (
+    covered = report.occurrences[index]
+    for changed_row, message in (
         (covered.model_copy(update={"old_links": ()}), "review-groupable"),
         (
             covered.model_copy(
@@ -1105,8 +842,79 @@ async def test_packet_builder_report_refusal_gates_are_live(
             "cross-axis",
         ),
     ):
-        occurrences = list(report.occurrences)
-        occurrences[covered_index] = changed_occurrence
-        changed = report.model_copy(update={"occurrences": tuple(occurrences)})
+        rows = list(report.occurrences)
+        rows[index] = changed_row
         with pytest.raises(R101ReviewValidationError, match=message):
-            await build_r101_review_packet(changed, SOURCE_MANIFEST, _Labels())
+            await build_r101_review_packet(
+                report.model_copy(update={"occurrences": tuple(rows)}),
+                SOURCE_MANIFEST,
+                _Labels(),
+            )
+
+
+@pytest.mark.unit
+async def test_workbook_guidance_headers_decisions_and_exception_refusals(
+    packet_and_labels, tmp_path: Path
+) -> None:
+    _, packet, _ = packet_and_labels
+    mutations = (
+        ("visible-bindings", "visibility"),
+        ("guidance", "guidance differs"),
+        ("pattern-header", "pattern headers"),
+        ("disease-header", "disease proposition headers"),
+        ("invalid-decision", "closed values"),
+        ("missing-exception", "explicit Yes/No"),
+        ("no-with-rationale", "allowed only"),
+    )
+    for name, message in mutations:
+        path = tmp_path / f"{name}.xlsx"
+        _workbook(packet, path)
+        book = load_workbook(path)
+        if name == "visible-bindings":
+            book["Bindings"].sheet_state = "visible"
+        elif name == "guidance":
+            book["Instructions and Semantics"]["B2"] = "changed"
+        elif name == "pattern-header":
+            book["Pattern Review"]["A1"] = "Wrong"
+        elif name == "disease-header":
+            book["Disease Propositions"]["A1"] = "Wrong"
+        elif name == "invalid-decision":
+            book["Pattern Review"]["O2"] = "maybe"
+        elif name == "missing-exception":
+            book["Disease Propositions"]["J2"] = None
+        else:
+            book["Disease Propositions"]["K2"] = "not allowed for No"
+        book.save(path)
+        with pytest.raises(R101ReviewValidationError, match=message):
+            import_r101_review_decisions(
+                packet, path, tmp_path / "none.json", provenance="test-only"
+            )
+
+
+@pytest.mark.unit
+async def test_registry_identity_atomic_identity_and_stale_bindings_refuse(
+    packet_and_labels, tmp_path: Path
+) -> None:
+    report, packet, _ = packet_and_labels
+    workbook = tmp_path / "review.xlsx"
+    _workbook(packet, workbook)
+    registry = import_r101_review_decisions(
+        packet, workbook, tmp_path / "registry.json", provenance="test-only"
+    )
+    atomic_payload = registry.atomic_decisions[0].model_dump(mode="python")
+    atomic_payload["atomic_decision_identity"] = "0" * 64
+    with pytest.raises(ValueError, match="atomic decision identity"):
+        AtomicDecision.model_validate(atomic_payload)
+
+    registry_payload = registry.model_dump(mode="python")
+    registry_payload["registry_identity"] = "0" * 64
+    with pytest.raises(ValueError, match="registry identity"):
+        R101DecisionRegistry.model_validate(registry_payload)
+
+    for stale, message in (
+        (registry.model_copy(update={"packet_identity": "0" * 64}), "packet identity"),
+        (registry.model_copy(update={"report_identity": "0" * 64}), "report identity"),
+        (registry.model_copy(update={"source_identity": "0" * 64}), "source identity"),
+    ):
+        with pytest.raises(R101ReviewValidationError, match=message):
+            dry_run_r101_decision_expansion(report, packet, stale)

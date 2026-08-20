@@ -41,11 +41,11 @@ from ontolib.decomposition.r101_conservation import (
 from ontolib.decomposition.r101_review import (
     QLeverReviewLabels,
     build_r101_review_packet,
-    dry_run_r101_authorization,
+    dry_run_r101_decision_expansion,
     import_r101_review_decisions,
     load_r101_decision_registry,
     load_r101_review_packet,
-    write_r101_authorization_dry_run,
+    write_r101_decision_expansion_dry_run,
     write_r101_review_packet,
     write_r101_review_workbook,
 )
@@ -179,7 +179,7 @@ class _ImportR101ReviewArgs(Protocol):
     provenance: Literal["sme", "test-only"]
 
 
-class _DryRunR101AuthorizationArgs(Protocol):
+class _DryRunR101DecisionExpansionArgs(Protocol):
     report: Path
     packet: Path
     registry: Path
@@ -357,6 +357,7 @@ async def _prepare_r101_review(args: _PrepareR101ReviewArgs) -> None:
     write_r101_review_workbook(args.output_xlsx, packet)
     print(
         f"packet_identity={packet.packet_identity} patterns={len(packet.patterns)} "
+        f"diseases={len(packet.disease_propositions)} "
         f"occurrences={len(packet.occurrences)} "
         f"source_checks={NCIT_CANDIDATE_OBSERVATION_QUERY_COUNT} "
         f"label_reads={labels.query_count} "
@@ -376,13 +377,13 @@ def _import_r101_review(args: _ImportR101ReviewArgs) -> None:
     print(f"registry_identity={registry.registry_identity}", file=sys.stderr)
 
 
-def _dry_run_r101_review_authorization(args: _DryRunR101AuthorizationArgs) -> None:
-    result = dry_run_r101_authorization(
+def _dry_run_r101_decision_expansion(args: _DryRunR101DecisionExpansionArgs) -> None:
+    result = dry_run_r101_decision_expansion(
         load_r101_conservation_report(args.report),
         load_r101_review_packet(args.packet),
         load_r101_decision_registry(args.registry),
     )
-    write_r101_authorization_dry_run(args.output, result)
+    write_r101_decision_expansion_dry_run(args.output, result)
     print(f"verdict={result.verdict} writes_performed=false", file=sys.stderr)
 
 
@@ -499,7 +500,7 @@ def _add_r101_parsers(subparsers: Any) -> None:
     import_parser.add_argument(
         "--provenance", required=True, choices=("sme", "test-only")
     )
-    dry_run_parser = subparsers.add_parser("dry-run-r101-authorization")
+    dry_run_parser = subparsers.add_parser("dry-run-r101-decision-expansion")
     dry_run_parser.add_argument("--report", required=True, type=Path)
     dry_run_parser.add_argument("--packet", required=True, type=Path)
     dry_run_parser.add_argument("--registry", required=True, type=Path)
@@ -600,8 +601,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
     if args.command == "import-r101-review-decisions":
         _import_r101_review(cast("_ImportR101ReviewArgs", args))
         return
-    if args.command == "dry-run-r101-authorization":
-        _dry_run_r101_review_authorization(cast("_DryRunR101AuthorizationArgs", args))
+    if args.command == "dry-run-r101-decision-expansion":
+        _dry_run_r101_decision_expansion(cast("_DryRunR101DecisionExpansionArgs", args))
         return
     if args.command == "generate-pre-resume-proof":
         asyncio.run(_generate_pre_resume(cast("_PreResumeArgs", args)))

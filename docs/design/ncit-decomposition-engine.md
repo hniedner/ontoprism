@@ -283,19 +283,17 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   publication gate. The tracked report is mechanically complete but content-pending and blocked
   (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
   2026-08-19).
-- **R101 human review (D78):** the 3,291 R82-covered occurrences are presented as exactly 162
-  source-bound endpoint patterns plus a lossless occurrence appendix. Review asks whether a
-  directed stated-R82 path licenses broader PrimarySite coverage under project policy; it never
-  asks for or records equivalence. Packet import produces only a proposed registry. The preflight
-  authorization path is read-only and cannot mutate the pending report or publication state.
-  Registry provenance is identity-bound as `sme` or `test-only`; only dry-run accepts the latter.
-  The workbook includes a complete column dictionary, synthetic approve/reject examples, and a
-  procedure requiring review of every directed path, affected context, and appendix row; ambiguity
-  is rejected rather than guessed. Its three sentinel names are release-bound source labels, not
-  embedded prompt text. Sheet protection is anti-accident only, while strict import revalidation
-  of every guidance, evidence, decision, and binding cell is the security boundary
-  (`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries -q`,
-  2026-08-19).
+- **R101 human review (D78):** the 3,291 R82-covered occurrences are frozen in a separate packet as
+  162 endpoint patterns and 2,800 disease propositions. The workbook contains no occurrence audit
+  sheet or internal IDs. Review asks only whether the retained more-specific site supplies
+  non-exclusive projection coverage of the broader site for listed disease/source occurrences;
+  source assertions remain preserved, multiple valid narrower sites remain independent, and no
+  equivalence, universal, complete, or exclusive claim is recorded. Pattern decisions expand over
+  immutable membership, with explicit reasoned disease exceptions. Import creates a proposed
+  occurrence-level registry, and preflight only replays decision expansion with
+  `writes_performed=false`; it cannot authorize or publish the pending report
+  (`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q && pdm run test-integration-full-store -k r101_review_labels_match_real_qlever_in_bounded_batches`,
+  2026-08-20).
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 

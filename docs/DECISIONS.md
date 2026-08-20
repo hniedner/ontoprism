@@ -7,61 +7,64 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
-## 2026-08-19 — R101 coverage review is packet-bound and remains proposed
+## 2026-08-20 — R101 coverage review is human-centered and occurrence-bound
 
-### D78. Review directed R82 endpoint patterns without asserting equivalence
+### D78. Review non-exclusive projection coverage without asserting disease exclusivity
 
-The mechanically complete schema-3 ledger contains 3,291 occurrences covered by retained R82
-evidence and its `grouping_presentation` has 162 endpoint patterns
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.covered_by_retained_r82,len(r.grouping_presentation))'`,
-2026-08-19).
+The generated schema-v3 packet contains 162 endpoint patterns, 2,800 disease propositions, 3,291
+exact source-occurrence audit records, and 2,800 frozen membership rows; disease-proposition
+multiplicity is 2,322×1, 465×2, and 13×3, with maximum pattern fanout 245
+(`pdm run python -c 'import json; from pathlib import Path; from collections import Counter; p=json.loads(Path("tmp/r101-review-packet-v3.json").read_text()); print(len(p["patterns"]),len(p["disease_propositions"]),len(p["occurrences"]),len(p["membership"]),Counter(x["occurrence_count"] for x in p["disease_propositions"]),max(x["occurrence_count"] for x in p["patterns"]))'`,
+2026-08-20).
 
-**Decision:** #267 uses one purpose-built review packet, workbook, proposed decision registry,
-and read-only authorization dry run. A human decides whether each exact directed stated-R82
-endpoint pattern licenses broader PrimarySite coverage under OntoPrism policy. The decision is
-not equivalence, does not remove source occurrences, and applies only to the packet's exact
-report, source, run, representation, baseline, detector, and proof bindings. Release-bound NCIt
-labels are presentation evidence. Before reading them, the packet command reuses decomposition's
-candidate-proof source snapshot: nine bounded QLever checks require the live source observation,
-exact source identity, and ontology release to match the explicit candidate manifest and report.
-It then acquires every distinct stated `rdfs:label` value in one bounded `SELECT DISTINCT` query.
-Zero or more than one distinct preferred label for any requested code refuses the packet; duplicate
-identical result rows do not create a false conflict. The accepted labels are bound into every row
-and the packet identity
-(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_prepare_certifies_explicit_live_source_before_label_read ontolib/tests/decomposition/test_r101_review.py::test_prepare_refuses_source_identity_or_release_drift_before_labels ontolib/tests/decomposition/test_r101_review.py::test_real_reader_and_double_both_refuse_distinct_stated_labels -q`,
-2026-08-19).
+**Decision:** #267 uses one canonical packet, a human-centered workbook, a proposed atomic decision
+registry, and a read-only decision-expansion dry run. The atomic audit subject remains disease
+concept + exact R101 source occurrence + broader site + retained more-specific site. The primary
+human decision is the endpoint pattern; import expands it over immutable packet membership and may
+exclude a disease only through an explicit `Yes` plus nonempty rationale. Approval means only
+`non-exclusive projection coverage`: the retained site may cover the omitted broader site in the
+curated projection for the listed disease/source occurrences. It never means equivalence,
+universality, completeness, exclusivity, or the only valid site, and source assertions remain
+preserved. Multiple valid narrower sites remain independent.
 
-The workbook exposes instructions, hidden bindings, a locked dictionary for all 25 pattern and 12
-occurrence columns, locked synthetic approve/reject examples, 162 pattern-decision rows, and the
-complete 3,291-row occurrence appendix. The instructions explain purpose, generation, the limited
-meaning of approval, a row-by-row review procedure, approval criteria, error signs, escalation,
-and sentinel/import safeguards. Reviewers inspect both endpoints, every distinct directed path and
-length, affected contexts and appendix rows; ambiguity is rejected rather than guessed. Only
-decision, rationale, reviewer identity, and review date cells are editable. Sheet protection
-prevents accidental edits; it is not password security. Import cell and binding revalidation is
-the security boundary. The formula-free workbook uses automatic calculation mode without forced
-or full recalculation-on-load metadata
-(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries -q`,
-2026-08-19); its current SHA-256 is
-`96d4152aa89bfcd01489a9dfdf635bdcd9827d2e471200b093ecd103d7a621c8`
-(`shasum -a 256 tmp/r101-review-workbook-v2.xlsx`, 2026-08-20). The three sentinel names are
-release-bound labels acquired with all other packet labels, and the exact guidance cells have
-guidance identity `6cec67275359f0d47098cb7d5c14cb4e3c4b8429e38b17bdb14fae6bda245075`
-(`pdm run python -c 'import json; from pathlib import Path; p=json.loads(Path("tmp/r101-review-packet.json").read_text()); print(p["guidance_identity"],p["sentinel_labels"])'`,
-2026-08-20). Import is total and fail-closed: it permits only
-`approve` or `reject`, requires every field for every pattern, and refuses stale, reordered,
-duplicate, missing, extra, formula-bearing, macro-bearing, externally linked, or evidence-edited
-workbooks, including any edit to Instructions, Column Definitions, or Review Examples. Import
-creates a `proposed` registry only. It does not authorize the report or make it
-publication eligible.
+The workbook has exactly six sheets: `Instructions and Semantics`, `Pattern Review`, `Disease
+Propositions`, `Column Definitions`, `Review Examples`, and a veryHidden `Bindings`. It has no
+occurrence appendix, technical row IDs, hashes, or raw JSON. `Bindings` contains only packet,
+guidance, visible-row, and membership identities plus schema and release. The only unlocked cells
+are 162×4 pattern review cells and 2,800×2 disease exception/rationale cells. For approved patterns
+every disease requires explicit `Yes` or `No`; `Yes` requires rationale, `No` forbids rationale,
+and exceptions are invalid for all other pattern decisions
+(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q`, 2026-08-20). Hiddenness is not
+security: import regenerates every immutable visible cell from the separate packet. Benign XLSX
+container re-saves are accepted, while semantic cell edits, stale guidance/bindings, formulas,
+missing/duplicate/extra rows, macros, and external links refuse the whole import.
 
-Before a real SME request, synthetic `TEST-ONLY` decisions must be entered only in a clearly
-named workbook copy. Registry provenance is required, identity-bound, and propagated to preflight;
-the real application path refuses `test-only`. The dry run exercises the same pure authorization
-application and publication validation path on an in-memory candidate
-and writes only its verdict: all approvals are logically eligible for the same digest; a rejection
-is blocked; missing or mismatched evidence refuses. No authorized report or publication is written.
-This decision does not implement D75/#271.
+The canonical packet identity is
+`bb6de410c3af4d9fcf836ee521bacf422a7d9ecc8cb9049f45d6587eb3bba3ec`; its guidance,
+visible-row, and membership identities are respectively
+`a10b4293fc29d84c6e88650ac02ba9175d7ef5b7684677974f317e4d3f6460f8`,
+`406be23369047c1f33ae0164807a728436193b5fad1ce21b972e39ef99fd654d`, and
+`756943698475d2313d7c1c6802fb2e0055585f5ce005b1575a48d0f8aa8702dd`
+(`pdm run python -c 'import json; from pathlib import Path; p=json.loads(Path("tmp/r101-review-packet-v3.json").read_text()); print({k:p[k] for k in ("packet_identity","guidance_identity","visible_rows_identity","membership_identity")})'`,
+2026-08-20). The packet and workbook file SHA-256 values are
+`575c07a22f52a0017de6ab976b00fa4e25650d83f7f06690e9c178ccbf83af1a` and
+`d6f082d5e1033fbe11a537c14c3db9ac5bb2f06854f56530a4bad0a68f0ea79f`
+(`shasum -a 256 tmp/r101-review-packet-v3.json tmp/r101-review-workbook-v3.xlsx`,
+2026-08-20).
+
+The workbook records the supplied SEER/ICD-O pilot conclusion only as generic guidance: zero strict
+rule-eligible cases means no automation and no safe workload reduction; it exposes no SEER decision
+fields (`pdm run python -c 'from openpyxl import load_workbook; b=load_workbook("tmp/r101-review-workbook-v3.xlsx"); print("\\n".join(str(c.value or "") for r in b["Instructions and Semantics"].iter_rows() for c in r)); print(tuple(c.value for c in b["Pattern Review"][1]))'`,
+2026-08-20). Exact external pilot command/date/input hashes are not present in the workspace, so
+the detailed pilot counts cannot be durably certified here; that documentation remains blocked on
+independent evidence rather than being reconstructed from memory.
+
+The TEST-ONLY all-approve/no-exception import expanded to exactly 3,291 proposed atomic decisions
+and the dry run reported `writes_performed=false`; the tracked conservation report remained pending
+and publication-blocked
+(`pdm run adjudication import-r101-review-decisions --packet tmp/r101-review-packet-v3.json --reviewed-xlsx tmp/r101-review-workbook-v3-TEST-ONLY.xlsx --output tmp/r101-review-registry-v3-TEST-ONLY.json --provenance test-only && pdm run adjudication dry-run-r101-decision-expansion --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz --packet tmp/r101-review-packet-v3.json --registry tmp/r101-review-registry-v3-TEST-ONLY.json --output tmp/r101-review-preflight-v3-TEST-ONLY.json`,
+2026-08-20). Expansion creates a proposed decision registry, never a new packet, authorization, or
+publication artifact. This decision does not implement D75/#271.
 
 ## 2026-08-19 — R101 conservation is an occurrence ledger, not content approval
 

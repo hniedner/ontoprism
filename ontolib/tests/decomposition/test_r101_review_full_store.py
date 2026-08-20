@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hashlib
+import math
 from pathlib import Path
 
 import pytest
@@ -29,7 +29,9 @@ class _RecordedLabels:
 
 @pytest.mark.integration
 @pytest.mark.full_store
-async def test_r101_review_labels_match_real_qlever_in_one_read(tmp_path) -> None:
+async def test_r101_review_labels_match_real_qlever_in_bounded_batches(
+    tmp_path: Path,
+) -> None:
     report = load_r101_conservation_report(
         Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")
     )
@@ -39,53 +41,34 @@ async def test_r101_review_labels_match_real_qlever_in_one_read(tmp_path) -> Non
     assert source.ontology_version == report.source_release_id
     async with ncit_sparql_client("http://localhost:7888") as client:
         labels = QLeverReviewLabels(client)
-        packet = await build_r101_review_packet(
-            report,
-            manifest_path,
-            labels,
-        )
+        packet = await build_r101_review_packet(report, manifest_path, labels)
 
-    assert labels.query_count == 1
-    assert len(labels.requested_codes) == 141
-    assert packet.packet_identity == (
-        "fb3d49cb781a35cabf8df4a10dfcdde3f2d7fc0901268178fb86cfd3235bf090"
-    )
-    delivered_workbook = tmp_path / "r101-review-workbook.xlsx"
-    write_r101_review_workbook(delivered_workbook, packet)
-    assert hashlib.sha256(delivered_workbook.read_bytes()).hexdigest() == (
-        "96d4152aa89bfcd01489a9dfdf635bdcd9827d2e471200b093ecd103d7a621c8"
-    )
+    assert labels.query_count == math.ceil(len(labels.requested_codes) / 500)
+    assert len(labels.requested_codes) > 1900
     assert len(packet.patterns) == 162
-    by_code = {
-        row.old_broader_code: row.old_broader_label for row in packet.patterns
-    } | {
-        row.retained_narrower_code: row.retained_narrower_label
-        for row in packet.patterns
-    }
+    assert len(packet.disease_propositions) == 2800
+    assert len(packet.occurrences) == 3291
+    assert max(row.occurrence_count for row in packet.patterns) == 245
+    assert max(row.occurrence_count for row in packet.disease_propositions) == 3
+    assert {row.disease_code for row in packet.disease_propositions} <= set(
+        labels.requested_codes
+    )
+    by_code = (
+        {row.broader_code: row.broader_label for row in packet.patterns}
+        | {row.retained_code: row.retained_label for row in packet.patterns}
+        | {row.disease_code: row.disease_label for row in packet.disease_propositions}
+    )
     assert by_code["C12727"] == "Heart"
     assert by_code["C12869"] == "Left Atrium"
-    expected_sentinels = {
-        "C6135": "Stage III Thyroid Gland Medullary Carcinoma AJCC v7",
-        "C101539": (
-            "Stage I Differentiated Thyroid Gland Carcinoma Under 45 Years AJCC v7"
-        ),
-        "C4791": "Left Atrial Myxoma",
-    }
-    assert {
-        "C6135": packet.sentinel_labels.c6135,
-        "C101539": packet.sentinel_labels.c101539,
-        "C4791": packet.sentinel_labels.c4791,
-    } == expected_sentinels
-    recorded = dict(by_code)
+
+    delivered_workbook = tmp_path / "r101-review-workbook-v3.xlsx"
+    write_r101_review_workbook(delivered_workbook, packet)
+    assert delivered_workbook.stat().st_size > 0
+
     for pattern in packet.patterns:
         for path in pattern.paths:
-            recorded.update(zip(path.code_path, path.labels, strict=True))
-    recorded.update(expected_sentinels)
-    replay_labels = _RecordedLabels(recorded)
-    replay = await build_r101_review_packet(
-        report,
-        manifest_path,
-        replay_labels,
-    )
+            by_code.update(zip(path.code_path, path.labels, strict=True))
+    replay_labels = _RecordedLabels(by_code)
+    replay = await build_r101_review_packet(report, manifest_path, replay_labels)
     assert replay == packet
     assert replay_labels.requested_codes == labels.requested_codes

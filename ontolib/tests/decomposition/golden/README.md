@@ -363,86 +363,81 @@ pdm run adjudication prepare-r101-review-packet \
   --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz \
   --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
   --endpoint http://localhost:7888 \
-  --output-packet tmp/r101-review-packet.json \
-  --output-xlsx tmp/r101-review-workbook-v2.xlsx
+  --output-packet tmp/r101-review-packet-v3.json \
+  --output-xlsx tmp/r101-review-workbook-v3.xlsx
 ```
 
 Before labels are read, this command reuses the decomposition source-snapshot certification path:
 nine bounded QLever checks require the live endpoint's exact NCIt source observation, source
 identity, and ontology release to match the explicit candidate manifest and report. It then reads
-all distinct values of the authoritative stated `rdfs:label` predicate in one bounded
-`SELECT DISTINCT` query and performs no database or ontology write. A requested code with zero or
-more than one distinct label refuses the packet; duplicate identical rows are deduplicated and do
-not create a false conflict
-(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_qlever_label_reader_refusal_gates_are_live ontolib/tests/decomposition/test_r101_review.py::test_real_reader_and_double_both_refuse_distinct_stated_labels -q`,
-2026-08-19). The command also refuses unless all 3,291 covered occurrences reconcile exactly to
-the 162 `grouping_presentation` patterns. The packet binds the exact report, semantic JSON,
-lossless TSV, source, release, old/new run and representation, baseline, detector, and
-continuation-proof identities. Labels and all directed code paths are included in row and packet
-identities; no portable semantic field is excluded except the self-referential identity field
-itself. Generated packet and workbook paths are gitignored review artifacts, not tracked evidence.
-The workbook is byte-deterministic for an identical packet: core and ZIP timestamps, member order,
-and ZIP metadata are normalized, so its SHA-256 is a reproducible delivered-artifact identity.
-The current formula-free workbook SHA-256 is
-`96d4152aa89bfcd01489a9dfdf635bdcd9827d2e471200b093ecd103d7a621c8`
-(`shasum -a 256 tmp/r101-review-workbook-v2.xlsx`, 2026-08-20). Its calculation mode is automatic,
-with no formula, calculation chain, external link, calculation-engine ID, or forced/full
-recalculation-on-load metadata.
+release-bound labels for every disease, site, and path code in batches of at most 500. The real
+packet used five label queries after nine source checks; a missing or multiple distinct label fails
+closed (`pdm run test-integration-full-store -k r101_review_labels_match_real_qlever_in_bounded_batches`,
+2026-08-20). The command refuses unless 3,291 covered occurrences reconcile to exactly 162
+patterns and 2,800 disease propositions. The packet keeps the complete occurrence/source/group/
+anchor/path audit identities, full report/source/run/TTL/proof bindings, readable labels and paths,
+frozen propositions, five denial flags, and immutable disease-to-occurrence membership. Generated
+packet and workbook paths are gitignored review artifacts, not tracked evidence.
 
-Read `Instructions` before review. It explains the exact packet-bound purpose and limits of
-approval, how the 3,291 occurrences became 162 patterns, the row-by-row procedure, approval
-criteria, rejection/error signs, escalation, sentinels, and import safeguards. `Column Definitions`
-defines every one of the 25 pattern and 12 occurrence headers, including which IDs are audit
-provenance rather than clinical concepts to interpret. `Review Examples` contains locked synthetic
-approve and reject/ambiguous examples that are explicitly not packet evidence and never supply real
-decision defaults. For every pattern, compare old broader and retained narrower PrimarySite,
-inspect every distinct directed stated-R82 path and length, inspect affected contexts and all
-appendix evidence, reject rather than guess when evidence is insufficient, and complete all four
-yellow decision fields. Do not edit evidence cells
-(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_xlsx_generation_is_byte_deterministic_and_explains_its_boundaries -q`,
+The workbook is for people rather than audit joins. Its exact sheets are `Instructions and
+Semantics`, `Pattern Review`, `Disease Propositions`, `Column Definitions`, `Review Examples`, and
+veryHidden `Bindings`; there is no occurrence sheet. Visible and hidden workbook cells contain no
+internal pattern, row, occurrence, source-fact, group, anchor, path identity, hash, or raw JSON.
+Bindings contains only packet/guidance/visible-row/membership identities, schema, and release.
+The formula-free workbook uses automatic calculation; sheet protection is an anti-accident aid,
+not security. Import regenerates every immutable visible cell from the separate packet, so an
+openpyxl/Excel container re-save is benign but a semantic cell edit refuses
+(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q`, 2026-08-20).
+
+Read `Instructions and Semantics` first. Approval means only `non-exclusive projection coverage`
+for frozen disease/source occurrences. It does not mean equivalence, universality, completeness,
+exclusivity, every case occurs only at the retained site, or the retained site is the only valid
+site. Source assertions remain preserved and multiple valid narrower sites remain independent.
+The supplied SEER/ICD-O pilot conclusion appears only as generic guidance: zero strict
+rule-eligible cases means no automation and no safe workload reduction. The workbook has no SEER
+decision columns (`pdm run python -c 'from openpyxl import load_workbook; b=load_workbook("tmp/r101-review-workbook-v3.xlsx"); print("\\n".join(str(c.value or "") for r in b["Instructions and Semantics"].iter_rows() for c in r)); print(tuple(c.value for c in b["Pattern Review"][1]))'`,
+2026-08-20). The external pilot command/date/input hashes were not supplied in the workspace, so
+the detailed pilot counts remain blocked from durable certification rather than being inferred.
+
+The current packet identity is
+`bb6de410c3af4d9fcf836ee521bacf422a7d9ecc8cb9049f45d6587eb3bba3ec`; guidance,
+visible-row, and membership identities are
+`a10b4293fc29d84c6e88650ac02ba9175d7ef5b7684677974f317e4d3f6460f8`,
+`406be23369047c1f33ae0164807a728436193b5fad1ce21b972e39ef99fd654d`, and
+`756943698475d2313d7c1c6802fb2e0055585f5ce005b1575a48d0f8aa8702dd`
+(`pdm run python -c 'import json; from pathlib import Path; p=json.loads(Path("tmp/r101-review-packet-v3.json").read_text()); print({k:p[k] for k in ("packet_identity","guidance_identity","visible_rows_identity","membership_identity")})'`,
+2026-08-20). Packet/workbook file SHA-256 values are
+`575c07a22f52a0017de6ab976b00fa4e25650d83f7f06690e9c178ccbf83af1a` and
+`d6f082d5e1033fbe11a537c14c3db9ac5bb2f06854f56530a4bad0a68f0ea79f`
+(`shasum -a 256 tmp/r101-review-packet-v3.json tmp/r101-review-workbook-v3.xlsx`,
 2026-08-20).
 
-The three sentinel names are release-bound values read by the same single label query as all other
-packet labels: Stage III Thyroid Gland Medullary Carcinoma AJCC v7 (C6135), Stage I Differentiated
-Thyroid Gland Carcinoma Under 45 Years AJCC v7 (C101539), and Left Atrial Myxoma (C4791). They are
-not prompt constants. The packet binds those code-to-label values and deterministic guidance
-identity `6cec67275359f0d47098cb7d5c14cb4e3c4b8429e38b17bdb14fae6bda245075`; import revalidates
-every cell in Instructions, Column Definitions, and Review Examples, so altered criteria, names,
-or illustrative examples reject
-(`pdm run test-integration-full-store -k r101_review_labels_match_real_qlever_in_one_read && pdm run pytest ontolib/tests/decomposition/test_r101_review.py::test_import_rejects_any_guidance_edit_with_accepting_control -q`,
-2026-08-19).
-
 Do not fill the generated real workbook for preflight. Copy it to the clearly named retained path
-`tmp/r101-review-workbook-v2-TEST-ONLY.xlsx`, fill all 162 rows with conspicuous `TEST-ONLY`
-synthetic decisions, then run:
+`tmp/r101-review-workbook-v3-TEST-ONLY.xlsx`, fill all 162 pattern decisions with conspicuous
+`TEST-ONLY` values and every disease exception with explicit `No`, then run:
 
 ```bash
 pdm run adjudication import-r101-review-decisions \
-  --packet tmp/r101-review-packet.json \
-  --reviewed-xlsx tmp/r101-review-workbook-v2-TEST-ONLY.xlsx \
-  --output tmp/r101-review-registry-TEST-ONLY.json \
+  --packet tmp/r101-review-packet-v3.json \
+  --reviewed-xlsx tmp/r101-review-workbook-v3-TEST-ONLY.xlsx \
+  --output tmp/r101-review-registry-v3-TEST-ONLY.json \
   --provenance test-only
 
-pdm run adjudication dry-run-r101-authorization \
+pdm run adjudication dry-run-r101-decision-expansion \
   --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz \
-  --packet tmp/r101-review-packet.json \
-  --registry tmp/r101-review-registry-TEST-ONLY.json \
-  --output tmp/r101-review-preflight.json
+  --packet tmp/r101-review-packet-v3.json \
+  --registry tmp/r101-review-registry-v3-TEST-ONLY.json \
+  --output tmp/r101-review-preflight-v3-TEST-ONLY.json
 ```
 
-The dry run uses the exact pure authorization application and publication validation path a later
-real authorization path must pass, but constructs its candidate only in memory. It never writes an
-authorized report or publication. Registry provenance (`sme` or `test-only`) is a required CLI
-argument and part of the registry identity. Only dry-run can consume `test-only`; the real
-application path mechanically refuses it.
-An all-approve synthetic registry is `logically-eligible`; any real or synthetic rejection is
-`blocked`; missing, stale, mismatched, or tampered inputs refuse without an output. The tracked
-report remains content-pending and publication-blocked. No SME approval is claimed here, and the
-real decision cells must remain blank until the packet is delivered to the human reviewer.
-Workbook protection is only an anti-accident aid, not password security; strict import
-revalidation of every evidence, decision, and binding cell is the security boundary. In the three
-sentinel columns, `FALSE` means that no covered occurrence for that sentinel belongs to the
-pattern, not that the sentinel was unchecked.
+Import expands each pattern decision to one proposed atomic decision per frozen occurrence. An
+approved disease exception excludes all of that disease's pattern occurrences; reject records
+retain-broader outcomes; individual review and abstention record follow-up/escalation rather than
+approval. The TEST-ONLY all-approve/no-exception run produced 3,291 approval outcomes and a dry-run
+verdict of `validated-proposed-registry` with `writes_performed=false`
+(`pdm run python -c 'import json; from pathlib import Path; from collections import Counter; r=json.loads(Path("tmp/r101-review-registry-v3-TEST-ONLY.json").read_text()); d=json.loads(Path("tmp/r101-review-preflight-v3-TEST-ONLY.json").read_text()); print(len(r["atomic_decisions"]),Counter(x["outcome"] for x in r["atomic_decisions"]),d)'`,
+2026-08-20). No report authorization or publication is created, and the real decision cells remain
+blank until independent human review.
 
 The deleted schema-2 module defines 30 AST-level test functions; the schema-3 module defines 27
 AST-level test functions and pytest collects 39 cases after parametrization. Functions and
