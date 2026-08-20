@@ -381,7 +381,7 @@ review_after = "2027-01-25"
 
 [[exemption]]
 path = "scripts/adjudication.py"
-line = 701
+line = 702
 kind = "pragma-no-cover"
 owner = "decomposition research maintainers"
 rationale = "The PDM script calls the module guard; CLI import and evaluation behavior are tested through main()."

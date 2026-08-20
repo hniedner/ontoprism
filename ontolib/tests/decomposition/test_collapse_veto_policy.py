@@ -113,6 +113,99 @@ def test_exact_c5292_veto_retains_broaders_as_one_unresolved_group() -> None:
 
 
 @pytest.mark.unit
+def test_veto_adds_broaders_without_erasing_normal_r101_region_resolution() -> None:
+    roles = [
+        *_c5292_roles(),
+        RoleRestriction("R101", "C12789", anchoring_genus="C4656"),
+        RoleRestriction("R101", "C32292", anchoring_genus="C4959"),
+    ]
+    semantic_types = {
+        "C12789": "Body Part, Organ, or Organ Component",
+        "C32292": "Anatomical Structure",
+        "C32639": "Anatomical Structure",
+        "C12351": "Anatomical Structure",
+        "C12439": "Body Part, Organ, or Organ Component",
+        "C12512": "Anatomical Structure",
+    }
+
+    def ancestors(parent: str, child: str) -> bool:
+        return child == "C32639" and parent in {"C12351", "C12439", "C12512"}
+
+    baseline = select_constituents(
+        roles,
+        ancestors,
+        concept_code="C5292",
+        parent_morphology="C4959",
+        semantic_type_of=semantic_types.get,
+        source_identity=_SOURCE,
+        collapse_policy=collapse_policy.NO_COLLAPSE_VETO_POLICY,
+    )
+    protected = select_constituents(
+        roles,
+        ancestors,
+        concept_code="C5292",
+        parent_morphology="C4959",
+        semantic_type_of=semantic_types.get,
+        source_identity=_SOURCE,
+        collapse_policy=_policy(),
+    )
+    baseline_pairs = {(row.axis, row.filler_code) for row in baseline}
+    protected_pairs = {(row.axis, row.filler_code) for row in protected}
+
+    assert ("op:AssociatedRegion", "C32292") in baseline_pairs
+    assert protected_pairs == baseline_pairs | {
+        ("op:PrimarySite", "C12351"),
+        ("op:PrimarySite", "C12439"),
+        ("op:PrimarySite", "C12512"),
+    }
+    primary = [row for row in protected if row.axis == "op:PrimarySite"]
+    assert len(primary) > 1
+    assert all(row.needs_review and row.group == "op:PrimarySite" for row in primary)
+    baseline_region = next(
+        row
+        for row in baseline
+        if row.axis == "op:AssociatedRegion" and row.filler_code == "C32292"
+    )
+    protected_region = next(
+        row
+        for row in protected
+        if row.axis == "op:AssociatedRegion" and row.filler_code == "C32292"
+    )
+    assert protected_region == baseline_region
+
+
+@pytest.mark.unit
+def test_single_protected_axis_value_is_not_grouped_as_ambiguous() -> None:
+    full_policy = _policy()
+    c12351 = next(
+        entry for entry in full_policy.entries if entry.broader_code == "C12351"
+    )
+    policy = collapse_policy.CollapseVetoPolicy.create(
+        registry_identity=full_policy.registry_identity,
+        entries=(c12351,),
+    )
+    roles = [
+        RoleRestriction("R101", "C12351", anchoring_genus="C4807"),
+        RoleRestriction("R101", "C32639", anchoring_genus="C5292"),
+    ]
+    constituents = select_constituents(
+        roles,
+        lambda parent, child: (parent, child) == ("C12351", "C32639"),
+        concept_code="C5292",
+        semantic_type_of=lambda _code: "Anatomical Structure",
+        source_identity=_SOURCE,
+        collapse_policy=policy,
+    )
+    protected = next(
+        row
+        for row in constituents
+        if row.axis == "op:PrimarySite" and row.filler_code == "C12351"
+    )
+    assert protected.needs_review is False
+    assert protected.group is None
+
+
+@pytest.mark.unit
 def test_source_identity_anchor_and_unknown_source_are_load_bearing() -> None:
     broader = {("C12351", "C32639"), ("C12439", "C32639"), ("C12512", "C32639")}
     mismatched_anchor = [
@@ -253,6 +346,61 @@ def test_registry_gzip_is_deterministic_and_uses_zero_mtime(tmp_path: Path) -> N
     module.write_canonical_registry_gzip(second, payload)
     assert first.read_bytes() == second.read_bytes()
     assert first.read_bytes()[4:8] == b"\x00\x00\x00\x00"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failed_output", ["registry", "policy"])
+def test_policy_artifact_pair_failure_restores_both_existing_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_output: str
+) -> None:
+    registry_path = tmp_path / "registry.json.gz"
+    policy_path = tmp_path / "policy.json"
+    registry_path.write_bytes(b"old-registry")
+    policy_path.write_bytes(b"old-policy")
+    real_replace = collapse_policy.os.replace
+    failed_path = registry_path if failed_output == "registry" else policy_path
+
+    def fail_policy_publish(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == failed_path:
+            raise OSError("injected artifact publish failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(collapse_policy.os, "replace", fail_policy_publish)
+    with pytest.raises(OSError, match="injected artifact"):
+        collapse_policy.write_collapse_policy_artifacts(
+            registry_path,
+            policy_path,
+            {"schema_version": 3},
+            _policy(),
+        )
+
+    assert registry_path.read_bytes() == b"old-registry"
+    assert policy_path.read_bytes() == b"old-policy"
+
+
+@pytest.mark.unit
+def test_policy_second_staging_failure_leaves_no_partial_or_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry_path = tmp_path / "registry.json.gz"
+    policy_path = tmp_path / "policy.json"
+    real_stage = collapse_policy._stage_write
+
+    def fail_second_stage(path: Path, content: bytes) -> str:
+        if path == policy_path:
+            raise OSError("injected second staging failure")
+        return real_stage(path, content)
+
+    monkeypatch.setattr(collapse_policy, "_stage_write", fail_second_stage)
+    with pytest.raises(OSError, match="second staging"):
+        collapse_policy.write_collapse_policy_artifacts(
+            registry_path,
+            policy_path,
+            {"schema_version": 3},
+            _policy(),
+        )
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def _rejected_evidence():

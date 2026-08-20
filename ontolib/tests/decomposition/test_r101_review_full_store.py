@@ -121,7 +121,7 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
         policy_item_queries = counted.logical_select_count - qualification_queries
     async with ncit_sparql_client("http://localhost:7888") as client:
         baseline_client = _CountingClient(client)
-        await _decompose_one(
+        baseline = await _decompose_one(
             "C5292",
             cast("Any", baseline_client),
             label=None,
@@ -167,3 +167,35 @@ async def test_c5292_policy_matches_source_and_retains_review_sites() -> None:
         if link.axis == "op:PrimarySite"
     }
     assert {"C12351", "C12439", "C12512"}.isdisjoint(prior)
+    assert baseline.decomposition is not None
+    baseline_pairs = {
+        (row.axis, row.filler_code) for row in baseline.decomposition.constituents
+    }
+    policy_pairs = {
+        (row.axis, row.filler_code) for row in result.decomposition.constituents
+    }
+    authorized_delta = {
+        ("op:PrimarySite", "C12351"),
+        ("op:PrimarySite", "C12439"),
+        ("op:PrimarySite", "C12512"),
+    }
+    assert policy_pairs == baseline_pairs | authorized_delta
+    assert {
+        ("op:AssociatedRegion", "C32292"),
+        ("op:AssociatedSite", "C12351"),
+        ("op:Morphology", "C4959"),
+        ("op:NormalTissueOrigin", "C12349"),
+        ("op:PrimarySite", "C12789"),
+        ("op:PrimarySite", "C32639"),
+    } <= policy_pairs
+    baseline_by_pair = {
+        (row.axis, row.filler_code): row for row in baseline.decomposition.constituents
+    }
+    policy_by_pair = {
+        (row.axis, row.filler_code): row for row in result.decomposition.constituents
+    }
+    assert all(
+        policy_by_pair[pair] == row
+        for pair, row in baseline_by_pair.items()
+        if pair[0] != "op:PrimarySite"
+    )

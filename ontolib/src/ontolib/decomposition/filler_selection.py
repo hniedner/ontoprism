@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
@@ -517,23 +518,6 @@ def _constituents_for_axis(
     is_part_of: IsPartOf,
     protected_fillers: set[str],
 ) -> list[Constituent]:
-    if protected_fillers:
-        leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
-        retained = leaves | protected_fillers
-        return [
-            Constituent(
-                axis=axis_name,
-                filler_code=filler,
-                axis_source="role",
-                source_roles=source_roles.get(
-                    (axis_name, filler), _source_roles_for_axis(axis_name)
-                ),
-                most_specific=_is_most_specific(filler, fillers, is_ancestor),
-                needs_review=True,
-                group=axis_name,
-            )
-            for filler in retained
-        ]
     resolved = _resolve_r101_with_organ_lookup(
         fillers,
         is_ancestor,
@@ -543,19 +527,68 @@ def _constituents_for_axis(
         is_part_of,
         axis_name,
     )
-    if resolved is not None:
-        return resolved
-
-    if _is_r101_semantic_split(axis_name, fillers, semantic_type_of):
+    if resolved is None and _is_r101_semantic_split(
+        axis_name, fillers, semantic_type_of
+    ):
         narrowed = cast("Callable[[str], str | None]", semantic_type_of)
-        split = _r101_semantic_type_constituents(
+        resolved = _r101_semantic_type_constituents(
             fillers, is_ancestor, is_part_of, narrowed
         )
-        if split:
-            return split
+    if not resolved:
+        leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
+        resolved = _standard_constituents(
+            axis_name, leaves, fillers, is_ancestor, source_roles
+        )
+    return _add_protected_fillers(
+        resolved,
+        axis_name,
+        protected_fillers,
+        fillers,
+        source_roles,
+        is_ancestor,
+    )
 
-    leaves = _resolved_leaves(axis_name, fillers, is_ancestor, is_part_of)
-    return _standard_constituents(axis_name, leaves, fillers, is_ancestor, source_roles)
+
+def _add_protected_fillers(
+    resolved: list[Constituent],
+    axis_name: str,
+    protected_fillers: set[str],
+    fillers: set[str],
+    source_roles: dict[tuple[str, str], tuple[str, ...]],
+    is_ancestor: IsAncestor,
+) -> list[Constituent]:
+    if not protected_fillers:
+        return resolved
+    existing = {row.filler_code for row in resolved if row.axis == axis_name}
+    result = [
+        *resolved,
+        *(
+            Constituent(
+                axis=axis_name,
+                filler_code=filler,
+                axis_source="role",
+                source_roles=source_roles.get(
+                    (axis_name, filler), _source_roles_for_axis(axis_name)
+                ),
+                most_specific=_is_most_specific(filler, fillers, is_ancestor),
+            )
+            for filler in sorted(protected_fillers - existing)
+        ),
+    ]
+    return _mark_ambiguous_axis(result, axis_name)
+
+
+def _mark_ambiguous_axis(
+    constituents: list[Constituent], axis_name: str
+) -> list[Constituent]:
+    if sum(row.axis == axis_name for row in constituents) <= 1:
+        return constituents
+    return [
+        replace(row, needs_review=True, group=axis_name)
+        if row.axis == axis_name
+        else row
+        for row in constituents
+    ]
 
 
 def _resolved_leaves(

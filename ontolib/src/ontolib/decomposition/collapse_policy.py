@@ -307,3 +307,92 @@ def write_canonical_policy_json(path: Path, policy: CollapseVetoPolicy) -> None:
         + b"\n"
     )
     _atomic_write(path, content)
+
+
+def _stage_write(path: Path, content: bytes) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, staging = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        with suppress(FileNotFoundError):
+            os.unlink(staging)
+        raise
+    return staging
+
+
+def _registry_gzip_content(payload: object) -> bytes:
+    content = (
+        json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True).encode("ascii")
+        + b"\n"
+    )
+    return gzip.compress(content, compresslevel=9, mtime=0)
+
+
+def _policy_json_content(policy: CollapseVetoPolicy) -> bytes:
+    return (
+        json.dumps(
+            policy.model_dump(mode="json"), sort_keys=True, indent=2, ensure_ascii=True
+        ).encode("ascii")
+        + b"\n"
+    )
+
+
+def write_collapse_policy_artifacts(
+    registry_path: Path,
+    policy_path: Path,
+    registry_payload: object,
+    policy: CollapseVetoPolicy,
+) -> None:
+    """Publish both validated files with rollback on a reported replace failure.
+
+    Both payloads are fully staged before publication. If either ``os.replace`` reports
+    failure, every file replaced by this call is restored byte-for-byte (or removed when
+    it did not previously exist). This is pair-consistent error handling, not a claim of
+    crash-atomicity across two filesystem replacements.
+    """
+    destinations = (registry_path, policy_path)
+    originals = {
+        path: path.read_bytes() if path.exists() else None for path in destinations
+    }
+    staged: list[str] = []
+    try:
+        staged.append(
+            _stage_write(registry_path, _registry_gzip_content(registry_payload))
+        )
+        staged.append(_stage_write(policy_path, _policy_json_content(policy)))
+        _publish_staged_pair(staged, destinations, originals)
+    finally:
+        for staging in staged:
+            with suppress(FileNotFoundError):
+                os.unlink(staging)
+
+
+def _publish_staged_pair(
+    staged: list[str],
+    destinations: tuple[Path, Path],
+    originals: dict[Path, bytes | None],
+) -> None:
+    published: list[Path] = []
+    try:
+        for staging, destination in zip(staged, destinations, strict=True):
+            os.replace(staging, destination)
+            published.append(destination)
+    except BaseException:
+        _restore_published(published, originals)
+        raise
+
+
+def _restore_published(
+    published: list[Path], originals: dict[Path, bytes | None]
+) -> None:
+    for destination in reversed(published):
+        original = originals[destination]
+        if original is None:
+            with suppress(FileNotFoundError):
+                destination.unlink()
+        else:
+            _atomic_write(destination, original)

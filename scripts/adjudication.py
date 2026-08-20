@@ -14,8 +14,7 @@ from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition.branches import DecompositionBranch
 from ontolib.decomposition.collapse_policy import (
     load_packaged_collapse_veto_policy,
-    write_canonical_policy_json,
-    write_canonical_registry_gzip,
+    write_collapse_policy_artifacts,
 )
 from ontolib.decomposition.collapse_policy_generation import (
     build_authorized_collapse_veto_policy,
@@ -439,10 +438,12 @@ async def _generate_r101_collapse_policy(
     policy = build_authorized_collapse_veto_policy(
         registry, packet, report, live_occurrences
     )
-    write_canonical_registry_gzip(
-        args.output_registry_gzip, registry.model_dump(mode="json")
+    write_collapse_policy_artifacts(
+        args.output_registry_gzip,
+        args.output_policy,
+        registry.model_dump(mode="json"),
+        policy,
     )
-    write_canonical_policy_json(args.output_policy, policy)
     print(
         f"registry_identity={registry.registry_identity} "
         f"policy_identity={policy.policy_identity} entries={len(policy.entries)}",
