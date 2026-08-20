@@ -1,4 +1,4 @@
-"""Authorized source-qualified collapse vetoes for #267."""
+"""Operationally allowlisted source-qualified collapse vetoes for #267."""
 
 from __future__ import annotations
 

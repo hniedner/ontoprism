@@ -350,9 +350,10 @@ def write_collapse_policy_artifacts(
     """Publish both validated files with rollback on a reported replace failure.
 
     Both payloads are fully staged before publication. If either ``os.replace`` reports
-    failure, every file replaced by this call is restored byte-for-byte (or removed when
-    it did not previously exist). This is pair-consistent error handling, not a claim of
-    crash-atomicity across two filesystem replacements.
+    failure, the function makes a best-effort rollback from byte-exact backups (or
+    removes a newly created output); rollback failures propagate explicitly. This
+    promises neither guaranteed rollback nor crash atomicity across two filesystem
+    replacements.
     """
     destinations = (registry_path, policy_path)
     originals = {

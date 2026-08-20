@@ -891,8 +891,9 @@ async def generate_current_evidence(
 ) -> tuple[CurrentEngineEvidence, CurrentComparison]:
     """Validate inputs, derive identities, then publish a pair with error rollback.
 
-    A reported replacement failure restores outputs already replaced by this call. The
-    sequential filesystem replacements do not promise crash atomicity for the pair.
+    A reported replacement failure triggers an attempt to restore prior outputs; any
+    rollback failure is attached explicitly to the raised error. The sequential
+    filesystem replacements promise neither crash atomicity nor guaranteed rollback.
     """
     _require_paths(
         (sample_manifest, oracle, row_decisions, proposal_registry, artifact),
