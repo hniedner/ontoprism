@@ -314,7 +314,7 @@ def validate_standard_permissions(
     if isinstance(implementer_bash, dict) and "gh pr create*" in implementer_bash:
         validation.error(
             "ROLE_PERMISSION",
-            "implementer PR creation must remain prompt-controlled through broad ask",
+            "implementer PR creation must remain controlled by the broad prompt action",
         )
 
     require_bash_rules(
