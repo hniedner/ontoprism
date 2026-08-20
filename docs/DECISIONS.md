@@ -29,8 +29,9 @@ preserved. Multiple valid narrower sites remain independent.
 
 The workbook has exactly six sheets: `Instructions and Semantics`, `Pattern Review`, `Disease
 Propositions`, `Column Definitions`, `Review Examples`, and a veryHidden `Bindings`. It has no
-occurrence appendix, technical row IDs, hashes, or raw JSON. `Bindings` contains only packet,
-guidance, visible-row, and membership identities plus schema and release. The only unlocked cells
+occurrence appendix, technical row IDs, or raw JSON, and reviewer-facing sheets do not require
+reviewers to handle hashes. `Bindings` carries the exact SHA-256 packet, guidance, visible-row,
+and membership identities plus schema and release for mechanical binding. The only unlocked cells
 are 162×4 pattern review cells and 2,800×2 disease exception/rationale cells. Every disease row is
 generated with `Exception?=No` and a blank rationale; this is a scope default with no effect until
 its pattern is approved. Reviewers change only true exceptions to `Yes` and supply rationale. A

@@ -391,9 +391,10 @@ packet and workbook paths are gitignored review artifacts, not tracked evidence.
 
 The workbook is for people rather than audit joins. Its exact sheets are `Instructions and
 Semantics`, `Pattern Review`, `Disease Propositions`, `Column Definitions`, `Review Examples`, and
-veryHidden `Bindings`; there is no occurrence sheet. Visible and hidden workbook cells contain no
-internal pattern, row, occurrence, source-fact, group, anchor, path identity, hash, or raw JSON.
-Bindings contains only packet/guidance/visible-row/membership identities, schema, and release.
+veryHidden `Bindings`; there is no occurrence sheet. Reviewer-facing sheets contain no internal
+pattern, row, occurrence, source-fact, group, anchor, path identity, hash, or raw JSON and do not
+require reviewers to handle hashes. `Bindings` carries the exact SHA-256 packet, guidance,
+visible-row, and membership identities plus schema and release for mechanical binding.
 The formula-free workbook uses automatic calculation; sheet protection is an anti-accident aid,
 not security. Import regenerates every immutable visible cell from the separate packet, so an
 openpyxl/Excel container re-save is benign but a semantic cell edit refuses
@@ -457,7 +458,7 @@ blank until independent human review.
 The deleted schema-2 module defines 30 AST-level test functions; the schema-3 module defines 27
 AST-level test functions and pytest collects 39 cases after parametrization. Functions and
 collected cases are different counts, so neither is described as a count of semantic contracts
-(`pdm run python -c 'import ast,subprocess,pathlib; old=subprocess.check_output(["git","show","HEAD:ontolib/tests/decomposition/test_r101_conservation.py"],text=True); new=pathlib.Path("ontolib/tests/decomposition/test_r101_occurrence_ledger.py").read_text(); f=lambda s:[n.name for n in ast.walk(ast.parse(s)) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name.startswith("test_")]; print({"schema2_ast_functions":len(f(old)),"schema3_ast_functions":len(f(new))})' && pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py --collect-only -q`,
+(`git cat-file -e '1f44c91018b23dadf2d64adc2ae0b94e2a2ad231:ontolib/tests/decomposition/test_r101_conservation.py' && pdm run python -c 'import ast,subprocess,pathlib; old=subprocess.check_output(["git","show","1f44c91018b23dadf2d64adc2ae0b94e2a2ad231:ontolib/tests/decomposition/test_r101_conservation.py"],text=True); new=pathlib.Path("ontolib/tests/decomposition/test_r101_occurrence_ledger.py").read_text(); f=lambda s:[n.name for n in ast.walk(ast.parse(s)) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name.startswith("test_")]; print({"schema2_ast_functions":len(f(old)),"schema3_ast_functions":len(f(new))})' && pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py --collect-only -q`,
 2026-08-19). The migration ledger is:
 
 | Schema-2 contract family | Schema-3 replacement |

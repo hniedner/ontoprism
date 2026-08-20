@@ -652,7 +652,7 @@ def select_constituents(
 
     The survivors undergo normal axis routing and semantic resolution (D20 refinements
     1 and 2), including most-specific collapse on hierarchy-comparable axes and
-    preservation of all associated-lineage fillers. Exact policy-authorized
+    preservation of all associated-lineage fillers. Exact policy-protected
     ``(axis, broader)`` fillers are then restored additively. Restored PrimarySite
     values are marked review-required and grouped only when their resulting axis is
     ambiguous.
