@@ -350,7 +350,7 @@ def _instruction_rows(source_release: str) -> tuple[tuple[str, str], ...]:
         ),
         (
             "Pattern versus atomic scope",
-            "The primary human decision concerns an endpoint pattern. Import expands it to every frozen disease and exact source occurrence in the separate packet. A disease marked Yes is excluded from an approved pattern only when its exception rationale is nonempty.",
+            "The primary human decision concerns an endpoint pattern. Import expands it to every frozen disease and exact source occurrence in the separate packet. Each disease row starts with a generated No scope default, which has no effect until its pattern is approved. A disease changed to Yes is excluded from an approved pattern only when its exception rationale is nonempty.",
         ),
         (
             "Decision meanings",
@@ -358,7 +358,7 @@ def _instruction_rows(source_release: str) -> tuple[tuple[str, str], ...]:
         ),
         (
             "Exception editing policy",
-            "For an approved pattern, every Disease Propositions row must explicitly contain Yes or No. Yes requires a disease-specific rationale; No requires the rationale to remain blank. Exceptions are invalid for every non-approve decision.",
+            "Every Disease Propositions row is generated with Exception? set to No and a blank rationale. Change only true exceptions to Yes and supply a disease-specific rationale. For an approved pattern, generated No or a justified Yes is required; a missing, invalid, or mismatched value refuses import. For every non-approve decision, all rows must remain No with blank rationale.",
         ),
         (
             "SEER / ICD-O pilot",
@@ -419,8 +419,8 @@ def _definition_rows() -> tuple[tuple[str, str, str, str, str], ...]:
         "Source Occurrence Count": "Exact source occurrence multiplicity, from 1 through 3.",
         "Context Summary": "Human-readable disease and site context.",
         "Review Priority / Risk Flags": "Plain-language cues for additional scrutiny.",
-        "Exception?": "For approved patterns, required Yes or No; otherwise must be No.",
-        "Exception Rationale": "Required only for Yes; must otherwise remain blank.",
+        "Exception?": "Generated as No for every disease. It has no effect until the pattern is approved; change only a true exception to Yes. Missing or other values refuse import, and non-approve patterns must remain No.",
+        "Exception Rationale": "Required only when Exception? is changed to Yes; must remain blank for generated No and every non-approve pattern.",
     }
     rows: list[tuple[str, str, str, str, str]] = []
     for sheet, headers, definitions in (
@@ -463,8 +463,8 @@ def _example_rows() -> tuple[tuple[str, str, str, str], ...]:
         (
             "Disease exception",
             "One disease has a distinct context although the endpoint pattern is otherwise acceptable.",
-            "Approve pattern; mark that disease Yes with rationale",
-            "Only that disease's frozen occurrences are excluded from approval.",
+            "Approve pattern; change only that disease's generated No to Yes and add rationale",
+            "All other generated No values need no manual edit; only that disease's frozen occurrences are excluded from approval.",
         ),
         (
             "Exclusivity counterexample",
@@ -532,6 +532,10 @@ def _disease_values(row: DiseaseProposition) -> tuple[str | int, ...]:
     )
 
 
+def _generated_disease_values(row: DiseaseProposition) -> tuple[str | int | None, ...]:
+    return (*_disease_values(row), "No", None)
+
+
 def _visible_payload(
     patterns: tuple[ReviewPattern, ...], propositions: tuple[DiseaseProposition, ...]
 ) -> dict[str, object]:
@@ -540,7 +544,7 @@ def _visible_payload(
         "pattern_headers": _PATTERN_HEADERS,
         "pattern_rows": tuple(_pattern_values(row, disease_labels) for row in patterns),
         "disease_headers": _DISEASE_HEADERS,
-        "disease_rows": tuple(_disease_values(row) for row in propositions),
+        "disease_rows": tuple(_generated_disease_values(row) for row in propositions),
     }
 
 
@@ -1191,11 +1195,11 @@ def _add_disease_propositions(book: WorkbookType, packet: R101ReviewPacket) -> N
     sheet = book.create_sheet("Disease Propositions")
     sheet.append(_DISEASE_HEADERS)
     for proposition in packet.disease_propositions:
-        sheet.append((*_disease_values(proposition), None, None))
+        sheet.append(_generated_disease_values(proposition))
     _mark_editable_cells(sheet, _DISEASE_HEADERS, _DISEASE_EDITABLE)
     exception_column = _DISEASE_HEADERS.index("Exception?") + 1
     validation = DataValidation(type="list", formula1='"Yes,No"')
-    validation.error = "Choose Yes or No when the pattern is approved"
+    validation.error = "Keep generated No or choose Yes for a justified exception"
     validation.showErrorMessage = True
     sheet.add_data_validation(validation)
     validation.add(
@@ -1582,7 +1586,7 @@ def _parse_exception_values(
         return False, None
     if exception_value not in ("Yes", "No"):
         raise R101ReviewValidationError(
-            "approved patterns require explicit Yes/No for every disease exception"
+            "approved patterns require generated No or a justified Yes for every disease exception"
         )
     if exception_value == "Yes":
         return True, _required_text(rationale_value, "exception rationale")

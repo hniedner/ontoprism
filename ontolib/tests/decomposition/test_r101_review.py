@@ -134,10 +134,6 @@ def _fill_pattern_decisions(path: Path, decision: str = APPROVE) -> None:
         sheet.cell(row, headers["Rationale"], "TEST-ONLY reviewed rationale")
         sheet.cell(row, headers["Reviewer Identity"], "TEST-ONLY reviewer")
         sheet.cell(row, headers["Review Date"], "2099-01-01")
-    disease = book["Disease Propositions"]
-    disease_headers = _headers(disease)
-    for row in range(2, disease.max_row + 1):
-        disease.cell(row, disease_headers["Exception?"], "No")
     book.save(path)
 
 
@@ -238,6 +234,23 @@ async def test_workbook_is_human_centered_and_contains_no_internal_ids_or_json(
     )
     assert book["Pattern Review"].max_row == 163
     assert book["Disease Propositions"].max_row == 2801
+    pattern_headers = _headers(book["Pattern Review"])
+    disease_headers = _headers(book["Disease Propositions"])
+    assert all(
+        book["Pattern Review"].cell(row, pattern_headers["Decision"]).value is None
+        for row in range(2, 164)
+    )
+    assert [
+        book["Disease Propositions"].cell(row, disease_headers["Exception?"]).value
+        for row in range(2, 2802)
+    ] == ["No"] * 2800
+    assert all(
+        book["Disease Propositions"]
+        .cell(row, disease_headers["Exception Rationale"])
+        .value
+        is None
+        for row in range(2, 2802)
+    )
     forbidden_headers = re.compile(
         r"(?:Pattern ID|Row Identity|Occurrence ID|Source Fact ID|"
         r"Source Group ID|Path Identity|Hash|JSON)",
@@ -292,6 +305,8 @@ async def test_workbook_guidance_editability_and_formula_free_container(
             "Hiddenness is not security",
             "packet",
             "error signs",
+            "generated no",
+            "change only true exceptions to yes",
         )
     )
     assert "SEER" not in tuple(str(cell.value) for cell in book["Pattern Review"][1])
@@ -863,7 +878,8 @@ async def test_workbook_guidance_headers_decisions_and_exception_refusals(
         ("pattern-header", "pattern headers"),
         ("disease-header", "disease proposition headers"),
         ("invalid-decision", "closed values"),
-        ("missing-exception", "explicit Yes/No"),
+        ("missing-exception", "generated No or a justified Yes"),
+        ("invalid-exception", "generated No or a justified Yes"),
         ("no-with-rationale", "allowed only"),
     )
     for name, message in mutations:
@@ -882,6 +898,8 @@ async def test_workbook_guidance_headers_decisions_and_exception_refusals(
             book["Pattern Review"]["O2"] = "maybe"
         elif name == "missing-exception":
             book["Disease Propositions"]["J2"] = None
+        elif name == "invalid-exception":
+            book["Disease Propositions"]["J2"] = "Maybe"
         else:
             book["Disease Propositions"]["K2"] = "not allowed for No"
         book.save(path)

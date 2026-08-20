@@ -393,6 +393,11 @@ Read `Instructions and Semantics` first. Approval means only `non-exclusive proj
 for frozen disease/source occurrences. It does not mean equivalence, universality, completeness,
 exclusivity, every case occurs only at the retained site, or the retained site is the only valid
 site. Source assertions remain preserved and multiple valid narrower sites remain independent.
+Every disease row is generated with `Exception?=No` and a blank rationale. This scope default has
+no effect until its pattern is approved: reviewers change only true exceptions to `Yes` and add a
+disease-specific rationale. Missing or invalid exception values refuse import, and all rows for a
+non-approve pattern must remain `No` with blank rationale. Pattern decision, rationale, reviewer,
+and date cells remain blank; the generator creates no approval.
 The supplied SEER/ICD-O pilot conclusion appears only as generic guidance: zero strict
 rule-eligible cases means no automation and no safe workload reduction. The workbook has no SEER
 decision columns (`pdm run python -c 'from openpyxl import load_workbook; b=load_workbook("tmp/r101-review-workbook-v3.xlsx"); print("\\n".join(str(c.value or "") for r in b["Instructions and Semantics"].iter_rows() for c in r)); print(tuple(c.value for c in b["Pattern Review"][1]))'`,
@@ -400,21 +405,21 @@ decision columns (`pdm run python -c 'from openpyxl import load_workbook; b=load
 the detailed pilot counts remain blocked from durable certification rather than being inferred.
 
 The current packet identity is
-`bb6de410c3af4d9fcf836ee521bacf422a7d9ecc8cb9049f45d6587eb3bba3ec`; guidance,
+`fa9cca72f60affedf20ff420423f5f30c1aeabcff1bc54d53b05a6a7b419fc59`; guidance,
 visible-row, and membership identities are
-`a10b4293fc29d84c6e88650ac02ba9175d7ef5b7684677974f317e4d3f6460f8`,
-`406be23369047c1f33ae0164807a728436193b5fad1ce21b972e39ef99fd654d`, and
+`fc315ee3633585693bd6db22f193c83b23fec94ad35412cafb80d40898b4c39b`,
+`97a1d3084e9f555887bf931424c707b33083fbe654b20a1ef417a0462e35f6f7`, and
 `756943698475d2313d7c1c6802fb2e0055585f5ce005b1575a48d0f8aa8702dd`
 (`pdm run python -c 'import json; from pathlib import Path; p=json.loads(Path("tmp/r101-review-packet-v3.json").read_text()); print({k:p[k] for k in ("packet_identity","guidance_identity","visible_rows_identity","membership_identity")})'`,
 2026-08-20). Packet/workbook file SHA-256 values are
-`575c07a22f52a0017de6ab976b00fa4e25650d83f7f06690e9c178ccbf83af1a` and
-`d6f082d5e1033fbe11a537c14c3db9ac5bb2f06854f56530a4bad0a68f0ea79f`
+`82c865f0b25624c2b6e968b724383385b55748c393650714281c16eceee701dd` and
+`8d8993cac4373f67a99022e3db60f917b82f0cb160444e7159d9ca32f8fb4a35`
 (`shasum -a 256 tmp/r101-review-packet-v3.json tmp/r101-review-workbook-v3.xlsx`,
 2026-08-20).
 
 Do not fill the generated real workbook for preflight. Copy it to the clearly named retained path
-`tmp/r101-review-workbook-v3-TEST-ONLY.xlsx`, fill all 162 pattern decisions with conspicuous
-`TEST-ONLY` values and every disease exception with explicit `No`, then run:
+`tmp/r101-review-workbook-v3-TEST-ONLY.xlsx` and fill all 162 pattern decisions with conspicuous
+`TEST-ONLY` values. Keep the 2,800 generated disease exception defaults unchanged, then run:
 
 ```bash
 pdm run adjudication import-r101-review-decisions \

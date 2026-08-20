@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 from scripts.decompose import _source_snapshot
 
 from ontolib.decomposition.r101_conservation import load_r101_conservation_report
@@ -64,6 +65,13 @@ async def test_r101_review_labels_match_real_qlever_in_bounded_batches(
     delivered_workbook = tmp_path / "r101-review-workbook-v3.xlsx"
     write_r101_review_workbook(delivered_workbook, packet)
     assert delivered_workbook.stat().st_size > 0
+    workbook = load_workbook(delivered_workbook, read_only=True)
+    pattern_rows = workbook["Pattern Review"].iter_rows(min_row=2, values_only=True)
+    disease_rows = workbook["Disease Propositions"].iter_rows(
+        min_row=2, values_only=True
+    )
+    assert sum(row[14] is not None for row in pattern_rows) == 0
+    assert sum(row[9] == "No" and row[10] is None for row in disease_rows) == 2800
 
     for pattern in packet.patterns:
         for path in pattern.paths:
