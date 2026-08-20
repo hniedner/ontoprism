@@ -650,12 +650,13 @@ def select_constituents(
       ``axes.UNSUPPORTED_FILLERS_BY_CONCEPT_ROLE``,
       the ``ncit-26.07d-unsupported-filler-v1`` set
 
-    The survivors are grouped by routed axis (D20 refinement 1), collapsed to their
-    most-specific filler(s) on hierarchy-comparable axes, and all associated-lineage
-    fillers are preserved.
-    It then applies D20 refinement 2 (semantic-type ranking on residual R101 leaves) and
-    assigns D19 relationship-group ids to ambiguous routed-axis values. Output is sorted
-    (axis, filler) for deterministic, diffable results.
+    The survivors undergo normal axis routing and semantic resolution (D20 refinements
+    1 and 2), including most-specific collapse on hierarchy-comparable axes and
+    preservation of all associated-lineage fillers. Exact policy-authorized
+    ``(axis, broader)`` fillers are then restored additively. Restored PrimarySite
+    values are marked review-required and grouped only when their resulting axis is
+    ambiguous.
+    Output is sorted (axis, filler) for deterministic, diffable results.
     """
     by_axis, source_roles, protected = _group_by_routed_axis(
         restrictions,

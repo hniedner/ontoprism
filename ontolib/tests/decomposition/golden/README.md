@@ -471,7 +471,7 @@ collected cases are different counts, so neither is described as a count of sema
 | schema/count/payload/authorization corruption | strict schema-3 loader, identity, count, state, and digest validators |
 | duplicate links and minted fillers | strict link models plus lossless minted old-link TSV roundtrip |
 | baseline/run/fingerprint/release binding | generated report bindings to both completed runs, baseline, source, release, detector, and three continuation identities |
-| atomic persistence | paired JSON/TSV rollback-on-replace-failure contract |
+| atomic persistence | one gzip JSON file is atomically replaced after generated TSV digest and identity validation; TSV is not persisted |
 
 The former progress heartbeat and semantic-lookup-double tests are not migrated: schema 3 consumes
 persisted v3/v4 occurrence links in one bounded PostgreSQL query and does not perform the removed

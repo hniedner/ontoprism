@@ -56,7 +56,7 @@ def build_authorized_collapse_veto_policy(
     report: R101ConservationReport,
     live_occurrences: Iterable[SourceDefinitionOccurrence],
 ) -> CollapseVetoPolicy:
-    """Join authorized registry atoms to packet, report, routing, and live source."""
+    """Join operationally allowlisted proposed registry atoms to their evidence."""
     _validate_registry(registry, packet, report)
     report_by_id = {row.occurrence_id: row for row in report.occurrences}
     packet_by_id = {row.occurrence_id: row for row in packet.occurrences}
