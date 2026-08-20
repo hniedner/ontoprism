@@ -105,6 +105,7 @@ coverage-report-frontend = "python scripts/validation/coverage_hierarchy.py fron
 coverage-gate = "python scripts/validation/strict_coverage_gate.py"
 test-smoke = "npm --prefix frontend run test:unit -- --run"
 validate-opencode-config = "python scripts/validation/validate_opencode_config.py --root ."
+validate-opencode-runtime = "python scripts/validation/validate_opencode_runtime.py"
 # Coverage: runs unit tests with line+branch coverage for backend/ontolib and
 # frontend. Pass extra pytest args or test paths to narrow scope
 # (e.g. `pdm run coverage ontolib/tests/core/`).

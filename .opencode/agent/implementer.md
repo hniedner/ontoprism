@@ -11,16 +11,25 @@ permission:
     "git diff*": allow
     "git log*": allow
     "git rev-parse*": allow
+    "git add": allow
     "git add *": allow
+    "git commit": allow
     "git commit *": allow
     "pdm run *": allow
     "npm --prefix frontend *": allow
+    "git reset --hard": deny
     "git reset --hard*": deny
+    "git clean": deny
     "git clean *": deny
+    "git push -f*": deny
     "git push --force*": deny
+    "git push * -f*": deny
     "git push * --force*": deny
+    "gh pr merge": deny
     "gh pr merge*": deny
+    "npm publish": deny
     "npm publish*": deny
+    "pdm publish": deny
     "pdm publish*": deny
 ---
 

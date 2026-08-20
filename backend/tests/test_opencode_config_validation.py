@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from scripts.validation.validate_opencode_config import validate
+from scripts.validation.validate_opencode_config import ROLES, validate
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -299,7 +299,7 @@ def test_reserve_cannot_be_auto_dispatched(config_root: Path) -> None:
         ),
         (
             ".opencode/agent/pr-test-analyzer.md",
-            '  bash:\n    "*": ask\n',
+            '  bash:\n    "*": deny\n',
             "  bash:\n",
             "R3_PERMISSION: R3 bash permissions must place broad rule first",
         ),
@@ -346,7 +346,8 @@ def test_plugin_shadow_is_rejected(config_root: Path) -> None:
         (
             '"max_fallback_attempts": 1',
             '"max_fallback_attempts": 2',
-            "PLUGIN_CONFIG: plugin config must equal the approved explicit settings",
+            "PLUGIN_CONFIG: plugin config must equal the repository-required explicit "
+            "settings",
         ),
     ],
 )
@@ -443,4 +444,135 @@ def test_agents_governance_rules_are_required(config_root: Path) -> None:
 
     assert any(
         error.startswith("AGENTS_GOVERNANCE:") for error in validate(config_root)
+    )
+
+
+@pytest.mark.parametrize(
+    "role",
+    sorted(set(ROLES) - {"implementer", "pr-test-analyzer"}),
+)
+def test_read_only_agents_require_deny_by_default(config_root: Path, role: str) -> None:
+    replace(
+        config_root,
+        f".opencode/agent/{role}.md",
+        '    "*": deny\n',
+        '    "*": ask\n',
+    )
+
+    assert f"ROLE_PERMISSION: {role} bash catch-all must be deny" in validate(
+        config_root
+    )
+
+
+def test_r3_requires_deny_by_default(config_root: Path) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/pr-test-analyzer.md",
+        '  bash:\n    "*": deny\n',
+        '  bash:\n    "*": ask\n',
+    )
+
+    assert "R3_PERMISSION: R3 bash catch-all must be deny" in validate(config_root)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "git add",
+        "git commit",
+        "git merge",
+        "git rebase",
+        "git restore",
+        "git checkout",
+        "git reset",
+        "git clean",
+        "git stash",
+        "git push",
+        "gh pr",
+    ],
+)
+def test_r3_requires_bare_mutation_denies(config_root: Path, pattern: str) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/pr-test-analyzer.md",
+        f'    "{pattern}": deny\n',
+        "",
+    )
+
+    assert f"R3_PERMISSION: R3 must deny {pattern}" in validate(config_root)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "git reset --hard",
+        "git clean",
+        "git push -f*",
+        "git push --force*",
+        "gh pr merge",
+        "npm publish",
+        "pdm publish",
+    ],
+)
+def test_implementer_requires_bare_dangerous_command_denies(
+    config_root: Path, pattern: str
+) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/implementer.md",
+        f'    "{pattern}": deny\n',
+        "",
+    )
+
+    assert f"ROLE_PERMISSION: implementer bash rule {pattern} must be deny" in validate(
+        config_root
+    )
+
+
+def write_local_config(config_root: Path, config: dict[str, object]) -> None:
+    (config_root / ".opencode/opencode.json").write_text(json.dumps(config))
+
+
+def test_machine_local_lsp_mcp_and_nonreserved_agent_are_allowed(
+    config_root: Path,
+) -> None:
+    write_local_config(
+        config_root,
+        {
+            "$schema": "https://opencode.ai/config.json",
+            "lsp": {"local": {"disabled": True}},
+            "mcp": {"local": {"enabled": False}},
+            "agent": {"ontology": {"model": "github-copilot/gpt-5.6-sol"}},
+        },
+    )
+
+    assert not any(error.startswith("LOCAL_CONFIG:") for error in validate(config_root))
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "expected"),
+    [
+        ("default_agent", "build", "forbidden top-level key default_agent"),
+        ("plugin", [], "forbidden top-level key plugin"),
+        ("permission", {}, "forbidden top-level key permission"),
+        ("provider", {}, "forbidden top-level key provider"),
+        ("command", {}, "forbidden top-level key command"),
+        ("instructions", [], "forbidden top-level key instructions"),
+        (
+            "agent",
+            {"implementer": {"model": "github-copilot/gpt-5.6-sol"}},
+            "reserved project agent implementer",
+        ),
+    ],
+)
+def test_machine_local_governance_overrides_are_rejected(
+    config_root: Path,
+    key: str,
+    value: object,
+    expected: str,
+) -> None:
+    write_local_config(config_root, {key: value})
+
+    assert any(
+        error.startswith(f"LOCAL_CONFIG: {expected}") for error in validate(config_root)
     )

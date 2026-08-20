@@ -164,6 +164,8 @@ def require_bash_rules(
     role: str,
     metadata: dict[str, Any],
     required: dict[str, str],
+    *,
+    catch_all: str,
 ) -> None:
     bash = permission_action(metadata, "bash")
     if not isinstance(bash, dict) or next(iter(bash), None) != "*":
@@ -171,6 +173,10 @@ def require_bash_rules(
             "ROLE_PERMISSION", f"{role} bash permissions must put the broad rule first"
         )
         return
+    if bash.get("*") != catch_all:
+        validation.error(
+            "ROLE_PERMISSION", f"{role} bash catch-all must be {catch_all}"
+        )
     for pattern, action in required.items():
         if bash.get(pattern) != action:
             validation.error(
@@ -340,13 +346,22 @@ def validate_standard_permissions(
         "implementer",
         implementer[0],
         {
+            "git reset --hard": "deny",
             "git reset --hard*": "deny",
+            "git clean": "deny",
             "git clean *": "deny",
+            "git push -f*": "deny",
             "git push --force*": "deny",
+            "git push * -f*": "deny",
+            "git push * --force*": "deny",
+            "gh pr merge": "deny",
             "gh pr merge*": "deny",
+            "npm publish": "deny",
             "npm publish*": "deny",
+            "pdm publish": "deny",
             "pdm publish*": "deny",
         },
+        catch_all="ask",
     )
     implementer_bash = permission_action(implementer[0], "bash")
     if isinstance(implementer_bash, dict) and "gh pr create*" in implementer_bash:
@@ -361,14 +376,22 @@ def validate_standard_permissions(
         roles.get("ontoprism-team", ({}, ""))[0],
         {
             "pdm run verify*": "allow",
+            "git reset": "deny",
             "git reset *": "deny",
+            "git clean": "deny",
             "git clean *": "deny",
+            "git push": "deny",
             "git push *": "deny",
+            "gh pr create": "deny",
             "gh pr create*": "deny",
+            "gh pr merge": "deny",
             "gh pr merge*": "deny",
+            "npm publish": "deny",
             "npm publish*": "deny",
+            "pdm publish": "deny",
             "pdm publish*": "deny",
         },
+        catch_all="deny",
     )
     read_only_roles = set(ROLES) - {
         "ontoprism-team",
@@ -386,6 +409,7 @@ def validate_standard_permissions(
                 "git push *": "deny",
                 "gh pr *": "deny",
             },
+            catch_all="deny",
         )
 
 
@@ -479,17 +503,32 @@ def validate_role_contracts(
             "R3_PERMISSION", "R3 bash permissions must place broad rule first"
         )
     else:
+        if bash.get("*") != "deny":
+            validation.error("R3_PERMISSION", "R3 bash catch-all must be deny")
         required_denies = (
+            "git add",
             "git add *",
+            "git commit",
             "git commit *",
+            "git merge",
             "git merge *",
+            "git rebase",
             "git rebase *",
+            "git restore",
             "git restore *",
+            "git checkout",
             "git checkout *",
+            "git clean",
             "git clean *",
+            "git stash",
             "git stash *",
+            "git push",
             "git push *",
+            "git push -f*",
+            "git push --force*",
+            "gh pr",
             "gh pr *",
+            "git reset",
             "git reset *",
         )
         for pattern in required_denies:
@@ -525,7 +564,8 @@ def validate_plugin(validation: Validation) -> dict[str, Any]:
     }
     if config != expected:
         validation.error(
-            "PLUGIN_CONFIG", "plugin config must equal the approved explicit settings"
+            "PLUGIN_CONFIG",
+            "plugin config must equal the repository-required explicit settings",
         )
     if config.get("fallback_models") != []:
         validation.error(
@@ -534,13 +574,14 @@ def validate_plugin(validation: Validation) -> dict[str, Any]:
     comment = path.read_text().lower()
     if (
         "explicit per-agent" not in comment
-        or "aws" not in comment
-        or "never automatic" not in comment
+        or "tracked repository" not in comment
+        or "never places aws" not in comment
+        or "automatic fallback chain" not in comment
     ):
         validation.error(
             "PLUGIN_CONFIG",
             "plugin comment must limit automation to explicit per-agent fallback "
-            "and exclude AWS",
+            "and scope the repository's exclusion of AWS",
         )
     return config
 
@@ -613,7 +654,8 @@ def validate_agents_document(validation: Validation) -> None:
             "see D49",
             "Ephemeral planning/handover docs live in `tmp/plans/`",
             "under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`",
-            "never reference a `tmp/` path from a tracked file or a GitHub issue",
+            "must not depend on ephemeral artifacts there",
+            "policy text and executable reproducibility commands may name the location",
         ),
     )
 
@@ -627,6 +669,26 @@ def validate_gitignore(validation: Validation) -> None:
             "GITIGNORE",
             ".gitignore must contain exact line /.opencode/opencode.json",
         )
+
+
+def validate_local_configs(validation: Validation) -> None:
+    allowed = {"$schema", "lsp", "mcp", "agent"}
+    for relative in (
+        ".opencode/opencode.json",
+        ".opencode/opencode.jsonc",
+    ):
+        path = validation.root / relative
+        if not path.exists():
+            continue
+        config = load_json(path, validation, "LOCAL_CONFIG")
+        for key in config.keys() - allowed:
+            validation.error("LOCAL_CONFIG", f"forbidden top-level key {key}")
+        agents = config.get("agent", {})
+        if not isinstance(agents, dict):
+            validation.error("LOCAL_CONFIG", "agent must be an object")
+            continue
+        for name in agents.keys() & ROLES.keys():
+            validation.error("LOCAL_CONFIG", f"reserved project agent {name}")
 
 
 def validate_forbidden_content(validation: Validation) -> None:
@@ -677,6 +739,7 @@ def validate(root: Path) -> list[str]:
     validate_command(validation)
     validate_agents_document(validation)
     validate_gitignore(validation)
+    validate_local_configs(validation)
     validate_forbidden_content(validation)
     return validation.errors
 

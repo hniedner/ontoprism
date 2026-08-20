@@ -8,23 +8,36 @@ permission:
   external_directory:
     "*": ask
   bash:
-    "*": ask
+    "*": deny
     "cp *": allow
     "git status*": allow
     "git diff*": allow
     "git rev-parse*": allow
     "pdm run pytest *": allow
     "npm --prefix frontend *test*": allow
+    "git add": deny
     "git add *": deny
+    "git commit": deny
     "git commit *": deny
+    "git merge": deny
     "git merge *": deny
+    "git rebase": deny
     "git rebase *": deny
+    "git restore": deny
     "git restore *": deny
+    "git checkout": deny
     "git checkout *": deny
+    "git reset": deny
     "git reset *": deny
+    "git clean": deny
     "git clean *": deny
+    "git stash": deny
     "git stash *": deny
+    "git push": deny
     "git push *": deny
+    "git push -f*": deny
+    "git push --force*": deny
+    "gh pr": deny
     "gh pr *": deny
 ---
 

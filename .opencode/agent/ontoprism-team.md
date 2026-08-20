@@ -6,19 +6,27 @@ permission:
   edit: deny
   task: allow
   bash:
-    "*": ask
+    "*": deny
     "git status*": allow
     "git diff*": allow
     "git log*": allow
     "git rev-parse*": allow
     "pdm run verify*": allow
     "pdm run validate-opencode-config*": allow
+    "pdm run validate-opencode-runtime*": allow
+    "git reset": deny
     "git reset *": deny
+    "git clean": deny
     "git clean *": deny
+    "git push": deny
     "git push *": deny
+    "gh pr create": deny
     "gh pr create*": deny
+    "gh pr merge": deny
     "gh pr merge*": deny
+    "npm publish": deny
     "npm publish*": deny
+    "pdm publish": deny
     "pdm publish*": deny
 ---
 

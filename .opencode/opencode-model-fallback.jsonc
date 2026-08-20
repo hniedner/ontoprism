@@ -1,5 +1,6 @@
 {
-  // Only an explicit per-agent fallback is automatic; AWS is never automatic.
+  // Only an explicit per-agent fallback is automatic. The tracked repository
+  // configuration never places AWS in an automatic fallback chain.
   "enabled": true,
   "fallback_models": [],
   "max_fallback_attempts": 1,
