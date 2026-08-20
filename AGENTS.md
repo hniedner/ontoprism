@@ -87,8 +87,8 @@ Mechanical rules. Each is checkable by the reader, which is what forces the chec
 3. **Never pre-declare the hash of an artifact that does not yet exist.** Bind identities *after*
    generation. A hash over a payload containing `uuid4()` can never be matched by a later run —
    `corpus_evidence_identity` cost a full cycle proving exactly that.
-4. **Search artifacts with `rg --no-ignore`.** `tmp/` is gitignored (`.gitignore:2`), so a default
-   `rg` reports absent files that are present and gives no signal that it skipped anything.
+4. **Search artifacts with `rg --no-ignore`.** Ignored artifact directories are skipped by a
+   default `rg`, which can report absent files that are present without signalling the omission.
 5. **Never request an irreversible human sign-off before executing the step that follows it.**
    Dry-run the downstream path first. An attestation spent on an unverified critical path is the
    one thing you cannot refund.
@@ -329,71 +329,44 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   them by hand.
 - **Pre-PR review fix cycle (mandatory, no exceptions): after implementation and local
   gates are complete, commit all intended changes on the feature branch. The worktree must
-  be clean before review starts. Then, before PR creation, review the
-  committed branch diff (`main...HEAD`) against current `main` with the FULL
-  `pr-review-toolkit` agent set in the initial round — ALL FIVE, no cherry-picking. A
-  review of staged or unstaged changes does not count toward convergence:**
-  1. `pr-review-toolkit:code-reviewer` — correctness, guideline compliance
-  2. `pr-review-toolkit:silent-failure-hunter` — swallowed errors, failures that look like
-     clean results
-  3. `pr-review-toolkit:pr-test-analyzer` — do the tests actually fail when the code is
-     wrong, or do they agree with a fiction?
-  4. `pr-review-toolkit:comment-analyzer` — do the docstrings claim guarantees the code
-     does not provide?
-  5. `pr-review-toolkit:type-design-analyzer` — are the invariants enforced by the types
-     or only by the caller's good manners?
+  be clean before review starts. Before PR creation, review the committed `main...HEAD`
+  diff against current `main` across all five dimensions in the initial round:**
+  1. **R1 correctness** — correctness, guideline compliance, security, and project rules
+  2. **R2 silent failure** — swallowed errors and failures that look like clean results
+  3. **R3 test validity** — do tests fail when production behavior is wrong, or agree with
+     a fiction?
+  4. **R4 comment accuracy** — do comments and docstrings claim guarantees not provided?
+  5. **R5 type design** — are invariants enforced by types or caller convention?
 
-  **In every round `pr-test-analyzer` runs ALONE; the others run in parallel (see D49).**
-  It mutates production code to prove a test fails when the code is wrong, so a
-  concurrent reviewer can observe a dirty worktree and review code that is not the
-  committed diff. That invalidates the round's clean-worktree precondition for every
-  agent running beside it. Run the other non-converged agents in parallel, then
-  `pr-test-analyzer` on its own against the same commit; it must restore every mutation.
-  After it returns, verify `git status --porcelain` is empty **and** `git rev-parse HEAD`
-  is unchanged before accepting its verdict or starting another round — a mutation that
-  was committed or amended into `HEAD` leaves the tree clean while the reviewed diff has
-  moved. If either check fails, restore the tree yourself and treat that run as
-  inconclusive, hence non-converged. **Never restore a review mutation with
-  `git checkout -- <path>`.** Copy each file you are about to mutate to an out-of-repo backup
-  first (session temp dir, e.g. `$TMPDIR/opencode/`) and restore from that copy, so
-  restoration is byte-exact and never depends on index/HEAD state. The full set otherwise matters because they find different classes of
-  defect and do not substitute for one another. On #73 the five caught, respectively: a
-  vacuous satisfiability gate, an environment failure laundered into a verdict, a test
-  double that encoded a reasoner behaviour ELK does not have, docstrings asserting a D21
-  guarantee the merge could not provide, and an invariant enforced only by convention.
-  Running two of the five would have shipped the other three.
+  (`R<n>` are review dimensions; `D<n>` elsewhere names `docs/DECISIONS.md` entries.)
+  Convergence is tracked **per dimension, not per tool or vendor agent**. Project-local
+  OpenCode agents map to the dimensions as follows: R1 `pr-code-reviewer`, R2
+  `pr-silent-failure-hunter`, R3 `pr-test-analyzer`, R4 `pr-comment-analyzer`, and R5
+  `pr-type-design-analyzer`. Other harnesses may use different reviewers, but must preserve
+  the five separate verdicts and all process rules below. Prefer a reviewer model family
+  different from the implementer's where available.
 
-  Fix EVERY verifiable issue reported — critical, important, AND sensible suggestions
-  (anything you can confirm and act on) — then re-run the applicable local gates and commit
-  those fixes before re-running **only the non-converged agents** (if that reduced set
-  includes `pr-test-analyzer`, it still runs by itself, after the others). Every review round must
-  inspect a clean worktree and the committed `main...HEAD` diff. Do not create the
-  PR until all five agents have converged and the final local gates pass. **Pushing the
-  feature branch is a separate matter and is encouraged at any point** — a branch push does not
-  itself run `ci.yml` (it triggers on `main` pushes, pull requests, and manual dispatch). It costs
-  nothing, and it is the only backup for work that otherwise exists on one machine. The PR is what
-  is delayed,
-  for two reasons: a PR should present finished work rather than a moving target, and opening one
-  early triggers the full check matrix repeatedly on every subsequent push. **Do not let that
-  delay mean the branch never sees CI.** PR #290 accumulated 48 commits with zero CI runs and
-  then failed three checks at once. Run `pdm run verify` before each merge into a milestone
-  branch, and exercise real CI on the branch with
-  `gh workflow run ci.yml --ref <branch>` (the `workflow_dispatch` trigger runs all nine CI jobs
-  on a branch with no PR; only CodeQL still waits for the PR). An agent converges
-  only when a
-  successfully completed full-diff review
-  explicitly reports no unresolved actionable verified findings. An agent that reports
-  any such finding remains non-converged whether the finding is new or repeated. Failed,
-  timed-out, or inconclusive reviews also remain non-converged and must be retried. Once
-  converged, an agent must not run again during that PR review cycle, even after another
-  agent's fixes change the diff. Repeat the reduced, non-converged set until each
-  remaining agent converges. Do not skip re-verification for an agent that found an
-  issue, do not defer fixable issues, and do not merge with known-fixable findings
-  outstanding. NO BUTS. The only findings you may leave are ones genuinely not
-  verifiable/actionable in this repo — record each exception explicitly, with the
-  reason.**
-- **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**
-  Plan-mode plan files and any implementation handover written for a follow-up session go
-  under `./tmp/plans/`, not in `.opencode/plans/` or `docs/`. Durable knowledge belongs in
-  the tracked docs (`docs/DECISIONS.md`, `docs/design/`) and the GitHub
-  issues; never reference a `tmp/` path from a tracked file or a GitHub issue.
+  **Only the implementer makes lasting code, test, fix, commit, or PR edits. R3 is the sole
+  transient exception and runs ALONE (see D49).** R3 may mutate production code only to
+  prove that a relevant test rejects wrong behavior. Before each mutation it copies the
+  target outside the worktree, then restores the original bytes byte-exactly from that
+  external backup. It never fixes code, stages, commits, pushes, merges, rebases, stashes,
+  resets, cleans, checks out, or uses Git to restore a target. Run the other non-converged
+  dimensions in parallel, then R3 alone against the same commit. The orchestrator must
+  verify `git status --porcelain` is empty and `git rev-parse HEAD` is unchanged before
+  accepting R3; otherwise the pass is inconclusive and non-converged.
+
+  Fix every verifiable actionable finding, including sensible suggestions that can be
+  confirmed in the repo. Send lasting fixes to the implementer, re-run applicable gates,
+  commit them, and repeat only the non-converged dimensions; R3 remains isolated. A
+  dimension converges only after a successful full-diff review explicitly reports no
+  unresolved actionable verified findings. Failed, timed-out, or inconclusive reviews do
+  not converge. Once a dimension converges, do not run it again in that review cycle.
+
+  Every round reviews a clean worktree and committed diff. After all five dimensions
+  converge, run final `pdm run verify`. Do not create a PR until convergence and final gates
+  pass. Branch CI may be dispatched before a PR; CodeQL still requires its configured
+  GitHub event. PR creation occurs only when requested. Never run `gh pr merge`; human
+  merges are the only GitHub PR merges. This does not prohibit the milestone procedure's
+  local `git merge --no-ff` integration of a verified issue branch into its milestone
+  branch. Record any genuinely unverifiable or unactionable exception and its reason.

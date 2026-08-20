@@ -1,0 +1,9 @@
+{
+  // Only an explicit per-agent fallback is automatic; AWS is never automatic.
+  "enabled": true,
+  "fallback_models": [],
+  "max_fallback_attempts": 1,
+  "cooldown_seconds": 21600,
+  "timeout_seconds": 0,
+  "notify_on_fallback": true
+}
