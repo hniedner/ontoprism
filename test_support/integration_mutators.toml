@@ -20,6 +20,10 @@ tests = ["test_isolated_postgres_is_migrated_and_owner_marked"]
 fixtures = ["isolated_postgres_url"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_pre_resume_integration.py"
+fixtures = ["isolated_postgres_url"]
+
+[[mutator]]
 path = "backend/tests/test_integration_resources_integration.py"
 tests = ["test_isolated_qlever_accepts_owned_graph_data"]
 fixtures = ["isolated_qlever_url"]
@@ -105,39 +109,44 @@ tests = ["test_postgres_docker_id_failure_removes_the_real_started_container"]
 fixtures = ["postgres_docker_id_failure_provisioner"]
 
 [[mutator]]
+path = "backend/tests/test_integration_resources_integration.py"
+tests = ["test_schema_migrations_use_a_distinct_fully_migrated_database"]
+fixtures = ["isolated_postgres_url", "isolated_migration_postgres_url"]
+
+[[mutator]]
 path = "backend/tests/test_migrations_integration.py"
 tests = ["test_legacy_embedding_tables_stamp_predecessor_then_upgrade"]
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
 tests = ["test_migration_upgrade_downgrade_roundtrip"]
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
 tests = ["test_decomposition_run_lifecycle_migration_roundtrip"]
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
 tests = ["test_complete_definition_migration_roundtrip"]
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
 tests = ["test_definition_presence_migration_roundtrip"]
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
 tests = ["test_nested_definition_group_migration_roundtrip"]
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "backend/tests/test_migrations_integration.py"
 tests = ["test_outcome_migration_backfills_unknown_and_rejects_invalid_shape"]
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_provenance_integration.py"
@@ -182,6 +191,11 @@ fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
 path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_r82_paths_preserve_direct_edges_and_edge_removal_on_real_qlever"]
+fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
+
+[[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
 tests = ["test_genus_traversal_matches_disposable_owl_list_shape"]
 fixtures = ["isolated_qlever_url"]
 
@@ -201,7 +215,7 @@ fixtures = ["isolated_qlever_settings"]
 
 [[mutator]]
 path = "ontolib/tests/repositories/xref/test_migration_roundtrip.py"
-fixtures = ["isolated_postgres_settings"]
+fixtures = ["isolated_migration_postgres_settings"]
 
 [[mutator]]
 path = "ontolib/tests/repositories/xref/test_promotion_persistence.py"

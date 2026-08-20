@@ -70,8 +70,9 @@ def _payload_identity(value: object) -> str:
 def _fingerprint() -> RunFingerprint:
     manifest = json.loads(_MANIFEST.read_text())
     return RunFingerprint(
-        schema_version=3,
+        schema_version=5,
         source_identity=manifest["source_identity"],
+        collapse_policy_identity="0" * 64,
         branch=manifest["branch"],
         scope_root=manifest["scope_root"],
         scope_version=manifest["scope_version"],

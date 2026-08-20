@@ -63,6 +63,7 @@ def _asyncpg_dsn(sqlalchemy_url: str) -> str:
 def _fingerprint(worklist: tuple[str, ...]) -> RunFingerprint:
     return RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -747,8 +748,9 @@ async def test_current_evidence_generator_reads_real_published_postgres_run(
     )
     representation_identity = hashlib.sha256(artifact.read_bytes()).hexdigest()
     fingerprint = RunFingerprint(
-        schema_version=3,
+        schema_version=5,
         source_identity=manifest.source_identity,
+        collapse_policy_identity="0" * 64,
         branch=manifest.branch,
         scope_root=manifest.scope_root,
         scope_version=manifest.scope_version,

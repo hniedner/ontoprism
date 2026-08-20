@@ -528,6 +528,7 @@ async def test_finish_run_sets_complete() -> None:
     locked = MagicMock()
     fingerprint = RunFingerprint(
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -595,8 +596,9 @@ async def test_finish_run_sets_complete() -> None:
 async def test_completed_run_for_evidence_returns_validated_publication() -> None:
     sf = _make_mock_sf()
     fingerprint = RunFingerprint(
-        schema_version=3,
+        schema_version=5,
         source_identity="a" * 64,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",

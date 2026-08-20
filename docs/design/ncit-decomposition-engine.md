@@ -9,6 +9,10 @@ decomposition model come from the companion
 [NCIt decomposition assessment](./ncit-decomposition-assessment.md); this document turns
 that assessment into an implementable, test-driven build.
 
+For a plain-language entry point, see the [shared terminology](../../README.md#terminology).
+This engineering specification then uses `axis`, `filler`, `genus`, `semantic type`, source
+occurrence, partonomy, curated projection, and relationship group in their precise senses.
+
 ---
 
 ## 1. Goal & definition of done
@@ -31,7 +35,7 @@ Mapped to the issue's checklist:
 
 ## 2. Scope
 
-**Hierarchy populations:** `neoplasm` is rooted at NCIt Neoplasm (`C3262`);
+**Hierarchy populations:** `neoplasm` is rooted at Neoplasm (`C3262`);
 `disease` is rooted at Disease or Disorder (`C2991`) and therefore includes the
 neoplasm population. Both are strict descendant closures of the stated named-class DAG:
 direct named `rdfs:subClassOf` edges plus named genus members in
@@ -272,6 +276,24 @@ filler or preserve unresolved co-equal fillers without silently discarding them.
   The selector does not consult Uberon; §6.4 found that external cross-check unsuitable
   as a general tie-break.
 - **`R101` sense split (D20/§6.6):** before collapse, primary-site restrictions are disambiguated by two composable refinements — genus-sense classification (lineage-generic → `op:AssociatedLineageClassification`) then filler-semantic-type ranking (organ-level → `op:PrimarySite`; region/tissue → `op:AssociatedRegion`). Co-equal non-nested values are retained; selected routed region/stage axes may receive synthetic groups, while lineage classifiers remain ungrouped.
+- **R101 change evidence (D77):** the v3→v4 boundary is a strict occurrence ledger keyed by the
+  complete persisted structural occurrence identity. A removed broader same-axis projection is
+  covered only by a retained new R101 link and a replayable directed stated-R82 path. One-step and
+  closure-only evidence remain distinct; report mechanics cannot authorize content or open the
+  publication gate. The tracked report is mechanically complete but content-pending and blocked
+  (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+  2026-08-19).
+- **R101 human review (D78):** the 3,291 R82-covered occurrences are frozen in a separate packet as
+  162 endpoint patterns and 2,800 disease propositions. The workbook contains no occurrence audit
+  sheet or internal IDs. Review asks only whether the retained more-specific site supplies
+  non-exclusive projection coverage of the broader site for listed disease/source occurrences;
+  source assertions remain preserved, multiple valid narrower sites remain independent, and no
+  equivalence, universal, complete, or exclusive claim is recorded. Pattern decisions expand over
+  immutable membership, with explicit reasoned disease exceptions. Import creates a proposed
+  occurrence-level registry, and preflight only replays decision expansion with
+  `writes_performed=false`; it cannot authorize or publish the pending report
+  (`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q && pdm run test-integration-full-store -k r101_review_labels_match_real_qlever_in_bounded_batches`,
+  2026-08-20).
 
 Output per concept: `list[Constituent(axis, filler_code, axis_source, source_role, most_specific, needs_review, group)]`.
 
@@ -414,17 +436,17 @@ Full narrative: this §6 and DECISIONS D14–D20.
 Thyroid Gland) once most-specific selection also treats NCIt's own `R82
 Anatomic_Structure_Is_Physical_Part_Of` role as transitive-ancestor evidence, alongside
 `rdfs:subClassOf+` (is-a) — **no external Uberon lookup needed** for that case. Before
-writing that into this design as settled, it was checked against 3 more concepts
-(`C4791` Left Atrial Myxoma, `C35756` Stage IIIB Lung SCLC w/ Pleural Effusion, `C89995`
-Stage III Colon Cancer AJCC v7). Result: **the technique generalizes partially, not
-fully.**
+writing that into this design as settled, it was checked against 3 more concepts:
+Left Atrial Myxoma (`C4791`), Stage IIIB Lung Small Cell Carcinoma with Pleural Effusion
+AJCC v7 (`C35756`), and Stage III Colon Cancer AJCC v7 (`C89995`). Result: **the
+technique generalizes partially, not fully.**
 
 | Concept | Raw R101 candidates | is-a ∪ part-of leaves | Outcome |
 |---|---|---|---|
 | `C6135` | 5 (Thyroid Gland, Endocrine Gland/System, Head and Neck, Neck) | **1** (Thyroid Gland) | Fully resolved |
 | `C89995` | 3 (Colon, Colorectal Region, Digestive System) | 2 (Colon, Colorectal Region) | Partially resolved (system eliminated; organ-vs-region tie remains) |
 | `C35756` | 4 (Lung, Bronchus, Endocrine Gland/System) | 3 (Lung, Bronchus, Endocrine Gland) | Partially resolved (Endocrine System eliminated; three unrelated siblings remain) |
-| `C4791` | 7 (Heart, Cardiac Atrium, Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity, Connective/Soft Tissue) | 4 (Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity) | Partially resolved (Heart/Cardiac Atrium eliminated as too-broad; Left Atrium still ties with 3 unrelated candidates) |
+| Left Atrial Myxoma (`C4791`) | 7 (Heart, Cardiac Atrium, Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity, Connective/Soft Tissue) | 4 (Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity) | Historical intermediate result. The reviewed projection uses Left Atrium (`C12869`) as `op:PrimarySite`; Endocardium (`C13004`) is tissue, not a region. |
 
 **What the technique reliably does:** correctly and consistently eliminates candidates
 that are genuine is-a or part-of *containers* of another candidate, in every case tested
@@ -579,8 +601,9 @@ additional metadata on a node *already visited*, not a new traversal.
 
 **Resolved (2026-07-08, DECISIONS D20): R101 gets two independent, composable refinements,
 applied in order** — not one. The region-vs-organ ties (`Colon`/`Colorectal Region`,
-`Left Atrium`/`Endocardium`) are a *second*, distinct phenomenon from lineage conflation:
-they aren't reached through a reusable, organ-agnostic ancestor the way `Endocrine Gland`
+Left Atrium (`C12869`)/Endocardium (`C13004`) are a *second*, distinct phenomenon from
+lineage conflation: Left Atrium is the organ chamber and Endocardium is tissue, not a region.
+They aren't reached through a reusable, organ-agnostic ancestor the way `Endocrine Gland`
 is. The resolution:
 
 1. **Genus-sense classification (this section, D17)** runs **first** and routes

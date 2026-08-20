@@ -12,12 +12,14 @@ from ontolib.decomposition.stated_queries import (
     build_genus_walk_members_query,
     build_in_scope_concepts_query,
     build_morphology_query,
+    build_part_of_candidate_paths_query,
     build_part_of_pairs_queries,
     build_part_of_pairs_query,
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
     resolve_morphology_filler,
+    resolve_part_of_paths,
     walk_genus_chain,
 )
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS
@@ -26,6 +28,46 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 def _iri(code: str) -> str:
     return f"{NCIT_NS}{code}"
+
+
+@pytest.mark.unit
+def test_candidate_path_preflight_binds_only_named_pairs_and_caps_64() -> None:
+    query = build_part_of_candidate_paths_query((("C1", "C2"), ("C3", "C4")))
+    assert f"(<{_iri('C1')}> <{_iri('C2')}>)" in query
+    assert f"(<{_iri('C3')}> <{_iri('C4')}>)" in query
+    assert f"(<{_iri('C1')}> <{_iri('C4')}>)" not in query
+    assert "?assertedPart ?restriction" in query
+    with pytest.raises(ValueError, match="at most 64"):
+        build_part_of_candidate_paths_query(
+            tuple((f"C{index + 1}", f"C{index + 1000}") for index in range(65))
+        )
+
+
+@pytest.mark.unit
+async def test_candidate_path_resolution_rejects_missing_evidence_binding() -> None:
+    class MissingRestriction:
+        async def select_once(
+            self, query: str, *, required_variables: Collection[str] = ()
+        ):
+            assert query
+            assert required_variables == {
+                "part",
+                "whole",
+                "assertedPart",
+                "restriction",
+            }
+            return [
+                {
+                    "part": _iri("C1"),
+                    "whole": _iri("C2"),
+                    "assertedPart": _iri("C1"),
+                }
+            ]
+
+    with pytest.raises(ValueError, match="missing a binding"):
+        await resolve_part_of_paths(
+            MissingRestriction(), (("C1", "C2"),), source_identity="a" * 64
+        )
 
 
 @pytest.mark.unit

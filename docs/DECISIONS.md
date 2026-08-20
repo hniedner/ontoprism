@@ -2,6 +2,163 @@
 
 Running log of consequential decisions. Newest first. Each entry: context → decision → why.
 
+Decision records use precise ontology terminology. For plain-language definitions of
+decomposition, axis, filler, OWL existential restriction, genus, semantic type, curated
+projection, source occurrence, partonomy, and relationship group, see the
+[shared terminology](../README.md#terminology).
+
+## 2026-08-20 — R101 coverage review is human-centered and occurrence-bound
+
+### D78. Review non-exclusive projection coverage without asserting disease exclusivity
+
+The generated schema-v3 packet contains 162 endpoint patterns, 2,800 disease propositions, 3,291
+exact source-occurrence audit records, and 2,800 frozen membership rows; disease-proposition
+multiplicity is 2,322×1, 465×2, and 13×3, with maximum pattern fanout 245
+(`pdm run python -c 'import json; from pathlib import Path; from collections import Counter; p=json.loads(Path("tmp/r101-review-packet-v3.json").read_text()); print(len(p["patterns"]),len(p["disease_propositions"]),len(p["occurrences"]),len(p["membership"]),Counter(x["occurrence_count"] for x in p["disease_propositions"]),max(x["occurrence_count"] for x in p["patterns"]))'`,
+2026-08-20).
+
+**Decision:** #267 uses one canonical packet, a human-centered workbook, a proposed atomic decision
+registry, and a read-only decision-expansion dry run. The atomic audit subject remains disease
+concept + exact R101 source occurrence + broader site + retained more-specific site. The primary
+human decision is the endpoint pattern; import expands it over immutable packet membership and may
+exclude a disease only through an explicit `Yes` plus nonempty rationale. Approval means only
+`non-exclusive projection coverage`: the retained site may cover the omitted broader site in the
+curated projection for the listed disease/source occurrences. It never means equivalence,
+universality, completeness, exclusivity, or the only valid site, and source assertions remain
+preserved. Multiple valid narrower sites remain independent.
+
+The workbook has exactly six sheets: `Instructions and Semantics`, `Pattern Review`, `Disease
+Propositions`, `Column Definitions`, `Review Examples`, and a veryHidden `Bindings`. It has no
+occurrence appendix, technical row IDs, or raw JSON, and reviewer-facing sheets do not require
+reviewers to handle hashes. `Bindings` carries the exact SHA-256 packet, guidance, visible-row,
+and membership identities plus schema and release for mechanical binding. The only unlocked cells
+are 162×4 pattern review cells and 2,800×2 disease exception/rationale cells. Every disease row is
+generated with `Exception?=No` and a blank rationale; this is a scope default with no effect until
+its pattern is approved. Reviewers change only true exceptions to `Yes` and supply rationale. A
+missing or invalid value refuses import; every non-approve pattern must retain `No` and blank
+rationale
+(`pdm run pytest ontolib/tests/decomposition/test_r101_review.py -q`, 2026-08-20). Hiddenness is not
+security: import regenerates every immutable visible cell from the separate packet. Benign XLSX
+container re-saves are accepted, while semantic cell edits, stale guidance/bindings, formulas,
+missing/duplicate/extra rows, macros, and external links refuse the whole import.
+
+The canonical packet identity is
+`fa9cca72f60affedf20ff420423f5f30c1aeabcff1bc54d53b05a6a7b419fc59`; its guidance,
+visible-row, and membership identities are respectively
+`fc315ee3633585693bd6db22f193c83b23fec94ad35412cafb80d40898b4c39b`,
+`97a1d3084e9f555887bf931424c707b33083fbe654b20a1ef417a0462e35f6f7`, and
+`756943698475d2313d7c1c6802fb2e0055585f5ce005b1575a48d0f8aa8702dd`
+(`pdm run python -c 'import json; from pathlib import Path; p=json.loads(Path("tmp/r101-review-packet-v3.json").read_text()); print({k:p[k] for k in ("packet_identity","guidance_identity","visible_rows_identity","membership_identity")})'`,
+2026-08-20). The packet and workbook file SHA-256 values are
+`82c865f0b25624c2b6e968b724383385b55748c393650714281c16eceee701dd` and
+`8d8993cac4373f67a99022e3db60f917b82f0cb160444e7159d9ca32f8fb4a35`
+(`shasum -a 256 tmp/r101-review-packet-v3.json tmp/r101-review-workbook-v3.xlsx`,
+2026-08-20).
+
+The workbook records the supplied SEER/ICD-O pilot conclusion only as generic guidance: zero strict
+rule-eligible cases means no automation and no safe workload reduction; it exposes no SEER decision
+fields (`pdm run python -c 'from openpyxl import load_workbook; b=load_workbook("tmp/r101-review-workbook-v3.xlsx"); print("\\n".join(str(c.value or "") for r in b["Instructions and Semantics"].iter_rows() for c in r)); print(tuple(c.value for c in b["Pattern Review"][1]))'`,
+2026-08-20). Exact external pilot command/date/input hashes are not present in the workspace, so
+the detailed pilot counts cannot be durably certified here; that documentation remains blocked on
+independent evidence rather than being reconstructed from memory.
+
+The TEST-ONLY all-approve/no-exception import expanded to exactly 3,291 proposed atomic decisions
+and the dry run reported `writes_performed=false`; the tracked conservation report remained pending
+and publication-blocked
+(`pdm run adjudication import-r101-review-decisions --packet tmp/r101-review-packet-v3.json --reviewed-xlsx tmp/r101-review-workbook-v3-TEST-ONLY.xlsx --output tmp/r101-review-registry-v3-TEST-ONLY.json --provenance test-only && pdm run adjudication dry-run-r101-decision-expansion --report ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz --packet tmp/r101-review-packet-v3.json --registry tmp/r101-review-registry-v3-TEST-ONLY.json --output tmp/r101-review-preflight-v3-TEST-ONLY.json`,
+2026-08-20). Expansion creates a proposed decision registry, never a new packet, authorization, or
+publication artifact. This decision does not implement D75/#271.
+
+## 2026-08-19 — R101 conservation is an occurrence ledger, not content approval
+
+### D77. Bind every source occurrence and replayable stated-R82 edge before review
+
+The generated schema-3 artifact partitions 43,414 R101 occurrences into 30,040 projected,
+10,083 unchanged-unprojected, 1,954 one-step-R82 covered, 1,337 closure-only-R82 covered, and
+zero unresolved rows, with zero non-R101 delta
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.counts.model_dump())'`,
+2026-08-19). Every path edge records the traversal endpoints, asserted restriction subject,
+restriction node, exact source identity, and recomputed fact identity; the persisted compressed
+JSON and on-demand TSV roundtrip contract passes
+(`pdm run pytest ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_full_structural_key_survives_model_json_and_lossless_tsv ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_r82_edge_carries_replayable_asserted_subject_and_validates_fact_identity -q`,
+2026-08-19).
+
+**Decision:** the conservation boundary is one deterministic gzip file containing a strict
+schema-3 occurrence inventory, with no raw-JSON compatibility reader. The lossless TSV projection
+is generated on demand and bound by `tsv_identity`, not tracked separately. The report binds the
+v3 baseline, both completed runs, source release, detector, pre-resume proof,
+resume dry-run, and mixed-cohort identities separately; their aggregate proof identity does not
+replace those continuation bindings. One-step and closure-only stated R82 evidence remain distinct.
+Malformed, partial, duplicate, mismatched, cross-axis, reversed, broken, over-depth, source-drifted,
+or non-R101-changing evidence fails closed at report load as well as construction. Non-R101 delta
+evidence is the canonical sorted row set bound to both run IDs and the exact SQL query identity;
+its count is derived from those rows rather than accepted as an independent scalar.
+
+Mechanical completion, content authorization, and publication eligibility are independent states.
+The tracked report currently records `complete`, `pending`, and `blocked`, respectively
+(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.mechanical_status,r.content_authorization.status,r.publication_gate)'`,
+2026-08-19). This decision neither authorizes content nor changes D75/#271 semantics. SME pattern
+review remains a final M1.6 milestone decision before publication.
+
+## 2026-08-17 — full-corpus routing attribution requires depth-matched evidence
+
+### D76. Recover historical v3 at depth 7 rather than compare confounded runs
+
+The run inventory showed a full historical v3 baseline at walker depth 5 and a
+completed production v4 run at depth 7, with no full depth-matched counterpart
+(`docker exec ... psql ... SELECT id,status,fingerprint->>'algorithm_version',fingerprint->>'walker_max_depth',jsonb_array_length(fingerprint->'worklist') FROM decomp_run ...`,
+2026-08-17). The conservation generator correctly refused that comparison with
+`new run fingerprint dimension drift: walker_max_depth`
+(`pdm run adjudication generate-r101-conservation ...`, 2026-08-17). Historical
+recovery inputs were inspected with `git cat-file -t f2800654...`, `git diff
+--name-status f2800654... -- pdm.lock pyproject.toml compose files migrations`,
+and `git grep -n 'walker-max-depth|walker_max_depth' f2800654...` (2026-08-17).
+The active depth-matched recovery run is
+`neoplasm-d6b0df5e-aa18-4aa7-b8bb-9f8bc36c850a`, v3, depth 7, with a 15,633-item
+worklist (`docker exec ... psql ... SELECT id,status,fingerprint->>'algorithm_version',fingerprint->>'walker_max_depth',jsonb_array_length(fingerprint->'worklist') FROM decomp_run ...`,
+2026-08-17).
+
+**Decision:** full-corpus routing attribution requires equal walker depth and every
+other semantic dimension held constant. The minimum accepted recovery is the exact
+historical v3 bytes run at depth 7 in an isolated frozen environment against the same
+source, worklist, schema, and services, followed by occurrence-level comparison with
+the immutable v4 depth-7 run. A v4 depth-5 run is optional evidence for a factorial
+routing-by-depth interaction; it is not required for the minimum #267 claim.
+
+The historical run is separately identified, additive evidence and introduces no
+production legacy-compatibility code. Constituent conservation is not logical
+equivalence; SME judgment remains a separate decision boundary. Partial runs and any
+dimension-mismatched comparison fail closed.
+
+## 2026-08-17 — exclusion roles require release-bound semantic authority
+
+### D75. Exclusion facts remain lossless, typed, and nondefining
+
+The runtime classification surface includes `_EXCLUDES_MARKER`,
+`is_excluded_role`, `is_projectable_role`, `is_defining_role`, and `role_label`
+(`rg --no-ignore -n '_EXCLUDES_MARKER|def is_excluded_role|def is_projectable_role|def is_defining_role|role_label:' ontolib/src/ontolib/decomposition/{axes.py,models.py}`,
+2026-08-17). Decomposition fixtures mention R109, R110,
+`Disease_Excludes_Abnormal_Cell`, and `Disease_Excludes_Finding`
+(`rg --no-ignore -n 'R109|R110|Disease_Excludes_Abnormal_Cell|Disease_Excludes_Finding' ontolib/tests/decomposition`,
+2026-08-17).
+
+**Decision:** runtime exclusion-role classification is keyed by a release-bound NCIt
+role-code catalog derived from the exact certified stated OWL, never by optional labels.
+Labels and the EVS metadata API are corroborating drift signals and source-qualification
+evidence only, not runtime semantic authority. Preserve every exclusion fact and source
+occurrence losslessly, classify it as typed `negative-exclusion`, and exclude it from
+positive defining axes and accepted projections. Unknown role codes remain provenance-
+preserving `unknown-role/review-required` and nondefining until source evidence and an
+SME decision resolve them.
+
+R135–R142 are candidate exclusion-catalog evidence requiring exact NCIt 26.07d
+stated-OWL validation and SME decision before implementation. Correct fabricated or
+conflicting R109/R110 fixtures only with release-bound canary contracts. R166/R168/R170
+Procedure May_Have policy is deferred while procedures remain outside disease/neoplasm
+scope. #271 follows #267 as a prerequisite and must not alter its active partially
+completed run; #127 final publication consumes the resulting catalog and source
+qualification. This decision makes no equivalence or accepted-in-NCIt claim.
+
 ## 2026-08-14 — M1.6 release governance separates semantic gates from measurements
 
 ### D74. Semantic invariants block release; independently named metrics measure progress
@@ -441,7 +598,8 @@ measure filler accuracy, and `include` is strictly the SME label rate. In partic
 2026-08-09).
 
 Candidate rows contain 63 `include` labels, but 64 kept constituents: the remaining kept row is
-the `revise` decision for `C206219 op:PrimarySite C12316`, and that revised pair is absent from
+the `revise` decision for Stage I Endometrial Cancer FIGO 2023 (`C206219`) with
+`op:PrimarySite` Uterus (`C12316`), and that revised pair is absent from
 the recorded engine evidence
 (`jq -n --slurpfile rows ontolib/tests/decomposition/golden/neoplasm-row-decisions.json --slurpfile engine ontolib/tests/decomposition/golden/neoplasm-engine-evidence.json '[$rows[0].rows[]|select(.row_type=="ADD IF MISSING")] as $r | {include:([$r[]|select(.sme_action=="include")]|length),kept:([$r[]|select(.sme_action=="include" or .sme_action=="revise")]|length),revised:([$r[]|select(.sme_action=="revise")|. as $x|{code,expected,in_engine:any($engine[0].concepts[];.code==$x.code and any(.constituents[];.axis==$x.expected.axis and .filler==$x.expected.filler))}])}'`,
 2026-08-09).
@@ -551,7 +709,7 @@ complete stated record, measured per role: v1 wrongly suppressed R108 C36122 (Be
 Cellular Infiltrate) on frequency drawn from R142 exclusions on malignant concepts. As a
 positive R108 finding it is asserted only on the benign genera C3677, C4776 and C5111 and
 covers 5.6% of the cohort against 61-100% for every retained entry, so v2 restores it and
-C4791 Left Atrial Myxoma regains a true constituent. Changes require a new list version and
+Left Atrial Myxoma (`C4791`) regains a true constituent. Changes require a new list version and
 the full-corpus routing impact gate from D58. Runtime stage system/value routing uses the
 versioned `ncit-26.07d-stage-kind-v1` reviewed code allowlist. Definitions informed its
 curation but are not consulted at runtime; semantic type alone is insufficient because

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         Constituent,
         Decomposition,
     )
+    from ontolib.decomposition.r101_conservation import R101LedgerSource
 
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -52,6 +53,14 @@ from ontolib.decomposition.provenance_models import (
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _same_delta_rows(previous: object | None, current: object) -> object:
+    if previous is not None and previous != current:
+        raise ValueError("non-R101 delta evidence differs across occurrence rows")
+    return current
+
+
 _PUBLICATION_LOCK_KEY = "decomposition:publication"
 
 
@@ -1255,6 +1264,25 @@ class ProvenanceStore:
                 "materialized worklist does not match the immutable run fingerprint"
             )
 
+    @staticmethod
+    def require_resume_identity(
+        fingerprint: RunFingerprint,
+        expected: RunResumeIdentity,
+        run_id: str,
+    ) -> None:
+        """Apply the production caller-controlled resume identity contract."""
+        actual = RunResumeIdentity.from_fingerprint(fingerprint)
+        if actual == expected:
+            return
+        dimension = (
+            "source identity"
+            if actual.source_identity != expected.source_identity
+            else "configuration"
+        )
+        raise RunIdentityMismatchError(
+            f"resume {dimension} does not match persisted run {run_id!r}"
+        )
+
     async def resume_run(
         self,
         run_id: str,
@@ -1281,16 +1309,7 @@ class ProvenanceStore:
                 row["fingerprint"], row["fingerprint_sha256"]
             )
             await self._require_materialized_worklist(session, run_id, fingerprint)
-            actual = RunResumeIdentity.from_fingerprint(fingerprint)
-            if actual != expected:
-                dimension = (
-                    "source identity"
-                    if actual.source_identity != expected.source_identity
-                    else "configuration"
-                )
-                raise RunIdentityMismatchError(
-                    f"resume {dimension} does not match persisted run {run_id!r}"
-                )
+            self.require_resume_identity(fingerprint, expected, run_id)
             await session.execute(
                 text(
                     "UPDATE decomp_run SET status = 'running', "
@@ -1700,6 +1719,67 @@ class ProvenanceStore:
                     "minted_count": row["minted_count"],
                 }
             )
+
+    async def r101_occurrence_ledger(
+        self, old_run_id: str, new_run_id: str
+    ) -> R101LedgerSource:
+        """Read both exact occurrence inventories and links in one bounded query."""
+        from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
+            NonR101DeltaEvidence,
+            NonR101DeltaRow,
+            OccurrenceInput,
+            Pair,
+            R101ConservationValidationError,
+            R101LedgerSource,
+            StructuralOccurrence,
+            r101_ledger_query_identity,
+            r101_occurrence_ledger_query,
+        )
+
+        sql = text(r101_occurrence_ledger_query())
+        async with self._sf() as session:
+            result = await session.execute(
+                sql, {"old_run_id": old_run_id, "new_run_id": new_run_id}
+            )
+            rows = result.mappings().all()
+        occurrences: list[OccurrenceInput] = []
+        delta_rows: object | None = None
+        for row in rows:
+            if row["old_occurrence"] is None or row["new_occurrence"] is None:
+                raise R101ConservationValidationError("structural-key-mismatch")
+            old_payload = dict(row["old_occurrence"])
+            new_payload = dict(row["new_occurrence"])
+            old_payload["structural_path"] = tuple(old_payload["structural_path"])
+            new_payload["structural_path"] = tuple(new_payload["structural_path"])
+            retained_links = cast("list[dict[str, str]]", row["retained_links"])
+            occurrences.append(
+                OccurrenceInput(
+                    old_occurrence=StructuralOccurrence.model_validate(old_payload),
+                    new_occurrence=StructuralOccurrence.model_validate(new_payload),
+                    old_links=tuple(row["old_links"]),
+                    new_links=tuple(row["new_links"]),
+                    retained_new_r101_links=tuple(
+                        Pair.model_validate(item)
+                        for item in sorted(
+                            retained_links,
+                            key=lambda item: (item["axis"], item["filler_code"]),
+                        )
+                    ),
+                )
+            )
+            delta_rows = _same_delta_rows(delta_rows, row["non_r101_delta_rows"])
+        evidence = NonR101DeltaEvidence(
+            old_run_id=old_run_id,
+            new_run_id=new_run_id,
+            query_identity=r101_ledger_query_identity(),
+            rows=tuple(
+                NonR101DeltaRow.model_validate(item)
+                for item in cast("list[dict[str, str]]", delta_rows or [])
+            ),
+        )
+        return R101LedgerSource(
+            occurrences=tuple(occurrences), non_r101_delta_evidence=evidence
+        )
 
     async def work_item_outcomes(self, run_id: str) -> list[WorkItemOutcome]:
         """Return the exact ordered per-concept outcomes for a run."""

@@ -15,6 +15,7 @@ from ontolib.decomposition.corpus_baseline import (
     generate_corpus_baseline,
     load_corpus_baseline,
 )
+from ontolib.decomposition.pre_resume import pre_resume_proof_identity
 from ontolib.decomposition.provenance import RunStateError
 from ontolib.decomposition.provenance_models import (
     CompletedRunForEvidence,
@@ -26,6 +27,7 @@ from ontolib.decomposition.provenance_models import (
 def _fingerprint(**changes: object) -> RunFingerprint:
     values: dict[str, object] = {
         "source_identity": "a" * 64,
+        "collapse_policy_identity": "0" * 64,
         "branch": "neoplasm",
         "scope_root": "C3262",
         "scope_version": "stated-genus-subclass-v1",
@@ -33,7 +35,7 @@ def _fingerprint(**changes: object) -> RunFingerprint:
         "worklist": ("C1", "C2", "C3", "C4", "C5"),
         "total_limit": None,
         "sample_manifest_identity": None,
-        "algorithm_version": "decomposition-v3",
+        "algorithm_version": "decomposition-v4",
         "config_version": "nested-definition-v2",
         "walker_max_depth": 5,
         "output_mode": "file",
@@ -142,7 +144,7 @@ async def test_generate_full_corpus_baseline_binds_every_observed_value(
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"sample_manifest_identity": "b" * 64, "schema_version": 3}, "sample"),
+        ({"sample_manifest_identity": "b" * 64, "schema_version": 5}, "sample"),
         ({"total_limit": 5}, "total limit"),
         ({"branch": "disease", "scope_root": "C2991"}, "neoplasm"),
         ({"algorithm_version": "decomposition-v2"}, "algorithm"),
@@ -329,6 +331,75 @@ def test_generate_corpus_baseline_cli_requires_explicit_inputs() -> None:
     assert args.run_id == "full-run"
     assert args.artifact == Path("run.ttl")
     assert args.output == Path("baseline.json")
+
+
+@pytest.mark.unit
+def test_generate_r101_conservation_cli_requires_explicit_inputs() -> None:
+    args = _parser().parse_args(
+        [
+            "generate-r101-conservation",
+            "--source-manifest",
+            "candidate.json",
+            "--baseline",
+            "baseline.json",
+            "--run-id",
+            "full-run",
+            "--new-run-id",
+            "v4-full-run",
+            "--endpoint",
+            "http://localhost:7888",
+            "--output",
+            "report.json.gz",
+            "--pre-resume-proof-identity",
+            "1" * 64,
+            "--resume-dry-run-identity",
+            "2" * 64,
+            "--mixed-cohort-identity",
+            "3" * 64,
+        ]
+    )
+
+    assert args.command == "generate-r101-conservation"
+    assert args.source_manifest == Path("candidate.json")
+    assert args.baseline == Path("baseline.json")
+    assert args.run_id == "full-run"
+    assert args.new_run_id == "v4-full-run"
+    assert args.endpoint == "http://localhost:7888"
+    assert args.output == Path("report.json.gz")
+    assert args.pre_resume_proof_identity == "1" * 64
+    assert args.resume_dry_run_identity == "2" * 64
+    assert args.mixed_cohort_identity == "3" * 64
+
+    validation = _parser().parse_args(
+        [
+            "validate-r101-publication",
+            "--report",
+            "report.json.gz",
+            "--authorization-digest",
+            "4" * 64,
+        ]
+    )
+    assert validation.report == Path("report.json.gz")
+    assert validation.authorization_digest == "4" * 64
+
+
+@pytest.mark.unit
+def test_pre_resume_proof_identity_excludes_freshness_metadata() -> None:
+    payload = {
+        "schema_version": 1,
+        "run_id": "protected-run",
+        "postgres_reads": 4,
+        "qlever_reads": 2,
+        "observed_at": "2026-08-16T22:00:00Z",
+    }
+    first = pre_resume_proof_identity(payload)
+    payload.update(
+        postgres_reads=9,
+        qlever_reads=7,
+        observed_at="2026-08-16T22:01:00Z",
+    )
+
+    assert pre_resume_proof_identity(payload) == first
 
 
 @pytest.mark.unit

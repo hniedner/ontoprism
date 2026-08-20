@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from backend.config import get_settings
 from backend.db import dispose_engine, make_engine, make_sessionmaker
 from ontolib.decomposition import run as run_module
+from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.minting import MintedConcept
 from ontolib.decomposition.models import (
     CompleteDefinition,
@@ -59,6 +60,7 @@ def _dsn() -> str:
 def _fingerprint(*, source: str = "a" * 64) -> RunFingerprint:
     return RunFingerprint(
         source_identity=source,
+        collapse_policy_identity="0" * 64,
         branch="neoplasm",
         scope_root="C3262",
         scope_version="stated-genus-subclass-v1",
@@ -1344,6 +1346,7 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
                 _LifecycleClient(),
                 store,
                 get_source_snapshot=_source,
+                collapse_policy=NO_COLLAPSE_VETO_POLICY,
             )
         interrupted_run = store.created[-1]
         run_ids.append(interrupted_run)
@@ -1357,12 +1360,14 @@ async def test_failed_then_resumed_run_matches_fresh_metrics_and_artifact(
             _LifecycleClient(),
             store,
             get_source_snapshot=_source,
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
         )
         fresh = await run_pipeline(
             RunConfig(branch="neoplasm", out=fresh_out),
             _LifecycleClient(),
             store,
             get_source_snapshot=_source,
+            collapse_policy=NO_COLLAPSE_VETO_POLICY,
         )
         fresh_run = store.created[-1]
         run_ids.append(fresh_run)

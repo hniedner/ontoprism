@@ -889,7 +889,12 @@ async def generate_current_evidence(
     comparison_output: Path,
     store: CurrentEvidenceStore,
 ) -> tuple[CurrentEngineEvidence, CurrentComparison]:
-    """Validate every input, derive all identities, then atomically replace outputs."""
+    """Validate inputs, derive identities, then publish a pair with error rollback.
+
+    A reported replacement failure triggers an attempt to restore prior outputs; any
+    rollback failure is attached explicitly to the raised error. The sequential
+    filesystem replacements promise neither crash atomicity nor guaranteed rollback.
+    """
     _require_paths(
         (sample_manifest, oracle, row_decisions, proposal_registry, artifact),
         (engine_output, comparison_output),
