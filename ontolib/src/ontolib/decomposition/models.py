@@ -514,13 +514,25 @@ class RoleRestriction:
     human-readable name (e.g. ``Disease_Has_Abnormal_Cell``) when resolvable — the
     label is what the ``Excludes_*`` / defining classification keys on.
     ``anchoring_genus`` is the genus code on which this restriction was found during
-    the DAG walk (populated by PR-B; ``None`` on the flat path).
+    the DAG walk (populated by PR-B; ``None`` on the flat path). Source IDs bind a
+    projected restriction to its canonical stated fact and occurrences when available.
     """
 
     role_code: str
     filler_code: str
     role_label: str | None = None
     anchoring_genus: str | None = None
+    source_definition_ids: tuple[str, ...] = ()
+    source_occurrence_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for field_name in ("source_definition_ids", "source_occurrence_ids"):
+            canonical = tuple(sorted(set(getattr(self, field_name))))
+            for source_id in canonical:
+                _require_sha256(source_id, f"{field_name} item")
+            object.__setattr__(self, field_name, canonical)
+        if self.source_occurrence_ids and not self.source_definition_ids:
+            raise ValueError("source occurrence IDs require source definition IDs")
 
 
 @dataclass(frozen=True, slots=True)

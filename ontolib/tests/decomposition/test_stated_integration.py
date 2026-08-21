@@ -1322,6 +1322,55 @@ async def test_c150094_combines_r100_and_r101_primary_site_evidence() -> None:
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.full_store
+async def test_c198031_repeated_pairs_across_groups_keep_exact_emitted_citations() -> (
+    None
+):
+    url = _url()
+    if not _reachable(url):
+        pytest.skip(f"NCIt QLever not reachable at {url}")
+    if not _stated_loaded(url):
+        pytest.skip("stated NCIt graph not loaded (run owl_load with include_stated)")
+
+    async def no_label_match(_surface_form: str) -> str | None:
+        return None
+
+    async with ncit_sparql_client(url, query_timeout=120.0) as client:
+        result = await _decompose_one(
+            "C198031",
+            client,
+            label=None,
+            label_lookup=no_label_match,
+            walker_max_depth=6,
+        )
+
+    decomposition = result.decomposition
+    assert decomposition is not None
+    assert decomposition.complete_definition is not None
+    occurrences = decomposition.complete_definition.occurrences
+    matching = [
+        item
+        for item in occurrences
+        if (item.role_code, item.filler_code) == ("R105", "C12914")
+    ]
+    assert len({item.source_group_id for item in matching}) == 2
+    emitted = [
+        item
+        for item in decomposition.constituents
+        if item.filler_code == "C12914" and "R105" in item.source_roles
+    ]
+    assert len(emitted) == 1
+    assert emitted[0].source_occurrence_ids == tuple(
+        sorted(item.occurrence_id for item in matching)
+    )
+    assert not any(
+        item.filler_code == "C13013" and "R104" in item.source_roles
+        for item in decomposition.constituents
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.full_store
 async def test_c6135_organ_lookup_collapses_broader_associated_region() -> None:
     """Pin the D59 projection while preserving both stated region facts."""
     url = _url()

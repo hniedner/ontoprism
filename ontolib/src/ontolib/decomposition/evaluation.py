@@ -127,6 +127,26 @@ def _co_membership(partition: PairPartition) -> frozenset[frozenset[EvaluationPa
     )
 
 
+def grouping_difference_pairs(
+    expected: PairPartition, actual: PairPartition
+) -> tuple[EvaluationPair, ...]:
+    """Return shared pairs participating in a co-membership disagreement."""
+    expected_pairs = frozenset(pair for block in expected for pair in block)
+    actual_pairs = frozenset(pair for block in actual for pair in block)
+    shared = expected_pairs & actual_pairs
+    expected_together = _co_membership(_induce_partition(expected, shared))
+    actual_together = _co_membership(_induce_partition(actual, shared))
+    return tuple(
+        sorted(
+            {
+                pair
+                for pair_pair in expected_together ^ actual_together
+                for pair in pair_pair
+            }
+        )
+    )
+
+
 def _diagnosis(
     expected: PairPartition, actual: PairPartition
 ) -> PartitionDiagnosis | None:
@@ -176,6 +196,8 @@ def _eligible_comparison(
     common_only: bool,
 ) -> PartitionComparison:
     agrees = expected == actual and (common_only or (not missing and not extra))
+    diagnosis_expected = _induce_partition(expected, shared)
+    diagnosis_actual = _induce_partition(actual, shared)
     return PartitionComparison(
         eligible=True,
         agrees=agrees,
@@ -185,7 +207,9 @@ def _eligible_comparison(
         extra_pairs=extra,
         shared_pair_count=len(shared),
         ineligibility_reason=None,
-        primary_diagnosis=_diagnosis(expected, actual) if not agrees else None,
+        primary_diagnosis=(
+            _diagnosis(diagnosis_expected, diagnosis_actual) if not agrees else None
+        ),
     )
 
 

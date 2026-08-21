@@ -658,8 +658,9 @@ def select_constituents(
     ambiguous.
     Output is sorted (axis, filler) for deterministic, diffable results.
     """
+    restriction_rows = tuple(restrictions)
     by_axis, source_roles, protected = _group_by_routed_axis(
-        restrictions,
+        restriction_rows,
         parent_morphology,
         concept_code,
         source_identity=source_identity,
@@ -675,4 +676,27 @@ def select_constituents(
         protected,
     )
     _append_morphology(constituents, parent_morphology)
-    return sorted(constituents, key=lambda c: (c.axis, c.filler_code))
+    provenance: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
+    for restriction in filter_excluded(restriction_rows, concept_code=concept_code):
+        key = (route_axis(restriction, parent_morphology), restriction.filler_code)
+        definition_ids, occurrence_ids = provenance.setdefault(key, (set(), set()))
+        definition_ids.update(restriction.source_definition_ids)
+        occurrence_ids.update(restriction.source_occurrence_ids)
+
+    def source_ids(constituent: Constituent) -> tuple[set[str], set[str]]:
+        key = (constituent.axis, constituent.filler_code)
+        if key not in provenance and constituent.axis == axes.ASSOCIATED_REGION_AXIS:
+            key = (axes.PRIMARY_SITE_AXIS, constituent.filler_code)
+        return provenance[key]
+
+    traced = [
+        replace(
+            constituent,
+            source_definition_ids=tuple(source_ids(constituent)[0]),
+            source_occurrence_ids=tuple(source_ids(constituent)[1]),
+        )
+        if constituent.axis_source == "role"
+        else constituent
+        for constituent in constituents
+    ]
+    return sorted(traced, key=lambda c: (c.axis, c.filler_code))

@@ -951,6 +951,7 @@ def test_complete_definition_identity_and_projection_loss_are_deterministic() ->
                 axis="R101",
                 filler_code="C200",
                 axis_source="role",
+                source_definition_ids=(restriction.fact_id,),
             )
         ],
         complete,
@@ -988,14 +989,26 @@ def test_complete_definition_identity_and_projection_loss_are_deterministic() ->
         Decomposition(
             code="C1",
             semantic_type=None,
-            constituents=[replace(constituents[0], filler_code="C999")],
+            constituents=[
+                replace(
+                    constituents[0],
+                    filler_code="C999",
+                    source_definition_ids=(restriction.fact_id,),
+                )
+            ],
             complete_definition=complete,
         )
     with pytest.raises(ValueError, match="different source role"):
         Decomposition(
             code="C1",
             semantic_type=None,
-            constituents=[replace(constituents[0], source_roles=("R105",))],
+            constituents=[
+                replace(
+                    constituents[0],
+                    source_roles=("R105",),
+                    source_definition_ids=(restriction.fact_id,),
+                )
+            ],
             complete_definition=complete,
         )
 
@@ -1017,6 +1030,11 @@ def test_routed_axis_trace_does_not_claim_an_unrelated_role_with_same_filler() -
         ],
     )
     complete = CompleteDefinition(root_code="C1", facts=facts)
+    site_restriction = next(
+        fact
+        for fact in facts
+        if isinstance(fact, RestrictionDefinitionFact) and fact.role_code == "R101"
+    )
 
     traced = trace_curated_projection(
         [
@@ -1025,17 +1043,13 @@ def test_routed_axis_trace_does_not_claim_an_unrelated_role_with_same_filler() -
                 filler_code="C200",
                 axis_source="role",
                 source_roles=("R101",),
+                source_definition_ids=(site_restriction.fact_id,),
             )
         ],
         complete,
     )
 
-    source_ids = set(traced[0].source_definition_ids)
-    assert {
-        fact.role_code
-        for fact in facts
-        if isinstance(fact, RestrictionDefinitionFact) and fact.fact_id in source_ids
-    } == {"R101"}
+    assert traced[0].source_definition_ids == (site_restriction.fact_id,)
 
 
 @pytest.mark.unit
@@ -1436,7 +1450,17 @@ async def test_repeated_restrictions_keep_stable_source_occurrences() -> None:
     assert complete.identity == canonical_only.identity
 
     traced = trace_curated_projection(
-        [Constituent(axis="R101", filler_code="C2", axis_source="role")],
+        [
+            Constituent(
+                axis="R101",
+                filler_code="C2",
+                axis_source="role",
+                source_definition_ids=(restriction.fact_id,),
+                source_occurrence_ids=tuple(
+                    occurrence.occurrence_id for occurrence in complete.occurrences
+                ),
+            )
+        ],
         complete,
     )
     assert traced[0].source_definition_ids == (restriction.fact_id,)
@@ -1559,6 +1583,13 @@ def test_complete_record_matches_structural_golden_contract() -> None:
             source_roles=(item["source_role"],),
             group=item["group"],
             needs_review=item["needs_review"],
+            source_definition_ids=tuple(
+                fact.fact_id
+                for fact in facts
+                if isinstance(fact, RestrictionDefinitionFact)
+                and fact.role_code == item["source_role"]
+                and fact.filler_code == item["filler"]
+            ),
         )
         for item in golden["curated_projection"]
     ]

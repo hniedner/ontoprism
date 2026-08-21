@@ -21,6 +21,7 @@ from ontolib.decomposition.evaluation import (
     PartitionDiagnosis,
     compare_common_pair_partition,
     compare_full_partition,
+    grouping_difference_pairs,
 )
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
@@ -58,7 +59,7 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
     )
 
 if TYPE_CHECKING:
-    from scripts.research.golden_review import Constituent, GoldenConstituent
+    from scripts.research.golden_review import GoldenConstituent
 
     from ontolib.decomposition.models import Decomposition, SourceDefinitionOccurrence
     from ontolib.decomposition.provenance_models import (
@@ -119,6 +120,11 @@ class CurrentConstituent(_StrictModel):
     needs_review: bool
     source_occurrence_ids: tuple[str, ...]
     source_occurrences: tuple[CurrentSourceOccurrence, ...]
+
+    @property
+    def provenance_status(self) -> Literal["ncit-26.07d", "proposed"]:
+        """Derive the typed scoreability status from the validated filler identity."""
+        return "ncit-26.07d" if self.filler.startswith("C") else "proposed"
 
     @model_validator(mode="after")
     def _citations_match_selected_ids(self) -> Self:
@@ -481,24 +487,13 @@ def _concepts(
     return tuple(concepts)
 
 
-def _expected_partition_rows(
-    constituents: tuple[Constituent | GoldenConstituent | CurrentConstituent, ...],
+def _scoreable_partition_rows(
+    constituents: tuple[GoldenConstituent, ...] | tuple[CurrentConstituent, ...],
 ) -> tuple[tuple[tuple[str, str], str | None], ...]:
     return tuple(
         ((item.axis, item.filler), item.relationship_group)
         for item in constituents
-        if not item.needs_review
-        and getattr(item, "provenance_status", "ncit-26.07d") == "ncit-26.07d"
-    )
-
-
-def _actual_partition_rows(
-    constituents: tuple[CurrentConstituent, ...],
-) -> tuple[tuple[tuple[str, str], str | None], ...]:
-    return tuple(
-        ((item.axis, item.filler), item.relationship_group)
-        for item in constituents
-        if not item.needs_review and item.filler.startswith("C")
+        if not item.needs_review and item.provenance_status == "ncit-26.07d"
     )
 
 
@@ -518,8 +513,8 @@ def _comparison_payload(
         if concept.adjudication.status != "accepted" or concept.expected is None:
             continue
         actual = actual_by_code[concept.code]
-        expected_rows = _expected_partition_rows(concept.expected.constituents)
-        actual_rows = _actual_partition_rows(actual.constituents)
+        expected_rows = _scoreable_partition_rows(concept.expected.constituents)
+        actual_rows = _scoreable_partition_rows(actual.constituents)
         full = compare_full_partition(expected_rows, actual_rows)
         common = compare_common_pair_partition(expected_rows, actual_rows)
         full_agreements += full.agrees is True
@@ -707,14 +702,9 @@ def _typed_diagnosis(
     comparison: PartitionComparison,
     concept: CurrentConceptEvidence,
 ) -> PartitionDiagnosisEvidence:
-    affected_pairs = tuple(
-        sorted(
-            {
-                pair
-                for block in comparison.expected_partition + comparison.actual_partition
-                for pair in block
-            }
-        )
+    affected_pairs = grouping_difference_pairs(
+        comparison.expected_partition,
+        comparison.actual_partition,
     )
     actual_citations = tuple(
         ActualPairCitation(pair=pair, occurrence_ids=occurrence_ids)

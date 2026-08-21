@@ -59,6 +59,37 @@ def _roles(*pairs: tuple[str, str, str]) -> list[RoleRestriction]:
 
 
 @pytest.mark.unit
+def test_selection_preserves_only_provenance_routed_to_the_selected_pair() -> None:
+    selected_fact = "a" * 64
+    selected_occurrence = "b" * 64
+    collapsed_fact = "c" * 64
+    collapsed_occurrence = "d" * 64
+    constituents = select_constituents(
+        (
+            RoleRestriction(
+                "R101",
+                "C12400",
+                source_definition_ids=(selected_fact,),
+                source_occurrence_ids=(selected_occurrence,),
+            ),
+            RoleRestriction(
+                "R101",
+                "C12401",
+                source_definition_ids=(collapsed_fact,),
+                source_occurrence_ids=(collapsed_occurrence,),
+            ),
+        ),
+        _is_ancestor,
+    )
+
+    assert [(item.axis, item.filler_code) for item in constituents] == [
+        (PRIMARY_SITE_AXIS, "C12400")
+    ]
+    assert constituents[0].source_definition_ids == (selected_fact,)
+    assert constituents[0].source_occurrence_ids == (selected_occurrence,)
+
+
+@pytest.mark.unit
 def test_filter_excluded_drops_negative_axioms() -> None:
     restrictions = _roles(
         ("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"),
@@ -66,6 +97,36 @@ def test_filter_excluded_drops_negative_axioms() -> None:
     )
     kept = filter_excluded(restrictions)
     assert [r.role_code for r in kept] == ["R101"]
+
+
+@pytest.mark.unit
+def test_selection_preserves_source_ids_from_every_routed_occurrence() -> None:
+    restrictions = [
+        RoleRestriction(
+            "R101",
+            "C12400",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C2",
+            source_definition_ids=("a" * 64,),
+            source_occurrence_ids=("b" * 64,),
+        ),
+        RoleRestriction(
+            "R101",
+            "C12400",
+            "Disease_Has_Primary_Anatomic_Site",
+            anchoring_genus="C3",
+            source_definition_ids=("c" * 64,),
+            source_occurrence_ids=("d" * 64,),
+        ),
+    ]
+
+    (constituent,) = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+    )
+
+    assert constituent.source_definition_ids == ("a" * 64, "c" * 64)
+    assert constituent.source_occurrence_ids == ("b" * 64, "d" * 64)
 
 
 @pytest.mark.unit
@@ -407,6 +468,46 @@ def test_semantic_type_ranking_splits_organ_from_region() -> None:
     assert cons["C12400"].axis == PRIMARY_SITE_AXIS
     assert cons["C12418"].axis == ASSOCIATED_REGION_AXIS
     assert cons["C13063"].axis == ASSOCIATED_REGION_AXIS
+
+
+@pytest.mark.unit
+def test_semantic_type_routing_preserves_exact_region_provenance() -> None:
+    selected_fact = "a" * 64
+    selected_occurrence = "b" * 64
+    collapsed_fact = "c" * 64
+    collapsed_occurrence = "d" * 64
+    semantic_types = {
+        "C12418": "Anatomical Structure",
+        "C13063": "Anatomical Structure",
+    }
+    restrictions = [
+        RoleRestriction(
+            "R101",
+            "C12418",
+            source_definition_ids=(collapsed_fact,),
+            source_occurrence_ids=(collapsed_occurrence,),
+        ),
+        RoleRestriction(
+            "R101",
+            "C13063",
+            source_definition_ids=(selected_fact,),
+            source_occurrence_ids=(selected_occurrence,),
+        ),
+    ]
+
+    (constituent,) = select_constituents(
+        restrictions,
+        lambda _broader, _narrower: False,
+        semantic_type_of=semantic_types.get,
+        is_part_of=lambda part, whole: (part, whole) == ("C13063", "C12418"),
+    )
+
+    assert (constituent.axis, constituent.filler_code) == (
+        ASSOCIATED_REGION_AXIS,
+        "C13063",
+    )
+    assert constituent.source_definition_ids == (selected_fact,)
+    assert constituent.source_occurrence_ids == (selected_occurrence,)
 
 
 @pytest.mark.unit
