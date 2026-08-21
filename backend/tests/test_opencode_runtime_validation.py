@@ -164,6 +164,40 @@ def test_expected_orchestrator_task_rules_are_exact_agent_name_patterns() -> Non
 
 
 @pytest.mark.parametrize(
+    ("role", "existing_allow"),
+    [
+        ("implementer", "pdm run verify"),
+        ("ontoprism-team", "git status --porcelain"),
+        ("architect", "git status --porcelain"),
+        ("pr-test-analyzer", "cp *"),
+    ],
+)
+@pytest.mark.parametrize(
+    "extra_allow",
+    [
+        "git -c alias.x=branch x *",
+        "git frobnicate *",
+    ],
+)
+def test_runtime_permission_contract_rejects_extra_project_bash_allows(
+    tmp_path: Path,
+    role: str,
+    existing_allow: str,
+    extra_allow: str,
+) -> None:
+    source = Path(__file__).parents[2] / ".opencode" / "agent" / f"{role}.md"
+    target = tmp_path / ".opencode" / "agent" / f"{role}.md"
+    target.parent.mkdir(parents=True)
+    text = source.read_text()
+    needle = f'    "{existing_allow}": allow\n'
+    assert needle in text
+    target.write_text(text.replace(needle, f'    "{extra_allow}": allow\n{needle}', 1))
+
+    with pytest.raises(RuntimeContractError, match="unapproved bash allow"):
+        expected_permission_contract(tmp_path, role)
+
+
+@pytest.mark.parametrize(
     "command",
     [
         "git -C . reset --hard",

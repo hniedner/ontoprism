@@ -27,6 +27,7 @@ from scripts.validation.validate_opencode_config import (  # noqa: E402
     PLUGIN,
     ROLES,
     Validation,
+    bash_allow_contract_errors,
     load_agent,
     load_json,
     strict_scandir_files,
@@ -149,6 +150,9 @@ def expected_permission_contract(root: Path, name: str) -> list[dict[str, Any]]:
     permission = metadata.get("permission")
     if not isinstance(permission, dict):
         raise RuntimeContractError(f"repository permissions for {name} are invalid")
+    allow_errors = bash_allow_contract_errors(name, metadata)
+    if allow_errors:
+        raise RuntimeContractError(allow_errors[0])
     rules: list[dict[str, Any]] = []
     for tool, value in permission.items():
         if isinstance(value, str):

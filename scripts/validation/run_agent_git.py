@@ -12,6 +12,22 @@ UNSAFE_REF_CHARACTERS = frozenset("&;|><`$\\\n\r\t")
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 OPERATION_ARGUMENT_COUNT = 2
 PROCESS_TIMEOUT_SECONDS = 10
+MUTATION_FAILURE_MESSAGES = {
+    "switch-existing": (
+        "Git switch failed and may have changed repository state; inspect git status"
+    ),
+    "switch-new": (
+        "Git branch creation failed and may have changed repository state; "
+        "inspect git status"
+    ),
+    "delete-merged": (
+        "Git branch deletion failed and may have changed repository state; "
+        "inspect git status"
+    ),
+    "merge-no-ff": (
+        "Git merge failed and may have changed repository state; inspect git status"
+    ),
+}
 
 
 class AgentGitInputError(ValueError):
@@ -83,9 +99,11 @@ def _validate_branch(name: str, root: Path, runner: CommandRunner) -> None:
         raise AgentGitInputError("branch name is invalid")
 
 
-def _require_success(result: CommandResult) -> None:
+def _require_success(
+    result: CommandResult, message: str = "Git operation failed"
+) -> None:
     if result.returncode != 0:
-        raise AgentGitProcessError("Git operation failed")
+        raise AgentGitProcessError(message)
 
 
 def run_agent_git(
@@ -130,7 +148,10 @@ def run_agent_git(
         command = ["git", "switch", "-c", branch]
     else:
         command = ["git", "merge", "--no-ff", branch]
-    _require_success(_invoke(command, resolved_root, runner, mutating=True))
+    _require_success(
+        _invoke(command, resolved_root, runner, mutating=True),
+        MUTATION_FAILURE_MESSAGES[operation],
+    )
     return 0
 
 

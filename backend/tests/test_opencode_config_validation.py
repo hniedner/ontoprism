@@ -410,7 +410,7 @@ def test_forbidden_content_post_scan_deletion_is_categorized(
         "git --work-tree . merge --strategy ours *",
     ],
 )
-def test_raw_git_branch_mutation_allows_are_rejected(
+def test_unapproved_raw_git_branch_mutation_allows_are_rejected(
     config_root: Path, pattern: str
 ) -> None:
     replace(
@@ -421,8 +421,43 @@ def test_raw_git_branch_mutation_allows_are_rejected(
     )
 
     assert any(
-        error.startswith("ROLE_PERMISSION: architect raw Git branch mutation")
+        error.startswith("ROLE_PERMISSION: architect has unapproved bash allow")
         for error in validate(config_root)
+    )
+
+
+@pytest.mark.parametrize(
+    ("role", "existing_allow"),
+    [
+        ("implementer", "pdm run verify"),
+        ("ontoprism-team", "git status --porcelain"),
+        ("architect", "git status --porcelain"),
+        ("pr-test-analyzer", "cp *"),
+    ],
+)
+@pytest.mark.parametrize(
+    "extra_allow",
+    [
+        "git -c alias.x=branch x *",
+        "git frobnicate *",
+    ],
+)
+def test_each_role_class_rejects_every_extra_bash_allow(
+    config_root: Path,
+    role: str,
+    existing_allow: str,
+    extra_allow: str,
+) -> None:
+    replace(
+        config_root,
+        f".opencode/agent/{role}.md",
+        f'    "{existing_allow}": allow\n',
+        f'    "{extra_allow}": allow\n    "{existing_allow}": allow\n',
+    )
+
+    assert (
+        f"ROLE_PERMISSION: {role} has unapproved bash allow {extra_allow}"
+        in validate(config_root)
     )
 
 

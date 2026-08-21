@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -72,6 +73,48 @@ def test_agent_git_runs_safe_branch_lifecycle_in_disposable_repository(
         text=True,
     ).stdout.splitlines()
     assert branches == ["main"]
+
+
+def test_agent_git_reports_conflicted_merge_as_unknown_repository_state(
+    tmp_path: Path,
+) -> None:
+    message = (
+        "Git merge failed and may have changed repository state; inspect git status"
+    )
+    git(tmp_path, "init", "-b", "main")
+    git(tmp_path, "config", "user.email", "test@example.invalid")
+    git(tmp_path, "config", "user.name", "Test User")
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("base\n")
+    git(tmp_path, "add", "tracked.txt")
+    git(tmp_path, "commit", "-m", "initial")
+    git(tmp_path, "switch", "-c", "feat/conflict")
+    tracked.write_text("feature\n")
+    git(tmp_path, "commit", "-am", "feature")
+    git(tmp_path, "switch", "main")
+    tracked.write_text("main\n")
+    git(tmp_path, "commit", "-am", "main")
+
+    try:
+        with pytest.raises(
+            AgentGitProcessError,
+            match=f"^{re.escape(message)}$",
+        ):
+            run_agent_git(["merge-no-ff", "feat/conflict"], tmp_path)
+        assert (tmp_path / ".git" / "MERGE_HEAD").is_file()
+    finally:
+        if (tmp_path / ".git" / "MERGE_HEAD").is_file():
+            git(tmp_path, "merge", "--abort")
+
+    assert not (tmp_path / ".git" / "MERGE_HEAD").exists()
+    status = subprocess.run(
+        ["/usr/bin/git", "status", "--porcelain"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert status.stdout == ""
 
 
 class Result:
@@ -151,6 +194,41 @@ def test_agent_git_classifies_decode_start_timeout_and_nonzero(
             runner=scripted_runner([timeout]),
         )
 
-    nonzero = scripted_runner([Result(0), Result(9)])
-    with pytest.raises(AgentGitProcessError, match="Git operation failed"):
-        run_agent_git(["switch-existing", "feat/x"], tmp_path, runner=nonzero)
+
+@pytest.mark.parametrize(
+    ("arguments", "results", "message"),
+    [
+        (
+            ["switch-existing", "feat/x"],
+            [Result(0), Result(9)],
+            "Git switch failed and may have changed repository state; "
+            "inspect git status",
+        ),
+        (
+            ["switch-new", "feat/x"],
+            [Result(0), Result(9)],
+            "Git branch creation failed and may have changed repository state; "
+            "inspect git status",
+        ),
+        (
+            ["merge-no-ff", "feat/x"],
+            [Result(0), Result(9)],
+            "Git merge failed and may have changed repository state; "
+            "inspect git status",
+        ),
+        (
+            ["delete-merged", "feat/x"],
+            [Result(0), Result(0, "main\n"), Result(0), Result(9)],
+            "Git branch deletion failed and may have changed repository state; "
+            "inspect git status",
+        ),
+    ],
+)
+def test_mutating_nonzero_reports_operation_specific_unknown_state(
+    tmp_path: Path,
+    arguments: list[str],
+    results: list[object],
+    message: str,
+) -> None:
+    with pytest.raises(AgentGitProcessError, match=f"^{re.escape(message)}$"):
+        run_agent_git(arguments, tmp_path, runner=scripted_runner(results))

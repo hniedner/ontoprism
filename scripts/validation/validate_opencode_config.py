@@ -7,7 +7,6 @@ import argparse
 import json
 import os
 import re
-import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -120,6 +119,38 @@ FIXED_GIT_INSPECTION = (
     "git diff --check main...HEAD",
     "git log --oneline -10",
     "git show --stat --oneline HEAD",
+)
+IMPLEMENTER_BASH_ALLOWS = (
+    *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
+    *IMPLEMENTER_NPM_COMMANDS,
+    "git status --porcelain",
+    "git status --short --branch",
+    "git rev-parse HEAD",
+    "git diff --no-ext-diff main...HEAD",
+    "git diff --check main...HEAD",
+    "git diff --cached --check",
+    "git diff --cached --stat",
+    "git log --oneline -10",
+    "git show --stat --oneline HEAD",
+    "git merge-base main HEAD",
+    "git ls-files",
+    "git add",
+    "git add *",
+    "git commit",
+    "git commit *",
+)
+ORCHESTRATOR_BASH_ALLOWS = (
+    *FIXED_GIT_INSPECTION,
+    "pdm run validate-opencode-config",
+    "pdm run validate-opencode-runtime",
+)
+READ_ONLY_BASH_ALLOWS = FIXED_GIT_INSPECTION
+R3_BASH_ALLOWS = (
+    "cp *",
+    "git status --porcelain",
+    "git status --short --branch",
+    "git rev-parse HEAD",
+    "pdm run agent-test *",
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
@@ -285,6 +316,38 @@ def permission_action(metadata: dict[str, Any], name: str) -> Any:
     return permission.get(name) if isinstance(permission, dict) else None
 
 
+def approved_bash_allows(role: str) -> tuple[str, ...]:
+    """Return the exact ordered Bash allow surface for one project role."""
+    if role == "implementer":
+        return IMPLEMENTER_BASH_ALLOWS
+    if role == "ontoprism-team":
+        return ORCHESTRATOR_BASH_ALLOWS
+    if role == "pr-test-analyzer":
+        return R3_BASH_ALLOWS
+    return READ_ONLY_BASH_ALLOWS
+
+
+def bash_allow_contract_errors(role: str, metadata: dict[str, Any]) -> list[str]:
+    bash = permission_action(metadata, "bash")
+    if not isinstance(bash, dict):
+        return []
+    expected = approved_bash_allows(role)
+    actual = tuple(pattern for pattern, action in bash.items() if action == "allow")
+    errors = [
+        f"{role} has unapproved bash allow {pattern}"
+        for pattern in actual
+        if pattern not in expected
+    ]
+    errors.extend(
+        f"{role} is missing approved bash allow {pattern}"
+        for pattern in expected
+        if pattern not in actual
+    )
+    if not errors and actual != expected:
+        errors.append(f"{role} bash allows are not in the approved order")
+    return errors
+
+
 def require_bash_rules(
     validation: Validation,
     role: str,
@@ -442,10 +505,6 @@ def validate_shell_metacharacter_denies(
             validation.error(
                 "ROLE_PERMISSION", f"{role} has wildcard Git inspection {pattern}"
             )
-        if action == "allow" and is_raw_git_branch_mutation(pattern):
-            validation.error(
-                "ROLE_PERMISSION", f"{role} raw Git branch mutation must be absent"
-            )
     if any(
         action == "allow" and "*" in pattern for pattern, action in bash.items()
     ) and (
@@ -456,56 +515,6 @@ def validate_shell_metacharacter_denies(
             "ROLE_PERMISSION",
             f"{role} literal line-break denies must be last",
         )
-
-
-def is_raw_git_branch_mutation(pattern: str) -> bool:
-    """Return whether a permission pattern directly allows branch mutation Git."""
-    try:
-        tokens = shlex.split(pattern)
-    except ValueError:
-        return pattern.startswith(("git switch", "git branch", "git merge"))
-    if not tokens or tokens[0] != "git":
-        return False
-    index = 1
-    options_with_values = {
-        "-C",
-        "-c",
-        "--config-env",
-        "--exec-path",
-        "--git-dir",
-        "--namespace",
-        "--super-prefix",
-        "--work-tree",
-    }
-    options_without_values = {
-        "-p",
-        "-P",
-        "--bare",
-        "--glob-pathspecs",
-        "--help",
-        "--icase-pathspecs",
-        "--literal-pathspecs",
-        "--no-lazy-fetch",
-        "--no-optional-locks",
-        "--no-pager",
-        "--no-replace-objects",
-        "--noglob-pathspecs",
-        "--paginate",
-        "--version",
-    }
-    while index < len(tokens):
-        token = tokens[index]
-        if token in options_with_values:
-            index += 2
-        elif (
-            token in options_without_values
-            or token.startswith(("-C", "-c"))
-            or token.startswith(tuple(f"{option}=" for option in options_with_values))
-        ):
-            index += 1
-        else:
-            break
-    return index < len(tokens) and tokens[index] in {"switch", "branch", "merge"}
 
 
 def validate_task_permission(
@@ -640,6 +649,8 @@ def validate_roles(
             continue
         loaded[role] = (metadata, body)
         validate_role(validation, role, expected, metadata, body, descriptions, bodies)
+        for error in bash_allow_contract_errors(role, metadata):
+            validation.error("ROLE_PERMISSION", error)
 
     if not validation.read_failures:
         default = root_config.get("default_agent")
@@ -670,10 +681,7 @@ def validate_standard_permissions(
     validation: Validation, roles: dict[str, tuple[dict[str, Any], str]]
 ) -> None:
     implementer = roles.get("implementer", ({}, ""))
-    approved_package_patterns = {
-        *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
-        *IMPLEMENTER_NPM_COMMANDS,
-    }
+    approved_package_patterns = set(IMPLEMENTER_BASH_ALLOWS)
     implementer_required = {
         **dict.fromkeys(approved_package_patterns, "allow"),
         **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
@@ -725,29 +733,6 @@ def validate_standard_permissions(
         implementer_required,
         catch_all="deny",
     )
-    implementer_bash = permission_action(implementer[0], "bash")
-    if isinstance(implementer_bash, dict):
-        for raw_branch_pattern in (
-            "git switch *",
-            "git branch *",
-            "git merge --no-ff *",
-        ):
-            if implementer_bash.get(raw_branch_pattern) == "allow":
-                validation.error(
-                    "ROLE_PERMISSION",
-                    "implementer raw branch wildcard "
-                    f"{raw_branch_pattern} must be absent",
-                )
-        for pattern, action in implementer_bash.items():
-            if (
-                action == "allow"
-                and pattern.split(maxsplit=1)[0] in {"pdm", "npm", "npx"}
-                and pattern not in approved_package_patterns
-            ):
-                validation.error(
-                    "ROLE_PERMISSION",
-                    f"implementer unapproved package command {pattern}",
-                )
     require_bash_rules(
         validation,
         "ontoprism-team",
