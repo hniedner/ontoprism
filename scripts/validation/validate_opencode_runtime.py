@@ -33,11 +33,7 @@ from scripts.validation.validate_opencode_config import (  # noqa: E402
 
 MODEL_IDS = {contract[0] for contract in ROLES.values()}
 READ_ONLY_ROLES = set(ROLES) - {"implementer", "pr-test-analyzer"}
-GOVERNANCE_ENV = {
-    "OPENCODE_CONFIG",
-    "OPENCODE_CONFIG_DIR",
-    "OPENCODE_CONFIG_CONTENT",
-}
+GOVERNANCE_ENV_PREFIX = "OPENCODE_CONFIG"
 
 
 class RuntimeContractError(RuntimeError):
@@ -73,13 +69,17 @@ def governance_environment(
 ) -> dict[str, str]:
     unexpected = sorted(
         name
-        for name in GOVERNANCE_ENV
-        if name in base and base[name] != controlled.get(name)
+        for name, value in base.items()
+        if name.startswith(GOVERNANCE_ENV_PREFIX) and value != controlled.get(name)
     )
     if unexpected:
         raise RuntimeContractError("unexpected governance environment override")
-    env = {key: value for key, value in base.items() if key not in GOVERNANCE_ENV}
-    env.update(controlled)
+    env = {
+        key: value
+        for key, value in base.items()
+        if not key.startswith(GOVERNANCE_ENV_PREFIX)
+    }
+    env |= controlled
     return env
 
 
@@ -96,30 +96,44 @@ def redact_diagnostic(value: str) -> str:
 
 def validate_mcp_status(output: str, expected: set[str]) -> list[str]:
     lowered = re.sub(r"\x1b\[[0-9;]*m", "", output).lower()
-    return [
-        f"MCP {name} is not connected"
-        for name in sorted(expected)
-        if not re.search(rf"\b{re.escape(name.lower())}\b[^\n]*\bconnected\b", lowered)
-    ]
+    lines = lowered.splitlines()
+    errors: list[str] = []
+    for name in sorted(expected):
+        matching = [
+            line for line in lines if re.search(rf"\b{re.escape(name.lower())}\b", line)
+        ]
+        if not any(
+            re.search(r"\bconnected\b", line) and "not connected" not in line
+            for line in matching
+        ):
+            errors.append(f"MCP {name} is not connected")
+    return errors
 
 
 def validate_permission_contract(
     resolved: list[dict[str, Any]], expected: list[dict[str, Any]]
 ) -> list[str]:
+    if any(
+        resolved[start : start + len(expected)] == expected
+        for start in range(len(resolved) - len(expected) + 1)
+    ):
+        return []
     position = 0
     for rule in resolved:
         if position < len(expected) and rule == expected[position]:
             position += 1
-    if position != len(expected):
-        return ["resolved permission contract omits or reorders project rules"]
-    return []
+    if position == len(expected):
+        return [
+            "resolved permission contract is not an exact contiguous project ruleset"
+        ]
+    return ["resolved permission contract omits or reorders project rules"]
 
 
 def expected_permission_contract(root: Path, name: str) -> list[dict[str, Any]]:
     validation = Validation(root)
     metadata, _ = load_agent(root / ".opencode" / "agent" / f"{name}.md", validation)
     if validation.errors:
-        raise RuntimeContractError(f"cannot load repository permissions for {name}")
+        raise RuntimeContractError(f"cannot read repository permissions for {name}")
     permission = metadata.get("permission")
     if not isinstance(permission, dict):
         raise RuntimeContractError(f"repository permissions for {name} are invalid")
@@ -300,6 +314,34 @@ def local_config_exists(project: Path) -> bool:
     )
 
 
+def collect_local_agents(config: dict[str, Any]) -> tuple[set[str], list[str]]:
+    models: set[str] = set()
+    errors: list[str] = []
+    agents = config.get("agent", {})
+    if not isinstance(agents, dict):
+        return models, ["machine-local agents are invalid"]
+    for name, agent in agents.items():
+        if isinstance(agent, dict) and isinstance(agent.get("model"), str):
+            models.add(agent["model"])
+        else:
+            errors.append(f"machine-local agent {name} has no valid model")
+    return models, errors
+
+
+def collect_local_mcp(config: dict[str, Any]) -> tuple[set[str], list[str]]:
+    names: set[str] = set()
+    errors: list[str] = []
+    mcp = config.get("mcp", {})
+    if not isinstance(mcp, dict):
+        return names, ["machine-local MCP configuration is invalid"]
+    for name, entry in mcp.items():
+        if not isinstance(entry, dict):
+            errors.append(f"MCP {name} is invalid")
+        elif entry.get("enabled", True) is not False:
+            names.add(name)
+    return names, errors
+
+
 def local_runtime_contract(project: Path) -> tuple[set[str], set[str], list[str]]:
     models: set[str] = set()
     mcp_names: set[str] = set()
@@ -313,27 +355,25 @@ def local_runtime_contract(project: Path) -> tuple[set[str], set[str], list[str]
         if validation.errors:
             errors.append("machine-local OpenCode config cannot be parsed")
             continue
-        agents = config.get("agent", {})
-        if isinstance(agents, dict):
-            for agent in agents.values():
-                if isinstance(agent, dict) and isinstance(agent.get("model"), str):
-                    models.add(agent["model"])
-        mcp = config.get("mcp", {})
-        if isinstance(mcp, dict):
-            for name, entry in mcp.items():
-                if not isinstance(entry, dict) or entry.get("enabled", True) is False:
-                    errors.append(f"MCP {name} is disabled or invalid")
-                else:
-                    mcp_names.add(name)
+        local_models, agent_errors = collect_local_agents(config)
+        models.update(local_models)
+        errors.extend(agent_errors)
+        local_mcp, mcp_errors = collect_local_mcp(config)
+        mcp_names.update(local_mcp)
+        errors.extend(mcp_errors)
     return models, mcp_names, errors
 
 
 def validate_plugin_sentinel(
     root: Path, env: dict[str, str], isolated: Path
 ) -> str | None:
-    sentinel_env = env.copy()
-    sentinel_env["OPENCODE_CONFIG_CONTENT"] = json.dumps(
-        {"agent": {"implementer": {"fallback_models": ["invalid-sentinel"]}}}
+    sentinel_env = governance_environment(
+        env,
+        controlled={
+            "OPENCODE_CONFIG_CONTENT": json.dumps(
+                {"agent": {"implementer": {"fallback_models": ["invalid-sentinel"]}}}
+            )
+        },
     )
     sentinel = run_command(
         ["opencode", "debug", "config", "--print-logs", "--log-level", "DEBUG"],
@@ -353,9 +393,13 @@ def validate_plugin_sentinel(
 def validate_layered_project(
     root: Path, project: Path, env: dict[str, str], expected_mcp: set[str]
 ) -> list[str]:
-    layered_env = env.copy()
-    layered_env["OPENCODE_CONFIG"] = str(root / "opencode.json")
-    layered_env["OPENCODE_CONFIG_DIR"] = str(root / ".opencode")
+    layered_env = governance_environment(
+        env,
+        controlled={
+            "OPENCODE_CONFIG": str(root / "opencode.json"),
+            "OPENCODE_CONFIG_DIR": str(root / ".opencode"),
+        },
+    )
     layered = parse_json_object(
         run_command(
             ["opencode", "debug", "config"], cwd=project, env=layered_env
