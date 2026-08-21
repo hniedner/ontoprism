@@ -12,6 +12,7 @@ from scripts.validation.validate_opencode_config import (
     ROLES,
     Validation,
     load_agent,
+    safe_read_text,
     validate,
 )
 
@@ -89,6 +90,52 @@ def test_required_files_are_enforced(
     (config_root / relative).unlink()
 
     assert expected in validate(config_root)
+
+
+@pytest.mark.parametrize(
+    ("relative", "code"),
+    [
+        (".opencode/agent/architect.md", "ROLE_BODY"),
+        (".opencode/opencode-model-fallback.jsonc", "PLUGIN_CONFIG"),
+        (".opencode/command/review-pr.md", "REVIEW_COMMAND"),
+        ("AGENTS.md", "AGENTS_PROCESS"),
+    ],
+)
+def test_invalid_utf8_is_categorized_for_governance_inputs(
+    config_root: Path, relative: str, code: str
+) -> None:
+    (config_root / relative).write_bytes(b"\xff")
+
+    assert f"{code}: invalid UTF-8 in {relative}" in validate(config_root)
+
+
+@pytest.mark.parametrize(
+    ("relative", "code"),
+    [
+        (".opencode/agent/architect.md", "ROLE_BODY"),
+        (".opencode/opencode-model-fallback.jsonc", "PLUGIN_CONFIG"),
+        (".opencode/command/review-pr.md", "REVIEW_COMMAND"),
+        ("AGENTS.md", "AGENTS_PROCESS"),
+    ],
+)
+def test_read_races_are_categorized_without_traceback(
+    config_root: Path,
+    relative: str,
+    code: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = config_root / relative
+    original = Path.read_text
+
+    def fail_target(path: Path, *args: object, **kwargs: object) -> str:
+        if path == target:
+            raise OSError("injected read race")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_target)
+
+    assert safe_read_text(target, Validation(config_root), code) is None
+    assert f"{code}: cannot read {relative}" in validate(config_root)
 
 
 def test_stale_consolidated_reviewer_is_rejected(config_root: Path) -> None:

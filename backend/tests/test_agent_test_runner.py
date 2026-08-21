@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from scripts.validation.run_agent_test import (
     AgentTestInputError,
     build_pytest_invocation,
+    parse_vitest_execution_count,
     run_agent_test,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 pytestmark = pytest.mark.unit
 
@@ -237,6 +235,43 @@ def test_safe_integration_rejects_any_invalid_registry_entry(
         )
 
 
+def test_safe_integration_rejects_undecodable_registry(
+    complete_test_root: Path,
+) -> None:
+    manifest = complete_test_root / "test_support/integration_mutators.toml"
+    manifest.write_bytes(b"\xff")
+
+    with pytest.raises(
+        AgentTestInputError, match="safe integration registry is invalid"
+    ):
+        build_pytest_invocation(
+            ["--safe-integration", "backend/tests/test_safe.py::test_safe"],
+            complete_test_root,
+        )
+
+
+def test_safe_integration_rejects_registry_read_error(
+    complete_test_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = complete_test_root / "test_support/integration_mutators.toml"
+    original = Path.read_text
+
+    def fail_manifest(path: Path, *args: object, **kwargs: object) -> str:
+        if path == manifest:
+            raise PermissionError("token=do-not-reflect")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_manifest)
+
+    with pytest.raises(AgentTestInputError) as failure:
+        build_pytest_invocation(
+            ["--safe-integration", "backend/tests/test_safe.py::test_safe"],
+            complete_test_root,
+        )
+    assert str(failure.value) == "safe integration registry is invalid"
+    assert "do-not-reflect" not in str(failure.value)
+
+
 def test_agent_test_errors_are_actionable_without_reflecting_input(
     owned_test_root: Path,
 ) -> None:
@@ -328,4 +363,28 @@ def test_agent_test_propagates_child_nonzero(owned_test_root: Path) -> None:
     assert (
         run_agent_test(["backend/tests/test_safe.py"], owned_test_root, runner=nonzero)
         == 7
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not-json",
+        "[]",
+        '{"numPassedTests": "one", "numFailedTests": 0}',
+        '{"numPassedTests": 0}',
+        '{"numPassedTests": -1, "numFailedTests": 1}',
+    ],
+)
+def test_vitest_report_parser_rejects_malformed_payload(payload: str) -> None:
+    with pytest.raises(AgentTestInputError, match="frontend test report is invalid"):
+        parse_vitest_execution_count(payload)
+
+
+def test_vitest_report_parser_distinguishes_zero_and_executed_tests() -> None:
+    assert (
+        parse_vitest_execution_count('{"numPassedTests": 0, "numFailedTests": 0}') == 0
+    )
+    assert (
+        parse_vitest_execution_count('{"numPassedTests": 2, "numFailedTests": 1}') == 3
     )

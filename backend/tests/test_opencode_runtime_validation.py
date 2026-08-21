@@ -425,3 +425,27 @@ def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) 
             operation="Startup validation",
             display_command="opencode debug startup",
         )
+
+
+def test_command_error_categorizes_undecodable_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def undecodable(*_args: object, **_kwargs: object) -> object:
+        raise UnicodeDecodeError("utf-8", b"\xffsecret", 0, 1, "invalid")
+
+    monkeypatch.setattr(
+        "scripts.validation.validate_opencode_runtime.subprocess.run", undecodable
+    )
+
+    with pytest.raises(RuntimeContractError) as failure:
+        run_command(
+            ["opencode", "models"],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            operation="Model catalog validation",
+            display_command="opencode models",
+        )
+    assert str(failure.value) == (
+        "Model catalog validation: opencode models produced undecodable output"
+    )
+    assert "secret" not in str(failure.value)

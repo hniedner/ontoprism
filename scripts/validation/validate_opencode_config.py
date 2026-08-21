@@ -126,6 +126,7 @@ class Validation:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.errors: list[str] = []
+        self.read_failures: set[str] = set()
 
     def error(self, code: str, message: str) -> None:
         self.errors.append(f"{code}: {message}")
@@ -136,6 +137,22 @@ class Validation:
             self.error("FILES", f"required file missing: {relative}")
             return None
         return path
+
+
+def safe_read_text(path: Path, validation: Validation, code: str) -> str | None:
+    """Read one governance file as strict UTF-8 and categorize filesystem failures."""
+    relative = path.relative_to(validation.root).as_posix()
+    if relative in validation.read_failures:
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        validation.error(code, f"invalid UTF-8 in {relative}")
+        validation.read_failures.add(relative)
+    except OSError:
+        validation.error(code, f"cannot read {relative}")
+        validation.read_failures.add(relative)
+    return None
 
 
 def strip_jsonc_comments(text: str) -> str:
@@ -179,37 +196,42 @@ def block_comment_end(text: str, start: int) -> int:
     return end + 2
 
 
-def load_json(path: Path, validation: Validation, code: str) -> dict[str, Any]:
+def load_json(path: Path, validation: Validation, code: str) -> dict[str, Any] | None:
+    text = safe_read_text(path, validation, code)
+    if text is None:
+        return None
     try:
-        value = json.loads(strip_jsonc_comments(path.read_text()))
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        value = json.loads(strip_jsonc_comments(text))
+    except (ValueError, json.JSONDecodeError) as exc:
         validation.error(
             code, f"cannot parse {path.relative_to(validation.root)}: {exc}"
         )
-        return {}
+        return None
     if not isinstance(value, dict):
         validation.error(
             code, f"{path.relative_to(validation.root)} must contain an object"
         )
-        return {}
+        return None
     return value
 
 
-def load_agent(path: Path, validation: Validation) -> tuple[dict[str, Any], str]:
-    text = path.read_text()
+def load_agent(
+    path: Path, validation: Validation, code: str = "ROLE_BODY"
+) -> tuple[dict[str, Any], str]:
+    text = safe_read_text(path, validation, code)
+    if text is None:
+        return {}, ""
     match = re.fullmatch(r"---\s*\n(.*?)\n---\s*\n(.*)", text, re.DOTALL)
     if not match:
-        validation.error(
-            "ROLE_BODY", f"{path.name} needs YAML frontmatter and a prompt body"
-        )
+        validation.error(code, f"{path.name} needs YAML frontmatter and a prompt body")
         return {}, ""
     try:
         metadata = yaml.safe_load(match.group(1))
     except yaml.YAMLError as exc:
-        validation.error("ROLE_BODY", f"cannot parse {path.name} frontmatter: {exc}")
+        validation.error(code, f"cannot parse {path.name} frontmatter: {exc}")
         return {}, match.group(2).strip()
     if not isinstance(metadata, dict):
-        validation.error("ROLE_BODY", f"{path.name} frontmatter must be a mapping")
+        validation.error(code, f"{path.name} frontmatter must be a mapping")
         return {}, match.group(2).strip()
     return metadata, match.group(2).strip()
 
@@ -281,6 +303,8 @@ def validate_root(validation: Validation) -> dict[str, Any]:
     if path is None:
         return {}
     config = load_json(path, validation, "ROOT_CONFIG")
+    if config is None:
+        return {}
     if config.get("$schema") != SCHEMA:
         validation.error(
             "ROOT_CONFIG", "root $schema is not the current OpenCode schema"
@@ -495,20 +519,24 @@ def validate_roles(
             )
             continue
         path = paths[0]
+        failures_before = len(validation.read_failures)
         metadata, body = load_agent(path, validation)
+        if len(validation.read_failures) != failures_before:
+            continue
         loaded[role] = (metadata, body)
         validate_role(validation, role, expected, metadata, body, descriptions, bodies)
 
-    default = root_config.get("default_agent")
-    default_metadata = loaded.get(str(default), ({}, ""))[0]
-    if (
-        default_metadata.get("mode") != "primary"
-        or default_metadata.get("hidden") is True
-    ):
-        validation.error(
-            "DEFAULT_AGENT",
-            "configured default must resolve to a visible primary agent",
-        )
+    if not validation.read_failures:
+        default = root_config.get("default_agent")
+        default_metadata = loaded.get(str(default), ({}, ""))[0]
+        if (
+            default_metadata.get("mode") != "primary"
+            or default_metadata.get("hidden") is True
+        ):
+            validation.error(
+                "DEFAULT_AGENT",
+                "configured default must resolve to a visible primary agent",
+            )
     return loaded
 
 
@@ -800,6 +828,8 @@ def validate_plugin(validation: Validation) -> dict[str, Any]:
     if path is None:
         return {}
     config = load_json(path, validation, "PLUGIN_CONFIG")
+    if config is None:
+        return {}
     expected = {
         "enabled": True,
         "fallback_models": [],
@@ -817,7 +847,10 @@ def validate_plugin(validation: Validation) -> dict[str, Any]:
         validation.error(
             "GLOBAL_FALLBACK", "global fallback_models must be exactly empty"
         )
-    comment = path.read_text().lower()
+    comment_text = safe_read_text(path, validation, "PLUGIN_CONFIG")
+    if comment_text is None:
+        return config
+    comment = comment_text.lower()
     if (
         "explicit per-agent" not in comment
         or "tracked repository" not in comment
@@ -836,7 +869,10 @@ def validate_command(validation: Validation) -> None:
     path = validation.require_file(".opencode/command/review-pr.md")
     if path is None:
         return
-    metadata, body = load_agent(path, validation)
+    before_read = len(validation.errors)
+    metadata, body = load_agent(path, validation, "REVIEW_COMMAND")
+    if len(validation.errors) != before_read and not metadata and not body:
+        return
     if metadata.get("agent") != "ontoprism-team":
         validation.error("REVIEW_COMMAND", "review-pr command must use ontoprism-team")
     require_terms(
@@ -874,7 +910,9 @@ def validate_agents_document(validation: Validation) -> None:
     path = validation.require_file("AGENTS.md")
     if path is None:
         return
-    text = path.read_text()
+    text = safe_read_text(path, validation, "AGENTS_PROCESS")
+    if text is None:
+        return
     require_terms(
         validation,
         "AGENTS_PROCESS",
@@ -919,7 +957,10 @@ def validate_gitignore(validation: Validation) -> None:
     path = validation.require_file(".gitignore")
     if path is None:
         return
-    lines = path.read_text().splitlines()
+    text = safe_read_text(path, validation, "GITIGNORE")
+    if text is None:
+        return
+    lines = text.splitlines()
     for local_config in (
         "/.opencode/opencode.json",
         "/.opencode/opencode.jsonc",
@@ -944,6 +985,8 @@ def validate_local_configs(validation: Validation) -> None:
     for relative in existing:
         path = validation.root / relative
         config = load_json(path, validation, "LOCAL_CONFIG")
+        if config is None:
+            continue
         for key in config.keys() - allowed:
             validation.error("LOCAL_CONFIG", f"forbidden top-level key {key}")
 
@@ -969,7 +1012,9 @@ def validate_forbidden_content(validation: Validation) -> None:
         elif target.is_dir():
             paths.extend(path for path in target.rglob("*") if path.is_file())
     for path in paths:
-        text = path.read_text(errors="replace")
+        text = safe_read_text(path, validation, "FORBIDDEN_CONTENT")
+        if text is None:
+            continue
         for pattern, label in forbidden:
             if pattern.search(text):
                 validation.error(
@@ -990,8 +1035,11 @@ def validate_forbidden_content(validation: Validation) -> None:
 def validate(root: Path) -> list[str]:
     validation = Validation(root)
     root_config = validate_root(validation)
-    roles = validate_roles(validation, root_config)
-    validate_role_contracts(validation, roles)
+    roles = (
+        validate_roles(validation, root_config) if not validation.read_failures else {}
+    )
+    if not validation.read_failures:
+        validate_role_contracts(validation, roles)
     validate_plugin(validation)
     validate_command(validation)
     validate_agents_document(validation)

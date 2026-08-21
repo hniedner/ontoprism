@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -38,6 +40,7 @@ class AgentTestInvocation:
 
     arguments: tuple[str, ...]
     cwd: Path
+    mode: str
 
 
 @dataclass(frozen=True)
@@ -123,7 +126,7 @@ def _build_frontend_invocation(arguments: list[str], root: Path) -> AgentTestInv
         raise AgentTestInputError("repository Vitest executable is unavailable")
     relative_test = (root / candidate).resolve().relative_to(frontend).as_posix()
     return AgentTestInvocation(
-        (str(executable.resolve()), "run", relative_test, *extra), frontend
+        (str(executable.resolve()), "run", relative_test, *extra), frontend, "frontend"
     )
 
 
@@ -177,10 +180,8 @@ def _parse_registry_entry(entry: object, root: Path) -> SafeIntegrationEntry:
 def _load_safe_integration_registry(root: Path) -> tuple[SafeIntegrationEntry, ...]:
     manifest = root / "test_support/integration_mutators.toml"
     try:
-        data = tomllib.loads(manifest.read_text())
-    except OSError as exc:
-        raise AgentTestInputError("safe integration registry is unavailable") from exc
-    except tomllib.TOMLDecodeError as exc:
+        data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise _invalid_registry() from exc
     if set(data) != {"mutator"} or not isinstance(data["mutator"], list):
         raise _invalid_registry()
@@ -224,6 +225,7 @@ def _build_safe_integration_invocation(
             *flags,
         ),
         root,
+        "safe-integration",
     )
 
 
@@ -261,8 +263,32 @@ def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvoca
     if node_count == 0:
         raise AgentTestInputError("at least one test node is required")
     return AgentTestInvocation(
-        ("pytest", *validated, "-m", NONINTEGRATION_MARKERS), resolved_root
+        ("pytest", *validated, "-m", NONINTEGRATION_MARKERS),
+        resolved_root,
+        "pytest",
     )
+
+
+def parse_vitest_execution_count(payload: str) -> int:
+    """Return passed plus failed tests from the fixed Vitest JSON reporter."""
+    try:
+        report = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise AgentTestInputError("frontend test report is invalid") from exc
+    if not isinstance(report, dict):
+        raise AgentTestInputError("frontend test report is invalid")
+    passed = report.get("numPassedTests")
+    failed = report.get("numFailedTests")
+    if (
+        not isinstance(passed, int)
+        or isinstance(passed, bool)
+        or passed < 0
+        or not isinstance(failed, int)
+        or isinstance(failed, bool)
+        or failed < 0
+    ):
+        raise AgentTestInputError("frontend test report is invalid")
+    return passed + failed
 
 
 def _controlled_environment() -> dict[str, str]:
@@ -286,21 +312,41 @@ def run_agent_test(
 ) -> int:
     """Execute a validated pytest command directly, never through a shell."""
     invocation = build_pytest_invocation(arguments, root)
-    try:
-        result = runner(
-            invocation.arguments,
-            cwd=invocation.cwd,
-            env=_controlled_environment(),
-            shell=False,
-            check=False,
-        )
-    except (FileNotFoundError, PermissionError):
-        print("required test executable is unavailable", file=sys.stderr)
-        return 3
-    except OSError:
-        print("test process could not start", file=sys.stderr)
-        return 3
-    return result.returncode
+    with tempfile.TemporaryDirectory(prefix="ontoprism-agent-test-") as temporary:
+        report_path = Path(temporary) / "vitest-report.json"
+        command = invocation.arguments
+        if invocation.mode == "frontend":
+            command = (
+                *command,
+                "--reporter=json",
+                f"--outputFile={report_path}",
+            )
+        try:
+            result = runner(
+                command,
+                cwd=invocation.cwd,
+                env=_controlled_environment(),
+                shell=False,
+                check=False,
+            )
+        except (FileNotFoundError, PermissionError):
+            print("required test executable is unavailable", file=sys.stderr)
+            return 3
+        except OSError:
+            print("test process could not start", file=sys.stderr)
+            return 3
+        if result.returncode != 0 or invocation.mode != "frontend":
+            return result.returncode
+        try:
+            payload = report_path.read_text(encoding="utf-8")
+            executed = parse_vitest_execution_count(payload)
+        except (OSError, UnicodeDecodeError, AgentTestInputError):
+            print("frontend test report is invalid", file=sys.stderr)
+            return 3
+        if executed == 0:
+            print("no frontend test matched the request", file=sys.stderr)
+            return 4
+        return 0
 
 
 def main() -> int:

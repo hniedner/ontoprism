@@ -342,6 +342,10 @@ def run_command(
         ) from exc
     except subprocess.TimeoutExpired as exc:
         raise RuntimeContractError(f"{operation}: {display_command} timed out") from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeContractError(
+            f"{operation}: {display_command} produced undecodable output"
+        ) from exc
     except OSError as exc:
         raise RuntimeContractError(
             f"{operation}: {display_command} could not start"
@@ -406,7 +410,7 @@ def local_runtime_contract(project: Path) -> tuple[set[str], list[str]]:
     for path in local_paths:
         validation = Validation(project)
         config = load_json(path, validation, "LOCAL_CONFIG")
-        if validation.errors:
+        if validation.errors or config is None:
             errors.append("machine-local OpenCode config cannot be parsed")
             continue
         local_mcp, mcp_errors = collect_local_mcp(config)
