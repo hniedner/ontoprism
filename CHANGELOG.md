@@ -19,6 +19,53 @@ milestone summaries rather than a commit-by-commit replay.
 
 <!-- version list -->
 
+## v0.20.2 (2026-08-21)
+
+### Bug Fixes
+
+- **opencode**: Avoid SPARQL inventory false positive
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Classify invalid branch statuses
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Close permission and branch validation gaps
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Fail closed on invalid test evidence
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Harden repository agent governance
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Preserve runtime inventory identity
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Preserve SPARQL inventory identity
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Validate focused test execution
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+### Chores
+
+- **opencode**: Refine repository agent process
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+### Documentation
+
+- Update README code line-count table
+  ([`fc851e0`](https://github.com/hniedner/ontoprism/commit/fc851e00bc86d8ebec70246599bb5d86d03353b7))
+
+### Testing
+
+- **opencode**: Close runtime bypass regressions
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+- **opencode**: Cover empty frontend execution
+  ([`795cb35`](https://github.com/hniedner/ontoprism/commit/795cb351506e295f1beee3ce51baf777176dca90))
+
+
 ## v0.20.1 (2026-08-15)
 
 ### Bug Fixes
