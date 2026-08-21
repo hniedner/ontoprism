@@ -21,6 +21,8 @@ OWNED_TEST_ROOTS = (PurePosixPath("backend/tests"), PurePosixPath("ontolib/tests
 FRONTEND_TEST_ROOTS = (PurePosixPath("frontend/src"), PurePosixPath("frontend/tests"))
 FRONTEND_TEST_NAME = re.compile(r".+\.(?:test|spec)\.(?:js|jsx|ts|tsx)$")
 FRONTEND_ARGUMENTS_WITH_NAME = 3
+IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+TEST_IDENTIFIER = re.compile(r"test_[A-Za-z0-9_]+")
 NONINTEGRATION_MARKERS = (
     "not integration and not mutating_integration and not full_store"
 )
@@ -36,6 +38,14 @@ class AgentTestInvocation:
 
     arguments: tuple[str, ...]
     cwd: Path
+
+
+@dataclass(frozen=True)
+class SafeIntegrationEntry:
+    """One validated safe-integration registry entry."""
+
+    path: PurePosixPath
+    tests: frozenset[str] | None
 
 
 class CommandResult(Protocol):
@@ -95,7 +105,7 @@ def _build_frontend_invocation(arguments: list[str], root: Path) -> AgentTestInv
     if len(arguments) == FRONTEND_ARGUMENTS_WITH_NAME and arguments[1] == "-t":
         name = arguments[2]
         _reject_shell_syntax(name)
-        if SAFE_VITEST_NAME.fullmatch(name) is None:
+        if name.startswith("-") or SAFE_VITEST_NAME.fullmatch(name) is None:
             raise AgentTestInputError("frontend test name is unsupported")
         extra = ("-t", name)
     elif len(arguments) != 1:
@@ -117,30 +127,79 @@ def _build_frontend_invocation(arguments: list[str], root: Path) -> AgentTestInv
     )
 
 
+def _invalid_registry() -> AgentTestInputError:
+    return AgentTestInputError("safe integration registry is invalid")
+
+
+def _parse_registry_entry(entry: object, root: Path) -> SafeIntegrationEntry:
+    if not isinstance(entry, dict) or not set(entry) <= {
+        "path",
+        "fixtures",
+        "tests",
+    }:
+        raise _invalid_registry()
+    if not {"path", "fixtures"} <= set(entry):
+        raise _invalid_registry()
+    path = entry["path"]
+    fixtures = entry.get("fixtures")
+    if (
+        not isinstance(path, str)
+        or "::" in path
+        or not isinstance(fixtures, list)
+        or not fixtures
+        or not all(
+            isinstance(fixture, str) and IDENTIFIER.fullmatch(fixture)
+            for fixture in fixtures
+        )
+    ):
+        raise _invalid_registry()
+    try:
+        candidate, resolved = _resolve_owned_node(path, root, OWNED_TEST_ROOTS)
+    except AgentTestInputError as exc:
+        raise _invalid_registry() from exc
+    if not resolved.is_file():
+        raise _invalid_registry()
+    tests = entry.get("tests")
+    if tests is not None and (
+        not isinstance(tests, list)
+        or not tests
+        or not all(
+            isinstance(test, str) and TEST_IDENTIFIER.fullmatch(test) for test in tests
+        )
+    ):
+        raise _invalid_registry()
+    return SafeIntegrationEntry(
+        candidate,
+        frozenset(tests) if isinstance(tests, list) else None,
+    )
+
+
+def _load_safe_integration_registry(root: Path) -> tuple[SafeIntegrationEntry, ...]:
+    manifest = root / "test_support/integration_mutators.toml"
+    try:
+        data = tomllib.loads(manifest.read_text())
+    except OSError as exc:
+        raise AgentTestInputError("safe integration registry is unavailable") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise _invalid_registry() from exc
+    if set(data) != {"mutator"} or not isinstance(data["mutator"], list):
+        raise _invalid_registry()
+    entries = [_parse_registry_entry(entry, root) for entry in data["mutator"]]
+    if not entries:
+        raise _invalid_registry()
+    return tuple(entries)
+
+
 def _registered_safe_integration(node: str, root: Path) -> bool:
     if "::" not in node:
         return False
     candidate, _ = _resolve_owned_node(node, root, OWNED_TEST_ROOTS)
     selector = node.split("::", 2)[1]
-    manifest = root / "test_support/integration_mutators.toml"
-    try:
-        data = tomllib.loads(manifest.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise AgentTestInputError("safe integration registry is unavailable") from exc
-    for entry in data.get("mutator", []):
-        if not isinstance(entry, dict) or entry.get("path") != candidate.as_posix():
-            continue
-        fixtures = entry.get("fixtures")
-        if (
-            not isinstance(fixtures, list)
-            or not fixtures
-            or not all(isinstance(fixture, str) and fixture for fixture in fixtures)
-        ):
-            continue
-        tests = entry.get("tests")
-        if tests is None or (isinstance(tests, list) and selector in tests):
-            return True
-    return False
+    entries = _load_safe_integration_registry(root)
+    return any(
+        entry.path == candidate and (entry.tests is None or selector in entry.tests)
+        for entry in entries
+    )
 
 
 def _build_safe_integration_invocation(
@@ -227,13 +286,20 @@ def run_agent_test(
 ) -> int:
     """Execute a validated pytest command directly, never through a shell."""
     invocation = build_pytest_invocation(arguments, root)
-    result = runner(
-        invocation.arguments,
-        cwd=invocation.cwd,
-        env=_controlled_environment(),
-        shell=False,
-        check=False,
-    )
+    try:
+        result = runner(
+            invocation.arguments,
+            cwd=invocation.cwd,
+            env=_controlled_environment(),
+            shell=False,
+            check=False,
+        )
+    except (FileNotFoundError, PermissionError):
+        print("required test executable is unavailable", file=sys.stderr)
+        return 3
+    except OSError:
+        print("test process could not start", file=sys.stderr)
+        return 3
     return result.returncode
 
 

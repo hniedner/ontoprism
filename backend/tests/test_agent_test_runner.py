@@ -137,6 +137,7 @@ def test_agent_test_builds_fixed_frontend_vitest_invocation(
         ["--frontend", "../outside.test.ts"],
         ["--frontend", "frontend/src/lib/api.test.ts", "--config=bad"],
         ["--frontend", "frontend/src/lib/api.test.ts", "--reporter=json"],
+        ["--frontend", "frontend/src/lib/api.test.ts", "-t", "--help"],
         ["--frontend", "frontend/src/lib/api.test.ts", "-t", "bad\ngh pr merge"],
     ],
 )
@@ -184,6 +185,54 @@ def test_safe_integration_rejects_unregistered_node(complete_test_root: Path) ->
                 "--safe-integration",
                 "ontolib/tests/test_safe.py::test_safe",
             ],
+            complete_test_root,
+        )
+
+
+@pytest.mark.parametrize(
+    "registry",
+    [
+        'mutator = "not-a-list"\n',
+        'mutator = ["not-a-mapping"]\n',
+        '[[mutator]]\npath = "backend/tests/test_safe.py"\n',
+        '[[mutator]]\npath = "backend/tests/test_safe.py"\nfixtures = "bad"\n',
+        '[[mutator]]\npath = "backend/tests/test_safe.py"\nfixtures = []\n',
+        '[[mutator]]\npath = "backend/tests/test_safe.py"\nfixtures = [""]\n',
+        (
+            '[[mutator]]\npath = "backend/tests/test_safe.py"\n'
+            'fixtures = ["owned"]\ntests = "bad"\n'
+        ),
+        (
+            '[[mutator]]\npath = "backend/tests/test_safe.py"\n'
+            'fixtures = ["owned"]\ntests = []\n'
+        ),
+        (
+            '[[mutator]]\npath = "backend/tests/test_safe.py"\n'
+            'fixtures = ["owned"]\ntests = ["not_a_test"]\n'
+        ),
+        '[[mutator]]\npath = "../outside.py"\nfixtures = ["owned"]\n',
+        '[[mutator]]\npath = "backend/tests/missing.py"\nfixtures = ["owned"]\n',
+        (
+            '[[mutator]]\npath = "backend/tests/test_safe.py::test_safe"\n'
+            'fixtures = ["owned"]\n'
+        ),
+        (
+            '[[mutator]]\npath = "backend/tests/test_safe.py"\n'
+            'fixtures = ["owned"]\nextra = true\n'
+        ),
+    ],
+)
+def test_safe_integration_rejects_any_invalid_registry_entry(
+    complete_test_root: Path, registry: str
+) -> None:
+    manifest = complete_test_root / "test_support/integration_mutators.toml"
+    manifest.write_text(registry)
+
+    with pytest.raises(
+        AgentTestInputError, match="safe integration registry is invalid"
+    ):
+        build_pytest_invocation(
+            ["--safe-integration", "backend/tests/test_safe.py::test_safe"],
             complete_test_root,
         )
 
@@ -238,3 +287,45 @@ def test_agent_test_invokes_fixed_command_without_shell(
     assert "PYTEST_PLUGINS" not in environment
     assert environment["PYTHONNOUSERSITE"] == "1"
     assert os.environ["PYTEST_ADDOPTS"] == "-p malicious"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (FileNotFoundError("token=secret"), "required test executable is unavailable"),
+        (PermissionError("token=secret"), "required test executable is unavailable"),
+        (OSError("token=secret"), "test process could not start"),
+    ],
+)
+def test_agent_test_process_start_failures_are_sanitized(
+    owned_test_root: Path,
+    capsys: pytest.CaptureFixture[str],
+    failure: OSError,
+    expected: str,
+) -> None:
+    def fail_to_start(_arguments: object, **_kwargs: object) -> object:
+        raise failure
+
+    assert (
+        run_agent_test(
+            ["backend/tests/test_safe.py"], owned_test_root, runner=fail_to_start
+        )
+        == 3
+    )
+    captured = capsys.readouterr()
+    assert captured.err.strip() == expected
+    assert "token=secret" not in captured.err
+    assert captured.out == ""
+
+
+def test_agent_test_propagates_child_nonzero(owned_test_root: Path) -> None:
+    class Result:
+        returncode = 7
+
+    def nonzero(_arguments: object, **_kwargs: object) -> Result:
+        return Result()
+
+    assert (
+        run_agent_test(["backend/tests/test_safe.py"], owned_test_root, runner=nonzero)
+        == 7
+    )
