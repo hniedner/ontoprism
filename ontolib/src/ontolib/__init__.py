@@ -5,4 +5,4 @@ core, common). The fairdata pipeline/HRM/learning/audit subsystems are intention
 not part of ontoprism.
 """
 
-__version__ = "0.20.1"
+__version__ = "0.20.2"
