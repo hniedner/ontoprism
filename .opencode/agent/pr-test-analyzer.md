@@ -45,6 +45,13 @@ permission:
     "git push --force*": deny
     "gh pr": deny
     "gh pr *": deny
+    "*&*": deny
+    "*;*": deny
+    "*|*": deny
+    "*>*": deny
+    "*<*": deny
+    "*`*": deny
+    "*$*": deny
 ---
 
 # R3 Test-Validity Analyzer

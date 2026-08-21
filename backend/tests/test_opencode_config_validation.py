@@ -535,16 +535,13 @@ def write_local_config(config_root: Path, config: dict[str, object]) -> None:
     (config_root / ".opencode/opencode.json").write_text(json.dumps(config))
 
 
-def test_machine_local_lsp_mcp_and_nonreserved_agent_are_allowed(
-    config_root: Path,
-) -> None:
+def test_machine_local_lsp_and_mcp_are_allowed(config_root: Path) -> None:
     write_local_config(
         config_root,
         {
             "$schema": "https://opencode.ai/config.json",
             "lsp": {"local": {"disabled": True}},
             "mcp": {"local": {"enabled": False}},
-            "agent": {"ontology": {"model": "github-copilot/gpt-5.6-sol"}},
         },
     )
 
@@ -562,8 +559,8 @@ def test_machine_local_lsp_mcp_and_nonreserved_agent_are_allowed(
         ("instructions", [], "forbidden top-level key instructions"),
         (
             "agent",
-            {"implementer": {"model": "github-copilot/gpt-5.6-sol"}},
-            "reserved project agent implementer",
+            {"local-reviewer": {"model": "github-copilot/gpt-5.6-sol"}},
+            "forbidden top-level key agent",
         ),
     ],
 )
@@ -626,3 +623,73 @@ def test_authoritative_verify_starts_with_static_opencode_validation() -> None:
     assert verify.startswith("pdm run validate-opencode-config &&")
     assert verify.count("pdm run validate-opencode-config") == 1
     assert "pdm run verify" not in verify
+
+
+def test_machine_local_json_and_jsonc_are_both_ignored_and_mutually_exclusive(
+    config_root: Path,
+) -> None:
+    ignores = (config_root / ".gitignore").read_text().splitlines()
+    assert "/.opencode/opencode.json" in ignores
+    assert "/.opencode/opencode.jsonc" in ignores
+
+    write_local_config(config_root, {"mcp": {}})
+    (config_root / ".opencode/opencode.jsonc").write_text('{"lsp": {}}')
+
+    assert "LOCAL_CONFIG: machine-local JSON and JSONC cannot coexist" in validate(
+        config_root
+    )
+
+
+def test_implementer_has_no_broad_package_manager_wrapper_allows(
+    config_root: Path,
+) -> None:
+    implementer = (config_root / ".opencode/agent/implementer.md").read_text()
+
+    for forbidden in (
+        '"pdm *": allow',
+        '"pdm run *": allow',
+        '"npm *": allow',
+        '"npx *": allow',
+    ):
+        assert forbidden not in implementer
+    for required in (
+        '"pdm run verify": allow',
+        '"pdm run pytest *": allow',
+        '"npm --prefix frontend run test:coverage": allow',
+        '"npx vitest *": allow',
+        '"*&*": deny',
+    ):
+        assert required in implementer
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_every_agent_denies_shell_metacharacter_chaining(
+    config_root: Path, role: str
+) -> None:
+    agent = (config_root / f".opencode/agent/{role}.md").read_text()
+
+    for pattern in ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*"):
+        assert f'    "{pattern}": deny' in agent
+
+
+def test_process_prose_assigns_remote_mutations_only_to_the_user(
+    config_root: Path,
+) -> None:
+    agents = (config_root / "AGENTS.md").read_text()
+    orchestrator = (config_root / ".opencode/agent/ontoprism-team.md").read_text()
+    implementer = (config_root / ".opencode/agent/implementer.md").read_text()
+    command = (config_root / ".opencode/command/review-pr.md").read_text()
+
+    lasting_edits = (
+        "Only the implementer makes lasting repository code, test, documentation, "
+        "fix, or commit edits"
+    )
+    remote_actions = (
+        "All pushes and PR creation, updates, and mutations are manual user actions"
+    )
+    assert lasting_edits in agents
+    assert remote_actions in agents
+    assert remote_actions in orchestrator
+    assert "report the ready state to the user" in implementer
+    assert "launches fresh CLI processes" in command
+    assert "quit and restart opencode" in command.lower()

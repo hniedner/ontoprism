@@ -83,17 +83,6 @@ def governance_environment(
     return env
 
 
-def redact_diagnostic(value: str) -> str:
-    redacted = re.sub("/" + r"Users/\S+", "<local-path>", value)
-    redacted = re.sub(r"postgres(?:ql)?://\S+", "<database-url>", redacted, flags=re.I)
-    redacted = re.sub(
-        r"(?i)\b(?:password|passwd|api[_-]?key|client[_-]?secret)\s*[:=]\s*\S+",
-        "<credential>",
-        redacted,
-    )
-    return " ".join(redacted.split())[:240]
-
-
 def validate_mcp_status(output: str, expected: set[str]) -> list[str]:
     lowered = re.sub(r"\x1b\[[0-9;]*m", "", output).lower()
     lines = lowered.splitlines()
@@ -110,23 +99,33 @@ def validate_mcp_status(output: str, expected: set[str]) -> list[str]:
     return errors
 
 
+def is_generated_tool_output_rule(value: object, expected_pattern: str) -> bool:
+    if not isinstance(value, dict) or set(value) != {"permission", "pattern", "action"}:
+        return False
+    pattern = value.get("pattern")
+    return (
+        value.get("permission") == "external_directory"
+        and value.get("action") == "allow"
+        and pattern == expected_pattern
+    )
+
+
 def validate_permission_contract(
-    resolved: list[dict[str, Any]], expected: list[dict[str, Any]]
+    resolved: list[object],
+    expected: list[dict[str, Any]],
+    *,
+    generated_tool_output_pattern: str | None = None,
 ) -> list[str]:
-    if any(
-        resolved[start : start + len(expected)] == expected
-        for start in range(len(resolved) - len(expected) + 1)
+    if resolved[-len(expected) :] == expected:
+        return []
+    if (
+        len(resolved) > len(expected)
+        and resolved[-len(expected) - 1 : -1] == expected
+        and generated_tool_output_pattern is not None
+        and is_generated_tool_output_rule(resolved[-1], generated_tool_output_pattern)
     ):
         return []
-    position = 0
-    for rule in resolved:
-        if position < len(expected) and rule == expected[position]:
-            position += 1
-    if position == len(expected):
-        return [
-            "resolved permission contract is not an exact contiguous project ruleset"
-        ]
-    return ["resolved permission contract omits or reorders project rules"]
+    return ["resolved permission contract is not the exact effective project suffix"]
 
 
 def expected_permission_contract(root: Path, name: str) -> list[dict[str, Any]]:
@@ -196,9 +195,20 @@ def validate_agent_permissions(
     else:
         for command, expected in (
             ("git commit change", "allow"),
+            ("pdm run verify", "allow"),
+            ("pdm run pytest backend/tests -q", "allow"),
+            ("pdm run lint", "allow"),
+            ("npm --prefix frontend run test:coverage", "allow"),
             ("git push --force", "deny"),
             ("gh pr merge", "deny"),
             ("npm publish", "deny"),
+            ("pdm run gh pr merge", "deny"),
+            ("pdm run git push --force", "deny"),
+            ("pdm run publish", "deny"),
+            ("npm exec gh pr merge", "deny"),
+            ("npm run publish", "deny"),
+            ("npx gh pr merge", "deny"),
+            ("pdm run verify && gh pr merge", "deny"),
         ):
             if effective_action(bash_rules, command) != expected:
                 errors.append(
@@ -281,9 +291,9 @@ def run_command(
     except OSError as exc:
         raise RuntimeContractError(f"{arguments[0]} command could not start") from exc
     if result.returncode != 0:
-        detail = redact_diagnostic(result.stderr or result.stdout)
         raise RuntimeContractError(
-            f"{Path(arguments[0]).name} command exited {result.returncode}: {detail}"
+            f"{Path(arguments[0]).name} command exited {result.returncode}; "
+            "inspect its local logs for details"
         )
     return result
 
@@ -314,20 +324,6 @@ def local_config_exists(project: Path) -> bool:
     )
 
 
-def collect_local_agents(config: dict[str, Any]) -> tuple[set[str], list[str]]:
-    models: set[str] = set()
-    errors: list[str] = []
-    agents = config.get("agent", {})
-    if not isinstance(agents, dict):
-        return models, ["machine-local agents are invalid"]
-    for name, agent in agents.items():
-        if isinstance(agent, dict) and isinstance(agent.get("model"), str):
-            models.add(agent["model"])
-        else:
-            errors.append(f"machine-local agent {name} has no valid model")
-    return models, errors
-
-
 def collect_local_mcp(config: dict[str, Any]) -> tuple[set[str], list[str]]:
     names: set[str] = set()
     errors: list[str] = []
@@ -342,26 +338,26 @@ def collect_local_mcp(config: dict[str, Any]) -> tuple[set[str], list[str]]:
     return names, errors
 
 
-def local_runtime_contract(project: Path) -> tuple[set[str], set[str], list[str]]:
-    models: set[str] = set()
+def local_runtime_contract(project: Path) -> tuple[set[str], list[str]]:
     mcp_names: set[str] = set()
     errors: list[str] = []
-    for relative in (".opencode/opencode.json", ".opencode/opencode.jsonc"):
-        path = project / relative
-        if not path.is_file():
-            continue
+    local_paths = [
+        project / relative
+        for relative in (".opencode/opencode.json", ".opencode/opencode.jsonc")
+        if (project / relative).is_file()
+    ]
+    if len(local_paths) > 1:
+        return set(), ["machine-local JSON and JSONC cannot coexist"]
+    for path in local_paths:
         validation = Validation(project)
         config = load_json(path, validation, "LOCAL_CONFIG")
         if validation.errors:
             errors.append("machine-local OpenCode config cannot be parsed")
             continue
-        local_models, agent_errors = collect_local_agents(config)
-        models |= local_models
-        errors.extend(agent_errors)
         local_mcp, mcp_errors = collect_local_mcp(config)
         mcp_names |= local_mcp
         errors.extend(mcp_errors)
-    return models, mcp_names, errors
+    return mcp_names, errors
 
 
 def validate_plugin_sentinel(
@@ -423,6 +419,9 @@ def validate_native_agents(root: Path, env: dict[str, str]) -> list[str]:
     listed = run_command(["opencode", "agent", "list"], cwd=root, env=env).stdout
     if any(name not in listed for name in ROLES):
         errors.append("project agent list is incomplete")
+    generated_pattern = (
+        Path(env["XDG_DATA_HOME"]) / "opencode" / "tool-output" / "*"
+    ).as_posix()
     for name in ROLES:
         agent = parse_json_object(
             run_command(["opencode", "debug", "agent", name], cwd=root, env=env).stdout,
@@ -433,24 +432,21 @@ def validate_native_agents(root: Path, env: dict[str, str]) -> list[str]:
         if isinstance(resolved_rules, list):
             errors.extend(
                 validate_permission_contract(
-                    [rule for rule in resolved_rules if isinstance(rule, dict)],
+                    list(resolved_rules),
                     expected_permission_contract(root, name),
+                    generated_tool_output_pattern=generated_pattern,
                 )
             )
     return errors
 
 
-def validate_model_catalog(
-    root: Path, env: dict[str, str], local_models: set[str]
-) -> list[str]:
+def validate_model_catalog(root: Path, env: dict[str, str]) -> list[str]:
     models = set(
         run_command(["opencode", "models"], cwd=root, env=env).stdout.splitlines()
     )
     errors: list[str] = []
     if not models >= MODEL_IDS:
         errors.append("configured model IDs are absent from the local catalog")
-    if not models >= local_models:
-        errors.append("machine-local agent model is absent from the local catalog")
     return errors
 
 
@@ -461,7 +457,7 @@ def validate_runtime(root: Path, project: Path) -> None:
     validate_local_configs(local_validation)
     if local_validation.errors:
         raise RuntimeContractError("machine-local OpenCode governance is invalid")
-    local_models, expected_mcp, local_errors = local_runtime_contract(project)
+    expected_mcp, local_errors = local_runtime_contract(project)
     if local_errors:
         raise RuntimeContractError("; ".join(local_errors))
     base_env = governance_environment(os.environ, controlled={})
@@ -475,7 +471,7 @@ def validate_runtime(root: Path, project: Path) -> None:
         )
         errors = validate_resolved_config(config, require_local_markers=False)
         errors.extend(validate_native_agents(root, env))
-        errors.extend(validate_model_catalog(root, base_env, local_models))
+        errors.extend(validate_model_catalog(root, base_env))
         run_command(["opencode", "debug", "startup"], cwd=root, env=env)
         sentinel_error = validate_plugin_sentinel(root, env, isolated)
         if sentinel_error:

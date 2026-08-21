@@ -25,6 +25,13 @@ permission:
     "git clean *": deny
     "git push *": deny
     "gh pr *": deny
+    "*&*": deny
+    "*;*": deny
+    "*|*": deny
+    "*>*": deny
+    "*<*": deny
+    "*`*": deny
+    "*$*": deny
 ---
 
 # Architecture Planner

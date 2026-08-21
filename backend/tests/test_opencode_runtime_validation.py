@@ -13,7 +13,6 @@ from scripts.validation.validate_opencode_runtime import (
     governance_environment,
     local_runtime_contract,
     parse_json_object,
-    redact_diagnostic,
     run_command,
     validate_mcp_status,
     validate_permission_contract,
@@ -88,9 +87,7 @@ def test_permission_contract_rejects_missing_or_reordered_project_rules() -> Non
     ]
 
     assert validate_permission_contract(expected, expected) == []
-    assert "resolved permission contract omits or reorders project rules" in (
-        validate_permission_contract(list(reversed(expected)), expected)
-    )
+    assert validate_permission_contract(list(reversed(expected)), expected)
     injected = [
         expected[0],
         {"permission": "execute", "pattern": "*", "action": "allow"},
@@ -98,10 +95,44 @@ def test_permission_contract_rejects_missing_or_reordered_project_rules() -> Non
     ]
     errors = validate_permission_contract(injected, expected)
 
-    expected_error = (
-        "resolved permission contract is not an exact contiguous project ruleset"
+    assert errors
+
+
+@pytest.mark.parametrize(
+    "trailing",
+    [
+        {"permission": "*", "pattern": "*", "action": "allow"},
+        {"permission": "bash", "pattern": "rm *", "action": "allow"},
+        {"permission": "edit", "pattern": "*", "action": "allow"},
+        {"permission": "task", "pattern": "*", "action": "allow"},
+        {"permission": "external_directory", "pattern": "*", "action": "allow"},
+        "malformed",
+    ],
+)
+def test_permission_contract_rejects_every_unapproved_trailing_rule(
+    trailing: object,
+) -> None:
+    expected = [{"permission": "*", "pattern": "*", "action": "deny"}]
+
+    assert validate_permission_contract([*expected, trailing], expected)
+
+
+def test_permission_contract_allows_only_the_generated_tool_output_suffix() -> None:
+    expected = [{"permission": "*", "pattern": "*", "action": "deny"}]
+    generated = {
+        "permission": "external_directory",
+        "pattern": "/isolated/opencode/tool-output/*",
+        "action": "allow",
+    }
+
+    assert (
+        validate_permission_contract(
+            [*expected, generated],
+            expected,
+            generated_tool_output_pattern="/isolated/opencode/tool-output/*",
+        )
+        == []
     )
-    assert expected_error in errors
 
 
 @pytest.mark.parametrize(
@@ -137,6 +168,19 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("gh pr create", "deny"),
         ("gh --repo owner/repository pr create", "deny"),
         ("gco feature", "deny"),
+        ("pdm run verify", "allow"),
+        ("pdm run pytest backend/tests -q", "allow"),
+        ("pdm run lint", "allow"),
+        ("npm --prefix frontend run test:coverage", "allow"),
+        ("npx vitest run src/lib/api.test.ts", "allow"),
+        ("pdm run gh pr merge", "deny"),
+        ("pdm run git push --force", "deny"),
+        ("pdm run publish", "deny"),
+        ("npm exec gh pr merge", "deny"),
+        ("npm run publish", "deny"),
+        ("npx gh pr merge", "deny"),
+        ("pdm run verify && gh pr merge", "deny"),
+        ("npm --prefix frontend run test:coverage; git push", "deny"),
     ],
 )
 def test_actual_implementer_contract_allows_only_canonical_mutations(
@@ -174,23 +218,6 @@ def test_runtime_entry_rejects_an_actual_injected_override_before_commands(
         validate_runtime(Path(__file__).parents[2], Path(__file__).parents[2])
 
 
-def test_diagnostics_are_bounded_and_redacted() -> None:
-    raw = (
-        "failure under /" + "Users/example/project with "
-        "postgresql"
-        + "://user:password@host/db and api_"
-        + "key=secret-value "
-        + "x" * 500
-    )
-
-    diagnostic = redact_diagnostic(raw)
-
-    assert "/" + "Users/" not in diagnostic
-    assert "postgresql" + "://" not in diagnostic
-    assert "secret-value" not in diagnostic
-    assert len(diagnostic) <= 240
-
-
 def test_mcp_status_requires_each_expected_server_connected() -> None:
     output = "postgres \x1b[90mconnected\nsqlite \x1b[90mconnected\n"
 
@@ -203,15 +230,12 @@ def test_mcp_status_requires_each_expected_server_connected() -> None:
     )
 
 
-def test_local_runtime_contract_collects_enabled_mcps_and_agent_models(
-    tmp_path: Path,
-) -> None:
+def test_local_runtime_contract_collects_enabled_mcps(tmp_path: Path) -> None:
     config_dir = tmp_path / ".opencode"
     config_dir.mkdir()
     (config_dir / "opencode.json").write_text(
         json.dumps(
             {
-                "agent": {"local-reviewer": {"model": "provider/catalogued"}},
                 "mcp": {
                     "connected": {"type": "local", "enabled": True},
                     "disabled": {"type": "local", "enabled": False},
@@ -220,9 +244,8 @@ def test_local_runtime_contract_collects_enabled_mcps_and_agent_models(
         )
     )
 
-    models, mcps, errors = local_runtime_contract(tmp_path)
+    mcps, errors = local_runtime_contract(tmp_path)
 
-    assert models == {"provider/catalogued"}
     assert mcps == {"connected"}
     assert errors == []
 
@@ -230,7 +253,6 @@ def test_local_runtime_contract_collects_enabled_mcps_and_agent_models(
 @pytest.mark.parametrize(
     "local_config",
     [
-        {"agent": {"broken": {}}},
         {"mcp": {"broken": "not-an-object"}},
     ],
 )
@@ -241,7 +263,7 @@ def test_local_runtime_contract_rejects_unverifiable_entries(
     config_dir.mkdir()
     (config_dir / "opencode.json").write_text(json.dumps(local_config))
 
-    assert local_runtime_contract(tmp_path)[2]
+    assert local_runtime_contract(tmp_path)[1]
 
 
 def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) -> None:
@@ -250,18 +272,29 @@ def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) 
             ["definitely-absent-opencode-test"], cwd=tmp_path, env=os.environ.copy()
         )
 
-    secret = "api_" + "key=do-not-print"
+    secrets = [
+        "Bearer bearer-secret",
+        "GITHUB_TOKEN=github-secret",
+        "AWS_SECRET_ACCESS_KEY=aws-secret",
+        "https://user:url-secret@example.invalid/path",
+        "https://example.invalid/path?token=query-secret",
+    ]
+    emit_secrets = (
+        f"import sys;sys.stdout.write({str(secrets)!r});"
+        f"sys.stderr.write({str(secrets)!r});sys.exit(2)"
+    )
     with pytest.raises(RuntimeContractError) as nonzero:
         run_command(
             [
                 sys.executable,
                 "-c",
-                f"import sys;sys.stderr.write({secret!r});sys.exit(2)",
+                emit_secrets,
             ],
             cwd=tmp_path,
             env=os.environ.copy(),
         )
-    assert "do-not-print" not in str(nonzero.value)
+    for secret in secrets:
+        assert secret not in str(nonzero.value)
     assert "exited 2" in str(nonzero.value)
 
     with pytest.raises(RuntimeContractError, match="command timed out"):

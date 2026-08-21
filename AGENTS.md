@@ -346,7 +346,7 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   the five separate verdicts and all process rules below. Prefer a reviewer model family
   different from the implementer's where available.
 
-  **Only the implementer makes lasting code, test, fix, commit, or PR edits. R3 is the sole
+  **Only the implementer makes lasting repository code, test, documentation, fix, or commit edits. R3 is the sole
   transient exception and runs ALONE (see D49).** R3 may mutate production code only to
   prove that a relevant test rejects wrong behavior. Before each mutation it copies the
   target outside the worktree (for example under `$TMPDIR/opencode/`, or another approved
@@ -364,7 +364,8 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   unresolved actionable verified findings. Failed, timed-out, or inconclusive reviews do
   not converge. Once a dimension converges, do not run it again in that review cycle.
 
-  Every round reviews a clean worktree and committed diff. After all five dimensions
+  Every round reviews a clean worktree and committed diff. All pushes and PR creation, updates, and mutations are manual user actions because agent permissions deny them.
+  After all five dimensions
   converge, run final `pdm run verify`. Do not create a PR until convergence and final gates
   pass. Branch CI may be dispatched before a PR; CodeQL still requires its configured
   GitHub event. PR creation occurs only when requested. Never run `gh pr merge`; human

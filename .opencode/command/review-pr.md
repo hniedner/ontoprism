@@ -5,7 +5,7 @@ agent: ontoprism-team
 
 # /review-pr
 
-Review the current branch only when all intended work is committed and the worktree is clean. Record the starting HEAD and review the committed base-to-HEAD diff. Run `pdm run validate-opencode-config` and the actual external contract `pdm run validate-opencode-runtime`, then dispatch `implementer` to run exact `pdm run verify` before review.
+Review the current branch only when all intended work is committed and the worktree is clean. Record the starting HEAD and review the committed base-to-HEAD diff. Run `pdm run validate-opencode-config` and the actual external contract `pdm run validate-opencode-runtime`, then dispatch `implementer` to run exact `pdm run verify` before review. Runtime validation launches fresh CLI processes; it does not activate changed configuration in the current session. Quit and restart OpenCode before relying on configuration changes.
 
 In the initial round, dispatch R1 `pr-code-reviewer`, R2 `pr-silent-failure-hunter`, R4 `pr-comment-analyzer`, and R5 `pr-type-design-analyzer` in parallel. After they finish, dispatch R3 `pr-test-analyzer` alone against the same HEAD. Confirm the worktree is clean and HEAD unchanged after R3 before accepting its verdict.
 

@@ -17,10 +17,73 @@ permission:
   task: deny
   bash:
     "*": deny
-    "pdm *": allow
-    "pdm run *": allow
-    "npm *": allow
-    "npx *": allow
+    "pdm install": allow
+    "pdm install *": allow
+    "pdm build": allow
+    "pdm build *": allow
+    "pdm run pytest": allow
+    "pdm run pytest *": allow
+    "pdm run verify": allow
+    "pdm run test-ci": allow
+    "pdm run test": allow
+    "pdm run test *": allow
+    "pdm run test-unit": allow
+    "pdm run test-unit *": allow
+    "pdm run test-integration": allow
+    "pdm run test-integration *": allow
+    "pdm run test-integration-full-store": allow
+    "pdm run test-integration-full-store *": allow
+    "pdm run test-smoke": allow
+    "pdm run test-smoke *": allow
+    "pdm run lint": allow
+    "pdm run fmt": allow
+    "pdm run pre-commit": allow
+    "pdm run pre-commit *": allow
+    "pdm run validate-opencode-config": allow
+    "pdm run validate-opencode-runtime": allow
+    "pdm run validate-opencode-runtime *": allow
+    "pdm run coverage-check": allow
+    "pdm run coverage-verify-identities": allow
+    "pdm run test-backend-unit": allow
+    "pdm run test-backend-unit *": allow
+    "pdm run test-integration-full-build": allow
+    "pdm run test-integration-full-build *": allow
+    "pdm run data-build": allow
+    "pdm run data-build *": allow
+    "pdm run decompose": allow
+    "pdm run decompose *": allow
+    "pdm run adjudication": allow
+    "pdm run adjudication *": allow
+    "pdm run migrate": allow
+    "pdm run migrate-stamp": allow
+    "npm ci": allow
+    "npm ci *": allow
+    "npm test": allow
+    "npm test *": allow
+    "npm run test": allow
+    "npm run test *": allow
+    "npm run test:unit": allow
+    "npm run test:unit *": allow
+    "npm run test:coverage": allow
+    "npm run check": allow
+    "npm run lint": allow
+    "npm run fallow": allow
+    "npm run build": allow
+    "npm --prefix frontend run test": allow
+    "npm --prefix frontend run test *": allow
+    "npm --prefix frontend run test:unit": allow
+    "npm --prefix frontend run test:unit *": allow
+    "npm --prefix frontend run test:coverage": allow
+    "npm --prefix frontend run check": allow
+    "npm --prefix frontend run lint": allow
+    "npm --prefix frontend run fallow": allow
+    "npm --prefix frontend run build": allow
+    "npx vitest": allow
+    "npx vitest *": allow
+    "npx eslint": allow
+    "npx eslint *": allow
+    "npx svelte-check": allow
+    "npx svelte-check *": allow
     "git status": allow
     "git status*": allow
     "git diff": allow
@@ -78,10 +141,17 @@ permission:
     "npm publish*": deny
     "pdm publish": deny
     "pdm publish*": deny
+    "*&*": deny
+    "*;*": deny
+    "*|*": deny
+    "*>*": deny
+    "*<*": deny
+    "*`*": deny
+    "*$*": deny
 ---
 
 # Implementation Specialist
 
 Follow `AGENTS.md` and the supplied acceptance contract exactly. You are the only agent that makes lasting repository edits. Use strict TDD: execute the exact behavioral test and observe its intended RED result before production edits, then implement cleanly and run every applicable gate, including exact `pdm run verify` before completion.
 
-Never work on or commit to `main`. Inspect status, diff, and recent log before staging; stage only intended files, commit the complete change, and leave a clean worktree. Do not delegate. Branch pushes and GitHub PR mutations are denied: report when a manual user action is needed. Never `gh pr merge`; a human performs any GitHub merge. Report exact commands and results and mark missing inputs **BLOCKED**.
+Never work on or commit to `main`. Inspect status, diff, and recent log before staging; stage only intended files, commit the complete change, and leave a clean worktree. Do not delegate. Do not push or perform any PR operation; report the ready state to the user for that manual user action. Never `gh pr merge`; a human performs any GitHub merge. Report exact commands and results and mark missing inputs **BLOCKED**.

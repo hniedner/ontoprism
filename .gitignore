@@ -6,6 +6,7 @@ tmp/
 
 # Machine-local OpenCode project configuration
 /.opencode/opencode.json
+/.opencode/opencode.jsonc
 
 # macOS
 .DS_Store

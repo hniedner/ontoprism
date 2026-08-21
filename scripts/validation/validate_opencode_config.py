@@ -73,6 +73,40 @@ COMMON_READ_ONLY_TOOLS = {
 }
 IMPLEMENTER_TOOLS = COMMON_READ_ONLY_TOOLS | {"edit"}
 R3_TOOLS = {"read", "glob", "grep", "edit", "skill"}
+IMPLEMENTER_PDM_SCRIPTS = (
+    "pytest",
+    "verify",
+    "test-ci",
+    "test",
+    "test-unit",
+    "test-integration",
+    "test-integration-full-store",
+    "test-smoke",
+    "lint",
+    "fmt",
+    "pre-commit",
+    "validate-opencode-config",
+    "validate-opencode-runtime",
+    "coverage-check",
+    "coverage-verify-identities",
+    "test-backend-unit",
+    "test-integration-full-build",
+    "data-build",
+    "decompose",
+    "adjudication",
+    "migrate",
+    "migrate-stamp",
+)
+IMPLEMENTER_NPM_SCRIPTS = (
+    "test",
+    "test:unit",
+    "test:coverage",
+    "check",
+    "lint",
+    "fallow",
+    "build",
+)
+SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 
 
 class Validation:
@@ -295,6 +329,28 @@ def validate_tool_permissions(
             )
 
 
+def validate_shell_metacharacter_denies(
+    validation: Validation, role: str, metadata: dict[str, Any]
+) -> None:
+    bash = permission_action(metadata, "bash")
+    if not isinstance(bash, dict):
+        return
+    rules = list(bash)
+    allow_indices = [
+        index for index, pattern in enumerate(rules) if bash.get(pattern) == "allow"
+    ]
+    for pattern in SHELL_METACHARACTER_DENIES:
+        if bash.get(pattern) != "deny":
+            validation.error(
+                "ROLE_PERMISSION", f"{role} must deny shell pattern {pattern}"
+            )
+        elif allow_indices and rules.index(pattern) < max(allow_indices):
+            validation.error(
+                "ROLE_PERMISSION",
+                f"{role} shell deny {pattern} must follow every allow",
+            )
+
+
 def validate_role(
     validation: Validation,
     role: str,
@@ -319,6 +375,7 @@ def validate_role(
                 "ROLE_PERMISSION", f"{role} {permission} permission must be {action}"
             )
     validate_tool_permissions(validation, role, metadata)
+    validate_shell_metacharacter_denies(validation, role, metadata)
     description = metadata.get("description")
     if (
         not isinstance(description, str)
@@ -388,66 +445,113 @@ def validate_standard_permissions(
     validation: Validation, roles: dict[str, tuple[dict[str, Any], str]]
 ) -> None:
     implementer = roles.get("implementer", ({}, ""))
+    implementer_required = {
+        "pdm install": "allow",
+        "pdm install *": "allow",
+        "pdm build": "allow",
+        "pdm build *": "allow",
+        **{
+            pattern: "allow"
+            for script in IMPLEMENTER_PDM_SCRIPTS
+            for pattern in (f"pdm run {script}", f"pdm run {script} *")
+            if pattern
+            not in {
+                "pdm run verify *",
+                "pdm run test-ci *",
+                "pdm run lint *",
+                "pdm run fmt *",
+                "pdm run validate-opencode-config *",
+                "pdm run coverage-check *",
+                "pdm run coverage-verify-identities *",
+                "pdm run migrate *",
+                "pdm run migrate-stamp *",
+            }
+        },
+        "npm ci": "allow",
+        "npm ci *": "allow",
+        "npm test": "allow",
+        "npm test *": "allow",
+        **{
+            pattern: "allow"
+            for script in IMPLEMENTER_NPM_SCRIPTS
+            for prefix in ("npm run", "npm --prefix frontend run")
+            for pattern in (f"{prefix} {script}", f"{prefix} {script} *")
+            if not (pattern.endswith(" *") and script not in {"test", "test:unit"})
+        },
+        "npx vitest": "allow",
+        "npx vitest *": "allow",
+        "npx eslint": "allow",
+        "npx eslint *": "allow",
+        "npx svelte-check": "allow",
+        "npx svelte-check *": "allow",
+        **dict.fromkeys(SHELL_METACHARACTER_DENIES, "deny"),
+    }
+    implementer_required |= {
+        "git status": "allow",
+        "git status*": "allow",
+        "git diff": "allow",
+        "git diff*": "allow",
+        "git log": "allow",
+        "git log*": "allow",
+        "git show": "allow",
+        "git show *": "allow",
+        "git rev-parse": "allow",
+        "git rev-parse*": "allow",
+        "git merge-base": "allow",
+        "git merge-base *": "allow",
+        "git ls-files": "allow",
+        "git ls-files *": "allow",
+        "git switch": "allow",
+        "git switch *": "allow",
+        "git add": "allow",
+        "git add *": "allow",
+        "git commit": "allow",
+        "git commit *": "allow",
+        "git merge --no-ff *": "allow",
+        "git reset --hard": "deny",
+        "git reset --hard*": "deny",
+        "git clean": "deny",
+        "git clean *": "deny",
+        "git checkout": "deny",
+        "git checkout *": "deny",
+        "git restore": "deny",
+        "git restore *": "deny",
+        "git stash": "deny",
+        "git stash *": "deny",
+        "git rebase": "deny",
+        "git rebase *": "deny",
+        "git cherry-pick": "deny",
+        "git cherry-pick *": "deny",
+        "git push": "deny",
+        "git push *": "deny",
+        "git push -f*": "deny",
+        "git push --force*": "deny",
+        "git push * -f*": "deny",
+        "git push * --force*": "deny",
+        "gh pr": "deny",
+        "gh pr *": "deny",
+        "gh pr merge": "deny",
+        "gh pr merge*": "deny",
+        "npm publish": "deny",
+        "npm publish*": "deny",
+        "pdm publish": "deny",
+        "pdm publish*": "deny",
+    }
     require_bash_rules(
         validation,
         "implementer",
         implementer[0],
-        {
-            "pdm *": "allow",
-            "npm *": "allow",
-            "npx *": "allow",
-            "git status": "allow",
-            "git status*": "allow",
-            "git diff": "allow",
-            "git diff*": "allow",
-            "git log": "allow",
-            "git log*": "allow",
-            "git show": "allow",
-            "git show *": "allow",
-            "git rev-parse": "allow",
-            "git rev-parse*": "allow",
-            "git merge-base": "allow",
-            "git merge-base *": "allow",
-            "git ls-files": "allow",
-            "git ls-files *": "allow",
-            "git switch": "allow",
-            "git switch *": "allow",
-            "git add": "allow",
-            "git add *": "allow",
-            "git commit": "allow",
-            "git commit *": "allow",
-            "git merge --no-ff *": "allow",
-            "git reset --hard": "deny",
-            "git reset --hard*": "deny",
-            "git clean": "deny",
-            "git clean *": "deny",
-            "git checkout": "deny",
-            "git checkout *": "deny",
-            "git restore": "deny",
-            "git restore *": "deny",
-            "git stash": "deny",
-            "git stash *": "deny",
-            "git rebase": "deny",
-            "git rebase *": "deny",
-            "git cherry-pick": "deny",
-            "git cherry-pick *": "deny",
-            "git push": "deny",
-            "git push *": "deny",
-            "git push -f*": "deny",
-            "git push --force*": "deny",
-            "git push * -f*": "deny",
-            "git push * --force*": "deny",
-            "gh pr": "deny",
-            "gh pr *": "deny",
-            "gh pr merge": "deny",
-            "gh pr merge*": "deny",
-            "npm publish": "deny",
-            "npm publish*": "deny",
-            "pdm publish": "deny",
-            "pdm publish*": "deny",
-        },
+        implementer_required,
         catch_all="deny",
     )
+    implementer_bash = permission_action(implementer[0], "bash")
+    if isinstance(implementer_bash, dict):
+        for broad in ("pdm *", "pdm run *", "npm *", "npx *"):
+            if broad in implementer_bash:
+                validation.error(
+                    "ROLE_PERMISSION",
+                    f"implementer broad wrapper {broad} must be absent",
+                )
     require_bash_rules(
         validation,
         "ontoprism-team",
@@ -506,6 +610,7 @@ def validate_role_contracts(
             "pdm run verify",
             "clean worktree",
             "manual user action",
+            "report the ready state to the user",
             "never `gh pr merge`",
         ),
     )
@@ -531,6 +636,7 @@ def validate_role_contracts(
             "reduced",
             "never `gh pr merge`",
             "human merges",
+            "manual user actions",
         ),
     )
     validate_standard_permissions(validation, roles)
@@ -692,6 +798,8 @@ def validate_command(validation: Validation) -> None:
             "no push",
             "no PR",
             "never `gh pr merge`",
+            "launches fresh cli processes",
+            "quit and restart opencode",
             *tuple(sorted(REVIEWERS)),
         ),
     )
@@ -722,6 +830,10 @@ def validate_agents_document(validation: Validation) -> None:
             "outside the worktree",
             "byte-exact",
             "human merges",
+            "Only the implementer makes lasting repository code, test, "
+            "documentation, fix, or commit edits",
+            "All pushes and PR creation, updates, and mutations are manual "
+            "user actions",
         ),
     )
     require_terms(
@@ -746,31 +858,33 @@ def validate_gitignore(validation: Validation) -> None:
     path = validation.require_file(".gitignore")
     if path is None:
         return
-    if "/.opencode/opencode.json" not in path.read_text().splitlines():
-        validation.error(
-            "GITIGNORE",
-            ".gitignore must contain exact line /.opencode/opencode.json",
-        )
+    lines = path.read_text().splitlines()
+    for local_config in (
+        "/.opencode/opencode.json",
+        "/.opencode/opencode.jsonc",
+    ):
+        if local_config not in lines:
+            validation.error(
+                "GITIGNORE", f".gitignore must contain exact line {local_config}"
+            )
 
 
 def validate_local_configs(validation: Validation) -> None:
-    allowed = {"$schema", "lsp", "mcp", "agent"}
-    for relative in (
+    allowed = {"$schema", "lsp", "mcp"}
+    relatives = (
         ".opencode/opencode.json",
         ".opencode/opencode.jsonc",
-    ):
+    )
+    existing = [
+        relative for relative in relatives if (validation.root / relative).exists()
+    ]
+    if len(existing) > 1:
+        validation.error("LOCAL_CONFIG", "machine-local JSON and JSONC cannot coexist")
+    for relative in existing:
         path = validation.root / relative
-        if not path.exists():
-            continue
         config = load_json(path, validation, "LOCAL_CONFIG")
         for key in config.keys() - allowed:
             validation.error("LOCAL_CONFIG", f"forbidden top-level key {key}")
-        agents = config.get("agent", {})
-        if not isinstance(agents, dict):
-            validation.error("LOCAL_CONFIG", "agent must be an object")
-            continue
-        for name in agents.keys() & ROLES.keys():
-            validation.error("LOCAL_CONFIG", f"reserved project agent {name}")
 
 
 def validate_forbidden_content(validation: Validation) -> None:
