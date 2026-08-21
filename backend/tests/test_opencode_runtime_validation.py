@@ -232,6 +232,9 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("git diff --output=/tmp/leak main...HEAD", "deny"),
         ("git diff --ext-diff main...HEAD", "deny"),
         ("git diff --no-ext-diff HEAD~1...HEAD", "deny"),
+        ("pdm run agent-test backend/tests/test_x.py\ngh pr merge", "deny"),
+        ("pdm run agent-test backend/tests/test_x.py\rgit push", "deny"),
+        ("pdm run agent-test backend/tests/test_x.py\r\ngh pr merge", "deny"),
     ],
 )
 def test_actual_implementer_contract_allows_only_canonical_mutations(
@@ -240,6 +243,21 @@ def test_actual_implementer_contract_allows_only_canonical_mutations(
     rules = expected_permission_contract(Path(__file__).parents[2], "implementer")
 
     assert effective_action(rules, command) == expected
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pdm run agent-test backend/tests/test_x.py\ngh pr merge",
+        "pdm run agent-test backend/tests/test_x.py\rgit push",
+        "pdm run agent-test backend/tests/test_x.py\r\ngh pr merge",
+        "cp source target\ngh pr merge",
+    ],
+)
+def test_r3_literal_line_break_denies_override_wildcard_allows(command: str) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "pr-test-analyzer")
+
+    assert effective_action(rules, command) == "deny"
 
 
 @pytest.mark.parametrize(

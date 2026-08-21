@@ -50,6 +50,8 @@ permission:
     "*<*": deny
     "*`*": deny
     "*$*": deny
+    "*\n*": deny
+    "*\r*": deny
 ---
 
 # R3 Test-Validity Analyzer

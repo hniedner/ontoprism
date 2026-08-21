@@ -119,6 +119,7 @@ FIXED_GIT_INSPECTION = (
     "git show --stat --oneline HEAD",
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
+LINE_BREAK_DENIES = ("*\n*", "*\r*")
 
 
 class Validation:
@@ -373,6 +374,16 @@ def validate_shell_metacharacter_denies(
             validation.error(
                 "ROLE_PERMISSION", f"{role} has wildcard Git inspection {pattern}"
             )
+    if any(
+        action == "allow" and "*" in pattern for pattern, action in bash.items()
+    ) and (
+        list(bash)[-2:] != list(LINE_BREAK_DENIES)
+        or any(bash.get(pattern) != "deny" for pattern in LINE_BREAK_DENIES)
+    ):
+        validation.error(
+            "ROLE_PERMISSION",
+            f"{role} literal line-break denies must be last",
+        )
 
 
 def validate_task_permission(
@@ -524,6 +535,7 @@ def validate_standard_permissions(
         **dict.fromkeys(approved_package_patterns, "allow"),
         **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
         **dict.fromkeys(SHELL_METACHARACTER_DENIES, "deny"),
+        **dict.fromkeys(LINE_BREAK_DENIES, "deny"),
     }
     implementer_required |= {
         "git diff --cached --check": "allow",

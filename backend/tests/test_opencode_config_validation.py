@@ -784,6 +784,20 @@ def test_every_agent_denies_shell_metacharacter_chaining(
         assert f'    "{pattern}": deny' in agent
 
 
+@pytest.mark.parametrize("role", ["implementer", "pr-test-analyzer"])
+def test_wildcard_bash_agents_end_with_literal_lf_and_cr_denies(
+    config_root: Path, role: str
+) -> None:
+    metadata, _ = load_agent(
+        config_root / f".opencode/agent/{role}.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+
+    assert list(bash)[-2:] == ["*\n*", "*\r*"]
+    assert bash["*\n*"] == bash["*\r*"] == "deny"
+
+
 def test_process_prose_assigns_remote_mutations_only_to_the_user(
     config_root: Path,
 ) -> None:

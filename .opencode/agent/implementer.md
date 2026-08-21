@@ -102,6 +102,8 @@ permission:
     "*<*": deny
     "*`*": deny
     "*$*": deny
+    "*\n*": deny
+    "*\r*": deny
 ---
 
 # Implementation Specialist

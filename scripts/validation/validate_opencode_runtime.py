@@ -203,6 +203,11 @@ def validate_agent_permissions(
             ("git push --force", "deny"),
             ("gh pr merge", "deny"),
             ("touch forbidden", "deny"),
+            ("cp source target\ngh pr merge", "deny"),
+            (
+                "pdm run agent-test backend/tests/test_x.py\r\ngit push",
+                "deny",
+            ),
         ):
             if effective_action(bash_rules, command) != expected:
                 errors.append(
@@ -229,6 +234,10 @@ def validate_agent_permissions(
             ("npm run publish", "deny"),
             ("npx gh pr merge", "deny"),
             ("pdm run verify && gh pr merge", "deny"),
+            (
+                "pdm run agent-test backend/tests/test_x.py\ngh pr merge",
+                "deny",
+            ),
         ):
             if effective_action(bash_rules, command) != expected:
                 errors.append(
