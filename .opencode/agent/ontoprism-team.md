@@ -29,12 +29,15 @@ permission:
     pr-type-design-analyzer: allow
   bash:
     "*": deny
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git rev-parse*": allow
-    "pdm run validate-opencode-config*": allow
-    "pdm run validate-opencode-runtime*": allow
+    "git status --porcelain": allow
+    "git status --short --branch": allow
+    "git rev-parse HEAD": allow
+    "git diff --no-ext-diff main...HEAD": allow
+    "git diff --check main...HEAD": allow
+    "git log --oneline -10": allow
+    "git show --stat --oneline HEAD": allow
+    "pdm run validate-opencode-config": allow
+    "pdm run validate-opencode-runtime": allow
     "git reset": deny
     "git reset *": deny
     "git clean": deny

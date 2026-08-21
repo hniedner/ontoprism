@@ -15,12 +15,10 @@ permission:
   bash:
     "*": deny
     "cp *": allow
-    "git status*": allow
-    "git diff*": allow
-    "git rev-parse*": allow
-    "pdm run pytest *": allow
-    "pdm run test-integration-full-store*": allow
-    "npm --prefix frontend *test*": allow
+    "git status --porcelain": allow
+    "git status --short --branch": allow
+    "git rev-parse HEAD": allow
+    "pdm run agent-test *": allow
     "git add": deny
     "git add *": deny
     "git commit": deny

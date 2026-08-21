@@ -186,7 +186,7 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
-        ("git status", "allow"),
+        ("git status --porcelain", "allow"),
         ("git commit change", "allow"),
         ("git merge --no-ff feature", "allow"),
         ("git merge feature", "deny"),
@@ -196,17 +196,16 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("gh --repo owner/repository pr create", "deny"),
         ("gco feature", "deny"),
         ("pdm run verify", "allow"),
-        ("pdm run pytest backend/tests/test_opencode_config_validation.py -q", "allow"),
         (
-            "pdm run pytest ontolib/tests/terminologies/test_sparql_inventory.py -q",
+            "pdm run agent-test backend/tests/test_opencode_config_validation.py -q",
             "allow",
         ),
         (
-            "pdm run python scripts/run_safe_integration.py backend/tests/"
-            "test_data_build_integration.py::"
-            "test_generate_cde_embeddings_writes_vectors -v",
+            "pdm run agent-test ontolib/tests/terminologies/"
+            "test_sparql_inventory.py -q",
             "allow",
         ),
+        ("pdm run pytest backend/tests/test_opencode_config_validation.py -q", "deny"),
         ("pdm run lint", "allow"),
         ("npm --prefix frontend run test:coverage", "allow"),
         ("npm --prefix frontend run test:unit -- --run", "allow"),
@@ -230,12 +229,40 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("npx gh pr merge", "deny"),
         ("pdm run verify && gh pr merge", "deny"),
         ("npm --prefix frontend run test:coverage; git push", "deny"),
+        ("git diff --output=/tmp/leak main...HEAD", "deny"),
+        ("git diff --ext-diff main...HEAD", "deny"),
+        ("git diff --no-ext-diff HEAD~1...HEAD", "deny"),
     ],
 )
 def test_actual_implementer_contract_allows_only_canonical_mutations(
     command: str, expected: str
 ) -> None:
     rules = expected_permission_contract(Path(__file__).parents[2], "implementer")
+
+    assert effective_action(rules, command) == expected
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("git status --porcelain", "allow"),
+        ("git status --short --branch", "allow"),
+        ("git rev-parse HEAD", "allow"),
+        ("git diff --no-ext-diff main...HEAD", "allow"),
+        ("git diff --output=/tmp/leak main...HEAD", "deny"),
+        ("git diff --ext-diff main...HEAD", "deny"),
+        ("git diff --no-ext-diff HEAD~1...HEAD", "deny"),
+        ("git show --output=/tmp/leak HEAD", "deny"),
+        ("pdm run validate-opencode-config", "allow"),
+        ("pdm run validate-opencode-config --root other", "deny"),
+        ("pdm run validate-opencode-runtime", "allow"),
+        ("pdm run validate-opencode-runtime --project other", "deny"),
+    ],
+)
+def test_orchestrator_contract_allows_only_fixed_inspection_commands(
+    command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")
 
     assert effective_action(rules, command) == expected
 

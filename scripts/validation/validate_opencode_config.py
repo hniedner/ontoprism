@@ -99,10 +99,7 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "validate-opencode-config",
     "validate-opencode-runtime",
     "pre-commit run --all-files",
-    "pytest backend/tests/*",
-    "pytest ontolib/tests/*",
-    "python scripts/run_safe_integration.py backend/tests/*",
-    "python scripts/run_safe_integration.py ontolib/tests/*",
+    "agent-test *",
 )
 IMPLEMENTER_NPM_COMMANDS = (
     "npm --prefix frontend run test:coverage",
@@ -112,12 +109,14 @@ IMPLEMENTER_NPM_COMMANDS = (
     "npm --prefix frontend run fallow",
     "npm --prefix frontend run build",
 )
-RUNNER_OPTION_DENIES = (
-    "* --rootdir *",
-    "* --override-ini *",
-    "* -c *",
-    "* -p *",
-    "* --config *",
+FIXED_GIT_INSPECTION = (
+    "git status --porcelain",
+    "git status --short --branch",
+    "git rev-parse HEAD",
+    "git diff --no-ext-diff main...HEAD",
+    "git diff --check main...HEAD",
+    "git log --oneline -10",
+    "git show --stat --oneline HEAD",
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 
@@ -363,6 +362,18 @@ def validate_shell_metacharacter_denies(
                 f"{role} shell deny {pattern} must follow every allow",
             )
 
+    for pattern, action in bash.items():
+        if (
+            action == "allow"
+            and "*" in pattern
+            and pattern.startswith(
+                ("git diff", "git log", "git show", "git status", "git rev-parse")
+            )
+        ):
+            validation.error(
+                "ROLE_PERMISSION", f"{role} has wildcard Git inspection {pattern}"
+            )
+
 
 def validate_task_permission(
     validation: Validation,
@@ -511,24 +522,14 @@ def validate_standard_permissions(
     }
     implementer_required = {
         **dict.fromkeys(approved_package_patterns, "allow"),
-        **dict.fromkeys(RUNNER_OPTION_DENIES, "deny"),
+        **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
         **dict.fromkeys(SHELL_METACHARACTER_DENIES, "deny"),
     }
     implementer_required |= {
-        "git status": "allow",
-        "git status*": "allow",
-        "git diff": "allow",
-        "git diff*": "allow",
-        "git log": "allow",
-        "git log*": "allow",
-        "git show": "allow",
-        "git show *": "allow",
-        "git rev-parse": "allow",
-        "git rev-parse*": "allow",
-        "git merge-base": "allow",
-        "git merge-base *": "allow",
+        "git diff --cached --check": "allow",
+        "git diff --cached --stat": "allow",
+        "git merge-base main HEAD": "allow",
         "git ls-files": "allow",
-        "git ls-files *": "allow",
         "git switch": "allow",
         "git switch *": "allow",
         "git add": "allow",
@@ -589,8 +590,9 @@ def validate_standard_permissions(
         "ontoprism-team",
         roles.get("ontoprism-team", ({}, ""))[0],
         {
-            "pdm run validate-opencode-config*": "allow",
-            "pdm run validate-opencode-runtime*": "allow",
+            **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
+            "pdm run validate-opencode-config": "allow",
+            "pdm run validate-opencode-runtime": "allow",
             "git reset": "deny",
             "git reset *": "deny",
             "git clean": "deny",
@@ -619,6 +621,7 @@ def validate_standard_permissions(
             role,
             roles.get(role, ({}, ""))[0],
             {
+                **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
                 "git reset *": "deny",
                 "git clean *": "deny",
                 "git push *": "deny",
@@ -626,6 +629,78 @@ def validate_standard_permissions(
             },
             catch_all="deny",
         )
+
+
+def validate_r3_contract(
+    validation: Validation, r3_metadata: dict[str, Any], r3_body: str
+) -> None:
+    require_terms(
+        validation,
+        "R3_ISOLATION",
+        "pr-test-analyzer prompt",
+        r3_body,
+        (
+            "runs alone",
+            "outside the worktree",
+            "byte",
+            "restore",
+            "git status --porcelain",
+            "git rev-parse HEAD",
+            "never fix",
+        ),
+    )
+    bash = permission_action(r3_metadata, "bash")
+    if not isinstance(bash, dict) or next(iter(bash), None) != "*":
+        validation.error(
+            "R3_PERMISSION", "R3 bash permissions must place broad rule first"
+        )
+        return
+    if bash.get("*") != "deny":
+        validation.error("R3_PERMISSION", "R3 bash catch-all must be deny")
+    required_denies = (
+        "git add",
+        "git add *",
+        "git commit",
+        "git commit *",
+        "git merge",
+        "git merge *",
+        "git rebase",
+        "git rebase *",
+        "git restore",
+        "git restore *",
+        "git checkout",
+        "git checkout *",
+        "git clean",
+        "git clean *",
+        "git stash",
+        "git stash *",
+        "git push",
+        "git push *",
+        "git push -f*",
+        "git push --force*",
+        "gh pr",
+        "gh pr *",
+        "git reset",
+        "git reset *",
+    )
+    for pattern in required_denies:
+        if bash.get(pattern) != "deny":
+            validation.error("R3_PERMISSION", f"R3 must deny {pattern}")
+    validate_deny_order(
+        validation,
+        "R3_PERMISSION",
+        "pr-test-analyzer",
+        bash,
+        required_denies,
+    )
+    for pattern in (
+        "git status --porcelain",
+        "git status --short --branch",
+        "git rev-parse HEAD",
+        "pdm run agent-test *",
+    ):
+        if bash.get(pattern) != "allow":
+            validation.error("R3_PERMISSION", f"R3 must allow {pattern}")
 
 
 def validate_role_contracts(
@@ -699,65 +774,7 @@ def validate_role_contracts(
             )
 
     r3_metadata, r3_body = roles.get("pr-test-analyzer", ({}, ""))
-    require_terms(
-        validation,
-        "R3_ISOLATION",
-        "pr-test-analyzer prompt",
-        r3_body,
-        (
-            "runs alone",
-            "outside the worktree",
-            "byte",
-            "restore",
-            "git status --porcelain",
-            "git rev-parse HEAD",
-            "never fix",
-        ),
-    )
-    bash = permission_action(r3_metadata, "bash")
-    if not isinstance(bash, dict) or next(iter(bash), None) != "*":
-        validation.error(
-            "R3_PERMISSION", "R3 bash permissions must place broad rule first"
-        )
-    else:
-        if bash.get("*") != "deny":
-            validation.error("R3_PERMISSION", "R3 bash catch-all must be deny")
-        required_denies = (
-            "git add",
-            "git add *",
-            "git commit",
-            "git commit *",
-            "git merge",
-            "git merge *",
-            "git rebase",
-            "git rebase *",
-            "git restore",
-            "git restore *",
-            "git checkout",
-            "git checkout *",
-            "git clean",
-            "git clean *",
-            "git stash",
-            "git stash *",
-            "git push",
-            "git push *",
-            "git push -f*",
-            "git push --force*",
-            "gh pr",
-            "gh pr *",
-            "git reset",
-            "git reset *",
-        )
-        for pattern in required_denies:
-            if bash.get(pattern) != "deny":
-                validation.error("R3_PERMISSION", f"R3 must deny {pattern}")
-        validate_deny_order(
-            validation,
-            "R3_PERMISSION",
-            "pr-test-analyzer",
-            bash,
-            required_denies,
-        )
+    validate_r3_contract(validation, r3_metadata, r3_body)
 
 
 def validate_plugin(validation: Validation) -> dict[str, Any]:

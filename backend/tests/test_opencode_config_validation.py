@@ -321,8 +321,8 @@ def test_reserve_cannot_be_auto_dispatched(config_root: Path) -> None:
         ),
         (
             ".opencode/agent/pr-test-analyzer.md",
-            '    "git status*": allow\n',
-            '    "git commit *": deny\n    "git status*": allow\n',
+            '    "git status --porcelain": allow\n',
+            '    "git commit *": deny\n    "git status --porcelain": allow\n',
             "R3_PERMISSION: pr-test-analyzer deny git commit * must follow all "
             "Git allow rules",
         ),
@@ -334,8 +334,8 @@ def test_reserve_cannot_be_auto_dispatched(config_root: Path) -> None:
         ),
         (
             ".opencode/agent/architect.md",
-            '    "git show*": allow\n',
-            '    "git reset *": deny\n    "git show*": allow\n',
+            '    "git show --stat --oneline HEAD": allow\n',
+            '    "git reset *": deny\n    "git show --stat --oneline HEAD": allow\n',
             "ROLE_PERMISSION: architect deny git reset * must follow all Git "
             "allow rules",
         ),
@@ -653,6 +653,14 @@ def test_authoritative_verify_starts_with_static_opencode_validation() -> None:
     assert "pdm run verify" not in verify
 
 
+def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+
+    assert pyproject["tool"]["pdm"]["scripts"]["agent-test"] == (
+        "python scripts/validation/run_agent_test.py"
+    )
+
+
 def test_machine_local_json_and_jsonc_are_both_ignored_and_mutually_exclusive(
     config_root: Path,
 ) -> None:
@@ -687,15 +695,54 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         assert forbidden not in implementer
     for required in (
         '"pdm run verify": allow',
-        '"pdm run pytest backend/tests/*": allow',
-        '"pdm run pytest ontolib/tests/*": allow',
-        '"pdm run python scripts/run_safe_integration.py backend/tests/*": allow',
+        '"pdm run agent-test *": allow',
         '"pdm run pre-commit run --all-files": allow',
         '"npm --prefix frontend run test:coverage": allow',
         '"npm --prefix frontend run test:unit -- --run": allow',
         '"*&*": deny',
     ):
         assert required in implementer
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_agent_git_read_commands_are_fixed_and_argument_free(
+    config_root: Path, role: str
+) -> None:
+    metadata, _ = load_agent(
+        config_root / f".opencode/agent/{role}.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+
+    for forbidden in (
+        "git status*",
+        "git diff*",
+        "git log*",
+        "git show*",
+        "git rev-parse*",
+    ):
+        assert forbidden not in bash
+    for required in (
+        "git status --porcelain",
+        "git status --short --branch",
+        "git rev-parse HEAD",
+    ):
+        assert bash[required] == "allow"
+    if role != "pr-test-analyzer":
+        assert bash["git diff --no-ext-diff main...HEAD"] == "allow"
+
+
+def test_orchestrator_validator_commands_accept_no_arguments(config_root: Path) -> None:
+    metadata, _ = load_agent(
+        config_root / ".opencode/agent/ontoprism-team.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+
+    assert bash["pdm run validate-opencode-config"] == "allow"
+    assert bash["pdm run validate-opencode-runtime"] == "allow"
+    assert "pdm run validate-opencode-config*" not in bash
+    assert "pdm run validate-opencode-runtime*" not in bash
 
 
 def test_orchestrator_task_delegation_is_exact_and_excludes_reserves(

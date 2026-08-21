@@ -29,30 +29,24 @@ permission:
     "pdm run validate-opencode-config": allow
     "pdm run validate-opencode-runtime": allow
     "pdm run pre-commit run --all-files": allow
-    "pdm run pytest backend/tests/*": allow
-    "pdm run pytest ontolib/tests/*": allow
-    "pdm run python scripts/run_safe_integration.py backend/tests/*": allow
-    "pdm run python scripts/run_safe_integration.py ontolib/tests/*": allow
+    "pdm run agent-test *": allow
     "npm --prefix frontend run test:coverage": allow
     "npm --prefix frontend run test:unit -- --run": allow
     "npm --prefix frontend run check": allow
     "npm --prefix frontend run lint": allow
     "npm --prefix frontend run fallow": allow
     "npm --prefix frontend run build": allow
-    "git status": allow
-    "git status*": allow
-    "git diff": allow
-    "git diff*": allow
-    "git log": allow
-    "git log*": allow
-    "git show": allow
-    "git show *": allow
-    "git rev-parse": allow
-    "git rev-parse*": allow
-    "git merge-base": allow
-    "git merge-base *": allow
+    "git status --porcelain": allow
+    "git status --short --branch": allow
+    "git rev-parse HEAD": allow
+    "git diff --no-ext-diff main...HEAD": allow
+    "git diff --check main...HEAD": allow
+    "git diff --cached --check": allow
+    "git diff --cached --stat": allow
+    "git log --oneline -10": allow
+    "git show --stat --oneline HEAD": allow
+    "git merge-base main HEAD": allow
     "git ls-files": allow
-    "git ls-files *": allow
     "git switch": allow
     "git switch *": allow
     "git add": allow

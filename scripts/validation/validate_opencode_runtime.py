@@ -185,8 +185,8 @@ def validate_agent_permissions(
     if not catch_alls or catch_alls[-1].get("action") != expected_catch_all:
         errors.append(f"{name} resolved bash catch-all must be {expected_catch_all}")
     if name in READ_ONLY_ROLES:
-        for command in ("touch forbidden", "git status"):
-            expected = "allow" if command == "git status" else "deny"
+        for command in ("touch forbidden", "git status --porcelain"):
+            expected = "allow" if command == "git status --porcelain" else "deny"
             if effective_action(bash_rules, command) != expected:
                 errors.append(
                     f"{name} effective action for {command} must be {expected}"
@@ -194,7 +194,11 @@ def validate_agent_permissions(
     elif name == "pr-test-analyzer":
         for command, expected in (
             ("cp source target", "allow"),
-            ("git status", "allow"),
+            ("git status --porcelain", "allow"),
+            (
+                "pdm run agent-test backend/tests/test_opencode_config_validation.py",
+                "allow",
+            ),
             ("git commit", "deny"),
             ("git push --force", "deny"),
             ("gh pr merge", "deny"),
@@ -209,7 +213,8 @@ def validate_agent_permissions(
             ("git commit change", "allow"),
             ("pdm run verify", "allow"),
             (
-                "pdm run pytest backend/tests/test_opencode_config_validation.py -q",
+                "pdm run agent-test backend/tests/"
+                "test_opencode_config_validation.py -q",
                 "allow",
             ),
             ("pdm run lint", "allow"),

@@ -17,10 +17,13 @@ permission:
   task: deny
   bash:
     "*": deny
-    "git status*": allow
-    "git diff*": allow
-    "git log*": allow
-    "git show*": allow
+    "git status --porcelain": allow
+    "git status --short --branch": allow
+    "git rev-parse HEAD": allow
+    "git diff --no-ext-diff main...HEAD": allow
+    "git diff --check main...HEAD": allow
+    "git log --oneline -10": allow
+    "git show --stat --oneline HEAD": allow
     "git reset *": deny
     "git clean *": deny
     "git push *": deny
