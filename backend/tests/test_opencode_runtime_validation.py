@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from scripts.validation.validate_opencode_config import RESERVES
 from scripts.validation.validate_opencode_runtime import (
     RuntimeContractError,
     effective_action,
@@ -135,6 +136,32 @@ def test_permission_contract_allows_only_the_generated_tool_output_suffix() -> N
     )
 
 
+def test_expected_orchestrator_task_rules_are_exact_agent_name_patterns() -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")
+    task_rules = [rule for rule in rules if rule["permission"] == "task"]
+    allowed = {rule["pattern"] for rule in task_rules if rule["action"] == "allow"}
+
+    assert task_rules[0] == {
+        "permission": "task",
+        "pattern": "*",
+        "action": "deny",
+    }
+    assert allowed == {
+        "implementer",
+        "architect",
+        "ontology-engineer",
+        "oncology-evidence-analyst",
+        "plan-adversary",
+        "ontology-validator",
+        "pr-code-reviewer",
+        "pr-silent-failure-hunter",
+        "pr-test-analyzer",
+        "pr-comment-analyzer",
+        "pr-type-design-analyzer",
+    }
+    assert not allowed & RESERVES
+
+
 @pytest.mark.parametrize(
     "command",
     [
@@ -169,10 +196,32 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("gh --repo owner/repository pr create", "deny"),
         ("gco feature", "deny"),
         ("pdm run verify", "allow"),
-        ("pdm run pytest backend/tests -q", "allow"),
+        ("pdm run pytest backend/tests/test_opencode_config_validation.py -q", "allow"),
+        (
+            "pdm run pytest ontolib/tests/terminologies/test_sparql_inventory.py -q",
+            "allow",
+        ),
+        (
+            "pdm run python scripts/run_safe_integration.py backend/tests/"
+            "test_data_build_integration.py::"
+            "test_generate_cde_embeddings_writes_vectors -v",
+            "allow",
+        ),
         ("pdm run lint", "allow"),
         ("npm --prefix frontend run test:coverage", "allow"),
-        ("npx vitest run src/lib/api.test.ts", "allow"),
+        ("npm --prefix frontend run test:unit -- --run", "allow"),
+        ("pdm run pre-commit run --all-files", "allow"),
+        ("pdm install", "deny"),
+        ("pdm install --project other", "deny"),
+        ("pdm --project other run verify", "deny"),
+        ("pdm run pytest --rootdir other backend/tests/test_x.py", "deny"),
+        ("pdm run pytest -c other.ini backend/tests/test_x.py", "deny"),
+        ("pdm run pytest --override-ini addopts=x backend/tests/test_x.py", "deny"),
+        ("pdm run pytest -p malicious backend/tests/test_x.py", "deny"),
+        ("npm --prefix other run test:coverage", "deny"),
+        ("npm --config other --prefix frontend run test:coverage", "deny"),
+        ("npm exec -- gh pr merge", "deny"),
+        ("npx vitest run frontend/src/lib/api.test.ts", "deny"),
         ("pdm run gh pr merge", "deny"),
         ("pdm run git push --force", "deny"),
         ("pdm run publish", "deny"),
@@ -203,6 +252,8 @@ def test_governance_environment_rejects_uncontrolled_overrides() -> None:
             {"OPENCODE_CONFIG_FUTURE_OVERRIDE": "injected"},
             controlled={},
         )
+    with pytest.raises(RuntimeContractError, match="unexpected governance environment"):
+        governance_environment({"OPENCODE_PERMISSION": "allow"}, controlled={})
 
 
 def test_runtime_entry_rejects_an_actual_injected_override_before_commands(
@@ -213,6 +264,19 @@ def test_runtime_entry_rejects_an_actual_injected_override_before_commands(
         lambda _name: "/installed/opencode",
     )
     monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", '{"permission":"allow"}')
+
+    with pytest.raises(RuntimeContractError, match="unexpected governance environment"):
+        validate_runtime(Path(__file__).parents[2], Path(__file__).parents[2])
+
+
+def test_runtime_entry_rejects_injected_permission_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.validation.validate_opencode_runtime.shutil.which",
+        lambda _name: "/installed/opencode",
+    )
+    monkeypatch.setenv("OPENCODE_PERMISSION", "allow")
 
     with pytest.raises(RuntimeContractError, match="unexpected governance environment"):
         validate_runtime(Path(__file__).parents[2], Path(__file__).parents[2])
@@ -269,7 +333,11 @@ def test_local_runtime_contract_rejects_unverifiable_entries(
 def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) -> None:
     with pytest.raises(RuntimeContractError, match="executable is unavailable"):
         run_command(
-            ["definitely-absent-opencode-test"], cwd=tmp_path, env=os.environ.copy()
+            ["definitely-absent-opencode-test"],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            operation="Agent inventory",
+            display_command="opencode agent list",
         )
 
     secrets = [
@@ -292,15 +360,23 @@ def test_command_errors_distinguish_missing_nonzero_and_timeout(tmp_path: Path) 
             ],
             cwd=tmp_path,
             env=os.environ.copy(),
+            operation="MCP connection check",
+            display_command="opencode mcp list",
         )
     for secret in secrets:
         assert secret not in str(nonzero.value)
     assert "exited 2" in str(nonzero.value)
+    assert str(nonzero.value) == "MCP connection check: opencode mcp list exited 2"
 
-    with pytest.raises(RuntimeContractError, match="command timed out"):
+    with pytest.raises(
+        RuntimeContractError,
+        match="Startup validation: opencode debug startup timed out",
+    ):
         run_command(
             [sys.executable, "-c", "import time;time.sleep(1)"],
             cwd=tmp_path,
             env=os.environ.copy(),
             timeout=0.01,
+            operation="Startup validation",
+            display_command="opencode debug startup",
         )

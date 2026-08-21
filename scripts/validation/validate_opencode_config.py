@@ -43,6 +43,19 @@ ROLES: dict[str, tuple[str, str, str, str]] = {
     ),
 }
 RESERVES = {"bedrock-gpt-reserve", "bedrock-claude-reserve"}
+AUTO_SUBAGENTS = (
+    "architect",
+    "implementer",
+    "oncology-evidence-analyst",
+    "ontology-engineer",
+    "ontology-validator",
+    "plan-adversary",
+    "pr-code-reviewer",
+    "pr-comment-analyzer",
+    "pr-silent-failure-hunter",
+    "pr-test-analyzer",
+    "pr-type-design-analyzer",
+)
 REVIEWERS = {
     "pr-code-reviewer",
     "pr-silent-failure-hunter",
@@ -73,8 +86,7 @@ COMMON_READ_ONLY_TOOLS = {
 }
 IMPLEMENTER_TOOLS = COMMON_READ_ONLY_TOOLS | {"edit"}
 R3_TOOLS = {"read", "glob", "grep", "edit", "skill"}
-IMPLEMENTER_PDM_SCRIPTS = (
-    "pytest",
+IMPLEMENTER_PACKAGE_COMMANDS = (
     "verify",
     "test-ci",
     "test",
@@ -84,27 +96,28 @@ IMPLEMENTER_PDM_SCRIPTS = (
     "test-smoke",
     "lint",
     "fmt",
-    "pre-commit",
     "validate-opencode-config",
     "validate-opencode-runtime",
-    "coverage-check",
-    "coverage-verify-identities",
-    "test-backend-unit",
-    "test-integration-full-build",
-    "data-build",
-    "decompose",
-    "adjudication",
-    "migrate",
-    "migrate-stamp",
+    "pre-commit run --all-files",
+    "pytest backend/tests/*",
+    "pytest ontolib/tests/*",
+    "python scripts/run_safe_integration.py backend/tests/*",
+    "python scripts/run_safe_integration.py ontolib/tests/*",
 )
-IMPLEMENTER_NPM_SCRIPTS = (
-    "test",
-    "test:unit",
-    "test:coverage",
-    "check",
-    "lint",
-    "fallow",
-    "build",
+IMPLEMENTER_NPM_COMMANDS = (
+    "npm --prefix frontend run test:coverage",
+    "npm --prefix frontend run test:unit -- --run",
+    "npm --prefix frontend run check",
+    "npm --prefix frontend run lint",
+    "npm --prefix frontend run fallow",
+    "npm --prefix frontend run build",
+)
+RUNNER_OPTION_DENIES = (
+    "* --rootdir *",
+    "* --override-ini *",
+    "* -c *",
+    "* -p *",
+    "* --config *",
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 
@@ -351,6 +364,26 @@ def validate_shell_metacharacter_denies(
             )
 
 
+def validate_task_permission(
+    validation: Validation,
+    role: str,
+    expected_action: str,
+    metadata: dict[str, Any],
+) -> None:
+    task_permission = permission_action(metadata, "task")
+    if role == "ontoprism-team":
+        expected_task = {"*": "deny", **dict.fromkeys(AUTO_SUBAGENTS, "allow")}
+        if task_permission != expected_task:
+            validation.error(
+                "ROLE_PERMISSION",
+                "ontoprism-team task delegation must equal the approved agent map",
+            )
+    elif task_permission != expected_action:
+        validation.error(
+            "ROLE_PERMISSION", f"{role} task permission must be {expected_action}"
+        )
+
+
 def validate_role(
     validation: Validation,
     role: str,
@@ -369,11 +402,12 @@ def validate_role(
         validation.error(
             "DEFAULT_AGENT", "ontoprism-team must be a visible primary agent"
         )
-    for permission, action in (("edit", edit), ("task", task)):
+    for permission, action in (("edit", edit),):
         if permission_action(metadata, permission) != action:
             validation.error(
                 "ROLE_PERMISSION", f"{role} {permission} permission must be {action}"
             )
+    validate_task_permission(validation, role, task, metadata)
     validate_tool_permissions(validation, role, metadata)
     validate_shell_metacharacter_denies(validation, role, metadata)
     description = metadata.get("description")
@@ -400,19 +434,45 @@ def validate_role(
         bodies[normalized] = role
 
 
+def discover_project_agents(validation: Validation) -> dict[str, list[Path]]:
+    agent_dirs = (
+        validation.root / ".opencode" / "agent",
+        validation.root / ".opencode" / "agents",
+    )
+    discovered: dict[str, list[Path]] = {}
+    for agent_dir in agent_dirs:
+        if not agent_dir.is_dir():
+            continue
+        for path in agent_dir.rglob("*.md"):
+            discovered.setdefault(path.stem, []).append(path)
+    for name in sorted(discovered.keys() - ROLES.keys()):
+        if name == "pr-reviewer":
+            validation.error(
+                "FILES", "stale .opencode/agent/pr-reviewer.md must be absent"
+            )
+        else:
+            validation.error("FILES", f"unexpected project agent {name}")
+    for name, paths in sorted(discovered.items()):
+        if len(paths) > 1:
+            validation.error("FILES", f"duplicate project agent {name}")
+    return discovered
+
+
 def validate_roles(
     validation: Validation, root_config: dict[str, Any]
 ) -> dict[str, tuple[dict[str, Any], str]]:
-    agent_dir = validation.root / ".opencode" / "agent"
-    if (agent_dir / "pr-reviewer.md").exists():
-        validation.error("FILES", "stale .opencode/agent/pr-reviewer.md must be absent")
+    discovered = discover_project_agents(validation)
     loaded: dict[str, tuple[dict[str, Any], str]] = {}
     bodies: dict[str, str] = {}
     descriptions: dict[str, str] = {}
     for role, expected in ROLES.items():
-        path = validation.require_file(f".opencode/agent/{role}.md")
-        if path is None:
+        paths = discovered.get(role, [])
+        if not paths:
+            validation.error(
+                "FILES", f"required file missing: .opencode/agent/{role}.md"
+            )
             continue
+        path = paths[0]
         metadata, body = load_agent(path, validation)
         loaded[role] = (metadata, body)
         validate_role(validation, role, expected, metadata, body, descriptions, bodies)
@@ -445,45 +505,13 @@ def validate_standard_permissions(
     validation: Validation, roles: dict[str, tuple[dict[str, Any], str]]
 ) -> None:
     implementer = roles.get("implementer", ({}, ""))
+    approved_package_patterns = {
+        *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
+        *IMPLEMENTER_NPM_COMMANDS,
+    }
     implementer_required = {
-        "pdm install": "allow",
-        "pdm install *": "allow",
-        "pdm build": "allow",
-        "pdm build *": "allow",
-        **{
-            pattern: "allow"
-            for script in IMPLEMENTER_PDM_SCRIPTS
-            for pattern in (f"pdm run {script}", f"pdm run {script} *")
-            if pattern
-            not in {
-                "pdm run verify *",
-                "pdm run test-ci *",
-                "pdm run lint *",
-                "pdm run fmt *",
-                "pdm run validate-opencode-config *",
-                "pdm run coverage-check *",
-                "pdm run coverage-verify-identities *",
-                "pdm run migrate *",
-                "pdm run migrate-stamp *",
-            }
-        },
-        "npm ci": "allow",
-        "npm ci *": "allow",
-        "npm test": "allow",
-        "npm test *": "allow",
-        **{
-            pattern: "allow"
-            for script in IMPLEMENTER_NPM_SCRIPTS
-            for prefix in ("npm run", "npm --prefix frontend run")
-            for pattern in (f"{prefix} {script}", f"{prefix} {script} *")
-            if not (pattern.endswith(" *") and script not in {"test", "test:unit"})
-        },
-        "npx vitest": "allow",
-        "npx vitest *": "allow",
-        "npx eslint": "allow",
-        "npx eslint *": "allow",
-        "npx svelte-check": "allow",
-        "npx svelte-check *": "allow",
+        **dict.fromkeys(approved_package_patterns, "allow"),
+        **dict.fromkeys(RUNNER_OPTION_DENIES, "deny"),
         **dict.fromkeys(SHELL_METACHARACTER_DENIES, "deny"),
     }
     implementer_required |= {
@@ -546,11 +574,15 @@ def validate_standard_permissions(
     )
     implementer_bash = permission_action(implementer[0], "bash")
     if isinstance(implementer_bash, dict):
-        for broad in ("pdm *", "pdm run *", "npm *", "npx *"):
-            if broad in implementer_bash:
+        for pattern, action in implementer_bash.items():
+            if (
+                action == "allow"
+                and pattern.split(maxsplit=1)[0] in {"pdm", "npm", "npx"}
+                and pattern not in approved_package_patterns
+            ):
                 validation.error(
                     "ROLE_PERMISSION",
-                    f"implementer broad wrapper {broad} must be absent",
+                    f"implementer unapproved package command {pattern}",
                 )
     require_bash_rules(
         validation,

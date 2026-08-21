@@ -14,7 +14,19 @@ permission:
   question: allow
   todowrite: allow
   edit: deny
-  task: allow
+  task:
+    "*": deny
+    architect: allow
+    implementer: allow
+    oncology-evidence-analyst: allow
+    ontology-engineer: allow
+    ontology-validator: allow
+    plan-adversary: allow
+    pr-code-reviewer: allow
+    pr-comment-analyzer: allow
+    pr-silent-failure-hunter: allow
+    pr-test-analyzer: allow
+    pr-type-design-analyzer: allow
   bash:
     "*": deny
     "git status*": allow

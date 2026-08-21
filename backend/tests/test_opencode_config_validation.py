@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from scripts.validation.validate_opencode_config import ROLES, validate
+from scripts.validation.validate_opencode_config import (
+    RESERVES,
+    ROLES,
+    Validation,
+    load_agent,
+    validate,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -94,6 +100,28 @@ def test_stale_consolidated_reviewer_is_rejected(config_root: Path) -> None:
     assert "FILES: stale .opencode/agent/pr-reviewer.md must be absent" in validate(
         config_root
     )
+
+
+def test_extra_project_agent_file_is_rejected(config_root: Path) -> None:
+    shutil.copy2(
+        config_root / ".opencode/agent/architect.md",
+        config_root / ".opencode/agent/writer.md",
+    )
+
+    assert "FILES: unexpected project agent writer" in validate(config_root)
+
+
+def test_duplicate_agent_name_across_supported_directories_is_rejected(
+    config_root: Path,
+) -> None:
+    plural = config_root / ".opencode/agents"
+    plural.mkdir()
+    shutil.copy2(
+        config_root / ".opencode/agent/architect.md",
+        plural / "architect.md",
+    )
+
+    assert "FILES: duplicate project agent architect" in validate(config_root)
 
 
 @pytest.mark.parametrize(
@@ -456,8 +484,8 @@ def test_read_only_agents_require_deny_by_default(config_root: Path, role: str) 
     replace(
         config_root,
         f".opencode/agent/{role}.md",
-        '    "*": deny\n',
-        '    "*": ask\n',
+        '  bash:\n    "*": deny\n',
+        '  bash:\n    "*": ask\n',
     )
 
     assert f"ROLE_PERMISSION: {role} bash catch-all must be deny" in validate(
@@ -646,20 +674,57 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
     implementer = (config_root / ".opencode/agent/implementer.md").read_text()
 
     for forbidden in (
+        '"pdm install": allow',
+        '"pdm install *": allow',
+        '"pdm build *": allow',
         '"pdm *": allow',
         '"pdm run *": allow',
         '"npm *": allow',
         '"npx *": allow',
+        '"npm test *": allow',
+        '"npx vitest *": allow',
     ):
         assert forbidden not in implementer
     for required in (
         '"pdm run verify": allow',
-        '"pdm run pytest *": allow',
+        '"pdm run pytest backend/tests/*": allow',
+        '"pdm run pytest ontolib/tests/*": allow',
+        '"pdm run python scripts/run_safe_integration.py backend/tests/*": allow',
+        '"pdm run pre-commit run --all-files": allow',
         '"npm --prefix frontend run test:coverage": allow',
-        '"npx vitest *": allow',
+        '"npm --prefix frontend run test:unit -- --run": allow',
         '"*&*": deny',
     ):
         assert required in implementer
+
+
+def test_orchestrator_task_delegation_is_exact_and_excludes_reserves(
+    config_root: Path,
+) -> None:
+    metadata, _ = load_agent(
+        config_root / ".opencode/agent/ontoprism-team.md",
+        Validation(config_root),
+    )
+    permission = metadata["permission"]
+    expected = {
+        "implementer",
+        "architect",
+        "ontology-engineer",
+        "oncology-evidence-analyst",
+        "plan-adversary",
+        "ontology-validator",
+        "pr-code-reviewer",
+        "pr-silent-failure-hunter",
+        "pr-test-analyzer",
+        "pr-comment-analyzer",
+        "pr-type-design-analyzer",
+    }
+
+    task = permission["task"]
+    assert list(task) == ["*", *sorted(expected)]
+    assert task["*"] == "deny"
+    assert all(task[name] == "allow" for name in expected)
+    assert not expected & RESERVES
 
 
 @pytest.mark.parametrize("role", sorted(ROLES))

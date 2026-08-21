@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.validation.validate_opencode_config import (  # noqa: E402
+    AUTO_SUBAGENTS,
     PLUGIN,
     ROLES,
     Validation,
@@ -34,6 +35,16 @@ from scripts.validation.validate_opencode_config import (  # noqa: E402
 MODEL_IDS = {contract[0] for contract in ROLES.values()}
 READ_ONLY_ROLES = set(ROLES) - {"implementer", "pr-test-analyzer"}
 GOVERNANCE_ENV_PREFIX = "OPENCODE_CONFIG"
+GOVERNANCE_ENV_EXACT = {"OPENCODE_PERMISSION"}
+BUILTIN_AGENT_NAMES = {
+    "build",
+    "compaction",
+    "explore",
+    "general",
+    "plan",
+    "summary",
+    "title",
+}
 
 
 class RuntimeContractError(RuntimeError):
@@ -70,14 +81,15 @@ def governance_environment(
     unexpected = sorted(
         name
         for name, value in base.items()
-        if name.startswith(GOVERNANCE_ENV_PREFIX) and value != controlled.get(name)
+        if (name.startswith(GOVERNANCE_ENV_PREFIX) or name in GOVERNANCE_ENV_EXACT)
+        and value != controlled.get(name)
     )
     if unexpected:
         raise RuntimeContractError("unexpected governance environment override")
     env = {
         key: value
         for key, value in base.items()
-        if not key.startswith(GOVERNANCE_ENV_PREFIX)
+        if not key.startswith(GOVERNANCE_ENV_PREFIX) and key not in GOVERNANCE_ENV_EXACT
     }
     env |= controlled
     return env
@@ -196,7 +208,10 @@ def validate_agent_permissions(
         for command, expected in (
             ("git commit change", "allow"),
             ("pdm run verify", "allow"),
-            ("pdm run pytest backend/tests -q", "allow"),
+            (
+                "pdm run pytest backend/tests/test_opencode_config_validation.py -q",
+                "allow",
+            ),
             ("pdm run lint", "allow"),
             ("npm --prefix frontend run test:coverage", "allow"),
             ("git push --force", "deny"),
@@ -232,6 +247,23 @@ def validate_resolved_agent(name: str, agent: dict[str, Any]) -> list[str]:
             name, [rule for rule in rules if isinstance(rule, dict)]
         )
     )
+    task_rules = [
+        rule
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("permission") == "task"
+    ]
+    if name == "ontoprism-team":
+        # `opencode debug agent` exposes task rule patterns as agent names. This
+        # validates that resolved map without dispatching an agent or model call.
+        expected_task = [
+            {"permission": "task", "pattern": "*", "action": "deny"},
+            *(
+                {"permission": "task", "pattern": agent_name, "action": "allow"}
+                for agent_name in AUTO_SUBAGENTS
+            ),
+        ]
+        if task_rules[-len(expected_task) :] != expected_task:
+            errors.append("ontoprism-team resolved task delegation is not exact")
     return errors
 
 
@@ -272,7 +304,13 @@ def validate_resolved_config(
 
 
 def run_command(
-    arguments: list[str], *, cwd: Path, env: dict[str, str], timeout: float = 120
+    arguments: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    operation: str,
+    display_command: str,
+    timeout: float = 120,
 ) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(  # noqa: S603 - fixed opencode commands only
@@ -285,15 +323,18 @@ def run_command(
             check=False,
         )
     except FileNotFoundError as exc:
-        raise RuntimeContractError(f"{arguments[0]} executable is unavailable") from exc
+        raise RuntimeContractError(
+            f"{operation}: {display_command} executable is unavailable"
+        ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeContractError(f"{arguments[0]} command timed out") from exc
+        raise RuntimeContractError(f"{operation}: {display_command} timed out") from exc
     except OSError as exc:
-        raise RuntimeContractError(f"{arguments[0]} command could not start") from exc
+        raise RuntimeContractError(
+            f"{operation}: {display_command} could not start"
+        ) from exc
     if result.returncode != 0:
         raise RuntimeContractError(
-            f"{Path(arguments[0]).name} command exited {result.returncode}; "
-            "inspect its local logs for details"
+            f"{operation}: {display_command} exited {result.returncode}"
         )
     return result
 
@@ -375,6 +416,8 @@ def validate_plugin_sentinel(
         ["opencode", "debug", "config", "--print-logs", "--log-level", "DEBUG"],
         cwd=root,
         env=sentinel_env,
+        operation="Plugin sentinel validation",
+        display_command="opencode debug config",
     )
     evidence = sentinel.stdout + sentinel.stderr
     for path in isolated.rglob("*"):
@@ -398,7 +441,11 @@ def validate_layered_project(
     )
     layered = parse_json_object(
         run_command(
-            ["opencode", "debug", "config"], cwd=project, env=layered_env
+            ["opencode", "debug", "config"],
+            cwd=project,
+            env=layered_env,
+            operation="Layered resolved config",
+            display_command="opencode debug config",
         ).stdout,
         "layered debug config",
     )
@@ -409,22 +456,43 @@ def validate_layered_project(
     if not isinstance(layered_agents, dict) or not set(ROLES) <= set(layered_agents):
         errors.append("layered project agents are incomplete")
     if expected_mcp:
-        status = run_command(["opencode", "mcp", "list"], cwd=project, env=layered_env)
+        status = run_command(
+            ["opencode", "mcp", "list"],
+            cwd=project,
+            env=layered_env,
+            operation="MCP connection check",
+            display_command="opencode mcp list",
+        )
         errors.extend(validate_mcp_status(status.stdout + status.stderr, expected_mcp))
     return errors
 
 
 def validate_native_agents(root: Path, env: dict[str, str]) -> list[str]:
     errors: list[str] = []
-    listed = run_command(["opencode", "agent", "list"], cwd=root, env=env).stdout
-    if any(name not in listed for name in ROLES):
-        errors.append("project agent list is incomplete")
+    listed = run_command(
+        ["opencode", "agent", "list"],
+        cwd=root,
+        env=env,
+        operation="Agent inventory",
+        display_command="opencode agent list",
+    ).stdout
+    listed_names = {
+        line.split(" (", 1)[0] for line in listed.splitlines() if " (" in line
+    }
+    if listed_names != set(ROLES) | BUILTIN_AGENT_NAMES:
+        errors.append("runtime agent inventory is not the exact allowed set")
     generated_pattern = (
         Path(env["XDG_DATA_HOME"]) / "opencode" / "tool-output" / "*"
     ).as_posix()
     for name in ROLES:
         agent = parse_json_object(
-            run_command(["opencode", "debug", "agent", name], cwd=root, env=env).stdout,
+            run_command(
+                ["opencode", "debug", "agent", name],
+                cwd=root,
+                env=env,
+                operation=f"Resolved agent {name}",
+                display_command=f"opencode debug agent {name}",
+            ).stdout,
             f"debug agent {name}",
         )
         errors.extend(validate_resolved_agent(name, agent))
@@ -442,7 +510,13 @@ def validate_native_agents(root: Path, env: dict[str, str]) -> list[str]:
 
 def validate_model_catalog(root: Path, env: dict[str, str]) -> list[str]:
     models = set(
-        run_command(["opencode", "models"], cwd=root, env=env).stdout.splitlines()
+        run_command(
+            ["opencode", "models"],
+            cwd=root,
+            env=env,
+            operation="Model catalog validation",
+            display_command="opencode models",
+        ).stdout.splitlines()
     )
     errors: list[str] = []
     if not models >= MODEL_IDS:
@@ -466,13 +540,25 @@ def validate_runtime(root: Path, project: Path) -> None:
         isolated = Path(temporary)
         env = isolated_environment(isolated, base_env)
         config = parse_json_object(
-            run_command(["opencode", "debug", "config"], cwd=root, env=env).stdout,
+            run_command(
+                ["opencode", "debug", "config"],
+                cwd=root,
+                env=env,
+                operation="Resolved config validation",
+                display_command="opencode debug config",
+            ).stdout,
             "debug config",
         )
         errors = validate_resolved_config(config, require_local_markers=False)
         errors.extend(validate_native_agents(root, env))
         errors.extend(validate_model_catalog(root, base_env))
-        run_command(["opencode", "debug", "startup"], cwd=root, env=env)
+        run_command(
+            ["opencode", "debug", "startup"],
+            cwd=root,
+            env=env,
+            operation="Startup validation",
+            display_command="opencode debug startup",
+        )
         sentinel_error = validate_plugin_sentinel(root, env, isolated)
         if sentinel_error:
             errors.append(sentinel_error)
