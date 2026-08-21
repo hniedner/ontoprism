@@ -30,6 +30,7 @@ permission:
     "pdm run validate-opencode-runtime": allow
     "pdm run pre-commit run --all-files": allow
     "pdm run agent-test *": allow
+    "pdm run agent-git *": allow
     "npm --prefix frontend run test:coverage": allow
     "npm --prefix frontend run test:unit -- --run": allow
     "npm --prefix frontend run check": allow
@@ -47,19 +48,14 @@ permission:
     "git show --stat --oneline HEAD": allow
     "git merge-base main HEAD": allow
     "git ls-files": allow
-    "git switch": allow
-    "git switch *": allow
     "git add": allow
     "git add *": allow
     "git commit": allow
     "git commit *": allow
-    "git branch": allow
-    "git branch *": allow
     "git branch -D*": deny
     "git branch * -D*": deny
     "git merge": deny
     "git merge *": deny
-    "git merge --no-ff *": allow
     "git reset --hard": deny
     "git reset --hard*": deny
     "git reset": deny

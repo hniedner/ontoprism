@@ -14,6 +14,7 @@ from scripts.validation.validate_opencode_runtime import (
     governance_environment,
     local_runtime_contract,
     parse_json_object,
+    read_plugin_evidence,
     run_command,
     validate_mcp_status,
     validate_permission_contract,
@@ -188,7 +189,7 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
     [
         ("git status --porcelain", "allow"),
         ("git commit change", "allow"),
-        ("git merge --no-ff feature", "allow"),
+        ("git merge --no-ff feature", "deny"),
         ("git merge feature", "deny"),
         ("git push", "deny"),
         ("git -C . push", "deny"),
@@ -232,6 +233,11 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("git diff --output=/tmp/leak main...HEAD", "deny"),
         ("git diff --ext-diff main...HEAD", "deny"),
         ("git diff --no-ext-diff HEAD~1...HEAD", "deny"),
+        ("git switch --discard-changes main", "deny"),
+        ("git branch --force feat/x", "deny"),
+        ("git branch -D feat/x", "deny"),
+        ("git merge --no-ff feat/x", "deny"),
+        ("pdm run agent-git switch-new feat/x", "allow"),
         ("pdm run agent-test backend/tests/test_x.py\ngh pr merge", "deny"),
         ("pdm run agent-test backend/tests/test_x.py\rgit push", "deny"),
         ("pdm run agent-test backend/tests/test_x.py\r\ngh pr merge", "deny"),
@@ -447,5 +453,40 @@ def test_command_error_categorizes_undecodable_output(
         )
     assert str(failure.value) == (
         "Model catalog validation: opencode models produced undecodable output"
+    )
+    assert "secret" not in str(failure.value)
+
+
+def test_plugin_evidence_rejects_undecodable_bytes(tmp_path: Path) -> None:
+    (tmp_path / "plugin.log").write_bytes(b"\xffsecret")
+
+    with pytest.raises(RuntimeContractError) as failure:
+        read_plugin_evidence(tmp_path)
+
+    assert str(failure.value) == (
+        "Plugin sentinel validation: evidence produced undecodable output"
+    )
+    assert "secret" not in str(failure.value)
+
+
+def test_plugin_evidence_categorizes_read_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "plugin.log"
+    target.write_text("evidence")
+    original = Path.read_text
+
+    def fail_target(path: Path, *args: object, **kwargs: object) -> str:
+        if path == target:
+            raise OSError("secret")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_target)
+
+    with pytest.raises(RuntimeContractError) as failure:
+        read_plugin_evidence(tmp_path)
+
+    assert (
+        str(failure.value) == "Plugin sentinel validation: evidence could not be read"
     )
     assert "secret" not in str(failure.value)

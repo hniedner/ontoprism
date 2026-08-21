@@ -14,6 +14,7 @@ from scripts.validation.validate_opencode_config import (
     load_agent,
     safe_read_text,
     validate,
+    validate_forbidden_content,
 )
 
 if TYPE_CHECKING:
@@ -136,6 +137,62 @@ def test_read_races_are_categorized_without_traceback(
 
     assert safe_read_text(target, Validation(config_root), code) is None
     assert f"{code}: cannot read {relative}" in validate(config_root)
+
+
+def test_required_file_metadata_error_is_categorized(
+    config_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = config_root / "opencode.json"
+    original = Path.is_file
+
+    def fail_target(path: Path) -> bool:
+        if path == target:
+            raise PermissionError("denied")
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_file", fail_target)
+
+    assert "FILES: cannot inspect opencode.json" in validate(config_root)
+
+
+@pytest.mark.parametrize("operation", ["is_dir", "rglob"])
+def test_agent_inventory_traversal_error_is_categorized(
+    config_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    target = config_root / ".opencode/agent"
+    original = getattr(Path, operation)
+
+    def fail_target(path: Path, *args: object) -> object:
+        if path == target:
+            raise OSError("denied")
+        return original(path, *args)
+
+    monkeypatch.setattr(Path, operation, fail_target)
+
+    errors = validate(config_root)
+    expected = "inspect" if operation == "is_dir" else "traverse"
+    assert f"FILES: cannot {expected} .opencode/agent" in errors
+
+
+def test_forbidden_content_traversal_error_is_categorized(
+    config_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = config_root / ".opencode/command"
+    original = Path.rglob
+
+    def fail_target(path: Path, pattern: str) -> object:
+        if path == target:
+            raise OSError("denied")
+        return original(path, pattern)
+
+    monkeypatch.setattr(Path, "rglob", fail_target)
+    validation = Validation(config_root)
+
+    validate_forbidden_content(validation)
+
+    assert "FORBIDDEN_CONTENT: cannot traverse .opencode/command" in validation.errors
 
 
 def test_stale_consolidated_reviewer_is_rejected(config_root: Path) -> None:
@@ -706,6 +763,9 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     assert pyproject["tool"]["pdm"]["scripts"]["agent-test"] == (
         "python scripts/validation/run_agent_test.py"
     )
+    assert pyproject["tool"]["pdm"]["scripts"]["agent-git"] == (
+        "python scripts/validation/run_agent_git.py"
+    )
 
 
 def test_machine_local_json_and_jsonc_are_both_ignored_and_mutually_exclusive(
@@ -738,11 +798,15 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         '"npx *": allow',
         '"npm test *": allow',
         '"npx vitest *": allow',
+        '"git switch *": allow',
+        '"git branch *": allow',
+        '"git merge --no-ff *": allow',
     ):
         assert forbidden not in implementer
     for required in (
         '"pdm run verify": allow',
         '"pdm run agent-test *": allow',
+        '"pdm run agent-git *": allow',
         '"pdm run pre-commit run --all-files": allow',
         '"npm --prefix frontend run test:coverage": allow',
         '"npm --prefix frontend run test:unit -- --run": allow',

@@ -100,6 +100,7 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "validate-opencode-runtime",
     "pre-commit run --all-files",
     "agent-test *",
+    "agent-git *",
 )
 IMPLEMENTER_NPM_COMMANDS = (
     "npm --prefix frontend run test:coverage",
@@ -133,7 +134,12 @@ class Validation:
 
     def require_file(self, relative: str) -> Path | None:
         path = self.root / relative
-        if not path.is_file():
+        try:
+            is_file = path.is_file()
+        except OSError:
+            self.error("FILES", f"cannot inspect {relative}")
+            return None
+        if not is_file:
             self.error("FILES", f"required file missing: {relative}")
             return None
         return path
@@ -480,17 +486,40 @@ def validate_role(
         bodies[normalized] = role
 
 
+def discover_agent_directory(
+    validation: Validation, agent_dir: Path, discovered: dict[str, list[Path]]
+) -> None:
+    relative_dir = agent_dir.relative_to(validation.root).as_posix()
+    try:
+        is_directory = agent_dir.is_dir()
+    except OSError:
+        validation.error("FILES", f"cannot inspect {relative_dir}")
+        return
+    if not is_directory:
+        return
+    try:
+        candidates = list(agent_dir.rglob("*.md"))
+    except OSError:
+        validation.error("FILES", f"cannot traverse {relative_dir}")
+        return
+    for path in candidates:
+        relative = path.relative_to(validation.root).as_posix()
+        try:
+            is_file = path.is_file()
+        except OSError:
+            validation.error("FILES", f"cannot inspect {relative}")
+            continue
+        if is_file:
+            discovered.setdefault(path.stem, []).append(path)
+
+
 def discover_project_agents(validation: Validation) -> dict[str, list[Path]]:
-    agent_dirs = (
+    discovered: dict[str, list[Path]] = {}
+    for agent_dir in (
         validation.root / ".opencode" / "agent",
         validation.root / ".opencode" / "agents",
-    )
-    discovered: dict[str, list[Path]] = {}
-    for agent_dir in agent_dirs:
-        if not agent_dir.is_dir():
-            continue
-        for path in agent_dir.rglob("*.md"):
-            discovered.setdefault(path.stem, []).append(path)
+    ):
+        discover_agent_directory(validation, agent_dir, discovered)
     for name in sorted(discovered.keys() - ROLES.keys()):
         if name == "pr-reviewer":
             validation.error(
@@ -570,13 +599,10 @@ def validate_standard_permissions(
         "git diff --cached --stat": "allow",
         "git merge-base main HEAD": "allow",
         "git ls-files": "allow",
-        "git switch": "allow",
-        "git switch *": "allow",
         "git add": "allow",
         "git add *": "allow",
         "git commit": "allow",
         "git commit *": "allow",
-        "git merge --no-ff *": "allow",
         "git reset --hard": "deny",
         "git reset --hard*": "deny",
         "git clean": "deny",
@@ -615,6 +641,17 @@ def validate_standard_permissions(
     )
     implementer_bash = permission_action(implementer[0], "bash")
     if isinstance(implementer_bash, dict):
+        for raw_branch_pattern in (
+            "git switch *",
+            "git branch *",
+            "git merge --no-ff *",
+        ):
+            if implementer_bash.get(raw_branch_pattern) == "allow":
+                validation.error(
+                    "ROLE_PERMISSION",
+                    "implementer raw branch wildcard "
+                    f"{raw_branch_pattern} must be absent",
+                )
         for pattern, action in implementer_bash.items():
             if (
                 action == "allow"
@@ -991,6 +1028,38 @@ def validate_local_configs(validation: Validation) -> None:
             validation.error("LOCAL_CONFIG", f"forbidden top-level key {key}")
 
 
+def tracked_process_files(validation: Validation, relative: str) -> list[Path]:
+    target = validation.root / relative
+    try:
+        is_file = target.is_file()
+        is_directory = target.is_dir()
+    except OSError:
+        validation.error("FORBIDDEN_CONTENT", f"cannot inspect {relative}")
+        return []
+    if is_file:
+        return [target]
+    if not is_directory:
+        return []
+    try:
+        candidates = list(target.rglob("*"))
+    except OSError:
+        validation.error("FORBIDDEN_CONTENT", f"cannot traverse {relative}")
+        return []
+    files: list[Path] = []
+    for path in candidates:
+        candidate_relative = path.relative_to(validation.root).as_posix()
+        try:
+            candidate_is_file = path.is_file()
+        except OSError:
+            validation.error(
+                "FORBIDDEN_CONTENT", f"cannot inspect {candidate_relative}"
+            )
+            continue
+        if candidate_is_file:
+            files.append(path)
+    return files
+
+
 def validate_forbidden_content(validation: Validation) -> None:
     forbidden = (
         (re.compile("/" + "Users/"), "local absolute user path"),
@@ -1006,11 +1075,7 @@ def validate_forbidden_content(validation: Validation) -> None:
     ephemeral_path = re.compile(r"(?:^|[\s`'\"])(?:\./)?" + "tmp" + "/")
     paths: list[Path] = []
     for relative in TRACKED_PROCESS:
-        target = validation.root / relative
-        if target.is_file():
-            paths.append(target)
-        elif target.is_dir():
-            paths.extend(path for path in target.rglob("*") if path.is_file())
+        paths.extend(tracked_process_files(validation, relative))
     for path in paths:
         text = safe_read_text(path, validation, "FORBIDDEN_CONTENT")
         if text is None:

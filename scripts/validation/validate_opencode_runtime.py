@@ -238,6 +238,10 @@ def validate_agent_permissions(
                 "pdm run agent-test backend/tests/test_x.py\ngh pr merge",
                 "deny",
             ),
+            ("pdm run agent-git switch-new feat/x", "allow"),
+            ("git switch --discard-changes main", "deny"),
+            ("git branch --force feat/x", "deny"),
+            ("git merge --no-ff feat/x", "deny"),
         ):
             if effective_action(bash_rules, command) != expected:
                 errors.append(
@@ -419,6 +423,37 @@ def local_runtime_contract(project: Path) -> tuple[set[str], list[str]]:
     return mcp_names, errors
 
 
+def read_plugin_evidence(isolated: Path) -> str:
+    """Read plugin evidence strictly without exposing local bytes or paths."""
+    try:
+        paths = list(isolated.rglob("*.log"))
+        plugin_source = (
+            isolated
+            / "cache/opencode/packages/@razroo/opencode-model-fallback@0.3.2"
+            / "node_modules/@razroo/opencode-model-fallback/dist/index.js"
+        )
+        if plugin_source.is_file():
+            paths.append(plugin_source)
+    except OSError as exc:
+        raise RuntimeContractError(
+            "Plugin sentinel validation: evidence could not be read"
+        ) from exc
+    evidence = ""
+    for path in paths:
+        try:
+            if path.is_file():
+                evidence += path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeContractError(
+                "Plugin sentinel validation: evidence produced undecodable output"
+            ) from exc
+        except OSError as exc:
+            raise RuntimeContractError(
+                "Plugin sentinel validation: evidence could not be read"
+            ) from exc
+    return evidence
+
+
 def validate_plugin_sentinel(
     root: Path, env: dict[str, str], isolated: Path
 ) -> str | None:
@@ -438,9 +473,7 @@ def validate_plugin_sentinel(
         display_command="opencode debug config",
     )
     evidence = sentinel.stdout + sentinel.stderr
-    for path in isolated.rglob("*"):
-        if path.is_file():
-            evidence += path.read_text(errors="ignore")
+    evidence += read_plugin_evidence(isolated)
     markers = ("Invalid fallback_models entry", "implementer", "invalid-sentinel")
     if all(marker in evidence for marker in markers):
         return None

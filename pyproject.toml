@@ -107,6 +107,7 @@ test-smoke = "npm --prefix frontend run test:unit -- --run"
 validate-opencode-config = "python scripts/validation/validate_opencode_config.py --root ."
 validate-opencode-runtime = "python scripts/validation/validate_opencode_runtime.py"
 agent-test = "python scripts/validation/run_agent_test.py"
+agent-git = "python scripts/validation/run_agent_git.py"
 # Coverage: runs unit tests with line+branch coverage for backend/ontolib and
 # frontend. Pass extra pytest args or test paths to narrow scope
 # (e.g. `pdm run coverage ontolib/tests/core/`).
