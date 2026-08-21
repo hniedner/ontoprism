@@ -47,6 +47,14 @@ def _nested_image_values(value: Any) -> list[str]:
     return []
 
 
+def _digest_pin_identity(image: str) -> str:
+    tagged_name, separator, digest = image.partition("@")
+    repository = tagged_name.rsplit(":", maxsplit=1)[0]
+    if "/" not in repository:
+        repository = f"docker.io/library/{repository}"
+    return f"{repository}{separator}{digest}"
+
+
 def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
     compose = yaml.safe_load((_ROOT / "docker-compose.yml").read_text())
     services = compose["services"]
@@ -80,7 +88,14 @@ def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
 
 def test_full_application_images_are_exactly_digest_pinned() -> None:
     compose = yaml.safe_load((_ROOT / "docker-compose.app.yml").read_text())
-    assert compose["services"]["proxy"]["image"] == (
+    services = compose["services"]
+    assert set(services) == {"api", "web", "proxy"}
+    assert all(
+        _DIGEST_PIN.fullmatch(_digest_pin_identity(service["image"]))
+        for service in services.values()
+        if "image" in service
+    )
+    assert services["proxy"]["image"] == (
         "caddy:2-alpine@sha256:"
         "5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
     )
@@ -102,6 +117,32 @@ def test_full_application_images_are_exactly_digest_pinned() -> None:
             if line.startswith("FROM ")
         ]
         assert from_images == [expected_image, expected_image]
+
+
+@pytest.fixture
+def application_image_contract_root(tmp_path: Path) -> Path:
+    for relative_path in (
+        "docker-compose.app.yml",
+        "backend/Dockerfile",
+        "frontend/Dockerfile",
+    ):
+        destination = tmp_path / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text((_ROOT / relative_path).read_text())
+    return tmp_path
+
+
+def test_application_image_contract_rejects_an_unpinned_added_service(
+    application_image_contract_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose_path = application_image_contract_root / "docker-compose.app.yml"
+    compose = yaml.safe_load(compose_path.read_text())
+    compose["services"]["cache"] = {"image": "redis:7"}
+    compose_path.write_text(yaml.safe_dump(compose))
+    monkeypatch.setitem(globals(), "_ROOT", application_image_contract_root)
+
+    with pytest.raises(AssertionError):
+        test_full_application_images_are_exactly_digest_pinned()
 
 
 def test_qlever_candidate_provenance_names_source_version_and_digest() -> None:
