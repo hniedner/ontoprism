@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.validation.validate_opencode_config import (  # noqa: E402
+    ASK_ACTION,
     AUTO_SUBAGENTS,
     PLUGIN,
     ROLES,
@@ -130,7 +131,17 @@ def validate_permission_contract(
     *,
     generated_tool_output_pattern: str | None = None,
 ) -> list[str]:
-    if resolved[-len(expected) :] == expected:
+    project_suffix = resolved[-len(expected) :]
+    if any(
+        isinstance(rule, dict)
+        and rule.get("permission") == "bash"
+        and rule.get("action") == ASK_ACTION
+        for rule in project_suffix
+    ):
+        return [
+            f"resolved project permission suffix contains a bash {ASK_ACTION} action"
+        ]
+    if project_suffix == expected:
         return []
     if (
         len(resolved) > len(expected)
@@ -511,6 +522,30 @@ def validate_layered_project(
     layered_agents = layered.get("agent")
     if not isinstance(layered_agents, dict) or not set(ROLES) <= set(layered_agents):
         errors.append("layered project agents are incomplete")
+    generated_pattern = (
+        Path(layered_env["XDG_DATA_HOME"]) / "opencode" / "tool-output" / "*"
+    ).as_posix()
+    for name in ROLES:
+        agent = parse_json_object(
+            run_command(
+                ["opencode", "debug", "agent", name],
+                cwd=project,
+                env=layered_env,
+                operation=f"Layered resolved agent {name}",
+                display_command=f"opencode debug agent {name}",
+            ).stdout,
+            f"layered debug agent {name}",
+        )
+        errors.extend(validate_resolved_agent(name, agent))
+        resolved_rules = agent.get("permission")
+        if isinstance(resolved_rules, list):
+            errors.extend(
+                validate_permission_contract(
+                    list(resolved_rules),
+                    expected_permission_contract(root, name),
+                    generated_tool_output_pattern=generated_pattern,
+                )
+            )
     if expected_mcp:
         status = run_command(
             ["opencode", "mcp", "list"],

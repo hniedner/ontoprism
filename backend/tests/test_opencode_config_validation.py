@@ -76,6 +76,27 @@ def test_checked_out_opencode_configuration_is_valid(config_root: Path) -> None:
     assert validate(config_root) == []
 
 
+@pytest.mark.parametrize("role", sorted(ROLES))
+@pytest.mark.parametrize(
+    "pattern",
+    ["git push origin main", "unknown future command"],
+)
+def test_every_project_agent_rejects_any_bash_ask_action(
+    config_root: Path, role: str, pattern: str
+) -> None:
+    relative = f".opencode/agent/{role}.md"
+    replace(
+        config_root,
+        relative,
+        '    "*$*": deny\n',
+        f'    "*$*": deny\n    "{pattern}": ask\n',
+    )
+
+    assert f"ROLE_PERMISSION: {role} has forbidden bash ask {pattern}" in validate(
+        config_root
+    )
+
+
 @pytest.mark.parametrize(
     ("relative", "expected"),
     [

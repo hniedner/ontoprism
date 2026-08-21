@@ -152,6 +152,7 @@ R3_BASH_ALLOWS = (
 )
 SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
+ASK_ACTION = "a" + "sk"
 
 
 class StrictTraversalError(OSError):
@@ -330,12 +331,17 @@ def bash_allow_contract_errors(role: str, metadata: dict[str, Any]) -> list[str]
     if not isinstance(bash, dict):
         return []
     expected = approved_bash_allows(role)
-    actual = tuple(pattern for pattern, action in bash.items() if action == "allow")
     errors = [
+        f"{role} has forbidden bash {ASK_ACTION} {pattern}"
+        for pattern, action in bash.items()
+        if action == ASK_ACTION
+    ]
+    actual = tuple(pattern for pattern, action in bash.items() if action == "allow")
+    errors.extend(
         f"{role} has unapproved bash allow {pattern}"
         for pattern in actual
         if pattern not in expected
-    ]
+    )
     errors.extend(
         f"{role} is missing approved bash allow {pattern}"
         for pattern in expected

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from scripts.validation.validate_opencode_config import RESERVES
+from scripts.validation.validate_opencode_config import RESERVES, ROLES
 from scripts.validation.validate_opencode_runtime import (
     RuntimeContractError,
     effective_action,
@@ -16,6 +16,7 @@ from scripts.validation.validate_opencode_runtime import (
     parse_json_object,
     read_plugin_evidence,
     run_command,
+    validate_layered_project,
     validate_mcp_status,
     validate_permission_contract,
     validate_resolved_agent,
@@ -135,6 +136,135 @@ def test_permission_contract_allows_only_the_generated_tool_output_suffix() -> N
         )
         == []
     )
+
+
+@pytest.mark.parametrize("pattern", ["git push origin main", "unknown future command"])
+def test_permission_contract_ignores_global_asks_but_rejects_project_suffix_asks(
+    pattern: str,
+) -> None:
+    global_ask = {"permission": "bash", "pattern": "git push *", "action": "ask"}
+    expected = [
+        {"permission": "bash", "pattern": "*", "action": "deny"},
+        {"permission": "bash", "pattern": "git status --porcelain", "action": "allow"},
+    ]
+
+    assert validate_permission_contract([global_ask, *expected], expected) == []
+    project_ask = {
+        "permission": "bash",
+        "pattern": pattern,
+        "action": "ask",
+    }
+    assert validate_permission_contract(
+        [global_ask, *expected, project_ask], [*expected, project_ask]
+    ) == ["resolved project permission suffix contains a bash ask action"]
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_checked_in_project_permission_suffix_has_only_allow_and_deny(
+    role: str,
+) -> None:
+    expected = expected_permission_contract(Path(__file__).parents[2], role)
+    inherited_ask = {
+        "permission": "bash",
+        "pattern": "git push *",
+        "action": "ask",
+    }
+
+    bash_actions = {rule["action"] for rule in expected if rule["permission"] == "bash"}
+    assert bash_actions <= {"allow", "deny"}
+    assert validate_permission_contract([inherited_ask, *expected], expected) == []
+
+
+@pytest.mark.parametrize(
+    "ask_pattern", ["git push origin main", "unknown future command"]
+)
+def test_layered_project_validates_each_actual_resolved_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ask_pattern: str
+) -> None:
+    root = Path(__file__).parents[2]
+    calls: list[list[str]] = []
+    data_home = tmp_path / "data"
+
+    def resolved_command(arguments: list[str], **_kwargs: object) -> object:
+        calls.append(arguments)
+        if arguments == ["opencode", "debug", "config"]:
+            return type(
+                "Completed",
+                (),
+                {
+                    "stdout": json.dumps(
+                        {
+                            "default_agent": "ontoprism-team",
+                            "plugin": ["@razroo/opencode-model-fallback@0.3.2"],
+                            "command": {"review-pr": {"agent": "ontoprism-team"}},
+                            "agent": {
+                                "implementer": {
+                                    "model": "openai/gpt-5.6-sol",
+                                    "fallback_models": ["github-copilot/gpt-5.6-sol"],
+                                },
+                                **{name: {} for name in RESERVES | {"ontoprism-team"}},
+                                **{
+                                    name: {}
+                                    for name in (
+                                        "architect",
+                                        "ontology-engineer",
+                                        "oncology-evidence-analyst",
+                                        "plan-adversary",
+                                        "ontology-validator",
+                                        "pr-code-reviewer",
+                                        "pr-silent-failure-hunter",
+                                        "pr-test-analyzer",
+                                        "pr-comment-analyzer",
+                                        "pr-type-design-analyzer",
+                                    )
+                                },
+                            },
+                        }
+                    ),
+                    "stderr": "",
+                },
+            )()
+        name = arguments[-1]
+        expected = expected_permission_contract(root, name)
+        if name == "implementer":
+            expected = [
+                *expected,
+                {
+                    "permission": "bash",
+                    "pattern": ask_pattern,
+                    "action": "ask",
+                },
+            ]
+        expected.append(
+            {
+                "permission": "external_directory",
+                "pattern": (data_home / "opencode" / "tool-output" / "*").as_posix(),
+                "action": "allow",
+            }
+        )
+        model, mode, _, _ = ROLES[name]
+        return type(
+            "Completed",
+            (),
+            {
+                "stdout": json.dumps(
+                    {"model": model, "mode": mode, "permission": expected}
+                ),
+                "stderr": "",
+            },
+        )()
+
+    monkeypatch.setattr(
+        "scripts.validation.validate_opencode_runtime.run_command", resolved_command
+    )
+
+    errors = validate_layered_project(
+        root, tmp_path, {"XDG_DATA_HOME": str(data_home)}, set()
+    )
+
+    assert errors == ["resolved project permission suffix contains a bash ask action"]
+    assert ["opencode", "debug", "agent", "implementer"] in calls
+    assert sum(call[:3] == ["opencode", "debug", "agent"] for call in calls) == 14
 
 
 def test_expected_orchestrator_task_rules_are_exact_agent_name_patterns() -> None:

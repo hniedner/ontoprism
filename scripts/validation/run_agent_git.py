@@ -103,14 +103,16 @@ def _validate_branch(name: str, root: Path, runner: CommandRunner) -> None:
         or any(character in name for character in UNSAFE_REF_CHARACTERS)
     ):
         raise AgentGitInputError("branch name is invalid")
-    result = _invoke(["git", "check-ref-format", "--branch", name], root, runner)
+    result = _invoke(["git", "check-ref-format", f"refs/heads/{name}"], root, runner)
     if result.returncode == 0:
         return
+    if result.returncode == 1:
+        raise AgentGitInputError("branch name is invalid")
     if result.returncode < 0:
         raise AgentGitProcessError(
             "Git branch validation was interrupted; retry the operation"
         )
-    raise AgentGitInputError("branch name is invalid")
+    raise AgentGitProcessError("Git branch validation failed")
 
 
 def _require_local_branch(name: str, root: Path, runner: CommandRunner) -> str:

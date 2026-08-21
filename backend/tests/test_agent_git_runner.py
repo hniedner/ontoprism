@@ -277,6 +277,17 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
     assert timeouts == [10, 10]
 
 
+def test_branch_validation_uses_a_fixed_full_local_branch_ref(tmp_path: Path) -> None:
+    commands: list[object] = []
+
+    def runner(arguments: object, **_kwargs: object) -> Result:
+        commands.append(arguments)
+        return Result(0)
+
+    assert run_agent_git(["switch-new", "feat/x"], tmp_path, runner=runner) == 0
+    assert commands[0] == ["git", "check-ref-format", "refs/heads/feat/x"]
+
+
 @pytest.mark.parametrize("branch", ["bad.lock", "feat/trailing."])
 def test_agent_git_cli_reports_git_rejected_branch_as_invalid(branch: str) -> None:
     script = Path(__file__).parents[2] / "scripts" / "validation" / "run_agent_git.py"
@@ -301,7 +312,8 @@ def test_agent_git_cli_reports_git_rejected_branch_as_invalid(branch: str) -> No
             "Git branch validation was interrupted; retry the operation",
         ),
         (1, AgentGitInputError, "branch name is invalid"),
-        (2, AgentGitInputError, "branch name is invalid"),
+        (2, AgentGitProcessError, "Git branch validation failed"),
+        (128, AgentGitProcessError, "Git branch validation failed"),
     ],
 )
 def test_branch_validation_classifies_git_return_codes_without_raw_output(
@@ -318,6 +330,17 @@ def test_branch_validation_classifies_git_return_codes_without_raw_output(
         )
 
     assert "secret" not in str(raised.value)
+
+
+def test_malformed_global_git_config_is_an_operational_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    initialize_repository(tmp_path)
+    git(tmp_path, "branch", "feat/existing")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/")
+
+    with pytest.raises(AgentGitProcessError, match="Git local branch check failed"):
+        run_agent_git(["switch-existing", "feat/existing"], tmp_path)
 
 
 @pytest.mark.parametrize(
