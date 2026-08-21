@@ -7,12 +7,16 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 ROOT = Path(__file__).parents[2]
 if str(ROOT) not in sys.path:
@@ -22,12 +26,18 @@ from scripts.validation.validate_opencode_config import (  # noqa: E402
     PLUGIN,
     ROLES,
     Validation,
+    load_agent,
+    load_json,
     validate_local_configs,
 )
 
 MODEL_IDS = {contract[0] for contract in ROLES.values()}
 READ_ONLY_ROLES = set(ROLES) - {"implementer", "pr-test-analyzer"}
-PROMPT_ACTION = "a" + "sk"
+GOVERNANCE_ENV = {
+    "OPENCODE_CONFIG",
+    "OPENCODE_CONFIG_DIR",
+    "OPENCODE_CONFIG_CONTENT",
+}
 
 
 class RuntimeContractError(RuntimeError):
@@ -58,6 +68,73 @@ def effective_action(rules: list[dict[str, Any]], command: str) -> str | None:
     return action
 
 
+def governance_environment(
+    base: Mapping[str, str], *, controlled: dict[str, str]
+) -> dict[str, str]:
+    unexpected = sorted(
+        name
+        for name in GOVERNANCE_ENV
+        if name in base and base[name] != controlled.get(name)
+    )
+    if unexpected:
+        raise RuntimeContractError("unexpected governance environment override")
+    env = {key: value for key, value in base.items() if key not in GOVERNANCE_ENV}
+    env.update(controlled)
+    return env
+
+
+def redact_diagnostic(value: str) -> str:
+    redacted = re.sub("/" + r"Users/\S+", "<local-path>", value)
+    redacted = re.sub(r"postgres(?:ql)?://\S+", "<database-url>", redacted, flags=re.I)
+    redacted = re.sub(
+        r"(?i)\b(?:password|passwd|api[_-]?key|client[_-]?secret)\s*[:=]\s*\S+",
+        "<credential>",
+        redacted,
+    )
+    return " ".join(redacted.split())[:240]
+
+
+def validate_mcp_status(output: str, expected: set[str]) -> list[str]:
+    lowered = re.sub(r"\x1b\[[0-9;]*m", "", output).lower()
+    return [
+        f"MCP {name} is not connected"
+        for name in sorted(expected)
+        if not re.search(rf"\b{re.escape(name.lower())}\b[^\n]*\bconnected\b", lowered)
+    ]
+
+
+def validate_permission_contract(
+    resolved: list[dict[str, Any]], expected: list[dict[str, Any]]
+) -> list[str]:
+    position = 0
+    for rule in resolved:
+        if position < len(expected) and rule == expected[position]:
+            position += 1
+    if position != len(expected):
+        return ["resolved permission contract omits or reorders project rules"]
+    return []
+
+
+def expected_permission_contract(root: Path, name: str) -> list[dict[str, Any]]:
+    validation = Validation(root)
+    metadata, _ = load_agent(root / ".opencode" / "agent" / f"{name}.md", validation)
+    if validation.errors:
+        raise RuntimeContractError(f"cannot load repository permissions for {name}")
+    permission = metadata.get("permission")
+    if not isinstance(permission, dict):
+        raise RuntimeContractError(f"repository permissions for {name} are invalid")
+    rules: list[dict[str, Any]] = []
+    for tool, value in permission.items():
+        if isinstance(value, str):
+            rules.append({"permission": tool, "pattern": "*", "action": value})
+        elif isinstance(value, dict):
+            rules.extend(
+                {"permission": tool, "pattern": pattern, "action": action}
+                for pattern, action in value.items()
+            )
+    return rules
+
+
 def configured_model(agent: dict[str, Any]) -> str | None:
     model = agent.get("model")
     if isinstance(model, str):
@@ -79,7 +156,7 @@ def validate_agent_permissions(
         for rule in bash_rules
         if rule.get("permission") == "bash" and rule.get("pattern") == "*"
     ]
-    expected_catch_all = PROMPT_ACTION if name == "implementer" else "deny"
+    expected_catch_all = "deny"
     if not catch_alls or catch_alls[-1].get("action") != expected_catch_all:
         errors.append(f"{name} resolved bash catch-all must be {expected_catch_all}")
     if name in READ_ONLY_ROLES:
@@ -171,7 +248,7 @@ def validate_resolved_config(
 
 
 def run_command(
-    arguments: list[str], *, cwd: Path, env: dict[str, str]
+    arguments: list[str], *, cwd: Path, env: dict[str, str], timeout: float = 120
 ) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(  # noqa: S603 - fixed opencode commands only
@@ -180,22 +257,25 @@ def run_command(
             env=env,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=timeout,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeContractError(
-            f"{arguments[0]} command could not complete"
-        ) from exc
+    except FileNotFoundError as exc:
+        raise RuntimeContractError(f"{arguments[0]} executable is unavailable") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeContractError(f"{arguments[0]} command timed out") from exc
+    except OSError as exc:
+        raise RuntimeContractError(f"{arguments[0]} command could not start") from exc
     if result.returncode != 0:
+        detail = redact_diagnostic(result.stderr or result.stdout)
         raise RuntimeContractError(
-            f"{' '.join(arguments[:3])} exited {result.returncode}"
+            f"{Path(arguments[0]).name} command exited {result.returncode}: {detail}"
         )
     return result
 
 
-def isolated_environment(directory: Path) -> dict[str, str]:
-    env = os.environ.copy()
+def isolated_environment(directory: Path, base: dict[str, str]) -> dict[str, str]:
+    env = base.copy()
     for variable, name in (
         ("XDG_CONFIG_HOME", "config"),
         ("XDG_CACHE_HOME", "cache"),
@@ -218,6 +298,34 @@ def local_config_exists(project: Path) -> bool:
             ".opencode/opencode.jsonc",
         )
     )
+
+
+def local_runtime_contract(project: Path) -> tuple[set[str], set[str], list[str]]:
+    models: set[str] = set()
+    mcp_names: set[str] = set()
+    errors: list[str] = []
+    for relative in (".opencode/opencode.json", ".opencode/opencode.jsonc"):
+        path = project / relative
+        if not path.is_file():
+            continue
+        validation = Validation(project)
+        config = load_json(path, validation, "LOCAL_CONFIG")
+        if validation.errors:
+            errors.append("machine-local OpenCode config cannot be parsed")
+            continue
+        agents = config.get("agent", {})
+        if isinstance(agents, dict):
+            for agent in agents.values():
+                if isinstance(agent, dict) and isinstance(agent.get("model"), str):
+                    models.add(agent["model"])
+        mcp = config.get("mcp", {})
+        if isinstance(mcp, dict):
+            for name, entry in mcp.items():
+                if not isinstance(entry, dict) or entry.get("enabled", True) is False:
+                    errors.append(f"MCP {name} is disabled or invalid")
+                else:
+                    mcp_names.add(name)
+    return models, mcp_names, errors
 
 
 def validate_plugin_sentinel(
@@ -243,7 +351,7 @@ def validate_plugin_sentinel(
 
 
 def validate_layered_project(
-    root: Path, project: Path, env: dict[str, str]
+    root: Path, project: Path, env: dict[str, str], expected_mcp: set[str]
 ) -> list[str]:
     layered_env = env.copy()
     layered_env["OPENCODE_CONFIG"] = str(root / "opencode.json")
@@ -260,6 +368,45 @@ def validate_layered_project(
     layered_agents = layered.get("agent")
     if not isinstance(layered_agents, dict) or not set(ROLES) <= set(layered_agents):
         errors.append("layered project agents are incomplete")
+    if expected_mcp:
+        status = run_command(["opencode", "mcp", "list"], cwd=project, env=layered_env)
+        errors.extend(validate_mcp_status(status.stdout + status.stderr, expected_mcp))
+    return errors
+
+
+def validate_native_agents(root: Path, env: dict[str, str]) -> list[str]:
+    errors: list[str] = []
+    listed = run_command(["opencode", "agent", "list"], cwd=root, env=env).stdout
+    if any(name not in listed for name in ROLES):
+        errors.append("project agent list is incomplete")
+    for name in ROLES:
+        agent = parse_json_object(
+            run_command(["opencode", "debug", "agent", name], cwd=root, env=env).stdout,
+            f"debug agent {name}",
+        )
+        errors.extend(validate_resolved_agent(name, agent))
+        resolved_rules = agent.get("permission")
+        if isinstance(resolved_rules, list):
+            errors.extend(
+                validate_permission_contract(
+                    [rule for rule in resolved_rules if isinstance(rule, dict)],
+                    expected_permission_contract(root, name),
+                )
+            )
+    return errors
+
+
+def validate_model_catalog(
+    root: Path, env: dict[str, str], local_models: set[str]
+) -> list[str]:
+    models = set(
+        run_command(["opencode", "models"], cwd=root, env=env).stdout.splitlines()
+    )
+    errors: list[str] = []
+    if not models >= MODEL_IDS:
+        errors.append("configured model IDs are absent from the local catalog")
+    if not models >= local_models:
+        errors.append("machine-local agent model is absent from the local catalog")
     return errors
 
 
@@ -270,41 +417,26 @@ def validate_runtime(root: Path, project: Path) -> None:
     validate_local_configs(local_validation)
     if local_validation.errors:
         raise RuntimeContractError("machine-local OpenCode governance is invalid")
+    local_models, expected_mcp, local_errors = local_runtime_contract(project)
+    if local_errors:
+        raise RuntimeContractError("; ".join(local_errors))
+    base_env = governance_environment(os.environ, controlled={})
 
     with tempfile.TemporaryDirectory(prefix="opencode-runtime-") as temporary:
         isolated = Path(temporary)
-        env = isolated_environment(isolated)
+        env = isolated_environment(isolated, base_env)
         config = parse_json_object(
             run_command(["opencode", "debug", "config"], cwd=root, env=env).stdout,
             "debug config",
         )
         errors = validate_resolved_config(config, require_local_markers=False)
-        listed = run_command(["opencode", "agent", "list"], cwd=root, env=env).stdout
-        missing = sorted(name for name in ROLES if name not in listed)
-        if missing:
-            errors.append("project agent list is incomplete")
-        for name in ROLES:
-            agent = parse_json_object(
-                run_command(
-                    ["opencode", "debug", "agent", name], cwd=root, env=env
-                ).stdout,
-                f"debug agent {name}",
-            )
-            errors.extend(validate_resolved_agent(name, agent))
-
-        catalog_env = os.environ.copy()
-        models = set(
-            run_command(
-                ["opencode", "models"], cwd=root, env=catalog_env
-            ).stdout.splitlines()
-        )
-        if not models >= MODEL_IDS:
-            errors.append("configured model IDs are absent from the local catalog")
+        errors.extend(validate_native_agents(root, env))
+        errors.extend(validate_model_catalog(root, base_env, local_models))
         run_command(["opencode", "debug", "startup"], cwd=root, env=env)
         sentinel_error = validate_plugin_sentinel(root, env, isolated)
         if sentinel_error:
             errors.append(sentinel_error)
-        errors.extend(validate_layered_project(root, project, env))
+        errors.extend(validate_layered_project(root, project, env, expected_mcp))
 
     if errors:
         raise RuntimeContractError("; ".join(dict.fromkeys(errors)))

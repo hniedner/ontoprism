@@ -95,7 +95,7 @@ test-ci-no-gate = "pytest ontolib/tests backend/tests -m 'not integration' --cov
 # The one gate this cannot reproduce is CodeQL, which is GitHub default setup and runs
 # only on pull requests and pushes to main; `workflow_dispatch` on ci.yml covers the
 # other nine jobs for a branch that has no PR yet.
-verify = { shell = "pdm run pre-commit run --all-files && pdm run test-ci && npm --prefix frontend run test:coverage" }
+verify = { shell = "pdm run validate-opencode-config && pdm run pre-commit run --all-files && pdm run test-ci && npm --prefix frontend run test:coverage" }
 coverage-manifest = "python scripts/validation/coverage_hierarchy.py validate"
 coverage-check = { shell = "python scripts/validation/coverage_hierarchy.py validate && pytest backend/tests/test_coverage_hierarchy.py -q" }
 coverage-identity = "python scripts/validation/coverage_hierarchy.py identity"

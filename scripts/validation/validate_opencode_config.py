@@ -60,7 +60,19 @@ TRACKED_PROCESS = (
 )
 MIN_DESCRIPTION_LENGTH = 24
 MIN_PROMPT_LENGTH = 100
-PROMPT_ACTION = "a" + "sk"
+COMMON_READ_ONLY_TOOLS = {
+    "read",
+    "glob",
+    "grep",
+    "lsp",
+    "skill",
+    "webfetch",
+    "websearch",
+    "question",
+    "todowrite",
+}
+IMPLEMENTER_TOOLS = COMMON_READ_ONLY_TOOLS | {"edit"}
+R3_TOOLS = {"read", "glob", "grep", "edit", "skill"}
 
 
 class Validation:
@@ -250,6 +262,39 @@ def validate_root(validation: Validation) -> dict[str, Any]:
     return config
 
 
+def validate_tool_permissions(
+    validation: Validation, role: str, metadata: dict[str, Any]
+) -> None:
+    permission_config = metadata.get("permission")
+    if (
+        not isinstance(permission_config, dict)
+        or next(iter(permission_config), None) != "*"
+    ):
+        validation.error(
+            "ROLE_PERMISSION", f"{role} tool wildcard must be declared first"
+        )
+    elif permission_config.get("*") != "deny":
+        validation.error("ROLE_PERMISSION", f"{role} tool catch-all must be deny")
+    expected_tools = (
+        IMPLEMENTER_TOOLS
+        if role == "implementer"
+        else R3_TOOLS
+        if role == "pr-test-analyzer"
+        else COMMON_READ_ONLY_TOOLS
+    )
+    if isinstance(permission_config, dict):
+        for tool in expected_tools:
+            if permission_config.get(tool) != "allow":
+                validation.error("ROLE_PERMISSION", f"{role} tool {tool} must be allow")
+        permitted_keys = expected_tools | {"*", "edit", "task", "bash"}
+        if role == "pr-test-analyzer":
+            permitted_keys.add("external_directory")
+        for tool in permission_config.keys() - permitted_keys:
+            validation.error(
+                "ROLE_PERMISSION", f"{role} has unapproved explicit tool {tool}"
+            )
+
+
 def validate_role(
     validation: Validation,
     role: str,
@@ -273,6 +318,7 @@ def validate_role(
             validation.error(
                 "ROLE_PERMISSION", f"{role} {permission} permission must be {action}"
             )
+    validate_tool_permissions(validation, role, metadata)
     description = metadata.get("description")
     if (
         not isinstance(description, str)
@@ -347,10 +393,46 @@ def validate_standard_permissions(
         "implementer",
         implementer[0],
         {
+            "pdm *": "allow",
+            "npm *": "allow",
+            "npx *": "allow",
+            "git status": "allow",
+            "git status*": "allow",
+            "git diff": "allow",
+            "git diff*": "allow",
+            "git log": "allow",
+            "git log*": "allow",
+            "git show": "allow",
+            "git show *": "allow",
+            "git rev-parse": "allow",
+            "git rev-parse*": "allow",
+            "git merge-base": "allow",
+            "git merge-base *": "allow",
+            "git ls-files": "allow",
+            "git ls-files *": "allow",
+            "git switch": "allow",
+            "git switch *": "allow",
+            "git add": "allow",
+            "git add *": "allow",
+            "git commit": "allow",
+            "git commit *": "allow",
+            "git merge --no-ff *": "allow",
             "git reset --hard": "deny",
             "git reset --hard*": "deny",
             "git clean": "deny",
             "git clean *": "deny",
+            "git checkout": "deny",
+            "git checkout *": "deny",
+            "git restore": "deny",
+            "git restore *": "deny",
+            "git stash": "deny",
+            "git stash *": "deny",
+            "git rebase": "deny",
+            "git rebase *": "deny",
+            "git cherry-pick": "deny",
+            "git cherry-pick *": "deny",
+            "git push": "deny",
+            "git push *": "deny",
             "git push -f*": "deny",
             "git push --force*": "deny",
             "git push * -f*": "deny",
@@ -362,21 +444,15 @@ def validate_standard_permissions(
             "pdm publish": "deny",
             "pdm publish*": "deny",
         },
-        catch_all=PROMPT_ACTION,
+        catch_all="deny",
     )
-    implementer_bash = permission_action(implementer[0], "bash")
-    if isinstance(implementer_bash, dict) and "gh pr create*" in implementer_bash:
-        validation.error(
-            "ROLE_PERMISSION",
-            "implementer PR creation must remain controlled by the broad prompt action",
-        )
-
     require_bash_rules(
         validation,
         "ontoprism-team",
         roles.get("ontoprism-team", ({}, ""))[0],
         {
-            "pdm run verify*": "allow",
+            "pdm run validate-opencode-config*": "allow",
+            "pdm run validate-opencode-runtime*": "allow",
             "git reset": "deny",
             "git reset *": "deny",
             "git clean": "deny",
@@ -427,7 +503,7 @@ def validate_role_contracts(
             "strict TDD",
             "pdm run verify",
             "clean worktree",
-            "explicitly dispatched",
+            "manual user action",
             "never `gh pr merge`",
         ),
     )
@@ -603,6 +679,9 @@ def validate_command(validation: Validation) -> None:
             "committed",
             "clean",
             "pdm run verify",
+            "pdm run validate-opencode-config",
+            "pdm run validate-opencode-runtime",
+            "dispatch `implementer` to run exact `pdm run verify`",
             "in parallel",
             "runs alone",
             "same HEAD",

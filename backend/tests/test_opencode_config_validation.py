@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -576,3 +577,49 @@ def test_machine_local_governance_overrides_are_rejected(
     assert any(
         error.startswith(f"LOCAL_CONFIG: {expected}") for error in validate(config_root)
     )
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_all_project_agents_deny_unknown_tools_by_default(
+    config_root: Path, role: str
+) -> None:
+    replace(
+        config_root,
+        f".opencode/agent/{role}.md",
+        'permission:\n  "*": deny\n',
+        "permission:\n",
+    )
+
+    assert f"ROLE_PERMISSION: {role} tool wildcard must be declared first" in validate(
+        config_root
+    )
+
+
+def test_implementer_bash_is_deny_by_default(config_root: Path) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/implementer.md",
+        '  bash:\n    "*": deny\n',
+        '  bash:\n    "*": ask\n',
+    )
+
+    assert "ROLE_PERMISSION: implementer bash catch-all must be deny" in validate(
+        config_root
+    )
+
+
+def test_review_command_requires_static_runtime_and_delegated_verify(
+    config_root: Path,
+) -> None:
+    command = (config_root / ".opencode/command/review-pr.md").read_text()
+
+    assert "pdm run validate-opencode-config" in command
+    assert "pdm run validate-opencode-runtime" in command
+    assert "dispatch `implementer` to run exact `pdm run verify`" in command
+
+
+def test_authoritative_verify_starts_with_static_opencode_validation() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    verify = pyproject["tool"]["pdm"]["scripts"]["verify"]["shell"]
+
+    assert verify.startswith("pdm run validate-opencode-config &&")

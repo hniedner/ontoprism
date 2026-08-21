@@ -3,6 +3,16 @@ description: Reviews committed diffs for R2 swallowed errors, false-success path
 mode: subagent
 model: github-copilot/claude-opus-5
 permission:
+  "*": deny
+  read: allow
+  glob: allow
+  grep: allow
+  lsp: allow
+  skill: allow
+  webfetch: allow
+  websearch: allow
+  question: allow
+  todowrite: allow
   edit: deny
   task: deny
   bash:
@@ -11,7 +21,6 @@ permission:
     "git diff*": allow
     "git log*": allow
     "git show*": allow
-    "pdm run verify*": allow
     "git reset *": deny
     "git clean *": deny
     "git push *": deny

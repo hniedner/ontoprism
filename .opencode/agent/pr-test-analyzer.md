@@ -3,7 +3,12 @@ description: Runs the isolated R3 mutation pass to prove changed tests reject a 
 mode: subagent
 model: github-copilot/claude-opus-5
 permission:
+  "*": deny
+  read: allow
+  glob: allow
+  grep: allow
   edit: allow
+  skill: allow
   task: deny
   external_directory:
     "*": ask
@@ -14,6 +19,7 @@ permission:
     "git diff*": allow
     "git rev-parse*": allow
     "pdm run pytest *": allow
+    "pdm run test-integration-full-store*": allow
     "npm --prefix frontend *test*": allow
     "git add": deny
     "git add *": deny

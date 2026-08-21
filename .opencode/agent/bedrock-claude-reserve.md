@@ -3,6 +3,16 @@ description: Provides a manually selected metered Claude reserve for read-only c
 mode: primary
 model: amazon-bedrock/global.anthropic.claude-opus-5
 permission:
+  "*": deny
+  read: allow
+  glob: allow
+  grep: allow
+  lsp: allow
+  skill: allow
+  webfetch: allow
+  websearch: allow
+  question: allow
+  todowrite: allow
   edit: deny
   task: deny
   bash:

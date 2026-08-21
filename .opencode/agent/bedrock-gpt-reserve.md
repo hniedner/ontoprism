@@ -3,6 +3,16 @@ description: Provides a manually selected metered GPT reserve for read-only anal
 mode: primary
 model: amazon-bedrock/global.openai.gpt-5.6-sol
 permission:
+  "*": deny
+  read: allow
+  glob: allow
+  grep: allow
+  lsp: allow
+  skill: allow
+  webfetch: allow
+  websearch: allow
+  question: allow
+  todowrite: allow
   edit: deny
   task: deny
   bash:
