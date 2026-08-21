@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 import subprocess
-from typing import TYPE_CHECKING
+import sys
+from pathlib import Path
 
 import pytest
 from scripts.validation.run_agent_git import (
@@ -10,9 +11,6 @@ from scripts.validation.run_agent_git import (
     AgentGitProcessError,
     run_agent_git,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 pytestmark = pytest.mark.unit
 
@@ -279,6 +277,21 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
     assert timeouts == [10, 10]
 
 
+@pytest.mark.parametrize("branch", ["bad.lock", "feat/trailing."])
+def test_agent_git_cli_reports_git_rejected_branch_as_invalid(branch: str) -> None:
+    script = Path(__file__).parents[2] / "scripts" / "validation" / "run_agent_git.py"
+
+    result = subprocess.run(  # noqa: S603 - fixed repository script
+        [sys.executable, str(script), "switch-new", branch],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert result.stderr.strip() == "branch name is invalid"
+
+
 @pytest.mark.parametrize(
     ("returncode", "error_type", "message"),
     [
@@ -288,7 +301,7 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
             "Git branch validation was interrupted; retry the operation",
         ),
         (1, AgentGitInputError, "branch name is invalid"),
-        (2, AgentGitProcessError, "Git branch validation failed"),
+        (2, AgentGitInputError, "branch name is invalid"),
     ],
 )
 def test_branch_validation_classifies_git_return_codes_without_raw_output(
