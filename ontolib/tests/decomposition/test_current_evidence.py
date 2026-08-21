@@ -22,6 +22,7 @@ from scripts.research.current_evidence import (
     PartitionDiagnosisEvidence,
     RowReplayStatus,
     _row_replay,
+    _typed_diagnosis,
     generate_current_evidence,
     validate_current_comparison,
 )
@@ -33,7 +34,7 @@ from scripts.research.golden_review import (
     load_row_decisions,
 )
 
-from ontolib.decomposition.evaluation import PartitionDiagnosis
+from ontolib.decomposition.evaluation import PartitionDiagnosis, compare_full_partition
 from ontolib.decomposition.models import (
     CompleteDefinition,
     Constituent,
@@ -292,13 +293,7 @@ def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
         "zero-shared-pairs",
         "one-shared-pair",
     }
-    diagnosis = comparison.concepts[0].full_partition.primary_diagnosis
-    assert diagnosis is not None
-    assert diagnosis.normalization_rule == "group-label-independent-co-membership"
-    assert diagnosis.actual_pair_citations[0].occurrence_ids == tuple(
-        item.occurrence_id
-        for item in evidence.concepts[0].constituents[0].source_occurrences
-    )
+    assert comparison.concepts[0].full_partition.primary_diagnosis is None
     with pytest.raises(GoldenSetValidationError):
         evaluate_adjudication(
             load_adjudication(_ORACLE, load_proposal_registry(_REGISTRY)),
@@ -484,6 +479,44 @@ def test_partition_diagnosis_cites_actual_occurrences_without_observing_oracle()
     assert {
         citation.availability for citation in diagnosis.expected_pair_citations
     } == {"unavailable-historical-oracle"}
+
+
+@pytest.mark.unit
+def test_partition_diagnosis_names_only_changed_shared_pairs() -> None:
+    expected = (
+        (("op:Morphology", "C1"), "expected-a"),
+        (("op:PrimarySite", "C2"), "expected-a"),
+        (("op:StageValue", "C3"), "expected-b"),
+        (("op:Laterality", "C5"), None),
+    )
+    actual = (
+        (("op:Morphology", "C1"), "actual-a"),
+        (("op:PrimarySite", "C2"), "actual-b"),
+        (("op:StageValue", "C3"), "actual-a"),
+        (("op:Grade", "C4"), "actual-c"),
+        (("op:Laterality", "C5"), None),
+    )
+    comparison = compare_full_partition(expected, actual)
+    assert comparison.primary_diagnosis is PartitionDiagnosis.MISASSIGNMENT
+    concept = CurrentConceptEvidence(
+        code="C1",
+        outcome="decomposed",
+        semantic_types=("Neoplastic Process",),
+        all_source_occurrences=(),
+        constituents=(),
+    )
+
+    diagnosis = _typed_diagnosis(
+        comparison.primary_diagnosis,
+        comparison,
+        concept,
+    )
+
+    assert diagnosis.affected_pairs == (
+        ("op:Morphology", "C1"),
+        ("op:PrimarySite", "C2"),
+        ("op:StageValue", "C3"),
+    )
 
 
 @pytest.mark.unit

@@ -18,6 +18,7 @@ from ontolib.decomposition.stated_queries import (
     build_role_restrictions_query,
     build_semantic_type_of_query,
     build_semantic_type_query,
+    read_complete_genus_chain,
     resolve_morphology_filler,
     resolve_part_of_paths,
     walk_genus_chain,
@@ -826,7 +827,45 @@ async def test_walk_genus_chain_deduplicates_roles_and_terminates_on_cycle() -> 
         ("R101", "C12704")
     ]
     assert roles[0].anchoring_genus == "C3809"
+    assert len(roles[0].source_definition_ids) == 1
+    assert len(roles[0].source_occurrence_ids) == 2
     assert queried_codes == ["C6135", "C3809"]
+
+
+@pytest.mark.unit
+async def test_complete_genus_chain_preserves_duplicate_pair_source_facts() -> None:
+    rows_by_code = {
+        "C1": _definition_rows(
+            "_:root",
+            (_iri("C2"), None, None, True),
+            (_iri("C3"), None, None, True),
+        ),
+        "C2": _definition_rows(
+            "_:first",
+            ("_:first-site", _iri("R101"), _iri("C12400"), False),
+        ),
+        "C3": _definition_rows(
+            "_:second",
+            ("_:second-site", _iri("R101"), _iri("C12400"), False),
+        ),
+    }
+    select = _walker_select_double(
+        rows_by_code,
+        role_labels={"R101": "Disease_Has_Primary_Anatomic_Site"},
+    )
+
+    complete, roles = await read_complete_genus_chain(select, "C1")
+
+    assert len(roles) == 2
+    assert {role.anchoring_genus for role in roles} == {"C2", "C3"}
+    assert {role.source_definition_ids for role in roles} == {
+        (fact.fact_id,)
+        for fact in complete.facts
+        if getattr(fact, "role_code", None) == "R101"
+    }
+    assert {role.source_occurrence_ids for role in roles} == {
+        (occurrence.occurrence_id,) for occurrence in complete.occurrences
+    }
 
 
 @pytest.mark.unit

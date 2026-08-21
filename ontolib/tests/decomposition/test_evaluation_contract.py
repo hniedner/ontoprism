@@ -70,6 +70,71 @@ def test_full_partition_requires_exact_pairs_and_partition() -> None:
     ("expected", "actual", "diagnosis"),
     [
         (
+            ((("a", "1"), "x"), (("a", "2"), "y"), (("a", "9"), "x")),
+            ((("a", "1"), "z"), (("a", "2"), "z")),
+            PartitionDiagnosis.OVER_MERGE,
+        ),
+        (
+            ((("a", "1"), "x"), (("a", "2"), "x")),
+            ((("a", "1"), "y"), (("a", "2"), "z"), (("a", "9"), "y")),
+            PartitionDiagnosis.OVER_SPLIT,
+        ),
+        (
+            (
+                (("a", "1"), "x"),
+                (("a", "2"), "x"),
+                (("a", "3"), "y"),
+                (("a", "4"), "y"),
+                (("a", "9"), "x"),
+            ),
+            (
+                (("a", "1"), "x"),
+                (("a", "3"), "x"),
+                (("a", "2"), "y"),
+                (("a", "4"), "y"),
+            ),
+            PartitionDiagnosis.MISASSIGNMENT,
+        ),
+    ],
+)
+def test_full_partition_diagnosis_is_induced_onto_shared_pairs(
+    expected: tuple[tuple[tuple[str, str], str], ...],
+    actual: tuple[tuple[tuple[str, str], str], ...],
+    diagnosis: PartitionDiagnosis,
+) -> None:
+    comparison = compare_full_partition(expected, actual)
+
+    assert comparison.primary_diagnosis is diagnosis
+
+
+@pytest.mark.parametrize(
+    ("expected", "actual"),
+    [
+        (
+            ((("a", "1"), "g"), (("a", "2"), "g")),
+            ((("a", "1"), "g"),),
+        ),
+        (
+            ((("a", "1"), "g"),),
+            ((("a", "1"), "g"), (("a", "2"), "g")),
+        ),
+    ],
+)
+def test_full_partition_pair_deltas_do_not_create_grouping_diagnoses(
+    expected: tuple[tuple[tuple[str, str], str], ...],
+    actual: tuple[tuple[tuple[str, str], str], ...],
+) -> None:
+    comparison = compare_full_partition(expected, actual)
+
+    assert comparison.agrees is False
+    assert comparison.missing_pairs or comparison.extra_pairs
+    assert comparison.primary_diagnosis is None
+
+
+@pytest.mark.parametrize(
+    ("expected", "actual", "diagnosis"),
+    [
+        (
             ((("a", "1"), "x"), (("a", "2"), "y")),
             ((("a", "1"), "z"), (("a", "2"), "z")),
             PartitionDiagnosis.OVER_MERGE,

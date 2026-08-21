@@ -1258,25 +1258,27 @@ def _projected_restriction_facts(
 
 
 def _detector_role_projection(
+    complete: CompleteDefinition,
     restrictions: Iterable[RestrictionDefinitionFact],
     labels: Mapping[str, str | None],
 ) -> list[RoleRestriction]:
-    roles: list[RoleRestriction] = []
-    seen_pairs: set[tuple[str, str]] = set()
-    for fact in restrictions:
-        key = (fact.role_code, fact.filler_code)
-        if not _is_detector_role(fact) or key in seen_pairs:
-            continue
-        seen_pairs.add(key)
-        roles.append(
-            RoleRestriction(
-                role_code=fact.role_code,
-                filler_code=fact.filler_code,
-                role_label=labels.get(fact.role_code),
-                anchoring_genus=fact.anchor_code,
-            )
+    occurrences_by_fact: dict[str, list[str]] = {}
+    for occurrence in complete.occurrences:
+        occurrences_by_fact.setdefault(occurrence.source_fact_id, []).append(
+            occurrence.occurrence_id
         )
-    return roles
+    return [
+        RoleRestriction(
+            role_code=fact.role_code,
+            filler_code=fact.filler_code,
+            role_label=labels.get(fact.role_code),
+            anchoring_genus=fact.anchor_code,
+            source_definition_ids=(fact.fact_id,),
+            source_occurrence_ids=tuple(occurrences_by_fact.get(fact.fact_id, ())),
+        )
+        for fact in restrictions
+        if _is_detector_role(fact)
+    ]
 
 
 def _is_detector_role(fact: RestrictionDefinitionFact) -> bool:
@@ -1303,7 +1305,7 @@ async def read_complete_genus_chain(
         select_fn,
         {fact.role_code for fact in restrictions},
     )
-    return complete, _detector_role_projection(restrictions, labels)
+    return complete, _detector_role_projection(complete, restrictions, labels)
 
 
 async def walk_genus_chain(

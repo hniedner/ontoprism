@@ -917,36 +917,6 @@ def _level_requires_nested_query(rows: Iterable[Row], depth: int) -> bool:
     )
 
 
-def _role_source_ids(
-    constituent: Constituent,
-    restrictions: Iterable[RestrictionDefinitionFact],
-) -> tuple[str, ...]:
-    # Constituent.__post_init__ guarantees source_roles is nonempty on every
-    # role-derived constituent, and this is the only path that reaches here.
-    return tuple(
-        sorted(
-            fact.fact_id
-            for fact in restrictions
-            if fact.filler_code == constituent.filler_code
-            and fact.role_code in constituent.source_roles
-        )
-    )
-
-
-def _role_occurrence_ids(
-    constituent: Constituent,
-    occurrences: Iterable[SourceDefinitionOccurrence],
-) -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            occurrence.occurrence_id
-            for occurrence in occurrences
-            if occurrence.filler_code == constituent.filler_code
-            and occurrence.role_code in constituent.source_roles
-        )
-    )
-
-
 def _parent_source_ids(
     constituent: Constituent,
     genera: Iterable[GenusDefinitionFact],
@@ -962,11 +932,8 @@ def _parent_source_ids(
 
 def _projection_source_ids(
     constituent: Constituent,
-    restrictions: Iterable[RestrictionDefinitionFact],
     genera: Iterable[GenusDefinitionFact],
 ) -> tuple[str, ...]:
-    if constituent.axis_source == "role":
-        return _role_source_ids(constituent, restrictions)
     if constituent.axis_source == "parent":
         return _parent_source_ids(constituent, genera)
     return ()
@@ -976,24 +943,17 @@ def trace_curated_projection(
     constituents: Iterable[Constituent],
     complete: CompleteDefinition,
 ) -> list[Constituent]:
-    """Attach complete-fact IDs without changing the curated projection's verdict."""
-    restrictions = [
-        fact for fact in complete.facts if isinstance(fact, RestrictionDefinitionFact)
-    ]
+    """Attach parent fact IDs while retaining direct role-selection provenance."""
     genera = [fact for fact in complete.facts if isinstance(fact, GenusDefinitionFact)]
     return [
         replace(
             constituent,
-            source_definition_ids=_projection_source_ids(
-                constituent,
-                restrictions,
-                genera,
-            ),
-            source_occurrence_ids=(
-                _role_occurrence_ids(constituent, complete.occurrences)
+            source_definition_ids=(
+                constituent.source_definition_ids
                 if constituent.axis_source == "role"
-                else ()
+                else _projection_source_ids(constituent, genera)
             ),
+            source_occurrence_ids=constituent.source_occurrence_ids,
         )
         for constituent in constituents
     ]
