@@ -28,6 +28,7 @@ _DIGEST_PIN = re.compile(r"^[^:@/\s]+(?:/[^:@/\s]+)+@sha256:[0-9a-f]{64}$")
 _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f"
 _ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+_MINIMUM_BRACE_EXPANSION_VERSION = (5, 0, 9)
 
 
 def _nested_image_values(value: Any) -> list[str]:
@@ -242,6 +243,29 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
 
     dockerfile = (_ROOT / "backend" / "Dockerfile").read_text()
     assert f"RUN pip install --no-cache-dir pdm=={_PDM_VERSION}" in dockerfile
+
+
+def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:
+    package = json.loads((_ROOT / "frontend" / "package.json").read_text())
+    lock = json.loads((_ROOT / "frontend" / "package-lock.json").read_text())
+
+    locked_versions = [
+        details["version"]
+        for path, details in lock["packages"].items()
+        if path.endswith("node_modules/brace-expansion")
+    ]
+    assert locked_versions, "brace-expansion is absent from the frontend lockfile"
+    assert all(
+        tuple(map(int, version.split("."))) >= _MINIMUM_BRACE_EXPANSION_VERSION
+        for version in locked_versions
+    ), f"vulnerable brace-expansion versions are locked: {locked_versions}"
+
+    override = package["overrides"]["brace-expansion"]
+    override_match = re.fullmatch(r"[~^>=]*(\d+)\.(\d+)\.(\d+)", override)
+    assert override_match is not None, (
+        f"unsupported brace-expansion override: {override}"
+    )
+    assert tuple(map(int, override_match.groups())) >= _MINIMUM_BRACE_EXPANSION_VERSION
 
 
 def test_clean_machine_instructions_do_not_require_a_sibling_checkout() -> None:
