@@ -510,6 +510,7 @@ def test_r3_requires_bare_mutation_denies(config_root: Path, pattern: str) -> No
         "git clean",
         "git push -f*",
         "git push --force*",
+        "gh pr",
         "gh pr merge",
         "npm publish",
         "pdm publish",
@@ -623,3 +624,5 @@ def test_authoritative_verify_starts_with_static_opencode_validation() -> None:
     verify = pyproject["tool"]["pdm"]["scripts"]["verify"]["shell"]
 
     assert verify.startswith("pdm run validate-opencode-config &&")
+    assert verify.count("pdm run validate-opencode-config") == 1
+    assert "pdm run verify" not in verify

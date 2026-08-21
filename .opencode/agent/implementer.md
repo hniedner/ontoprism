@@ -70,6 +70,8 @@ permission:
     "git push --force*": deny
     "git push * -f*": deny
     "git push * --force*": deny
+    "gh pr": deny
+    "gh pr *": deny
     "gh pr merge": deny
     "gh pr merge*": deny
     "npm publish": deny

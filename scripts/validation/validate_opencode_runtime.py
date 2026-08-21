@@ -356,10 +356,10 @@ def local_runtime_contract(project: Path) -> tuple[set[str], set[str], list[str]
             errors.append("machine-local OpenCode config cannot be parsed")
             continue
         local_models, agent_errors = collect_local_agents(config)
-        models.update(local_models)
+        models |= local_models
         errors.extend(agent_errors)
         local_mcp, mcp_errors = collect_local_mcp(config)
-        mcp_names.update(local_mcp)
+        mcp_names |= local_mcp
         errors.extend(mcp_errors)
     return models, mcp_names, errors
 
