@@ -601,10 +601,10 @@ def test_duplicate_agent_name_across_supported_directories_is_rejected(
         ),
         (
             ".opencode/agent/ontoprism-team.md",
-            "Never `gh pr merge`; a human merges.",
+            "explicitly authorizes that exact PR number",
             "A human handles completion.",
             "ORCHESTRATOR_PROCESS: ontoprism-team prompt missing required "
-            "semantics: never `gh pr merge`, human merges",
+            "semantics: explicitly authorizes that exact PR number",
         ),
         (
             ".opencode/agent/bedrock-gpt-reserve.md",
@@ -1213,7 +1213,7 @@ def test_wildcard_bash_agents_end_with_literal_lf_and_cr_denies(
     assert bash["*\n*"] == bash["*\r*"] == "deny"
 
 
-def test_process_prose_assigns_remote_mutations_only_to_the_user(
+def test_process_prose_limits_remote_mutations_to_user_or_authorized_merge(
     config_root: Path,
 ) -> None:
     agents = (config_root / "AGENTS.md").read_text()
@@ -1225,12 +1225,11 @@ def test_process_prose_assigns_remote_mutations_only_to_the_user(
         "Only the implementer makes lasting repository code, test, documentation, "
         "fix, or commit edits"
     )
-    remote_actions = (
-        "All pushes and PR creation, updates, and mutations are manual user actions"
-    )
     assert lasting_edits in agents
-    assert remote_actions in agents
-    assert remote_actions in orchestrator
+    assert "Pushes and PR creation or updates" in agents
+    assert "remain manual user actions" in agents
+    assert "Pushes and PR creation or updates are manual user actions" in orchestrator
+    assert "explicitly authorizes that exact PR number" in orchestrator
     assert "report the ready state to the user" in implementer
     assert "launches fresh CLI processes" in command
     assert "quit and restart opencode" in command.lower()

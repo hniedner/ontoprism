@@ -141,6 +141,7 @@ ORCHESTRATOR_BASH_ALLOWS = (
     *FIXED_GIT_INSPECTION,
     "pdm run validate-opencode-config",
     "pdm run validate-opencode-runtime",
+    "gh pr merge * --squash --delete-branch --subject *",
 )
 READ_ONLY_BASH_ALLOWS = FIXED_GIT_INSPECTION
 R3_BASH_ALLOWS = (
@@ -751,8 +752,7 @@ def validate_standard_permissions(
             "git push *": "deny",
             "gh pr create": "deny",
             "gh pr create*": "deny",
-            "gh pr merge": "deny",
-            "gh pr merge*": "deny",
+            "gh pr merge * --squash --delete-branch --subject *": "allow",
             "npm publish": "deny",
             "npm publish*": "deny",
             "pdm publish": "deny",
@@ -891,9 +891,10 @@ def validate_role_contracts(
             "R3",
             "runs alone",
             "reduced",
-            "never `gh pr merge`",
-            "human merges",
-            "manual user actions",
+            "explicitly authorizes that exact PR number",
+            "current conversation",
+            "every hard merge check",
+            "monitor every triggered post-merge workflow",
         ),
     )
     validate_standard_permissions(validation, roles)
@@ -1003,8 +1004,9 @@ def validate_command(validation: Validation) -> None:
             "reduced",
             "PRE-PR REVIEW CONVERGED",
             "no push",
-            "no PR",
-            "never `gh pr merge`",
+            "no PR creation or update",
+            "does not establish merge authorization",
+            "explicitly authorize the exact PR number",
             "launches fresh cli processes",
             "quit and restart opencode",
             *tuple(sorted(REVIEWERS)),
@@ -1038,11 +1040,12 @@ def validate_agents_document(validation: Validation) -> None:
             *tuple(sorted(REVIEWERS)),
             "outside the worktree",
             "byte-exact",
-            "human merges",
+            "explicitly authorizes that exact PR number",
+            "current conversation",
             "Only the implementer makes lasting repository code, test, "
             "documentation, fix, or commit edits",
-            "All pushes and PR creation, updates, and mutations are manual "
-            "user actions",
+            "Pushes and PR creation or updates",
+            "remain manual user actions",
         ),
     )
     require_terms(

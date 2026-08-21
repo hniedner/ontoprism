@@ -47,6 +47,12 @@ ONTOPRISM: an ontology exploration/decomposition platform over NCIt + caDSR
   `statusCheckRollup` sometimes omits `conventional commit subject` even when it has passed;
   confirm with the `gh run list --workflow pr-title.yml` command above rather than treating the
   omission as an absent check.
+  An agent may run `gh pr merge` only after the user explicitly authorizes that exact PR
+  number in the current conversation. Re-read the PR immediately before merging; any head,
+  title, base, or merge-state change invalidates the authorization. Use squash merge with the
+  exact conventional PR title and delete the merged branch. Never use `--admin`, auto-merge,
+  a queue, or any bypass. Without that exact current-conversation authorization, stop before
+  the merge command.
 - **After merging any PR to `main`, watch CI and all triggered post-merge workflows to
   completion.** If any run fails, fix it before starting new work. Do not begin the next
   issue, create its branch, or open its PR while required post-merge runs are pending or
@@ -364,12 +370,15 @@ cooldown) + secret scanning + push protection are enabled repo-side.
   unresolved actionable verified findings. Failed, timed-out, or inconclusive reviews do
   not converge. Once a dimension converges, do not run it again in that review cycle.
 
-  Every round reviews a clean worktree and committed diff. All pushes and PR creation, updates, and mutations are manual user actions because agent permissions deny them.
+  Every round reviews a clean worktree and committed diff. Pushes and PR creation or updates
+  remain manual user actions. PR merge is the sole GitHub mutation the orchestrator may perform,
+  and only under the exact current-conversation authorization and hard checks above.
   After all five dimensions
   converge, run final `pdm run verify`. Do not create a PR until convergence and final gates
   pass. Branch CI may be dispatched before a PR; CodeQL still requires its configured
-  GitHub event. PR creation occurs only when requested. Never run `gh pr merge`; human
-  merges are the only GitHub PR merges. This does not prohibit the milestone procedure's
+  GitHub event. PR creation occurs only when requested. Run `gh pr merge` only when the user
+  explicitly authorizes the exact PR in the current conversation and every hard merge check
+  passes. This does not prohibit the milestone procedure's
   local `git merge --no-ff` integration of a verified issue branch into its milestone
   branch. Record any genuinely unverifiable or unactionable exception and its reason.
 - **Ephemeral planning/handover docs live in `tmp/plans/` (gitignored), never tracked.**

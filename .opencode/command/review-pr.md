@@ -11,4 +11,4 @@ In the initial round, dispatch R1 `pr-code-reviewer`, R2 `pr-silent-failure-hunt
 
 Send every verified actionable finding to `implementer` for a lasting fix and commit. Re-run applicable gates, then review only the reduced set of non-converged dimensions; R3 still runs alone. When all five dimensions converge, run final exact `pdm run verify` and report `PRE-PR REVIEW CONVERGED` with command evidence.
 
-This command performs no push, no PR creation or mutation, and no merge unless a later, separate user request explicitly dispatches an allowed action. Never `gh pr merge`; a human merges. Do not claim merge readiness.
+This command performs no push, no PR creation or update, and no merge; it does not establish merge authorization. A later user message must explicitly authorize the exact PR number in the current conversation before the orchestrator may recheck the hard gates and run the constrained squash-merge command. Do not claim merge readiness.

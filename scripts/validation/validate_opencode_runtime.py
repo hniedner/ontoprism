@@ -188,6 +188,63 @@ def configured_model(agent: dict[str, Any]) -> str | None:
     return None
 
 
+def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
+    if name == "ontoprism-team":
+        return (
+            ("git status --porcelain", "allow"),
+            (
+                "gh pr merge 123 --squash --delete-branch --subject fix:example",
+                "allow",
+            ),
+            ("gh pr merge 123", "deny"),
+            ("gh pr merge 123 --admin", "deny"),
+            ("touch forbidden", "deny"),
+        )
+    if name in READ_ONLY_ROLES:
+        return (("touch forbidden", "deny"), ("git status --porcelain", "allow"))
+    if name == "pr-test-analyzer":
+        return (
+            ("cp source target", "allow"),
+            ("git status --porcelain", "allow"),
+            (
+                "pdm run agent-test backend/tests/test_opencode_config_validation.py",
+                "allow",
+            ),
+            ("git commit", "deny"),
+            ("git push --force", "deny"),
+            ("gh pr merge", "deny"),
+            ("touch forbidden", "deny"),
+            ("cp source target\ngh pr merge", "deny"),
+            ("pdm run agent-test backend/tests/test_x.py\r\ngit push", "deny"),
+        )
+    return (
+        ("git commit change", "deny"),
+        ("git commit -m change", "deny"),
+        ("pdm run verify", "allow"),
+        (
+            "pdm run agent-test backend/tests/test_opencode_config_validation.py -q",
+            "allow",
+        ),
+        ("pdm run lint", "allow"),
+        ("npm --prefix frontend run test:coverage", "allow"),
+        ("git push --force", "deny"),
+        ("gh pr merge", "deny"),
+        ("npm publish", "deny"),
+        ("pdm run gh pr merge", "deny"),
+        ("pdm run git push --force", "deny"),
+        ("pdm run publish", "deny"),
+        ("npm exec gh pr merge", "deny"),
+        ("npm run publish", "deny"),
+        ("npx gh pr merge", "deny"),
+        ("pdm run verify && gh pr merge", "deny"),
+        ("pdm run agent-test backend/tests/test_x.py\ngh pr merge", "deny"),
+        ("pdm run agent-git switch-new feat/x", "allow"),
+        ("git switch --discard-changes main", "deny"),
+        ("git branch --force feat/x", "deny"),
+        ("git merge --no-ff feat/x", "deny"),
+    )
+
+
 def validate_agent_permissions(
     name: str, bash_rules: list[dict[str, Any]]
 ) -> list[str]:
@@ -200,70 +257,9 @@ def validate_agent_permissions(
     expected_catch_all = "deny"
     if not catch_alls or catch_alls[-1].get("action") != expected_catch_all:
         errors.append(f"{name} resolved bash catch-all must be {expected_catch_all}")
-    if name in READ_ONLY_ROLES:
-        for command in ("touch forbidden", "git status --porcelain"):
-            expected = "allow" if command == "git status --porcelain" else "deny"
-            if effective_action(bash_rules, command) != expected:
-                errors.append(
-                    f"{name} effective action for {command} must be {expected}"
-                )
-    elif name == "pr-test-analyzer":
-        for command, expected in (
-            ("cp source target", "allow"),
-            ("git status --porcelain", "allow"),
-            (
-                "pdm run agent-test backend/tests/test_opencode_config_validation.py",
-                "allow",
-            ),
-            ("git commit", "deny"),
-            ("git push --force", "deny"),
-            ("gh pr merge", "deny"),
-            ("touch forbidden", "deny"),
-            ("cp source target\ngh pr merge", "deny"),
-            (
-                "pdm run agent-test backend/tests/test_x.py\r\ngit push",
-                "deny",
-            ),
-        ):
-            if effective_action(bash_rules, command) != expected:
-                errors.append(
-                    f"{name} effective action for {command} must be {expected}"
-                )
-    else:
-        for command, expected in (
-            ("git commit change", "deny"),
-            ("git commit -m change", "deny"),
-            ("pdm run verify", "allow"),
-            (
-                "pdm run agent-test backend/tests/"
-                "test_opencode_config_validation.py -q",
-                "allow",
-            ),
-            ("pdm run lint", "allow"),
-            ("npm --prefix frontend run test:coverage", "allow"),
-            ("git push --force", "deny"),
-            ("gh pr merge", "deny"),
-            ("npm publish", "deny"),
-            ("pdm run gh pr merge", "deny"),
-            ("pdm run git push --force", "deny"),
-            ("pdm run publish", "deny"),
-            ("npm exec gh pr merge", "deny"),
-            ("npm run publish", "deny"),
-            ("npx gh pr merge", "deny"),
-            ("pdm run verify && gh pr merge", "deny"),
-            (
-                "pdm run agent-test backend/tests/test_x.py\ngh pr merge",
-                "deny",
-            ),
-            ("pdm run agent-git switch-new feat/x", "allow"),
-            ("git switch --discard-changes main", "deny"),
-            ("git branch --force feat/x", "deny"),
-            ("git merge --no-ff feat/x", "deny"),
-        ):
-            if effective_action(bash_rules, command) != expected:
-                errors.append(
-                    f"{name} effective action for {command} must be {expected}"
-                )
+    for command, expected in expected_agent_commands(name):
+        if effective_action(bash_rules, command) != expected:
+            errors.append(f"{name} effective action for {command} must be {expected}")
     return errors
 
 
