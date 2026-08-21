@@ -42,14 +42,15 @@ def test_agent_git_rejects_unsafe_operations(
         run_agent_git(arguments, tmp_path)
 
 
-def git(repository: Path, *arguments: str) -> None:
-    subprocess.run(  # noqa: S603 - fixed Git test helper
+def git(repository: Path, *arguments: str) -> str:
+    result = subprocess.run(  # noqa: S603 - fixed Git test helper
         ["/usr/bin/git", *arguments],
         cwd=repository,
         check=True,
         capture_output=True,
         text=True,
     )
+    return result.stdout.strip()
 
 
 def initialize_repository(tmp_path: Path) -> None:
@@ -124,9 +125,61 @@ def test_merge_rejects_main_and_succeeds_on_milestone(tmp_path: Path) -> None:
     assert (tmp_path / "feature.txt").read_text() == "feature\n"
 
 
+@pytest.mark.parametrize("source_kind", ["commit", "tag", "remote"])
+def test_merge_requires_an_exact_existing_local_branch(
+    tmp_path: Path, source_kind: str
+) -> None:
+    initialize_repository(tmp_path)
+    git(tmp_path, "switch", "-c", "feat/local")
+    (tmp_path / "feature.txt").write_text("feature\n")
+    git(tmp_path, "add", "feature.txt")
+    git(tmp_path, "commit", "-m", "feature")
+    feature_commit = git(tmp_path, "rev-parse", "HEAD")
+    git(tmp_path, "tag", "release-candidate")
+    git(tmp_path, "update-ref", "refs/remotes/origin/feat/remote", feature_commit)
+    git(tmp_path, "switch", "main")
+    git(tmp_path, "switch", "-c", "milestone/process")
+    source = {
+        "commit": feature_commit,
+        "tag": "release-candidate",
+        "remote": "origin/feat/remote",
+    }[source_kind]
+
+    with pytest.raises(AgentGitInputError, match=r"^local branch does not exist$"):
+        run_agent_git(["merge-no-ff", source], tmp_path)
+
+    assert not (tmp_path / "feature.txt").exists()
+
+
+def test_merge_accepts_an_exact_existing_local_branch(tmp_path: Path) -> None:
+    initialize_repository(tmp_path)
+    git(tmp_path, "switch", "-c", "feat/local")
+    (tmp_path / "feature.txt").write_text("feature\n")
+    git(tmp_path, "add", "feature.txt")
+    git(tmp_path, "commit", "-m", "feature")
+    git(tmp_path, "switch", "main")
+    git(tmp_path, "switch", "-c", "milestone/process")
+
+    assert run_agent_git(["merge-no-ff", "feat/local"], tmp_path) == 0
+    assert (tmp_path / "feature.txt").read_text() == "feature\n"
+
+
+@pytest.mark.parametrize("operation", ["switch-existing", "delete-merged"])
+def test_existing_branch_operations_reject_non_branch_refs(
+    tmp_path: Path, operation: str
+) -> None:
+    initialize_repository(tmp_path)
+    git(tmp_path, "tag", "release-candidate")
+    git(tmp_path, "switch", "-c", "feat/current")
+
+    with pytest.raises(AgentGitInputError, match=r"^local branch does not exist$"):
+        run_agent_git([operation, "release-candidate"], tmp_path)
+
+
 @pytest.mark.parametrize("operation", ["commit-staged", "merge-no-ff"])
 def test_commit_and_merge_reject_detached_head(tmp_path: Path, operation: str) -> None:
     initialize_repository(tmp_path)
+    git(tmp_path, "branch", "feat/safe")
     git(tmp_path, "switch", "--detach")
 
     arguments = (
@@ -226,18 +279,74 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
     assert timeouts == [10, 10]
 
 
+@pytest.mark.parametrize(
+    ("returncode", "error_type", "message"),
+    [
+        (
+            -9,
+            AgentGitProcessError,
+            "Git branch validation was interrupted; retry the operation",
+        ),
+        (1, AgentGitInputError, "branch name is invalid"),
+        (2, AgentGitProcessError, "Git branch validation failed"),
+    ],
+)
+def test_branch_validation_classifies_git_return_codes_without_raw_output(
+    tmp_path: Path,
+    returncode: int,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error_type, match=f"^{re.escape(message)}$") as raised:
+        run_agent_git(
+            ["switch-new", "feat/x"],
+            tmp_path,
+            runner=scripted_runner([Result(returncode, "secret Git output")]),
+        )
+
+    assert "secret" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("returncode", "error_type", "message"),
+    [
+        (-9, AgentGitProcessError, "Git local branch check failed"),
+        (1, AgentGitInputError, "local branch does not exist"),
+        (2, AgentGitProcessError, "Git local branch check failed"),
+    ],
+)
+def test_local_branch_check_classifies_return_codes_without_raw_output(
+    tmp_path: Path,
+    returncode: int,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error_type, match=f"^{re.escape(message)}$") as raised:
+        run_agent_git(
+            ["switch-existing", "feat/x"],
+            tmp_path,
+            runner=scripted_runner(
+                [Result(0), Result(returncode, "secret Git output")]
+            ),
+        )
+
+    assert "secret" not in str(raised.value)
+
+
 def test_delete_merged_distinguishes_not_merged_from_operational_error(
     tmp_path: Path,
 ) -> None:
-    not_merged = scripted_runner([Result(0), Result(0, "main\n"), Result(1)])
+    not_merged = scripted_runner([Result(0), Result(0), Result(0, "main\n"), Result(1)])
     with pytest.raises(AgentGitInputError, match="not merged"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=not_merged)
 
-    operational = scripted_runner([Result(0), Result(0, "main\n"), Result(2)])
+    operational = scripted_runner(
+        [Result(0), Result(0), Result(0, "main\n"), Result(2)]
+    )
     with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=operational)
 
-    signaled = scripted_runner([Result(0), Result(0, "main\n"), Result(-9)])
+    signaled = scripted_runner([Result(0), Result(0), Result(0, "main\n"), Result(-9)])
     with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
         run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=signaled)
 
@@ -253,7 +362,7 @@ def test_agent_git_classifies_decode_start_timeout_and_nonzero(
             runner=scripted_runner([undecodable]),
         )
 
-    mutation_decode = scripted_runner([Result(0), undecodable])
+    mutation_decode = scripted_runner([Result(0), Result(0), undecodable])
     with pytest.raises(
         AgentGitProcessError, match="outcome is unknown; inspect git status"
     ):
@@ -306,7 +415,7 @@ def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> No
     [
         (
             ["switch-existing", "feat/x"],
-            [Result(0), Result(9)],
+            [Result(0), Result(0), Result(9)],
             "Git switch failed and may have changed repository state; "
             "inspect git status",
         ),
@@ -318,7 +427,7 @@ def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> No
         ),
         (
             ["merge-no-ff", "feat/x"],
-            [Result(0), Result(0, "milestone/x\n"), Result(9)],
+            [Result(0), Result(0), Result(0, "milestone/x\n"), Result(9)],
             "Git merge failed and may have changed repository state; "
             "inspect git status",
         ),
@@ -330,7 +439,7 @@ def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> No
         ),
         (
             ["delete-merged", "feat/x"],
-            [Result(0), Result(0, "main\n"), Result(0), Result(9)],
+            [Result(0), Result(0), Result(0, "main\n"), Result(0), Result(9)],
             "Git branch deletion failed and may have changed repository state; "
             "inspect git status",
         ),

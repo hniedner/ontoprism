@@ -104,8 +104,25 @@ def _validate_branch(name: str, root: Path, runner: CommandRunner) -> None:
     ):
         raise AgentGitInputError("branch name is invalid")
     result = _invoke(["git", "check-ref-format", "--branch", name], root, runner)
-    if result.returncode != 0:
+    if result.returncode == 0:
+        return
+    if result.returncode == 1:
         raise AgentGitInputError("branch name is invalid")
+    if result.returncode < 0:
+        raise AgentGitProcessError(
+            "Git branch validation was interrupted; retry the operation"
+        )
+    raise AgentGitProcessError("Git branch validation failed")
+
+
+def _require_local_branch(name: str, root: Path, runner: CommandRunner) -> str:
+    full_ref = f"refs/heads/{name}"
+    result = _invoke(["git", "show-ref", "--verify", "--quiet", full_ref], root, runner)
+    if result.returncode == 0:
+        return full_ref
+    if result.returncode == 1:
+        raise AgentGitInputError("local branch does not exist")
+    raise AgentGitProcessError("Git local branch check failed")
 
 
 def _validate_commit_message(message: str) -> None:
@@ -143,22 +160,25 @@ def _prepare_branch_command(
     if operation == "switch-existing":
         if branch in PROTECTED_BRANCHES:
             raise AgentGitInputError("cannot switch to a protected branch")
+        _require_local_branch(branch, root, runner)
         return ["git", "switch", branch]
     if operation == "switch-new":
         if branch in PROTECTED_BRANCHES:
             raise AgentGitInputError("cannot create a protected branch")
         return ["git", "switch", "-c", branch]
     if operation == "merge-no-ff":
+        full_ref = _require_local_branch(branch, root, runner)
         _require_mutable_current_branch(root, runner)
-        return ["git", "merge", "--no-ff", branch]
+        return ["git", "merge", "--no-ff", full_ref]
     if branch in PROTECTED_BRANCHES:
         raise AgentGitInputError("protected branch cannot be deleted")
+    full_ref = _require_local_branch(branch, root, runner)
     current = _invoke(["git", "branch", "--show-current"], root, runner)
     _require_success(current)
     if current.stdout.strip() == branch:
         raise AgentGitInputError("current branch cannot be deleted")
     merged = _invoke(
-        ["git", "merge-base", "--is-ancestor", branch, "HEAD"], root, runner
+        ["git", "merge-base", "--is-ancestor", full_ref, "HEAD"], root, runner
     )
     if merged.returncode == 1:
         raise AgentGitInputError("branch is not merged into HEAD")
