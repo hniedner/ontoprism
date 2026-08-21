@@ -11,6 +11,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "friday"
+      time: "06:00"
+      timezone: "Europe/Vienna"
     open-pull-requests-limit: 5
     # Wait before proposing brand-new releases, to dodge freshly-compromised
     # versions (supply-chain campaigns are typically yanked within days). The window
@@ -32,6 +35,9 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+      day: "friday"
+      time: "06:00"
+      timezone: "Europe/Vienna"
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
@@ -55,6 +61,9 @@ updates:
       - "/frontend"
     schedule:
       interval: "weekly"
+      day: "friday"
+      time: "06:00"
+      timezone: "Europe/Vienna"
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7

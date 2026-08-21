@@ -50,6 +50,10 @@ def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
     compose = yaml.safe_load((_ROOT / "docker-compose.yml").read_text())
     services = compose["services"]
 
+    assert POSTGRES_IMAGE == (
+        "pgvector/pgvector@sha256:"
+        "a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da"
+    )
     assert set(services) == {"qlever-ncit", "qlever-uberon", "postgres"}
     assert services["qlever-ncit"]["image"] == QLEVER_IMAGE
     assert services["qlever-uberon"]["image"] == QLEVER_IMAGE
@@ -71,6 +75,32 @@ def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
     assert services["qlever-uberon"]["volumes"] == ["./data/qlever-uberon:/data"]
     for name in ("qlever-ncit", "qlever-uberon"):
         assert "ASK" in " ".join(services[name]["healthcheck"]["test"])
+
+
+def test_full_application_images_are_exactly_digest_pinned() -> None:
+    compose = yaml.safe_load((_ROOT / "docker-compose.app.yml").read_text())
+    assert compose["services"]["proxy"]["image"] == (
+        "caddy:2-alpine@sha256:"
+        "5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
+    )
+
+    expected_from = {
+        "backend/Dockerfile": (
+            "python:3.13-slim@sha256:"
+            "ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a"
+        ),
+        "frontend/Dockerfile": (
+            "node:24-slim@sha256:"
+            "3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03"
+        ),
+    }
+    for relative_path, expected_image in expected_from.items():
+        from_images = [
+            line.split()[1]
+            for line in (_ROOT / relative_path).read_text().splitlines()
+            if line.startswith("FROM ")
+        ]
+        assert from_images == [expected_image, expected_image]
 
 
 def test_qlever_candidate_provenance_names_source_version_and_digest() -> None:
