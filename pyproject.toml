@@ -35,7 +35,7 @@ dependencies = [
 # generation). NOT installed by default (keeps the runtime image + CI lean); opt in
 # with `pdm install -G data-build`. The runtime only reads vectors from pgvector.
 data-build = [
-    "sentence-transformers>=3.0",
+    "sentence-transformers>=3.0,<6",
 ]
 
 [tool.pdm]

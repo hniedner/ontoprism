@@ -28,6 +28,11 @@ _DIGEST_PIN = re.compile(r"^[^:@/\s]+(?:/[^:@/\s]+)+@sha256:[0-9a-f]{64}$")
 _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f"
 _ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+_MINIMUM_BRACE_EXPANSION_VERSION = (5, 0, 9)
+_BRACE_EXPANSION_ADVISORIES = (
+    "GHSA-mh99-v99m-4gvg",
+    "GHSA-rgw5-rvv9-x895",
+)
 
 
 def _nested_image_values(value: Any) -> list[str]:
@@ -46,10 +51,22 @@ def _nested_image_values(value: Any) -> list[str]:
     return []
 
 
+def _digest_pin_identity(image: str) -> str:
+    tagged_name, separator, digest = image.partition("@")
+    repository = tagged_name.rsplit(":", maxsplit=1)[0]
+    if "/" not in repository:
+        repository = f"docker.io/library/{repository}"
+    return f"{repository}{separator}{digest}"
+
+
 def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
     compose = yaml.safe_load((_ROOT / "docker-compose.yml").read_text())
     services = compose["services"]
 
+    assert POSTGRES_IMAGE == (
+        "pgvector/pgvector@sha256:"
+        "a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da"
+    )
     assert set(services) == {"qlever-ncit", "qlever-uberon", "postgres"}
     assert services["qlever-ncit"]["image"] == QLEVER_IMAGE
     assert services["qlever-uberon"]["image"] == QLEVER_IMAGE
@@ -71,6 +88,78 @@ def test_compose_uses_only_digest_pinned_standalone_service_images() -> None:
     assert services["qlever-uberon"]["volumes"] == ["./data/qlever-uberon:/data"]
     for name in ("qlever-ncit", "qlever-uberon"):
         assert "ASK" in " ".join(services[name]["healthcheck"]["test"])
+
+
+def test_full_application_images_are_exactly_digest_pinned() -> None:
+    compose = yaml.safe_load((_ROOT / "docker-compose.app.yml").read_text())
+    services = compose["services"]
+    assert set(services) == {"api", "web", "proxy"}
+    assert all(
+        _DIGEST_PIN.fullmatch(_digest_pin_identity(service["image"]))
+        for service in services.values()
+        if "image" in service
+    )
+    assert services["proxy"]["image"] == (
+        "caddy:2-alpine@sha256:"
+        "5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
+    )
+
+    expected_from = {
+        "backend/Dockerfile": (
+            "python:3.13-slim@sha256:"
+            "ffb752e139c0a19692a43af8d8523b274222dd68eebad5d583b45c2201c6e30a"
+        ),
+        "frontend/Dockerfile": (
+            "node:24-slim@sha256:"
+            "3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03"
+        ),
+    }
+    for relative_path, expected_image in expected_from.items():
+        from_images = [
+            line.split()[1]
+            for line in (_ROOT / relative_path).read_text().splitlines()
+            if line.startswith("FROM ")
+        ]
+        assert from_images == [expected_image, expected_image]
+
+
+@pytest.fixture
+def application_image_contract_root(tmp_path: Path) -> Path:
+    for relative_path in (
+        "docker-compose.app.yml",
+        "backend/Dockerfile",
+        "frontend/Dockerfile",
+    ):
+        destination = tmp_path / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text((_ROOT / relative_path).read_text())
+    return tmp_path
+
+
+def test_application_image_contract_rejects_an_unpinned_added_service(
+    application_image_contract_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose_path = application_image_contract_root / "docker-compose.app.yml"
+    compose = yaml.safe_load(compose_path.read_text())
+    compose["services"]["cache"] = {"image": "redis:7"}
+    compose_path.write_text(yaml.safe_dump(compose))
+    monkeypatch.setitem(globals(), "_ROOT", application_image_contract_root)
+
+    with pytest.raises(AssertionError):
+        test_full_application_images_are_exactly_digest_pinned()
+
+
+def test_application_image_contract_rejects_a_pinned_unexpected_service(
+    application_image_contract_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose_path = application_image_contract_root / "docker-compose.app.yml"
+    compose = yaml.safe_load(compose_path.read_text())
+    compose["services"]["cache"] = {"image": "redis@sha256:" + "a" * 64}
+    compose_path.write_text(yaml.safe_dump(compose))
+    monkeypatch.setitem(globals(), "_ROOT", application_image_contract_root)
+
+    with pytest.raises(AssertionError):
+        test_full_application_images_are_exactly_digest_pinned()
 
 
 def test_qlever_candidate_provenance_names_source_version_and_digest() -> None:
@@ -228,6 +317,33 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
 
     dockerfile = (_ROOT / "backend" / "Dockerfile").read_text()
     assert f"RUN pip install --no-cache-dir pdm=={_PDM_VERSION}" in dockerfile
+
+
+def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:
+    assert _MINIMUM_BRACE_EXPANSION_VERSION == (5, 0, 9), (
+        "brace-expansion security floor must remain at the patched boundary for "
+        + ", ".join(_BRACE_EXPANSION_ADVISORIES)
+    )
+    package = json.loads((_ROOT / "frontend" / "package.json").read_text())
+    lock = json.loads((_ROOT / "frontend" / "package-lock.json").read_text())
+
+    locked_versions = [
+        details["version"]
+        for path, details in lock["packages"].items()
+        if path.endswith("node_modules/brace-expansion")
+    ]
+    assert locked_versions, "brace-expansion is absent from the frontend lockfile"
+    assert all(
+        tuple(map(int, version.split("."))) >= _MINIMUM_BRACE_EXPANSION_VERSION
+        for version in locked_versions
+    ), f"vulnerable brace-expansion versions are locked: {locked_versions}"
+
+    override = package["overrides"]["brace-expansion"]
+    override_match = re.fullmatch(r"[~^>=]*(\d+)\.(\d+)\.(\d+)", override)
+    assert override_match is not None, (
+        f"unsupported brace-expansion override: {override}"
+    )
+    assert tuple(map(int, override_match.groups())) >= _MINIMUM_BRACE_EXPANSION_VERSION
 
 
 def test_clean_machine_instructions_do_not_require_a_sibling_checkout() -> None:

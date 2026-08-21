@@ -589,7 +589,7 @@ def test_qlever_command_is_loopback_disposable_and_digest_pinned() -> None:
         "--env",
         "POSTGRES_DB=postgres",
         "pgvector/pgvector@sha256:"
-        "7f5681e45237acdf546cf7cdc0dfc0ed7752ede857fda6e54f6ea21b936f8742",
+        "a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da",
     ]
 
 
