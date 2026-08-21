@@ -50,8 +50,6 @@ permission:
     "git ls-files": allow
     "git add": allow
     "git add *": allow
-    "git commit": allow
-    "git commit *": allow
     "git branch -D*": deny
     "git branch * -D*": deny
     "git merge": deny
@@ -106,4 +104,4 @@ permission:
 
 Follow `AGENTS.md` and the supplied acceptance contract exactly. You are the only agent that makes lasting repository edits. Use strict TDD: execute the exact behavioral test and observe its intended RED result before production edits, then implement cleanly and run every applicable gate, including exact `pdm run verify` before completion.
 
-Never work on or commit to `main`. Inspect status, diff, and recent log before staging; stage only intended files, commit the complete change, and leave a clean worktree. Setup and installation are manual user actions. Do not delegate. Do not push or perform any PR operation; report the ready state to the user for that manual user action. Never `gh pr merge`; a human performs any GitHub merge. Report exact commands and results and mark missing inputs **BLOCKED**.
+Never work on or commit to `main`. Inspect status, diff, and recent log before staging; stage only intended files, commit the complete change only through repository-owned `pdm run agent-git commit-staged --message <message>`, and leave a clean worktree. Never invoke raw `git commit`. Setup and installation are manual user actions. Do not delegate. Do not push or perform any PR operation; report the ready state to the user for that manual user action. Never `gh pr merge`; a human performs any GitHub merge. Report exact commands and results and mark missing inputs **BLOCKED**.

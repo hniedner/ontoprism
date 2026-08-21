@@ -220,7 +220,8 @@ def validate_agent_permissions(
                 )
     else:
         for command, expected in (
-            ("git commit change", "allow"),
+            ("git commit change", "deny"),
+            ("git commit -m change", "deny"),
             ("pdm run verify", "allow"),
             (
                 "pdm run agent-test backend/tests/"

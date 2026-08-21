@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run narrowly scoped local Git branch operations for the implementer agent."""
+"""Run narrowly scoped local Git operations for the implementer agent."""
 
 from __future__ import annotations
 
@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import Protocol
 
 UNSAFE_REF_CHARACTERS = frozenset("&;|><`$\\\n\r\t")
+UNSAFE_MESSAGE_CHARACTERS = frozenset("&;|><`$\\")
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 OPERATION_ARGUMENT_COUNT = 2
+COMMIT_ARGUMENT_COUNT = 3
+MAX_COMMIT_MESSAGE_LENGTH = 200
 PROCESS_TIMEOUT_SECONDS = 10
 MUTATION_FAILURE_MESSAGES = {
     "switch-existing": (
@@ -26,6 +29,9 @@ MUTATION_FAILURE_MESSAGES = {
     ),
     "merge-no-ff": (
         "Git merge failed and may have changed repository state; inspect git status"
+    ),
+    "commit-staged": (
+        "Git commit failed and may have changed repository state; inspect git status"
     ),
 }
 
@@ -64,8 +70,6 @@ def _invoke(
             check=False,
             timeout=PROCESS_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, PermissionError) as exc:
-        raise AgentGitProcessError("required Git executable is unavailable") from exc
     except UnicodeDecodeError as exc:
         message = (
             "Git operation outcome is unknown; inspect git status"
@@ -75,13 +79,18 @@ def _invoke(
         raise AgentGitProcessError(message) from exc
     except subprocess.TimeoutExpired as exc:
         message = (
-            "Git operation timed out; inspect git status"
+            "Git operation outcome is unknown; inspect git status"
             if mutating
             else "Git operation timed out"
         )
         raise AgentGitProcessError(message) from exc
     except OSError as exc:
-        raise AgentGitProcessError("Git process could not start") from exc
+        message = (
+            "Git operation outcome is unknown; inspect git status"
+            if mutating
+            else "Git process could not start"
+        )
+        raise AgentGitProcessError(message) from exc
     return result
 
 
@@ -99,11 +108,63 @@ def _validate_branch(name: str, root: Path, runner: CommandRunner) -> None:
         raise AgentGitInputError("branch name is invalid")
 
 
+def _validate_commit_message(message: str) -> None:
+    if (
+        not message.strip()
+        or message.lstrip().startswith("-")
+        or len(message) > MAX_COMMIT_MESSAGE_LENGTH
+        or any(character in message for character in UNSAFE_MESSAGE_CHARACTERS)
+        or any(not character.isprintable() for character in message)
+    ):
+        raise AgentGitInputError("commit message is invalid")
+
+
 def _require_success(
     result: CommandResult, message: str = "Git operation failed"
 ) -> None:
     if result.returncode != 0:
         raise AgentGitProcessError(message)
+
+
+def _require_mutable_current_branch(root: Path, runner: CommandRunner) -> None:
+    current = _invoke(["git", "branch", "--show-current"], root, runner)
+    _require_success(current, "Git current branch could not be determined")
+    branch = current.stdout.strip()
+    if not branch:
+        raise AgentGitInputError("Git operation requires an attached branch")
+    if branch in PROTECTED_BRANCHES:
+        raise AgentGitInputError("Git operation cannot target a protected branch")
+
+
+def _prepare_branch_command(
+    operation: str, branch: str, root: Path, runner: CommandRunner
+) -> list[str]:
+    _validate_branch(branch, root, runner)
+    if operation == "switch-existing":
+        if branch in PROTECTED_BRANCHES:
+            raise AgentGitInputError("cannot switch to a protected branch")
+        return ["git", "switch", branch]
+    if operation == "switch-new":
+        if branch in PROTECTED_BRANCHES:
+            raise AgentGitInputError("cannot create a protected branch")
+        return ["git", "switch", "-c", branch]
+    if operation == "merge-no-ff":
+        _require_mutable_current_branch(root, runner)
+        return ["git", "merge", "--no-ff", branch]
+    if branch in PROTECTED_BRANCHES:
+        raise AgentGitInputError("protected branch cannot be deleted")
+    current = _invoke(["git", "branch", "--show-current"], root, runner)
+    _require_success(current)
+    if current.stdout.strip() == branch:
+        raise AgentGitInputError("current branch cannot be deleted")
+    merged = _invoke(
+        ["git", "merge-base", "--is-ancestor", branch, "HEAD"], root, runner
+    )
+    if merged.returncode == 1:
+        raise AgentGitInputError("branch is not merged into HEAD")
+    if merged.returncode != 0:
+        raise AgentGitProcessError("Git merge ancestry check failed")
+    return ["git", "branch", "-d", branch]
 
 
 def run_agent_git(
@@ -112,42 +173,34 @@ def run_agent_git(
     *,
     runner: CommandRunner = subprocess.run,
 ) -> int:
-    """Validate and run one fixed local branch operation without a shell."""
-    if len(arguments) != OPERATION_ARGUMENT_COUNT:
-        raise AgentGitInputError("Git operation requires exactly one branch")
-    operation, branch = arguments
+    """Validate and run one fixed local Git operation without a shell."""
+    if not arguments:
+        raise AgentGitInputError("Git operation is unsupported")
+    operation = arguments[0]
     resolved_root = root.resolve()
-    if operation not in {
+    branch_operations = {
         "switch-existing",
         "switch-new",
         "delete-merged",
         "merge-no-ff",
-    }:
-        raise AgentGitInputError("Git operation is unsupported")
-    _validate_branch(branch, resolved_root, runner)
-    if operation == "delete-merged":
-        if branch in PROTECTED_BRANCHES:
-            raise AgentGitInputError("protected branch cannot be deleted")
-        current = _invoke(["git", "branch", "--show-current"], resolved_root, runner)
-        _require_success(current)
-        if current.stdout.strip() == branch:
-            raise AgentGitInputError("current branch cannot be deleted")
-        merged = _invoke(
-            ["git", "merge-base", "--is-ancestor", branch, "HEAD"],
-            resolved_root,
-            runner,
+    }
+    if operation == "commit-staged":
+        if len(arguments) != COMMIT_ARGUMENT_COUNT or arguments[1] != "--message":
+            raise AgentGitInputError(
+                "commit-staged requires exactly --message and one value"
+            )
+        message = arguments[2]
+        _validate_commit_message(message)
+        _require_mutable_current_branch(resolved_root, runner)
+        command = ["git", "commit", "-m", message]
+    elif operation in branch_operations:
+        if len(arguments) != OPERATION_ARGUMENT_COUNT:
+            raise AgentGitInputError("Git operation requires exactly one branch")
+        command = _prepare_branch_command(
+            operation, arguments[1], resolved_root, runner
         )
-        if merged.returncode == 1:
-            raise AgentGitInputError("branch is not merged into HEAD")
-        if merged.returncode != 0:
-            raise AgentGitProcessError("Git merge ancestry check failed")
-        command = ["git", "branch", "-d", branch]
-    elif operation == "switch-existing":
-        command = ["git", "switch", branch]
-    elif operation == "switch-new":
-        command = ["git", "switch", "-c", branch]
     else:
-        command = ["git", "merge", "--no-ff", branch]
+        raise AgentGitInputError("Git operation is unsupported")
     _require_success(
         _invoke(command, resolved_root, runner, mutating=True),
         MUTATION_FAILURE_MESSAGES[operation],

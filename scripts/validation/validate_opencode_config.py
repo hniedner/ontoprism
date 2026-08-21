@@ -136,8 +136,6 @@ IMPLEMENTER_BASH_ALLOWS = (
     "git ls-files",
     "git add",
     "git add *",
-    "git commit",
-    "git commit *",
 )
 ORCHESTRATOR_BASH_ALLOWS = (
     *FIXED_GIT_INSPECTION,
@@ -695,8 +693,6 @@ def validate_standard_permissions(
         "git ls-files": "allow",
         "git add": "allow",
         "git add *": "allow",
-        "git commit": "allow",
-        "git commit *": "allow",
         "git reset --hard": "deny",
         "git reset --hard*": "deny",
         "git clean": "deny",

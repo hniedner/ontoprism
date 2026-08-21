@@ -222,7 +222,8 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
     ("command", "expected"),
     [
         ("git status --porcelain", "allow"),
-        ("git commit change", "allow"),
+        ("git commit change", "deny"),
+        ("git commit -m change", "deny"),
         ("git merge --no-ff feature", "deny"),
         ("git merge feature", "deny"),
         ("git push", "deny"),
@@ -272,6 +273,10 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("git branch -D feat/x", "deny"),
         ("git merge --no-ff feat/x", "deny"),
         ("pdm run agent-git switch-new feat/x", "allow"),
+        (
+            "pdm run agent-git commit-staged --message test:change",
+            "allow",
+        ),
         ("pdm run agent-test backend/tests/test_x.py\ngh pr merge", "deny"),
         ("pdm run agent-test backend/tests/test_x.py\rgit push", "deny"),
         ("pdm run agent-test backend/tests/test_x.py\r\ngh pr merge", "deny"),

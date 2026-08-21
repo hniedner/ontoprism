@@ -29,6 +29,10 @@ pytestmark = pytest.mark.unit
         ["delete-force", "feature"],
         ["delete-merged", "main"],
         ["merge-no-ff", "feature", "--strategy=ours"],
+        ["commit-staged", "message"],
+        ["commit-staged", "--amend", "message"],
+        ["commit-staged", "--message"],
+        ["commit-staged", "--subject", "message"],
     ],
 )
 def test_agent_git_rejects_unsafe_operations(
@@ -48,9 +52,7 @@ def git(repository: Path, *arguments: str) -> None:
     )
 
 
-def test_agent_git_runs_safe_branch_lifecycle_in_disposable_repository(
-    tmp_path: Path,
-) -> None:
+def initialize_repository(tmp_path: Path) -> None:
     git(tmp_path, "init", "-b", "main")
     git(tmp_path, "config", "user.email", "test@example.invalid")
     git(tmp_path, "config", "user.name", "Test User")
@@ -58,21 +60,98 @@ def test_agent_git_runs_safe_branch_lifecycle_in_disposable_repository(
     git(tmp_path, "add", "tracked.txt")
     git(tmp_path, "commit", "-m", "initial")
 
-    assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
-    (tmp_path / "tracked.txt").write_text("feature\n")
-    git(tmp_path, "commit", "-am", "feature")
-    assert run_agent_git(["switch-existing", "main"], tmp_path) == 0
-    assert run_agent_git(["merge-no-ff", "feat/safe"], tmp_path) == 0
-    assert run_agent_git(["delete-merged", "feat/safe"], tmp_path) == 0
 
-    branches = subprocess.run(
-        ["/usr/bin/git", "branch", "--format=%(refname:short)"],
+def test_switch_rejects_main_but_switch_new_leaves_main(
+    tmp_path: Path,
+) -> None:
+    initialize_repository(tmp_path)
+
+    with pytest.raises(AgentGitInputError, match="protected branch"):
+        run_agent_git(["switch-existing", "main"], tmp_path)
+    assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
+
+    branch = subprocess.run(
+        ["/usr/bin/git", "branch", "--show-current"],
         cwd=tmp_path,
         check=True,
         capture_output=True,
         text=True,
-    ).stdout.splitlines()
-    assert branches == ["main"]
+    )
+    assert branch.stdout.strip() == "feat/safe"
+
+
+def test_commit_staged_rejects_main_and_commits_on_feature(tmp_path: Path) -> None:
+    initialize_repository(tmp_path)
+    (tmp_path / "tracked.txt").write_text("feature\n")
+    git(tmp_path, "add", "tracked.txt")
+
+    with pytest.raises(AgentGitInputError, match="protected branch"):
+        run_agent_git(
+            ["commit-staged", "--message", "test: forbidden on main"], tmp_path
+        )
+    assert run_agent_git(["switch-new", "feat/safe"], tmp_path) == 0
+    assert (
+        run_agent_git(
+            ["commit-staged", "--message", "test: commit through wrapper"],
+            tmp_path,
+        )
+        == 0
+    )
+
+    subject = subprocess.run(
+        ["/usr/bin/git", "log", "-1", "--format=%s"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert subject.stdout.strip() == "test: commit through wrapper"
+
+
+def test_merge_rejects_main_and_succeeds_on_milestone(tmp_path: Path) -> None:
+    initialize_repository(tmp_path)
+    git(tmp_path, "switch", "-c", "feat/safe")
+    (tmp_path / "feature.txt").write_text("feature\n")
+    git(tmp_path, "add", "feature.txt")
+    git(tmp_path, "commit", "-m", "feature")
+    git(tmp_path, "switch", "main")
+
+    with pytest.raises(AgentGitInputError, match="protected branch"):
+        run_agent_git(["merge-no-ff", "feat/safe"], tmp_path)
+
+    git(tmp_path, "switch", "-c", "milestone/process")
+    assert run_agent_git(["merge-no-ff", "feat/safe"], tmp_path) == 0
+    assert (tmp_path / "feature.txt").read_text() == "feature\n"
+
+
+@pytest.mark.parametrize("operation", ["commit-staged", "merge-no-ff"])
+def test_commit_and_merge_reject_detached_head(tmp_path: Path, operation: str) -> None:
+    initialize_repository(tmp_path)
+    git(tmp_path, "switch", "--detach")
+
+    arguments = (
+        [operation, "--message", "test: detached"]
+        if operation == "commit-staged"
+        else [operation, "feat/safe"]
+    )
+    with pytest.raises(AgentGitInputError, match="attached"):
+        run_agent_git(arguments, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "",
+        "   ",
+        "-m override",
+        "message; git push",
+        "message\nsecond line",
+        "x" * 201,
+    ],
+)
+def test_commit_staged_rejects_unsafe_messages(tmp_path: Path, message: str) -> None:
+    with pytest.raises(AgentGitInputError, match="commit message is invalid"):
+        run_agent_git(["commit-staged", "--message", message], tmp_path)
 
 
 def test_agent_git_reports_conflicted_merge_as_unknown_repository_state(
@@ -92,6 +171,7 @@ def test_agent_git_reports_conflicted_merge_as_unknown_repository_state(
     tracked.write_text("feature\n")
     git(tmp_path, "commit", "-am", "feature")
     git(tmp_path, "switch", "main")
+    git(tmp_path, "switch", "-c", "milestone/conflict")
     tracked.write_text("main\n")
     git(tmp_path, "commit", "-am", "main")
 
@@ -142,7 +222,7 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
         timeouts.append(kwargs.get("timeout"))
         return Result(0)
 
-    assert run_agent_git(["switch-existing", "feat/x"], tmp_path, runner=runner) == 0
+    assert run_agent_git(["switch-new", "feat/x"], tmp_path, runner=runner) == 0
     assert timeouts == [10, 10]
 
 
@@ -179,12 +259,13 @@ def test_agent_git_classifies_decode_start_timeout_and_nonzero(
     ):
         run_agent_git(["switch-existing", "feat/x"], tmp_path, runner=mutation_decode)
 
-    with pytest.raises(AgentGitProcessError, match="executable is unavailable"):
+    with pytest.raises(AgentGitProcessError, match="process could not start") as raised:
         run_agent_git(
             ["switch-existing", "feat/x"],
             tmp_path,
             runner=scripted_runner([FileNotFoundError("secret")]),
         )
+    assert "secret" not in str(raised.value)
 
     timeout = subprocess.TimeoutExpired(["git"], 10)
     with pytest.raises(AgentGitProcessError, match="timed out"):
@@ -193,6 +274,31 @@ def test_agent_git_classifies_decode_start_timeout_and_nonzero(
             tmp_path,
             runner=scripted_runner([timeout]),
         )
+
+
+def test_oserror_reports_distinct_sanitized_mutation_state(tmp_path: Path) -> None:
+    read_only = OSError("read-only secret")
+    with pytest.raises(
+        AgentGitProcessError, match=r"^Git process could not start$"
+    ) as read_error:
+        run_agent_git(
+            ["switch-new", "feat/x"],
+            tmp_path,
+            runner=scripted_runner([read_only]),
+        )
+    assert "secret" not in str(read_error.value)
+
+    mutating = OSError("mutation secret")
+    with pytest.raises(
+        AgentGitProcessError,
+        match=r"^Git operation outcome is unknown; inspect git status$",
+    ) as mutation_error:
+        run_agent_git(
+            ["switch-new", "feat/x"],
+            tmp_path,
+            runner=scripted_runner([Result(0), mutating]),
+        )
+    assert "secret" not in str(mutation_error.value)
 
 
 @pytest.mark.parametrize(
@@ -212,8 +318,14 @@ def test_agent_git_classifies_decode_start_timeout_and_nonzero(
         ),
         (
             ["merge-no-ff", "feat/x"],
-            [Result(0), Result(9)],
+            [Result(0), Result(0, "milestone/x\n"), Result(9)],
             "Git merge failed and may have changed repository state; "
+            "inspect git status",
+        ),
+        (
+            ["commit-staged", "--message", "test: safe commit"],
+            [Result(0, "feat/x\n"), Result(9)],
+            "Git commit failed and may have changed repository state; "
             "inspect git status",
         ),
         (

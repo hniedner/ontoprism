@@ -1067,6 +1067,8 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         '"git switch *": allow',
         '"git branch *": allow',
         '"git merge --no-ff *": allow',
+        '"git commit": allow',
+        '"git commit *": allow',
     ):
         assert forbidden not in implementer
     for required in (
@@ -1079,6 +1081,21 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         '"*&*": deny',
     ):
         assert required in implementer
+
+
+@pytest.mark.parametrize("pattern", ["git commit", "git commit *"])
+def test_implementer_rejects_raw_commit_allows(config_root: Path, pattern: str) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/implementer.md",
+        '    "git add *": allow\n',
+        f'    "git add *": allow\n    "{pattern}": allow\n',
+    )
+
+    assert (
+        f"ROLE_PERMISSION: implementer has unapproved bash allow {pattern}"
+        in validate(config_root)
+    )
 
 
 @pytest.mark.parametrize("role", sorted(ROLES))
