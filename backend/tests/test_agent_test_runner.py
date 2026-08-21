@@ -324,6 +324,35 @@ def test_agent_test_invokes_fixed_command_without_shell(
     assert os.environ["PYTEST_ADDOPTS"] == "-p malicious"
 
 
+def test_agent_test_rejects_successful_frontend_run_with_no_executed_tests(
+    complete_test_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Result:
+        returncode = 0
+
+    def write_empty_report(arguments: tuple[str, ...], **_kwargs: object) -> Result:
+        output_argument = next(
+            argument for argument in arguments if argument.startswith("--outputFile=")
+        )
+        report_path = Path(output_argument.partition("=")[2])
+        report_path.write_text(
+            '{"numPassedTests": 0, "numFailedTests": 0}', encoding="utf-8"
+        )
+        return Result()
+
+    assert (
+        run_agent_test(
+            ["--frontend", "frontend/src/lib/api.test.ts"],
+            complete_test_root,
+            runner=write_empty_report,
+        )
+        == 4
+    )
+    captured = capsys.readouterr()
+    assert captured.err.strip() == "no frontend test matched the request"
+    assert captured.out == ""
+
+
 @pytest.mark.parametrize(
     ("failure", "expected"),
     [
