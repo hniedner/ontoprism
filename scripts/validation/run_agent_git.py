@@ -11,6 +11,7 @@ from typing import Protocol
 UNSAFE_REF_CHARACTERS = frozenset("&;|><`$\\\n\r\t")
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 OPERATION_ARGUMENT_COUNT = 2
+PROCESS_TIMEOUT_SECONDS = 10
 
 
 class AgentGitInputError(ValueError):
@@ -30,7 +31,13 @@ class CommandRunner(Protocol):
     def __call__(self, arguments: list[str], **kwargs: object) -> CommandResult: ...
 
 
-def _invoke(arguments: list[str], root: Path, runner: CommandRunner) -> CommandResult:
+def _invoke(
+    arguments: list[str],
+    root: Path,
+    runner: CommandRunner,
+    *,
+    mutating: bool = False,
+) -> CommandResult:
     try:
         result = runner(
             arguments,
@@ -39,10 +46,25 @@ def _invoke(arguments: list[str], root: Path, runner: CommandRunner) -> CommandR
             text=True,
             shell=False,
             check=False,
+            timeout=PROCESS_TIMEOUT_SECONDS,
         )
     except (FileNotFoundError, PermissionError) as exc:
         raise AgentGitProcessError("required Git executable is unavailable") from exc
-    except (OSError, UnicodeDecodeError) as exc:
+    except UnicodeDecodeError as exc:
+        message = (
+            "Git operation outcome is unknown; inspect git status"
+            if mutating
+            else "Git produced undecodable output"
+        )
+        raise AgentGitProcessError(message) from exc
+    except subprocess.TimeoutExpired as exc:
+        message = (
+            "Git operation timed out; inspect git status"
+            if mutating
+            else "Git operation timed out"
+        )
+        raise AgentGitProcessError(message) from exc
+    except OSError as exc:
         raise AgentGitProcessError("Git process could not start") from exc
     return result
 
@@ -97,8 +119,10 @@ def run_agent_git(
             resolved_root,
             runner,
         )
-        if merged.returncode != 0:
+        if merged.returncode == 1:
             raise AgentGitInputError("branch is not merged into HEAD")
+        if merged.returncode != 0:
+            raise AgentGitProcessError("Git merge ancestry check failed")
         command = ["git", "branch", "-d", branch]
     elif operation == "switch-existing":
         command = ["git", "switch", branch]
@@ -106,7 +130,7 @@ def run_agent_git(
         command = ["git", "switch", "-c", branch]
     else:
         command = ["git", "merge", "--no-ff", branch]
-    _require_success(_invoke(command, resolved_root, runner))
+    _require_success(_invoke(command, resolved_root, runner, mutating=True))
     return 0
 
 

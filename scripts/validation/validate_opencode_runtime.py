@@ -29,6 +29,7 @@ from scripts.validation.validate_opencode_config import (  # noqa: E402
     Validation,
     load_agent,
     load_json,
+    strict_scandir_files,
     validate_local_configs,
 )
 
@@ -426,7 +427,7 @@ def local_runtime_contract(project: Path) -> tuple[set[str], list[str]]:
 def read_plugin_evidence(isolated: Path) -> str:
     """Read plugin evidence strictly without exposing local bytes or paths."""
     try:
-        paths = list(isolated.rglob("*.log"))
+        paths = strict_scandir_files(isolated, suffix=".log")
         plugin_source = (
             isolated
             / "cache/opencode/packages/@razroo/opencode-model-fallback@0.3.2"
@@ -441,8 +442,7 @@ def read_plugin_evidence(isolated: Path) -> str:
     evidence = ""
     for path in paths:
         try:
-            if path.is_file():
-                evidence += path.read_text(encoding="utf-8")
+            evidence += path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise RuntimeContractError(
                 "Plugin sentinel validation: evidence produced undecodable output"

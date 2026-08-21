@@ -4,7 +4,11 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
-from scripts.validation.run_agent_git import AgentGitInputError, run_agent_git
+from scripts.validation.run_agent_git import (
+    AgentGitInputError,
+    AgentGitProcessError,
+    run_agent_git,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -68,3 +72,85 @@ def test_agent_git_runs_safe_branch_lifecycle_in_disposable_repository(
         text=True,
     ).stdout.splitlines()
     assert branches == ["main"]
+
+
+class Result:
+    def __init__(self, returncode: int, stdout: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+
+
+def scripted_runner(results: list[object]) -> object:
+    remaining = iter(results)
+
+    def run(_arguments: object, **_kwargs: object) -> object:
+        result = next(remaining)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    return run
+
+
+def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
+    timeouts: list[object] = []
+
+    def runner(_arguments: object, **kwargs: object) -> Result:
+        timeouts.append(kwargs.get("timeout"))
+        return Result(0)
+
+    assert run_agent_git(["switch-existing", "feat/x"], tmp_path, runner=runner) == 0
+    assert timeouts == [10, 10]
+
+
+def test_delete_merged_distinguishes_not_merged_from_operational_error(
+    tmp_path: Path,
+) -> None:
+    not_merged = scripted_runner([Result(0), Result(0, "main\n"), Result(1)])
+    with pytest.raises(AgentGitInputError, match="not merged"):
+        run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=not_merged)
+
+    operational = scripted_runner([Result(0), Result(0, "main\n"), Result(2)])
+    with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
+        run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=operational)
+
+    signaled = scripted_runner([Result(0), Result(0, "main\n"), Result(-9)])
+    with pytest.raises(AgentGitProcessError, match="merge ancestry check failed"):
+        run_agent_git(["delete-merged", "feat/x"], tmp_path, runner=signaled)
+
+
+def test_agent_git_classifies_decode_start_timeout_and_nonzero(
+    tmp_path: Path,
+) -> None:
+    undecodable = UnicodeDecodeError("utf-8", b"\xffsecret", 0, 1, "invalid")
+    with pytest.raises(AgentGitProcessError, match="produced undecodable output"):
+        run_agent_git(
+            ["switch-existing", "feat/x"],
+            tmp_path,
+            runner=scripted_runner([undecodable]),
+        )
+
+    mutation_decode = scripted_runner([Result(0), undecodable])
+    with pytest.raises(
+        AgentGitProcessError, match="outcome is unknown; inspect git status"
+    ):
+        run_agent_git(["switch-existing", "feat/x"], tmp_path, runner=mutation_decode)
+
+    with pytest.raises(AgentGitProcessError, match="executable is unavailable"):
+        run_agent_git(
+            ["switch-existing", "feat/x"],
+            tmp_path,
+            runner=scripted_runner([FileNotFoundError("secret")]),
+        )
+
+    timeout = subprocess.TimeoutExpired(["git"], 10)
+    with pytest.raises(AgentGitProcessError, match="timed out"):
+        run_agent_git(
+            ["switch-existing", "feat/x"],
+            tmp_path,
+            runner=scripted_runner([timeout]),
+        )
+
+    nonzero = scripted_runner([Result(0), Result(9)])
+    with pytest.raises(AgentGitProcessError, match="Git operation failed"):
+        run_agent_git(["switch-existing", "feat/x"], tmp_path, runner=nonzero)

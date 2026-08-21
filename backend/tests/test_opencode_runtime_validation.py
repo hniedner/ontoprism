@@ -490,3 +490,82 @@ def test_plugin_evidence_categorizes_read_error(
         str(failure.value) == "Plugin sentinel validation: evidence could not be read"
     )
     assert "secret" not in str(failure.value)
+
+
+def test_plugin_evidence_nested_scandir_error_is_categorized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    original = os.scandir
+
+    def fail_nested(path: object) -> object:
+        if Path(path) == nested:
+            raise OSError("secret")
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", fail_nested)
+
+    with pytest.raises(RuntimeContractError) as failure:
+        read_plugin_evidence(tmp_path)
+    assert (
+        str(failure.value) == "Plugin sentinel validation: evidence could not be read"
+    )
+    assert "secret" not in str(failure.value)
+
+
+def test_plugin_evidence_does_not_follow_symlink_directories(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path.parent / "outside-plugin-evidence"
+    outside.mkdir()
+    (outside / "bad.log").write_bytes(b"\xff")
+    (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
+
+    assert read_plugin_evidence(tmp_path) == ""
+
+
+def test_plugin_evidence_deletion_after_inventory_is_categorized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "plugin.log"
+    target.write_text("evidence")
+    original = os.scandir
+
+    class VanishingEntry:
+        name = "plugin.log"
+        path = str(target)
+
+        @staticmethod
+        def is_symlink() -> bool:
+            return False
+
+        @staticmethod
+        def is_dir(*, follow_symlinks: bool) -> bool:
+            return False
+
+        @staticmethod
+        def is_file(*, follow_symlinks: bool) -> bool:
+            if target.exists():
+                target.unlink()
+            return True
+
+    class Entries:
+        def __enter__(self) -> object:
+            return iter([VanishingEntry()])
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def vanish_after_inventory(path: object) -> object:
+        if Path(path) == tmp_path:
+            return Entries()
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", vanish_after_inventory)
+
+    with pytest.raises(RuntimeContractError) as failure:
+        read_plugin_evidence(tmp_path)
+    assert (
+        str(failure.value) == "Plugin sentinel validation: evidence could not be read"
+    )

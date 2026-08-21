@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -123,6 +125,14 @@ SHELL_METACHARACTER_DENIES = ("*&*", "*;*", "*|*", "*>*", "*<*", "*`*", "*$*")
 LINE_BREAK_DENIES = ("*\n*", "*\r*")
 
 
+class StrictTraversalError(OSError):
+    """A directory traversal failed at a known repository path."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__("strict directory traversal failed")
+
+
 class Validation:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -159,6 +169,34 @@ def safe_read_text(path: Path, validation: Validation, code: str) -> str | None:
         validation.error(code, f"cannot read {relative}")
         validation.read_failures.add(relative)
     return None
+
+
+def strict_scandir_files(root: Path, *, suffix: str | None = None) -> list[Path]:
+    """Return deterministic files below *root* without following symlink entries."""
+    files: list[Path] = []
+
+    def visit(directory: Path) -> None:
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise StrictTraversalError(directory) from exc
+        for entry in entries:
+            path = Path(entry.path)
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    visit(path)
+                elif entry.is_file(follow_symlinks=False) and (
+                    suffix is None or path.name.endswith(suffix)
+                ):
+                    files.append(path)
+            except OSError as exc:
+                raise StrictTraversalError(path) from exc
+
+    visit(root)
+    return files
 
 
 def strip_jsonc_comments(text: str) -> str:
@@ -404,6 +442,10 @@ def validate_shell_metacharacter_denies(
             validation.error(
                 "ROLE_PERMISSION", f"{role} has wildcard Git inspection {pattern}"
             )
+        if action == "allow" and is_raw_git_branch_mutation(pattern):
+            validation.error(
+                "ROLE_PERMISSION", f"{role} raw Git branch mutation must be absent"
+            )
     if any(
         action == "allow" and "*" in pattern for pattern, action in bash.items()
     ) and (
@@ -414,6 +456,56 @@ def validate_shell_metacharacter_denies(
             "ROLE_PERMISSION",
             f"{role} literal line-break denies must be last",
         )
+
+
+def is_raw_git_branch_mutation(pattern: str) -> bool:
+    """Return whether a permission pattern directly allows branch mutation Git."""
+    try:
+        tokens = shlex.split(pattern)
+    except ValueError:
+        return pattern.startswith(("git switch", "git branch", "git merge"))
+    if not tokens or tokens[0] != "git":
+        return False
+    index = 1
+    options_with_values = {
+        "-C",
+        "-c",
+        "--config-env",
+        "--exec-path",
+        "--git-dir",
+        "--namespace",
+        "--super-prefix",
+        "--work-tree",
+    }
+    options_without_values = {
+        "-p",
+        "-P",
+        "--bare",
+        "--glob-pathspecs",
+        "--help",
+        "--icase-pathspecs",
+        "--literal-pathspecs",
+        "--no-lazy-fetch",
+        "--no-optional-locks",
+        "--no-pager",
+        "--no-replace-objects",
+        "--noglob-pathspecs",
+        "--paginate",
+        "--version",
+    }
+    while index < len(tokens):
+        token = tokens[index]
+        if token in options_with_values:
+            index += 2
+        elif (
+            token in options_without_values
+            or token.startswith(("-C", "-c"))
+            or token.startswith(tuple(f"{option}=" for option in options_with_values))
+        ):
+            index += 1
+        else:
+            break
+    return index < len(tokens) and tokens[index] in {"switch", "branch", "merge"}
 
 
 def validate_task_permission(
@@ -498,19 +590,13 @@ def discover_agent_directory(
     if not is_directory:
         return
     try:
-        candidates = list(agent_dir.rglob("*.md"))
-    except OSError:
-        validation.error("FILES", f"cannot traverse {relative_dir}")
+        candidates = strict_scandir_files(agent_dir, suffix=".md")
+    except StrictTraversalError as exc:
+        failed = exc.path.relative_to(validation.root).as_posix()
+        validation.error("FILES", f"cannot traverse {failed}")
         return
     for path in candidates:
-        relative = path.relative_to(validation.root).as_posix()
-        try:
-            is_file = path.is_file()
-        except OSError:
-            validation.error("FILES", f"cannot inspect {relative}")
-            continue
-        if is_file:
-            discovered.setdefault(path.stem, []).append(path)
+        discovered.setdefault(path.stem, []).append(path)
 
 
 def discover_project_agents(validation: Validation) -> dict[str, list[Path]]:
@@ -1041,23 +1127,12 @@ def tracked_process_files(validation: Validation, relative: str) -> list[Path]:
     if not is_directory:
         return []
     try:
-        candidates = list(target.rglob("*"))
-    except OSError:
-        validation.error("FORBIDDEN_CONTENT", f"cannot traverse {relative}")
+        candidates = strict_scandir_files(target)
+    except StrictTraversalError as exc:
+        failed = exc.path.relative_to(validation.root).as_posix()
+        validation.error("FORBIDDEN_CONTENT", f"cannot traverse {failed}")
         return []
-    files: list[Path] = []
-    for path in candidates:
-        candidate_relative = path.relative_to(validation.root).as_posix()
-        try:
-            candidate_is_file = path.is_file()
-        except OSError:
-            validation.error(
-                "FORBIDDEN_CONTENT", f"cannot inspect {candidate_relative}"
-            )
-            continue
-        if candidate_is_file:
-            files.append(path)
-    return files
+    return candidates
 
 
 def validate_forbidden_content(validation: Validation) -> None:

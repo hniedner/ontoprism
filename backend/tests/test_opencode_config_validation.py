@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tomllib
 from pathlib import Path
@@ -155,21 +156,31 @@ def test_required_file_metadata_error_is_categorized(
     assert "FILES: cannot inspect opencode.json" in validate(config_root)
 
 
-@pytest.mark.parametrize("operation", ["is_dir", "rglob"])
+@pytest.mark.parametrize("operation", ["is_dir", "scandir"])
 def test_agent_inventory_traversal_error_is_categorized(
     config_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
 ) -> None:
     target = config_root / ".opencode/agent"
-    original = getattr(Path, operation)
+    if operation == "is_dir":
+        original = Path.is_dir
 
-    def fail_target(path: Path, *args: object) -> object:
-        if path == target:
-            raise OSError("denied")
-        return original(path, *args)
+        def fail_target(path: Path) -> object:
+            if path == target:
+                raise OSError("denied")
+            return original(path)
 
-    monkeypatch.setattr(Path, operation, fail_target)
+        monkeypatch.setattr(Path, "is_dir", fail_target)
+    else:
+        original_scandir = os.scandir
+
+        def fail_scandir(path: object) -> object:
+            if Path(path) == target:
+                raise OSError("denied")
+            return original_scandir(path)
+
+        monkeypatch.setattr(os, "scandir", fail_scandir)
 
     errors = validate(config_root)
     expected = "inspect" if operation == "is_dir" else "traverse"
@@ -180,19 +191,239 @@ def test_forbidden_content_traversal_error_is_categorized(
     config_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     target = config_root / ".opencode/command"
-    original = Path.rglob
+    original = os.scandir
 
-    def fail_target(path: Path, pattern: str) -> object:
-        if path == target:
+    def fail_target(path: object) -> object:
+        if Path(path) == target:
             raise OSError("denied")
-        return original(path, pattern)
+        return original(path)
 
-    monkeypatch.setattr(Path, "rglob", fail_target)
+    monkeypatch.setattr(os, "scandir", fail_target)
     validation = Validation(config_root)
 
     validate_forbidden_content(validation)
 
     assert "FORBIDDEN_CONTENT: cannot traverse .opencode/command" in validation.errors
+
+
+def test_nested_agent_scandir_error_is_categorized(
+    config_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nested = config_root / ".opencode/agent/nested"
+    nested.mkdir()
+    original = os.scandir
+
+    def fail_nested(path: object) -> object:
+        if Path(path) == nested:
+            raise PermissionError("denied")
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", fail_nested)
+
+    assert "FILES: cannot traverse .opencode/agent/nested" in validate(config_root)
+
+
+def test_plural_agent_inventory_nested_error_is_categorized(
+    config_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plural = config_root / ".opencode/agents"
+    plural.mkdir()
+    original = os.scandir
+
+    def fail_plural(path: object) -> object:
+        if Path(path) == plural:
+            raise PermissionError("denied")
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", fail_plural)
+
+    assert "FILES: cannot traverse .opencode/agents" in validate(config_root)
+
+
+def test_agent_inventory_does_not_follow_symlink_directories(
+    config_root: Path, tmp_path: Path
+) -> None:
+    outside = tmp_path / "outside-agents"
+    outside.mkdir()
+    shutil.copy2(config_root / ".opencode/agent/architect.md", outside / "writer.md")
+    (config_root / ".opencode/agent/link").symlink_to(outside, target_is_directory=True)
+
+    assert validate(config_root) == []
+
+
+def test_agent_inventory_deletion_race_is_categorized(
+    config_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = config_root / ".opencode/agent"
+    vanished = target / "vanished.md"
+    original = os.scandir
+
+    class VanishedEntry:
+        name = "vanished.md"
+        path = str(vanished)
+
+        @staticmethod
+        def is_symlink() -> bool:
+            return False
+
+        @staticmethod
+        def is_dir(*, follow_symlinks: bool) -> bool:
+            return False
+
+        @staticmethod
+        def is_file(*, follow_symlinks: bool) -> bool:
+            raise FileNotFoundError("deleted")
+
+    class Entries:
+        def __enter__(self) -> object:
+            return iter([VanishedEntry()])
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def race(path: object) -> object:
+        if Path(path) == target:
+            return Entries()
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", race)
+
+    assert "FILES: cannot traverse .opencode/agent/vanished.md" in validate(config_root)
+
+
+def test_agent_inventory_post_scan_deletion_is_categorized(
+    config_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = config_root / ".opencode/agent/architect.md"
+    directory = target.parent
+    original = os.scandir
+
+    class VanishingEntry:
+        name = target.name
+        path = str(target)
+
+        @staticmethod
+        def is_symlink() -> bool:
+            return False
+
+        @staticmethod
+        def is_dir(*, follow_symlinks: bool) -> bool:
+            return False
+
+        @staticmethod
+        def is_file(*, follow_symlinks: bool) -> bool:
+            target.unlink()
+            return True
+
+    class Entries:
+        def __enter__(self) -> object:
+            with original(directory) as entries:
+                return iter(
+                    [
+                        VanishingEntry() if entry.name == target.name else entry
+                        for entry in entries
+                    ]
+                )
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def vanish_after_scan(path: object) -> object:
+        if Path(path) == directory:
+            return Entries()
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", vanish_after_scan)
+
+    assert "ROLE_BODY: cannot read .opencode/agent/architect.md" in validate(
+        config_root
+    )
+
+
+def test_forbidden_content_post_scan_deletion_is_categorized(
+    config_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = config_root / ".opencode/command/review-pr.md"
+    directory = target.parent
+    original = os.scandir
+
+    class VanishingEntry:
+        name = target.name
+        path = str(target)
+
+        @staticmethod
+        def is_symlink() -> bool:
+            return False
+
+        @staticmethod
+        def is_dir(*, follow_symlinks: bool) -> bool:
+            return False
+
+        @staticmethod
+        def is_file(*, follow_symlinks: bool) -> bool:
+            target.unlink()
+            return True
+
+    class Entries:
+        def __enter__(self) -> object:
+            with original(directory) as entries:
+                return iter(
+                    [
+                        VanishingEntry() if entry.name == target.name else entry
+                        for entry in entries
+                    ]
+                )
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def vanish_after_scan(path: object) -> object:
+        if Path(path) == directory:
+            return Entries()
+        return original(path)
+
+    monkeypatch.setattr(os, "scandir", vanish_after_scan)
+
+    validation = Validation(config_root)
+    validate_forbidden_content(validation)
+
+    assert (
+        "FORBIDDEN_CONTENT: cannot read .opencode/command/review-pr.md"
+        in validation.errors
+    )
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "git switch",
+        "git branch",
+        "git merge",
+        "git switch --discard-changes *",
+        "git branch --force *",
+        "git merge -s ours *",
+        "git -C . switch *",
+        "git -c core.hooksPath=/tmp merge *",
+        "git --no-pager switch *",
+        "git -p switch *",
+        "git --git-dir=.git branch --force *",
+        "git --work-tree . merge --strategy ours *",
+    ],
+)
+def test_raw_git_branch_mutation_allows_are_rejected(
+    config_root: Path, pattern: str
+) -> None:
+    replace(
+        config_root,
+        ".opencode/agent/architect.md",
+        '    "git status --porcelain": allow\n',
+        f'    "{pattern}": allow\n    "git status --porcelain": allow\n',
+    )
+
+    assert any(
+        error.startswith("ROLE_PERMISSION: architect raw Git branch mutation")
+        for error in validate(config_root)
+    )
 
 
 def test_stale_consolidated_reviewer_is_rejected(config_root: Path) -> None:
