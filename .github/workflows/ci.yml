@@ -100,7 +100,7 @@ jobs:
 
       - name: Set up PDM (cached)
         id: setup-pdm
-        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
+        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
           python-version: "3.13"
           version: "2.28.0"
@@ -139,7 +139,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up PDM (cached)
-        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
+        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
           python-version: "3.13"
           version: "2.28.0"
@@ -261,7 +261,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Set up PDM (cached)
-        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
+        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
           python-version: "3.13"
           version: "2.28.0"
@@ -324,7 +324,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up PDM (cached)
-        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
+        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
           python-version: "3.13"
           version: "2.28.0"
@@ -399,7 +399,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up PDM (cached)
-        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f  # v4.5
+        uses: pdm-project/setup-pdm@544d7237314ee09c256785bd360f6b30add38b37  # v4.6
         with:
           python-version: "3.13"
           version: "2.28.0"
