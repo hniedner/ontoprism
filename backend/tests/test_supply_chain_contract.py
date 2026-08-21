@@ -29,6 +29,10 @@ _PDM_VERSION = "2.28.0"
 _SETUP_PDM_ACTION = "pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f"
 _ACTIONS_CACHE_ACTION = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
 _MINIMUM_BRACE_EXPANSION_VERSION = (5, 0, 9)
+_BRACE_EXPANSION_ADVISORIES = (
+    "GHSA-mh99-v99m-4gvg",
+    "GHSA-rgw5-rvv9-x895",
+)
 
 
 def _nested_image_values(value: Any) -> list[str]:
@@ -138,6 +142,19 @@ def test_application_image_contract_rejects_an_unpinned_added_service(
     compose_path = application_image_contract_root / "docker-compose.app.yml"
     compose = yaml.safe_load(compose_path.read_text())
     compose["services"]["cache"] = {"image": "redis:7"}
+    compose_path.write_text(yaml.safe_dump(compose))
+    monkeypatch.setitem(globals(), "_ROOT", application_image_contract_root)
+
+    with pytest.raises(AssertionError):
+        test_full_application_images_are_exactly_digest_pinned()
+
+
+def test_application_image_contract_rejects_a_pinned_unexpected_service(
+    application_image_contract_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose_path = application_image_contract_root / "docker-compose.app.yml"
+    compose = yaml.safe_load(compose_path.read_text())
+    compose["services"]["cache"] = {"image": "redis@sha256:" + "a" * 64}
     compose_path.write_text(yaml.safe_dump(compose))
     monkeypatch.setitem(globals(), "_ROOT", application_image_contract_root)
 
@@ -287,6 +304,10 @@ def test_ci_dependency_environments_are_pinned_clean_and_cached(
 
 
 def test_frontend_brace_expansion_is_pinned_above_vulnerable_versions() -> None:
+    assert _MINIMUM_BRACE_EXPANSION_VERSION == (5, 0, 9), (
+        "brace-expansion security floor must remain at the patched boundary for "
+        + ", ".join(_BRACE_EXPANSION_ADVISORIES)
+    )
     package = json.loads((_ROOT / "frontend" / "package.json").read_text())
     lock = json.loads((_ROOT / "frontend" / "package-lock.json").read_text())
 
