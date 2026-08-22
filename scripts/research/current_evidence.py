@@ -7,7 +7,6 @@ import json
 import os
 import tempfile
 from collections import Counter
-from dataclasses import asdict
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, Protocol, Self
@@ -424,7 +423,18 @@ def _require_run_matches_manifest(
 
 
 def _occurrence(value: SourceDefinitionOccurrence) -> CurrentSourceOccurrence:
-    return CurrentSourceOccurrence.model_validate(asdict(value))
+    return CurrentSourceOccurrence(
+        occurrence_id=value.occurrence_id,
+        root_code=value.root_code,
+        source_fact_id=value.source_fact_id,
+        source_group_id=value.source_group_id,
+        anchor_code=value.anchor_code,
+        depth=value.depth,
+        role_code=value.role_code,
+        filler_code=value.filler_code,
+        structural_path=value.structural_path,
+        member_position=value.member_position,
+    )
 
 
 def _concepts(

@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from ontolib.decomposition.branches import DecompositionBranch, branch_spec
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
@@ -64,23 +66,24 @@ class FanoutRerun:
     select_once_r82_count: int
 
 
-@dataclass(frozen=True, slots=True)
-class FanoutBaseline:
+class FanoutBaseline(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
     schema_version: int
-    source_identity: str
-    ontology_release: str
-    branch: str
-    scope_root: str
-    scope_version: str
-    concept_codes: tuple[str, ...]
-    restriction_fact_count: int
-    restriction_occurrence_count: int
-    scanned_concept_count: int
-    discovery_algorithm: str
-    discovery_query_identity: str
-    logical_select_count_budget: int
-    select_once_r82_count_budget: int
-    baseline_identity: str
+    source_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ontology_release: str = Field(min_length=1)
+    branch: str = Field(min_length=1)
+    scope_root: str = Field(pattern=r"^C[0-9]+$")
+    scope_version: str = Field(min_length=1)
+    concept_codes: tuple[str, ...] = Field(min_length=1)
+    restriction_fact_count: int = Field(ge=0)
+    restriction_occurrence_count: int = Field(ge=0)
+    scanned_concept_count: int = Field(gt=0)
+    discovery_algorithm: str = Field(min_length=1)
+    discovery_query_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    logical_select_count_budget: int = Field(gt=0)
+    select_once_r82_count_budget: int = Field(ge=0)
+    baseline_identity: str = Field(pattern=r"^$|^[0-9a-f]{64}$")
 
 
 def _canonical_digest(value: object) -> str:
@@ -91,7 +94,7 @@ def _canonical_digest(value: object) -> str:
 def baseline_identity(value: object) -> str:
     """Bind every exact observed baseline field except the identity itself."""
     if isinstance(value, FanoutBaseline):
-        payload = asdict(value)
+        payload = value.model_dump(mode="json")
     elif isinstance(value, dict):
         payload = dict(value)
     else:
@@ -455,7 +458,9 @@ async def generate_fanout_baseline(
         select_once_r82_count_budget=r82_budget,
         baseline_identity="",
     )
-    return replace(baseline, baseline_identity=baseline_identity(baseline))
+    return baseline.model_copy(
+        update={"baseline_identity": baseline_identity(baseline)}
+    )
 
 
 def _validated_rerun_counts(
@@ -479,8 +484,7 @@ def _validated_rerun_counts(
 
 
 def write_fanout_baseline(path: Path, baseline: FanoutBaseline) -> None:
-    payload = asdict(baseline)
-    payload["concept_codes"] = list(baseline.concept_codes)
+    payload = baseline.model_dump(mode="json")
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
@@ -542,7 +546,7 @@ def load_fanout_baseline(
         raise ValueError(f"fanout baseline is unreadable: {exc}") from exc
     if not isinstance(document, dict):
         raise ValueError("fanout baseline root must be an object")
-    expected_keys = set(FanoutBaseline.__dataclass_fields__)
+    expected_keys = set(FanoutBaseline.model_fields)
     if set(document) != expected_keys:
         raise ValueError("fanout baseline fields do not match its schema")
     identity = _require_string(document, "baseline_identity")

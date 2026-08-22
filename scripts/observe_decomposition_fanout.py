@@ -7,7 +7,6 @@ import argparse
 import asyncio
 import json
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 from ontolib.decomposition.fanout_baseline import (
@@ -52,7 +51,7 @@ async def _run(args: argparse.Namespace) -> None:
 
 
 def as_output(baseline: FanoutBaseline) -> dict[str, object]:
-    return asdict(baseline)
+    return baseline.model_dump(mode="json")
 
 
 def main() -> None:

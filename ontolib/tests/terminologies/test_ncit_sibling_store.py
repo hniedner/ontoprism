@@ -15,6 +15,7 @@ from ontolib.core.data_build_tools import (
     JENA_JRE_IMAGE,
     JENA_RIOT_ARTIFACT,
     QLEVER_TOOL,
+    tool_identity_document,
 )
 from ontolib.core.exceptions import StorageError
 from ontolib.terminologies.ncit.owl_download import (
@@ -153,8 +154,8 @@ class _Runtime:
             image=QLEVER_IMAGE,
             image_id="sha256:" + "1" * 64,
             cli_version="/qlever/qlever-index 65f84b4",
-            tool=QLEVER_TOOL,
-            converter=JENA_RIOT_ARTIFACT.identity,
+            tool=tool_identity_document(QLEVER_TOOL),
+            converter=tool_identity_document(JENA_RIOT_ARTIFACT.identity),
             converter_runtime_image=JENA_JRE_IMAGE,
         )
 
@@ -800,8 +801,8 @@ def test_runtime_requires_exact_pinned_image_and_cli_identity(tmp_path: Path) ->
         image=QLEVER_IMAGE,
         image_id=image_id,
         cli_version="/qlever/qlever-index 65f84b4",
-        tool=QLEVER_TOOL,
-        converter=JENA_RIOT_ARTIFACT.identity,
+        tool=tool_identity_document(QLEVER_TOOL),
+        converter=tool_identity_document(JENA_RIOT_ARTIFACT.identity),
         converter_runtime_image=JENA_JRE_IMAGE,
     )
     assert docker.calls == [

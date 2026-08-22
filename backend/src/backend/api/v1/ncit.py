@@ -4,7 +4,7 @@ mappings."""
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
-from pydantic import BaseModel, Field, computed_field
+from pydantic import Field
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.v1.alignment import mapping_relative_to
@@ -20,6 +20,7 @@ from backend.dependencies import (
 from backend.icdo_datasets import ServedIcdoDataset
 from backend.repository_metadata import RepositoryUnhealthy
 from backend.security import has_icdo_entitlement
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.logging_config import get_logger
 from ontolib.decomposition.read import attach_upstream, decomposition_from_rows
 from ontolib.decomposition.read_models import ConceptDecomposition, UpstreamMapping
@@ -92,7 +93,7 @@ async def _xref_expected(
     )
 
 
-class MappingEntry(BaseModel):
+class MappingEntry(StrictBoundaryModel):
     """One terminology alignment for an NCIt concept, serialized for the API.
 
     ``is_identity`` mirrors ``UpstreamMapping.is_identity``: true when
@@ -105,17 +106,10 @@ class MappingEntry(BaseModel):
     predicate: MappingPredicate
     lifecycle: MappingLifecycle
     confidence: float = Field(ge=0.0, le=1.0)
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def is_identity(self) -> bool:
-        return self.predicate == EXACT_MATCH and self.lifecycle in (
-            "validated",
-            "active",
-        )
+    is_identity: bool
 
 
-class ConceptMappings(BaseModel):
+class ConceptMappings(StrictBoundaryModel):
     """Mappings plus NCIt identity; ICD-O rows require capability and entitlement."""
 
     code: str
@@ -140,6 +134,10 @@ def _mapping_entries(
                 predicate=predicate,
                 lifecycle=row.lifecycle,
                 confidence=row.confidence,
+                is_identity=(
+                    predicate == EXACT_MATCH
+                    and row.lifecycle in {"validated", "active"}
+                ),
             )
         )
     return entries

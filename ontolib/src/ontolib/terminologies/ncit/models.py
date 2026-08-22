@@ -2,19 +2,21 @@
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import Field
+
+from ontolib.common.boundary_models import StrictBoundaryModel
 
 RepresentationStatus = Literal["legacy-precoordinated"]
 
 
-class ConceptRef(BaseModel):
+class ConceptRef(StrictBoundaryModel):
     """A lightweight reference to a concept: its code and best-available label."""
 
     code: str
     label: str | None = None
 
 
-class Relationship(BaseModel):
+class Relationship(StrictBoundaryModel):
     """A typed edge from a concept to a target concept.
 
     ``relation`` is the NCIt property code (e.g. ``R105`` for a role, ``A8`` for an
@@ -26,7 +28,7 @@ class Relationship(BaseModel):
     target: ConceptRef
 
 
-class ConceptDetail(BaseModel):
+class ConceptDetail(StrictBoundaryModel):
     """Full concept detail rendered by the NCIt repository interface.
 
     Roles (OWL restriction traversal) and associations both appear, plus the
@@ -39,16 +41,16 @@ class ConceptDetail(BaseModel):
     preferred_name: str | None = None
     definition: str | None = None
     representation_status: RepresentationStatus | None = None
-    semantic_types: list[str] = []
-    synonyms: list[str] = []
-    parents: list[ConceptRef] = []
-    children: list[ConceptRef] = []
-    roles: list[Relationship] = []
-    associations: list[Relationship] = []
-    incoming_roles: list[Relationship] = []
+    semantic_types: list[str] = Field(default_factory=list)
+    synonyms: list[str] = Field(default_factory=list)
+    parents: list[ConceptRef] = Field(default_factory=list)
+    children: list[ConceptRef] = Field(default_factory=list)
+    roles: list[Relationship] = Field(default_factory=list)
+    associations: list[Relationship] = Field(default_factory=list)
+    incoming_roles: list[Relationship] = Field(default_factory=list)
 
 
-class SimilarConcept(BaseModel):
+class SimilarConcept(StrictBoundaryModel):
     """A concept semantically similar to another (cosine over 768-dim embeddings)."""
 
     code: str
@@ -56,7 +58,7 @@ class SimilarConcept(BaseModel):
     score: float
 
 
-class SearchHit(BaseModel):
+class SearchHit(StrictBoundaryModel):
     """A single row in a search result table."""
 
     code: str
@@ -66,17 +68,17 @@ class SearchHit(BaseModel):
     representation_status: RepresentationStatus | None = None
 
 
-class SearchPage(BaseModel):
+class SearchPage(StrictBoundaryModel):
     """A paginated search result."""
 
     query: str
     total: int
     limit: int
     offset: int
-    hits: list[SearchHit] = []
+    hits: list[SearchHit] = Field(default_factory=list)
 
 
-class GraphNode(BaseModel):
+class GraphNode(StrictBoundaryModel):
     """A node in a concept neighborhood graph."""
 
     code: str
@@ -85,7 +87,7 @@ class GraphNode(BaseModel):
     representation_status: RepresentationStatus | None = None
 
 
-class GraphEdge(BaseModel):
+class GraphEdge(StrictBoundaryModel):
     """A typed, directed edge in a concept neighborhood graph."""
 
     source: str
@@ -95,7 +97,7 @@ class GraphEdge(BaseModel):
     kind: str  # "subClassOf" | "role" | "association" | "cde-concept"
 
 
-class Neighborhood(BaseModel):
+class Neighborhood(StrictBoundaryModel):
     """A concept-centered subgraph for the graph explorer (expand-on-demand).
 
     ``truncated`` is set when the node cap was reached during expansion, so the client
@@ -105,6 +107,6 @@ class Neighborhood(BaseModel):
     """
 
     center: str
-    nodes: list[GraphNode] = []
-    edges: list[GraphEdge] = []
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
     truncated: bool = False

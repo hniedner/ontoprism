@@ -19,7 +19,6 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
@@ -27,17 +26,32 @@ from rich.console import Console
 _REPO_ROOT = str(Path(__file__).resolve().parents[1])
 
 
-@dataclass
 class Suite:
     name: str
-    group: str  # "Backend" | "Frontend"
-    kind: str  # display label for the Type column
-    runner: str  # "pytest" | "vitest" | "playwright"
+    group: str
+    kind: str
+    runner: str
     cmd: list[str]
-    slow: bool = False  # skipped unless --all
+    slow: bool
+
+    def __init__(
+        self,
+        name: str,
+        group: str,
+        kind: str,
+        runner: str,
+        cmd: list[str],
+        *,
+        slow: bool = False,
+    ) -> None:
+        self.name = name
+        self.group = group
+        self.kind = kind
+        self.runner = runner
+        self.cmd = cmd
+        self.slow = slow
 
 
-@dataclass
 class Result:
     suite: Suite
     passed: int
@@ -46,6 +60,24 @@ class Result:
     skipped: int
     duration_s: float
     ok: bool
+
+    def __init__(
+        self,
+        suite: Suite,
+        passed: int,
+        failed: int,
+        errors: int,
+        skipped: int,
+        duration_s: float,
+        ok: bool,
+    ) -> None:
+        self.suite = suite
+        self.passed = passed
+        self.failed = failed
+        self.errors = errors
+        self.skipped = skipped
+        self.duration_s = duration_s
+        self.ok = ok
 
 
 _PYTEST_COUNT = {

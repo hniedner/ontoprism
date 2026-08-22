@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.config import get_settings
@@ -27,6 +27,7 @@ from backend.repository_metadata import (
     observe_uberon_repository,
 )
 from backend.security import RequireApiKey, RequireIcdoEntitlement
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.cadsr.download import download_cadsr_cdes
@@ -48,7 +49,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/refresh", tags=["refresh"])
 
 
-class RefreshReport(BaseModel):
+class RefreshReport(StrictBoundaryModel):
     """Result of a repository refresh: certified identity or typed refusal."""
 
     refreshed_at: str
@@ -76,7 +77,7 @@ async def refresh(
     )
 
 
-class OwlDownloadRequest(BaseModel):
+class OwlDownloadRequest(StrictBoundaryModel):
     """An intentionally empty download-only request."""
 
     model_config = ConfigDict(extra="forbid")
@@ -106,7 +107,7 @@ async def download_ncit(
     return result
 
 
-class CdeDownloadReport(BaseModel):
+class CdeDownloadReport(StrictBoundaryModel):
     """Result of a caDSR CDE archive download: the cached zip + its version markers."""
 
     file_path: str
@@ -162,7 +163,7 @@ async def download_cadsr() -> CdeDownloadReport:
     )
 
 
-class SearchIndexReport(BaseModel):
+class SearchIndexReport(StrictBoundaryModel):
     """Result of rebuilding one terminology full-text search cache."""
 
     concepts_indexed: int

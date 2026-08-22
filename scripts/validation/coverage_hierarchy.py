@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "coverage-surfaces.toml"
 STRICT_FLOOR = 90.0
@@ -39,8 +41,11 @@ _IGNORE_MARKERS = ("pragma: no cover", "istanbul ignore", "v8 ignore", "c8 ignor
 MetricKind = Literal["lines", "branches"]
 
 
-@dataclass(frozen=True, slots=True)
-class Metric:
+class _Document(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+
+class Metric(_Document):
     """One covered/total metric; ``None`` means the surface was not measured."""
 
     covered: int
@@ -77,8 +82,7 @@ class Metric:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class ArtifactIdentity:
+class ArtifactIdentity(_Document):
     """Commit and configuration identity carried beside a coverage layer."""
 
     schema_version: int
@@ -92,7 +96,17 @@ class ArtifactIdentity:
     worktree_dirty: bool = False
 
     def as_dict(self) -> dict[str, str | int | bool]:
-        return dataclasses.asdict(self)
+        return {
+            "schema_version": self.schema_version,
+            "commit": self.commit,
+            "config_sha256": self.config_sha256,
+            "manifest_sha256": self.manifest_sha256,
+            "tool": self.tool,
+            "tool_version": self.tool_version,
+            "layer": self.layer,
+            "source_sha256": self.source_sha256,
+            "worktree_dirty": self.worktree_dirty,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,8 +130,7 @@ class LayerCompatibility:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class Group:
+class Group(_Document):
     name: str
     classification: str
     language: str
@@ -127,21 +140,18 @@ class Group:
     executable: bool
 
 
-@dataclass(frozen=True, slots=True)
-class Inventory:
+class Inventory(_Document):
     root: str
     extensions: tuple[str, ...]
     default_group: str
 
 
-@dataclass(frozen=True, slots=True)
-class Assignment:
+class Assignment(_Document):
     pattern: str
     group: str
 
 
-@dataclass(frozen=True, slots=True)
-class Exemption:
+class Exemption(_Document):
     path: str
     line: int
     kind: str
@@ -153,14 +163,12 @@ class Exemption:
     configured_in: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class Surface:
+class Surface(_Document):
     path: str
     group: Group
 
 
-@dataclass(frozen=True, slots=True)
-class Manifest:
+class Manifest(_Document):
     path: Path
     schema_version: int
     report_only: bool
@@ -181,8 +189,7 @@ class CoverageConfig:
     partial_also: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class Scope:
+class Scope(_Document):
     scope_id: str
     level: str
     name: str
@@ -210,8 +217,7 @@ class Scope:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class HierarchyReport:
+class HierarchyReport(_Document):
     schema_version: int
     report_only: bool
     language: str
@@ -688,8 +694,8 @@ def _unmeasured_scope(surface: Surface) -> Scope:
         path=surface.path,
         group=surface.group.name,
         tree=surface.group.tree,
-        lines=Metric(0, None, "lines"),
-        branches=Metric(0, None, "branches"),
+        lines=Metric(covered=0, total=None, kind="lines"),
+        branches=Metric(covered=0, total=None, kind="branches"),
     )
 
 
@@ -739,7 +745,7 @@ def _sum_metrics(metrics: Iterable[Metric]) -> Metric:
     values = tuple(metrics)
     kind: MetricKind = values[0].kind if values else "branches"
     if any(metric.total is None for metric in values):
-        return Metric(0, None, kind)
+        return Metric(covered=0, total=None, kind=kind)
     return Metric(
         covered=sum(metric.covered for metric in values),
         total=sum(metric.total or 0 for metric in values),
@@ -893,9 +899,15 @@ def _istanbul_module_scope(surface: Surface, file_data: Mapping[str, object]) ->
         group=surface.group.name,
         tree=surface.group.tree,
         lines=Metric(
-            sum(hit > 0 for hit in line_hits.values()), len(line_hits), "lines"
+            covered=sum(hit > 0 for hit in line_hits.values()),
+            total=len(line_hits),
+            kind="lines",
         ),
-        branches=Metric(sum(hit > 0 for hit in flattened), len(flattened), "branches"),
+        branches=Metric(
+            covered=sum(hit > 0 for hit in flattened),
+            total=len(flattened),
+            kind="branches",
+        ),
     )
 
 
@@ -981,14 +993,14 @@ def _istanbul_function_scopes(
                 group=surface.group.name,
                 tree=surface.group.tree,
                 lines=Metric(
-                    sum(hit > 0 for hit in line_hits.values()),
-                    len(line_hits),
-                    "lines",
+                    covered=sum(hit > 0 for hit in line_hits.values()),
+                    total=len(line_hits),
+                    kind="lines",
                 ),
                 branches=Metric(
-                    sum(hit > 0 for hit in function_branch_hits),
-                    len(function_branch_hits),
-                    "branches",
+                    covered=sum(hit > 0 for hit in function_branch_hits),
+                    total=len(function_branch_hits),
+                    kind="branches",
                 ),
             )
         )
@@ -1144,7 +1156,7 @@ def verify_identities_against_current(
     # worktree, missing identities) are not relabelled as a staleness mismatch.
     verify_identities(identities)
     try:
-        current_inputs = dataclasses.replace(current, worktree_dirty=False)
+        current_inputs = current.model_copy(update={"worktree_dirty": False})
         verify_identities((*identities, current_inputs))
     except ValueError as error:
         raise ValueError(

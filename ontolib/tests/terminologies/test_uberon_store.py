@@ -15,6 +15,7 @@ from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
     QLEVER_IMAGE,
     QLEVER_TOOL,
+    tool_identity_document,
 )
 from ontolib.core.download_cache import CacheManifest, DownloadOutcome
 from ontolib.terminologies.ncit.sibling_store import (
@@ -65,8 +66,8 @@ def _loader() -> LoaderIdentity:
         image=QLEVER_IMAGE,
         image_id="sha256:" + "a" * 64,
         cli_version=QLEVER_INDEX_VERSION,
-        tool=QLEVER_TOOL,
-        converter=JENA_RIOT_ARTIFACT.identity,
+        tool=tool_identity_document(QLEVER_TOOL),
+        converter=tool_identity_document(JENA_RIOT_ARTIFACT.identity),
         converter_runtime_image=JENA_JRE_IMAGE,
     )
 

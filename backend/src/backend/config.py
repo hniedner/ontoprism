@@ -10,7 +10,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Backend configuration (see .env.example)."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # The shared .env contains settings for all three processes; unrelated keys are
+    # explicitly ignored, while values for this settings document are never coerced.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", strict=True)
 
     # ontoprism's OWN isolated services (see docker-compose.yml); distinct from the
     # sibling fairdata app (7878/7879/5432) so both run without interference.

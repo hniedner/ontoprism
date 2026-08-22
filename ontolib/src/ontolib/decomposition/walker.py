@@ -17,7 +17,7 @@ genus-walk's over-collection.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
@@ -31,7 +31,7 @@ PREFIX owl: <{OWL_NS}>
 _MAX_HOPS = 15  # generous bound on intersectionOf list length; lists seen so far are 2
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Role:
     code: str
     label: str | None
@@ -39,10 +39,10 @@ class Role:
     filler_label: str | None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Level:
-    genus_codes: list[tuple[str, str | None, bool]]  # (code, label, is_defined)
-    roles: list[Role] = field(default_factory=list)
+    genus_codes: tuple[tuple[str, str | None, bool], ...]
+    roles: tuple[Role, ...] = ()
 
 
 def _code(iri: str) -> str:
@@ -108,7 +108,7 @@ async def one_level(client: SparqlHttpClient, code: str) -> Level | None:
             )
     if not genera and not roles:
         return None
-    return Level(genus_codes=genera, roles=roles)
+    return Level(genus_codes=tuple(genera), roles=tuple(roles))
 
 
 async def _process_frontier(

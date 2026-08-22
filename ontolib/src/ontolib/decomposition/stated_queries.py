@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
 from ontolib.decomposition.complete_definition import read_complete_definition
@@ -20,9 +20,12 @@ from ontolib.decomposition.extract import (
 )
 from ontolib.decomposition.models import (
     CompleteDefinition,
+    ResolvedR82Path,
+    ResolvedR82PathEdge,
     RestrictionDefinitionFact,
     RoleRestriction,
 )
+from ontolib.decomposition.r101_conservation import r82_fact_identity
 from ontolib.terminologies.namespaces import NCIT_NS, OWL_NS, RDF_NS, RDFS_NS
 from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 from ontolib.terminologies.ncit.property_codes import SEMANTIC_TYPE
@@ -31,7 +34,6 @@ from ontolib.terminologies.sparql_transport import safe_iri
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Collection, Iterable, Mapping, Sequence
 
-    from ontolib.decomposition.r101_conservation import R82Path, R82PathEdge
 
 _PREFIXES = f"""
         PREFIX rdfs: <{RDFS_NS}>
@@ -411,14 +413,14 @@ def build_part_of_expansion_query(codes: Iterable[str]) -> str:
     return query
 
 
-@dataclass(slots=True)
 class _PartOfClosure:
-    select_once: SelectRows
-    requested: tuple[str, ...]
-    cache: dict[str, _PartOfNodeExpansion] = field(default_factory=dict, init=False)
-    expanded_codes: set[str] = field(default_factory=set, init=False)
-    request_count: int = field(default=0, init=False)
-    total_rows: int = field(default=0, init=False)
+    def __init__(self, select_once: SelectRows, requested: tuple[str, ...]) -> None:
+        self.select_once = select_once
+        self.requested = requested
+        self.cache: dict[str, _PartOfNodeExpansion] = {}
+        self.expanded_codes: set[str] = set()
+        self.request_count = 0
+        self.total_rows = 0
 
     async def _expand(self, frontier: Iterable[str]) -> None:
         missing = sorted(set(frontier) - self.cache.keys())
@@ -612,7 +614,7 @@ def _collect_inherited_evidence(
 
 @dataclass(frozen=True, slots=True)
 class PartOfPathResolution:
-    paths: dict[tuple[str, str], R82Path]
+    paths: dict[tuple[str, str], ResolvedR82Path]
     query_count: int
     max_pair_batch_size: int
 
@@ -621,11 +623,9 @@ async def _resolve_path_batch(
     client: SingleAttemptSelectRows,
     pairs: tuple[tuple[str, str], ...],
     source_identity: str,
-) -> tuple[dict[tuple[str, str], R82Path], int]:
-    from ontolib.decomposition.r101_conservation import R82Path  # noqa: PLC0415
-
+) -> tuple[dict[tuple[str, str], ResolvedR82Path], int]:
     closure = _path_closure(client, pairs)
-    resolved: dict[tuple[str, str], R82Path] = {}
+    resolved: dict[tuple[str, str], ResolvedR82Path] = {}
     targets_by_origin, paths_by_origin, frontiers, reached = _initial_path_search(pairs)
     for _hop in range(_PART_OF_MAX_R82_HOPS):
         active_nodes = _active_path_nodes(frontiers, targets_by_origin, resolved)
@@ -640,7 +640,7 @@ async def _resolve_path_batch(
             reached,
             paths_by_origin,
             source_identity,
-            R82Path,
+            ResolvedR82Path,
         )
         frontiers = next_frontiers
     return resolved, closure.request_count
@@ -657,7 +657,7 @@ def _initial_path_search(
     pairs: tuple[tuple[str, str], ...],
 ) -> tuple[
     dict[str, set[str]],
-    dict[str, dict[str, tuple[R82PathEdge, ...]]],
+    dict[str, dict[str, tuple[ResolvedR82PathEdge, ...]]],
     dict[str, set[str]],
     dict[str, set[str]],
 ]:
@@ -680,7 +680,7 @@ def _targets_by_origin(
 def _origin_is_resolved(
     origin: str,
     targets: Mapping[str, set[str]],
-    resolved: Mapping[tuple[str, str], R82Path],
+    resolved: Mapping[tuple[str, str], ResolvedR82Path],
 ) -> bool:
     return all((origin, target) in resolved for target in targets[origin])
 
@@ -688,7 +688,7 @@ def _origin_is_resolved(
 def _active_path_nodes(
     frontiers: Mapping[str, set[str]],
     targets: Mapping[str, set[str]],
-    resolved: Mapping[tuple[str, str], R82Path],
+    resolved: Mapping[tuple[str, str], ResolvedR82Path],
 ) -> set[str]:
     return {
         node
@@ -701,12 +701,12 @@ def _active_path_nodes(
 def _advance_path_search(
     frontiers: Mapping[str, set[str]],
     targets: Mapping[str, set[str]],
-    resolved: dict[tuple[str, str], R82Path],
+    resolved: dict[tuple[str, str], ResolvedR82Path],
     outgoing: Mapping[str, Mapping[str, tuple[str, str]]],
     reached: dict[str, set[str]],
-    paths_by_origin: dict[str, dict[str, tuple[R82PathEdge, ...]]],
+    paths_by_origin: dict[str, dict[str, tuple[ResolvedR82PathEdge, ...]]],
     source_identity: str,
-    path_type: type[R82Path],
+    path_type: type[ResolvedR82Path],
 ) -> dict[str, set[str]]:
     next_frontiers: dict[str, set[str]] = {}
     for origin, frontier in frontiers.items():
@@ -735,10 +735,10 @@ def _advance_origin_paths(
     frontier: set[str],
     outgoing: Mapping[str, Mapping[str, tuple[str, str]]],
     reached: set[str],
-    paths: Mapping[str, tuple[R82PathEdge, ...]],
+    paths: Mapping[str, tuple[ResolvedR82PathEdge, ...]],
     source_identity: str,
-) -> dict[str, tuple[R82PathEdge, ...]]:
-    next_paths: dict[str, tuple[R82PathEdge, ...]] = {}
+) -> dict[str, tuple[ResolvedR82PathEdge, ...]]:
+    next_paths: dict[str, tuple[ResolvedR82PathEdge, ...]] = {}
     for part in sorted(frontier):
         for whole, evidence in sorted(outgoing[part].items()):
             if whole in reached:
@@ -758,14 +758,9 @@ def _make_r82_edge(
     whole: str,
     evidence: tuple[str, str],
     source_identity: str,
-) -> R82PathEdge:
-    from ontolib.decomposition.r101_conservation import (  # noqa: PLC0415
-        R82PathEdge,
-        r82_fact_identity,
-    )
-
+) -> ResolvedR82PathEdge:
     asserted_part, restriction = evidence
-    return R82PathEdge(
+    return ResolvedR82PathEdge(
         part_code=part,
         asserted_part_code=asserted_part,
         whole_code=whole,
@@ -777,16 +772,18 @@ def _make_r82_edge(
     )
 
 
-def _path_sort_key(path: tuple[R82PathEdge, ...]) -> tuple[tuple[str, str, str], ...]:
+def _path_sort_key(
+    path: tuple[ResolvedR82PathEdge, ...],
+) -> tuple[tuple[str, str, str], ...]:
     return tuple((item.part_code, item.whole_code, item.fact_identity) for item in path)
 
 
 def _record_resolved_targets(
     origin: str,
     targets: set[str],
-    next_paths: Mapping[str, tuple[R82PathEdge, ...]],
-    resolved: dict[tuple[str, str], R82Path],
-    path_type: type[R82Path],
+    next_paths: Mapping[str, tuple[ResolvedR82PathEdge, ...]],
+    resolved: dict[tuple[str, str], ResolvedR82Path],
+    path_type: type[ResolvedR82Path],
 ) -> None:
     for target in targets:
         if target in next_paths and (origin, target) not in resolved:
@@ -825,8 +822,8 @@ async def _resolve_direct_paths(
     client: SingleAttemptSelectRows,
     requested: tuple[tuple[str, str], ...],
     source_identity: str,
-) -> tuple[dict[tuple[str, str], R82Path], int]:
-    paths: dict[tuple[str, str], R82Path] = {}
+) -> tuple[dict[tuple[str, str], ResolvedR82Path], int]:
+    paths: dict[tuple[str, str], ResolvedR82Path] = {}
     query_count = 0
     for start in range(0, len(requested), _PART_OF_CANDIDATE_PREFLIGHT_LIMIT):
         batch = requested[start : start + _PART_OF_CANDIDATE_PREFLIGHT_LIMIT]
@@ -849,9 +846,7 @@ def _direct_path_from_row(
     row: Mapping[str, str | None],
     batch: tuple[tuple[str, str], ...],
     source_identity: str,
-) -> tuple[tuple[str, str], R82Path]:
-    from ontolib.decomposition.r101_conservation import R82Path  # noqa: PLC0415
-
+) -> tuple[tuple[str, str], ResolvedR82Path]:
     bindings = _required_path_bindings(row)
     part, whole, asserted_part = (
         bindings[name].removeprefix(NCIT_NS)
@@ -866,7 +861,7 @@ def _direct_path_from_row(
         (asserted_part, bindings["restriction"]),
         source_identity,
     )
-    return key, R82Path(edges=(edge,))
+    return key, ResolvedR82Path(edges=(edge,))
 
 
 def _required_path_bindings(

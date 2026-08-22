@@ -7,6 +7,33 @@ decomposition, axis, filler, OWL existential restriction, genus, semantic type, 
 projection, source occurrence, partonomy, and relationship group, see the
 [shared terminology](../README.md#terminology).
 
+## 2026-08-22 — Python domain values and wire documents have separate model systems
+
+### D79. Dataclasses model domain values; Pydantic models validate boundaries
+
+**Decision:** immutable internal facts, evidence, verdicts, and algorithm results use frozen
+dataclasses. Strict Pydantic models are reserved for configuration, API DTOs, persistence,
+manifests, and serialized CLI/report artifacts. The two representations never contain one another;
+an adapter maps their fields explicitly. Stateful readers, repositories, and orchestrators remain
+ordinary classes rather than being forced into either value-model system.
+
+**Why:** dataclasses make domain equality and algorithm inputs explicit without serialization or
+coercion semantics. Pydantic provides the fail-closed validation and stable wire shape required at
+trust boundaries. Mixing them in one object graph makes it unclear whether construction represents
+a domain operation or parsing untrusted data, and lets a wire-library behavior become an accidental
+semantic invariant.
+
+Applying this rule changed the R101 detector identity to
+`7ca7924792a82c1822a278bd817b41392587a30779d7431827b47cb926269f46` because shortest-path
+resolution now uses domain dataclasses and converts explicitly at the report boundary. A deterministic
+rebind of the tracked D77 payload changed only `detector_identity`, `json_identity`, and
+`report_identity`; all 43,414 occurrence rows, grouping rows, counts, query metrics, and the exact TSV
+identity remained equal
+(`pdm run python -c 'import gzip,json,pathlib,subprocess; old=subprocess.run(["git","show","f17fa44:ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"],check=True,capture_output=True).stdout; a=json.loads(gzip.decompress(old)); b=json.loads(gzip.decompress(pathlib.Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz").read_bytes())); print({k for k in a.keys()|b.keys() if a.get(k)!=b.get(k)},a["occurrences"]==b["occurrences"],a["counts"]==b["counts"],a["query_metrics"]==b["query_metrics"],a["tsv_identity"]==b["tsv_identity"])'`,
+2026-08-22). Full regeneration from the historical database is blocked because its v3 baseline run
+stores obsolete fingerprint schema 2 and no `collapse_policy_identity`; current readers correctly
+fail closed rather than carrying a legacy compatibility reader.
+
 ## 2026-08-20 — R101 coverage review is human-centered and occurrence-bound
 
 ### D78. Review non-exclusive projection coverage without asserting disease exclusivity

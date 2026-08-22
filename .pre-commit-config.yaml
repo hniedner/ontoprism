@@ -160,6 +160,13 @@ repos:
         types: [python]
         pass_filenames: false
 
+      - id: check-model-boundaries
+        name: check dataclass/Pydantic architecture boundaries
+        entry: pdm run python scripts/validation/check_model_boundaries.py
+        language: system
+        types: [python]
+        pass_filenames: false
+
       # Hermetic only: validates declared surfaces/exemptions and fixture semantics.
       # It never consumes a local .coverage file or claims service coverage exists.
       - id: coverage-surface-manifest
