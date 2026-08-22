@@ -61,6 +61,14 @@ class CommandRunner(Protocol):
     ) -> CommandResult: ...
 
 
+def _subprocess_runner(arguments: tuple[str, ...], **kwargs: object) -> CommandResult:
+    # Arguments are the validated fixed test invocation; never shell input.
+    return subprocess.run(  # noqa: S603, PLW1510
+        arguments,
+        **kwargs,  # type: ignore[arg-type,return-value]
+    )
+
+
 def _reject_shell_syntax(argument: str) -> None:
     if not argument or any(character in argument for character in SHELL_METACHARACTERS):
         raise AgentTestInputError("test arguments must not contain shell syntax")
@@ -308,9 +316,10 @@ def run_agent_test(
     arguments: list[str],
     root: Path,
     *,
-    runner: CommandRunner = subprocess.run,
+    runner: CommandRunner | None = None,
 ) -> int:
     """Execute a validated pytest command directly, never through a shell."""
+    runner = runner or _subprocess_runner
     invocation = build_pytest_invocation(arguments, root)
     with tempfile.TemporaryDirectory(prefix="ontoprism-agent-test-") as temporary:
         report_path = Path(temporary) / "vitest-report.json"

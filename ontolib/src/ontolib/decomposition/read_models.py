@@ -4,13 +4,14 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 ``legacy-precoordinated`` with a list of constituents (axis + filler + provenance).
 """
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.decomposition.models import AxisSource
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 
 
-class UpstreamMapping(BaseModel):
+class UpstreamMapping(StrictBoundaryModel):
     """An upstream (Uberon/CL) equivalent of an NCIt code, from the xref layer.
 
     ``predicate`` is the full SKOS mapping IRI (verbatim); ``lifecycle`` is the
@@ -32,7 +33,7 @@ class UpstreamMapping(BaseModel):
         )
 
 
-class DecompositionConstituent(BaseModel):
+class DecompositionConstituent(StrictBoundaryModel):
     """One decomposed constituent: the axis and the concept that fills it.
 
     ``axis`` is a normalized ``op:`` relation (or a legacy NCIt role code);
@@ -51,10 +52,10 @@ class DecompositionConstituent(BaseModel):
     needs_review: bool = False
     group: str | None = None
     source_definition_ids: tuple[str, ...] = ()
-    upstream: list[UpstreamMapping] = []
+    upstream: list[UpstreamMapping] = Field(default_factory=list)
 
 
-class ConceptDecomposition(BaseModel):
+class ConceptDecomposition(StrictBoundaryModel):
     """A concept's decomposition as read from the ``ncit_decomposed`` named graph.
 
     ``is_legacy_precoordinated`` is False (and ``constituents`` empty) for a concept the
@@ -65,4 +66,4 @@ class ConceptDecomposition(BaseModel):
     code: str
     is_legacy_precoordinated: bool
     decomposed_on: str | None = None
-    constituents: list[DecompositionConstituent] = []
+    constituents: list[DecompositionConstituent] = Field(default_factory=list)

@@ -40,6 +40,7 @@ from ontolib.decomposition.r101_conservation import (
     R101ConservationValidationError,
     build_r101_occurrence_ledger,
     load_r101_conservation_report,
+    r82_path_document,
     r101_detector_identity,
     r101_proof_identity,
     validate_r101_publication,
@@ -97,6 +98,13 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
     from research.current_evidence import generate_current_evidence
 
 try:
+    from scripts.research.axis_diagnostic_report import (
+        generate_axis_diagnostic_report,
+    )
+except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
+    from research.axis_diagnostic_report import generate_axis_diagnostic_report
+
+try:
     from scripts.decompose import _source_snapshot
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from decompose import _source_snapshot
@@ -145,6 +153,18 @@ class _CurrentEvidenceArgs(Protocol):
     artifact: Path
     engine_output: Path
     comparison_output: Path
+
+
+class _AxisDiagnosticArgs(Protocol):
+    source_manifest: Path
+    endpoint: str
+    oracle: Path
+    row_decisions: Path
+    proposal_registry: Path
+    current_evidence: Path
+    current_comparison: Path
+    residual_filler: list[str]
+    output: Path
 
 
 class _CorpusBaselineArgs(Protocol):
@@ -239,6 +259,20 @@ async def _generate_current(args: _CurrentEvidenceArgs) -> None:
         await dispose_engine(engine)
 
 
+async def _generate_axis_diagnostics(args: _AxisDiagnosticArgs) -> None:
+    await generate_axis_diagnostic_report(
+        source_manifest=args.source_manifest,
+        endpoint=args.endpoint,
+        oracle_path=args.oracle,
+        row_decisions_path=args.row_decisions,
+        proposal_registry_path=args.proposal_registry,
+        current_evidence_path=args.current_evidence,
+        current_comparison_path=args.current_comparison,
+        residual_fillers=tuple(args.residual_filler),
+        output=args.output,
+    )
+
+
 async def _generate_corpus(args: _CorpusBaselineArgs) -> None:
     manifest = validate_ncit_sibling_manifest(args.source_manifest)
     engine = make_engine(get_settings().database_url)
@@ -319,7 +353,10 @@ async def _generate_r101_conservation(args: _R101ConservationArgs) -> None:
             )
             report = build_r101_occurrence_ledger(
                 source_rows.occurrences,
-                paths=path_result.paths,
+                paths={
+                    pair: r82_path_document(path)
+                    for pair, path in path_result.paths.items()
+                },
                 context=LedgerBuildContext(
                     source_identity=manifest.source_identity,
                     source_release_id=manifest.ontology_version,
@@ -621,6 +658,18 @@ def _parser() -> argparse.ArgumentParser:
     current_parser.add_argument("--artifact", required=True, type=Path)
     current_parser.add_argument("--engine-output", required=True, type=Path)
     current_parser.add_argument("--comparison-output", required=True, type=Path)
+    axis_parser = subparsers.add_parser("generate-axis-diagnostics")
+    axis_parser.add_argument("--source-manifest", required=True, type=Path)
+    axis_parser.add_argument("--endpoint", required=True)
+    axis_parser.add_argument("--oracle", required=True, type=Path)
+    axis_parser.add_argument("--row-decisions", required=True, type=Path)
+    axis_parser.add_argument("--proposal-registry", required=True, type=Path)
+    axis_parser.add_argument("--current-evidence", required=True, type=Path)
+    axis_parser.add_argument("--current-comparison", required=True, type=Path)
+    axis_parser.add_argument(
+        "--residual-filler", required=True, action="append", default=[]
+    )
+    axis_parser.add_argument("--output", required=True, type=Path)
     corpus_parser = subparsers.add_parser("generate-corpus-baseline")
     corpus_parser.add_argument("--source-manifest", required=True, type=Path)
     corpus_parser.add_argument("--run-id", required=True)
@@ -649,6 +698,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "generate-current-evidence":
         asyncio.run(_generate_current(cast("_CurrentEvidenceArgs", args)))
+        return
+    if args.command == "generate-axis-diagnostics":
+        asyncio.run(_generate_axis_diagnostics(cast("_AxisDiagnosticArgs", args)))
         return
     if args.command == "generate-corpus-baseline":
         asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))

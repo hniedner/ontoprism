@@ -64,6 +64,26 @@ ontoprism/
   -q`, 2026-08-10). Decomposition RDF and proposal RDF remain additive projections,
   never source graph mutations.
 
+## Python model boundary
+
+ONTOPRISM uses both dataclasses and Pydantic deliberately; they are not interchangeable.
+
+- **Frozen dataclasses are domain values.** Pure algorithms exchange immutable facts,
+  evidence, verdicts, and calculation results as dataclasses. Domain modules do not
+  inherit from Pydantic models and do not embed Pydantic configuration or wire objects.
+- **Pydantic models are boundary documents.** Configuration, API DTOs, persisted JSON,
+  CLI-generated artifacts, manifests, and database/report payloads use strict Pydantic
+  models because they validate untrusted or serialized shapes and provide a defined wire
+  representation.
+- **Adapters convert explicitly.** A boundary model may not contain a domain dataclass as
+  a field, and a domain dataclass may not contain a Pydantic model. Adapter functions map
+  every field between the two representations. This keeps serialization concerns out of
+  domain logic and prevents Pydantic's coercion/serialization behavior from becoming an
+  implicit domain contract.
+- **Ordinary service/adapter classes remain ordinary classes.** A QLever reader, cache,
+  repository, or orchestrator is behavior, not a value schema; it uses neither dataclass
+  nor `BaseModel` merely for convenience.
+
 ## Web request architecture
 
 ```text

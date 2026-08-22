@@ -6,7 +6,6 @@ import argparse
 import shutil
 import subprocess
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -42,10 +41,13 @@ EXTENSION_TO_LANGUAGE = {
 }
 
 
-@dataclass
 class LanguageStats:
-    files: int = 0
-    lines: int = 0
+    files: int
+    lines: int
+
+    def __init__(self, files: int = 0, lines: int = 0) -> None:
+        self.files = files
+        self.lines = lines
 
 
 def _tracked_files() -> list[Path]:

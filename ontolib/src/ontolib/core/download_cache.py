@@ -21,8 +21,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, NoReturn
 
 import httpx
-from pydantic import BaseModel
 
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 
@@ -44,7 +44,7 @@ _SERVER_ERROR = 500  # >= this is a (retryable) 5xx; below is a terminal 4xx
 _RETRYABLE = (httpx.RequestError, httpx.HTTPStatusError)
 
 
-class CacheManifest(BaseModel):
+class CacheManifest(StrictBoundaryModel):
     """Provenance of a cached source file — the answer to 'which version is on disk'."""
 
     url: str
@@ -54,7 +54,7 @@ class CacheManifest(BaseModel):
     last_modified: str | None = None
 
 
-class DownloadOutcome(BaseModel):
+class DownloadOutcome(StrictBoundaryModel):
     """Result of a cached download and how it was satisfied."""
 
     path: str

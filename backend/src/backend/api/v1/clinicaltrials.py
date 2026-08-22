@@ -8,10 +8,11 @@ natural-language / LLM term-extraction layer from fairdata is not ported.
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from backend.api.upstream import upstream_http_exception
 from backend.dependencies import ClinicalTrials
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.clinicaltrials.models import (
@@ -25,7 +26,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1/clinicaltrials", tags=["clinicaltrials"])
 
 
-class CTSearchRequest(BaseModel):
+class CTSearchRequest(StrictBoundaryModel):
     """Search parameters for ClinicalTrials.gov (at least one query field required)."""
 
     condition: str | None = Field(default=None, max_length=500)

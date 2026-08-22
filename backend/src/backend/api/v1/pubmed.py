@@ -8,10 +8,11 @@ ported.
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from backend.api.upstream import upstream_http_exception
 from backend.dependencies import PubMed
+from ontolib.common.boundary_models import StrictBoundaryModel
 from ontolib.core.exceptions import StorageError
 from ontolib.core.logging_config import get_logger
 from ontolib.repositories.pubmed.models import (
@@ -28,7 +29,7 @@ router = APIRouter(prefix="/api/v1/pubmed", tags=["pubmed"])
 LinkType = Literal["similar", "cited_by", "references"]
 
 
-class PubMedSearchRequest(BaseModel):
+class PubMedSearchRequest(StrictBoundaryModel):
     """Search parameters for PubMed."""
 
     query: Annotated[str, Field(min_length=1, max_length=2000)]

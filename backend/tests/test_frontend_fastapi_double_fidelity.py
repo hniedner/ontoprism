@@ -20,7 +20,7 @@ def test_double_icdo_page_validates_against_production_dto() -> None:
         )
 
     assert response.status_code == 200
-    TypeAdapter(IcdoPage).validate_python(response.json())
+    TypeAdapter(IcdoPage).validate_json(response.content)
 
 
 def test_double_refresh_report_validates_against_production_dto() -> None:
@@ -28,7 +28,7 @@ def test_double_refresh_report_validates_against_production_dto() -> None:
         response = client.post("/api/v1/refresh")
 
     assert response.status_code == 200
-    RefreshReport.model_validate(response.json())
+    RefreshReport.model_validate_json(response.content)
 
 
 def test_double_licensed_mappings_require_capability_and_entitlement(
@@ -47,9 +47,9 @@ def test_double_licensed_mappings_require_capability_and_entitlement(
             headers={"X-ICDO-Entitlement": "licensed"},
         )
 
-    disabled_dto = ConceptMappings.model_validate(disabled.json())
-    missing_dto = ConceptMappings.model_validate(missing.json())
-    enabled_dto = ConceptMappings.model_validate(enabled.json())
+    disabled_dto = ConceptMappings.model_validate_json(disabled.content)
+    missing_dto = ConceptMappings.model_validate_json(missing.content)
+    enabled_dto = ConceptMappings.model_validate_json(enabled.content)
     assert disabled_dto.mappings == []
     assert missing_dto.mappings == []
     assert [mapping.object_id for mapping in enabled_dto.mappings] == [

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -36,7 +35,6 @@ _FRESHNESS_FIELDS = frozenset(
 )
 
 
-@dataclass(slots=True)
 class ResumeWorkItem:
     """Persisted fields needed to prove one work item is safe to select or exclude."""
 
@@ -44,46 +42,102 @@ class ResumeWorkItem:
     ordinal: int
     state: Literal["pending", "running", "failed", "complete"]
     attempt_count: int
-    claim_token: object | None = None
-    claimed_at: object | None = None
-    semantic_type: str | None = None
-    semantic_types: tuple[str, ...] | None = None
-    outcome: str | None = None
-    is_decomposed: bool | None = None
-    is_residual: bool | None = None
-    has_complete_definition: bool | None = None
-    constituent_count: int | None = None
-    minted_count: int | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    failed_at: object | None = None
-    completed_at: object | None = None
+    claim_token: object | None
+    claimed_at: object | None
+    semantic_type: str | None
+    semantic_types: tuple[str, ...] | None
+    outcome: str | None
+    is_decomposed: bool | None
+    is_residual: bool | None
+    has_complete_definition: bool | None
+    constituent_count: int | None
+    minted_count: int | None
+    error_type: str | None
+    error_message: str | None
+    failed_at: object | None
+    completed_at: object | None
+
+    def __init__(
+        self,
+        *,
+        concept_code: str,
+        ordinal: int,
+        state: Literal["pending", "running", "failed", "complete"],
+        attempt_count: int,
+        claim_token: object | None = None,
+        claimed_at: object | None = None,
+        semantic_type: str | None = None,
+        semantic_types: tuple[str, ...] | None = None,
+        outcome: str | None = None,
+        is_decomposed: bool | None = None,
+        is_residual: bool | None = None,
+        has_complete_definition: bool | None = None,
+        constituent_count: int | None = None,
+        minted_count: int | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        failed_at: object | None = None,
+        completed_at: object | None = None,
+    ) -> None:
+        self.concept_code = concept_code
+        self.ordinal = ordinal
+        self.state = state
+        self.attempt_count = attempt_count
+        self.claim_token = claim_token
+        self.claimed_at = claimed_at
+        self.semantic_type = semantic_type
+        self.semantic_types = semantic_types
+        self.outcome = outcome
+        self.is_decomposed = is_decomposed
+        self.is_residual = is_residual
+        self.has_complete_definition = has_complete_definition
+        self.constituent_count = constituent_count
+        self.minted_count = minted_count
+        self.error_type = error_type
+        self.error_message = error_message
+        self.failed_at = failed_at
+        self.completed_at = completed_at
 
 
-@dataclass(frozen=True, slots=True)
 class ResumeSelection:
     """Exact ordinal cohorts observed by the production resume selector."""
 
-    fingerprint: RunFingerprint
-    pending_codes: tuple[str, ...]
-    completed_codes: tuple[str, ...]
-    selected_complete_count: int
-    postgres_reads: int
+    def __init__(
+        self,
+        *,
+        fingerprint: RunFingerprint,
+        pending_codes: tuple[str, ...],
+        completed_codes: tuple[str, ...],
+        selected_complete_count: int,
+        postgres_reads: int,
+    ) -> None:
+        self.fingerprint = fingerprint
+        self.pending_codes = pending_codes
+        self.completed_codes = completed_codes
+        self.selected_complete_count = selected_complete_count
+        self.postgres_reads = postgres_reads
 
 
 def _pending_is_pristine(row: ResumeWorkItem) -> bool:
-    values = asdict(row)
-    allowed = {
-        "concept_code",
-        "ordinal",
-        "state",
-        "attempt_count",
-        "has_complete_definition",
-    }
+    nullable = (
+        row.claim_token,
+        row.claimed_at,
+        row.semantic_type,
+        row.semantic_types,
+        row.outcome,
+        row.is_decomposed,
+        row.is_residual,
+        row.constituent_count,
+        row.minted_count,
+        row.error_type,
+        row.error_message,
+        row.failed_at,
+        row.completed_at,
+    )
     return (
         row.attempt_count == 0
         and row.has_complete_definition is False
-        and all(value is None for name, value in values.items() if name not in allowed)
+        and all(value is None for value in nullable)
     )
 
 

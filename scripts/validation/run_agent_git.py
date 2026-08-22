@@ -53,6 +53,14 @@ class CommandRunner(Protocol):
     def __call__(self, arguments: list[str], **kwargs: object) -> CommandResult: ...
 
 
+def _subprocess_runner(arguments: list[str], **kwargs: object) -> CommandResult:
+    # Arguments are the fixed, validated Git invocation built above; never shell input.
+    return subprocess.run(  # noqa: S603, PLW1510
+        arguments,
+        **kwargs,  # type: ignore[arg-type,return-value]
+    )
+
+
 def _invoke(
     arguments: list[str],
     root: Path,
@@ -191,9 +199,10 @@ def run_agent_git(
     arguments: list[str],
     root: Path,
     *,
-    runner: CommandRunner = subprocess.run,
+    runner: CommandRunner | None = None,
 ) -> int:
     """Validate and run one fixed local Git operation without a shell."""
+    runner = runner or _subprocess_runner
     if not arguments:
         raise AgentGitInputError("Git operation is unsupported")
     operation = arguments[0]

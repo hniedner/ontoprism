@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any
 
+    from ontolib.decomposition.models import ResolvedR82Path
+
 _SHA256 = r"^[0-9a-f]{64}$"
 _CODE = r"^C[0-9]+$"
 R101_CONSERVATION_SCHEMA_VERSION = 3
@@ -254,6 +256,22 @@ class R82PathEdge(_StrictModel):
 
 class R82Path(_StrictModel):
     edges: tuple[R82PathEdge, ...]
+
+
+def r82_path_document(value: ResolvedR82Path) -> R82Path:
+    return R82Path(
+        edges=tuple(
+            R82PathEdge(
+                part_code=edge.part_code,
+                asserted_part_code=edge.asserted_part_code,
+                whole_code=edge.whole_code,
+                restriction_node_id=edge.restriction_node_id,
+                fact_identity=edge.fact_identity,
+                source_identity=edge.source_identity,
+            )
+            for edge in value.edges
+        )
+    )
 
 
 class QueryMetrics(_StrictModel):

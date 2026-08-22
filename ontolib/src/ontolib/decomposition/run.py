@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import uuid4
@@ -167,7 +167,6 @@ def _validate_sample_config(config: RunConfig) -> None:
         raise ValueError("sample manifest does not match run hierarchy scope")
 
 
-@dataclass(frozen=True)
 class RunConfig:
     """Configuration for a decomposition run.
 
@@ -177,16 +176,23 @@ class RunConfig:
     equivalence-validation step can prove the complete representation is exact.
     """
 
-    branch: DecompositionBranch
-    out: Path | None = None
-    load_to_store: bool = False
-    emit_equivalence: bool = False
-    resume_from: str | None = None
-    walker_max_depth: int = 5
-    sample_manifest: DecompositionSampleManifest | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "branch", parse_branch(self.branch))
+    def __init__(
+        self,
+        branch: DecompositionBranch | str,
+        out: Path | None = None,
+        load_to_store: bool = False,
+        emit_equivalence: bool = False,
+        resume_from: str | None = None,
+        walker_max_depth: int = 5,
+        sample_manifest: DecompositionSampleManifest | None = None,
+    ) -> None:
+        self.branch = parse_branch(branch)
+        self.out = out
+        self.load_to_store = load_to_store
+        self.emit_equivalence = emit_equivalence
+        self.resume_from = resume_from
+        self.walker_max_depth = walker_max_depth
+        self.sample_manifest = sample_manifest
         if self.emit_equivalence:
             raise ValueError(
                 "equivalence emission is not available until a separate validation "
@@ -222,7 +228,6 @@ class RunConfig:
         return branch_spec(self.branch).algorithm_version
 
 
-@dataclass
 class RunMetrics:
     """Coverage metrics for a decomposition run (design §10).
 
@@ -267,21 +272,47 @@ class RunMetrics:
     a separate validation step proves exact equivalence from the complete record.
     """
 
-    total_in_scope: int = 0
-    decomposed: int = 0
-    residual: int = 0
-    semantic_excluded: int = 0
-    atomic_noop: int = 0
-    unknown_outcome: int = 0
-    residual_precoordinated_count: int = 0
-    minted_count: int = 0
-    complete_definition_count: int = 0
-    complete_fact_count: int = 0
-    projected_fact_count: int = 0
-    projection_loss_count: int = 0
-    projection_loss_rate: float = 0.0
-    pct_decomposed: float = 0.0
-    roundtrip_fidelity: None = None
+    __hash__ = None  # type: ignore[assignment]
+
+    def __init__(
+        self,
+        *,
+        total_in_scope: int = 0,
+        decomposed: int = 0,
+        residual: int = 0,
+        semantic_excluded: int = 0,
+        atomic_noop: int = 0,
+        unknown_outcome: int = 0,
+        residual_precoordinated_count: int = 0,
+        minted_count: int = 0,
+        complete_definition_count: int = 0,
+        complete_fact_count: int = 0,
+        projected_fact_count: int = 0,
+        projection_loss_count: int = 0,
+        projection_loss_rate: float = 0.0,
+        pct_decomposed: float = 0.0,
+        roundtrip_fidelity: None = None,
+    ) -> None:
+        self.total_in_scope = total_in_scope
+        self.decomposed = decomposed
+        self.residual = residual
+        self.semantic_excluded = semantic_excluded
+        self.atomic_noop = atomic_noop
+        self.unknown_outcome = unknown_outcome
+        self.residual_precoordinated_count = residual_precoordinated_count
+        self.minted_count = minted_count
+        self.complete_definition_count = complete_definition_count
+        self.complete_fact_count = complete_fact_count
+        self.projected_fact_count = projected_fact_count
+        self.projection_loss_count = projection_loss_count
+        self.projection_loss_rate = projection_loss_rate
+        self.pct_decomposed = pct_decomposed
+        self.roundtrip_fidelity = roundtrip_fidelity
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, RunMetrics) and _persisted_metrics(
+            self
+        ) == _persisted_metrics(other)
 
     @property
     def coverage(self) -> float:
@@ -334,7 +365,7 @@ def _require_residual_candidate(decomposition: Decomposition | None) -> None:
 
 def _require_candidate_mint_shape(
     outcome: ConceptOutcome,
-    minted: list[MintedConcept],
+    minted: tuple[MintedConcept, ...],
 ) -> None:
     if outcome != "decomposed" and minted:
         raise ValueError(
@@ -342,15 +373,16 @@ def _require_candidate_mint_shape(
         )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class _CandidateResult:
     decomposition: Decomposition | None
     outcome: ConceptOutcome
     semantic_types: tuple[str, ...]
-    minted: list[MintedConcept] = field(default_factory=list)
+    minted: tuple[MintedConcept, ...] = ()
 
     def __post_init__(self) -> None:
         _require_candidate_outcome_shape(self.decomposition, self.outcome)
+        object.__setattr__(self, "minted", tuple(self.minted))
         _require_candidate_mint_shape(self.outcome, self.minted)
 
 
@@ -555,7 +587,7 @@ async def _decompose_one(
         decomposition=decomposition,
         outcome="decomposed" if decomposition.constituents else "residual",
         semantic_types=semantic_types,
-        minted=minted,
+        minted=tuple(minted),
     )
 
 
@@ -656,14 +688,23 @@ async def _is_precoordinated_filler(
     return result.is_precoordinated
 
 
-@dataclass(frozen=True)
 class _RunSetup:
-    run_id: str
-    source_snapshot: NcitSourceSnapshot
-    fingerprint: RunFingerprint
-    collapse_policy: CollapseVetoPolicy
-    pending: list[str]
-    labels: dict[str, str]
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        source_snapshot: NcitSourceSnapshot,
+        fingerprint: RunFingerprint,
+        collapse_policy: CollapseVetoPolicy,
+        pending: list[str],
+        labels: dict[str, str],
+    ) -> None:
+        self.run_id = run_id
+        self.source_snapshot = source_snapshot
+        self.fingerprint = fingerprint
+        self.collapse_policy = collapse_policy
+        self.pending = list(pending)
+        self.labels = dict(labels)
 
 
 @dataclass(frozen=True, slots=True)
@@ -956,7 +997,7 @@ async def _process_work_item(
             decomposition=result.decomposition,
             outcome=result.outcome,
             semantic_types=result.semantic_types,
-            minted=tuple(result.minted),
+            minted=result.minted,
         )
     except BaseException as exc:
         logger.exception(
@@ -1172,9 +1213,24 @@ async def _verify_final_source_snapshot(
 
 
 def _persisted_metrics(metrics: RunMetrics) -> dict[str, object]:
-    persisted = asdict(metrics)
-    persisted["residual_precoordination"] = metrics.residual_precoordination
-    return persisted
+    return {
+        "total_in_scope": metrics.total_in_scope,
+        "decomposed": metrics.decomposed,
+        "residual": metrics.residual,
+        "semantic_excluded": metrics.semantic_excluded,
+        "atomic_noop": metrics.atomic_noop,
+        "unknown_outcome": metrics.unknown_outcome,
+        "residual_precoordinated_count": metrics.residual_precoordinated_count,
+        "minted_count": metrics.minted_count,
+        "complete_definition_count": metrics.complete_definition_count,
+        "complete_fact_count": metrics.complete_fact_count,
+        "projected_fact_count": metrics.projected_fact_count,
+        "projection_loss_count": metrics.projection_loss_count,
+        "projection_loss_rate": metrics.projection_loss_rate,
+        "pct_decomposed": metrics.pct_decomposed,
+        "roundtrip_fidelity": metrics.roundtrip_fidelity,
+        "residual_precoordination": metrics.residual_precoordination,
+    }
 
 
 async def _publish_or_complete_run(

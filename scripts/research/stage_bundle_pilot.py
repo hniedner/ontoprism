@@ -2000,7 +2000,8 @@ def _write_review_decision_row(
     values: tuple[object, ...],
 ) -> None:
     for column, value in enumerate(values, start=1):
-        sheet.cell(row, column, value)
+        cell_value = value if isinstance(value, (str, int, float, bool)) else None
+        sheet.cell(row, column, cell_value)
     sheet.cell(row, _DECISION_COLUMNS["Review Date"]).number_format = "@"
     for column in range(_DECISION_COLUMNS["Decision"], _DECISION_COLUMN_COUNT + 1):
         sheet.cell(row, column).fill = PatternFill("solid", fgColor="FFF2CC")

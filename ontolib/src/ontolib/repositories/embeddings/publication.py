@@ -14,16 +14,17 @@ import math
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime  # noqa: TC003 - Pydantic resolves this at runtime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
+from uuid import UUID  # noqa: TC003 - Pydantic resolves this at runtime
 
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-    from datetime import datetime
-    from uuid import UUID
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -162,9 +163,10 @@ def _validate_vector(doc_id: str, vector: list[float], dimension: int) -> None:
         raise CorpusValidationError(f"{doc_id} has a zero-norm vector")
 
 
-@dataclass(frozen=True, slots=True)
-class CorpusManifest:
+class CorpusManifest(BaseModel):
     """Persisted lifecycle and evidence for one embedding corpus build."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     build_id: UUID
     corpus: Corpus
@@ -184,7 +186,8 @@ class CorpusManifest:
     created_at: datetime
     completed_at: datetime | None
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _valid_manifest(self) -> CorpusManifest:
         self._validate_contract()
         validators = {
             "building": _validate_building_manifest,
@@ -192,6 +195,7 @@ class CorpusManifest:
             "complete": _validate_complete_manifest,
         }
         validators[self.state](self)
+        return self
 
     def _validate_contract(self) -> None:
         if self.source_identity is None:

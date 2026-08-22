@@ -72,6 +72,7 @@ _ZIP_SYMLINK_MODE = 0o120000
 
 
 class OwlVersionInfo(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
     """Remote OWL artifact metadata from a HEAD probe."""
 
     url: str
@@ -80,6 +81,7 @@ class OwlVersionInfo(BaseModel):
 
 
 class OwlDownloadResult(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
     """Outcome of an OWL download: the extracted file, or an error.
 
     ``source_last_modified`` / ``source_etag`` echo the cached source's version markers
@@ -110,7 +112,7 @@ class OwlDownloadResult(BaseModel):
 class OwlArtifactRecord(BaseModel):
     """Immutable provenance needed to identify and revalidate one artifact."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     variant: Literal["stated", "inferred"]
     source_url: str
@@ -130,7 +132,7 @@ class OwlArtifactRecord(BaseModel):
 class OwlArtifactPairManifest(BaseModel):
     """A same-release stated/inferred artifact pair and its deterministic identity."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     schema_version: int = PAIR_MANIFEST_SCHEMA_VERSION
     manifest_identity: str
@@ -141,6 +143,7 @@ class OwlArtifactPairManifest(BaseModel):
 
 
 class OwlPairDownloadResult(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
     """Outcome of downloading and binding both NCIt release variants."""
 
     success: bool

@@ -205,9 +205,14 @@ tests = ["test_nested_intersection_groups_and_late_members_match_real_qlever"]
 fixtures = ["isolated_qlever_url"]
 
 [[mutator]]
+path = "ontolib/tests/decomposition/test_stated_integration.py"
+tests = ["test_axis_range_double_matches_disposable_qlever"]
+fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
+
+[[mutator]]
 path = "ontolib/tests/decomposition/test_scope_integration.py"
 tests = ["test_scope_fails_closed_when_named_genus_follows_bounded_prefix"]
-fixtures = ["isolated_qlever_url"]
+fixtures = ["isolated_qlever_url", "preserved_stated_graph"]
 
 [[mutator]]
 path = "ontolib/tests/repositories/xref/test_additivity_integration.py"

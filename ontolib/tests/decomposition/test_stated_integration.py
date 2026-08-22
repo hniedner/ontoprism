@@ -16,6 +16,14 @@ import httpx
 import pytest
 
 from ontolib.decomposition import stated_queries
+from ontolib.decomposition.axis_contracts import AXIS_CONTRACTS
+from ontolib.decomposition.axis_diagnostics import (
+    AxisHierarchyEvidence,
+    HierarchyEdge,
+    build_disjoint_pairs_query,
+    classify_axis_range,
+    disjoint_pairs_from_rows,
+)
 from ontolib.decomposition.collapse_policy import NO_COLLAPSE_VETO_POLICY
 from ontolib.decomposition.complete_definition import (
     build_complete_definition_query,
@@ -39,6 +47,7 @@ from ontolib.decomposition.models import (
     RoleRestriction,
 )
 from ontolib.decomposition.run import _decompose_one as _decompose_one_impl
+from ontolib.decomposition.scope import read_scope_hierarchy_edges
 from ontolib.decomposition.stated_queries import (
     build_ancestor_pairs_query,
     build_genus_walk_members_query,
@@ -183,6 +192,77 @@ async def test_stated_query_builders_parse_against_disposable_store(
         for q in build_genus_walk_members_query("C6135"):
             rows = await client.select(q)
             assert isinstance(rows, list)
+
+
+@pytest.mark.integration
+@pytest.mark.mutating_integration
+async def test_axis_range_double_matches_disposable_qlever(
+    isolated_qlever_url: str,
+    preserved_stated_graph: None,
+) -> None:
+    del preserved_stated_graph
+    fixture = f"""
+        @prefix ncit: <{NCIT_NS}> .
+        @prefix owl: <{OWL_NS}> .
+        @prefix rdfs: <{RDFS_NS}> .
+
+        ncit:C99701 rdfs:subClassOf ncit:C99702 .
+        ncit:C99702 rdfs:subClassOf ncit:C7057 .
+        ncit:C99703 owl:disjointWith ncit:C7057 .
+    """
+    async with ncit_sparql_client(isolated_qlever_url) as client:
+        await client.load(
+            fixture.encode(),
+            content_type="text/turtle",
+            graph_iri=STATED_GRAPH_IRI,
+            replace=False,
+        )
+        edges = await read_scope_hierarchy_edges(client)
+        disjoint = disjoint_pairs_from_rows(
+            await client.select_once(
+                build_disjoint_pairs_query(),
+                required_variables={"left", "right"},
+            )
+        )
+
+    contract = AXIS_CONTRACTS["op:Morphology"]
+    real_snapshot = AxisHierarchyEvidence(
+        source_identity="a" * 64,
+        edges=tuple(
+            HierarchyEdge(child=edge.child, parent=edge.parent) for edge in edges
+        ),
+        disjoint_pairs=disjoint,
+    )
+    doubled_snapshot = AxisHierarchyEvidence(
+        source_identity="a" * 64,
+        edges=(
+            HierarchyEdge(child="C99701", parent="C99702"),
+            HierarchyEdge(child="C99702", parent="C7057"),
+        ),
+        disjoint_pairs=disjoint_pairs_from_rows(
+            [{"left": f"{NCIT_NS}C7057", "right": f"{NCIT_NS}C99703"}]
+        ),
+    )
+    real = tuple(
+        classify_axis_range(
+            "op:Morphology",
+            filler,
+            contract.range_code,
+            real_snapshot,
+        ).status
+        for filler in ("C99701", "C99703", "C99704")
+    )
+    doubled = tuple(
+        classify_axis_range(
+            "op:Morphology",
+            filler,
+            contract.range_code,
+            doubled_snapshot,
+        ).status
+        for filler in ("C99701", "C99703", "C99704")
+    )
+
+    assert real == doubled == ("valid", "invalid", "unknown")
 
 
 @pytest.mark.integration

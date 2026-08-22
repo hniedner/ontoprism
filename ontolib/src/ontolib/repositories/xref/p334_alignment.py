@@ -46,7 +46,7 @@ class P334CountDriftError(ValueError):
 
 
 class CountDelta(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
     expected: int
     observed: int
     delta: int
@@ -54,7 +54,7 @@ class CountDelta(BaseModel):
 
 
 class UnresolvedP334Assertion(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
     ncit_code: str
     icdo_code: str
     reason: Literal[
@@ -63,7 +63,7 @@ class UnresolvedP334Assertion(BaseModel):
 
 
 class P334AlignmentReport(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
     ncit_release: str
     icdo_edition: Literal["3.2"] = "3.2"
     icdo_generation_id: str

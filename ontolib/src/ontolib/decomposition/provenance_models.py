@@ -521,6 +521,8 @@ class WorkItemOutcome(BaseModel):
 class RunSummary(BaseModel):
     """One run manifest plus metrics, including immutable historical labels."""
 
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
     id: str
     branch: str
     status: str
@@ -596,6 +598,8 @@ class RunSummary(BaseModel):
 
 class MintedConcept(BaseModel):
     """A minted-concept proposal awaiting curator approval."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     id: str
     run_id: str

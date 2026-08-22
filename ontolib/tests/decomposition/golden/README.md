@@ -328,19 +328,19 @@ at most eight candidate pairs, eight R82 hops, and twenty asserted-superclass ho
 2026-08-19).
 
 The self-excluding canonical semantic `json_identity` is
-`73ab4652f9489550ab0a5c1f8bb819567268a449e673b49dbaf596dc72da0776`, its lossless TSV
+`f29210eee8e6d071d17d19a170118c9ea9b82380f4a887adc99eed27f15309a0`, its lossless TSV
 identity is `b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d`, and its report
-identity is `40a5260c00c4775f40318eec3c8f313b8abf97909ba057c6f476737f96e56911`
+identity is `706613077f7b6edb6d684be57840cb4105d595f2efdf6e9778e49e13614a50a6`
 (`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.json_identity,r.tsv_identity,r.report_identity)'`,
 2026-08-19). Two independent regenerations from the immutable completed runs produced byte-equal
 gzip files
 (`cmp -s ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-1.json.gz" && cmp -s "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-1.json.gz" "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-2.json.gz"`,
 2026-08-19).
 
-The tracked gzip is 3,926,793 bytes with file SHA-256
-`91631787ec9e1062c698cd456cfc5c3ae45276acea9200ef46cf2af829bf2343`; its decompressed,
+The tracked gzip is 3,926,797 bytes with file SHA-256
+`bf5ea01f2213c09766e6affc188c056c7dee07e1742f0e80c7afc6a5ffb4c014`; its decompressed,
 indented canonical JSON is 49,076,502 bytes with byte SHA-256
-`732bf5871979ada08b855aad093c4a99ae75f2e735b066d44655d0f7f6a70976`
+`14fa41a97f78b28844868eae8e48929e530ded52787d88d84c1ba822b7027862`
 (`pdm run python -c 'import gzip,hashlib,pathlib; p=pathlib.Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"); raw=gzip.decompress(p.read_bytes()); print(p.stat().st_size,hashlib.sha256(p.read_bytes()).hexdigest(),len(raw),hashlib.sha256(raw).hexdigest())'`,
 2026-08-19). Both differ deliberately from `json_identity`, which hashes semantic JSON after
 excluding authorization, publication, and identity fields. `report_identity` covers the complete

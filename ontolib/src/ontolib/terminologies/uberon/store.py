@@ -27,6 +27,7 @@ from ontolib.core.data_build_tools import (
     JENA_RIOT_ARTIFACT,
     QLEVER_IMAGE,
     QLEVER_TOOL,
+    tool_identity_document,
 )
 from ontolib.core.download_cache import DownloadOutcome, cached_download
 from ontolib.terminologies.ncit.sibling_store import (
@@ -480,8 +481,8 @@ def _validate_index_loader(loader: LoaderIdentity) -> None:
         exact,
         QLEVER_IMAGE,
         QLEVER_INDEX_VERSION,
-        QLEVER_TOOL,
-        JENA_RIOT_ARTIFACT.identity,
+        tool_identity_document(QLEVER_TOOL),
+        tool_identity_document(JENA_RIOT_ARTIFACT.identity),
         JENA_JRE_IMAGE,
     )
     if actual != expected:

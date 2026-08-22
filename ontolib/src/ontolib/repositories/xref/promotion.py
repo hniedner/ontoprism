@@ -79,9 +79,11 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+from pydantic import model_validator
 from rdflib import Graph, URIRef
 from rdflib.namespace import OWL, RDFS
 
+from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.repositories.xref.bridge import build_validation_ontology
 from ontolib.repositories.xref.candidate_ingest import (
     build_ncit_label_query,
@@ -224,8 +226,7 @@ class PromotionOutcome:
     reason: str
 
 
-@dataclass(frozen=True)
-class PromotionReport:
+class PromotionReport(StrictFrozenBoundaryModel):
     considered: int
     promoted: int
     insufficient_evidence: int
@@ -246,7 +247,8 @@ class PromotionReport:
     # anchor. This is the ONLY bucket the validation machinery can claim.
     promoted_with_structural_corroboration: int = 0
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _valid_accounting(self) -> PromotionReport:
         # This is the number that lands in xref_run.metrics and moves the published
         # coverage figure (§13.3). A miscount here is exactly the class of bug that
         # matters, so make any future accounting drift fail loudly at the moment it
@@ -272,6 +274,7 @@ class PromotionReport:
                 f"promoted sub-buckets ({sub_buckets}) exceed promoted "
                 f"({self.promoted}) — counters are not mutually exclusive"
             )
+        return self
 
     @property
     def promoted_on_source_agreement(self) -> int:
@@ -297,17 +300,7 @@ class PromotionReport:
 
     def as_dict(self) -> dict[str, int]:
         return {
-            "considered": self.considered,
-            "promoted": self.promoted,
-            "insufficient_evidence": self.insufficient_evidence,
-            "refuted": self.refuted,
-            "reasoner_errors": self.reasoner_errors,
-            "conflicting_identity": self.conflicting_identity,
-            "skipped_unexpandable": self.skipped_unexpandable,
-            "promoted_on_curation_alone": self.promoted_on_curation_alone,
-            "promoted_with_structural_corroboration": (
-                self.promoted_with_structural_corroboration
-            ),
+            **self.model_dump(mode="json"),
             "promoted_on_source_agreement": self.promoted_on_source_agreement,
         }
 
@@ -1662,7 +1655,7 @@ async def _run_promotion_locked(
     )
     # The drop must be visible: a large silent drop is otherwise indistinguishable from
     # a small candidate set, and xref_run.metrics is the auditable artifact.
-    report = replace(report, skipped_unexpandable=skipped)
+    report = report.model_copy(update={"skipped_unexpandable": skipped})
     inherited = await _load_previous_promotions(store, promotion_generation)
     run_id = uuid.uuid4().hex
     publication_records, record_run_ids, quarantined = _promotion_generation_records(

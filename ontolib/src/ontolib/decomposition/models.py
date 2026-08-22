@@ -35,6 +35,21 @@ _AXIS_OR_ROLE = re.compile(r"op:[A-Za-z][A-Za-z0-9]*|R[0-9]+")
 _FILLER_CODE = re.compile(r"C[0-9]+|MINT-[0-9a-f]{12}")
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedR82PathEdge:
+    part_code: str
+    asserted_part_code: str
+    whole_code: str
+    restriction_node_id: str
+    fact_identity: str
+    source_identity: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedR82Path:
+    edges: tuple[ResolvedR82PathEdge, ...]
+
+
 def _require_code(value: str, pattern: re.Pattern[str], field_name: str) -> None:
     if pattern.fullmatch(value) is None:
         raise ValueError(f"{field_name} is invalid: {value!r}")

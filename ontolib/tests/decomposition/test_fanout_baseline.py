@@ -273,9 +273,7 @@ def test_discovery_fails_closed_on_defined_genus_cycle() -> None:
 @pytest.mark.unit
 def test_baseline_identity_accepts_exact_model_and_mapping_semantics() -> None:
     document = _baseline_document()
-    model = FanoutBaseline(
-        **cast("dict[str, object]", document)  # type: ignore[arg-type]
-    )
+    model = FanoutBaseline.model_validate_json(json.dumps(document))
 
     assert baseline_identity(model) == baseline_identity(document)
     changed = dict(document)
@@ -599,7 +597,7 @@ async def test_generate_baseline_reports_discovery_and_binds_exact_counts(
 
     baseline = await generate_fanout_baseline(
         DiscoveryClient(),
-        source_identity="source-sha",
+        source_identity="a" * 64,
         ontology_release="26.07d",
         progress=lambda index, total, label: progress.append((index, total, label)),
     )

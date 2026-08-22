@@ -1503,7 +1503,7 @@ def test_candidate_result_preserves_typed_atomic_no_op() -> None:
     assert result.decomposition is None
     assert result.outcome == "atomic-no-op"
     assert result.semantic_types == ("Neoplastic Process",)
-    assert result.minted == []
+    assert result.minted == ()
 
 
 @pytest.mark.unit
