@@ -14,7 +14,6 @@ from scripts.validation.validate_opencode_runtime import (
     governance_environment,
     local_runtime_contract,
     parse_json_object,
-    read_plugin_evidence,
     run_command,
     validate_layered_project,
     validate_mcp_status,
@@ -43,12 +42,11 @@ def test_runtime_json_parser_rejects_non_object_output() -> None:
 def test_resolved_config_requires_shared_and_local_markers() -> None:
     config = {
         "default_agent": "ontoprism-team",
-        "plugin": ["@razroo/opencode-model-fallback@0.3.2"],
+        "plugin": [],
         "command": {"review-pr": {"agent": "ontoprism-team"}},
         "agent": {
             "implementer": {
                 "model": "openai/gpt-5.6-sol",
-                "options": {"fallback_models": ["github-copilot/gpt-5.6-sol"]},
             }
         },
         "lsp": {"local": {}},
@@ -57,11 +55,22 @@ def test_resolved_config_requires_shared_and_local_markers() -> None:
 
     assert validate_resolved_config(config, require_local_markers=True) == []
 
-    config["plugin"] = []
-    assert (
-        "resolved plugin list is not the pinned repository plugin"
-        in validate_resolved_config(config, require_local_markers=True)
+    config["plugin"] = ["@razroo/opencode-model-fallback@0.3.2"]
+    assert "resolved external plugin list must be empty" in validate_resolved_config(
+        config, require_local_markers=True
     )
+
+
+@pytest.mark.parametrize("name", sorted(ROLES))
+def test_resolved_specialist_models_remain_exact(name: str) -> None:
+    model, mode, _, _ = ROLES[name]
+    agent = {
+        "model": model,
+        "mode": mode,
+        "permission": expected_permission_contract(Path(__file__).parents[2], name),
+    }
+
+    assert validate_resolved_agent(name, agent) == []
 
 
 def test_resolved_read_only_agent_requires_effective_deny_catch_all() -> None:
@@ -195,12 +204,11 @@ def test_layered_project_validates_each_actual_resolved_agent(
                     "stdout": json.dumps(
                         {
                             "default_agent": "ontoprism-team",
-                            "plugin": ["@razroo/opencode-model-fallback@0.3.2"],
+                            "plugin": [],
                             "command": {"review-pr": {"agent": "ontoprism-team"}},
                             "agent": {
                                 "implementer": {
                                     "model": "openai/gpt-5.6-sol",
-                                    "fallback_models": ["github-copilot/gpt-5.6-sol"],
                                 },
                                 **{name: {} for name in RESERVES | {"ontoprism-team"}},
                                 **{
@@ -688,117 +696,3 @@ def test_command_error_categorizes_undecodable_output(
         "Model catalog validation: opencode models produced undecodable output"
     )
     assert "secret" not in str(failure.value)
-
-
-def test_plugin_evidence_rejects_undecodable_bytes(tmp_path: Path) -> None:
-    (tmp_path / "plugin.log").write_bytes(b"\xffsecret")
-
-    with pytest.raises(RuntimeContractError) as failure:
-        read_plugin_evidence(tmp_path)
-
-    assert str(failure.value) == (
-        "Plugin sentinel validation: evidence produced undecodable output"
-    )
-    assert "secret" not in str(failure.value)
-
-
-def test_plugin_evidence_categorizes_read_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    target = tmp_path / "plugin.log"
-    target.write_text("evidence")
-    original = Path.read_text
-
-    def fail_target(path: Path, *args: object, **kwargs: object) -> str:
-        if path == target:
-            raise OSError("secret")
-        return original(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", fail_target)
-
-    with pytest.raises(RuntimeContractError) as failure:
-        read_plugin_evidence(tmp_path)
-
-    assert (
-        str(failure.value) == "Plugin sentinel validation: evidence could not be read"
-    )
-    assert "secret" not in str(failure.value)
-
-
-def test_plugin_evidence_nested_scandir_error_is_categorized(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    nested = tmp_path / "nested"
-    nested.mkdir()
-    original = os.scandir
-
-    def fail_nested(path: object) -> object:
-        if Path(path) == nested:
-            raise OSError("secret")
-        return original(path)
-
-    monkeypatch.setattr(os, "scandir", fail_nested)
-
-    with pytest.raises(RuntimeContractError) as failure:
-        read_plugin_evidence(tmp_path)
-    assert (
-        str(failure.value) == "Plugin sentinel validation: evidence could not be read"
-    )
-    assert "secret" not in str(failure.value)
-
-
-def test_plugin_evidence_does_not_follow_symlink_directories(
-    tmp_path: Path,
-) -> None:
-    outside = tmp_path.parent / "outside-plugin-evidence"
-    outside.mkdir()
-    (outside / "bad.log").write_bytes(b"\xff")
-    (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
-
-    assert read_plugin_evidence(tmp_path) == ""
-
-
-def test_plugin_evidence_deletion_after_inventory_is_categorized(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    target = tmp_path / "plugin.log"
-    target.write_text("evidence")
-    original = os.scandir
-
-    class VanishingEntry:
-        name = "plugin.log"
-        path = str(target)
-
-        @staticmethod
-        def is_symlink() -> bool:
-            return False
-
-        @staticmethod
-        def is_dir(*, follow_symlinks: bool) -> bool:
-            return False
-
-        @staticmethod
-        def is_file(*, follow_symlinks: bool) -> bool:
-            if target.exists():
-                target.unlink()
-            return True
-
-    class Entries:
-        def __enter__(self) -> object:
-            return iter([VanishingEntry()])
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-    def vanish_after_inventory(path: object) -> object:
-        if Path(path) == tmp_path:
-            return Entries()
-        return original(path)
-
-    monkeypatch.setattr(os, "scandir", vanish_after_inventory)
-
-    with pytest.raises(RuntimeContractError) as failure:
-        read_plugin_evidence(tmp_path)
-    assert (
-        str(failure.value) == "Plugin sentinel validation: evidence could not be read"
-    )

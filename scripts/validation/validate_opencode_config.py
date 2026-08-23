@@ -14,7 +14,6 @@ from typing import Any
 import yaml
 
 SCHEMA = "https://opencode.ai/config.json"
-PLUGIN = "@razroo/opencode-model-fallback@0.3.2"
 GPT = "github-copilot/gpt-5.6-sol"
 CLAUDE = "github-copilot/claude-opus-5"
 ROLES: dict[str, tuple[str, str, str, str]] = {
@@ -68,7 +67,6 @@ TRACKED_PROCESS = (
     "opencode.json",
     "AGENTS.md",
     ".gitignore",
-    ".opencode/opencode-model-fallback.jsonc",
     ".opencode/agent",
     ".opencode/command",
 )
@@ -434,26 +432,25 @@ def validate_root(validation: Validation) -> dict[str, Any]:
         )
     if config.get("default_agent") != "ontoprism-team":
         validation.error("DEFAULT_AGENT", "default_agent must be ontoprism-team")
-    if config.get("plugin") != [PLUGIN]:
-        validation.error(
-            "ROOT_CONFIG", "plugin list must contain only the pinned fallback plugin"
-        )
-    agent = config.get("agent")
-    implementer = agent.get("implementer") if isinstance(agent, dict) else None
-    expected = ["github-copilot/gpt-5.6-sol"]
-    if (
-        not isinstance(implementer, dict)
-        or implementer.get("fallback_models") != expected
-    ):
-        validation.error(
-            "IMPLEMENTER_FALLBACK", f"implementer fallback_models must equal {expected}"
-        )
+    if "plugin" in config:
+        validation.error("ROOT_CONFIG", "external plugins are forbidden")
+    if "agent" in config:
+        validation.error("ROOT_CONFIG", "root agent overrides are forbidden")
     serialized = json.dumps(config)
     if "amazon-bedrock/" in serialized:
         validation.error(
             "IMPLEMENTER_FALLBACK", "automatic root routes must not contain Bedrock"
         )
     return config
+
+
+def validate_removed_plugin_files(validation: Validation) -> None:
+    for relative in (
+        ".opencode/opencode-model-fallback.jsonc",
+        ".opencode/opencode-model-fallback.json",
+    ):
+        if (validation.root / relative).exists():
+            validation.error("FILES", f"stale {relative} must be absent")
 
 
 def validate_tool_permissions(
@@ -884,9 +881,7 @@ def validate_role_contracts(
         ),
     )
     if "fallback_models" in implementer[0]:
-        validation.error(
-            "IMPLEMENTER_FALLBACK", "fallback_models belongs only in root opencode.json"
-        )
+        validation.error("IMPLEMENTER_FALLBACK", "fallback_models must be absent")
 
     orchestrator = roles.get("ontoprism-team", ({}, ""))[1]
     require_terms(
@@ -907,6 +902,14 @@ def validate_role_contracts(
             "current conversation",
             "every hard merge check",
             "monitor every triggered post-merge workflow",
+            "missing or cancelled",
+            "exactly one event-driven reconciliation",
+            "git status --porcelain",
+            "git rev-parse HEAD",
+            "git log --oneline -10",
+            "never infer from silence",
+            "never duplicate an unresolved writer",
+            "polling loops",
         ),
     )
     validate_standard_permissions(validation, roles)
@@ -938,54 +941,6 @@ def validate_role_contracts(
 
     r3_metadata, r3_body = roles.get("pr-test-analyzer", ({}, ""))
     validate_r3_contract(validation, r3_metadata, r3_body)
-
-
-def validate_plugin(validation: Validation) -> dict[str, Any]:
-    path = validation.require_file(".opencode/opencode-model-fallback.jsonc")
-    shadow = validation.root / ".opencode" / "opencode-model-fallback.json"
-    if shadow.exists():
-        validation.error(
-            "PLUGIN_SHADOW",
-            "JSON shadow file must be absent because plugin 0.3.2 reads it first",
-        )
-    if path is None:
-        return {}
-    config = load_json(path, validation, "PLUGIN_CONFIG")
-    if config is None:
-        return {}
-    expected = {
-        "enabled": True,
-        "fallback_models": [],
-        "max_fallback_attempts": 1,
-        "cooldown_seconds": 21600,
-        "timeout_seconds": 0,
-        "notify_on_fallback": True,
-    }
-    if config != expected:
-        validation.error(
-            "PLUGIN_CONFIG",
-            "plugin config must equal the repository-required explicit settings",
-        )
-    if config.get("fallback_models") != []:
-        validation.error(
-            "GLOBAL_FALLBACK", "global fallback_models must be exactly empty"
-        )
-    comment_text = safe_read_text(path, validation, "PLUGIN_CONFIG")
-    if comment_text is None:
-        return config
-    comment = comment_text.lower()
-    if (
-        "explicit per-agent" not in comment
-        or "tracked repository" not in comment
-        or "never places aws" not in comment
-        or "automatic fallback chain" not in comment
-    ):
-        validation.error(
-            "PLUGIN_CONFIG",
-            "plugin comment must limit automation to explicit per-agent fallback "
-            "and scope the repository's exclusion of AWS",
-        )
-    return config
 
 
 def validate_command(validation: Validation) -> None:
@@ -1021,6 +976,14 @@ def validate_command(validation: Validation) -> None:
             "explicitly authorize the exact PR number",
             "launches fresh cli processes",
             "quit and restart opencode",
+            "missing or cancelled",
+            "exactly one event-driven reconciliation",
+            "git status --porcelain",
+            "git rev-parse HEAD",
+            "git log --oneline -10",
+            "never infer from silence",
+            "never duplicate an unresolved writer",
+            "polling loops",
             *tuple(sorted(REVIEWERS)),
         ),
     )
@@ -1177,12 +1140,12 @@ def validate_forbidden_content(validation: Validation) -> None:
 def validate(root: Path) -> list[str]:
     validation = Validation(root)
     root_config = validate_root(validation)
+    validate_removed_plugin_files(validation)
     roles = (
         validate_roles(validation, root_config) if not validation.read_failures else {}
     )
     if not validation.read_failures:
         validate_role_contracts(validation, roles)
-    validate_plugin(validation)
     validate_command(validation)
     validate_agents_document(validation)
     validate_gitignore(validation)

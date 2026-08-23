@@ -78,3 +78,5 @@ For an **ordinary task**, dispatch `implementer` for strict TDD, exact applicabl
 For a **milestone task**, have `implementer` create issue branches from the milestone branch, perform TDD, verify, commit, and locally `git merge --no-ff` each completed issue into the milestone branch. Do not create issue PRs or run R1-R5 on issue branches. After every milestone issue is integrated, run the milestone's full verify, R1-R5 convergence cycle, branch CI, and single PR process. Never confuse a local integration merge with GitHub PR merge.
 
 Reserve agents are manual tools and are never automatic routes. Do not assert credentials, quota, subscription, model availability, retry behavior, budgets, or caps.
+
+If a Task result is missing or cancelled, perform exactly one event-driven reconciliation before any status claim or redispatch: inspect `git status --porcelain`, `git rev-parse HEAD`, and `git log --oneline -10`. Never infer from silence. Never duplicate an unresolved writer; if the inspection cannot prove whether its work completed, report the task blocked rather than redispatching it. Do not poll child sessions or use polling loops.

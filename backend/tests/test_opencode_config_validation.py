@@ -35,10 +35,6 @@ def config_root(tmp_path: Path) -> Path:
         shutil.copytree(
             ROOT / ".opencode" / directory, tmp_path / ".opencode" / directory
         )
-    shutil.copy2(
-        ROOT / ".opencode" / "opencode-model-fallback.jsonc",
-        tmp_path / ".opencode" / "opencode-model-fallback.jsonc",
-    )
     return tmp_path
 
 
@@ -56,24 +52,49 @@ def update_root_config(root: Path, update: Callable[[dict[str, object]], None]) 
     path.write_text(json.dumps(config))
 
 
-def remove_implementer_fallback(config: dict[str, object]) -> None:
-    agents = config["agent"]
-    assert isinstance(agents, dict)
-    implementer = agents["implementer"]
-    assert isinstance(implementer, dict)
-    implementer["fallback_models"] = []
-
-
-def add_bedrock_fallback(config: dict[str, object]) -> None:
-    agents = config["agent"]
-    assert isinstance(agents, dict)
-    implementer = agents["implementer"]
-    assert isinstance(implementer, dict)
-    implementer["fallback_models"] = ["amazon-bedrock/example"]
-
-
 def test_checked_out_opencode_configuration_is_valid(config_root: Path) -> None:
     assert validate(config_root) == []
+
+
+def test_fallback_plugin_reintroduction_is_rejected(config_root: Path) -> None:
+    update_root_config(
+        config_root,
+        lambda config: config.update(
+            {"plugin": ["@razroo/opencode-model-fallback@0.3.2"]}
+        ),
+    )
+
+    assert "ROOT_CONFIG: external plugins are forbidden" in validate(config_root)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        ".opencode/agent/ontoprism-team.md",
+        ".opencode/command/review-pr.md",
+    ],
+)
+def test_task_reconciliation_guard_is_required(
+    config_root: Path, relative: str
+) -> None:
+    replace(
+        config_root,
+        relative,
+        "Never infer from silence",
+        "treat silence as completion",
+    )
+
+    assert any(
+        "missing required semantics: never infer from silence" in error
+        for error in validate(config_root)
+    )
+
+
+def test_dead_fallback_plugin_artifact_is_rejected(config_root: Path) -> None:
+    relative = ".opencode/opencode-model-fallback.jsonc"
+    (config_root / relative).write_text("{}")
+
+    assert f"FILES: stale {relative} must be absent" in validate(config_root)
 
 
 @pytest.mark.parametrize("role", sorted(ROLES))
@@ -119,7 +140,6 @@ def test_required_files_are_enforced(
     ("relative", "code"),
     [
         (".opencode/agent/architect.md", "ROLE_BODY"),
-        (".opencode/opencode-model-fallback.jsonc", "PLUGIN_CONFIG"),
         (".opencode/command/review-pr.md", "REVIEW_COMMAND"),
         ("AGENTS.md", "AGENTS_PROCESS"),
     ],
@@ -136,7 +156,6 @@ def test_invalid_utf8_is_categorized_for_governance_inputs(
     ("relative", "code"),
     [
         (".opencode/agent/architect.md", "ROLE_BODY"),
-        (".opencode/opencode-model-fallback.jsonc", "PLUGIN_CONFIG"),
         (".opencode/command/review-pr.md", "REVIEW_COMMAND"),
         ("AGENTS.md", "AGENTS_PROCESS"),
     ],
@@ -526,12 +545,6 @@ def test_duplicate_agent_name_across_supported_directories_is_rejected(
         ),
         (
             "opencode.json",
-            '"plugin": ["@razroo/opencode-model-fallback@0.3.2"]',
-            '"plugin": []',
-            "ROOT_CONFIG: plugin list",
-        ),
-        (
-            "opencode.json",
             '"default_agent": "ontoprism-team"',
             '"default_agent": "implementer"',
             "DEFAULT_AGENT: default_agent must be ontoprism-team",
@@ -583,7 +596,7 @@ def test_duplicate_agent_name_across_supported_directories_is_rejected(
             ".opencode/agent/implementer.md",
             "model: openai/gpt-5.6-sol",
             "model: openai/gpt-5.6-sol\nfallback_models: []",
-            "IMPLEMENTER_FALLBACK: fallback_models belongs only",
+            "IMPLEMENTER_FALLBACK: fallback_models must be absent",
         ),
         (
             ".opencode/agent/ontoprism-team.md",
@@ -667,26 +680,6 @@ def test_duplicate_role_prompt_is_rejected(config_root: Path) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("update", "expected"),
-    [
-        (
-            remove_implementer_fallback,
-            "IMPLEMENTER_FALLBACK: implementer fallback_models",
-        ),
-        (add_bedrock_fallback, "IMPLEMENTER_FALLBACK: automatic root routes"),
-    ],
-)
-def test_automatic_fallback_routes_are_closed(
-    config_root: Path,
-    update: Callable[[dict[str, object]], None],
-    expected: str,
-) -> None:
-    update_root_config(config_root, update)
-
-    assert any(error.startswith(expected) for error in validate(config_root))
-
-
 def test_reserve_cannot_be_auto_dispatched(config_root: Path) -> None:
     replace(
         config_root,
@@ -742,65 +735,6 @@ def test_permission_denies_have_effective_last_match_order(
     replace(config_root, relative, old, new)
 
     assert expected in validate(config_root)
-
-
-def test_plugin_shadow_is_rejected(config_root: Path) -> None:
-    (config_root / ".opencode/opencode-model-fallback.json").write_text("{}")
-
-    assert any(error.startswith("PLUGIN_SHADOW:") for error in validate(config_root))
-
-
-@pytest.mark.parametrize(
-    ("old", "new", "expected"),
-    [
-        (
-            '"fallback_models": []',
-            '"fallback_models": ["github-copilot/example"]',
-            "GLOBAL_FALLBACK: global fallback_models must be exactly empty",
-        ),
-        (
-            "explicit per-agent",
-            "configured",
-            "PLUGIN_CONFIG: plugin comment must limit automation",
-        ),
-        (
-            '"max_fallback_attempts": 1',
-            '"max_fallback_attempts": 2',
-            "PLUGIN_CONFIG: plugin config must equal the repository-required explicit "
-            "settings",
-        ),
-    ],
-)
-def test_plugin_configuration_mutations_are_rejected(
-    config_root: Path, old: str, new: str, expected: str
-) -> None:
-    replace(config_root, ".opencode/opencode-model-fallback.jsonc", old, new)
-
-    assert any(error.startswith(expected) for error in validate(config_root))
-
-
-def test_jsonc_comment_markers_inside_strings_are_preserved(config_root: Path) -> None:
-    path = config_root / ".opencode/opencode-model-fallback.jsonc"
-    path.write_text(
-        path.read_text().replace(
-            '"fallback_models": []',
-            '"fallback_models": [],\n  "note": "https://example.invalid/*literal*/"',
-        )
-    )
-
-    errors = validate(config_root)
-
-    assert not any("cannot parse" in error for error in errors)
-
-
-def test_unterminated_jsonc_comment_is_rejected(config_root: Path) -> None:
-    path = config_root / ".opencode/opencode-model-fallback.jsonc"
-    path.write_text(path.read_text() + "\n/* unterminated")
-
-    assert any(
-        error.startswith("PLUGIN_CONFIG: cannot parse")
-        for error in validate(config_root)
-    )
 
 
 def test_portable_local_config_ignore_is_required(config_root: Path) -> None:

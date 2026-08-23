@@ -25,13 +25,11 @@ if str(ROOT) not in sys.path:
 from scripts.validation.validate_opencode_config import (  # noqa: E402
     ASK_ACTION,
     AUTO_SUBAGENTS,
-    PLUGIN,
     ROLES,
     Validation,
     bash_allow_contract_errors,
     load_agent,
     load_json,
-    strict_scandir_files,
     validate_local_configs,
 )
 
@@ -328,12 +326,11 @@ def validate_implementer_config(agents: object) -> list[str]:
     errors: list[str] = []
     if implementer.get("model") != "openai/gpt-5.6-sol":
         errors.append("resolved implementer model is incorrect")
-    fallback = implementer.get("fallback_models")
+    if "fallback_models" in implementer:
+        errors.append("resolved implementer fallback must be absent")
     options = implementer.get("options")
-    if fallback is None and isinstance(options, dict):
-        fallback = options.get("fallback_models")
-    if fallback != ["github-copilot/gpt-5.6-sol"]:
-        errors.append("resolved implementer fallback is incorrect")
+    if isinstance(options, dict) and "fallback_models" in options:
+        errors.append("resolved implementer fallback option must be absent")
     return errors
 
 
@@ -343,8 +340,8 @@ def validate_resolved_config(
     errors: list[str] = []
     if config.get("default_agent") != "ontoprism-team":
         errors.append("resolved default agent is not ontoprism-team")
-    if config.get("plugin") != [PLUGIN]:
-        errors.append("resolved plugin list is not the pinned repository plugin")
+    if config.get("plugin") not in (None, []):
+        errors.append("resolved external plugin list must be empty")
     command = config.get("command")
     review = command.get("review-pr") if isinstance(command, dict) else None
     if not isinstance(review, dict) or review.get("agent") != "ontoprism-team":
@@ -457,62 +454,6 @@ def local_runtime_contract(project: Path) -> tuple[set[str], list[str]]:
         mcp_names |= local_mcp
         errors.extend(mcp_errors)
     return mcp_names, errors
-
-
-def read_plugin_evidence(isolated: Path) -> str:
-    """Read plugin evidence strictly without exposing local bytes or paths."""
-    try:
-        paths = strict_scandir_files(isolated, suffix=".log")
-        plugin_source = (
-            isolated
-            / "cache/opencode/packages/@razroo/opencode-model-fallback@0.3.2"
-            / "node_modules/@razroo/opencode-model-fallback/dist/index.js"
-        )
-        if plugin_source.is_file():
-            paths.append(plugin_source)
-    except OSError as exc:
-        raise RuntimeContractError(
-            "Plugin sentinel validation: evidence could not be read"
-        ) from exc
-    evidence = ""
-    for path in paths:
-        try:
-            evidence += path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            raise RuntimeContractError(
-                "Plugin sentinel validation: evidence produced undecodable output"
-            ) from exc
-        except OSError as exc:
-            raise RuntimeContractError(
-                "Plugin sentinel validation: evidence could not be read"
-            ) from exc
-    return evidence
-
-
-def validate_plugin_sentinel(
-    root: Path, env: dict[str, str], isolated: Path
-) -> str | None:
-    sentinel_env = governance_environment(
-        env,
-        controlled={
-            "OPENCODE_CONFIG_CONTENT": json.dumps(
-                {"agent": {"implementer": {"fallback_models": ["invalid-sentinel"]}}}
-            )
-        },
-    )
-    sentinel = run_command(
-        ["opencode", "debug", "config", "--print-logs", "--log-level", "DEBUG"],
-        cwd=root,
-        env=sentinel_env,
-        operation="Plugin sentinel validation",
-        display_command="opencode debug config",
-    )
-    evidence = sentinel.stdout + sentinel.stderr
-    evidence += read_plugin_evidence(isolated)
-    markers = ("Invalid fallback_models entry", "implementer", "invalid-sentinel")
-    if all(marker in evidence for marker in markers):
-        return None
-    return "fallback plugin did not report the isolated implementer sentinel"
 
 
 def validate_layered_project(
@@ -669,9 +610,6 @@ def validate_runtime(root: Path, project: Path) -> None:
             operation="Startup validation",
             display_command="opencode debug startup",
         )
-        sentinel_error = validate_plugin_sentinel(root, env, isolated)
-        if sentinel_error:
-            errors.append(sentinel_error)
         errors.extend(validate_layered_project(root, project, env, expected_mcp))
 
     if errors:
