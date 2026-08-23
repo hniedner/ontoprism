@@ -1160,6 +1160,83 @@ def test_orchestrator_validator_commands_accept_no_arguments(config_root: Path) 
     assert "pdm run validate-opencode-runtime*" not in bash
 
 
+@pytest.mark.parametrize(
+    ("role", "expected_commands"),
+    [
+        (
+            "ontoprism-team",
+            (
+                "pdm run agent-test *",
+                "pdm run lint",
+                "git diff --no-ext-diff",
+                "git diff --check",
+                "git diff --no-index /dev/null *",
+            ),
+        ),
+        (
+            "implementer",
+            (
+                "git diff --no-ext-diff",
+                "git diff --check",
+                "git diff --no-index /dev/null *",
+            ),
+        ),
+    ],
+)
+def test_authorized_roles_have_only_the_new_safe_inspection_allows(
+    config_root: Path, role: str, expected_commands: tuple[str, ...]
+) -> None:
+    metadata, _ = load_agent(
+        config_root / f".opencode/agent/{role}.md",
+        Validation(config_root),
+    )
+    permission = metadata["permission"]
+    bash = permission["bash"]
+
+    assert all(bash[command] == "allow" for command in expected_commands)
+    assert permission["*"] == "deny"
+    assert "external_directory" not in permission
+    assert "pdm run pytest *" not in bash
+    assert list(bash).index("git reset") > max(
+        list(bash).index(command)
+        for command in expected_commands
+        if command.startswith("git ")
+    )
+    assert list(bash).index("*&*") > max(
+        list(bash).index(command) for command in expected_commands
+    )
+
+
+@pytest.mark.parametrize("role", ["ontoprism-team", "implementer"])
+def test_editing_agents_have_exact_safe_worktree_diff_permissions(
+    config_root: Path, role: str
+) -> None:
+    metadata, _ = load_agent(
+        config_root / f".opencode/agent/{role}.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+
+    for command in (
+        "git diff --no-ext-diff",
+        "git diff --check",
+        "git diff --no-index /dev/null *",
+    ):
+        assert bash[command] == "allow"
+
+
+def test_orchestrator_has_exact_safe_policy_gate_permissions(config_root: Path) -> None:
+    metadata, _ = load_agent(
+        config_root / ".opencode/agent/ontoprism-team.md",
+        Validation(config_root),
+    )
+    bash = metadata["permission"]["bash"]
+
+    assert bash["pdm run agent-test *"] == "allow"
+    assert bash["pdm run lint"] == "allow"
+    assert "pdm run pytest *" not in bash
+
+
 def test_orchestrator_task_delegation_is_exact_and_excludes_reserves(
     config_root: Path,
 ) -> None:

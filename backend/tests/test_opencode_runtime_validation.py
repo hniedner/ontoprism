@@ -398,6 +398,10 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("git diff --output=/tmp/leak main...HEAD", "deny"),
         ("git diff --ext-diff main...HEAD", "deny"),
         ("git diff --no-ext-diff HEAD~1...HEAD", "deny"),
+        ("git diff --no-ext-diff", "allow"),
+        ("git diff --check", "allow"),
+        ("git diff --no-index /dev/null candidate.md", "allow"),
+        ("git diff --no-index candidate.md /dev/null", "deny"),
         ("git switch --discard-changes main", "deny"),
         ("git branch --force feat/x", "deny"),
         ("git branch -D feat/x", "deny"),
@@ -416,6 +420,43 @@ def test_actual_implementer_contract_allows_only_canonical_mutations(
     command: str, expected: str
 ) -> None:
     rules = expected_permission_contract(Path(__file__).parents[2], "implementer")
+
+    assert effective_action(rules, command) == expected
+
+
+@pytest.mark.parametrize(
+    ("role", "command", "expected"),
+    [
+        ("ontoprism-team", "pdm run agent-test backend/tests/test_x.py", "allow"),
+        ("ontoprism-team", "pdm run lint", "allow"),
+        ("ontoprism-team", "git diff --no-ext-diff", "allow"),
+        ("ontoprism-team", "git diff --check", "allow"),
+        ("ontoprism-team", "git diff --no-index /dev/null new-file", "allow"),
+        ("implementer", "git diff --no-ext-diff", "allow"),
+        ("implementer", "git diff --check", "allow"),
+        ("implementer", "git diff --no-index /dev/null new-file", "allow"),
+        ("architect", "pdm run agent-test backend/tests/test_x.py", "deny"),
+        ("architect", "pdm run lint", "deny"),
+        ("architect", "git diff --no-ext-diff", "deny"),
+        ("architect", "git diff --check", "deny"),
+        ("architect", "git diff --no-index /dev/null new-file", "deny"),
+        ("pr-test-analyzer", "git diff --no-ext-diff", "deny"),
+        ("ontoprism-team", "pdm run pytest backend/tests/test_x.py", "deny"),
+        ("ontoprism-team", "git diff --ext-diff", "deny"),
+        ("ontoprism-team", "git diff --no-index other new-file", "deny"),
+        ("ontoprism-team", "git diff --no-ext-diff; git reset", "deny"),
+        ("implementer", "git diff --check && git clean -fd", "deny"),
+        (
+            "implementer",
+            "git diff --no-index /dev/null new-file\ngit push",
+            "deny",
+        ),
+    ],
+)
+def test_new_safe_inspection_commands_resolve_only_for_intended_roles(
+    role: str, command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], role)
 
     assert effective_action(rules, command) == expected
 
@@ -453,6 +494,29 @@ def test_r3_literal_line_break_denies_override_wildcard_allows(command: str) -> 
     ],
 )
 def test_orchestrator_contract_allows_only_fixed_inspection_commands(
+    command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")
+
+    assert effective_action(rules, command) == expected
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (
+            "pdm run agent-test backend/tests/test_opencode_config_validation.py -q",
+            "allow",
+        ),
+        ("pdm run lint", "allow"),
+        ("pdm run pytest backend/tests/test_opencode_config_validation.py -q", "deny"),
+        ("git diff --no-ext-diff", "allow"),
+        ("git diff --check", "allow"),
+        ("git diff --no-index /dev/null candidate.md", "allow"),
+        ("git diff --no-index candidate.md /dev/null", "deny"),
+    ],
+)
+def test_orchestrator_contract_allows_safe_policy_commands_only(
     command: str, expected: str
 ) -> None:
     rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")
