@@ -28,6 +28,7 @@ TEST_IDENTIFIER = re.compile(r"test_[A-Za-z0-9_]+")
 NONINTEGRATION_MARKERS = (
     "not integration and not mutating_integration and not full_store"
 )
+FULL_STORE_MARKERS = "integration and full_store"
 
 
 class AgentTestInputError(ValueError):
@@ -101,7 +102,9 @@ def _resolve_owned_node(
 
 
 def _validate_node(node: str, root: Path) -> None:
-    _resolve_owned_node(node, root, OWNED_TEST_ROOTS)
+    candidate, resolved = _resolve_owned_node(node, root, OWNED_TEST_ROOTS)
+    if candidate.suffix != ".py" or not resolved.is_file():
+        raise AgentTestInputError("test node must name a Python test path")
 
 
 def _build_frontend_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
@@ -237,13 +240,7 @@ def _build_safe_integration_invocation(
     )
 
 
-def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
-    """Validate agent arguments and return a permitted subprocess shape."""
-    resolved_root = root.resolve()
-    if arguments[:1] == ["--frontend"]:
-        return _build_frontend_invocation(arguments[1:], resolved_root)
-    if arguments[:1] == ["--safe-integration"]:
-        return _build_safe_integration_invocation(arguments[1:], resolved_root)
+def _validated_pytest_arguments(arguments: list[str], root: Path) -> list[str]:
     validated: list[str] = []
     node_count = 0
     index = 0
@@ -264,12 +261,42 @@ def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvoca
         elif argument.startswith("-"):
             raise AgentTestInputError("unsupported pytest option")
         else:
-            _validate_node(argument, resolved_root)
+            _validate_node(argument, root)
             validated.append(argument)
             node_count += 1
         index += 1
     if node_count == 0:
         raise AgentTestInputError("at least one test node is required")
+    return validated
+
+
+def _build_full_store_invocation(
+    arguments: list[str], root: Path
+) -> AgentTestInvocation:
+    validated = _validated_pytest_arguments(arguments, root)
+    return AgentTestInvocation(
+        (
+            "pytest",
+            "--require-full-store",
+            *validated,
+            "-m",
+            FULL_STORE_MARKERS,
+        ),
+        root,
+        "full-store",
+    )
+
+
+def build_pytest_invocation(arguments: list[str], root: Path) -> AgentTestInvocation:
+    """Validate agent arguments and return a permitted subprocess shape."""
+    resolved_root = root.resolve()
+    if arguments[:1] == ["--frontend"]:
+        return _build_frontend_invocation(arguments[1:], resolved_root)
+    if arguments[:1] == ["--safe-integration"]:
+        return _build_safe_integration_invocation(arguments[1:], resolved_root)
+    if arguments[:1] == ["--full-store"]:
+        return _build_full_store_invocation(arguments[1:], resolved_root)
+    validated = _validated_pytest_arguments(arguments, resolved_root)
     return AgentTestInvocation(
         ("pytest", *validated, "-m", NONINTEGRATION_MARKERS),
         resolved_root,

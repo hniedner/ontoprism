@@ -989,6 +989,48 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     )
 
 
+def test_focused_test_guidance_requires_safe_full_store_wrapper() -> None:
+    guidance = (ROOT / "AGENTS.md").read_text()
+    implementer = (ROOT / ".opencode/agent/implementer.md").read_text()
+    orchestrator = (ROOT / ".opencode/agent/ontoprism-team.md").read_text()
+
+    assert "pdm run agent-test --full-store <node> -v" in guidance
+    assert "full aggregate remains `pdm run test-integration-full-store`" in guidance
+    for prompt in (implementer, orchestrator):
+        assert "Never invoke raw `pdm run pytest`" in prompt
+        assert "`pdm run agent-test --full-store <node> -v`" in prompt
+
+
+@pytest.mark.parametrize(
+    ("relative", "required", "code"),
+    [
+        (
+            "AGENTS.md",
+            "pdm run agent-test --full-store <node> -v",
+            "AGENTS_PROCESS",
+        ),
+        (
+            ".opencode/agent/implementer.md",
+            "Never invoke raw `pdm run pytest`",
+            "IMPLEMENTER_PROCESS",
+        ),
+        (
+            ".opencode/agent/ontoprism-team.md",
+            "Never invoke raw `pdm run pytest`",
+            "ORCHESTRATOR_PROCESS",
+        ),
+    ],
+)
+def test_validator_enforces_safe_focused_test_guidance(
+    config_root: Path, relative: str, required: str, code: str
+) -> None:
+    path = config_root / relative
+    path.write_text(f"{path.read_text()}\n{required}\n")
+    path.write_text(path.read_text().replace(required, "unsafe focused test guidance"))
+
+    assert any(error.startswith(f"{code}:") for error in validate(config_root))
+
+
 def test_machine_local_json_and_jsonc_are_both_ignored_and_mutually_exclusive(
     config_root: Path,
 ) -> None:
@@ -1024,6 +1066,8 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         '"git merge --no-ff *": allow',
         '"git commit": allow',
         '"git commit *": allow',
+        '"pdm run pytest *": allow',
+        '"pdm run test-integration-full-store *": allow',
     ):
         assert forbidden not in implementer
     for required in (

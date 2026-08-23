@@ -56,8 +56,13 @@ EXTRA_SAFE_COMMANDS = {
             "pdm run agent-test backend/tests/test_opencode_config_validation.py",
             "allow",
         ),
+        (
+            "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
+            "allow",
+        ),
         ("pdm run lint", "allow"),
         ("pdm run pytest backend/tests/test_opencode_config_validation.py", "deny"),
+        ("pdm run test-integration-full-store anything", "deny"),
     ),
     "implementer": (
         ("git diff --no-ext-diff", "allow"),
@@ -219,7 +224,16 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
             ("touch forbidden", "deny"),
         )
     if name in READ_ONLY_ROLES:
-        return (("touch forbidden", "deny"), ("git status --porcelain", "allow"))
+        return (
+            ("touch forbidden", "deny"),
+            ("git status --porcelain", "allow"),
+            (
+                "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
+                "deny",
+            ),
+            ("pdm run pytest ontolib/tests/test_x.py", "deny"),
+            ("pdm run test-integration-full-store anything", "deny"),
+        )
     if name == "pr-test-analyzer":
         return (
             ("cp source target", "allow"),
@@ -243,6 +257,12 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
             "pdm run agent-test backend/tests/test_opencode_config_validation.py -q",
             "allow",
         ),
+        (
+            "pdm run agent-test --full-store ontolib/tests/test_x.py::test_name -v",
+            "allow",
+        ),
+        ("pdm run pytest ontolib/tests/test_x.py", "deny"),
+        ("pdm run test-integration-full-store anything", "deny"),
         ("pdm run lint", "allow"),
         ("npm --prefix frontend run test:coverage", "allow"),
         ("git push --force", "deny"),

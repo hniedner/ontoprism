@@ -157,6 +157,74 @@ def test_direct_mode_forces_nonintegration_marker_filter(owned_test_root: Path) 
     )
 
 
+def test_full_store_mode_builds_fixed_read_only_invocation(
+    owned_test_root: Path,
+) -> None:
+    invocation = build_pytest_invocation(
+        [
+            "--full-store",
+            "ontolib/tests/test_safe.py::test_safe",
+            "backend/tests/test_safe.py",
+            "-v",
+            "-x",
+            "--maxfail=2",
+            "-k",
+            "safe and not missing",
+        ],
+        owned_test_root,
+    )
+
+    assert invocation.arguments == (
+        "pytest",
+        "--require-full-store",
+        "ontolib/tests/test_safe.py::test_safe",
+        "backend/tests/test_safe.py",
+        "-v",
+        "-x",
+        "--maxfail=2",
+        "-k",
+        "safe and not missing",
+        "-m",
+        "integration and full_store",
+    )
+    assert invocation.cwd == owned_test_root.resolve()
+    assert invocation.mode == "full-store"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--full-store"],
+        ["--full-store", "--frontend", "frontend/src/lib/api.test.ts"],
+        ["--full-store", "--safe-integration", "backend/tests/test_safe.py::test_safe"],
+        ["--full-store", "backend/tests/test_safe.py", "--require-full-store"],
+        ["--full-store", "backend/tests/test_safe.py", "-m", "full_build"],
+        ["--full-store", "backend/tests/test_safe.py", "-m", "mutating_integration"],
+        ["--full-store", "backend/tests/test_safe.py", "--rootdir=other"],
+        ["--full-store", "backend/tests/test_safe.py", "-c=other.ini"],
+        ["--full-store", "backend/tests/test_safe.py", "-p=malicious"],
+        ["--full-store", "backend/tests/test_safe.py", "&&", "git", "push"],
+        ["--full-store", "frontend/tests/test_safe.py"],
+        ["--full-store", "backend/tests/missing.py"],
+    ],
+)
+def test_full_store_mode_rejects_unsafe_requests(
+    owned_test_root: Path, arguments: list[str]
+) -> None:
+    with pytest.raises(AgentTestInputError):
+        build_pytest_invocation(arguments, owned_test_root)
+
+
+def test_full_store_mode_requires_a_python_test_path(owned_test_root: Path) -> None:
+    non_python = owned_test_root / "backend/tests/test_data.txt"
+    non_python.write_text("not a Python test")
+
+    with pytest.raises(AgentTestInputError, match="Python test path"):
+        build_pytest_invocation(
+            ["--full-store", "backend/tests/test_data.txt"], owned_test_root
+        )
+
+
 def test_safe_integration_requires_registration_and_uses_fixed_runner(
     complete_test_root: Path,
 ) -> None:
@@ -322,6 +390,47 @@ def test_agent_test_invokes_fixed_command_without_shell(
     assert "PYTEST_PLUGINS" not in environment
     assert environment["PYTHONNOUSERSITE"] == "1"
     assert os.environ["PYTEST_ADDOPTS"] == "-p malicious"
+
+
+def test_full_store_mode_invokes_fixed_command_without_shell(
+    owned_test_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: dict[str, object] = {}
+
+    class Result:
+        returncode = 0
+
+    def fake_run(arguments: object, **kwargs: object) -> Result:
+        observed["arguments"] = arguments
+        observed.update(kwargs)
+        return Result()
+
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-m mutating_integration")
+    monkeypatch.setenv("PYTEST_PLUGINS", "malicious")
+
+    assert (
+        run_agent_test(
+            ["--full-store", "ontolib/tests/test_safe.py::test_safe", "-v"],
+            owned_test_root,
+            runner=fake_run,
+        )
+        == 0
+    )
+    assert observed["arguments"] == (
+        "pytest",
+        "--require-full-store",
+        "ontolib/tests/test_safe.py::test_safe",
+        "-v",
+        "-m",
+        "integration and full_store",
+    )
+    assert observed["cwd"] == owned_test_root.resolve()
+    assert observed["shell"] is False
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert "PYTEST_ADDOPTS" not in environment
+    assert "PYTEST_PLUGINS" not in environment
+    assert environment["PYTHONNOUSERSITE"] == "1"
 
 
 def test_agent_test_rejects_successful_frontend_run_with_no_executed_tests(

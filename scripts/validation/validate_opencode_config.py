@@ -878,6 +878,8 @@ def validate_role_contracts(
             "manual user action",
             "report the ready state to the user",
             "never `gh pr merge`",
+            "Never invoke raw `pdm run pytest`",
+            "pdm run agent-test --full-store <node> -v",
         ),
     )
     if "fallback_models" in implementer[0]:
@@ -910,6 +912,8 @@ def validate_role_contracts(
             "never infer from silence",
             "never duplicate an unresolved writer",
             "polling loops",
+            "Never invoke raw `pdm run pytest`",
+            "pdm run agent-test --full-store <node> -v",
         ),
     )
     validate_standard_permissions(validation, roles)
@@ -1021,6 +1025,8 @@ def validate_agents_document(validation: Validation) -> None:
             "documentation, fix, or commit edits",
             "Pushes and PR creation or updates",
             "remain manual user actions",
+            "pdm run agent-test --full-store <node> -v",
+            "full aggregate remains",
         ),
     )
     require_terms(

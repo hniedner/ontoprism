@@ -184,15 +184,16 @@ pdm run test-smoke           # frontend vitest via npm
 - CodeQL is the one gate `verify` cannot reproduce (GitHub default setup, pull requests and
   `main` pushes only). Everything else is covered locally.
 
-- **Single test / focused run**: use the `pytest` console script via pdm —
-  `pdm run pytest ontolib/tests/path/test_x.py::test_name -v`. Do **not** run
-  `python -m pytest`: the module form prepends the repo root to `sys.path`, where the
-  outer `ontolib/`/`backend/` dirs shadow the editable install (see `docs/DECISIONS.md`
-  D6). `pdm run pytest` / the `pdm run test*` scripts use the correct console-script
-  resolution; the root `conftest.py` also fixes `sys.path` for xdist workers.
+- **Single test / focused run**: use the repository's safe wrapper —
+  `pdm run agent-test ontolib/tests/path/test_x.py::test_name -v`. Never invoke raw
+  `pdm run pytest` or `python -m pytest`: the wrapper constrains paths, flags, markers,
+  environment, and subprocess execution, while the module form also prepends the repo
+  root to `sys.path`, where the outer `ontolib/`/`backend/` dirs shadow the editable
+  install (see `docs/DECISIONS.md` D6).
   For a mutating/seeded integration node, retain the fail-closed lane:
-  `pdm run python scripts/run_safe_integration.py <path>::<test> -v`.
-  Run a read-only `full_store` node with `pdm run test-integration-full-store -k <name>`.
+  `pdm run agent-test --safe-integration <path>::<test> -v`.
+  Run a focused read-only `full_store` contract with
+  `pdm run agent-test --full-store <node> -v`; the full aggregate remains `pdm run test-integration-full-store`.
 - Frontend single test: `cd frontend && npx vitest run <path>` (or `-t <name>`).
 - Markers (registered in root `pyproject.toml`): `unit`, `api`, `security`,
   `integration` (real services), `mutating_integration` (nonce-owned disposable
