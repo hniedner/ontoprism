@@ -48,6 +48,26 @@ BUILTIN_AGENT_NAMES = {
     "summary",
     "title",
 }
+EXTRA_SAFE_COMMANDS = {
+    "ontoprism-team": (
+        ("git diff --no-ext-diff", "allow"),
+        ("git diff --check", "allow"),
+        ("git diff --no-index /dev/null policy.md", "allow"),
+        ("git diff --no-index policy.md /dev/null", "deny"),
+        (
+            "pdm run agent-test backend/tests/test_opencode_config_validation.py",
+            "allow",
+        ),
+        ("pdm run lint", "allow"),
+        ("pdm run pytest backend/tests/test_opencode_config_validation.py", "deny"),
+    ),
+    "implementer": (
+        ("git diff --no-ext-diff", "allow"),
+        ("git diff --check", "allow"),
+        ("git diff --no-index /dev/null policy.md", "allow"),
+        ("git diff --no-index policy.md /dev/null", "deny"),
+    ),
+}
 
 
 class RuntimeContractError(RuntimeError):
@@ -257,7 +277,10 @@ def validate_agent_permissions(
     expected_catch_all = "deny"
     if not catch_alls or catch_alls[-1].get("action") != expected_catch_all:
         errors.append(f"{name} resolved bash catch-all must be {expected_catch_all}")
-    for command, expected in expected_agent_commands(name):
+    for command, expected in (
+        *expected_agent_commands(name),
+        *EXTRA_SAFE_COMMANDS.get(name, ()),
+    ):
         if effective_action(bash_rules, command) != expected:
             errors.append(f"{name} effective action for {command} must be {expected}")
     return errors

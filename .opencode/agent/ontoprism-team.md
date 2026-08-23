@@ -38,13 +38,18 @@ permission:
     "git show --stat --oneline HEAD": allow
     "pdm run validate-opencode-config": allow
     "pdm run validate-opencode-runtime": allow
+    "gh pr merge * --squash --delete-branch --subject *": allow
+    "git diff --no-ext-diff": allow
+    "git diff --check": allow
+    "git diff --no-index /dev/null *": allow
+    "pdm run agent-test *": allow
+    "pdm run lint": allow
     "git reset": deny
     "git reset *": deny
     "git clean": deny
     "git clean *": deny
     "git push": deny
     "git push *": deny
-    "gh pr merge * --squash --delete-branch --subject *": allow
     "gh pr create": deny
     "gh pr create*": deny
     "npm publish": deny

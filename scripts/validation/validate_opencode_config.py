@@ -120,12 +120,18 @@ FIXED_GIT_INSPECTION = (
     "git log --oneline -10",
     "git show --stat --oneline HEAD",
 )
+SAFE_WORKTREE_DIFF = (
+    "git diff --no-ext-diff",
+    "git diff --check",
+    "git diff --no-index /dev/null *",
+)
 IMPLEMENTER_BASH_ALLOWS = (
     *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
     *IMPLEMENTER_NPM_COMMANDS,
     "git status --porcelain",
     "git status --short --branch",
     "git rev-parse HEAD",
+    *SAFE_WORKTREE_DIFF,
     "git diff --no-ext-diff main...HEAD",
     "git diff --check main...HEAD",
     "git diff --cached --check",
@@ -142,6 +148,11 @@ ORCHESTRATOR_BASH_ALLOWS = (
     "pdm run validate-opencode-config",
     "pdm run validate-opencode-runtime",
     "gh pr merge * --squash --delete-branch --subject *",
+)
+ORCHESTRATOR_BASH_ALLOWS += (
+    *SAFE_WORKTREE_DIFF,
+    "pdm run agent-test *",
+    "pdm run lint",
 )
 READ_ONLY_BASH_ALLOWS = FIXED_GIT_INSPECTION
 R3_BASH_ALLOWS = (
@@ -503,6 +514,7 @@ def validate_shell_metacharacter_denies(
         if (
             action == "allow"
             and "*" in pattern
+            and pattern != "git diff --no-index /dev/null *"
             and pattern.startswith(
                 ("git diff", "git log", "git show", "git status", "git rev-parse")
             )

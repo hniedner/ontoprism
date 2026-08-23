@@ -105,6 +105,11 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
     from research.axis_diagnostic_report import generate_axis_diagnostic_report
 
 try:
+    from scripts.research.group_review_packet import generate_group_review_packet
+except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
+    from research.group_review_packet import generate_group_review_packet
+
+try:
     from scripts.decompose import _source_snapshot
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from decompose import _source_snapshot
@@ -165,6 +170,19 @@ class _AxisDiagnosticArgs(Protocol):
     current_comparison: Path
     residual_filler: list[str]
     output: Path
+
+
+class _GroupReviewArgs(Protocol):
+    current_evidence: Path
+    current_comparison: Path
+    output: Path
+
+
+def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
+    group_parser = subparsers.add_parser("generate-group-review-packet")
+    group_parser.add_argument("--current-evidence", required=True, type=Path)
+    group_parser.add_argument("--current-comparison", required=True, type=Path)
+    group_parser.add_argument("--output", required=True, type=Path)
 
 
 class _CorpusBaselineArgs(Protocol):
@@ -269,6 +287,14 @@ async def _generate_axis_diagnostics(args: _AxisDiagnosticArgs) -> None:
         current_evidence_path=args.current_evidence,
         current_comparison_path=args.current_comparison,
         residual_fillers=tuple(args.residual_filler),
+        output=args.output,
+    )
+
+
+def _generate_group_review(args: _GroupReviewArgs) -> None:
+    generate_group_review_packet(
+        evidence_path=args.current_evidence,
+        comparison_path=args.current_comparison,
         output=args.output,
     )
 
@@ -670,6 +696,7 @@ def _parser() -> argparse.ArgumentParser:
         "--residual-filler", required=True, action="append", default=[]
     )
     axis_parser.add_argument("--output", required=True, type=Path)
+    _add_group_review_parser(subparsers)
     corpus_parser = subparsers.add_parser("generate-corpus-baseline")
     corpus_parser.add_argument("--source-manifest", required=True, type=Path)
     corpus_parser.add_argument("--run-id", required=True)
@@ -701,6 +728,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "generate-axis-diagnostics":
         asyncio.run(_generate_axis_diagnostics(cast("_AxisDiagnosticArgs", args)))
+        return
+    if args.command == "generate-group-review-packet":
+        _generate_group_review(cast("_GroupReviewArgs", args))
         return
     if args.command == "generate-corpus-baseline":
         asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))

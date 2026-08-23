@@ -40,6 +40,9 @@ permission:
     "git status --porcelain": allow
     "git status --short --branch": allow
     "git rev-parse HEAD": allow
+    "git diff --no-ext-diff": allow
+    "git diff --check": allow
+    "git diff --no-index /dev/null *": allow
     "git diff --no-ext-diff main...HEAD": allow
     "git diff --check main...HEAD": allow
     "git diff --cached --check": allow
