@@ -362,3 +362,158 @@ def test_diagnose_stack_runs_only_fixed_bounded_read_only_commands(
 def test_diagnose_stack_rejects_all_user_arguments(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
         run_agent_replay(["diagnose-stack", "--since", "24h"], tmp_path)
+
+
+@pytest.mark.unit
+def test_diagnose_stack_reports_only_allowlisted_colima_config_from_exact_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected_path = Path("/Users/hannes/.colima/default/colima.yaml")
+    read_paths: list[Path] = []
+
+    def read_text(path: Path, *, encoding: str | None = None) -> str:
+        read_paths.append(path)
+        assert encoding == "utf-8"
+        return """
+portForwarder: ssh
+vmType: vz
+mountType: virtiofs
+mountInotify: true
+cpu: 8
+memory: 16
+disk: 100
+runtime: docker
+password: never-print-this
+docker:
+  registry-token: also-never-print-this
+"""
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    assert (
+        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
+    )
+
+    assert read_paths == [expected_path]
+    output = capsys.readouterr().out
+    assert (
+        """=== Colima config (allowlisted fields) ===
+portForwarder: ssh
+vmType: vz
+mountType: virtiofs
+mountInotify: true
+cpu: 8
+memory: 16
+disk: 100
+runtime: docker
+"""
+        in output
+    )
+    config_output = output.partition("=== colima status --json ===")[0]
+    assert "password" not in config_output.lower()
+    assert "never-print-this" not in config_output
+    assert "registry-token" not in config_output
+    assert "also-never-print-this" not in config_output
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config",
+    [
+        "runtime: docker\nruntime: containerd\n",
+        "runtime: docker\ndocker:\n  token: first\n  token: second\n",
+    ],
+)
+def test_diagnose_stack_rejects_duplicate_yaml_keys_without_leaking_values(
+    config: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(Path, "read_text", lambda _path, *, encoding=None: config)
+
+    assert (
+        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
+    )
+
+    output = capsys.readouterr().out
+    assert "colima-config-error: invalid or duplicate-key YAML" in output
+    assert "docker\nruntime" not in output
+    assert "containerd" not in output
+    assert "first" not in output
+    assert "second" not in output
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", ["malformed", "unreadable"])
+def test_diagnose_stack_sanitizes_malformed_or_unreadable_config_errors(
+    failure: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def read_text(_path: Path, *, encoding: str | None = None) -> str:
+        if failure == "unreadable":
+            raise PermissionError("password=hunter2")
+        return "runtime: [token=secret-value"
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    assert (
+        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
+    )
+
+    output = capsys.readouterr().out
+    expected = (
+        "colima-config-error: unable to read authorized config"
+        if failure == "unreadable"
+        else "colima-config-error: invalid or duplicate-key YAML"
+    )
+    assert expected in output
+    assert "hunter2" not in output
+    assert "secret-value" not in output
+
+
+@pytest.mark.unit
+def test_diagnose_stack_rejects_non_scalar_allowlisted_config_without_leaking(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda _path, *, encoding=None: "runtime:\n  token: secret-value\n",
+    )
+
+    assert (
+        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
+    )
+
+    output = capsys.readouterr().out
+    assert "colima-config-error: allowlisted fields have invalid types" in output
+    assert "token" not in output.lower()
+    assert "secret-value" not in output
+
+
+@pytest.mark.unit
+def test_diagnose_stack_rejects_arbitrary_text_in_allowlisted_config_fields(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda _path, *, encoding=None: 'runtime: "password=hunter2"\n',
+    )
+
+    assert (
+        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
+    )
+
+    output = capsys.readouterr().out
+    assert "colima-config-error: allowlisted fields have invalid values" in output
+    assert "hunter2" not in output

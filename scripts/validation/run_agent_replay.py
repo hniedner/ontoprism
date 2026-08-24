@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, cast
 
+import yaml
+
 _RUN_ID = re.compile(
     r"neoplasm-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
@@ -22,6 +24,20 @@ _SECRET_VALUE = re.compile(
 )
 _URL_CREDENTIALS = re.compile(r"(https?://[^\s:/]+:)[^@\s]+(@)")
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_COLIMA_CONFIG_PATH = Path("/Users/hannes/.colima/default/colima.yaml")
+_COLIMA_CONFIG_FIELDS = (
+    "portForwarder",
+    "vmType",
+    "mountType",
+    "mountInotify",
+    "cpu",
+    "memory",
+    "disk",
+    "runtime",
+)
+_COLIMA_TEXT_FIELDS = frozenset({"portForwarder", "vmType", "mountType", "runtime"})
+_COLIMA_INTEGER_FIELDS = frozenset({"cpu", "memory", "disk"})
+_COLIMA_TEXT_VALUE = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _COLIMA_GUEST_DIAGNOSTICS = (
     ("date", "-u", "+%Y-%m-%dT%H:%M:%SZ"),
     ("cat", "/etc/os-release"),
@@ -149,6 +165,45 @@ class Operation(Protocol):
     def __call__(self, values: list[str], root: Path, runner: CommandRunner) -> int: ...
 
 
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects duplicate keys at every mapping depth."""
+
+
+def _construct_unique_mapping(
+    loader: _UniqueKeySafeLoader, node: yaml.MappingNode, *, deep: bool = False
+) -> dict[object, object]:
+    loader.flatten_mapping(node)
+    keys: set[object] = set()
+    for key_node, _value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in keys
+        except TypeError as exc:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable key",
+                key_node.start_mark,
+            ) from exc
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found a duplicate key",
+                key_node.start_mark,
+            )
+        keys.add(key)
+    return cast(
+        "dict[object, object]",
+        yaml.SafeLoader.construct_mapping(loader, node, deep=deep),
+    )
+
+
+_UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
+)
+
+
 def _subprocess_runner(arguments: list[str], **kwargs: object) -> CommandResult:
     return subprocess.run(  # noqa: S603, PLW1510
         arguments,
@@ -222,6 +277,58 @@ def _collect_diagnostic_command(
         print("stderr:")
         print(stderr)
     return result.returncode == 0
+
+
+def _colima_config_value_error(parsed: object) -> str | None:
+    if not isinstance(parsed, dict) or any(not isinstance(key, str) for key in parsed):
+        return "invalid or duplicate-key YAML"
+    for field in _COLIMA_CONFIG_FIELDS:
+        if field not in parsed:
+            continue
+        value = parsed[field]
+        if field in _COLIMA_TEXT_FIELDS:
+            valid_type = isinstance(value, str)
+        elif field in _COLIMA_INTEGER_FIELDS:
+            valid_type = isinstance(value, int) and not isinstance(value, bool)
+        else:
+            valid_type = isinstance(value, bool)
+        if not valid_type:
+            return "allowlisted fields have invalid types"
+    if any(
+        field in parsed
+        and field in _COLIMA_TEXT_FIELDS
+        and _COLIMA_TEXT_VALUE.fullmatch(cast("str", parsed[field])) is None
+        for field in _COLIMA_CONFIG_FIELDS
+    ):
+        return "allowlisted fields have invalid values"
+    return None
+
+
+def _report_colima_config() -> None:
+    print("\n=== Colima config (allowlisted fields) ===")
+    try:
+        source = _COLIMA_CONFIG_PATH.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        print("colima-config-error: unable to read authorized config")
+        return
+    try:
+        parsed = yaml.load(source, Loader=_UniqueKeySafeLoader)  # noqa: S506
+    except yaml.YAMLError:
+        print("colima-config-error: invalid or duplicate-key YAML")
+        return
+    error = _colima_config_value_error(parsed)
+    if error is not None:
+        print(f"colima-config-error: {error}")
+        return
+
+    parsed = cast("dict[str, object]", parsed)
+    for field in _COLIMA_CONFIG_FIELDS:
+        if field not in parsed:
+            print(f"{field}: <not set>")
+            continue
+        value = parsed[field]
+        rendered = str(value).lower() if isinstance(value, bool) else str(value)
+        print(f"{field}: {rendered}")
 
 
 def _adjudication_inputs(root: Path) -> tuple[str, str, str, str, str]:
@@ -425,6 +532,7 @@ def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int
     captured_now = (
         datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     )
+    _report_colima_config()
     json_status_supported = _collect_diagnostic_command(
         ["colima", "status", "--json"], root, runner
     )
