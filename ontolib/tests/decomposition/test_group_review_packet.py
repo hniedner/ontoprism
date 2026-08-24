@@ -3,25 +3,41 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
+from typing import cast
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
+from openpyxl import load_workbook
 from pydantic import ValidationError
 from scripts.adjudication import _parser
+from scripts.research import group_review_packet as group_review
 from scripts.research.current_evidence import CurrentComparison, CurrentEngineEvidence
 from scripts.research.group_review_packet import (
-    CorrectionBlockedDisposition,
     GroupReviewPacket,
+    HumanReviewPendingDisposition,
     build_group_review_packet,
     diagnose_grouping,
     generate_group_review_packet,
     load_group_review_packet,
 )
 
+from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+
 pytestmark = pytest.mark.unit
 
 _GOLDEN = Path(__file__).with_name("golden")
 _EVIDENCE = _GOLDEN / "neoplasm-current-engine-evidence.json"
 _COMPARISON = _GOLDEN / "neoplasm-current-comparison.json"
+_R101 = _GOLDEN / "neoplasm-r101-v4-conservation.json.gz"
+
+APPROVE = "Approve intentional normalization"
+CORRECT = "Require source-reproducible correction"
+REJECT = "Reject proposed regrouping"
+ABSTAIN = "Abstain / escalate"
+
+
+def _sheet_headers(sheet) -> dict[str, int]:
+    return {str(cell.value): cast("int", cell.column) for cell in sheet[1]}
 
 
 def _inputs() -> tuple[CurrentEngineEvidence, CurrentComparison]:
@@ -33,12 +49,16 @@ def _inputs() -> tuple[CurrentEngineEvidence, CurrentComparison]:
 
 def _packet() -> GroupReviewPacket:
     evidence, comparison = _inputs()
-    return build_group_review_packet(evidence=evidence, comparison=comparison)
+    return build_group_review_packet(
+        evidence=evidence,
+        comparison=comparison,
+        r101_report=load_r101_conservation_report(_R101),
+    )
 
 
 def test_packet_derives_current_cohort_metrics_and_controls() -> None:
     evidence, comparison = _inputs()
-    packet = build_group_review_packet(evidence=evidence, comparison=comparison)
+    packet = _packet()
 
     assert packet.historical_full_partition_agreement.model_dump() == {
         "numerator": 2,
@@ -95,16 +115,16 @@ def test_every_disagreement_has_total_pair_group_and_disposition_diagnosis() -> 
         for item in packet.concepts
     )
     assert {item.disposition.status for item in packet.concepts} == {
-        "correction-blocked"
+        "human-review-pending"
     }
     for item in packet.concepts:
-        assert isinstance(item.disposition, CorrectionBlockedDisposition)
-        assert item.disposition.reason == "missing-transformation-rule-evidence"
+        assert isinstance(item.disposition, HumanReviewPendingDisposition)
+        assert item.disposition.acceptance == "not-recorded"
 
 
 def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
-    evidence, comparison = _inputs()
-    packet = build_group_review_packet(evidence=evidence, comparison=comparison)
+    evidence, _comparison = _inputs()
+    packet = _packet()
     evidence_by_code = {item.code: item for item in evidence.concepts}
 
     for concept in packet.concepts:
@@ -130,7 +150,6 @@ def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:
         }
         for group in concept.actual_groups:
             assert not group.normalized_group_id.startswith("source:")
-            assert group.transformation_evidence.status == "unavailable-upstream"
             for pair in group.pairs:
                 if pair.availability == "unavailable-upstream":
                     assert pair.reason == "source-occurrence-unavailable-upstream"
@@ -159,8 +178,11 @@ def test_rule_boundary_names_complete_catalog_without_fabricating_evidence() -> 
         "repeated-pairs",
         "reviewed-regrouping",
     )
-    assert packet.review_boundary.status == "blocked"
-    assert packet.review_boundary.reason == "missing-transformation-rule-evidence"
+    assert packet.review_boundary.status == "human-review-pending"
+    assert (
+        packet.review_boundary.reason
+        == "machine-evidence-complete-human-decision-blank"
+    )
     assert packet.review_boundary.sme_adjudication == "not-recorded"
 
 
@@ -185,16 +207,24 @@ def test_wrong_highest_fanout_normalized_partition_is_rejected() -> None:
     )
 
     with pytest.raises(ValueError, match="actual normalized partition"):
-        build_group_review_packet(evidence=evidence, comparison=wrong)
+        build_group_review_packet(
+            evidence=evidence,
+            comparison=wrong,
+            r101_report=load_r101_conservation_report(_R101),
+        )
 
 
 def test_packet_rejects_rebound_and_aliased_group_identity() -> None:
     evidence, comparison = _inputs()
     rebound = comparison.model_copy(update={"source_identity": "f" * 64})
     with pytest.raises(ValueError, match="source identity"):
-        build_group_review_packet(evidence=evidence, comparison=rebound)
+        build_group_review_packet(
+            evidence=evidence,
+            comparison=rebound,
+            r101_report=load_r101_conservation_report(_R101),
+        )
 
-    packet = build_group_review_packet(evidence=evidence, comparison=comparison)
+    packet = _packet()
     payload = packet.model_dump(mode="json")
     actual = payload["concepts"][0]["actual_groups"][0]
     actual["normalized_group_id"] = actual["source_group_ids"][0]
@@ -207,6 +237,7 @@ def test_generator_writes_canonical_identity_checked_json(tmp_path: Path) -> Non
     generated = generate_group_review_packet(
         evidence_path=_EVIDENCE,
         comparison_path=_COMPARISON,
+        r101_report_path=_R101,
         output=output,
     )
 
@@ -239,11 +270,210 @@ def test_group_review_cli_requires_both_bound_inputs_and_output() -> None:
             "evidence.json",
             "--current-comparison",
             "comparison.json",
+            "--r101-report",
+            "r101.json.gz",
             "--output",
             "packet.json",
+            "--workbook",
+            "review.xlsx",
         ]
     )
 
     assert args.current_evidence == Path("evidence.json")
     assert args.current_comparison == Path("comparison.json")
+    assert args.r101_report == Path("r101.json.gz")
     assert args.output == Path("packet.json")
+    assert args.workbook == Path("review.xlsx")
+
+
+def _review_boundary():
+    evidence, comparison = _inputs()
+    return group_review.build_machine_group_review_packet(
+        evidence=evidence, comparison=comparison, r101_report_path=_R101
+    )
+
+
+@pytest.mark.unit
+def test_machine_rule_evidence_joins_exact_source_and_output_witnesses() -> None:
+    packet = _review_boundary()
+    evidence, _ = _inputs()
+    occurrences = {
+        row.occurrence_id: row
+        for concept in evidence.concepts
+        for row in concept.all_source_occurrences
+    }
+    by_kind = {
+        kind: [row for row in packet.rule_evidence if row.kind == kind]
+        for kind in packet.rule_kinds
+    }
+
+    assert all(by_kind.values())
+    for row in packet.rule_evidence:
+        assert row.source_occurrence_ids
+        assert row.source_fact_ids
+        assert row.source_group_ids
+        assert all(value in occurrences for value in row.source_occurrence_ids)
+        assert {
+            occurrences[value].source_fact_id for value in row.source_occurrence_ids
+        } == set(row.source_fact_ids)
+        assert {
+            occurrences[value].source_group_id for value in row.source_occurrence_ids
+        } == set(row.source_group_ids)
+    assert any(row.output_group_ids for row in by_kind["co-assertion-preservation"])
+    assert all(row.output_pairs for row in by_kind["routing"])
+    assert any(row.r82_path for row in by_kind["specificity-collapse"])
+    assert all(len(row.source_occurrence_ids) > 1 for row in by_kind["repeated-pairs"])
+    assert all(
+        row.proposed_partition and row.affected_co_membership
+        for row in by_kind["reviewed-regrouping"]
+    )
+    assert all(
+        row.machine_evidence_limitation
+        == "historical expected partition has no source citations"
+        for row in by_kind["reviewed-regrouping"]
+    )
+
+
+@pytest.mark.unit
+def test_blank_workbook_has_no_machine_generated_human_text(tmp_path: Path) -> None:
+    packet = _review_boundary()
+    workbook = tmp_path / "group-review.xlsx"
+    group_review.write_group_review_workbook(workbook, packet)
+    book = load_workbook(workbook)
+    sheet = book["Group Review"]
+    headers = _sheet_headers(sheet)
+    assert sheet.max_row - 1 == len(packet.review_rows)
+    assert len(packet.review_rows) == sum(
+        not row.full_partition.agrees for row in _inputs()[1].concepts
+    )
+    for name in ("Decision", "Rationale", "Reviewer", "Date"):
+        assert all(
+            sheet.cell(row, headers[name]).value is None
+            for row in range(2, sheet.max_row + 1)
+        )
+
+
+def _filled_workbook(tmp_path: Path):
+    packet = _review_boundary()
+    path = tmp_path / "review.xlsx"
+    group_review.write_group_review_workbook(path, packet)
+    book = load_workbook(path)
+    sheet = book["Group Review"]
+    headers = _sheet_headers(sheet)
+    for row in range(2, sheet.max_row + 1):
+        sheet.cell(row, headers["Decision"], APPROVE)
+        sheet.cell(row, headers["Rationale"], "TEST-ONLY SME rationale")
+        sheet.cell(row, headers["Reviewer"], "TEST-ONLY reviewer")
+        sheet.cell(row, headers["Date"], "2099-01-01")
+    book.save(path)
+    return packet, path, headers
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("immutable", "immutable"),
+        ("missing", "review rows"),
+        ("duplicate", "review rows"),
+        ("blank", "human fields"),
+        ("machine-rationale", "machine-generated text"),
+        ("stale", "binding"),
+        ("formula", "formula"),
+        ("macro", "macro"),
+        ("external", "external link"),
+        ("contradiction", "contradictory"),
+    ],
+)
+def test_import_refuses_unsafe_incomplete_or_contradictory_review(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    packet, path, headers = _filled_workbook(tmp_path)
+    if mutation in {"macro", "external"}:
+        member = (
+            "xl/vbaProject.bin"
+            if mutation == "macro"
+            else "xl/externalLinks/externalLink1.xml"
+        )
+        with ZipFile(path, "a", ZIP_DEFLATED) as archive:
+            archive.writestr(member, b"TEST")
+    else:
+        book = load_workbook(path)
+        sheet = book["Group Review"]
+        if mutation == "immutable":
+            sheet.cell(2, headers["Concept"], "C999999")
+        elif mutation == "missing":
+            sheet.delete_rows(sheet.max_row)
+        elif mutation == "duplicate":
+            sheet.append([cell.value for cell in sheet[2]])
+        elif mutation == "blank":
+            sheet.cell(2, headers["Rationale"]).value = None
+        elif mutation == "machine-rationale":
+            sheet.cell(
+                2,
+                headers["Rationale"],
+                packet.review_rows[0].machine_suggestion,
+            )
+        elif mutation == "stale":
+            book["Bindings"]["B2"] = "0" * 64
+        elif mutation == "formula":
+            sheet.cell(2, headers["Rationale"], "=1+1")
+        else:
+            sheet.cell(2, headers["Decision"], APPROVE)
+            sheet.cell(2, headers["Pair Decision"], CORRECT)
+        book.save(path)
+    with pytest.raises(ValueError, match=message):
+        group_review.import_group_review_decisions(
+            packet, path, tmp_path / "must-not-exist.json"
+        )
+    assert not (tmp_path / "must-not-exist.json").exists()
+
+
+@pytest.mark.unit
+def test_import_closes_decisions_and_dry_run_reports_deferred_without_writes(
+    tmp_path: Path,
+) -> None:
+    packet, path, headers = _filled_workbook(tmp_path)
+    book = load_workbook(path)
+    sheet = book["Group Review"]
+    sheet.cell(2, headers["Decision"], ABSTAIN)
+    sheet.cell(3, headers["Decision"], CORRECT)
+    book.save(path)
+    registry = group_review.import_group_review_decisions(
+        packet, path, tmp_path / "decisions.json"
+    )
+    result = group_review.dry_run_group_review_decisions(packet, registry)
+    assert result.writes_performed is False
+    assert result.unresolved_count == 1
+    assert result.deferred_count == 1
+    assert result.affected_concepts
+    assert result.affected_groups
+    assert result.affected_traces
+
+
+@pytest.mark.unit
+def test_highest_fanout_generation_loads_each_authoritative_source_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    reads: Counter[Path] = Counter()
+    original = Path.read_bytes
+
+    def counted(path: Path) -> bytes:
+        reads[path.resolve()] += 1
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", counted)
+    output = tmp_path / "packet.json"
+    workbook = tmp_path / "packet.xlsx"
+    group_review.generate_group_review_boundary(
+        evidence_path=_EVIDENCE,
+        comparison_path=_COMPARISON,
+        r101_report_path=_R101,
+        output=output,
+        workbook=workbook,
+    )
+    assert reads[_EVIDENCE.resolve()] == 1
+    assert reads[_COMPARISON.resolve()] == 1
+    assert reads[_R101.resolve()] == 1
+    assert output.is_file()
+    assert workbook.is_file()
