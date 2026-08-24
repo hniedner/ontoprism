@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -14,6 +15,13 @@ _RUN_ID = re.compile(
 )
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
 _MAX_FILLERS = 8
+_DIAGNOSTIC_TIMEOUT_SECONDS = 20
+_MAX_DIAGNOSTIC_CHARS = 8_192
+_SECRET_VALUE = re.compile(
+    r"(?i)\b(password|passwd|token|secret|api[_-]?key)(\s*[:=]\s*)([^\s,;]+)"
+)
+_URL_CREDENTIALS = re.compile(r"(https?://[^\s:/]+:)[^@\s]+(@)")
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 class AgentReplayInputError(ValueError):
@@ -59,6 +67,52 @@ def _run(command: list[str], root: Path, runner: CommandRunner) -> int:
         timeout=None,
     )
     return result.returncode
+
+
+def _bounded_sanitized(value: object) -> str:
+    if value is None:
+        return ""
+    text = value.decode(errors="replace") if isinstance(value, bytes) else str(value)
+    text = _ANSI_ESCAPE.sub("", text).replace("\x00", "")
+    text = _SECRET_VALUE.sub(r"\1\2[REDACTED]", text)
+    text = _URL_CREDENTIALS.sub(r"\1[REDACTED]\2", text)
+    if len(text) <= _MAX_DIAGNOSTIC_CHARS:
+        return text
+    omitted = len(text) - _MAX_DIAGNOSTIC_CHARS
+    retained_head = _MAX_DIAGNOSTIC_CHARS // 2
+    retained_tail = _MAX_DIAGNOSTIC_CHARS - retained_head
+    return (
+        f"{text[:retained_head]}\n[TRUNCATED {omitted} CHARS]\n{text[-retained_tail:]}"
+    )
+
+
+def _collect_diagnostic_command(
+    command: list[str], root: Path, runner: CommandRunner
+) -> bool:
+    print(f"\n=== {' '.join(command)} ===")
+    try:
+        result = runner(
+            command,
+            cwd=root,
+            shell=False,
+            check=False,
+            timeout=_DIAGNOSTIC_TIMEOUT_SECONDS,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"collection-error: {_bounded_sanitized(exc)}")
+        return False
+    print(f"exit-code: {result.returncode}")
+    stdout = _bounded_sanitized(getattr(result, "stdout", ""))
+    stderr = _bounded_sanitized(getattr(result, "stderr", ""))
+    if stdout:
+        print("stdout:")
+        print(stdout)
+    if stderr:
+        print("stderr:")
+        print(stderr)
+    return result.returncode == 0
 
 
 def _adjudication_inputs(root: Path) -> tuple[str, str, str, str, str]:
@@ -255,6 +309,64 @@ def _refresh_sparql_inventory(
     )
 
 
+def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("diagnose-stack accepts no arguments")
+
+    captured_now = (
+        datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
+    json_status_supported = _collect_diagnostic_command(
+        ["colima", "status", "--json"], root, runner
+    )
+    if not json_status_supported:
+        _collect_diagnostic_command(["colima", "status"], root, runner)
+
+    commands = [
+        ["docker", "info"],
+        ["docker", "ps", "-a", "--no-trunc"],
+        ["docker", "compose", "ps", "-a"],
+        *(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{json .State}} {{json .RestartCount}}",
+                container,
+            ]
+            for container in (
+                "ontoprism-qlever-ncit",
+                "ontoprism-qlever-uberon",
+                "ontoprism-postgres",
+            )
+        ),
+        ["docker", "events", "--since", "2h", "--until", captured_now],
+        [
+            "docker",
+            "compose",
+            "logs",
+            "--since",
+            "2h",
+            "--no-color",
+            "--tail",
+            "200",
+        ],
+    ]
+    colima_root = Path.home() / ".colima"
+    commands.extend(
+        ["/usr/bin/tail", "-n", "200", str(path)]
+        for path in (
+            colima_root / "_lima/colima/ha.stderr.log",
+            colima_root / "_lima/colima/ha.stdout.log",
+            colima_root / "_lima/colima/serial.log",
+            colima_root / "default/daemon.log",
+        )
+    )
+    for command in commands:
+        _collect_diagnostic_command(command, root, runner)
+    return 0
+
+
 _OPERATIONS: dict[str, Operation] = {
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
@@ -262,6 +374,7 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review": _generate_group_review,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
+    "diagnose-stack": _diagnose_stack,
 }
 
 
