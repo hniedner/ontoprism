@@ -150,7 +150,6 @@ async def test_c27262_source_projection_is_conserved_through_current_layers() ->
     )
     assert counted.logical_select_count <= 30
     assert _morphology_projection(result.decomposition) == source_projection
-    stale_projection = (source_projection[0],)
-    assert persisted_projection == stale_projection
-    assert artifact_projection in {None, stale_projection}
-    assert evidence_projection == (("C35501", ()),)
+    assert persisted_projection == source_projection
+    assert artifact_projection == source_projection
+    assert evidence_projection == source_projection

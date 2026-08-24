@@ -112,7 +112,7 @@ def test_report_exhaustively_separates_revise_and_candidate_diagnostics() -> Non
         if (row.code, row.expected.axis, row.expected.filler)
         == ("C27262", "op:Morphology", "C9290")
     )
-    assert c9290.classification == "extraction-miss"
+    assert c9290.classification == "added"
     assert c9290.source_definition_ids == ("b" * 64,)
     selection_misses = [
         row for row in report.candidate_rows if row.classification == "selection-miss"

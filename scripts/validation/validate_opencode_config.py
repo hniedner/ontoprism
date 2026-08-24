@@ -100,6 +100,7 @@ IMPLEMENTER_PACKAGE_COMMANDS = (
     "pre-commit run --all-files",
     "agent-test *",
     "agent-git *",
+    "agent-replay *",
 )
 IMPLEMENTER_NPM_COMMANDS = (
     "npm --prefix frontend run test:coverage",

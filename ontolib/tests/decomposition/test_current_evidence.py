@@ -903,30 +903,30 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
     assert evidence.source_identity == (
         "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
     )
-    assert evidence.run_id == "neoplasm-a26dcb2f-0cb6-4b4f-86f6-8c4efa74c574"
+    assert evidence.run_id == "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d"
     assert evidence.representation_identity == (
-        "57d57cbd530db898c01009817edd7a60ab0e44b9c3c8bf564be7a6ff31a576fb"
+        "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e"
     )
     assert comparison.metrics.exact_pair_precision.model_dump() == {
-        "numerator": 94,
-        "denominator": 99,
-        "rate": 94 / 99,
+        "numerator": 100,
+        "denominator": 108,
+        "rate": 100 / 108,
     }
     assert comparison.metrics.exact_pair_recall.model_dump() == {
-        "numerator": 94,
+        "numerator": 100,
         "denominator": 153,
-        "rate": 94 / 153,
+        "rate": 100 / 153,
     }
     assert comparison.row_replay.aggregates.model_dump() == {
         "retained_exact": 79,
-        "retained_revised": 7,
+        "retained_revised": 10,
         "excluded_still_emitted": 12,
         "excluded_not_emitted": 4,
-        "missing_kept": 4,
-        "added": 32,
+        "missing_kept": 1,
+        "added": 34,
         "selection_miss": 16,
         "proposal_only": 1,
-        "unavailable_source_evidence": 15,
+        "unavailable_source_evidence": 13,
         "explicitly_out_of_scope": 19,
     }
 
