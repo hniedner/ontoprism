@@ -661,13 +661,22 @@ async def test_run_pipeline_morphology_counts_as_decomposable_axis() -> None:
         # C1), with a non-staging label → morphology_filler resolves to C99
         label_rows=[{"label": "Medullary Carcinoma"}],
     )
-    # Override genus-walk rows so C1's first member is C99 (its genus),
-    # not C1 itself.
-    c1_rows = [
-        {"member": _iri("C99")},
-        _old_role_to_genus_walk_row(_role("R101", "Has_Primary_Site", "C2")),
+    role_row = client._complete_rows["C1"][0]
+    client._complete_rows["C1"] = [
+        {
+            "expression": "_:complete-C1",
+            "parentExpression": None,
+            "nestingDepth": "0",
+            "position": "0",
+            "member": _iri("C99"),
+            "role": None,
+            "target": None,
+            "childExpression": None,
+            "nestedExpression": None,
+            "overflow": "false",
+        },
+        {**role_row, "position": "1"},
     ]
-    client._genus_walk["C1"] = c1_rows
     provenance = _mock_provenance()
     config = RunConfig(branch="neoplasm")
     metrics = await run_pipeline(config, client, provenance)

@@ -612,9 +612,9 @@ def _resolved_leaves(
 
 
 def _append_morphology(
-    constituents: list[Constituent], parent_morphology: str | None
+    constituents: list[Constituent], parent_morphologies: Iterable[str]
 ) -> None:
-    if parent_morphology is not None:
+    for parent_morphology in parent_morphologies:
         constituents.append(
             Constituent(
                 axis=axes.MORPHOLOGY_AXIS,
@@ -628,7 +628,7 @@ def select_constituents(
     restrictions: Iterable[RoleRestriction],
     is_ancestor: IsAncestor,
     *,
-    parent_morphology: str | None = None,
+    parent_morphologies: Iterable[str] = (),
     semantic_type_of: Callable[[str], str | None] | None = None,
     is_part_of: IsPartOf | None = None,
     concept_code: str | None = None,
@@ -659,6 +659,8 @@ def select_constituents(
     Output is sorted (axis, filler) for deterministic, diffable results.
     """
     restriction_rows = tuple(restrictions)
+    morphology_fillers = tuple(dict.fromkeys(parent_morphologies))
+    parent_morphology = morphology_fillers[0] if morphology_fillers else None
     by_axis, source_roles, protected = _group_by_routed_axis(
         restriction_rows,
         parent_morphology,
@@ -675,7 +677,7 @@ def select_constituents(
         is_part_of,
         protected,
     )
-    _append_morphology(constituents, parent_morphology)
+    _append_morphology(constituents, morphology_fillers)
     provenance: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
     for restriction in filter_excluded(restriction_rows, concept_code=concept_code):
         key = (route_axis(restriction, parent_morphology), restriction.filler_code)

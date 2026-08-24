@@ -1096,22 +1096,25 @@ async def test_2607d_c130035_r82_closure_stays_within_observed_bounds() -> None:
 @pytest.mark.integration
 @pytest.mark.full_store
 @pytest.mark.parametrize(
-    ("concept_code", "expected_pair", "broader_pair"),
+    ("concept_code", "expected_pair", "broader_pair", "expected_morphology"),
     [
         (
             "C6135",
             ("op:AssociatedRegion", "C13063"),
             ("op:AssociatedRegion", "C12418"),
+            "C3879",
         ),
         (
             "C101539",
             ("op:AssociatedRegion", "C13063"),
             ("op:AssociatedRegion", "C12418"),
+            "C7153",
         ),
         (
             "C4791",
             ("op:PrimarySite", "C12869"),
             ("op:PrimarySite", "C12727"),
+            "C3499",
         ),
     ],
 )
@@ -1119,6 +1122,7 @@ async def test_2607d_r101_collapse_is_limited_to_routed_axis(
     concept_code: str,
     expected_pair: tuple[str, str],
     broader_pair: tuple[str, str],
+    expected_morphology: str,
 ) -> None:
     url = _url()
     if not _reachable(url):
@@ -1144,6 +1148,9 @@ async def test_2607d_r101_collapse_is_limited_to_routed_axis(
     }
     assert expected_pair in pairs
     assert broader_pair not in pairs
+    assert {filler for axis, filler in pairs if axis == "op:Morphology"} == {
+        expected_morphology
+    }
 
 
 @pytest.mark.integration
@@ -1247,7 +1254,7 @@ async def test_c6135_walked_roles_route_d19_d20_with_semantic_type_of() -> None:
         constituents = select_constituents(
             roles,
             make_is_ancestor(ancestor_pairs),
-            parent_morphology=None,
+            parent_morphologies=(),
             semantic_type_of=_st_of,
         )
 
@@ -1336,7 +1343,7 @@ async def test_c6135_decomposition_includes_morphology_constituent() -> None:
         constituents = select_constituents(
             roles,
             make_is_ancestor(ancestor_pairs),
-            parent_morphology=morphology,
+            parent_morphologies=((morphology,) if morphology is not None else ()),
             semantic_type_of=_st_of,
         )
 

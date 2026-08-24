@@ -20,6 +20,7 @@ from ontolib.decomposition.extract import (
 )
 from ontolib.decomposition.models import (
     CompleteDefinition,
+    GenusDefinitionFact,
     ResolvedR82Path,
     ResolvedR82PathEdge,
     RestrictionDefinitionFact,
@@ -1175,6 +1176,78 @@ async def resolve_morphology_filler(
         current_code = genus_code
 
     return None
+
+
+def _definition_genera_by_anchor(
+    complete: CompleteDefinition, max_depth: int
+) -> dict[str, set[str]]:
+    genera_by_anchor: dict[str, set[str]] = {}
+    for fact in complete.facts:
+        if isinstance(fact, GenusDefinitionFact) and fact.depth < max_depth:
+            genera_by_anchor.setdefault(fact.anchor_code, set()).add(fact.genus_code)
+    return genera_by_anchor
+
+
+async def _resolve_morphology_frontier(
+    select_fn: SelectRows,
+    frontier: tuple[str, ...],
+    genera_by_anchor: Mapping[str, set[str]],
+    visited: set[str],
+    selected: set[str],
+    preferred: str | None,
+) -> tuple[str, ...]:
+    next_frontier: set[str] = set()
+    for anchor in frontier:
+        for genus_code in sorted(genera_by_anchor.get(anchor, ())):
+            if genus_code in visited:
+                continue
+            visited.add(genus_code)
+            if genus_code == preferred:
+                selected.add(genus_code)
+                continue
+            label = await _fetch_genus_label(select_fn, f"{NCIT_NS}{genus_code}")
+            if label is not None and not _is_staging_concept_label(label):
+                selected.add(genus_code)
+            else:
+                next_frontier.add(genus_code)
+    return tuple(sorted(next_frontier))
+
+
+async def resolve_morphology_fillers(
+    select_fn: SelectRows,
+    complete: CompleteDefinition,
+    *,
+    max_depth: int = 5,
+) -> tuple[str, ...]:
+    """Resolve every co-equal first non-staging genus in a complete definition.
+
+    Anonymous nested intersections can place more than one named genus at the same
+    anchor.  Walking only the first RDF-list member loses those co-equal source facts,
+    so this projection follows all genus facts already validated by the complete reader.
+    """
+    preferred = await resolve_morphology_filler(
+        select_fn, complete.root_code, max_depth=max_depth
+    )
+    genera_by_anchor = _definition_genera_by_anchor(complete, max_depth)
+
+    selected: set[str] = set()
+    visited = {complete.root_code}
+    frontier = (complete.root_code,)
+    for _ in range(max_depth):
+        if not frontier:
+            break
+        frontier = await _resolve_morphology_frontier(
+            select_fn,
+            frontier,
+            genera_by_anchor,
+            visited,
+            selected,
+            preferred,
+        )
+    return (
+        *((preferred,) if preferred in selected else ()),
+        *(code for code in sorted(selected) if code != preferred),
+    )
 
 
 def _build_role_labels_query(role_codes: Iterable[str]) -> str:

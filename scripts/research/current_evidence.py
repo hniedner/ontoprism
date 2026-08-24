@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from collections import Counter
 from enum import StrEnum
@@ -117,6 +118,9 @@ class CurrentConstituent(_StrictModel):
     filler: str
     relationship_group: str | None
     needs_review: bool
+    source_definition_ids: tuple[str, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
     source_occurrence_ids: tuple[str, ...]
     source_occurrences: tuple[CurrentSourceOccurrence, ...]
 
@@ -127,9 +131,22 @@ class CurrentConstituent(_StrictModel):
 
     @model_validator(mode="after")
     def _citations_match_selected_ids(self) -> Self:
+        if len(set(self.source_definition_ids)) != len(self.source_definition_ids):
+            raise ValueError("duplicate source definition citations")
+        if tuple(sorted(self.source_definition_ids)) != self.source_definition_ids:
+            raise ValueError("source definition citations are not canonical")
+        if any(
+            re.fullmatch(_SHA256, item) is None for item in self.source_definition_ids
+        ):
+            raise ValueError("source definition citation is not a SHA-256 identity")
         cited = tuple(item.occurrence_id for item in self.source_occurrences)
         if cited != self.source_occurrence_ids:
             raise ValueError("source occurrence citations do not match selected IDs")
+        occurrence_fact_ids = {item.source_fact_id for item in self.source_occurrences}
+        if self.source_definition_ids and not occurrence_fact_ids <= set(
+            self.source_definition_ids
+        ):
+            raise ValueError("source occurrences cite an unselected definition fact")
         return self
 
 
@@ -471,6 +488,7 @@ def _concepts(
                 filler=item.filler_code,
                 relationship_group=item.group,
                 needs_review=item.needs_review,
+                source_definition_ids=item.source_definition_ids,
                 source_occurrence_ids=item.source_occurrence_ids,
                 source_occurrences=tuple(
                     occurrences[occurrence_id]

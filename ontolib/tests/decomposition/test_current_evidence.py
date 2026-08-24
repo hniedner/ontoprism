@@ -205,6 +205,55 @@ def _repeated_occurrence_decomposition() -> Decomposition:
 
 
 @pytest.mark.unit
+def test_current_constituent_preserves_and_validates_source_fact_citations() -> None:
+    fact_id = "a" * 64
+    constituent = CurrentConstituent(
+        axis="op:Morphology",
+        filler="C9290",
+        relationship_group=None,
+        needs_review=False,
+        source_definition_ids=(fact_id,),
+        source_occurrence_ids=(),
+        source_occurrences=(),
+    )
+
+    assert constituent.source_definition_ids == (fact_id,)
+    with pytest.raises(ValueError, match="duplicate source definition citations"):
+        CurrentConstituent(
+            axis="op:Morphology",
+            filler="C9290",
+            relationship_group=None,
+            needs_review=False,
+            source_definition_ids=(fact_id, fact_id),
+            source_occurrence_ids=(),
+            source_occurrences=(),
+        )
+
+    occurrence = CurrentSourceOccurrence(
+        occurrence_id="b" * 64,
+        root_code="C1",
+        source_fact_id="c" * 64,
+        source_group_id="d" * 64,
+        anchor_code="C1",
+        depth=0,
+        role_code="R101",
+        filler_code="C12400",
+        structural_path=(0,),
+        member_position=0,
+    )
+    with pytest.raises(ValueError, match="unselected definition fact"):
+        CurrentConstituent(
+            axis="op:PrimarySite",
+            filler="C12400",
+            relationship_group=None,
+            needs_review=False,
+            source_definition_ids=(fact_id,),
+            source_occurrence_ids=(occurrence.occurrence_id,),
+            source_occurrences=(occurrence,),
+        )
+
+
+@pytest.mark.unit
 def test_generate_current_evidence_binds_inputs_and_writes_both_outputs(
     tmp_path: Path,
 ) -> None:
@@ -550,6 +599,9 @@ def test_generate_current_evidence_preserves_repeated_source_occurrences(
     assert evidence.concepts[0].constituents[0].source_occurrence_ids == tuple(
         item.occurrence_id for item in citations
     )
+    assert evidence.concepts[0].constituents[0].source_definition_ids == (
+        decomposition.constituents[0].source_definition_ids
+    )
 
 
 @pytest.mark.unit
@@ -571,6 +623,7 @@ def test_current_concept_rejects_selected_occurrence_outside_complete_definition
                     filler="C12400",
                     relationship_group=None,
                     needs_review=False,
+                    source_definition_ids=(occurrence.source_fact_id,),
                     source_occurrence_ids=(occurrence.occurrence_id,),
                     source_occurrences=(occurrence,),
                 ),
