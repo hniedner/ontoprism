@@ -237,39 +237,38 @@ exists; bind any future generated artifact only after every concrete input exist
 These commands generate new current-source evidence beside the immutable historical files. They
 do not regenerate or modify the SME oracle or row decisions.
 
-Required configured inputs:
+The implementation-agent entry point checks every fixed input before execution and invokes no
+shell. Read the issue contract through the same narrow entry point:
 
 ```bash
-test -f data/qlever-ncit/.ontoprism-ncit-candidate.json
-test -f samples/ncit-26.07d-m1-current-replay.json
-test -f ontolib/tests/decomposition/golden/neoplasm-adjudicated.json
-test -f ontolib/tests/decomposition/golden/neoplasm-row-decisions.json
-test -f ontolib/tests/decomposition/golden/proposal-registry.json
+pdm run agent-replay read-issue 274
 ```
 
-Run the exact current 20-code cohort, then generate both evidence outputs in one command:
+Run the exact current 20-code cohort. The completed replay generated the persisted run
+`neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d` (`pdm run agent-replay decompose-current`,
+2026-08-24):
 
 ```bash
-pdm run decompose \
-  --source-manifest data/qlever-ncit/.ontoprism-ncit-candidate.json \
-  --branch neoplasm \
-  --sample-manifest samples/ncit-26.07d-m1-current-replay.json \
-  --out tmp/m1-6-current-replay.ttl
-
-pdm run adjudication generate-current-evidence \
-  --sample-manifest samples/ncit-26.07d-m1-current-replay.json \
-  --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json \
-  --row-decisions ontolib/tests/decomposition/golden/neoplasm-row-decisions.json \
-  --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json \
-  --run-id <completed-current-replay-run-id> \
-  --artifact tmp/m1-6-current-replay.ttl \
-  --engine-output ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json \
-  --comparison-output ontolib/tests/decomposition/golden/neoplasm-current-comparison.json
+pdm run agent-replay decompose-current
+pdm run agent-replay generate-current-evidence neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d
 ```
 
 The generator derives every identity from those inputs and the completed persisted run. It refuses
 source, release, manifest, worklist, run, fingerprint, artifact, representation, detector, oracle,
 row-decision, registry, or evidence drift before replacing either output.
+
+Generate the current axis diagnostics for the three explicit residual-detector branches (detected,
+not detected, and proposed filler absent from source), then the normalized-group review packet:
+
+```bash
+pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
+pdm run agent-replay generate-group-review
+```
+
+These commands write `tmp/m1-6-axis-diagnostics.json` and
+`tmp/m1-6-group-review-packet.json`. Both are gitignored diagnostic/review artifacts. The group
+packet records missing transformation-rule evidence and no SME adjudication; generating it does
+not approve an intentionally normalized difference.
 
 Generate the exhaustive fanout observation against the configured current source:
 

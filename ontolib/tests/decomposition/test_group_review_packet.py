@@ -9,8 +9,8 @@ from pydantic import ValidationError
 from scripts.adjudication import _parser
 from scripts.research.current_evidence import CurrentComparison, CurrentEngineEvidence
 from scripts.research.group_review_packet import (
+    CorrectionBlockedDisposition,
     GroupReviewPacket,
-    HumanReviewPendingDisposition,
     build_group_review_packet,
     diagnose_grouping,
     generate_group_review_packet,
@@ -94,12 +94,12 @@ def test_every_disagreement_has_total_pair_group_and_disposition_diagnosis() -> 
         in {"over-merge", "over-split", "misassignment"}
         for item in packet.concepts
     )
-    human_only = HumanReviewPendingDisposition(
-        status="human-review-pending",
-        proposed_diagnosis="intentionally-normalized",
-        acceptance="not-recorded",
-    )
-    assert human_only.acceptance == "not-recorded"
+    assert {item.disposition.status for item in packet.concepts} == {
+        "correction-blocked"
+    }
+    for item in packet.concepts:
+        assert isinstance(item.disposition, CorrectionBlockedDisposition)
+        assert item.disposition.reason == "missing-transformation-rule-evidence"
 
 
 def test_every_actual_group_cites_exact_pair_and_source_occurrences() -> None:

@@ -421,6 +421,7 @@ def test_default_deny_blocks_global_option_and_alias_bypasses(command: str) -> N
         ("git branch -D feat/x", "deny"),
         ("git merge --no-ff feat/x", "deny"),
         ("pdm run agent-git switch-new feat/x", "allow"),
+        ("pdm run agent-replay decompose-current", "allow"),
         (
             "pdm run agent-git commit-staged --message test:change",
             "allow",

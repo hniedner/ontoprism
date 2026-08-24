@@ -1,6 +1,6 @@
 {
-  "artifact_identity": "57d57cbd530db898c01009817edd7a60ab0e44b9c3c8bf564be7a6ff31a576fb",
-  "comparison_identity": "2ff5f44dd88ab4ff0966416392e14690d8ee50faaee7596775cee344f3d9539c",
+  "artifact_identity": "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e",
+  "comparison_identity": "0303d36898d966c254ebc1f5183850452136371d10ab5c3381dfcd37f7a65306",
   "concepts": [
     {
       "code": "C27262",
@@ -20,6 +20,12 @@
           ],
           [
             [
+              "op:Morphology",
+              "C9290"
+            ]
+          ],
+          [
+            [
               "op:NormalTissueOrigin",
               "C13051"
             ]
@@ -31,7 +37,7 @@
             ]
           ]
         ],
-        "agrees": true,
+        "agrees": false,
         "eligible": true,
         "expected_partition": [
           [
@@ -44,6 +50,10 @@
             [
               "op:Morphology",
               "C35501"
+            ],
+            [
+              "op:Morphology",
+              "C9290"
             ]
           ],
           [
@@ -73,14 +83,40 @@
           [
             "op:ClinicalFinding",
             "C41397"
-          ],
-          [
-            "op:Morphology",
-            "C9290"
           ]
         ],
-        "primary_diagnosis": null,
-        "shared_pair_count": 4
+        "primary_diagnosis": {
+          "actual_pair_citations": [],
+          "affected_pairs": [
+            [
+              "op:Morphology",
+              "C35501"
+            ],
+            [
+              "op:Morphology",
+              "C9290"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C35501"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C9290"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
+        "shared_pair_count": 5
       },
       "extra_pairs": [],
       "full_partition": {
@@ -95,6 +131,12 @@
             [
               "op:Morphology",
               "C35501"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9290"
             ]
           ],
           [
@@ -172,77 +214,11 @@
           [
             "op:ClinicalFinding",
             "C41397"
-          ],
-          [
-            "op:Morphology",
-            "C9290"
           ]
         ],
         "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "5963d7e8d61131f8005ca09faf840bf20d55771ea9c7725875802e908c197661"
-              ],
-              "pair": [
-                "op:CellType",
-                "C41063"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "21b168b9f6b50b9a7f3009732cf8a69e46afd6035cb59e12b965fa75df155856"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C36220"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "508585754f14fe7cd1d8b87f5f27e44fbc4bc0ee416085122ea5961daba8c595"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C41397"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "b9b698311f2a4cc98704e0680a3c217a747473cac9bec53d35426c27d6b97cba"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C13051"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "a179003aa9fa26595b62ea62954de625d86f4a28ad8fcb853c441252d1e931a5"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12431"
-              ]
-            }
-          ],
+          "actual_pair_citations": [],
           "affected_pairs": [
-            [
-              "op:AssociatedRegion",
-              "C41165"
-            ],
-            [
-              "op:CellType",
-              "C41063"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C36220"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C41397"
-            ],
             [
               "op:Morphology",
               "C35501"
@@ -250,46 +226,10 @@
             [
               "op:Morphology",
               "C9290"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C13051"
-            ],
-            [
-              "op:PrimarySite",
-              "C12431"
             ]
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C41165"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C41063"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C36220"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C41397"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -303,25 +243,11 @@
                 "op:Morphology",
                 "C9290"
               ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C13051"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12431"
-              ]
             }
           ],
           "normalization_rule": "group-label-independent-co-membership"
         },
-        "shared_pair_count": 4
+        "shared_pair_count": 5
       },
       "missing_pairs": [
         [
@@ -335,10 +261,6 @@
         [
           "op:ClinicalFinding",
           "C41397"
-        ],
-        [
-          "op:Morphology",
-          "C9290"
         ]
       ]
     },
@@ -363,9 +285,15 @@
               "op:Morphology",
               "C121619"
             ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C39986"
+            ]
           ]
         ],
-        "agrees": true,
+        "agrees": false,
         "eligible": true,
         "expected_partition": [
           [
@@ -384,6 +312,10 @@
             [
               "op:Morphology",
               "C121619"
+            ],
+            [
+              "op:Morphology",
+              "C39986"
             ]
           ]
         ],
@@ -395,16 +327,42 @@
             "C12321"
           ],
           [
-            "op:Morphology",
-            "C39986"
-          ],
-          [
             "op:PrimarySite",
             "C12404"
           ]
         ],
-        "primary_diagnosis": null,
-        "shared_pair_count": 3
+        "primary_diagnosis": {
+          "actual_pair_citations": [],
+          "affected_pairs": [
+            [
+              "op:Morphology",
+              "C121619"
+            ],
+            [
+              "op:Morphology",
+              "C39986"
+            ]
+          ],
+          "diagnosis": "over-split",
+          "expected_pair_citations": [
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C121619"
+              ]
+            },
+            {
+              "availability": "unavailable-historical-oracle",
+              "pair": [
+                "op:Morphology",
+                "C39986"
+              ]
+            }
+          ],
+          "normalization_rule": "group-label-independent-co-membership"
+        },
+        "shared_pair_count": 4
       },
       "extra_pairs": [],
       "full_partition": {
@@ -425,6 +383,12 @@
             [
               "op:Morphology",
               "C121619"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C39986"
             ]
           ]
         ],
@@ -474,48 +438,13 @@
             "C12321"
           ],
           [
-            "op:Morphology",
-            "C39986"
-          ],
-          [
             "op:PrimarySite",
             "C12404"
           ]
         ],
         "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "750af9c3ecfad72067bfacee6bd7ca52c2a21f69f3af8d4a1578de9bb1094269"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36903"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "656f522f95cd941b8a3faf2f468bd98ea61b49a2055df8800ad0b706228746bd"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C156460"
-              ]
-            }
-          ],
+          "actual_pair_citations": [],
           "affected_pairs": [
-            [
-              "op:AssociatedSite",
-              "C12321"
-            ],
-            [
-              "op:CellType",
-              "C36903"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C156460"
-            ],
             [
               "op:Morphology",
               "C121619"
@@ -523,35 +452,10 @@
             [
               "op:Morphology",
               "C39986"
-            ],
-            [
-              "op:PrimarySite",
-              "C12404"
             ]
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedSite",
-                "C12321"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36903"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C156460"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -565,27 +469,16 @@
                 "op:Morphology",
                 "C39986"
               ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12404"
-              ]
             }
           ],
           "normalization_rule": "group-label-independent-co-membership"
         },
-        "shared_pair_count": 3
+        "shared_pair_count": 4
       },
       "missing_pairs": [
         [
           "op:AssociatedSite",
           "C12321"
-        ],
-        [
-          "op:Morphology",
-          "C39986"
         ],
         [
           "op:PrimarySite",
@@ -714,6 +607,10 @@
           [
             "op:AssociatedRegion",
             "C54224"
+          ],
+          [
+            "op:Morphology",
+            "C9315"
           ]
         ],
         "ineligibility_reason": null,
@@ -729,15 +626,6 @@
         ],
         "primary_diagnosis": {
           "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "9df99119f52a36d8e0639f73b1dd6f14b61f1bb5b40059a95a313cc6b7ddf27d"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36771"
-              ]
-            },
             {
               "occurrence_ids": [
                 "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
@@ -768,14 +656,6 @@
           ],
           "affected_pairs": [
             [
-              "op:CellType",
-              "C36771"
-            ],
-            [
-              "op:Morphology",
-              "C42690"
-            ],
-            [
               "op:StageSystem",
               "C90529"
             ],
@@ -790,20 +670,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36771"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C42690"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -834,6 +700,10 @@
         [
           "op:AssociatedRegion",
           "C54224"
+        ],
+        [
+          "op:Morphology",
+          "C9315"
         ]
       ],
       "full_partition": {
@@ -854,6 +724,12 @@
             [
               "op:Morphology",
               "C42690"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9315"
             ]
           ],
           [
@@ -919,6 +795,10 @@
           [
             "op:AssociatedRegion",
             "C54224"
+          ],
+          [
+            "op:Morphology",
+            "C9315"
           ]
         ],
         "ineligibility_reason": null,
@@ -934,24 +814,6 @@
         ],
         "primary_diagnosis": {
           "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "c006a946abc8baa3bd96939717305bcb9d73fa1fc25d3eab55d6a3a7f22993d3"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C54224"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "9df99119f52a36d8e0639f73b1dd6f14b61f1bb5b40059a95a313cc6b7ddf27d"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36771"
-              ]
-            },
             {
               "occurrence_ids": [
                 "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
@@ -982,26 +844,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12418"
-            ],
-            [
-              "op:AssociatedRegion",
-              "C54224"
-            ],
-            [
-              "op:CellType",
-              "C36771"
-            ],
-            [
-              "op:Morphology",
-              "C42690"
-            ],
-            [
-              "op:PrimarySite",
-              "C54224"
-            ],
-            [
               "op:StageSystem",
               "C90529"
             ],
@@ -1016,41 +858,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12418"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C54224"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36771"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C42690"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C54224"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -1187,24 +994,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "2adf52c827a8998a0636db6045f4c58968c93b0bd1e29ef14607de47f37cdf2d"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36836"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "d8e9eddd825edd558856a710ff668a433150fd441c05040b6f6e5d4f92dda1fb"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
               ],
               "pair": [
@@ -1224,18 +1013,6 @@
           ],
           "affected_pairs": [
             [
-              "op:CellType",
-              "C36836"
-            ],
-            [
-              "op:Morphology",
-              "C7153"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C33782"
-            ],
-            [
               "op:StageSystem",
               "C140961"
             ],
@@ -1246,27 +1023,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36836"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C7153"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -1420,42 +1176,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "2adf52c827a8998a0636db6045f4c58968c93b0bd1e29ef14607de47f37cdf2d"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36836"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "e2b994c622f65572033946f0473f9382a7208a15f39796b8592f11c663109e76"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C47806"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "d700115f29b5cbb582c52499e7bf1298276c4141415e686d1ef7480d6eaeb3a2"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C47817"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "d8e9eddd825edd558856a710ff668a433150fd441c05040b6f6e5d4f92dda1fb"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
               ],
               "pair": [
@@ -1475,42 +1195,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12705"
-            ],
-            [
-              "op:AssociatedRegion",
-              "C13063"
-            ],
-            [
-              "op:CellType",
-              "C36836"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C188014"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C47806"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C47817"
-            ],
-            [
-              "op:Morphology",
-              "C7153"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C33782"
-            ],
-            [
-              "op:PrimarySite",
-              "C12400"
-            ],
-            [
               "op:StageSystem",
               "C140961"
             ],
@@ -1521,69 +1205,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12705"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C13063"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36836"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C188014"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C47806"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C47817"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C7153"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12400"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -1709,15 +1330,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "e5440c640fe4266bcac13927814b31a90ccd2704f940a806562784c47371f017"
-              ],
-              "pair": [
-                "op:MetastaticSite",
-                "C32298"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
               ],
               "pair": [
@@ -1737,14 +1349,6 @@
           ],
           "affected_pairs": [
             [
-              "op:MetastaticSite",
-              "C32298"
-            ],
-            [
-              "op:Morphology",
-              "C8566"
-            ],
-            [
               "op:StageSystem",
               "C132248"
             ],
@@ -1755,20 +1359,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:MetastaticSite",
-                "C32298"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C8566"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -1890,42 +1480,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "d533253cd19721ae14631ba62034321a2936116316e02c64e0be10885d692594"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C40557"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "3cf592ed311a646f7018a124e2700c11b5bf5d52df924a5d3bb332c00a372cc9"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C40989"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "a324e113d1f0de37e8ad1632295eabb4e47e4dce1e7896abf9c335f5acb754d9"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C48322"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "e5440c640fe4266bcac13927814b31a90ccd2704f940a806562784c47371f017"
-              ],
-              "pair": [
-                "op:MetastaticSite",
-                "C32298"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
               ],
               "pair": [
@@ -1945,30 +1499,6 @@
           ],
           "affected_pairs": [
             [
-              "op:ClinicalFinding",
-              "C40557"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C40989"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C41444"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C48322"
-            ],
-            [
-              "op:MetastaticSite",
-              "C32298"
-            ],
-            [
-              "op:Morphology",
-              "C8566"
-            ],
-            [
               "op:StageSystem",
               "C132248"
             ],
@@ -1979,48 +1509,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C40557"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C40989"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C41444"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C48322"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:MetastaticSite",
-                "C32298"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C8566"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -2145,33 +1633,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "eab378d9909169887a4748a5738eece35b28317271004def2c0726de24136401"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "6f5908f98b7995ee30f01d64398cd6072f09cfeb5d6cfe37c4988577463c686b"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "ca1c93057eb5c0dfb9a83f2e7ab135e0ed7ae7b4671eb775f907a44868de03b7"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
               ],
               "pair": [
@@ -2191,22 +1652,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C9039"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ],
-            [
-              "op:PrimarySite",
-              "C12311"
-            ],
-            [
               "op:StageSystem",
               "C180901"
             ],
@@ -2217,34 +1662,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9039"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -2349,33 +1766,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "eab378d9909169887a4748a5738eece35b28317271004def2c0726de24136401"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "6f5908f98b7995ee30f01d64398cd6072f09cfeb5d6cfe37c4988577463c686b"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "ca1c93057eb5c0dfb9a83f2e7ab135e0ed7ae7b4671eb775f907a44868de03b7"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
               ],
               "pair": [
@@ -2395,22 +1785,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C9039"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ],
-            [
-              "op:PrimarySite",
-              "C12311"
-            ],
-            [
               "op:StageSystem",
               "C180901"
             ],
@@ -2421,34 +1795,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9039"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -2556,33 +1902,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "27f5ae2594d5f2832953ea53a0700d66b85de86ad45a82293b48113d8f0f6acc"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "f33f6e689f9f12ea6212c7bd7e6356a2087853f2200f1d9a7f2f1fc201c88e88"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "08cdcf0be327aec3ea647a140090ba9d2acb2350f6a40f0e9153f22a983b3059"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
               ],
               "pair": [
@@ -2602,22 +1921,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C9039"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ],
-            [
-              "op:PrimarySite",
-              "C12311"
-            ],
-            [
               "op:StageSystem",
               "C186618"
             ],
@@ -2628,34 +1931,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9039"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -2760,33 +2035,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "27f5ae2594d5f2832953ea53a0700d66b85de86ad45a82293b48113d8f0f6acc"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "f33f6e689f9f12ea6212c7bd7e6356a2087853f2200f1d9a7f2f1fc201c88e88"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "08cdcf0be327aec3ea647a140090ba9d2acb2350f6a40f0e9153f22a983b3059"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
               ],
               "pair": [
@@ -2806,22 +2054,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C9039"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ],
-            [
-              "op:PrimarySite",
-              "C12311"
-            ],
-            [
               "op:StageSystem",
               "C186618"
             ],
@@ -2832,34 +2064,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9039"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -2967,33 +2171,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "1d9b7f223b178343ceefe66f0ae06a3e926b48c519e3fd5f529fe9d1aceb409e"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "c31213ae0e5b401d796e494ace4b3328f3ec30d0c3cf258be9e2eb5dde1c72fb"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "18946e2719ec23ee768611559e7a422c19451c5f156b9a72334ec3b89b298fe3"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
               ],
               "pair": [
@@ -3013,22 +2190,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C9039"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ],
-            [
-              "op:PrimarySite",
-              "C12311"
-            ],
-            [
               "op:StageSystem",
               "C186617"
             ],
@@ -3039,34 +2200,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9039"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -3171,33 +2304,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "1d9b7f223b178343ceefe66f0ae06a3e926b48c519e3fd5f529fe9d1aceb409e"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "c31213ae0e5b401d796e494ace4b3328f3ec30d0c3cf258be9e2eb5dde1c72fb"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "18946e2719ec23ee768611559e7a422c19451c5f156b9a72334ec3b89b298fe3"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
               ],
               "pair": [
@@ -3217,22 +2323,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C9039"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49218"
-            ],
-            [
-              "op:PrimarySite",
-              "C12311"
-            ],
-            [
               "op:StageSystem",
               "C186617"
             ],
@@ -3243,34 +2333,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9039"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49218"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12311"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -3383,33 +2445,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "d3887be8b25ac5cff1027bb3f08ba89909b3217fe8c3b900fd29e0a620d17012"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "735d47f4b8fcd861e408a13e087ac5c9c33be20ac07c9dd137b0fc1870a6df15"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C12313"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "93ec07edcccc397b839214ea4e34a0abb19d7b50aa04e9b2aba4e143f51415cb"
-              ],
-              "pair": [
-                "op:PrimarySubsite",
-                "C32514"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
               ],
               "pair": [
@@ -3429,22 +2464,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C7558"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C12313"
-            ],
-            [
-              "op:PrimarySubsite",
-              "C32514"
-            ],
-            [
               "op:StageSystem",
               "C206211"
             ],
@@ -3455,34 +2474,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C7558"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C12313"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySubsite",
-                "C32514"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -3598,33 +2589,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "d3887be8b25ac5cff1027bb3f08ba89909b3217fe8c3b900fd29e0a620d17012"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "735d47f4b8fcd861e408a13e087ac5c9c33be20ac07c9dd137b0fc1870a6df15"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C12313"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "93ec07edcccc397b839214ea4e34a0abb19d7b50aa04e9b2aba4e143f51415cb"
-              ],
-              "pair": [
-                "op:PrimarySubsite",
-                "C32514"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
               ],
               "pair": [
@@ -3644,26 +2608,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12402"
-            ],
-            [
-              "op:Morphology",
-              "C7558"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C12313"
-            ],
-            [
-              "op:PrimarySite",
-              "C12316"
-            ],
-            [
-              "op:PrimarySubsite",
-              "C32514"
-            ],
-            [
               "op:StageSystem",
               "C206211"
             ],
@@ -3674,41 +2618,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12402"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C7558"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C12313"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12316"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySubsite",
-                "C32514"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -3753,6 +2662,12 @@
           ],
           [
             [
+              "op:Morphology",
+              "C3168"
+            ]
+          ],
+          [
+            [
               "op:StageSystem",
               "C198023"
             ]
@@ -3771,6 +2686,12 @@
             [
               "op:ClinicalFinding",
               "C60644"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C3168"
             ]
           ],
           [
@@ -3797,10 +2718,6 @@
             "C12746"
           ],
           [
-            "op:Morphology",
-            "C3168"
-          ],
-          [
             "op:NormalTissueOrigin",
             "C13049"
           ],
@@ -3810,7 +2727,7 @@
           ]
         ],
         "primary_diagnosis": null,
-        "shared_pair_count": 3
+        "shared_pair_count": 4
       },
       "extra_pairs": [
         [
@@ -3834,6 +2751,12 @@
             [
               "op:ClinicalFinding",
               "C60644"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C3168"
             ]
           ],
           [
@@ -3918,10 +2841,6 @@
             "C12746"
           ],
           [
-            "op:Morphology",
-            "C3168"
-          ],
-          [
             "op:NormalTissueOrigin",
             "C13049"
           ],
@@ -3931,16 +2850,12 @@
           ]
         ],
         "primary_diagnosis": null,
-        "shared_pair_count": 3
+        "shared_pair_count": 4
       },
       "missing_pairs": [
         [
           "op:AssociatedRegion",
           "C12746"
-        ],
-        [
-          "op:Morphology",
-          "C3168"
         ],
         [
           "op:NormalTissueOrigin",
@@ -4126,147 +3041,7 @@
             "C8326"
           ]
         ],
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "1425611db994a0bae8f9cdcae4fb0aa326bcc37c26d8ee26af46854581625721"
-              ],
-              "pair": [
-                "op:AssociatedSite",
-                "C137974"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "8b78b6f96bfcfcb4094ee01dfb0d8a610eec35d802973910c3571e741b1bb622"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36862"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "94d7a2ac20d3402263bc70ec98c0708ac14af7c818a48ab0076c0130df66706d"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C36027"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "46d5e2d3aea0ead5550e60938499aee8ee0df59b40c6510a0d4d4f07d2978b37"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C8326"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "3d1813c97c216c223a66e66d0d42fdee6a9acae5077a94b126e02e8446f6ed5e"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C32365"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "f890b333619896455d492325b056c10dc6d2b4ec24be12190b220ccb70c00165"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12341"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:AssociatedSite",
-              "C137974"
-            ],
-            [
-              "op:CellType",
-              "C36862"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C36027"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C8326"
-            ],
-            [
-              "op:Morphology",
-              "C204977"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C32365"
-            ],
-            [
-              "op:PrimarySite",
-              "C12341"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedSite",
-                "C137974"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36862"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C36027"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C8326"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C204977"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C32365"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12341"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
+        "primary_diagnosis": null,
         "shared_pair_count": 5
       },
       "missing_pairs": [
@@ -4383,15 +3158,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "db6fcda4433f56c28f0479031903bfb8bd3d78e5d17aa237f66437f3213d3dbe"
-              ],
-              "pair": [
-                "op:AssociatedPriorDisease",
-                "C3270"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
               ],
               "pair": [
@@ -4407,40 +3173,9 @@
                 "op:AssociatedRegion",
                 "C49274"
               ]
-            },
-            {
-              "occurrence_ids": [
-                "dece1ed8c7d2cc44b9bc4fa48667ba3639e861741c5890d6bdd77a6cf31f217d"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36773"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "2fc6ef801af40825bb12995d826e0eeb37794c42d93700e3c02d75f40c866a70"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49276"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "72302ce53f55af176d91203d88a514aec714fe0e9115fe8cd31f4f0cf696f574"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12415"
-              ]
             }
           ],
           "affected_pairs": [
-            [
-              "op:AssociatedPriorDisease",
-              "C3270"
-            ],
             [
               "op:AssociatedRegion",
               "C12413"
@@ -4448,33 +3183,10 @@
             [
               "op:AssociatedRegion",
               "C49274"
-            ],
-            [
-              "op:CellType",
-              "C36773"
-            ],
-            [
-              "op:Morphology",
-              "C9385"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49276"
-            ],
-            [
-              "op:PrimarySite",
-              "C12415"
             ]
           ],
           "diagnosis": "over-merge",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedPriorDisease",
-                "C3270"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -4487,34 +3199,6 @@
               "pair": [
                 "op:AssociatedRegion",
                 "C49274"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36773"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9385"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49276"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12415"
               ]
             }
           ],
@@ -4630,15 +3314,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "db6fcda4433f56c28f0479031903bfb8bd3d78e5d17aa237f66437f3213d3dbe"
-              ],
-              "pair": [
-                "op:AssociatedPriorDisease",
-                "C3270"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
               ],
               "pair": [
@@ -4654,40 +3329,9 @@
                 "op:AssociatedRegion",
                 "C49274"
               ]
-            },
-            {
-              "occurrence_ids": [
-                "dece1ed8c7d2cc44b9bc4fa48667ba3639e861741c5890d6bdd77a6cf31f217d"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36773"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "2fc6ef801af40825bb12995d826e0eeb37794c42d93700e3c02d75f40c866a70"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49276"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "72302ce53f55af176d91203d88a514aec714fe0e9115fe8cd31f4f0cf696f574"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12415"
-              ]
             }
           ],
           "affected_pairs": [
-            [
-              "op:AssociatedPriorDisease",
-              "C3270"
-            ],
             [
               "op:AssociatedRegion",
               "C12413"
@@ -4695,37 +3339,10 @@
             [
               "op:AssociatedRegion",
               "C49274"
-            ],
-            [
-              "op:AssociatedSite",
-              "C61107"
-            ],
-            [
-              "op:CellType",
-              "C36773"
-            ],
-            [
-              "op:Morphology",
-              "C9385"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49276"
-            ],
-            [
-              "op:PrimarySite",
-              "C12415"
             ]
           ],
           "diagnosis": "over-merge",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedPriorDisease",
-                "C3270"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -4738,41 +3355,6 @@
               "pair": [
                 "op:AssociatedRegion",
                 "C49274"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedSite",
-                "C61107"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36773"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C9385"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49276"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12415"
               ]
             }
           ],
@@ -4918,42 +3500,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "84fb0595ef601ca70fa5efa3b45d0d2a7513d87d9b28dc9e9a7f6df7db89ab04"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C13063"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "e9136e8325c3756e98676097e7f6065d2fd72fccab70ca25a1b9a34e0ebf8185"
-              ],
-              "pair": [
-                "op:MolecularAbnormality",
-                "C129702"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "6e840fafe8ff71b80bcadc8f92ee99666732af73218b9512bac71ba5ba601807"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "4450fe6c4d02d660a009e2c76f18842b39ada47bdd690dce19c41a6f7fd812d9"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12400"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
               ],
               "pair": [
@@ -4973,26 +3519,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C13063"
-            ],
-            [
-              "op:MolecularAbnormality",
-              "C129702"
-            ],
-            [
-              "op:Morphology",
-              "C3879"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C33782"
-            ],
-            [
-              "op:PrimarySite",
-              "C12400"
-            ],
-            [
               "op:StageSystem",
               "C90530"
             ],
@@ -5003,41 +3529,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C13063"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:MolecularAbnormality",
-                "C129702"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C3879"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12400"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -5235,69 +3726,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "84fb0595ef601ca70fa5efa3b45d0d2a7513d87d9b28dc9e9a7f6df7db89ab04"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C13063"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "a12f27e094c312931bd917a5696e0b6f118de43f641f9ca7daee0136964567eb"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C41457"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "4d1b85d4878cdc5b66d3a9ea4b026c1be057530a7905052743992f28b97636a0"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C47804"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "3047d3c62592f73767534fa0e3ad4b8a586f93bc900cb62a97a9130f37683fd8"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C47807"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "e9136e8325c3756e98676097e7f6065d2fd72fccab70ca25a1b9a34e0ebf8185"
-              ],
-              "pair": [
-                "op:MolecularAbnormality",
-                "C129702"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "6e840fafe8ff71b80bcadc8f92ee99666732af73218b9512bac71ba5ba601807"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "4450fe6c4d02d660a009e2c76f18842b39ada47bdd690dce19c41a6f7fd812d9"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12400"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
               ],
               "pair": [
@@ -5317,58 +3745,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12705"
-            ],
-            [
-              "op:AssociatedRegion",
-              "C13063"
-            ],
-            [
-              "op:CellType",
-              "C36825"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C155863"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C207031"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C41457"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C43574"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C47804"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C47807"
-            ],
-            [
-              "op:MolecularAbnormality",
-              "C129702"
-            ],
-            [
-              "op:Morphology",
-              "C3879"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C33782"
-            ],
-            [
-              "op:PrimarySite",
-              "C12400"
-            ],
-            [
               "op:StageSystem",
               "C90530"
             ],
@@ -5379,97 +3755,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12705"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C13063"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36825"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C155863"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C207031"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C41457"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C43574"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C47804"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C47807"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:MolecularAbnormality",
-                "C129702"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C3879"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C33782"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12400"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -5555,6 +3840,12 @@
               "op:Morphology",
               "C3499"
             ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12869"
+            ]
           ]
         ],
         "agrees": false,
@@ -5589,6 +3880,12 @@
               "op:Morphology",
               "C3499"
             ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12869"
+            ]
           ]
         ],
         "extra_pairs": [],
@@ -5617,10 +3914,6 @@
           [
             "op:ClinicalFinding",
             "C53583"
-          ],
-          [
-            "op:PrimarySite",
-            "C12869"
           ]
         ],
         "primary_diagnosis": {
@@ -5642,24 +3935,6 @@
                 "op:AssociatedRegion",
                 "C13004"
               ]
-            },
-            {
-              "occurrence_ids": [
-                "a12e22fc0ed6443fc2b6ecee89ca569228f3014d3adb4064c818d2256be4b990"
-              ],
-              "pair": [
-                "op:AssociatedSite",
-                "C13004"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "59023e6049fa3f27c1720e9d16dfb3756cb2d12d256cec4b15fa16755cadc8d0"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C35998"
-              ]
             }
           ],
           "affected_pairs": [
@@ -5670,18 +3945,6 @@
             [
               "op:AssociatedRegion",
               "C13004"
-            ],
-            [
-              "op:AssociatedSite",
-              "C13004"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C35998"
-            ],
-            [
-              "op:Morphology",
-              "C3499"
             ]
           ],
           "diagnosis": "over-merge",
@@ -5699,32 +3962,11 @@
                 "op:AssociatedRegion",
                 "C13004"
               ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedSite",
-                "C13004"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C35998"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C3499"
-              ]
             }
           ],
           "normalization_rule": "group-label-independent-co-membership"
         },
-        "shared_pair_count": 5
+        "shared_pair_count": 6
       },
       "extra_pairs": [],
       "full_partition": {
@@ -5756,6 +3998,12 @@
               "op:Morphology",
               "C3499"
             ]
+          ],
+          [
+            [
+              "op:PrimarySite",
+              "C12869"
+            ]
           ]
         ],
         "agrees": false,
@@ -5858,10 +4106,6 @@
           [
             "op:ClinicalFinding",
             "C53583"
-          ],
-          [
-            "op:PrimarySite",
-            "C12869"
           ]
         ],
         "primary_diagnosis": {
@@ -5883,58 +4127,9 @@
                 "op:AssociatedRegion",
                 "C13004"
               ]
-            },
-            {
-              "occurrence_ids": [
-                "a12e22fc0ed6443fc2b6ecee89ca569228f3014d3adb4064c818d2256be4b990"
-              ],
-              "pair": [
-                "op:AssociatedSite",
-                "C13004"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "7d0e04ec4b5c2089943da97753e6dd0bc6a8d6b98c5531e2d6942c770729ac4f"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36899"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "cbcdb80a5feab660b45fc3d423fca991d9036a1734e475bcbb56234291604ce1"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36954"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "59023e6049fa3f27c1720e9d16dfb3756cb2d12d256cec4b15fa16755cadc8d0"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C35998"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "1f214cd4567028ac813a7e104cd605a56d0bc4f80207b3e74b7d2d5e035d3722"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12869"
-              ]
             }
           ],
           "affected_pairs": [
-            [
-              "op:AssociatedLineageClassification",
-              "C12471"
-            ],
             [
               "op:AssociatedRegion",
               "C12905"
@@ -5942,53 +4137,10 @@
             [
               "op:AssociatedRegion",
               "C13004"
-            ],
-            [
-              "op:AssociatedSite",
-              "C13004"
-            ],
-            [
-              "op:CellType",
-              "C36899"
-            ],
-            [
-              "op:CellType",
-              "C36954"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C35998"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C36105"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C36122"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C53583"
-            ],
-            [
-              "op:Morphology",
-              "C3499"
-            ],
-            [
-              "op:PrimarySite",
-              "C12869"
             ]
           ],
-          "diagnosis": "misassignment",
+          "diagnosis": "over-merge",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedLineageClassification",
-                "C12471"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -6002,74 +4154,11 @@
                 "op:AssociatedRegion",
                 "C13004"
               ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedSite",
-                "C13004"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36899"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36954"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C35998"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C36105"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C36122"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C53583"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C3499"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12869"
-              ]
             }
           ],
           "normalization_rule": "group-label-independent-co-membership"
         },
-        "shared_pair_count": 5
+        "shared_pair_count": 6
       },
       "missing_pairs": [
         [
@@ -6095,10 +4184,6 @@
         [
           "op:ClinicalFinding",
           "C53583"
-        ],
-        [
-          "op:PrimarySite",
-          "C12869"
         ]
       ]
     },
@@ -6110,6 +4195,12 @@
             [
               "op:CellType",
               "C36820"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C4917"
             ]
           ],
           [
@@ -6142,6 +4233,12 @@
           ],
           [
             [
+              "op:Morphology",
+              "C4917"
+            ]
+          ],
+          [
+            [
               "op:PrimarySite",
               "C12468"
             ]
@@ -6163,6 +4260,10 @@
           [
             "op:Morphology",
             "C4878"
+          ],
+          [
+            "op:Morphology",
+            "C9049"
           ]
         ],
         "ineligibility_reason": null,
@@ -6212,10 +4313,6 @@
             "C60308"
           ],
           [
-            "op:Morphology",
-            "C4917"
-          ],
-          [
             "op:StageSystem",
             "C141685"
           ],
@@ -6229,12 +4326,16 @@
           ]
         ],
         "primary_diagnosis": null,
-        "shared_pair_count": 4
+        "shared_pair_count": 5
       },
       "extra_pairs": [
         [
           "op:Morphology",
           "C4878"
+        ],
+        [
+          "op:Morphology",
+          "C9049"
         ]
       ],
       "full_partition": {
@@ -6249,6 +4350,18 @@
             [
               "op:Morphology",
               "C4878"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C4917"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C9049"
             ]
           ],
           [
@@ -6388,6 +4501,10 @@
           [
             "op:Morphology",
             "C4878"
+          ],
+          [
+            "op:Morphology",
+            "C9049"
           ]
         ],
         "ineligibility_reason": null,
@@ -6437,10 +4554,6 @@
             "C60308"
           ],
           [
-            "op:Morphology",
-            "C4917"
-          ],
-          [
             "op:StageSystem",
             "C141685"
           ],
@@ -6453,355 +4566,8 @@
             "C28064"
           ]
         ],
-        "primary_diagnosis": {
-          "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "1d2979d8056b2f28b2a6d568ebc6ccf8f70c0cce5e7bbd6569877c86a8b74921"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36820"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "e1f7cf7d057279413f1c43f563411fa14bfd0dc14159db8f10cecdfa2779ccf5"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C155863"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "dc82c0605ae0ed6b3de0f7bd0a40a54d78be9253c72c5125c38ed0a2483ee4ef"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C3331"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "34813796152b2688f15d266cee695de18a6819c9733c8a8b0b8c13113c5b7204"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C36129"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "4ee101bb649d2936607280b583da8698e163e67f52a1b8824048e7a8550572ba"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C36184"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "ccde95d77f554494cf73c73d0694e35dcaafef666d27dcde2acca2e919b00187"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C54209"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "7de3387ce1c54228967bbc3837d1f226fc9a3f008eaf5d4d00ee377c0f78b5e0"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C55817"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "639907cfde2637caa53d301e5ebea3ede157a2d7c355cb6e1db80fff42de746d"
-              ],
-              "pair": [
-                "op:ClinicalFinding",
-                "C60308"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "1903251f5f0abee5e71973ece2ecfae4f9ef6264224821eac2bebbe29d545b00",
-                "77671bf993ce880c8c7346a7447a3d1c2a23ace216503e52c74c7761e00a4dea"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12468"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "b9b0d5d250f4bac82dd43fae70b52ed06d9d2cbb4984e4d7d784d1080acf2a17"
-              ],
-              "pair": [
-                "op:PrimarySubsite",
-                "C12683"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "ddc956ac9e3edcfe5f15f751e39c6e705bf51a6785408896c585cd4052ca6dfb"
-              ],
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "1832ec27cb135d510ba604388be209fe666a8411d790a13e5fc07d8631f2e9d2"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C27978"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "f3713eac76b9ec284a5fe2d697b75ce0066c6b760dfa1a03f578ceb1aea4f217"
-              ],
-              "pair": [
-                "op:StageValue",
-                "C28064"
-              ]
-            }
-          ],
-          "affected_pairs": [
-            [
-              "op:AssociatedLineageClassification",
-              "C12704"
-            ],
-            [
-              "op:AssociatedLineageClassification",
-              "C12705"
-            ],
-            [
-              "op:CellType",
-              "C36820"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C155863"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C207031"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C3331"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C36129"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C36184"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C43574"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C54209"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C55817"
-            ],
-            [
-              "op:ClinicalFinding",
-              "C60308"
-            ],
-            [
-              "op:Morphology",
-              "C4878"
-            ],
-            [
-              "op:Morphology",
-              "C4917"
-            ],
-            [
-              "op:PrimarySite",
-              "C12468"
-            ],
-            [
-              "op:PrimarySubsite",
-              "C12683"
-            ],
-            [
-              "op:StageSystem",
-              "C141685"
-            ],
-            [
-              "op:StageSystem",
-              "C90530"
-            ],
-            [
-              "op:StageValue",
-              "C27978"
-            ],
-            [
-              "op:StageValue",
-              "C28064"
-            ]
-          ],
-          "diagnosis": "over-split",
-          "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedLineageClassification",
-                "C12704"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedLineageClassification",
-                "C12705"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36820"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C155863"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C207031"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C3331"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C36129"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C36184"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C43574"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C54209"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C55817"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:ClinicalFinding",
-                "C60308"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C4878"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C4917"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12468"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySubsite",
-                "C12683"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C141685"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageSystem",
-                "C90530"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C27978"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:StageValue",
-                "C28064"
-              ]
-            }
-          ],
-          "normalization_rule": "group-label-independent-co-membership"
-        },
-        "shared_pair_count": 4
+        "primary_diagnosis": null,
+        "shared_pair_count": 5
       },
       "missing_pairs": [
         [
@@ -6849,10 +4615,6 @@
           "C60308"
         ],
         [
-          "op:Morphology",
-          "C4917"
-        ],
-        [
           "op:StageSystem",
           "C141685"
         ],
@@ -6878,6 +4640,12 @@
           ],
           [
             [
+              "op:Morphology",
+              "C4910"
+            ]
+          ],
+          [
+            [
               "op:NormalTissueOrigin",
               "C32926"
             ]
@@ -6912,6 +4680,12 @@
           ],
           [
             [
+              "op:Morphology",
+              "C4910"
+            ]
+          ],
+          [
+            [
               "op:NormalTissueOrigin",
               "C32926"
             ]
@@ -6940,41 +4714,9 @@
           ]
         ],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:Morphology",
-            "C4910"
-          ]
-        ],
+        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "b71e9ef2922838dabdeb7236b615bd446e7ef8958f007c1cbb03be9aa59b00f6"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C54189"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "2c0718a7ebe78e994f9afdaa69f4d3e04c7ddc6f40e8696d199157034b6295ef"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C32926"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "1a77e5cb1b1cd5a5b12a91240de7953e1753c4d0f4b5757e4ba2310a1511c8c1"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12382"
-              ]
-            },
             {
               "occurrence_ids": [
                 "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
@@ -6996,18 +4738,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C54189"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C32926"
-            ],
-            [
-              "op:PrimarySite",
-              "C12382"
-            ],
-            [
               "op:StageSystem",
               "C90530"
             ],
@@ -7018,27 +4748,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C54189"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C32926"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12382"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -7056,7 +4765,7 @@
           ],
           "normalization_rule": "group-label-independent-co-membership"
         },
-        "shared_pair_count": 5
+        "shared_pair_count": 6
       },
       "extra_pairs": [
         [
@@ -7080,6 +4789,12 @@
           ],
           [
             [
+              "op:Morphology",
+              "C4910"
+            ]
+          ],
+          [
+            [
               "op:NormalTissueOrigin",
               "C32926"
             ]
@@ -7148,41 +4863,9 @@
           ]
         ],
         "ineligibility_reason": null,
-        "missing_pairs": [
-          [
-            "op:Morphology",
-            "C4910"
-          ]
-        ],
+        "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "b71e9ef2922838dabdeb7236b615bd446e7ef8958f007c1cbb03be9aa59b00f6"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C54189"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "2c0718a7ebe78e994f9afdaa69f4d3e04c7ddc6f40e8696d199157034b6295ef"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C32926"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "1a77e5cb1b1cd5a5b12a91240de7953e1753c4d0f4b5757e4ba2310a1511c8c1"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12382"
-              ]
-            },
             {
               "occurrence_ids": [
                 "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
@@ -7204,26 +4887,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C54189"
-            ],
-            [
-              "op:Morphology",
-              "C2955"
-            ],
-            [
-              "op:Morphology",
-              "C4910"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C32926"
-            ],
-            [
-              "op:PrimarySite",
-              "C12382"
-            ],
-            [
               "op:StageSystem",
               "C90530"
             ],
@@ -7234,41 +4897,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C54189"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C2955"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C4910"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C32926"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12382"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -7286,14 +4914,9 @@
           ],
           "normalization_rule": "group-label-independent-co-membership"
         },
-        "shared_pair_count": 5
+        "shared_pair_count": 6
       },
-      "missing_pairs": [
-        [
-          "op:Morphology",
-          "C4910"
-        ]
-      ]
+      "missing_pairs": []
     },
     {
       "code": "C27787",
@@ -7382,38 +5005,16 @@
             ]
           ]
         ],
-        "extra_pairs": [],
+        "extra_pairs": [
+          [
+            "op:Morphology",
+            "C7251"
+          ]
+        ],
         "ineligibility_reason": null,
         "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "7675f15cea665e1d2bd05042d8fb9df397a5c49cf26468966562dd2f0ef1a40c"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12722"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "8c0d38ae52aa0b3e39166c27c7263bd5af21c8ccc338605052f81e24b76c8051"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36903"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "eead016c0563bb696e2f1787b7e929e66c7ffc2ca9dfc43a291101c1a43a5f5d"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12412"
-              ]
-            },
             {
               "occurrence_ids": [
                 "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
@@ -7444,22 +5045,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12722"
-            ],
-            [
-              "op:CellType",
-              "C36903"
-            ],
-            [
-              "op:Morphology",
-              "C5027"
-            ],
-            [
-              "op:PrimarySite",
-              "C12412"
-            ],
-            [
               "op:StageSystem",
               "C90529"
             ],
@@ -7474,34 +5059,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12722"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36903"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C5027"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12412"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -7528,7 +5085,12 @@
         },
         "shared_pair_count": 7
       },
-      "extra_pairs": [],
+      "extra_pairs": [
+        [
+          "op:Morphology",
+          "C7251"
+        ]
+      ],
       "full_partition": {
         "actual_partition": [
           [
@@ -7547,6 +5109,12 @@
             [
               "op:Morphology",
               "C5027"
+            ]
+          ],
+          [
+            [
+              "op:Morphology",
+              "C7251"
             ]
           ],
           [
@@ -7614,38 +5182,16 @@
             ]
           ]
         ],
-        "extra_pairs": [],
+        "extra_pairs": [
+          [
+            "op:Morphology",
+            "C7251"
+          ]
+        ],
         "ineligibility_reason": null,
         "missing_pairs": [],
         "primary_diagnosis": {
           "actual_pair_citations": [
-            {
-              "occurrence_ids": [
-                "7675f15cea665e1d2bd05042d8fb9df397a5c49cf26468966562dd2f0ef1a40c"
-              ],
-              "pair": [
-                "op:AssociatedRegion",
-                "C12722"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "8c0d38ae52aa0b3e39166c27c7263bd5af21c8ccc338605052f81e24b76c8051"
-              ],
-              "pair": [
-                "op:CellType",
-                "C36903"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "eead016c0563bb696e2f1787b7e929e66c7ffc2ca9dfc43a291101c1a43a5f5d"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C12412"
-              ]
-            },
             {
               "occurrence_ids": [
                 "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
@@ -7676,22 +5222,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12722"
-            ],
-            [
-              "op:CellType",
-              "C36903"
-            ],
-            [
-              "op:Morphology",
-              "C5027"
-            ],
-            [
-              "op:PrimarySite",
-              "C12412"
-            ],
-            [
               "op:StageSystem",
               "C90529"
             ],
@@ -7706,34 +5236,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12722"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:CellType",
-                "C36903"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C5027"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C12412"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -7853,33 +5355,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "abaf6fc5278aba33dd85689cf21149c8e842e8b711a699967b7ca6f91bbfee2f"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49221"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "1940a05c69cb464eb5901ca13109d608cd36311ae60ae3c15800c81c5c6ec8ce"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C203674"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "a72ad3ffc285554cc4a01f9306d2c59a35b504874db3ea3aed6af1989a0a5945"
-              ],
-              "pair": [
-                "op:PrimarySubsite",
-                "C12389"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
               ],
               "pair": [
@@ -7899,22 +5374,6 @@
           ],
           "affected_pairs": [
             [
-              "op:Morphology",
-              "C3513"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49221"
-            ],
-            [
-              "op:PrimarySite",
-              "C203674"
-            ],
-            [
-              "op:PrimarySubsite",
-              "C12389"
-            ],
-            [
               "op:StageSystem",
               "C90530"
             ],
@@ -7925,34 +5384,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C3513"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49221"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C203674"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySubsite",
-                "C12389"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -8068,33 +5499,6 @@
           "actual_pair_citations": [
             {
               "occurrence_ids": [
-                "abaf6fc5278aba33dd85689cf21149c8e842e8b711a699967b7ca6f91bbfee2f"
-              ],
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49221"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "1940a05c69cb464eb5901ca13109d608cd36311ae60ae3c15800c81c5c6ec8ce"
-              ],
-              "pair": [
-                "op:PrimarySite",
-                "C203674"
-              ]
-            },
-            {
-              "occurrence_ids": [
-                "a72ad3ffc285554cc4a01f9306d2c59a35b504874db3ea3aed6af1989a0a5945"
-              ],
-              "pair": [
-                "op:PrimarySubsite",
-                "C12389"
-              ]
-            },
-            {
-              "occurrence_ids": [
                 "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
               ],
               "pair": [
@@ -8114,26 +5518,6 @@
           ],
           "affected_pairs": [
             [
-              "op:AssociatedRegion",
-              "C12378"
-            ],
-            [
-              "op:Morphology",
-              "C3513"
-            ],
-            [
-              "op:NormalTissueOrigin",
-              "C49221"
-            ],
-            [
-              "op:PrimarySite",
-              "C203674"
-            ],
-            [
-              "op:PrimarySubsite",
-              "C12389"
-            ],
-            [
               "op:StageSystem",
               "C90530"
             ],
@@ -8144,41 +5528,6 @@
           ],
           "diagnosis": "over-split",
           "expected_pair_citations": [
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:AssociatedRegion",
-                "C12378"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:Morphology",
-                "C3513"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:NormalTissueOrigin",
-                "C49221"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySite",
-                "C203674"
-              ]
-            },
-            {
-              "availability": "unavailable-historical-oracle",
-              "pair": [
-                "op:PrimarySubsite",
-                "C12389"
-              ]
-            },
             {
               "availability": "unavailable-historical-oracle",
               "pair": [
@@ -8206,24 +5555,24 @@
       ]
     }
   ],
-  "current_evidence_identity": "0a61e13b443a4ad28daa1c447f53a546329f80455897be0eefb331f146b31b53",
-  "detector_identity": "4a482f745acb8c231d547e24bdb6eaa68fc1ddadc51f3a743cb3dec65fad4668",
+  "current_evidence_identity": "317468148a9ebba445861fa55f039db37c5eaf65f842cdd639c281b2e2c691a7",
+  "detector_identity": "a8209a30e836c6a9a722697f5ce44ffd8a7bb6c9de4694555830b37055160b03",
   "metrics": {
     "common_pair_partition_agreement": {
       "denominator": 18,
       "ineligible": 2,
-      "numerator": 5,
-      "rate": 0.2777777777777778
+      "numerator": 3,
+      "rate": 0.16666666666666666
     },
     "exact_pair_precision": {
-      "denominator": 99,
-      "numerator": 94,
-      "rate": 0.9494949494949495
+      "denominator": 108,
+      "numerator": 100,
+      "rate": 0.9259259259259259
     },
     "exact_pair_recall": {
       "denominator": 153,
-      "numerator": 94,
-      "rate": 0.6143790849673203
+      "numerator": 100,
+      "rate": 0.6535947712418301
     },
     "full_partition_agreement": {
       "denominator": 20,
@@ -8234,20 +5583,20 @@
   "ncit_version": "26.07d",
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
   "proposal_registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
-  "representation_identity": "57d57cbd530db898c01009817edd7a60ab0e44b9c3c8bf564be7a6ff31a576fb",
+  "representation_identity": "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e",
   "row_decision_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
   "row_replay": {
     "aggregates": {
-      "added": 32,
+      "added": 34,
       "excluded_not_emitted": 4,
       "excluded_still_emitted": 12,
       "explicitly_out_of_scope": 19,
-      "missing_kept": 4,
+      "missing_kept": 1,
       "proposal_only": 1,
       "retained_exact": 79,
-      "retained_revised": 7,
+      "retained_revised": 10,
       "selection_miss": 16,
-      "unavailable_source_evidence": 15
+      "unavailable_source_evidence": 13
     },
     "results": [
       {
@@ -8335,7 +5684,7 @@
         "ordinal": 5,
         "row_type": "ADD IF MISSING",
         "sme_action": "include",
-        "status": "unavailable-source-evidence"
+        "status": "added"
       },
       {
         "code": "C27262",
@@ -8413,7 +5762,7 @@
         "ordinal": 11,
         "row_type": "ADD IF MISSING",
         "sme_action": "include",
-        "status": "unavailable-source-evidence"
+        "status": "added"
       },
       {
         "code": "C162770",
@@ -9157,7 +6506,7 @@
         "ordinal": 67,
         "row_type": "ENGINE SUGGESTION",
         "sme_action": "revise",
-        "status": "missing-kept"
+        "status": "retained-revised"
       },
       {
         "code": "C198031",
@@ -9754,7 +7103,7 @@
         "ordinal": 110,
         "row_type": "ENGINE SUGGESTION",
         "sme_action": "revise",
-        "status": "missing-kept"
+        "status": "retained-revised"
       },
       {
         "code": "C35756",
@@ -9907,7 +7256,7 @@
         "ordinal": 121,
         "row_type": "ENGINE SUGGESTION",
         "sme_action": "revise",
-        "status": "missing-kept"
+        "status": "retained-revised"
       },
       {
         "code": "C89995",
@@ -10742,8 +8091,8 @@
       }
     ]
   },
-  "run_fingerprint_identity": "907a103ebfc6aac86279e2ef0ff7451e35987ca8ac295ec37ca4bc8b87f1e38c",
-  "run_id": "neoplasm-a26dcb2f-0cb6-4b4f-86f6-8c4efa74c574",
+  "run_fingerprint_identity": "ecb34db2a7410b145bb2ed849f4d3d0a1e62aa40442b5d63eebe90d9da70ae6b",
+  "run_id": "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
   "schema_version": 2,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"

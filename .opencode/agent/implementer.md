@@ -31,6 +31,7 @@ permission:
     "pdm run pre-commit run --all-files": allow
     "pdm run agent-test *": allow
     "pdm run agent-git *": allow
+    "pdm run agent-replay *": allow
     "npm --prefix frontend run test:coverage": allow
     "npm --prefix frontend run test:unit -- --run": allow
     "npm --prefix frontend run check": allow

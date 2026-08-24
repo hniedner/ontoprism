@@ -277,6 +277,7 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
         ("pdm run verify && gh pr merge", "deny"),
         ("pdm run agent-test backend/tests/test_x.py\ngh pr merge", "deny"),
         ("pdm run agent-git switch-new feat/x", "allow"),
+        ("pdm run agent-replay decompose-current", "allow"),
         ("git switch --discard-changes main", "deny"),
         ("git branch --force feat/x", "deny"),
         ("git merge --no-ff feat/x", "deny"),

@@ -987,6 +987,9 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
     assert pyproject["tool"]["pdm"]["scripts"]["agent-git"] == (
         "python scripts/validation/run_agent_git.py"
     )
+    assert pyproject["tool"]["pdm"]["scripts"]["agent-replay"] == (
+        "python scripts/validation/run_agent_replay.py"
+    )
 
 
 def test_focused_test_guidance_requires_safe_full_store_wrapper() -> None:
@@ -1074,6 +1077,7 @@ def test_implementer_has_no_broad_package_manager_wrapper_allows(
         '"pdm run verify": allow',
         '"pdm run agent-test *": allow',
         '"pdm run agent-git *": allow',
+        '"pdm run agent-replay *": allow',
         '"pdm run pre-commit run --all-files": allow',
         '"npm --prefix frontend run test:coverage": allow',
         '"npm --prefix frontend run test:unit -- --run": allow',

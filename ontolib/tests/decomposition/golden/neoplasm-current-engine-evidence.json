@@ -1,5 +1,5 @@
 {
-  "artifact_identity": "57d57cbd530db898c01009817edd7a60ab0e44b9c3c8bf564be7a6ff31a576fb",
+  "artifact_identity": "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e",
   "concepts": [
     {
       "all_source_occurrences": [
@@ -239,6 +239,9 @@
           "filler": "C41063",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "192a219f2443d0d99cbebfdf9dca062dadfb35acbf553c2bde74fbdccdd81391"
+          ],
           "source_occurrence_ids": [
             "5963d7e8d61131f8005ca09faf840bf20d55771ea9c7725875802e908c197661"
           ],
@@ -265,6 +268,9 @@
           "filler": "C36220",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "2dc675af9aef07b290acf7ff4f1a66856bbc81033aef26fa4e5a788c727df6e2"
+          ],
           "source_occurrence_ids": [
             "21b168b9f6b50b9a7f3009732cf8a69e46afd6035cb59e12b965fa75df155856"
           ],
@@ -291,6 +297,9 @@
           "filler": "C41397",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "7ad3c9ad514eb6d98a8dd644b90f7357e36a9bc72bf08ac9f1da788455e96542"
+          ],
           "source_occurrence_ids": [
             "508585754f14fe7cd1d8b87f5f27e44fbc4bc0ee416085122ea5961daba8c595"
           ],
@@ -317,6 +326,20 @@
           "filler": "C35501",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "329928a0a5bb5a1995d630d238201cfe1e57c5e0ed359e8d3b5b0b084f1ebcb6"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C9290",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "aad190c812e6e9587657af7cc2ed9aa858a092b649109ea5b5a523543056cacf"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -325,6 +348,9 @@
           "filler": "C13051",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "7001ec62f3f9fe9d25fbba514144e208f2d6be979880879713f58eb2056799eb"
+          ],
           "source_occurrence_ids": [
             "b9b698311f2a4cc98704e0680a3c217a747473cac9bec53d35426c27d6b97cba"
           ],
@@ -351,6 +377,9 @@
           "filler": "C12431",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "6602fda908d7fc61cfb7dc6d306f69d7b9891c9ea4f5aaf3442d34a35c1c4b48"
+          ],
           "source_occurrence_ids": [
             "a179003aa9fa26595b62ea62954de625d86f4a28ad8fcb853c441252d1e931a5"
           ],
@@ -553,6 +582,9 @@
           "filler": "C36903",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
+          ],
           "source_occurrence_ids": [
             "750af9c3ecfad72067bfacee6bd7ca52c2a21f69f3af8d4a1578de9bb1094269"
           ],
@@ -579,6 +611,9 @@
           "filler": "C156460",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a60100f2f4e27623671c392a3e305934ffd7df00dabfc508d65e67be896ee2d7"
+          ],
           "source_occurrence_ids": [
             "656f522f95cd941b8a3faf2f468bd98ea61b49a2055df8800ad0b706228746bd"
           ],
@@ -605,6 +640,20 @@
           "filler": "C121619",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "fec7171a2c8e5135d71b8c8af1463ee3e422a4dec95f54589f9118819d187ed5"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C39986",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "4bbf78214b21b1fd51ad5083a99a4438048f4900b2ae508c562b37eaa0a68bac"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         }
@@ -942,6 +991,9 @@
           "filler": "C54224",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "baacfcf4ae3916d0cf1043ebc1ef90acd221c322aebdf70582471529d7fade2d"
+          ],
           "source_occurrence_ids": [
             "c006a946abc8baa3bd96939717305bcb9d73fa1fc25d3eab55d6a3a7f22993d3"
           ],
@@ -968,6 +1020,9 @@
           "filler": "C36771",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "ff17e569adccf6e96cacb1c2428ad38a4beb82a5f2300a895a4072d69dfd18bc"
+          ],
           "source_occurrence_ids": [
             "9df99119f52a36d8e0639f73b1dd6f14b61f1bb5b40059a95a313cc6b7ddf27d"
           ],
@@ -994,6 +1049,21 @@
           "filler": "C42690",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "99c8c401171443a3f95d69bedc661b4f8d6b9ca8aa15c61f42a5c7012387b739"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C9315",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "6128e7d4182160b6a7c01dfc16d899d83a2f08a5c595b98f981cbd6407980f8d",
+            "89cefef3dad9031262ca3684c0f67612865ef6bbdd8eec2ae492b3e49535c47b"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -1002,6 +1072,9 @@
           "filler": "C90529",
           "needs_review": false,
           "relationship_group": "op:StageSystem",
+          "source_definition_ids": [
+            "64c878b002f9c51176856573ef5caccaf14cdfb98a1309601f520f0b68bf1191"
+          ],
           "source_occurrence_ids": [
             "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
           ],
@@ -1028,6 +1101,9 @@
           "filler": "C90530",
           "needs_review": false,
           "relationship_group": "op:StageSystem",
+          "source_definition_ids": [
+            "f3fa83b96bb1fa3ab2cfc2c1b7aea4f1012fbb47a5088867cf7bf79f241d4915"
+          ],
           "source_occurrence_ids": [
             "d5bec967f4ad135dc934bef0297d9da04cb70e64ff093e3cff0b919f1243edd0"
           ],
@@ -1062,6 +1138,9 @@
           "filler": "C27966",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a6d7975521ae4367a05e53577c93ffb561f3806854fc2dd397de69da4636f944"
+          ],
           "source_occurrence_ids": [
             "96387e96ac5ba79518c454273156904ddb91ff6d446102339a8ebf5dac4b66dd"
           ],
@@ -1624,6 +1703,9 @@
           "filler": "C36836",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "059ba6574dd377658f9376da9f479213f6031d5cbf31c5e786a5b142a406385b"
+          ],
           "source_occurrence_ids": [
             "2adf52c827a8998a0636db6045f4c58968c93b0bd1e29ef14607de47f37cdf2d"
           ],
@@ -1650,6 +1732,9 @@
           "filler": "C47806",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "b5ca2b3a9f08d1b19d359abb68e4dfdf88b9a9931d0a1cb4ba1192fc8f8ae9ad"
+          ],
           "source_occurrence_ids": [
             "e2b994c622f65572033946f0473f9382a7208a15f39796b8592f11c663109e76"
           ],
@@ -1676,6 +1761,9 @@
           "filler": "C47817",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0b4c96af6c59f52c06663a5eef2de1739e70911889b37a68791aeef9b99dbdad"
+          ],
           "source_occurrence_ids": [
             "d700115f29b5cbb582c52499e7bf1298276c4141415e686d1ef7480d6eaeb3a2"
           ],
@@ -1702,6 +1790,9 @@
           "filler": "C7153",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0ab83e6c0fe60fb77987f93579c69f421c06afc693ffa12a24a1dbe1232f9e05"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -1710,6 +1801,9 @@
           "filler": "C33782",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a8fb83cd25081439e8d3c4e6bff49d9a7768d7a2267eb0ce3a51ffba88cda101"
+          ],
           "source_occurrence_ids": [
             "d8e9eddd825edd558856a710ff668a433150fd441c05040b6f6e5d4f92dda1fb"
           ],
@@ -1736,6 +1830,9 @@
           "filler": "C140961",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "5bde9c033d9d90d0edf4715d53d98a595b3f5ce2e7ad122c24bfd6be2557b3d3"
+          ],
           "source_occurrence_ids": [
             "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
           ],
@@ -1770,6 +1867,9 @@
           "filler": "C27966",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "5d1f2dba6becf9f45a42f37e66e4536258949289ef170a5281b02cc8f291206c"
+          ],
           "source_occurrence_ids": [
             "a4f169f7ab8c6f0c82379a40b82fc1c68f954d251cfab80680af1706301ac679"
           ],
@@ -1987,6 +2087,9 @@
           "filler": "C40557",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "d0246df08f875b00ddb91c0054b4afc4664d71e59ef361535b4aa8f359c3dc6e"
+          ],
           "source_occurrence_ids": [
             "d533253cd19721ae14631ba62034321a2936116316e02c64e0be10885d692594"
           ],
@@ -2013,6 +2116,9 @@
           "filler": "C40989",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "e86f5b2a97ff500e37a3bd73d1f41f8dd7b3623b28b1d567d236d12b40f6d807"
+          ],
           "source_occurrence_ids": [
             "3cf592ed311a646f7018a124e2700c11b5bf5d52df924a5d3bb332c00a372cc9"
           ],
@@ -2039,6 +2145,9 @@
           "filler": "C48322",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "97e0b052436064799f24135e0d9bf31b1df9857d2e30857bd909923dbfec6405"
+          ],
           "source_occurrence_ids": [
             "a324e113d1f0de37e8ad1632295eabb4e47e4dce1e7896abf9c335f5acb754d9"
           ],
@@ -2065,6 +2174,9 @@
           "filler": "C32298",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "342a8ecbac03180a4a5adef2b15ef3e3ca7e8f99373e7bfa5f4cf0249c7e041d"
+          ],
           "source_occurrence_ids": [
             "e5440c640fe4266bcac13927814b31a90ccd2704f940a806562784c47371f017"
           ],
@@ -2091,6 +2203,9 @@
           "filler": "C8566",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "bbb8077d5a636c744900f435744bb38023bd7fac8126b13716e3ad27685df7f8"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -2099,6 +2214,9 @@
           "filler": "C132248",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "08a904b070bbdf731b79972f40ab6e205f5a36bf27fe7acef0c33dc5a160b326"
+          ],
           "source_occurrence_ids": [
             "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
           ],
@@ -2133,6 +2251,9 @@
           "filler": "C27970",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0f19fa0f3c2f6e3ed4aba37b1d47e2e4a2f24a055391e985e38554a497adc360"
+          ],
           "source_occurrence_ids": [
             "06883864e504a099cd68d9bda634096213d6536abc71d0df435da914d13121e1"
           ],
@@ -2530,6 +2651,9 @@
           "filler": "C12402",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
           "source_occurrence_ids": [
             "eab378d9909169887a4748a5738eece35b28317271004def2c0726de24136401"
           ],
@@ -2556,6 +2680,9 @@
           "filler": "C9039",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "f6e475f1e224f8a8d8ee0a5c7acbd2275d77b0fcc8b28ac6fefb40f3f07ec3c4"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -2564,6 +2691,9 @@
           "filler": "C49218",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
           "source_occurrence_ids": [
             "6f5908f98b7995ee30f01d64398cd6072f09cfeb5d6cfe37c4988577463c686b"
           ],
@@ -2590,6 +2720,9 @@
           "filler": "C12311",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
+          ],
           "source_occurrence_ids": [
             "ca1c93057eb5c0dfb9a83f2e7ab135e0ed7ae7b4671eb775f907a44868de03b7"
           ],
@@ -2616,6 +2749,9 @@
           "filler": "C180901",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "08b3d32d4d51d1f49c986a8290813211b4ef62210bee63970fe71876e060e50c"
+          ],
           "source_occurrence_ids": [
             "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
           ],
@@ -2650,6 +2786,9 @@
           "filler": "C27966",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "7384ba55ab0dae9619cca1c07744d634b9a91e021a04d3b0a1fefeefb614fe52"
+          ],
           "source_occurrence_ids": [
             "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
           ],
@@ -3047,6 +3186,9 @@
           "filler": "C12402",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
           "source_occurrence_ids": [
             "27f5ae2594d5f2832953ea53a0700d66b85de86ad45a82293b48113d8f0f6acc"
           ],
@@ -3073,6 +3215,9 @@
           "filler": "C9039",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "d46e40a463d10ddc9e491590d7f25f1d6456dd04e06aab5d614c9ede8d294ac9"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -3081,6 +3226,9 @@
           "filler": "C49218",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
           "source_occurrence_ids": [
             "f33f6e689f9f12ea6212c7bd7e6356a2087853f2200f1d9a7f2f1fc201c88e88"
           ],
@@ -3107,6 +3255,9 @@
           "filler": "C12311",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
+          ],
           "source_occurrence_ids": [
             "08cdcf0be327aec3ea647a140090ba9d2acb2350f6a40f0e9153f22a983b3059"
           ],
@@ -3133,6 +3284,9 @@
           "filler": "C186618",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "1487706d55caa12a28b00cefde35e2699981c4384d7cbd93586b8cea734b8c47"
+          ],
           "source_occurrence_ids": [
             "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
           ],
@@ -3159,6 +3313,9 @@
           "filler": "C27966",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "b933e09d54f382736d19fb2477b13b746f92eb63bf3739c4aff830cef6312f15"
+          ],
           "source_occurrence_ids": [
             "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
           ],
@@ -3556,6 +3713,9 @@
           "filler": "C12402",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
           "source_occurrence_ids": [
             "1d9b7f223b178343ceefe66f0ae06a3e926b48c519e3fd5f529fe9d1aceb409e"
           ],
@@ -3582,6 +3742,9 @@
           "filler": "C9039",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "4da08cb43c7a483edc8300bda180252c7d7f8ba069e86e85164f4f41f1c50072"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -3590,6 +3753,9 @@
           "filler": "C49218",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "82ba9c65735a4b6a49eb593b828837f59596a9d7d5e75227ab1c51ff44a30ec9"
+          ],
           "source_occurrence_ids": [
             "c31213ae0e5b401d796e494ace4b3328f3ec30d0c3cf258be9e2eb5dde1c72fb"
           ],
@@ -3616,6 +3782,9 @@
           "filler": "C12311",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "09aed55d60bdabe6ea9841fc738b7a5f3b6c2c43fee5779e134e716c63b6fa2f"
+          ],
           "source_occurrence_ids": [
             "18946e2719ec23ee768611559e7a422c19451c5f156b9a72334ec3b89b298fe3"
           ],
@@ -3642,6 +3811,9 @@
           "filler": "C186617",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "12ab51d17db2011d7734812d17ff3b8ba1c9a42ce328e5a0e41cc44926218b3d"
+          ],
           "source_occurrence_ids": [
             "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
           ],
@@ -3668,6 +3840,9 @@
           "filler": "C96244",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "61efb48928f8f6e07f2ea629752d87dc0fd3509bc385d624cedee309474016bc"
+          ],
           "source_occurrence_ids": [
             "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
           ],
@@ -4020,6 +4195,9 @@
           "filler": "C12402",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c6e00b4186e784217389fe573c0e4587cc528200ab3d4e209e77ab32c8dd9ea1"
+          ],
           "source_occurrence_ids": [
             "d3887be8b25ac5cff1027bb3f08ba89909b3217fe8c3b900fd29e0a620d17012"
           ],
@@ -4046,6 +4224,9 @@
           "filler": "C7558",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0495cfa51b024a60be90cac301ef7177f4a55710b98a4ca66f06c35f4a210c63"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -4054,6 +4235,9 @@
           "filler": "C12313",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "7412b61de9fd295c8da66e8a39fafa8271d19a66908e47dbdf3c9ecaebe43214"
+          ],
           "source_occurrence_ids": [
             "735d47f4b8fcd861e408a13e087ac5c9c33be20ac07c9dd137b0fc1870a6df15"
           ],
@@ -4080,6 +4264,9 @@
           "filler": "C32514",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0e38ef60361ccc458d6e86c7ba05275705ebb63747937eab4dbadc5664a92caf"
+          ],
           "source_occurrence_ids": [
             "93ec07edcccc397b839214ea4e34a0abb19d7b50aa04e9b2aba4e143f51415cb"
           ],
@@ -4106,6 +4293,9 @@
           "filler": "C206211",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "82fbcfef7c393245d1829c7c9eb234ac6162ba2562124ddedf7572b8aad6d18c"
+          ],
           "source_occurrence_ids": [
             "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
           ],
@@ -4132,6 +4322,9 @@
           "filler": "C96244",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "be40bcca887e92eb6551d10e0e63a01d2ac4b9fa1ae7b499955ca8d4ddb05978"
+          ],
           "source_occurrence_ids": [
             "4f317c8f7d65124ad46196312802f558dc1d48792f3a5cdaaa754d095ad882c0"
           ],
@@ -4574,6 +4767,10 @@
           "filler": "C12914",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0a41ad9e1a49f98d0475d3a01408f6510be802c159827b36324381fb3e849373",
+            "fbe448a7f6bb7dd1f50c81d5f014f6c0a40b4c976556a54cacba30b029fd17ca"
+          ],
           "source_occurrence_ids": [
             "01704062ba9ea6833c0d9b4e978ddce48e3be970050398ffc4bec5b7109a3841",
             "fc525c704737681ba17a125a89587a7c53e72a86a6d0d5603f4489f02bafcfec"
@@ -4616,6 +4813,9 @@
           "filler": "C60644",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "78a2ab26f0e07c9a6c604f065c35c0e61f18a5f739b8cd50d9c1a17694a55485"
+          ],
           "source_occurrence_ids": [
             "6c9e7b61751dffe82f97b30b071f0ccecf7677c0114ba5c01b036186429cb951"
           ],
@@ -4639,9 +4839,24 @@
         },
         {
           "axis": "op:Morphology",
+          "filler": "C3168",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "46c71c70bb8e0e48d2cde0a78e95e58b0c7af7888bbabea6a6a02ce8a719544d"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
           "filler": "C4005",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a5054af02bf5861944ee4874ee54cdcc0ec76f243ccb37a52dec3b87457c3081",
+            "cba6717db914d8473246b00d74d56bd0b2f005f22caac317d678065643310ae3"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -4650,6 +4865,9 @@
           "filler": "C198023",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "14cd4a3eb490f3b547e5da1774ffd7162d7fddf4271e57a2ed85d2fbd16c9b6e"
+          ],
           "source_occurrence_ids": [
             "3fe3cc28bfb2e87a557d266cfd0489ae27dedd27f7bb8117770fb2fe6e80d461"
           ],
@@ -4676,6 +4894,9 @@
           "filler": "C198022",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "98f9c8a1f4bf0cc453ce1315bf8770f6985e5ed10060879ca211d94539a94e39"
+          ],
           "source_occurrence_ids": [
             "0ae676ea4977397d291f84849ee0bd37562902f1472a559608d9c0cfb9711f96"
           ],
@@ -4848,6 +5069,9 @@
           "filler": "C137974",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "4d19cf4e019d6ce829ebb24e8512f018c438062d022ca5bfb09d73ecc50b9d5d"
+          ],
           "source_occurrence_ids": [
             "1425611db994a0bae8f9cdcae4fb0aa326bcc37c26d8ee26af46854581625721"
           ],
@@ -4874,6 +5098,9 @@
           "filler": "C36862",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "2293155ecd2cbf8f6ea58c056a6e4577c94a5fe9c9f4cd4e6243c19bcf9be547"
+          ],
           "source_occurrence_ids": [
             "8b78b6f96bfcfcb4094ee01dfb0d8a610eec35d802973910c3571e741b1bb622"
           ],
@@ -4900,6 +5127,9 @@
           "filler": "C36027",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a409f8078770fe4030c338e83cb9ea24bd9dd7dce308e029b5d9dcb16a8fc10d"
+          ],
           "source_occurrence_ids": [
             "94d7a2ac20d3402263bc70ec98c0708ac14af7c818a48ab0076c0130df66706d"
           ],
@@ -4926,6 +5156,9 @@
           "filler": "C8326",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "48d92d5130e8551da98705fa9e8d655475f06b406cf0812a526a4d586e05ab08"
+          ],
           "source_occurrence_ids": [
             "46d5e2d3aea0ead5550e60938499aee8ee0df59b40c6510a0d4d4f07d2978b37"
           ],
@@ -4952,6 +5185,9 @@
           "filler": "C204977",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "052f44ff48c60b7164cf10f36564bb34eb973c512671992a56187b1947a5aea1"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -4960,6 +5196,9 @@
           "filler": "C32365",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "2a7c4c33a8e01cd87126fae4c96868dc8332784657b791ef76937cf42045e848"
+          ],
           "source_occurrence_ids": [
             "3d1813c97c216c223a66e66d0d42fdee6a9acae5077a94b126e02e8446f6ed5e"
           ],
@@ -4986,6 +5225,9 @@
           "filler": "C12341",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "63706d15ae385e738b7e5d1ae4d43c21e7e2dba9830aea600713a427b2d098ce"
+          ],
           "source_occurrence_ids": [
             "f890b333619896455d492325b056c10dc6d2b4ec24be12190b220ccb70c00165"
           ],
@@ -5413,6 +5655,9 @@
           "filler": "C3270",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "f7d406a24d899bda1e13ffcdf109763b38fdf44dbb4b44e6900851d88dde5dfe"
+          ],
           "source_occurrence_ids": [
             "db6fcda4433f56c28f0479031903bfb8bd3d78e5d17aa237f66437f3213d3dbe"
           ],
@@ -5439,6 +5684,9 @@
           "filler": "C12413",
           "needs_review": false,
           "relationship_group": "op:AssociatedRegion",
+          "source_definition_ids": [
+            "246eb9972957d917e2f7aca476d028e05b92b06584d973aa6d94d7f159617dcc"
+          ],
           "source_occurrence_ids": [
             "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
           ],
@@ -5465,6 +5713,9 @@
           "filler": "C49274",
           "needs_review": false,
           "relationship_group": "op:AssociatedRegion",
+          "source_definition_ids": [
+            "949c33a4924949b9530ff0d7ee68a42038af88d2654a6f9c60ff1e8adb9b6b33"
+          ],
           "source_occurrence_ids": [
             "36c3b8c6a644df29e0986286f97f2c07a45a2c95175c4d754586321cf0c655a1"
           ],
@@ -5491,6 +5742,9 @@
           "filler": "C36773",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "b2aa8ed41d1c3db3bcc34a29ef7d0273b03116693bcf4d20320b27e1b3bd0612"
+          ],
           "source_occurrence_ids": [
             "dece1ed8c7d2cc44b9bc4fa48667ba3639e861741c5890d6bdd77a6cf31f217d"
           ],
@@ -5517,6 +5771,9 @@
           "filler": "C9385",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "365fec937b584f3d271726219b6fb379d59b6b55156579f37b08f12343f2f375"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -5525,6 +5782,9 @@
           "filler": "C49276",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "fedfc67b8a8d2db49c71f86dd924f4304a802e46725ed4d4e7085c7f36d6e1b3"
+          ],
           "source_occurrence_ids": [
             "2fc6ef801af40825bb12995d826e0eeb37794c42d93700e3c02d75f40c866a70"
           ],
@@ -5551,6 +5811,9 @@
           "filler": "C12415",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "7e71bb2bbf37209aceb2944ba1cd1c6b0450402267e0c198bf3f3f2bc6bffbb8"
+          ],
           "source_occurrence_ids": [
             "72302ce53f55af176d91203d88a514aec714fe0e9115fe8cd31f4f0cf696f574"
           ],
@@ -6346,6 +6609,9 @@
           "filler": "C13063",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "379c65c889fb57cab55729d95db80f68c71e16ab0285b429a098e3487a694aae"
+          ],
           "source_occurrence_ids": [
             "84fb0595ef601ca70fa5efa3b45d0d2a7513d87d9b28dc9e9a7f6df7db89ab04"
           ],
@@ -6372,6 +6638,9 @@
           "filler": "C41457",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "d86b85d9a359e6c38cad01d1faa121b7fe632ea4a5f321e1d433a50b76deb8b7"
+          ],
           "source_occurrence_ids": [
             "a12f27e094c312931bd917a5696e0b6f118de43f641f9ca7daee0136964567eb"
           ],
@@ -6398,6 +6667,9 @@
           "filler": "C47804",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "4d6e62c2bdfbf8b630d30a26d8e9f9f654f4876155165d22d26786c2dfa8a1ef"
+          ],
           "source_occurrence_ids": [
             "4d1b85d4878cdc5b66d3a9ea4b026c1be057530a7905052743992f28b97636a0"
           ],
@@ -6424,6 +6696,9 @@
           "filler": "C47807",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "35b321c75270afa1638815f2724dfa2bcb1772414c08cb9b2687bfd67aed402b"
+          ],
           "source_occurrence_ids": [
             "3047d3c62592f73767534fa0e3ad4b8a586f93bc900cb62a97a9130f37683fd8"
           ],
@@ -6450,6 +6725,9 @@
           "filler": "C129702",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c601e8dd27b3f713f8c6bcfd705f497e4fb6c476f3d23a85ce2d6a44cd3889db"
+          ],
           "source_occurrence_ids": [
             "e9136e8325c3756e98676097e7f6065d2fd72fccab70ca25a1b9a34e0ebf8185"
           ],
@@ -6476,6 +6754,9 @@
           "filler": "C3879",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "34c6e41351ade34938903605b763b4b2bb4ef99e58d12d122de5bf25466904a4"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -6484,6 +6765,9 @@
           "filler": "C33782",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "aaf07968613ffce3573154662bb0ad740772bbbeccd7e104ba42c18d5306354c"
+          ],
           "source_occurrence_ids": [
             "6e840fafe8ff71b80bcadc8f92ee99666732af73218b9512bac71ba5ba601807"
           ],
@@ -6510,6 +6794,9 @@
           "filler": "C12400",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "6d8485a1b98b20a27d6cb55db11383c6e7e691e853ea83142b8909b38ef30249"
+          ],
           "source_occurrence_ids": [
             "4450fe6c4d02d660a009e2c76f18842b39ada47bdd690dce19c41a6f7fd812d9"
           ],
@@ -6536,6 +6823,9 @@
           "filler": "C90530",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0f79e02eeffb301436fb39d9aafca626b0574819c50dcc08b8112e1a64e50022"
+          ],
           "source_occurrence_ids": [
             "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
           ],
@@ -6570,6 +6860,9 @@
           "filler": "C27970",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "e0f5dd405edb0532de62e56c4a92480e6792f381d754e129183636b54d193fb5"
+          ],
           "source_occurrence_ids": [
             "fd814c3ab0c0e41713345c63d4d9471acc921eb948350c3ac596dbe054f527e1"
           ],
@@ -6982,6 +7275,9 @@
           "filler": "C12905",
           "needs_review": false,
           "relationship_group": "op:AssociatedRegion",
+          "source_definition_ids": [
+            "5d3f8ff41a7933313cb93a051c30007cc455eafbe4cb59f587aaaa4ac9cdcf90"
+          ],
           "source_occurrence_ids": [
             "0f7cc6d5a7d36c9450aa95ade51d2803d74adbe6dd7bbe768c7b06106fb54130"
           ],
@@ -7008,6 +7304,9 @@
           "filler": "C13004",
           "needs_review": false,
           "relationship_group": "op:AssociatedRegion",
+          "source_definition_ids": [
+            "350a0ba239b888a51f518f981625283b9e22475c1d56ca58d1ede0a27ddd6f67"
+          ],
           "source_occurrence_ids": [
             "724bfd5003f8f08e8bc8e6fdd8669253272c96088f4d088725018a8c24b58634"
           ],
@@ -7034,6 +7333,9 @@
           "filler": "C13004",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "49992b81f021b4c1f3b6a5ea7ee24f88625882ac0a619254a833f0a90e2e5e94"
+          ],
           "source_occurrence_ids": [
             "a12e22fc0ed6443fc2b6ecee89ca569228f3014d3adb4064c818d2256be4b990"
           ],
@@ -7060,6 +7362,9 @@
           "filler": "C36899",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c5ac94b1b709b1906377c5f71d91cb8c22c6810d847c558f6632b566ef86d17c"
+          ],
           "source_occurrence_ids": [
             "7d0e04ec4b5c2089943da97753e6dd0bc6a8d6b98c5531e2d6942c770729ac4f"
           ],
@@ -7086,6 +7391,9 @@
           "filler": "C36954",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "1c67b6f080144081793a5fe25f846cfb08ddb2241edb1b070032698eb4fb4d8d"
+          ],
           "source_occurrence_ids": [
             "cbcdb80a5feab660b45fc3d423fca991d9036a1734e475bcbb56234291604ce1"
           ],
@@ -7112,6 +7420,9 @@
           "filler": "C35998",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "2bdfcbc7729a80daf44e198aae13783f1f58e0e33389cf36034afde85e8ea8b1"
+          ],
           "source_occurrence_ids": [
             "59023e6049fa3f27c1720e9d16dfb3756cb2d12d256cec4b15fa16755cadc8d0"
           ],
@@ -7146,40 +7457,20 @@
           "filler": "C3499",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0c9d646865fe858945e4b1ef347a24261fc4d5245d81f4b8f4ee4fdd5fb4ddf8"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
         {
           "axis": "op:PrimarySite",
-          "filler": "C12727",
-          "needs_review": true,
-          "relationship_group": null,
-          "source_occurrence_ids": [
-            "4f101d5bcb097bb9f12537ab960866264e729be67a05b9892babc89caa009b2b"
-          ],
-          "source_occurrences": [
-            {
-              "anchor_code": "C3605",
-              "depth": 3,
-              "filler_code": "C12727",
-              "member_position": 2,
-              "occurrence_id": "4f101d5bcb097bb9f12537ab960866264e729be67a05b9892babc89caa009b2b",
-              "role_code": "R101",
-              "root_code": "C4791",
-              "source_fact_id": "1372ba7de91cf92b3a53df0d63881a250adba987ce1a10094c95b6647ea10ca9",
-              "source_group_id": "84888b9e19d03ac9bd607ca83ae29968f0d8dc6ba1486de228e8bebb34d4403c",
-              "structural_path": [
-                0,
-                2
-              ]
-            }
-          ]
-        },
-        {
-          "axis": "op:PrimarySite",
           "filler": "C12869",
-          "needs_review": true,
+          "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "84c7d2975fddeedaccb2169f147f046fdca3f113764e533f2160f4beabf22fc2"
+          ],
           "source_occurrence_ids": [
             "1f214cd4567028ac813a7e104cd605a56d0bc4f80207b3e74b7d2d5e035d3722"
           ],
@@ -8402,6 +8693,9 @@
           "filler": "C36820",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "ec627cdedc6ae4348954527a1deb536452259d2ffdfb0c0bcf64f398a0c39e06"
+          ],
           "source_occurrence_ids": [
             "1d2979d8056b2f28b2a6d568ebc6ccf8f70c0cce5e7bbd6569877c86a8b74921"
           ],
@@ -8428,6 +8722,9 @@
           "filler": "C155863",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "1db1f1737359c88de2641deb3701f326ed2efd2a4ed69b005be0fb0cd11dcc3f"
+          ],
           "source_occurrence_ids": [
             "e1f7cf7d057279413f1c43f563411fa14bfd0dc14159db8f10cecdfa2779ccf5"
           ],
@@ -8454,6 +8751,9 @@
           "filler": "C3331",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c22a853fff2cf0fadc45d881efb33edc258f9b6893c95fb4055291635ff5fdb0"
+          ],
           "source_occurrence_ids": [
             "dc82c0605ae0ed6b3de0f7bd0a40a54d78be9253c72c5125c38ed0a2483ee4ef"
           ],
@@ -8480,6 +8780,9 @@
           "filler": "C36129",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "e9c35829194de67c1c838d1fa214b4378ae2632ed7f5979712656760da22beb1"
+          ],
           "source_occurrence_ids": [
             "34813796152b2688f15d266cee695de18a6819c9733c8a8b0b8c13113c5b7204"
           ],
@@ -8506,6 +8809,9 @@
           "filler": "C36184",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "fbfb25c3c1b7dba517b6e7c4db7c01f5a528f53fcbc59ccd3fb24f80bf1ce26e"
+          ],
           "source_occurrence_ids": [
             "4ee101bb649d2936607280b583da8698e163e67f52a1b8824048e7a8550572ba"
           ],
@@ -8532,6 +8838,9 @@
           "filler": "C54209",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a0bce7445b9877aedc47e3a61cfbe3f086f8159dee3562d5afb3a9a58a23210f"
+          ],
           "source_occurrence_ids": [
             "ccde95d77f554494cf73c73d0694e35dcaafef666d27dcde2acca2e919b00187"
           ],
@@ -8558,6 +8867,9 @@
           "filler": "C55817",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "be4316b20e1fb8a798068e2fcaefcc8f51d5099d717cf97bd63fe71cfe342e8f"
+          ],
           "source_occurrence_ids": [
             "7de3387ce1c54228967bbc3837d1f226fc9a3f008eaf5d4d00ee377c0f78b5e0"
           ],
@@ -8584,6 +8896,9 @@
           "filler": "C60308",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "178bea9dbc48cbc8b64279549510e16645e5a1646150ed13d9c9269fe8897ed9"
+          ],
           "source_occurrence_ids": [
             "639907cfde2637caa53d301e5ebea3ede157a2d7c355cb6e1db80fff42de746d"
           ],
@@ -8610,6 +8925,33 @@
           "filler": "C4878",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "212d22bcc36de35aeeace4be14aa303967bf5a9134fc0f6bfba0b6502b4e11e6",
+            "24fac221a4aeca80502778cc92225d81cda5630527a29a694c9c13b84d06513a"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C4917",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "3587ecd8e355ff29a169e69f0fbd65cecd7a5a82eac8a9d014fd002d99ac9df2",
+            "35bf110f3d4a7359ed39856aeda34b3f21f4caf1b7e11760abbf87fe17a6659d"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C9049",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "f885b1809b89f1369363fe542cacf5f920bf3a76541f39396dc4855a4d95ef0f"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -8618,6 +8960,10 @@
           "filler": "C12468",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "8d4265430e41f417e451520f88c8268e8ec18575d699531742d275d89c45c3ba",
+            "d814516feebab403b65c0502f56cf4ed02e9a5d2154c20f33178404b4f61b07d"
+          ],
           "source_occurrence_ids": [
             "1903251f5f0abee5e71973ece2ecfae4f9ef6264224821eac2bebbe29d545b00",
             "77671bf993ce880c8c7346a7447a3d1c2a23ace216503e52c74c7761e00a4dea"
@@ -8660,6 +9006,9 @@
           "filler": "C12683",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a860e60b399915d7047c48680146b971e24ca91bfa84020a94c3161dd10af09f"
+          ],
           "source_occurrence_ids": [
             "b9b0d5d250f4bac82dd43fae70b52ed06d9d2cbb4984e4d7d784d1080acf2a17"
           ],
@@ -8686,6 +9035,9 @@
           "filler": "C90530",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "f89766bd06ccb8f32acf95b2bc760243ab4ef3f558924555b1dead747947b851"
+          ],
           "source_occurrence_ids": [
             "ddc956ac9e3edcfe5f15f751e39c6e705bf51a6785408896c585cd4052ca6dfb"
           ],
@@ -8720,6 +9072,9 @@
           "filler": "C27978",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "2389a7321148aa2b0240db43ea496c1a5140ac77b2a7dfddf0d043de95e46512"
+          ],
           "source_occurrence_ids": [
             "1832ec27cb135d510ba604388be209fe666a8411d790a13e5fc07d8631f2e9d2"
           ],
@@ -8746,6 +9101,9 @@
           "filler": "C28064",
           "needs_review": true,
           "relationship_group": null,
+          "source_definition_ids": [
+            "7c9fe069dde8a2ca8218a330d9f214d568481cd2667ef46f2575cd85b5b42df7"
+          ],
           "source_occurrence_ids": [
             "f3713eac76b9ec284a5fe2d697b75ce0066c6b760dfa1a03f578ceb1aea4f217"
           ],
@@ -9211,6 +9569,9 @@
           "filler": "C54189",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "c9edb03d918c00729f3db2464bd2b7936fe7a93a0bf34cc6d899cede91d55c29"
+          ],
           "source_occurrence_ids": [
             "b71e9ef2922838dabdeb7236b615bd446e7ef8958f007c1cbb03be9aa59b00f6"
           ],
@@ -9237,6 +9598,21 @@
           "filler": "C2955",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "15353dff8804eb1aed42b903ac21e5acfc453da3018553aae6f26bc58d7b8b8b",
+            "40e2c9d03b096d1fef6c36be557f136106272bc8e491debd554e8e16192d6f9a"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C4910",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "01c4ecc1dc7e9f37bf4970c16e2942b0859deeb404b321bbb398294b1be45221"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -9245,6 +9621,9 @@
           "filler": "C32926",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "dcb4a61f2e982a0d54f831767f430b754d5b6b50ef623a080c0e0b4f6a4b4385"
+          ],
           "source_occurrence_ids": [
             "2c0718a7ebe78e994f9afdaa69f4d3e04c7ddc6f40e8696d199157034b6295ef"
           ],
@@ -9271,6 +9650,9 @@
           "filler": "C12382",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "fe27952b3270bc8b6f1555ff0e51a99dd1e13560f17883a9383973960fa6cb35"
+          ],
           "source_occurrence_ids": [
             "1a77e5cb1b1cd5a5b12a91240de7953e1753c4d0f4b5757e4ba2310a1511c8c1"
           ],
@@ -9297,6 +9679,9 @@
           "filler": "C90530",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "8b8835daa5bcb507d922350d7c874389e2d027d75541de3a80615f1329be78d6"
+          ],
           "source_occurrence_ids": [
             "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
           ],
@@ -9331,6 +9716,9 @@
           "filler": "C27970",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "2d7de414d37bcb65261a1f8394819524fee365170bc3fb0953d0b5880c74ec01"
+          ],
           "source_occurrence_ids": [
             "dff9561e59178ff4f649b9637907111963578185b4a3936d5039251a45759f6e"
           ],
@@ -9683,6 +10071,9 @@
           "filler": "C12722",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "0c74f1f5322afde963d9ff2aca2f11c1e59e4a0d0aa1e8adc3486e52cb1ed8d9"
+          ],
           "source_occurrence_ids": [
             "7675f15cea665e1d2bd05042d8fb9df397a5c49cf26468966562dd2f0ef1a40c"
           ],
@@ -9709,6 +10100,9 @@
           "filler": "C36903",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "01185e29c636ebecead95fb2e43a9280c98bdbb96ecb4b3ded4a01e9a4791419"
+          ],
           "source_occurrence_ids": [
             "8c0d38ae52aa0b3e39166c27c7263bd5af21c8ccc338605052f81e24b76c8051"
           ],
@@ -9735,6 +10129,21 @@
           "filler": "C5027",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "a91774d7fa1aabfe1d9ee776d9c3b52e7c4fbf3595a04e4153a8167b40a6455b"
+          ],
+          "source_occurrence_ids": [],
+          "source_occurrences": []
+        },
+        {
+          "axis": "op:Morphology",
+          "filler": "C7251",
+          "needs_review": false,
+          "relationship_group": null,
+          "source_definition_ids": [
+            "89597aee5fea970f8056b19063d1ff46d2db1e61fb6db2eef7c84997bac5430a",
+            "f8107c01fb7a2fb5708eb19c7eef8bc7e523b0cc470fd20bbf792c46617ea7c2"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -9743,6 +10152,9 @@
           "filler": "C12412",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "4484d86e2dc7986f217c88b195fc1068649fb4d45d1aff931d1b5daf46249b91"
+          ],
           "source_occurrence_ids": [
             "eead016c0563bb696e2f1787b7e929e66c7ffc2ca9dfc43a291101c1a43a5f5d"
           ],
@@ -9769,6 +10181,9 @@
           "filler": "C90529",
           "needs_review": false,
           "relationship_group": "op:StageSystem",
+          "source_definition_ids": [
+            "50526f3fd6216d51b4c34a07867fed101e3049ac0a83461ccb666ea0da737a30"
+          ],
           "source_occurrence_ids": [
             "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
           ],
@@ -9795,6 +10210,9 @@
           "filler": "C90530",
           "needs_review": false,
           "relationship_group": "op:StageSystem",
+          "source_definition_ids": [
+            "8c0734fad6e28903e2b64be66be514fd16797b3caf48fb4847f5501d518bbfe8"
+          ],
           "source_occurrence_ids": [
             "7cb58722de99e28fcf23ee62c5530b4d72ca82f4fbcbfb39f5744998ce57fa4b"
           ],
@@ -9829,6 +10247,9 @@
           "filler": "C27970",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "17909950f719f75fdb9d652260b7781e4d4e7a7a5191d0f328d6e1c2e22cd8c1"
+          ],
           "source_occurrence_ids": [
             "1e5035c8e226c176fcc1708c060830d339252854143d7857c227a782cc56bd36"
           ],
@@ -10181,6 +10602,9 @@
           "filler": "C3513",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "023e612042e8850c9eab252caf6fb75b5c19eb299e74331be6495e100e1ea0cb"
+          ],
           "source_occurrence_ids": [],
           "source_occurrences": []
         },
@@ -10189,6 +10613,9 @@
           "filler": "C49221",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "cd47e629176caff77ff0f06547f426fd042ef034ff03a5fcc691cdc77a2e5789"
+          ],
           "source_occurrence_ids": [
             "abaf6fc5278aba33dd85689cf21149c8e842e8b711a699967b7ca6f91bbfee2f"
           ],
@@ -10215,6 +10642,9 @@
           "filler": "C203674",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "59abf178ae5fff9b391937113d46dcc8a10cb72bbe371328a3b0eb46d192019a"
+          ],
           "source_occurrence_ids": [
             "1940a05c69cb464eb5901ca13109d608cd36311ae60ae3c15800c81c5c6ec8ce"
           ],
@@ -10241,6 +10671,9 @@
           "filler": "C12389",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "ed00db472320b91d71023b9c7a29235015d6a13185ef21b5a29095b285d8e38d"
+          ],
           "source_occurrence_ids": [
             "a72ad3ffc285554cc4a01f9306d2c59a35b504874db3ea3aed6af1989a0a5945"
           ],
@@ -10267,6 +10700,9 @@
           "filler": "C90530",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "99eeb19a0b49703dc3e4f72fecf785442119ab97d851b0e224a7a8d2b71f477b"
+          ],
           "source_occurrence_ids": [
             "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
           ],
@@ -10301,6 +10737,9 @@
           "filler": "C27976",
           "needs_review": false,
           "relationship_group": null,
+          "source_definition_ids": [
+            "2a016bd5a1e5bd8aec1e6b14fa2e431f00e9f590861cc3d251517847035e138d"
+          ],
           "source_occurrence_ids": [
             "124c109c13ae11d88af1b7e24aeb228fafba04c02b32e6bb5b9ddd3d60b536c7"
           ],
@@ -10329,15 +10768,15 @@
       ]
     }
   ],
-  "detector_identity": "4a482f745acb8c231d547e24bdb6eaa68fc1ddadc51f3a743cb3dec65fad4668",
-  "evidence_identity": "0a61e13b443a4ad28daa1c447f53a546329f80455897be0eefb331f146b31b53",
+  "detector_identity": "a8209a30e836c6a9a722697f5ce44ffd8a7bb6c9de4694555830b37055160b03",
+  "evidence_identity": "317468148a9ebba445861fa55f039db37c5eaf65f842cdd639c281b2e2c691a7",
   "ncit_version": "26.07d",
   "oracle_identity": "103542fc9fcc0391ea29ac0a1ed585781f15f5e34f9d0f613e1f4bf51a040406",
   "proposal_registry_identity": "ceaba33f2fedcf8e83265ff8b653caff39a4dc82f334175f66d4f0c488976261",
-  "representation_identity": "57d57cbd530db898c01009817edd7a60ab0e44b9c3c8bf564be7a6ff31a576fb",
+  "representation_identity": "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e",
   "row_decision_identity": "7cda03e2dc565c2e3c15520486f12c3901bc6ddc831cc843577ee2ebaa56225e",
-  "run_fingerprint_identity": "907a103ebfc6aac86279e2ef0ff7451e35987ca8ac295ec37ca4bc8b87f1e38c",
-  "run_id": "neoplasm-a26dcb2f-0cb6-4b4f-86f6-8c4efa74c574",
+  "run_fingerprint_identity": "ecb34db2a7410b145bb2ed849f4d3d0a1e62aa40442b5d63eebe90d9da70ae6b",
+  "run_id": "neoplasm-0b00326b-6a9f-424f-b074-d4f1f8a0304d",
   "sample_manifest_identity": "5ba10f1c29c80dc596e70c3914f5491c70a0575013a96abed4601c79b27ff5dc",
   "schema_version": 2,
   "source_identity": "b58f48b5c19459c1273f3f4edf3fb67bd6f5e0e4c4d1c501218bf01b04ce6092"
