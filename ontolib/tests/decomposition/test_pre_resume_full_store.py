@@ -14,7 +14,10 @@ from ontolib.decomposition.pre_resume import (
     affected_missing_p106,
 )
 from ontolib.decomposition.provenance import ProvenanceStore
-from ontolib.decomposition.r101_conservation import load_r101_conservation_report
+from ontolib.decomposition.r101_conservation import (
+    load_r101_conservation_report,
+    r82_path_document,
+)
 from ontolib.decomposition.stated_queries import (
     resolve_part_of_pairs,
     resolve_part_of_paths,
@@ -242,7 +245,8 @@ async def test_tied_highest_fanout_ledgers_and_paths_match_generated_report() ->
                     if item.retained_r82_target is not None and len(item.old_links) == 1
                 }
                 assert {
-                    key: value.edges for key, value in paths.paths.items()
+                    key: r82_path_document(value).edges
+                    for key, value in paths.paths.items()
                 } == expected_paths
                 assert paths.query_count <= 10
                 assert paths.max_pair_batch_size <= 8
