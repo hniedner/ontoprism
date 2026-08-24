@@ -5,6 +5,13 @@ from collections.abc import Collection
 import pytest
 
 from ontolib.decomposition.complete_definition import CompleteDefinitionError
+from ontolib.decomposition.models import (
+    CompleteDefinition,
+    DefinitionGroup,
+    GenusDefinitionFact,
+    canonical_definition_fact_id,
+    canonical_definition_group_id,
+)
 from ontolib.decomposition.stated_queries import (
     _intersection_hop_pattern,
     _is_staging_concept_label,
@@ -20,6 +27,7 @@ from ontolib.decomposition.stated_queries import (
     build_semantic_type_query,
     read_complete_genus_chain,
     resolve_morphology_filler,
+    resolve_morphology_fillers,
     resolve_part_of_paths,
     walk_genus_chain,
 )
@@ -29,6 +37,58 @@ from ontolib.terminologies.ncit.owl_load import STATED_GRAPH_IRI
 
 def _iri(code: str) -> str:
     return f"{NCIT_NS}{code}"
+
+
+def _genus_fact(anchor: str, depth: int, genus: str) -> GenusDefinitionFact:
+    signature = f"genus:{genus}:primitive"
+    group_id = canonical_definition_group_id(anchor, (signature,))
+    return GenusDefinitionFact(
+        fact_id=canonical_definition_fact_id(
+            anchor, group_id, "genus", genus, "primitive"
+        ),
+        anchor_code=anchor,
+        group_id=group_id,
+        depth=depth,
+        genus_code=genus,
+        is_defined=False,
+    )
+
+
+@pytest.mark.unit
+async def test_plural_morphology_projection_retains_coequal_root_genera() -> None:
+    facts = (
+        _genus_fact("C27262", 0, "C35501"),
+        _genus_fact("C27262", 0, "C9290"),
+    )
+    complete = CompleteDefinition(
+        root_code="C27262",
+        facts=facts,
+        groups=tuple(
+            DefinitionGroup(
+                group_id=fact.group_id,
+                anchor_code=fact.anchor_code,
+                depth=fact.depth,
+            )
+            for fact in facts
+        ),
+        root_group_ids=tuple(fact.group_id for fact in facts),
+    )
+
+    async def labels(query: str, *, required_variables=()):
+        if "rdf:first ?member" in query:
+            assert required_variables == {"member"}
+            return [{"member": _iri("C35501"), "type": f"{OWL_NS}Class"}]
+        assert required_variables == {"label"}
+        if _iri("C35501") in query:
+            return [{"label": "Acute Myeloid Leukemia"}]
+        if _iri("C9290") in query:
+            return [{"label": "Myeloid Leukemia"}]
+        raise AssertionError("unexpected genus label query")
+
+    assert await resolve_morphology_fillers(labels, complete, max_depth=5) == (
+        "C35501",
+        "C9290",
+    )
 
 
 @pytest.mark.unit

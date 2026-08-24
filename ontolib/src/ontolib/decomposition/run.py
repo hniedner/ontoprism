@@ -14,9 +14,9 @@ Scope of this orchestrator (documented boundaries, not oversights):
   record later persisted as provenance. A ``_CORE_NEOPLASM_ROLES`` boundary filter
   prevents over-collection of generic neoplasm biology from deep genus ancestors.
 - Morphology-from-parent (design §6, the ``op:Morphology`` axis) is wired:
-  ``stated_queries.resolve_morphology_filler`` walks the genus chain for the first
-  non-staging genus, ``filler_selection._append_morphology`` adds the ``op:Morphology``
-  constituent, and ``detector.detect`` counts it as a decomposable axis.
+  ``stated_queries.resolve_morphology_fillers`` walks every co-equal genus branch to
+  its first non-staging genus, ``filler_selection._append_morphology`` adds each
+  ``op:Morphology`` constituent, and ``detector.detect`` counts the axis once.
 - File and optional named-graph publication are coordinated inside ``run_pipeline``.
   A complete artifact is rendered and validated first, the graph is replaced through
   a run-scoped staging graph and one transactional update, the file is atomically
@@ -407,13 +407,13 @@ async def _detect_concept(
 ) -> tuple[
     detector.DetectionResult,
     list[RoleRestriction],
-    str | None,
+    tuple[str, ...],
     CompleteDefinition,
     tuple[str, ...],
 ]:
     """Run the detector on *code*: semantic types, genus-chain roles, and morphology.
 
-    Returns the ``DetectionResult`` plus the ``roles`` and ``morphology_filler`` the
+    Returns the ``DetectionResult`` plus the ``roles`` and morphology fillers the
     caller reuses, so this same machinery classifies both a decomposition candidate
     (in :func:`_decompose_one`) and, unchanged, each emitted constituent's filler when
     computing ``residual_precoordination`` (D37): the metric is only meaningful if a
@@ -423,17 +423,17 @@ async def _detect_concept(
     definition, roles = await stated_queries.read_complete_genus_chain(
         client.select, code, max_depth=walker_max_depth
     )
-    morphology_filler = await stated_queries.resolve_morphology_filler(
-        client.select, code, max_depth=walker_max_depth
+    morphology_fillers = await stated_queries.resolve_morphology_fillers(
+        client.select, definition, max_depth=walker_max_depth
     )
     result = detector.detect(
         code,
         semantic_types,
         roles,
-        has_parent_morphology=morphology_filler is not None,
+        has_parent_morphology=bool(morphology_fillers),
         label=label,
     )
-    return result, roles, morphology_filler, definition, semantic_types
+    return result, roles, morphology_fillers, definition, semantic_types
 
 
 async def _semantic_types_for_concept(
@@ -471,7 +471,7 @@ async def _detect_candidate_or_unknown(
     tuple[
         detector.DetectionResult,
         list[RoleRestriction],
-        str | None,
+        tuple[str, ...],
         CompleteDefinition,
         tuple[str, ...],
     ]
@@ -490,10 +490,10 @@ async def _detect_candidate_or_unknown(
 
 
 def _candidate_filler_codes(
-    roles: list[RoleRestriction], morphology_filler: str | None
+    roles: list[RoleRestriction], morphology_fillers: tuple[str, ...]
 ) -> set[str]:
     codes = {role.filler_code for role in roles}
-    return codes | ({morphology_filler} if morphology_filler is not None else set())
+    return codes | set(morphology_fillers)
 
 
 async def _decompose_one(
@@ -517,11 +517,11 @@ async def _decompose_one(
     )
     if isinstance(detected, _CandidateResult):
         return detected
-    result, roles, morphology_filler, definition, semantic_types = detected
+    result, roles, morphology_fillers, definition, semantic_types = detected
 
     # Phase 1a: batch-resolve semantic_type_of for all filler codes (needed
     # by select_constituents for D20 axis routing).
-    filler_codes = _candidate_filler_codes(roles, morphology_filler)
+    filler_codes = _candidate_filler_codes(roles, morphology_fillers)
     semantic_type_of: dict[str, list[str]] = {}
     if filler_codes:
         rows = await client.select(
@@ -560,7 +560,7 @@ async def _decompose_one(
     role_constituents = fs.select_constituents(
         roles,
         extract.make_is_ancestor(ancestor_pairs),
-        parent_morphology=morphology_filler,
+        parent_morphologies=morphology_fillers,
         semantic_type_of=_semantic_type_of,
         is_part_of=lambda part, whole: (part, whole) in part_of,
         concept_code=code,

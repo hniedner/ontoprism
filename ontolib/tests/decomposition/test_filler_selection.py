@@ -315,7 +315,7 @@ def test_cyclic_hierarchy_keeps_all_fillers_and_flags_review() -> None:
 def test_select_adds_morphology_from_parent() -> None:
     restrictions = _roles(("R101", "C12400", "Disease_Has_Primary_Anatomic_Site"))
     constituents = select_constituents(
-        restrictions, _is_ancestor, parent_morphology="C40384"
+        restrictions, _is_ancestor, parent_morphologies=("C40384",)
     )
     morph = [c for c in constituents if c.axis == MORPHOLOGY_AXIS]
     assert len(morph) == 1
@@ -650,7 +650,7 @@ def test_ratified_lung_primary_routes_bronchus_to_primary_subsite() -> None:
     constituents = select_constituents(
         restrictions,
         lambda _a, _b: False,
-        parent_morphology="C4878",
+        parent_morphologies=("C4878",),
         semantic_type_of=semantic_types.get,
     )
 
@@ -677,7 +677,7 @@ def test_ratified_endometrial_primary_routes_cavity_to_subsite() -> None:
     constituents = select_constituents(
         restrictions,
         lambda broader, narrower: (broader, narrower) == ("C12402", "C12316"),
-        parent_morphology="C7558",
+        parent_morphologies=("C7558",),
         semantic_type_of=semantic_types.get,
     )
 
@@ -708,7 +708,7 @@ def test_routing_precedes_region_axis_collapse() -> None:
         lambda broader, narrower: (
             (broader, narrower) in {("C12418", "C13063"), ("C13063", "C12400")}
         ),
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=semantic_types.get,
     )
 
@@ -758,7 +758,7 @@ def test_organ_lookup_resolves_known_morphology_tie() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: (a, b) == ("C75102", "C12400"),
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 1
@@ -782,7 +782,7 @@ def test_same_routed_pair_preserves_all_source_roles(
     constituents = select_constituents(
         restrictions,
         lambda _ancestor, _descendant: False,
-        parent_morphology="C7558",
+        parent_morphologies=("C7558",),
     )
 
     primary_site = next(
@@ -850,7 +850,7 @@ def test_morphology_organ_partition_preserves_unknown_as_review_primary_site() -
     constituents = select_constituents(
         restrictions,
         lambda _ancestor, _descendant: False,
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=semantic_types.get,
     )
 
@@ -881,7 +881,7 @@ def test_organ_lookup_collapses_nested_regions_only_within_region_axis() -> None
                 ("C13063", "C12400"),
             }
         ),
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=semantic_types.get,
     )
     by_axis = {
@@ -917,7 +917,7 @@ def test_organ_lookup_falls_through_when_organ_not_in_candidates() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: False,
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=lambda _: "Body Part, Organ, or Organ Component",
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
@@ -935,7 +935,7 @@ def test_region_only_candidates_reach_fallback_without_known_organ() -> None:
     constituents = select_constituents(
         restrictions,
         lambda _a, _b: False,
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
         semantic_type_of=lambda _code: "Anatomical Structure",
     )
 
@@ -959,7 +959,7 @@ def test_organ_lookup_falls_through_on_unknown_morphology() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: False,
-        parent_morphology="C99999",
+        parent_morphologies=("C99999",),
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 2
@@ -975,7 +975,7 @@ def test_organ_lookup_not_triggered_for_single_filler() -> None:
     constituents = select_constituents(
         restrictions,
         lambda a, b: False,
-        parent_morphology="C3879",
+        parent_morphologies=("C3879",),
     )
     r101 = [c for c in constituents if c.axis == PRIMARY_SITE_AXIS]
     assert len(r101) == 1
