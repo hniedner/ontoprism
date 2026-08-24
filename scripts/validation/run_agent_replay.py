@@ -480,12 +480,13 @@ def _generate_axis_diagnostics(
 def _generate_group_review(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("generate-group-review accepts no arguments")
-    script, evidence, comparison = _require_files(
+    script, evidence, comparison, r101_report = _require_files(
         root,
         (
             "scripts/adjudication.py",
             "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
             "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+            "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
         ),
     )
     return _run(
@@ -497,8 +498,12 @@ def _generate_group_review(values: list[str], root: Path, runner: CommandRunner)
             evidence,
             "--current-comparison",
             comparison,
+            "--r101-report",
+            r101_report,
             "--output",
             str(root / "tmp/m1-6-group-review-packet.json"),
+            "--workbook",
+            str(root / "tmp/m1-6-group-review-workbook.xlsx"),
         ],
         root,
         runner,

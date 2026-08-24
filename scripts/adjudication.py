@@ -105,9 +105,21 @@ except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry poi
     from research.axis_diagnostic_report import generate_axis_diagnostic_report
 
 try:
-    from scripts.research.group_review_packet import generate_group_review_packet
+    from scripts.research.group_review_packet import (
+        dry_run_group_review_decisions,
+        generate_group_review_boundary,
+        import_group_review_decisions,
+        load_group_decision_registry,
+        load_group_review_packet,
+    )
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
-    from research.group_review_packet import generate_group_review_packet
+    from research.group_review_packet import (  # type: ignore[no-redef]
+        dry_run_group_review_decisions,
+        generate_group_review_boundary,
+        import_group_review_decisions,
+        load_group_decision_registry,
+        load_group_review_packet,
+    )
 
 try:
     from scripts.decompose import _source_snapshot
@@ -175,6 +187,20 @@ class _AxisDiagnosticArgs(Protocol):
 class _GroupReviewArgs(Protocol):
     current_evidence: Path
     current_comparison: Path
+    r101_report: Path
+    output: Path
+    workbook: Path
+
+
+class _ImportGroupReviewArgs(Protocol):
+    packet: Path
+    reviewed_xlsx: Path
+    output: Path
+
+
+class _DryRunGroupReviewArgs(Protocol):
+    packet: Path
+    registry: Path
     output: Path
 
 
@@ -182,7 +208,17 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     group_parser = subparsers.add_parser("generate-group-review-packet")
     group_parser.add_argument("--current-evidence", required=True, type=Path)
     group_parser.add_argument("--current-comparison", required=True, type=Path)
+    group_parser.add_argument("--r101-report", required=True, type=Path)
     group_parser.add_argument("--output", required=True, type=Path)
+    group_parser.add_argument("--workbook", required=True, type=Path)
+    importer = subparsers.add_parser("import-group-review")
+    importer.add_argument("--packet", required=True, type=Path)
+    importer.add_argument("--reviewed-xlsx", required=True, type=Path)
+    importer.add_argument("--output", required=True, type=Path)
+    dry_run = subparsers.add_parser("dry-run-group-review")
+    dry_run.add_argument("--packet", required=True, type=Path)
+    dry_run.add_argument("--registry", required=True, type=Path)
+    dry_run.add_argument("--output", required=True, type=Path)
 
 
 class _CorpusBaselineArgs(Protocol):
@@ -292,11 +328,27 @@ async def _generate_axis_diagnostics(args: _AxisDiagnosticArgs) -> None:
 
 
 def _generate_group_review(args: _GroupReviewArgs) -> None:
-    generate_group_review_packet(
+    generate_group_review_boundary(
         evidence_path=args.current_evidence,
         comparison_path=args.current_comparison,
+        r101_report_path=args.r101_report,
         output=args.output,
+        workbook=args.workbook,
     )
+
+
+def _import_group_review(args: _ImportGroupReviewArgs) -> None:
+    import_group_review_decisions(
+        load_group_review_packet(args.packet), args.reviewed_xlsx, args.output
+    )
+
+
+def _dry_run_group_review(args: _DryRunGroupReviewArgs) -> None:
+    result = dry_run_group_review_decisions(
+        load_group_review_packet(args.packet),
+        load_group_decision_registry(args.registry),
+    )
+    write_canonical_json(result.model_dump(mode="json"), args.output)
 
 
 async def _generate_corpus(args: _CorpusBaselineArgs) -> None:
@@ -731,6 +783,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "generate-group-review-packet":
         _generate_group_review(cast("_GroupReviewArgs", args))
+        return
+    if args.command == "import-group-review":
+        _import_group_review(cast("_ImportGroupReviewArgs", args))
+        return
+    if args.command == "dry-run-group-review":
+        _dry_run_group_review(cast("_DryRunGroupReviewArgs", args))
         return
     if args.command == "generate-corpus-baseline":
         asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))

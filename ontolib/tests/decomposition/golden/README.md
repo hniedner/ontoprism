@@ -258,17 +258,32 @@ source, release, manifest, worklist, run, fingerprint, artifact, representation,
 row-decision, registry, or evidence drift before replacing either output.
 
 Generate the current axis diagnostics for the three explicit residual-detector branches (detected,
-not detected, and proposed filler absent from source), then the normalized-group review packet:
+not detected, and proposed filler absent from source), then the normalized-group machine packet and
+blank SME workbook:
 
 ```bash
 pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
 pdm run agent-replay generate-group-review
 ```
 
-These commands write `tmp/m1-6-axis-diagnostics.json` and
-`tmp/m1-6-group-review-packet.json`. Both are gitignored diagnostic/review artifacts. The group
-packet records missing transformation-rule evidence and no SME adjudication; generating it does
-not approve an intentionally normalized difference.
+These commands write `tmp/m1-6-axis-diagnostics.json`,
+`tmp/m1-6-group-review-packet.json`, and `tmp/m1-6-group-review-workbook.xlsx`; all are gitignored
+diagnostic/review artifacts. The workbook leaves Decision, Rationale, Reviewer, and Date blank, so
+generation records no SME adjudication (`pdm run agent-replay generate-group-review`, 2026-08-24).
+
+The group-review rule-evidence audit is deliberately narrow:
+
+| Rule evidence kind | Existing producer and exact fields consumed |
+|---|---|
+| co-assertion preservation | `generate_current_evidence()` → `CurrentConceptEvidence.all_source_occurrences` and `CurrentConstituent.source_occurrences`, retaining `source_group_id`, `source_fact_id`, and `occurrence_id` beside normalized output-group identities |
+| routing | `generate_current_evidence()` → `CurrentConstituent.axis` plus each cited occurrence's `role_code`, `filler_code`, source fact, source group, and occurrence identity |
+| specificity collapse | `build_r101_conservation_report()` → `LedgerOccurrence.retained_r82_target`, `r82_path`, and exact structural occurrence fields; only rows that join to current evidence are emitted |
+| repeated pairs | `generate_current_evidence()` → the complete `CurrentConstituent.source_occurrences` set for one normalized axis/filler pair |
+| reviewed regrouping | `validate_current_comparison()` → current/expected partitions and grouping diagnosis, joined to current source occurrences and output groups; the historical expected partition is explicitly labelled as lacking source citations |
+
+The packet and workbook are generated from exactly the tracked current evidence, tracked current
+comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
+execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review`, 2026-08-24).
 
 Generate the exhaustive fanout observation against the configured current source:
 
