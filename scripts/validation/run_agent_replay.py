@@ -22,6 +22,104 @@ _SECRET_VALUE = re.compile(
 )
 _URL_CREDENTIALS = re.compile(r"(https?://[^\s:/]+:)[^@\s]+(@)")
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_COLIMA_GUEST_DIAGNOSTICS = (
+    ("date", "-u", "+%Y-%m-%dT%H:%M:%SZ"),
+    ("cat", "/etc/os-release"),
+    ("systemctl", "status", "docker", "--no-pager", "--full"),
+    (
+        "systemctl",
+        "show",
+        "docker",
+        "--no-pager",
+        "--property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,"
+        "InactiveExitTimestamp,ActiveEnterTimestamp",
+    ),
+    ("rc-service", "docker", "status"),
+    ("ps", "auxww"),
+    (
+        "sudo",
+        "-n",
+        "journalctl",
+        "-u",
+        "docker",
+        "--since",
+        "-2h",
+        "--no-pager",
+        "-n",
+        "200",
+        "-o",
+        "short-iso",
+    ),
+    ("sudo", "-n", "tail", "-n", "200", "/var/log/docker.log"),
+    (
+        "sudo",
+        "-n",
+        "journalctl",
+        "-u",
+        "docker",
+        "--since",
+        "-2h",
+        "--no-pager",
+        "-n",
+        "200",
+        "-o",
+        "short-iso",
+        "--grep",
+        "Stopping Docker|Stopped Docker|docker.service:|signal|shut down|"
+        "no space left|permission denied",
+        "--case-sensitive=no",
+    ),
+    (
+        "sudo",
+        "-n",
+        "journalctl",
+        "-k",
+        "--since",
+        "-2h",
+        "--no-pager",
+        "-n",
+        "200",
+        "-o",
+        "short-iso",
+    ),
+    ("sudo", "-n", "dmesg", "-T"),
+    (
+        "sudo",
+        "-n",
+        "journalctl",
+        "-k",
+        "--since",
+        "-2h",
+        "--no-pager",
+        "-n",
+        "200",
+        "-o",
+        "short-iso",
+        "--grep",
+        "out of memory|oom-kill|killed process|invoked oom-killer",
+        "--case-sensitive=no",
+    ),
+    ("free", "-h"),
+    ("swapon", "--show"),
+    ("df", "-h"),
+    ("df", "-i"),
+    ("stat", "-c", "%n %F %a %U %G", "/run/docker.sock"),
+    ("stat", "-c", "%n %F %a %U %G", "/var/run/docker.sock"),
+    (
+        "sudo",
+        "-n",
+        "journalctl",
+        "--since",
+        "-2h",
+        "--no-pager",
+        "-n",
+        "200",
+        "-o",
+        "short-iso",
+    ),
+    ("sudo", "-n", "tail", "-n", "200", "/var/log/messages"),
+    ("sudo", "-n", "tail", "-n", "200", "/var/log/syslog"),
+)
 
 
 class AgentReplayInputError(ValueError):
@@ -361,6 +459,10 @@ def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int
             colima_root / "_lima/colima/serial.log",
             colima_root / "default/daemon.log",
         )
+    )
+    commands.extend(
+        ["colima", "ssh", "--", *guest_command]
+        for guest_command in _COLIMA_GUEST_DIAGNOSTICS
     )
     for command in commands:
         _collect_diagnostic_command(command, root, runner)
