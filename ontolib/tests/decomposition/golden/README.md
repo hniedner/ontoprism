@@ -266,6 +266,30 @@ pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
 pdm run agent-replay generate-group-review
 ```
 
+### R103 manual SME review boundary (#294)
+
+Generate the source-bound packet and blank workbook offline from the pinned stated OWL
+artifact and the existing proposal registry (no QLever or database connection):
+
+```bash
+pdm run agent-replay generate-r103-review
+```
+
+The operation requires all four inputs and writes only
+`tmp/m1-6-r103-review-packet.json` and
+`tmp/m1-6-r103-review-workbook.xlsx`. The workbook is intentionally untracked and its
+four SME fields (`Outcome`, `Rationale`, `Reviewer`, `Date`) are blank. After a human
+reviews the workbook, import and dry-run with every source/governance input named:
+
+```bash
+pdm run python scripts/adjudication.py import-r103-review-decisions --packet tmp/m1-6-r103-review-packet.json --reviewed-xlsx tmp/m1-6-r103-review-workbook-reviewed.xlsx --output tmp/m1-6-r103-review-decisions.json
+pdm run python scripts/adjudication.py dry-run-r103-review --packet tmp/m1-6-r103-review-packet.json --registry tmp/m1-6-r103-review-decisions.json --oracle ontolib/tests/decomposition/golden/neoplasm-adjudicated.json --proposal-registry ontolib/tests/decomposition/golden/proposal-registry.json --output tmp/m1-6-r103-review-dry-run.json
+```
+
+The importer produces a distinct R103 review-evidence registry. It does not mutate the
+oracle or proposal registry; a later accepted correction proposal must extend the existing
+`ProposalRegistry` through its separate governance path.
+
 These commands write `tmp/m1-6-axis-diagnostics.json`,
 `tmp/m1-6-group-review-packet.json`, and `tmp/m1-6-group-review-workbook.xlsx`; all are gitignored
 diagnostic/review artifacts. The workbook leaves Decision, Rationale, Reviewer, and Date blank, so

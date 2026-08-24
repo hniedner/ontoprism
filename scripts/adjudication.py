@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import sys
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast
@@ -56,6 +57,16 @@ from ontolib.decomposition.r101_review import (
     write_r101_decision_expansion_dry_run,
     write_r101_review_packet,
     write_r101_review_workbook,
+)
+from ontolib.decomposition.r103_review import (
+    build_r103_review_packet,
+    dry_run_r103_review,
+    import_r103_review_decisions,
+    load_r103_decision_registry,
+    load_r103_review_packet,
+    write_r103_review_dry_run,
+    write_r103_review_packet,
+    write_r103_review_workbook,
 )
 from ontolib.decomposition.resume_dry_run import (
     build_resume_dry_run,
@@ -204,6 +215,28 @@ class _DryRunGroupReviewArgs(Protocol):
     output: Path
 
 
+class _PrepareR103ReviewArgs(Protocol):
+    stated_owl: Path
+    source_manifest: Path
+    proposal_registry: Path
+    output_packet: Path
+    output_xlsx: Path
+
+
+class _ImportR103ReviewArgs(Protocol):
+    packet: Path
+    reviewed_xlsx: Path
+    output: Path
+
+
+class _DryRunR103ReviewArgs(Protocol):
+    packet: Path
+    registry: Path
+    oracle: Path
+    proposal_registry: Path
+    output: Path
+
+
 def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     group_parser = subparsers.add_parser("generate-group-review-packet")
     group_parser.add_argument("--current-evidence", required=True, type=Path)
@@ -218,6 +251,25 @@ def _add_group_review_parser(subparsers: argparse._SubParsersAction) -> None:
     dry_run = subparsers.add_parser("dry-run-group-review")
     dry_run.add_argument("--packet", required=True, type=Path)
     dry_run.add_argument("--registry", required=True, type=Path)
+    dry_run.add_argument("--output", required=True, type=Path)
+
+
+def _add_r103_review_parser(subparsers: argparse._SubParsersAction) -> None:
+    prepare = subparsers.add_parser("prepare-r103-review-packet")
+    prepare.add_argument("--stated-owl", required=True, type=Path)
+    prepare.add_argument("--source-manifest", required=True, type=Path)
+    prepare.add_argument("--proposal-registry", required=True, type=Path)
+    prepare.add_argument("--output-packet", required=True, type=Path)
+    prepare.add_argument("--output-xlsx", required=True, type=Path)
+    importer = subparsers.add_parser("import-r103-review-decisions")
+    importer.add_argument("--packet", required=True, type=Path)
+    importer.add_argument("--reviewed-xlsx", required=True, type=Path)
+    importer.add_argument("--output", required=True, type=Path)
+    dry_run = subparsers.add_parser("dry-run-r103-review")
+    dry_run.add_argument("--packet", required=True, type=Path)
+    dry_run.add_argument("--registry", required=True, type=Path)
+    dry_run.add_argument("--oracle", required=True, type=Path)
+    dry_run.add_argument("--proposal-registry", required=True, type=Path)
     dry_run.add_argument("--output", required=True, type=Path)
 
 
@@ -519,6 +571,39 @@ def _dry_run_r101_decision_expansion(args: _DryRunR101DecisionExpansionArgs) -> 
     print(f"verdict={result.verdict} writes_performed=false", file=sys.stderr)
 
 
+def _prepare_r103_review(args: _PrepareR103ReviewArgs) -> None:
+    packet = build_r103_review_packet(
+        args.stated_owl, args.source_manifest, args.proposal_registry
+    )
+    write_r103_review_packet(args.output_packet, packet)
+    write_r103_review_workbook(args.output_xlsx, packet)
+    workbook_identity = hashlib.sha256(args.output_xlsx.read_bytes()).hexdigest()
+    print(
+        f"packet_identity={packet.packet_identity} rows={len(packet.rows)} "
+        f"source_passes={packet.source_pass_count} "
+        f"blank_workbook_sha256={workbook_identity}",
+        file=sys.stderr,
+    )
+
+
+def _import_r103_review(args: _ImportR103ReviewArgs) -> None:
+    registry = import_r103_review_decisions(
+        load_r103_review_packet(args.packet), args.reviewed_xlsx, args.output
+    )
+    print(f"registry_identity={registry.registry_identity}", file=sys.stderr)
+
+
+def _dry_run_r103_review(args: _DryRunR103ReviewArgs) -> None:
+    result = dry_run_r103_review(
+        load_r103_review_packet(args.packet),
+        load_r103_decision_registry(args.registry),
+        oracle_path=args.oracle,
+        proposal_registry_path=args.proposal_registry,
+    )
+    write_r103_review_dry_run(args.output, result)
+    print(f"readiness={result.readiness} writes_performed=false", file=sys.stderr)
+
+
 async def _generate_r101_collapse_policy(
     args: _GenerateR101CollapsePolicyArgs,
 ) -> None:
@@ -695,7 +780,7 @@ def _add_r101_parsers(subparsers: Any) -> None:
     policy_parser.add_argument("--output-policy", required=True, type=Path)
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     parser = argparse.ArgumentParser(
         description="Fail-closed SME adjudication import, export, and evaluation"
     )
@@ -749,6 +834,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     axis_parser.add_argument("--output", required=True, type=Path)
     _add_group_review_parser(subparsers)
+    _add_r103_review_parser(subparsers)
     corpus_parser = subparsers.add_parser("generate-corpus-baseline")
     corpus_parser.add_argument("--source-manifest", required=True, type=Path)
     corpus_parser.add_argument("--run-id", required=True)
@@ -789,6 +875,15 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0911, PLR0912
         return
     if args.command == "dry-run-group-review":
         _dry_run_group_review(cast("_DryRunGroupReviewArgs", args))
+        return
+    if args.command == "prepare-r103-review-packet":
+        _prepare_r103_review(cast("_PrepareR103ReviewArgs", args))
+        return
+    if args.command == "import-r103-review-decisions":
+        _import_r103_review(cast("_ImportR103ReviewArgs", args))
+        return
+    if args.command == "dry-run-r103-review":
+        _dry_run_r103_review(cast("_DryRunR103ReviewArgs", args))
         return
     if args.command == "generate-corpus-baseline":
         asyncio.run(_generate_corpus(cast("_CorpusBaselineArgs", args)))

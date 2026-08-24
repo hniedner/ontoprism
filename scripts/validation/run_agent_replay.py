@@ -510,6 +510,39 @@ def _generate_group_review(values: list[str], root: Path, runner: CommandRunner)
     )
 
 
+def _generate_r103_review(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("generate-r103-review accepts no arguments")
+    script, owl, source, proposals = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "data/ncit-owl/Thesaurus-stated.owl",
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+            "ontolib/tests/decomposition/golden/proposal-registry.json",
+        ),
+    )
+    return _run(
+        [
+            sys.executable,
+            script,
+            "prepare-r103-review-packet",
+            "--stated-owl",
+            owl,
+            "--source-manifest",
+            source,
+            "--proposal-registry",
+            proposals,
+            "--output-packet",
+            str(root / "tmp/m1-6-r103-review-packet.json"),
+            "--output-xlsx",
+            str(root / "tmp/m1-6-r103-review-workbook.xlsx"),
+        ],
+        root,
+        runner,
+    )
+
+
 def _refresh_sparql_inventory(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -643,6 +676,7 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-current-evidence": _generate_current_evidence,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review": _generate_group_review,
+    "generate-r103-review": _generate_r103_review,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "diagnose-stack": _diagnose_stack,
 }
