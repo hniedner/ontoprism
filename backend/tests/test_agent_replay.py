@@ -237,6 +237,17 @@ def test_diagnose_stack_runs_only_fixed_bounded_read_only_commands(
         ["stat", "-c", "%n %F %a %U %G", "/run/docker.sock"],
         ["stat", "-c", "%n %F %a %U %G", "/var/run/docker.sock"],
         [
+            "curl",
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--max-time",
+            "5",
+            "--unix-socket",
+            "/var/run/docker.sock",
+            "http://localhost/_ping",
+        ],
+        [
             "sudo",
             "-n",
             "journalctl",
@@ -252,9 +263,53 @@ def test_diagnose_stack_runs_only_fixed_bounded_read_only_commands(
         ["sudo", "-n", "tail", "-n", "200", "/var/log/syslog"],
     ]
     colima_root = Path.home() / ".colima"
+    host_socket = colima_root / "default/docker.sock"
+    host_agent_pattern = "colima|lima"
+    forwarding_pattern = "docker\\.sock|socket|forward|stopp|clos|exit|fatal|error"
+    host_commands = [
+        [
+            "/usr/bin/stat",
+            "-f",
+            "%N %HT %Sp %Su %Sg",
+            str(host_socket),
+        ],
+        ["/usr/sbin/lsof", "-n", "-a", "-U", str(host_socket)],
+        ["/usr/bin/pgrep", "-alf", host_agent_pattern],
+        [
+            "/usr/bin/env",
+            f"LIMA_HOME={colima_root / '_lima'}",
+            "limactl",
+            "list",
+            "--json",
+        ],
+        ["docker", "context", "show"],
+        [
+            "docker",
+            "context",
+            "inspect",
+            "--format",
+            "{{json .Endpoints.docker.Host}}",
+        ],
+        *(
+            ["/usr/bin/printenv", variable]
+            for variable in (
+                "DOCKER_HOST",
+                "DOCKER_CONTEXT",
+                "DOCKER_TLS_VERIFY",
+                "DOCKER_CERT_PATH",
+            )
+        ),
+    ]
+    log_paths = (
+        colima_root / "_lima/colima/ha.stderr.log",
+        colima_root / "_lima/colima/ha.stdout.log",
+        colima_root / "_lima/colima/serial.log",
+        colima_root / "default/daemon.log",
+    )
     assert commands == [
         ["colima", "status", "--json"],
         ["colima", "status"],
+        *host_commands,
         ["docker", "info"],
         ["docker", "ps", "-a", "--no-trunc"],
         ["docker", "compose", "ps", "-a"],
@@ -270,14 +325,19 @@ def test_diagnose_stack_runs_only_fixed_bounded_read_only_commands(
             "--tail",
             "200",
         ],
+        *(["/usr/bin/tail", "-n", "200", str(path)] for path in log_paths),
         *(
-            ["/usr/bin/tail", "-n", "200", str(path)]
-            for path in (
-                colima_root / "_lima/colima/ha.stderr.log",
-                colima_root / "_lima/colima/ha.stdout.log",
-                colima_root / "_lima/colima/serial.log",
-                colima_root / "default/daemon.log",
-            )
+            [
+                "/usr/bin/grep",
+                "-E",
+                "-i",
+                "-n",
+                "-m",
+                "200",
+                forwarding_pattern,
+                str(path),
+            ]
+            for path in log_paths
         ),
         *(["colima", "ssh", "--", *command] for command in guest_commands),
     ]

@@ -106,6 +106,17 @@ _COLIMA_GUEST_DIAGNOSTICS = (
     ("stat", "-c", "%n %F %a %U %G", "/run/docker.sock"),
     ("stat", "-c", "%n %F %a %U %G", "/var/run/docker.sock"),
     (
+        "curl",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--max-time",
+        "5",
+        "--unix-socket",
+        "/var/run/docker.sock",
+        "http://localhost/_ping",
+    ),
+    (
         "sudo",
         "-n",
         "journalctl",
@@ -420,7 +431,41 @@ def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int
     if not json_status_supported:
         _collect_diagnostic_command(["colima", "status"], root, runner)
 
+    colima_root = Path.home() / ".colima"
+    host_socket = colima_root / "default/docker.sock"
     commands = [
+        [
+            "/usr/bin/stat",
+            "-f",
+            "%N %HT %Sp %Su %Sg",
+            str(host_socket),
+        ],
+        ["/usr/sbin/lsof", "-n", "-a", "-U", str(host_socket)],
+        ["/usr/bin/pgrep", "-alf", "colima|lima"],
+        [
+            "/usr/bin/env",
+            f"LIMA_HOME={colima_root / '_lima'}",
+            "limactl",
+            "list",
+            "--json",
+        ],
+        ["docker", "context", "show"],
+        [
+            "docker",
+            "context",
+            "inspect",
+            "--format",
+            "{{json .Endpoints.docker.Host}}",
+        ],
+        *(
+            ["/usr/bin/printenv", variable]
+            for variable in (
+                "DOCKER_HOST",
+                "DOCKER_CONTEXT",
+                "DOCKER_TLS_VERIFY",
+                "DOCKER_CERT_PATH",
+            )
+        ),
         ["docker", "info"],
         ["docker", "ps", "-a", "--no-trunc"],
         ["docker", "compose", "ps", "-a"],
@@ -450,15 +495,25 @@ def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int
             "200",
         ],
     ]
-    colima_root = Path.home() / ".colima"
+    log_paths = (
+        colima_root / "_lima/colima/ha.stderr.log",
+        colima_root / "_lima/colima/ha.stdout.log",
+        colima_root / "_lima/colima/serial.log",
+        colima_root / "default/daemon.log",
+    )
+    commands.extend(["/usr/bin/tail", "-n", "200", str(path)] for path in log_paths)
     commands.extend(
-        ["/usr/bin/tail", "-n", "200", str(path)]
-        for path in (
-            colima_root / "_lima/colima/ha.stderr.log",
-            colima_root / "_lima/colima/ha.stdout.log",
-            colima_root / "_lima/colima/serial.log",
-            colima_root / "default/daemon.log",
-        )
+        [
+            "/usr/bin/grep",
+            "-E",
+            "-i",
+            "-n",
+            "-m",
+            "200",
+            "docker\\.sock|socket|forward|stopp|clos|exit|fatal|error",
+            str(path),
+        ]
+        for path in log_paths
     )
     commands.extend(
         ["colima", "ssh", "--", *guest_command]
