@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from scripts.research.current_evidence import (
-    ActualPairCitation,
+    AvailableActualPairCitation,
     CurrentComparison,
     CurrentConceptEvidence,
     CurrentConstituent,
@@ -21,9 +21,11 @@ from scripts.research.current_evidence import (
     HistoricalOraclePairCitation,
     PartitionDiagnosisEvidence,
     RowReplayStatus,
+    UnavailableActualPairCitation,
     _row_replay,
     _typed_diagnosis,
     generate_current_evidence,
+    regenerate_current_comparison,
     validate_current_comparison,
 )
 from scripts.research.golden_review import (
@@ -541,8 +543,13 @@ def test_partition_diagnosis_cites_actual_occurrences_without_observing_oracle()
         normalization_rule="group-label-independent-co-membership",
         affected_pairs=(("op:Morphology", "C1"), ("op:PrimarySite", "C2")),
         actual_pair_citations=(
-            ActualPairCitation(
+            UnavailableActualPairCitation(
+                pair=("op:Morphology", "C1"),
+                availability="unavailable-no-occurrence-evidence",
+            ),
+            AvailableActualPairCitation(
                 pair=("op:PrimarySite", "C2"),
+                availability="available",
                 occurrence_ids=(occurrence_id,),
             ),
         ),
@@ -558,7 +565,14 @@ def test_partition_diagnosis_cites_actual_occurrences_without_observing_oracle()
         ),
     )
 
-    assert diagnosis.actual_pair_citations[0].occurrence_ids == (occurrence_id,)
+    assert [citation.pair for citation in diagnosis.actual_pair_citations] == list(
+        diagnosis.affected_pairs
+    )
+    assert diagnosis.actual_pair_citations[0].availability == (
+        "unavailable-no-occurrence-evidence"
+    )
+    assert diagnosis.actual_pair_citations[1].availability == "available"
+    assert diagnosis.actual_pair_citations[1].occurrence_ids == (occurrence_id,)
     assert {
         citation.availability for citation in diagnosis.expected_pair_citations
     } == {"unavailable-historical-oracle"}
@@ -600,6 +614,45 @@ def test_partition_diagnosis_names_only_changed_shared_pairs() -> None:
         ("op:PrimarySite", "C2"),
         ("op:StageValue", "C3"),
     )
+    assert [citation.pair for citation in diagnosis.actual_pair_citations] == list(
+        diagnosis.affected_pairs
+    )
+    assert {citation.availability for citation in diagnosis.actual_pair_citations} == {
+        "unavailable-no-occurrence-evidence"
+    }
+
+
+@pytest.mark.unit
+def test_partition_diagnosis_rejects_partial_or_reordered_actual_citations() -> None:
+    affected = (("op:Morphology", "C1"), ("op:PrimarySite", "C2"))
+    available = {
+        "pair": affected[1],
+        "availability": "available",
+        "occurrence_ids": ("a" * 64,),
+    }
+    unavailable = {
+        "pair": affected[0],
+        "availability": "unavailable-no-occurrence-evidence",
+    }
+    expected = tuple(
+        HistoricalOraclePairCitation(
+            pair=pair,
+            availability="unavailable-historical-oracle",
+        )
+        for pair in affected
+    )
+
+    for actual in ((available,), (available, unavailable)):
+        with pytest.raises(ValueError, match="actual pair citations"):
+            PartitionDiagnosisEvidence.model_validate(
+                {
+                    "diagnosis": PartitionDiagnosis.OVER_MERGE,
+                    "normalization_rule": "group-label-independent-co-membership",
+                    "affected_pairs": affected,
+                    "actual_pair_citations": actual,
+                    "expected_pair_citations": expected,
+                }
+            )
 
 
 @pytest.mark.unit
@@ -963,6 +1016,34 @@ def test_tracked_current_replay_binds_real_run_and_row_classifications() -> None
         "unavailable_source_evidence": 13,
         "explicitly_out_of_scope": 19,
     }
+
+
+@pytest.mark.unit
+def test_regenerate_current_comparison_uses_tracked_evidence_without_store(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "comparison.json"
+
+    comparison = regenerate_current_comparison(
+        evidence_path=_TRACKED_CURRENT_EVIDENCE,
+        oracle_path=_ORACLE,
+        row_decisions_path=_ROWS,
+        proposal_registry_path=_REGISTRY,
+        output=output,
+    )
+
+    assert CurrentComparison.model_validate_json(output.read_bytes()) == comparison
+    assert (
+        comparison.current_evidence_identity
+        == json.loads(_TRACKED_CURRENT_EVIDENCE.read_text())["evidence_identity"]
+    )
+    assert all(
+        tuple(citation.pair for citation in diagnosis.actual_pair_citations)
+        == diagnosis.affected_pairs
+        for concept in comparison.concepts
+        for partition in (concept.full_partition, concept.common_pair_partition)
+        if (diagnosis := partition.primary_diagnosis) is not None
+    )
 
 
 @pytest.mark.unit

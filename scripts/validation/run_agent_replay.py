@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib
 import re
 import subprocess
 import sys
@@ -441,6 +442,38 @@ def _generate_current_evidence(
     )
 
 
+def _regenerate_current_comparison(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError(
+            "regenerate-current-comparison accepts no arguments"
+        )
+    sys.path.insert(0, str(root))
+    regenerate_current_comparison = importlib.import_module(
+        "scripts.research.current_evidence"
+    ).regenerate_current_comparison
+
+    _script, _sample, oracle, rows, registry = _adjudication_inputs(root)
+    golden = root / "ontolib/tests/decomposition/golden"
+    evidence, _existing_output = _require_files(
+        root,
+        (
+            "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+            "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        ),
+    )
+    regenerate_current_comparison(
+        evidence_path=Path(evidence),
+        oracle_path=Path(oracle),
+        row_decisions_path=Path(rows),
+        proposal_registry_path=Path(registry),
+        output=golden / "neoplasm-current-comparison.json",
+    )
+    return 0
+
+
 def _generate_axis_diagnostics(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -683,6 +716,7 @@ _OPERATIONS: dict[str, Operation] = {
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
     "generate-current-evidence": _generate_current_evidence,
+    "regenerate-current-comparison": _regenerate_current_comparison,
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review": _generate_group_review,
     "generate-r103-review": _generate_r103_review,

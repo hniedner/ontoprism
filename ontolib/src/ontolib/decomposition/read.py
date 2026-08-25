@@ -137,8 +137,9 @@ def _merge_constituent(
     source_roles = tuple(
         sorted(set(existing.source_roles) | set(candidate.source_roles))
     )
-    return existing.model_copy(
-        update={"source_definition_ids": source_ids, "source_roles": source_roles}
+    return DecompositionConstituent.model_validate(
+        existing.model_dump()
+        | {"source_definition_ids": source_ids, "source_roles": source_roles}
     )
 
 

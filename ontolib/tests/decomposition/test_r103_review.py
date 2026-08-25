@@ -238,6 +238,14 @@ def test_packet_has_exact_source_derived_inventory_and_complete_evidence(
 
 
 @pytest.mark.unit
+def test_current_state_marks_c102870_unsupported_r103_for_review() -> None:
+    assert r103_review._current_state("C102870", "R103", "C54105") == (
+        "review-required"
+    )
+    assert r103_review._current_state("C102870", "R103", "C49276") == "projected"
+
+
+@pytest.mark.unit
 def test_packet_regeneration_is_deterministic_and_source_bound(
     source_boundary, tmp_path: Path
 ) -> None:

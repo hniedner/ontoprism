@@ -263,9 +263,6 @@ def _record_linked_cell(expression_cells: dict[str, Row], cell: str, row: Row) -
         raise CompleteDefinitionError(
             "one RDF list cell resolved to conflicting members"
         )
-    raise CompleteDefinitionError(
-        "complete-definition response has a duplicate RDF list cell binding"
-    )
 
 
 def _collect_linked_rows(
@@ -464,9 +461,7 @@ def _record_group_position(
             "one definition position resolved to conflicting members"
         )
     if previous is not None:
-        raise CompleteDefinitionError(
-            "complete-definition response has a duplicate position binding"
-        )
+        return
     positions[position] = (
         member,
         is_defined,

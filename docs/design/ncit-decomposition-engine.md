@@ -446,7 +446,7 @@ technique generalizes partially, not fully.**
 | `C6135` | 5 (Thyroid Gland, Endocrine Gland/System, Head and Neck, Neck) | **1** (Thyroid Gland) | Fully resolved |
 | `C89995` | 3 (Colon, Colorectal Region, Digestive System) | 2 (Colon, Colorectal Region) | Partially resolved (system eliminated; organ-vs-region tie remains) |
 | `C35756` | 4 (Lung, Bronchus, Endocrine Gland/System) | 3 (Lung, Bronchus, Endocrine Gland) | Partially resolved (Endocrine System eliminated; three unrelated siblings remain) |
-| Left Atrial Myxoma (`C4791`) | 7 (Heart, Cardiac Atrium, Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity, Connective/Soft Tissue) | 4 (Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity) | Historical intermediate result. The reviewed projection uses Left Atrium (`C12869`) as `op:PrimarySite`; Endocardium (`C13004`) is tissue, not a region. |
+| Left Atrial Myxoma (`C4791`) | 7 (Heart, Cardiac Atrium, Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity, Connective/Soft Tissue) | 4 (Left Atrium, Endocardium, Soft Tissue, Thoracic Cavity) | Historical intermediate result. The reviewed projection distinguishes the anatomical kinds and routes them separately: Left Atrium (`C12869`) is `op:PrimarySite`, while Endocardium (`C13004`) is retained as both `op:AssociatedRegion` (from R101 routing) and `op:AssociatedSite` (from R100). |
 
 **What the technique reliably does:** correctly and consistently eliminates candidates
 that are genuine is-a or part-of *containers* of another candidate, in every case tested
@@ -602,7 +602,9 @@ additional metadata on a node *already visited*, not a new traversal.
 **Resolved (2026-07-08, DECISIONS D20): R101 gets two independent, composable refinements,
 applied in order** — not one. The region-vs-organ ties (`Colon`/`Colorectal Region`,
 Left Atrium (`C12869`)/Endocardium (`C13004`) are a *second*, distinct phenomenon from
-lineage conflation: Left Atrium is the organ chamber and Endocardium is tissue, not a region.
+lineage conflation: Left Atrium is an organ chamber and Endocardium is tissue, so the
+projection routes these unlike anatomical kinds separately and retains Endocardium as
+both `op:AssociatedRegion` and `op:AssociatedSite` where the source roles support them.
 They aren't reached through a reusable, organ-agnostic ancestor the way `Endocrine Gland`
 is. The resolution:
 

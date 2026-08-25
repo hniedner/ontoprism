@@ -177,10 +177,12 @@ Stage IIIB Lung Small Cell Carcinoma without Pleural Effusion AJCC v7 (`C35757`)
 Lung Small Cell Carcinoma AJCC v7 (`C6681`), and Stage III Lung Small Cell Carcinoma
 (`C6679`) — four enumerated concepts for one axis of variation.
 
-**Left Atrial Myxoma (`C4791`):** primary site = Left Atrium (`C12869`), morphology = Myxoma,
-abnormal cell = Neoplastic Spindle Cell (`C36954`), finding = Myxoid Stroma Formation
-(`C35998`); *laterality
-(Left)* is label-only → NLP fallback.
+**Illustrative, non-exhaustive Left Atrial Myxoma (`C4791`) projection:** primary site =
+Left Atrium (`C12869`), morphology = Myxoma, abnormal cell includes Neoplastic Spindle
+Cell (`C36954`), and finding includes Myxoid Stroma Formation (`C35998`). Endocardium
+(`C13004`) is also retained as `op:AssociatedRegion` and `op:AssociatedSite`; this
+exemplar does not enumerate every accepted filler. *Laterality (Left)* is label-only →
+NLP fallback.
 
 These cases demonstrate both the decomposability (constituents are all present) and the payoff:
 AJCC-edition and with/without concepts can expose a shared core plus orthogonal qualifiers

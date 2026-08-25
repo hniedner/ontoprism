@@ -4,10 +4,15 @@ Mirrors the ``op:`` graph written by the engine (design §4.2): a source concept
 ``legacy-precoordinated`` with a list of constituents (axis + filler + provenance).
 """
 
-from pydantic import Field
+from __future__ import annotations
+
+import re
+from typing import Self
+
+from pydantic import Field, field_validator, model_validator
 
 from ontolib.common.boundary_models import StrictBoundaryModel
-from ontolib.decomposition.models import AxisSource
+from ontolib.decomposition.models import AxisSource  # noqa: TC001 (Pydantic runtime)
 from ontolib.repositories.xref.vocab import EXACT_MATCH
 
 
@@ -53,6 +58,23 @@ class DecompositionConstituent(StrictBoundaryModel):
     group: str | None = None
     source_definition_ids: tuple[str, ...] = ()
     upstream: list[UpstreamMapping] = Field(default_factory=list)
+
+    @field_validator("source_roles")
+    @classmethod
+    def _source_roles_are_canonical_ncit_roles(
+        cls, source_roles: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if any(re.fullmatch(r"R[0-9]+", role) is None for role in source_roles):
+            raise ValueError("source_roles must contain only NCIt role codes")
+        return tuple(sorted(set(source_roles)))
+
+    @model_validator(mode="after")
+    def _source_roles_match_axis_source(self) -> Self:
+        if self.axis_source == "role" and not self.source_roles:
+            raise ValueError("role-derived constituent requires source_roles")
+        if self.axis_source in {"parent", "nlp"} and self.source_roles:
+            raise ValueError("parent/NLP constituents must have empty source_roles")
+        return self
 
 
 class ConceptDecomposition(StrictBoundaryModel):

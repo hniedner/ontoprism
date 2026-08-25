@@ -175,7 +175,8 @@ role does not relate by specificity. Examples include Colorectal Region versus C
 tissue Endocardium (`C13004`) versus the organ chamber Left Atrium (`C12869`). This is a second,
 structurally different form of overload: the relationship silently mixes anatomical kinds and
 granularities. For Left Atrial Myxoma (`C4791`), the reviewed primary site is Left Atrium
-(`C12869`), not Heart (`C12727`).
+(`C12869`), not Heart (`C12727`); Endocardium is retained separately as both
+`op:AssociatedRegion` and `op:AssociatedSite` according to its source roles.
 
 **(d) Part–whole overloading (the SNOMED precedent).**
 The analogous problem in SNOMED CT is the historical **SEP-triplet** encoding, which simulated *part\_of* transitivity by overloading *is-a*. Suntisrivaraporn, Baader, Schulz and Spackman, and Schulz et al.'s broader "health check" of SNOMED, showed that overloading a subsumption relation to carry part–whole semantics is error-prone and is better replaced by a *directly and univocally defined* part-of relation with explicit logical properties [16]. NCIt's `R82` (*Anatomic\_Structure\_Is\_Physical\_Part\_Of*) is not transitively materialized, which is the same class of problem viewed from the opposite side.

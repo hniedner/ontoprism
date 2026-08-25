@@ -508,22 +508,7 @@ async def test_linked_list_reader_accepts_bound_and_rejects_overflow() -> None:
 
 
 @pytest.mark.unit
-async def test_linked_list_rejects_duplicate_source_bindings() -> None:
-    rows = _linked_definition_rows(1)
-    rows[0]["childExpression"] = "_:definition-a"
-    rows.append(dict(rows[0], childExpression="_:definition-b"))
-
-    async def select(
-        query: str, *, required_variables: Collection[str] = ()
-    ) -> list[dict[str, str | None]]:
-        return rows if _iri("C900") in query else []
-
-    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*RDF list cell"):
-        await read_complete_definition(select, "C900")
-
-
-@pytest.mark.unit
-async def test_linked_list_rejects_an_identical_duplicate_source_row() -> None:
+async def test_linked_list_accepts_an_identical_duplicate_source_row() -> None:
     rows = _linked_definition_rows(1)
     rows.append(dict(rows[0]))
 
@@ -533,7 +518,90 @@ async def test_linked_list_rejects_an_identical_duplicate_source_row() -> None:
         del query, required_variables
         return rows
 
-    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*RDF list cell"):
+    complete = await read_complete_definition(select, "C900")
+
+    assert len(complete.facts) == 1
+
+
+@pytest.mark.unit
+async def test_linked_shared_nested_expression_preserves_multiple_parents() -> None:
+    rdf_nil = "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil"
+    rows = []
+    for expression, genus_code in (("_:outer-a", "C100"), ("_:outer-b", "C200")):
+        rows.extend(
+            [
+                {
+                    "expression": expression,
+                    "parentExpression": None,
+                    "list": f"{expression}-cell-0",
+                    "cell": f"{expression}-cell-0",
+                    "next": f"{expression}-cell-1",
+                    "member": "_:shared",
+                    "role": None,
+                    "target": None,
+                    "childExpression": None,
+                    "nestedExpression": "_:shared",
+                },
+                {
+                    "expression": expression,
+                    "parentExpression": None,
+                    "list": f"{expression}-cell-0",
+                    "cell": f"{expression}-cell-1",
+                    "next": rdf_nil,
+                    "member": _iri(genus_code),
+                    "role": None,
+                    "target": None,
+                    "childExpression": None,
+                    "nestedExpression": None,
+                },
+            ]
+        )
+    shared = {
+        "expression": "_:shared",
+        "list": "_:shared-cell",
+        "cell": "_:shared-cell",
+        "next": rdf_nil,
+        "member": _iri("C35501"),
+        "role": None,
+        "target": None,
+        "childExpression": None,
+        "nestedExpression": None,
+    }
+    rows.extend(
+        [
+            shared | {"parentExpression": "_:outer-a"},
+            shared | {"parentExpression": "_:outer-b"},
+        ]
+    )
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del required_variables
+        return rows[:4] if "BIND(0 AS ?requestedNestingDepth)" in query else rows
+
+    complete = await read_complete_definition(select, "C27262")
+
+    roots = [
+        group for group in complete.groups if group.group_id in complete.root_group_ids
+    ]
+    assert len(roots) == 2
+    assert roots[0].child_group_ids == roots[1].child_group_ids
+    assert len(roots[0].child_group_ids) == 1
+
+
+@pytest.mark.unit
+async def test_linked_duplicate_cell_conflict_reject_branch_is_live() -> None:
+    rows = _linked_definition_rows(1)
+    rows.append(dict(rows[0], target=_iri("C2"), role=_iri("R101")))
+
+    async def select(
+        query: str, *, required_variables: Collection[str] = ()
+    ) -> list[dict[str, str | None]]:
+        del query, required_variables
+        return rows
+
+    with pytest.raises(CompleteDefinitionError, match="conflicting members"):
         await read_complete_definition(select, "C900")
 
 
@@ -1320,13 +1388,14 @@ def test_row_parser_rejects_conflicts_gaps_and_collapses_duplicate_groups() -> N
 
 
 @pytest.mark.unit
-def test_row_parser_rejects_an_identical_duplicate_position_binding() -> None:
+def test_row_parser_accepts_an_identical_duplicate_position_binding() -> None:
     rows = _definition_rows(
         "_:expression", ("_:restriction", _iri("R101"), _iri("C2"), False)
     )
 
-    with pytest.raises(CompleteDefinitionError, match=r"duplicate.*position"):
-        definition_facts_from_rows("C9", depth=0, rows=[*rows, dict(rows[0])])
+    facts = definition_facts_from_rows("C9", depth=0, rows=[*rows, dict(rows[0])])
+
+    assert len(facts) == 1
 
 
 @pytest.mark.unit

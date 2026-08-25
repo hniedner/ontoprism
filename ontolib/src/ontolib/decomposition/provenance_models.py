@@ -207,9 +207,9 @@ def _require_matching_sample_schema(
     total_limit: int | None,
 ) -> None:
     if schema_version == _SAMPLE_RUN_SCHEMA and sample_manifest_identity is None:
-        raise ValueError("schema-v3 runs require a sample manifest identity")
+        raise ValueError("sample schema-v5 runs require a sample manifest identity")
     if schema_version == _STANDARD_RUN_SCHEMA and sample_manifest_identity is not None:
-        raise ValueError("sample manifest identity requires schema-v3")
+        raise ValueError("sample manifest identity requires sample schema-v5")
     if sample_manifest_identity is not None and total_limit is not None:
         raise ValueError("sample manifest and total_limit are mutually exclusive")
 

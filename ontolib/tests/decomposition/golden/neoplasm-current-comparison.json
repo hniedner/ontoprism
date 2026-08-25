@@ -1,6 +1,6 @@
 {
   "artifact_identity": "b049cafa8fc912db0239e08cc2206eb263fdee8be7d53fb4133f8ee49e960e9e",
-  "comparison_identity": "0303d36898d966c254ebc1f5183850452136371d10ab5c3381dfcd37f7a65306",
+  "comparison_identity": "688ad142d6aa4d1bc9a1408d19af443089a0479d7594f31490e5d4db942bbafc",
   "concepts": [
     {
       "code": "C27262",
@@ -86,7 +86,22 @@
           ]
         ],
         "primary_diagnosis": {
-          "actual_pair_citations": [],
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C35501"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C9290"
+              ]
+            }
+          ],
           "affected_pairs": [
             [
               "op:Morphology",
@@ -217,7 +232,22 @@
           ]
         ],
         "primary_diagnosis": {
-          "actual_pair_citations": [],
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C35501"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C9290"
+              ]
+            }
+          ],
           "affected_pairs": [
             [
               "op:Morphology",
@@ -332,7 +362,22 @@
           ]
         ],
         "primary_diagnosis": {
-          "actual_pair_citations": [],
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C121619"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C39986"
+              ]
+            }
+          ],
           "affected_pairs": [
             [
               "op:Morphology",
@@ -443,7 +488,22 @@
           ]
         ],
         "primary_diagnosis": {
-          "actual_pair_citations": [],
+          "actual_pair_citations": [
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C121619"
+              ]
+            },
+            {
+              "availability": "unavailable-no-occurrence-evidence",
+              "pair": [
+                "op:Morphology",
+                "C39986"
+              ]
+            }
+          ],
           "affected_pairs": [
             [
               "op:Morphology",
@@ -627,6 +687,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
               ],
@@ -636,6 +697,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "d5bec967f4ad135dc934bef0297d9da04cb70e64ff093e3cff0b919f1243edd0"
               ],
@@ -645,6 +707,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "96387e96ac5ba79518c454273156904ddb91ff6d446102339a8ebf5dac4b66dd"
               ],
@@ -815,6 +878,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "756169d415fb023ed743bae1697017d2c4aae054d53e09ba914a19242750569b"
               ],
@@ -824,6 +888,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "d5bec967f4ad135dc934bef0297d9da04cb70e64ff093e3cff0b919f1243edd0"
               ],
@@ -833,6 +898,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "96387e96ac5ba79518c454273156904ddb91ff6d446102339a8ebf5dac4b66dd"
               ],
@@ -993,6 +1059,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
               ],
@@ -1002,6 +1069,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "a4f169f7ab8c6f0c82379a40b82fc1c68f954d251cfab80680af1706301ac679"
               ],
@@ -1175,6 +1243,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "eb9b43045ed8e34810fcdcc6e2b7914d2eefd87787fc0852ea0b0253622019f3"
               ],
@@ -1184,6 +1253,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "a4f169f7ab8c6f0c82379a40b82fc1c68f954d251cfab80680af1706301ac679"
               ],
@@ -1329,6 +1399,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
               ],
@@ -1338,6 +1409,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "06883864e504a099cd68d9bda634096213d6536abc71d0df435da914d13121e1"
               ],
@@ -1479,6 +1551,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "9f348bc530a751bfa509f01dc9c6e5a96a983ff1627b28a2a2eea85fc9eeccc4"
               ],
@@ -1488,6 +1561,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "06883864e504a099cd68d9bda634096213d6536abc71d0df435da914d13121e1"
               ],
@@ -1632,6 +1706,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
               ],
@@ -1641,6 +1716,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
               ],
@@ -1765,6 +1841,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "40fba72d54cfb5374a7643f202423d4d89c50df64caea00f4bd39d3b9b4839e1"
               ],
@@ -1774,6 +1851,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fdc60125372e7fe1ea022e3c7528dfa0b4db7146e31a94249aa503befc47bca2"
               ],
@@ -1901,6 +1979,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
               ],
@@ -1910,6 +1989,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
               ],
@@ -2034,6 +2114,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "f4105037584fbcaccc6ca75cb531eb68366050738613e7bde831d1be5a878d66"
               ],
@@ -2043,6 +2124,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "55e03e35b4bdf33d9a5eebab1a36406135ad79dcea0eff7a51e33a92399ec158"
               ],
@@ -2170,6 +2252,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
               ],
@@ -2179,6 +2262,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
               ],
@@ -2303,6 +2387,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "10243c2c1df9447ff9e841964c23599cea935af15498f91dee09f29f120b086b"
               ],
@@ -2312,6 +2397,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "e4f2f33fa2e0d504cc6674de2c6b35bbc9a4fd26b3eb6ec60b65969e67cf8a01"
               ],
@@ -2444,6 +2530,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
               ],
@@ -2453,6 +2540,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "4f317c8f7d65124ad46196312802f558dc1d48792f3a5cdaaa754d095ad882c0"
               ],
@@ -2588,6 +2676,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fa21cf82caa0910b77574cc02c45367b4d1233f2b891cf17b28403d34d7fd4d3"
               ],
@@ -2597,6 +2686,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "4f317c8f7d65124ad46196312802f558dc1d48792f3a5cdaaa754d095ad882c0"
               ],
@@ -3157,6 +3247,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
               ],
@@ -3166,6 +3257,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "36c3b8c6a644df29e0986286f97f2c07a45a2c95175c4d754586321cf0c655a1"
               ],
@@ -3313,6 +3405,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "9f5ab9416ad6125fd6e64623d49ff4172f11bd6b17dd9ae69c20934047b4cad0"
               ],
@@ -3322,6 +3415,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "36c3b8c6a644df29e0986286f97f2c07a45a2c95175c4d754586321cf0c655a1"
               ],
@@ -3499,6 +3593,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
               ],
@@ -3508,6 +3603,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fd814c3ab0c0e41713345c63d4d9471acc921eb948350c3ac596dbe054f527e1"
               ],
@@ -3725,6 +3821,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "957af700d14fd7566e1ba444e4cc7c0975dd35109ed6abad50a9c8c93a9446be"
               ],
@@ -3734,6 +3831,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fd814c3ab0c0e41713345c63d4d9471acc921eb948350c3ac596dbe054f527e1"
               ],
@@ -3919,6 +4017,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "0f7cc6d5a7d36c9450aa95ade51d2803d74adbe6dd7bbe768c7b06106fb54130"
               ],
@@ -3928,6 +4027,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "724bfd5003f8f08e8bc8e6fdd8669253272c96088f4d088725018a8c24b58634"
               ],
@@ -4111,6 +4211,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "0f7cc6d5a7d36c9450aa95ade51d2803d74adbe6dd7bbe768c7b06106fb54130"
               ],
@@ -4120,6 +4221,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "724bfd5003f8f08e8bc8e6fdd8669253272c96088f4d088725018a8c24b58634"
               ],
@@ -4718,6 +4820,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
               ],
@@ -4727,6 +4830,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "dff9561e59178ff4f649b9637907111963578185b4a3936d5039251a45759f6e"
               ],
@@ -4867,6 +4971,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "7af38425a3e68fede08fe879b83a05d2fd06d111183f6fd0b529b3e19f296f0a"
               ],
@@ -4876,6 +4981,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "dff9561e59178ff4f649b9637907111963578185b4a3936d5039251a45759f6e"
               ],
@@ -5016,6 +5122,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
               ],
@@ -5025,6 +5132,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "7cb58722de99e28fcf23ee62c5530b4d72ca82f4fbcbfb39f5744998ce57fa4b"
               ],
@@ -5034,6 +5142,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "1e5035c8e226c176fcc1708c060830d339252854143d7857c227a782cc56bd36"
               ],
@@ -5193,6 +5302,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "fa5ffb56b01c880c98e6843dceefc1edc3e96231f24e28c05380e865ae4c30f4"
               ],
@@ -5202,6 +5312,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "7cb58722de99e28fcf23ee62c5530b4d72ca82f4fbcbfb39f5744998ce57fa4b"
               ],
@@ -5211,6 +5322,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "1e5035c8e226c176fcc1708c060830d339252854143d7857c227a782cc56bd36"
               ],
@@ -5354,6 +5466,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
               ],
@@ -5363,6 +5476,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "124c109c13ae11d88af1b7e24aeb228fafba04c02b32e6bb5b9ddd3d60b536c7"
               ],
@@ -5498,6 +5612,7 @@
         "primary_diagnosis": {
           "actual_pair_citations": [
             {
+              "availability": "available",
               "occurrence_ids": [
                 "570a597da85145d508e1c5eb2d1a20b302220250c196284ed94f3d2743d0b00a"
               ],
@@ -5507,6 +5622,7 @@
               ]
             },
             {
+              "availability": "available",
               "occurrence_ids": [
                 "124c109c13ae11d88af1b7e24aeb228fafba04c02b32e6bb5b9ddd3d60b536c7"
               ],

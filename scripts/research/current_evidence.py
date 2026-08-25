@@ -37,6 +37,7 @@ from ontolib.decomposition.sampling import (
 try:
     from scripts.research.golden_review import (
         AdjudicatedConcept,
+        AdjudicationArtifact,
         ConstituentRowDecision,
         EngineSuggestion,
         ExpectedPair,
@@ -49,6 +50,7 @@ try:
 except ModuleNotFoundError:  # direct `python scripts/adjudication.py` entry point
     from research.golden_review import (  # type: ignore[no-redef]
         AdjudicatedConcept,
+        AdjudicationArtifact,
         ConstituentRowDecision,
         EngineSuggestion,
         ExpectedPair,
@@ -229,9 +231,21 @@ class CurrentMetrics(_StrictModel):
     common_pair_partition_agreement: CurrentCommonPartitionMetric
 
 
-class ActualPairCitation(_StrictModel):
+class AvailableActualPairCitation(_StrictModel):
     pair: tuple[str, str]
+    availability: Literal["available"]
     occurrence_ids: tuple[str, ...] = Field(min_length=1)
+
+
+class UnavailableActualPairCitation(_StrictModel):
+    pair: tuple[str, str]
+    availability: Literal["unavailable-no-occurrence-evidence"]
+
+
+ActualPairCitation = Annotated[
+    AvailableActualPairCitation | UnavailableActualPairCitation,
+    Field(discriminator="availability"),
+]
 
 
 class HistoricalOraclePairCitation(_StrictModel):
@@ -247,6 +261,22 @@ class PartitionDiagnosisEvidence(_StrictModel):
     expected_pair_citations: tuple[HistoricalOraclePairCitation, ...] = Field(
         min_length=1
     )
+
+    @model_validator(mode="after")
+    def _citations_cover_affected_pairs_in_order(self) -> Self:
+        if (
+            tuple(item.pair for item in self.actual_pair_citations)
+            != self.affected_pairs
+        ):
+            raise ValueError("actual pair citations must cover affected pairs in order")
+        if (
+            tuple(item.pair for item in self.expected_pair_citations)
+            != self.affected_pairs
+        ):
+            raise ValueError(
+                "expected pair citations must cover affected pairs in order"
+            )
+        return self
 
 
 class CurrentPartitionComparison(_StrictModel):
@@ -741,10 +771,19 @@ def _typed_diagnosis(
         comparison.expected_partition,
         comparison.actual_partition,
     )
-    actual_citations = tuple(
-        ActualPairCitation(pair=pair, occurrence_ids=occurrence_ids)
+    actual_citations: tuple[ActualPairCitation, ...] = tuple(
+        AvailableActualPairCitation(
+            pair=pair,
+            availability="available",
+            occurrence_ids=occurrence_ids,
+        )
+        if occurrence_ids
+        else UnavailableActualPairCitation(
+            pair=pair,
+            availability="unavailable-no-occurrence-evidence",
+        )
         for pair in affected_pairs
-        if (occurrence_ids := _pair_occurrence_ids(pair, concept))
+        for occurrence_ids in (_pair_occurrence_ids(pair, concept),)
     )
     expected_citations = tuple(
         HistoricalOraclePairCitation(
@@ -843,6 +882,121 @@ def _canonical_bytes(model: BaseModel) -> bytes:
         )
         + "\n"
     ).encode()
+
+
+def _write_single_output(output: Path, payload: bytes) -> None:
+    descriptor, name = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, output)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def _build_current_comparison(
+    evidence: CurrentEngineEvidence,
+    adjudication: AdjudicationArtifact,
+    rows: RowDecisionExport,
+    registry: ProposalRegistry,
+) -> CurrentComparison:
+    adjudicated = adjudication.concepts
+    common = {
+        field: getattr(evidence, field)
+        for field in (
+            "schema_version",
+            "ncit_version",
+            "source_identity",
+            "sample_manifest_identity",
+            "run_id",
+            "run_fingerprint_identity",
+            "artifact_identity",
+            "representation_identity",
+            "detector_identity",
+            "oracle_identity",
+            "row_decision_identity",
+            "proposal_registry_identity",
+        )
+    }
+    metrics, reports = _comparison_payload(adjudicated, evidence)
+    row_replay = _row_replay(rows, adjudicated, registry, evidence.concepts)
+    comparison_payload = {
+        **common,
+        "current_evidence_identity": evidence.evidence_identity,
+        "metrics": metrics,
+        "concepts": reports,
+        "row_replay": row_replay,
+    }
+    comparison = CurrentComparison.model_validate(
+        {
+            **comparison_payload,
+            "comparison_identity": _identity(comparison_payload),
+        }
+    )
+    validate_current_comparison(evidence, comparison)
+    return comparison
+
+
+def regenerate_current_comparison(
+    *,
+    evidence_path: Path,
+    oracle_path: Path,
+    row_decisions_path: Path,
+    proposal_registry_path: Path,
+    output: Path,
+) -> CurrentComparison:
+    """Regenerate the derived comparison from source-bound tracked evidence."""
+    inputs = (
+        evidence_path,
+        oracle_path,
+        row_decisions_path,
+        proposal_registry_path,
+    )
+    for path in inputs:
+        if not path.exists():
+            raise CurrentEvidenceValidationError(f"input does not exist: {path}")
+    if not output.parent.exists():
+        raise CurrentEvidenceValidationError(
+            f"output parent does not exist: {output.parent}"
+        )
+    if output.resolve() in {path.resolve() for path in inputs}:
+        raise CurrentEvidenceValidationError(
+            "comparison output must differ from every input"
+        )
+    try:
+        evidence = CurrentEngineEvidence.model_validate_json(evidence_path.read_bytes())
+        registry = load_proposal_registry(proposal_registry_path)
+        adjudication = load_adjudication(oracle_path, registry)
+        rows = load_row_decisions(row_decisions_path)
+    except (ValueError, GoldenSetValidationError) as error:
+        raise CurrentEvidenceValidationError(str(error)) from error
+    checks = (
+        ("oracle", evidence.oracle_identity, adjudication.identity),
+        ("row decision", evidence.row_decision_identity, rows.payload_identity),
+        (
+            "proposal registry",
+            evidence.proposal_registry_identity,
+            registry.registry_identity,
+        ),
+    )
+    for name, actual, expected in checks:
+        if actual != expected:
+            raise CurrentEvidenceValidationError(
+                f"current evidence {name} does not match comparison input"
+            )
+    if tuple(item.code for item in evidence.concepts) != tuple(
+        item.code for item in adjudication.concepts
+    ):
+        raise CurrentEvidenceValidationError(
+            "current evidence cohort does not match immutable oracle"
+        )
+    comparison = _build_current_comparison(evidence, adjudication, rows, registry)
+    comparison_bytes = _canonical_bytes(comparison)
+    CurrentComparison.model_validate_json(comparison_bytes)
+    _write_single_output(output, comparison_bytes)
+    return comparison
 
 
 def _write_outputs(
@@ -1004,22 +1158,7 @@ async def generate_current_evidence(
     evidence = CurrentEngineEvidence.model_validate(
         {**evidence_payload, "evidence_identity": _identity(evidence_payload)}
     )
-    metrics, reports = _comparison_payload(adjudication.concepts, evidence)
-    row_replay = _row_replay(rows, adjudication.concepts, registry, evidence.concepts)
-    comparison_payload = {
-        **common,
-        "current_evidence_identity": evidence.evidence_identity,
-        "metrics": metrics,
-        "concepts": reports,
-        "row_replay": row_replay,
-    }
-    comparison = CurrentComparison.model_validate(
-        {
-            **comparison_payload,
-            "comparison_identity": _identity(comparison_payload),
-        }
-    )
-    validate_current_comparison(evidence, comparison)
+    comparison = _build_current_comparison(evidence, adjudication, rows, registry)
     engine_bytes = _canonical_bytes(evidence)
     comparison_bytes = _canonical_bytes(comparison)
     CurrentEngineEvidence.model_validate_json(engine_bytes)
