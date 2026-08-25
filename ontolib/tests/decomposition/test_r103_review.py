@@ -238,6 +238,31 @@ def test_packet_has_exact_source_derived_inventory_and_complete_evidence(
 
 
 @pytest.mark.unit
+def test_packet_refuses_inventory_restriction_repeated_at_two_member_positions(
+    source_boundary,
+) -> None:
+    owl, manifest, proposals, _oracle = source_boundary
+    restriction = (
+        "<owl:Restriction>"
+        f'<owl:onProperty rdf:resource="{NCIT}R103"/>'
+        f'<owl:someValuesFrom rdf:resource="{NCIT}C12950"/>'
+        "</owl:Restriction>"
+    )
+    source = owl.read_text(encoding="utf-8")
+    assert source.count(restriction) == 2
+    owl.write_text(source.replace(restriction, restriction * 2, 1), encoding="utf-8")
+    manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+    manifest_payload["stated_artifact"].update(
+        sha256=hashlib.sha256(owl.read_bytes()).hexdigest(),
+        size_bytes=owl.stat().st_size,
+    )
+    manifest.write_text(json.dumps(manifest_payload, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(R103ReviewValidationError, match="must occur exactly once"):
+        build_r103_review_packet(owl, manifest, proposals)
+
+
+@pytest.mark.unit
 def test_current_state_marks_c102870_unsupported_r103_for_review() -> None:
     assert r103_review._current_state("C102870", "R103", "C54105") == (
         "review-required"
