@@ -296,6 +296,198 @@ def test_packet_regeneration_is_deterministic_and_source_bound(
         build_r103_review_packet(owl, manifest, proposals)
 
 
+def _rebind_manifest_to_owl(owl: Path, manifest: Path) -> None:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["stated_artifact"].update(
+        sha256=hashlib.sha256(owl.read_bytes()).hexdigest(),
+        size_bytes=owl.stat().st_size,
+    )
+    manifest.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing-definition", "missing source definitions"),
+        ("incomplete-definition", "lacks a complete definition"),
+        ("multiple-intersections", "multiple definition intersections"),
+        ("empty-intersection", "empty definition"),
+        ("duplicate-definition", "duplicate source class"),
+        ("unsupported-member", "unsupported definition member"),
+        ("malformed-restriction", "malformed restriction"),
+        ("foreign-genus", "genus is not an NCIt IRI"),
+        ("malformed-role", "role is malformed"),
+        ("missing-label", "lacks one exact label"),
+        ("missing-p97", "lacks one exact P97 definition"),
+        ("multiple-p97", "multiple P97 definitions"),
+        ("duplicate-text", "duplicate source entity"),
+    ],
+)
+def test_packet_fails_closed_for_malformed_source_owl(
+    source_boundary, mutation: str, message: str
+) -> None:
+    owl, manifest, proposals, _oracle = source_boundary
+    source = owl.read_text(encoding="utf-8")
+    subject = _class(
+        "C2860",
+        "Adrenal Rest Tumor",
+        "Adrenal-rest definition",
+        (
+            ("genus", "C7617"),
+            ("restriction", "R101", "C12841"),
+            ("restriction", "R103", "C12950"),
+        ),
+    )
+    equivalent = subject[
+        subject.index("<owl:equivalentClass>") : subject.index("<P97>")
+    ]
+    empty_equivalent = (
+        "<owl:equivalentClass><owl:Class>"
+        '<owl:intersectionOf rdf:parseType="Collection">'
+        "</owl:intersectionOf></owl:Class></owl:equivalentClass>"
+    )
+    transforms = {
+        "missing-definition": lambda value: value.replace(
+            f'rdf:about="{NCIT}C2860"', f'rdf:about="{NCIT}C999999"', 1
+        ),
+        "incomplete-definition": lambda value: value.replace(
+            subject,
+            _class("C2860", "Adrenal Rest Tumor", "Adrenal-rest definition"),
+            1,
+        ),
+        "multiple-intersections": lambda value: value.replace(
+            equivalent, equivalent * 2, 1
+        ),
+        "empty-intersection": lambda value: value.replace(
+            equivalent, empty_equivalent, 1
+        ),
+        "duplicate-definition": lambda value: value.replace(
+            "</rdf:RDF>", subject + "</rdf:RDF>", 1
+        ),
+        "unsupported-member": lambda value: value.replace(
+            f'<rdf:Description rdf:about="{NCIT}C7617"/>', "<owl:Class/>", 1
+        ),
+        "malformed-restriction": lambda value: value.replace(
+            f'<owl:onProperty rdf:resource="{NCIT}R101"/>', "", 1
+        ),
+        "foreign-genus": lambda value: value.replace(
+            f'<rdf:Description rdf:about="{NCIT}C7617"/>',
+            '<rdf:Description rdf:about="https://example.org/C7617"/>',
+            1,
+        ),
+        "malformed-role": lambda value: value.replace(
+            f'<owl:onProperty rdf:resource="{NCIT}R101"/>',
+            f'<owl:onProperty rdf:resource="{NCIT}C101"/>',
+            1,
+        ),
+        "missing-label": lambda value: value.replace(
+            "<rdfs:label>Label C7617</rdfs:label>", "<rdfs:label> </rdfs:label>", 1
+        ),
+        "missing-p97": lambda value: value.replace(
+            "<P97>Adrenal-rest definition</P97>", "<P97> </P97>", 1
+        ),
+        "multiple-p97": lambda value: value.replace(
+            "<P97>Definition C7617</P97>",
+            "<P97>Definition C7617</P97><P97>second</P97>",
+            1,
+        ),
+        "duplicate-text": lambda value: value.replace(
+            "</rdf:RDF>",
+            _class("C7617", "Duplicate C7617", "Duplicate definition") + "</rdf:RDF>",
+            1,
+        ),
+    }
+    mutated = transforms[mutation](source)
+    assert mutated != source
+    owl.write_text(mutated, encoding="utf-8")
+    _rebind_manifest_to_owl(owl, manifest)
+
+    with pytest.raises(R103ReviewValidationError, match=message):
+        build_r103_review_packet(owl, manifest, proposals)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("invalid-json", "invalid JSON evidence"),
+        ("duplicate-key", "duplicate JSON key"),
+        ("non-object", "candidate manifest must be an object"),
+        ("missing-artifact", "lacks stated artifact"),
+        ("wrong-release", "source release"),
+        ("invalid-identity", "source identity is invalid"),
+    ],
+)
+def test_packet_fails_closed_for_malformed_candidate_manifest(
+    source_boundary, mutation: str, message: str
+) -> None:
+    owl, manifest, proposals, _oracle = source_boundary
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    if mutation == "invalid-json":
+        rendered = "{"
+    elif mutation == "duplicate-key":
+        rendered = '{"ontology_version":"26.07d","ontology_version":"26.07d"}'
+    elif mutation == "non-object":
+        rendered = "[]"
+    else:
+        if mutation == "missing-artifact":
+            payload.pop("stated_artifact")
+        elif mutation == "wrong-release":
+            payload["ontology_version"] = "26.08d"
+        elif mutation == "invalid-identity":
+            payload["source_identity"] = "not-a-sha256"
+        rendered = json.dumps(payload, sort_keys=True)
+    manifest.write_text(rendered, encoding="utf-8")
+
+    with pytest.raises(R103ReviewValidationError, match=message):
+        build_r103_review_packet(owl, manifest, proposals)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("member-position", "member position"),
+        ("anchor", "anchor must equal subject"),
+        ("row-identity", "row identity differs"),
+        ("inventory", "exact ordered assertion inventory"),
+        ("query-contract", "query contract identity differs"),
+        ("tool-identity", "tool identity differs"),
+    ],
+)
+def test_packet_loader_revalidates_nested_and_packet_identities(
+    packet, tmp_path: Path, mutation: str, message: str
+) -> None:
+    payload = packet.model_dump(mode="json")
+    first = payload["rows"][0]
+    if mutation == "member-position":
+        first["member_position"] += 1
+    elif mutation == "anchor":
+        first["anchor_code"] = "C999999"
+    elif mutation == "row-identity":
+        first["row_identity"] = "0" * 64
+    elif mutation == "inventory":
+        first["subject_code"] = "C999999"
+        first["anchor_code"] = "C999999"
+        first["row_identity"] = r103_review._identity(
+            {key: value for key, value in first.items() if key != "row_identity"}
+        )
+    elif mutation == "query-contract":
+        payload["query_contract_identity"] = "0" * 64
+    elif mutation == "tool-identity":
+        payload["tool_identity"] = "0" * 64
+    if mutation in {"inventory", "query-contract", "tool-identity"}:
+        payload["packet_identity"] = r103_review._identity(
+            {key: value for key, value in payload.items() if key != "packet_identity"}
+        )
+    path = tmp_path / f"{mutation}.json"
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(R103ReviewValidationError, match=message):
+        load_r103_review_packet(path)
+
+
 @pytest.mark.unit
 def test_workbook_has_only_three_rows_four_blank_human_fields_and_no_decision_language(
     packet, tmp_path: Path
