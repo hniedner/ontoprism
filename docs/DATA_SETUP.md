@@ -110,11 +110,13 @@ is the typed API (D44).
 
 ### Experimental local Podman runtime
 
-The Compose files also run unchanged against the Docker-compatible API of an existing
-rootless Podman machine named `ontoprism-vm`. Machine creation and package installation
-remain manual setup. The supported PoC path requires the Homebrew Docker CLI and pins
-Docker Compose v2 at `/opt/homebrew/bin/docker-compose`; Python `podman-compose` is not
-used or required.
+The experimental PoC exercises OntoPrism against the Docker-compatible API of an
+existing rootless Podman machine named `ontoprism-vm`; it is not a supported production
+runtime. Machine creation and package installation remain manual setup. The data-service
+`docker-compose.yml` is used unchanged. The application check combines the unchanged data
+and app Compose files with a generated, temporary Podman override. The fixed wrappers pin
+the Homebrew Docker, Podman, Docker Compose v2, and PDM paths; Python `podman-compose` is
+not used or required.
 
 Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine socket and
 `PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
@@ -123,16 +125,31 @@ Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine so
 pdm run agent-replay check-podman-api
 pdm run agent-replay podman-compose-up
 pdm run agent-replay podman-compose-check
+pdm run agent-replay podman-health-reject
 pdm run agent-replay podman-test-full-store
 pdm run agent-replay podman-verify
 pdm run agent-replay podman-compose-down
+pdm run agent-replay podman-app-smoke
 ```
 
-`podman-compose-down` verifies exact Compose ownership before cleanup and deliberately
-does not pass `-v`, so the `ontoprism-podman-poc_ontoprism_pg_data` named volume is
-retained. QLever continues to use the repository's existing bind-mounted indexes. Do
-not run Colima and Podman stacks concurrently because both publish the same loopback
-ports. GitHub CI remains on Docker; this local runtime selection does not change CI.
+`podman-compose-check` validates the exact three-service inventory, health, owner labels,
+loopback bindings, service DNS, exact PostgreSQL named-volume identity, and resolved
+QLever bind paths. `podman-health-reject` proves Compose rejects an unhealthy service.
+`podman-compose-down` accepts a partial owned stack, refuses any present wrong-owner
+resource, performs project-scoped cleanup without `-v`, and then inspects the exact
+`ontoprism-podman-poc_ontoprism_pg_data` identity and owner labels to prove the populated
+volume still exists. QLever continues to use the repository's existing bind-mounted
+indexes.
+
+Run `podman-app-smoke` only after `podman-compose-down`. It preflights 5433, 7888, 7889,
+and 8080, refuses existing primary-stack containers, verifies the retained volume's exact
+ownership before mounting it, and checks Caddy root, the C3262 BFF response, and internal
+service DNS. The wrapper always scopes Compose cleanup and removes generated override and
+temporary data directories. A failed operation remains the primary reported failure;
+cleanup failures are reported in addition rather than replacing it. Do not run Colima and
+Podman stacks concurrently because they publish the same loopback ports, and never mount
+the PostgreSQL volume from two stacks concurrently. GitHub CI remains on Docker; this
+experimental local runtime selection does not change CI.
 
 The M1 26.07d review uses a separately certified stated-source store on `:7890`; it does
 not replace the application store on `:7888`. Run the combined read-only corpus contracts

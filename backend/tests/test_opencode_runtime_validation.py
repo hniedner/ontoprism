@@ -301,6 +301,23 @@ def test_expected_orchestrator_task_rules_are_exact_agent_name_patterns() -> Non
     assert not allowed & RESERVES
 
 
+@pytest.mark.parametrize("dangerous", ["--admin", "--auto", "--queue", "--bypass"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr merge 123 {dangerous} --squash --delete-branch --subject fix:example",
+        "gh pr merge 123 --squash {dangerous} --delete-branch --subject fix:example",
+        "gh pr merge 123 --squash --delete-branch --subject fix:{dangerous}-example",
+    ],
+)
+def test_orchestrator_denies_dangerous_merge_options_anywhere(
+    dangerous: str, command: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")
+
+    assert effective_action(rules, command.format(dangerous=dangerous)) == "deny"
+
+
 @pytest.mark.parametrize(
     ("role", "existing_allow"),
     [

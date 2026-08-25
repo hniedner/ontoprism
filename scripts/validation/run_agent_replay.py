@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run declared source-bound M1.6 replay and diagnostic commands without a shell."""
+"""Run fixed operations, including mutating local container/tmp operations.
+
+Operations return zero on success and raise ``AgentReplayInputError`` on refusal or
+failure. Cleanup failures are attached without replacing an earlier operation failure.
+"""
 
 from __future__ import annotations
 
@@ -11,11 +15,16 @@ import shutil
 import socket
 import subprocess
 import sys
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import yaml
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _RUN_ID = re.compile(
     r"neoplasm-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -29,14 +38,25 @@ _MAX_DIAGNOSTIC_CHARS = 8_192
 _POC_DIR = Path("tmp/podman-poc")
 _PODMAN_PROJECT = "ontoprism-podman-poc"
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
+_PODMAN_MACHINE = "ontoprism-vm"
+_PODMAN = "/opt/homebrew/bin/podman"
+_DOCKER = "/opt/homebrew/bin/docker"
+_DOCKER_COMPOSE = "/opt/homebrew/bin/docker-compose"
+_PDM = "/opt/homebrew/bin/pdm"
+_COMPOSE_SERVICES = ("postgres", "qlever-ncit", "qlever-uberon")
+_DATA_PORTS = (5433, 7888, 7889)
+_APP_PORTS = (*_DATA_PORTS, 8080)
 _POSTGRES_IMAGE = (
     "pgvector/pgvector@sha256:"
     "a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da"
 )
 _SECRET_VALUE = re.compile(
-    r"(?i)\b(password|passwd|token|secret|api[_-]?key)(\s*[:=]\s*)([^\s,;]+)"
+    r"(?i)(\b[A-Z0-9_-]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API[_-]?KEY)"
+    r"\s*[:=]\s*)([^\s,;\"']+)"
 )
-_URL_CREDENTIALS = re.compile(r"(https?://[^\s:/]+:)[^@\s]+(@)")
+_URL_CREDENTIALS = re.compile(
+    r"((?:https?|postgresql(?:\+asyncpg)?)://[^\s:/]+:)[^@\s]+(@)", re.I
+)
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _COLIMA_CONFIG_FIELDS = (
     "portForwarder",
@@ -166,19 +186,25 @@ class AgentReplayInputError(ValueError):
     """The requested operation is outside the fixed replay contract."""
 
 
-class CommandResult(Protocol):
+class CapturedCommandResult(Protocol):
     returncode: int
-
-
-class CapturedCommandResult(CommandResult, Protocol):
-    stdout: str | bytes | None
-    stderr: str | bytes | None
+    stdout: str
+    stderr: str
 
 
 class CommandRunner(Protocol):
     def __call__(
-        self, arguments: list[str], **kwargs: object
-    ) -> CommandResult | CapturedCommandResult: ...
+        self,
+        arguments: list[str],
+        *,
+        cwd: Path,
+        shell: Literal[False],
+        check: Literal[False],
+        timeout: float | None,
+        capture_output: bool,
+        text: Literal[True],
+        env: dict[str, str] | None = None,
+    ) -> CapturedCommandResult: ...
 
 
 class Operation(Protocol):
@@ -224,10 +250,26 @@ _UniqueKeySafeLoader.add_constructor(
 )
 
 
-def _subprocess_runner(arguments: list[str], **kwargs: object) -> CommandResult:
-    return subprocess.run(  # noqa: S603, PLW1510
+def _subprocess_runner(
+    arguments: list[str],
+    *,
+    cwd: Path,
+    shell: Literal[False],
+    check: Literal[False],
+    timeout: float | None,
+    capture_output: bool,
+    text: Literal[True],
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603
         arguments,
-        **kwargs,  # type: ignore[arg-type,return-value]
+        cwd=cwd,
+        shell=shell,
+        check=check,
+        timeout=timeout,
+        capture_output=capture_output,
+        text=text,
+        env=env,
     )
 
 
@@ -249,22 +291,45 @@ def _run(command: list[str], root: Path, runner: CommandRunner) -> int:
         shell=False,
         check=False,
         timeout=None,
+        capture_output=False,
+        text=True,
     )
     return result.returncode
 
 
-def _bounded_sanitized(value: object) -> str:
-    if value is None:
-        return ""
-    text = value.decode(errors="replace") if isinstance(value, bytes) else str(value)
-    text = _ANSI_ESCAPE.sub("", text).replace("\x00", "")
-    text = _SECRET_VALUE.sub(r"\1\2[REDACTED]", text)
-    text = _URL_CREDENTIALS.sub(r"\1[REDACTED]\2", text)
-    if len(text) <= _MAX_DIAGNOSTIC_CHARS:
+def _redact_structural_environment(text: str) -> str:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
         return text
-    omitted = len(text) - _MAX_DIAGNOSTIC_CHARS
-    retained_head = _MAX_DIAGNOSTIC_CHARS // 2
-    retained_tail = _MAX_DIAGNOSTIC_CHARS - retained_head
+
+    def redact(value: object, *, key: str | None = None) -> object:
+        if isinstance(value, dict):
+            return {str(k): redact(v, key=str(k)) for k, v in value.items()}
+        if isinstance(value, list):
+            if key == "Env":
+                return [
+                    _SECRET_VALUE.sub(r"\1[REDACTED]", item)
+                    if isinstance(item, str)
+                    else redact(item)
+                    for item in value
+                ]
+            return [redact(item) for item in value]
+        return value
+
+    return json.dumps(redact(payload), separators=(",", ":"))
+
+
+def _bounded_sanitized(value: str, *, limit: int | None = _MAX_DIAGNOSTIC_CHARS) -> str:
+    text = _redact_structural_environment(value)
+    text = _ANSI_ESCAPE.sub("", text).replace("\x00", "")
+    text = _SECRET_VALUE.sub(r"\1[REDACTED]", text)
+    text = _URL_CREDENTIALS.sub(r"\1[REDACTED]\2", text)
+    if limit is None or len(text) <= limit:
+        return text
+    omitted = len(text) - limit
+    retained_head = limit // 2
+    retained_tail = limit - retained_head
     return (
         f"{text[:retained_head]}\n[TRUNCATED {omitted} CHARS]\n{text[-retained_tail:]}"
     )
@@ -285,12 +350,11 @@ def _collect_diagnostic_command(
             text=True,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"collection-error: {_bounded_sanitized(exc)}")
+        print(f"collection-error: {_bounded_sanitized(str(exc))}")
         return False
     print(f"exit-code: {result.returncode}")
-    captured = cast("CapturedCommandResult", result)
-    stdout = _bounded_sanitized(captured.stdout)
-    stderr = _bounded_sanitized(captured.stderr)
+    stdout = _bounded_sanitized(result.stdout)
+    stderr = _bounded_sanitized(result.stderr)
     if stdout:
         print("stdout:")
         print(stdout)
@@ -732,7 +796,7 @@ def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int
         ["podman", "version", "--format", "json"],
         ["podman", "info", "--format", "json"],
         ["podman", "machine", "list", "--format", "json"],
-        ["podman", "machine", "inspect", "ontoprism-vm"],
+        ["podman", "machine", "inspect", _PODMAN_MACHINE],
         ["podman", "system", "connection", "list", "--format", "json"],
         ["/usr/bin/which", "docker"],
         ["/usr/bin/which", "docker-compose"],
@@ -752,40 +816,45 @@ def _capture_required(
     *,
     environment: dict[str, str] | None = None,
     timeout: int = _DIAGNOSTIC_TIMEOUT_SECONDS,
+    display_limit: int | None = _MAX_DIAGNOSTIC_CHARS,
 ) -> str:
-    options: dict[str, object] = {
-        "cwd": root,
-        "shell": False,
-        "check": False,
-        "timeout": timeout,
-        "capture_output": True,
-        "text": True,
-    }
-    if environment is not None:
-        options["env"] = environment
     try:
-        result = runner(command, **options)
+        result = runner(
+            command,
+            cwd=root,
+            shell=False,
+            check=False,
+            timeout=timeout,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise AgentReplayInputError("required Podman command failed closed") from exc
-    captured = cast("CapturedCommandResult", result)
-    if result.returncode != 0:
-        detail = _bounded_sanitized(captured.stderr or captured.stdout)
-        raise AgentReplayInputError(f"required Podman command failed: {detail}")
-    raw_output = captured.stdout
-    output = (
-        raw_output.decode(errors="replace")
-        if isinstance(raw_output, bytes)
-        else str(raw_output or "")
+    raw_stdout = result.stdout
+    raw_stderr = result.stderr
+    displayed_stdout = _bounded_sanitized(raw_stdout, limit=display_limit)
+    displayed_stderr = _bounded_sanitized(raw_stderr, limit=display_limit)
+    labelled = "\n".join(
+        line
+        for line in (
+            f"stdout: {displayed_stdout}" if displayed_stdout else "",
+            f"stderr: {displayed_stderr}" if displayed_stderr else "",
+        )
+        if line
     )
-    sanitized = _bounded_sanitized(output)
-    if sanitized:
-        print(sanitized)
-    return output
+    if result.returncode != 0:
+        raise AgentReplayInputError(
+            f"required Podman command failed{f': {labelled}' if labelled else ''}"
+        )
+    if labelled:
+        print(labelled)
+    return raw_stdout
 
 
 def _podman_socket(root: Path, runner: CommandRunner) -> Path:
     output = _capture_required(
-        ["podman", "machine", "inspect", "ontoprism-vm"], root, runner
+        ["podman", "machine", "inspect", _PODMAN_MACHINE], root, runner
     )
     try:
         payload = json.loads(output)
@@ -795,7 +864,7 @@ def _podman_socket(root: Path, runner: CommandRunner) -> Path:
         raise AgentReplayInputError("invalid Podman machine contract") from exc
     if (
         len(payload) != 1
-        or machine.get("Name") != "ontoprism-vm"
+        or machine.get("Name") != _PODMAN_MACHINE
         or machine.get("State") != "running"
         or machine.get("Rootful") is not False
         or not socket_path.is_absolute()
@@ -810,15 +879,12 @@ def _check_podman_api(values: list[str], root: Path, runner: CommandRunner) -> i
     if values:
         raise AgentReplayInputError("check-podman-api accepts no arguments")
     socket_path = _podman_socket(root, runner)
-    environment = {
-        "DOCKER_HOST": f"unix://{socket_path}",
-        "PODMAN_COMPOSE_PROVIDER": "/opt/homebrew/bin/docker-compose",
-    }
+    environment = _podman_environment(root, socket_path)
     commands = (
-        ["/opt/homebrew/bin/docker", "version"],
-        ["/opt/homebrew/bin/docker", "info", "--format", "{{json .}}"],
-        ["/opt/homebrew/bin/docker-compose", "version"],
-        ["/opt/homebrew/bin/podman", "compose", "version"],
+        [_DOCKER, "version"],
+        [_DOCKER, "info", "--format", "{{json .}}"],
+        [_DOCKER_COMPOSE, "version"],
+        [_PODMAN, "compose", "version"],
     )
     for command in commands:
         _capture_required(command, root, runner, environment=environment)
@@ -841,7 +907,7 @@ def _podman_environment(root: Path, socket_path: Path) -> dict[str, str]:
                 f"{f':{inherited_path}' if inherited_path else ''}"
             ),
             "DOCKER_HOST": f"unix://{socket_path}",
-            "PODMAN_COMPOSE_PROVIDER": "/opt/homebrew/bin/docker-compose",
+            "PODMAN_COMPOSE_PROVIDER": _DOCKER_COMPOSE,
         }
     )
     return environment
@@ -853,17 +919,18 @@ def _podman_gate(
     runner: CommandRunner,
     *,
     operation: str,
-    script: str,
+    script: Literal["test-integration", "test-integration-full-store", "verify"],
 ) -> int:
     if values:
         raise AgentReplayInputError(f"{operation} accepts no arguments")
     socket_path = _podman_socket(root, runner)
     _capture_required(
-        ["/opt/homebrew/bin/pdm", "run", script],
+        [_PDM, "run", script],
         root,
         runner,
         environment=_podman_environment(root, socket_path),
         timeout=_GATE_TIMEOUT_SECONDS,
+        display_limit=None,
     )
     return 0
 
@@ -902,38 +969,55 @@ def _podman_verify(values: list[str], root: Path, runner: CommandRunner) -> int:
     )
 
 
-def _fixed_ports_are_free() -> bool:
-    sockets: list[socket.socket] = []
+@contextmanager
+def _reserved_fixed_ports(ports: tuple[int, ...]) -> Iterator[None]:
+    listeners: list[socket.socket] = []
     try:
-        for port in (5433, 7888, 7889):
+        for port in ports:
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sockets.append(listener)
-            listener.bind(("127.0.0.1", port))
-        return True
-    except OSError:
-        return False
+            listeners.append(listener)
+            try:
+                listener.bind(("127.0.0.1", port))
+            except OSError as exc:
+                message = exc.strerror or str(exc)
+                raise AgentReplayInputError(
+                    f"fixed port {port} is unavailable: errno {exc.errno}: {message}"
+                ) from exc
+        yield None
     finally:
-        for listener in sockets:
+        for listener in listeners:
             listener.close()
+
+
+def _fixed_ports_are_free() -> bool:
+    """Probe every fixed data port and report the first failed bind precisely."""
+    with _reserved_fixed_ports(_DATA_PORTS):
+        return True
+
+
+def _compose_command(compose_file: str) -> list[str]:
+    return [
+        _DOCKER_COMPOSE,
+        "--project-name",
+        _PODMAN_PROJECT,
+        "--file",
+        compose_file,
+    ]
+
+
+def _add_cleanup_note(primary: BaseException, cleanup: AgentReplayInputError) -> None:
+    primary.add_note(f"cleanup failure: {cleanup}")
 
 
 def _podman_compose_up(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("podman-compose-up accepts no arguments")
     if not _fixed_ports_are_free():
-        raise AgentReplayInputError(
-            "fixed ports are occupied; Colima must remain untouched"
-        )
+        raise AgentReplayInputError("fixed ports are occupied")
     compose_file = _require_files(root, ("docker-compose.yml",))[0]
     socket_path = _podman_socket(root, runner)
     environment = _podman_environment(root, socket_path)
-    compose = [
-        "/opt/homebrew/bin/docker-compose",
-        "--project-name",
-        "ontoprism-podman-poc",
-        "--file",
-        compose_file,
-    ]
+    compose = _compose_command(compose_file)
     _capture_required(
         [*compose, "config"],
         root,
@@ -942,6 +1026,8 @@ def _podman_compose_up(values: list[str], root: Path, runner: CommandRunner) -> 
         timeout=_COMPOSE_TIMEOUT_SECONDS,
     )
     try:
+        if not _fixed_ports_are_free():
+            raise AgentReplayInputError("fixed ports are occupied")
         _capture_required(
             [*compose, "up", "--detach", "--wait"],
             root,
@@ -949,61 +1035,103 @@ def _podman_compose_up(values: list[str], root: Path, runner: CommandRunner) -> 
             environment=environment,
             timeout=_COMPOSE_TIMEOUT_SECONDS,
         )
-    except AgentReplayInputError:
-        _capture_required(
-            [*compose, "down"],
-            root,
-            runner,
-            environment=environment,
-            timeout=_COMPOSE_TIMEOUT_SECONDS,
-        )
-        raise
+    except AgentReplayInputError as primary:
+        try:
+            _capture_required(
+                [*compose, "down"],
+                root,
+                runner,
+                environment=environment,
+                timeout=_COMPOSE_TIMEOUT_SECONDS,
+            )
+        except AgentReplayInputError as cleanup:
+            _add_cleanup_note(primary, cleanup)
+        raise primary
     return 0
 
 
+@dataclass(frozen=True)
+class NamedVolume:
+    name: str
+
+
+@dataclass(frozen=True)
+class BindPath:
+    relative: Path
+
+
+@dataclass(frozen=True)
+class ServiceExpectation:
+    destination: str
+    target_port: str
+    host_port: str
+    source: NamedVolume | BindPath
+
+
+_SERVICE_EXPECTATIONS: dict[str, ServiceExpectation] = {
+    "postgres": ServiceExpectation(
+        "/var/lib/postgresql/data", "5432/tcp", "5433", NamedVolume(_PODMAN_VOLUME)
+    ),
+    "qlever-ncit": ServiceExpectation(
+        "/data", "7001/tcp", "7888", BindPath(Path("data/qlever-ncit"))
+    ),
+    "qlever-uberon": ServiceExpectation(
+        "/data", "7001/tcp", "7889", BindPath(Path("data/qlever-uberon"))
+    ),
+}
+
+
+def _mount_source_is_valid(
+    mount: dict[str, object], expectation: ServiceExpectation, root: Path
+) -> bool:
+    if isinstance(expectation.source, NamedVolume):
+        return (
+            mount.get("Type") == "volume"
+            and mount.get("Name") == expectation.source.name
+        )
+    mount_source = mount.get("Source")
+    return (
+        mount.get("Type") == "bind"
+        and isinstance(mount_source, str)
+        and Path(mount_source).resolve()
+        == (root / expectation.source.relative).resolve()
+    )
+
+
 def _validate_compose_resource(output: str, *, root: Path, service: str) -> None:
-    expected = {
-        "postgres": ("/var/lib/postgresql/data", "5432/tcp", "5433"),
-        "qlever-ncit": ("/data", "7001/tcp", "7888"),
-        "qlever-uberon": ("/data", "7001/tcp", "7889"),
-    }
-    destination, target_port, host_port = expected[service]
+    expectation = _SERVICE_EXPECTATIONS[service]
     try:
         resource = json.loads(output)[0]
         labels = resource["Config"]["Labels"]
         health = resource["State"]["Health"]["Status"]
         mounts = resource["Mounts"]
-        bindings = resource["NetworkSettings"]["Ports"][target_port]
+        bindings = resource["NetworkSettings"]["Ports"][expectation.target_port]
         identifier = resource["Id"]
     except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise AgentReplayInputError("invalid compose resource contract") from exc
+    if not isinstance(labels, dict):
+        raise AgentReplayInputError(f"{service} owner labels predicate failed")
     matching_mounts = [
-        mount for mount in mounts if mount.get("Destination") == destination
+        mount for mount in mounts if mount.get("Destination") == expectation.destination
     ]
-    mount_source = (
-        matching_mounts[0].get("Source") if len(matching_mounts) == 1 else None
-    )
-    expected_source = root / f"data/{service}"
-    valid_source = isinstance(mount_source, str) and (
-        (
-            service == "postgres"
-            and "ontoprism-podman-poc_ontoprism_pg_data" in mount_source
-        )
-        or (
-            service != "postgres"
-            and Path(mount_source).resolve() == expected_source.resolve()
-        )
-    )
+    if len(matching_mounts) != 1:
+        raise AgentReplayInputError(f"{service} mount cardinality failed")
+    mount = matching_mounts[0]
+    if not _mount_source_is_valid(mount, expectation, root):
+        raise AgentReplayInputError(f"{service} mount source failed")
     if (
         not isinstance(identifier, str)
         or re.fullmatch(r"[0-9a-f]{64}", identifier) is None
-        or labels.get("com.docker.compose.project") != "ontoprism-podman-poc"
-        or labels.get("com.docker.compose.service") != service
-        or health != "healthy"
-        or not valid_source
-        or bindings != [{"HostIp": "127.0.0.1", "HostPort": host_port}]
     ):
-        raise AgentReplayInputError("invalid compose resource contract")
+        raise AgentReplayInputError(f"{service} identity predicate failed")
+    if labels.get("com.docker.compose.project") != _PODMAN_PROJECT:
+        raise AgentReplayInputError(f"{service} project owner predicate failed")
+    if labels.get("com.docker.compose.service") != service:
+        raise AgentReplayInputError(f"{service} service label predicate failed")
+    if health != "healthy":
+        raise AgentReplayInputError(f"{service} health predicate failed")
+    if bindings != [{"HostIp": "127.0.0.1", "HostPort": expectation.host_port}]:
+        raise AgentReplayInputError(f"{service} port binding predicate failed")
 
 
 def _podman_compose_check(values: list[str], root: Path, runner: CommandRunner) -> int:
@@ -1011,9 +1139,27 @@ def _podman_compose_check(values: list[str], root: Path, runner: CommandRunner) 
         raise AgentReplayInputError("podman-compose-check accepts no arguments")
     socket_path = _podman_socket(root, runner)
     environment = _podman_environment(root, socket_path)
-    for service in ("postgres", "qlever-ncit", "qlever-uberon"):
+    inventory = _capture_required(
+        [
+            _DOCKER,
+            "ps",
+            "--all",
+            "--filter",
+            f"label=com.docker.compose.project={_PODMAN_PROJECT}",
+            "--format",
+            '{{.Label "com.docker.compose.service"}}',
+        ],
+        root,
+        runner,
+        environment=environment,
+    ).splitlines()
+    if len(inventory) != len(_COMPOSE_SERVICES) or set(inventory) != set(
+        _COMPOSE_SERVICES
+    ):
+        raise AgentReplayInputError("service inventory predicate failed")
+    for service in _COMPOSE_SERVICES:
         output = _capture_required(
-            ["/opt/homebrew/bin/docker", "inspect", f"ontoprism-{service}"],
+            [_DOCKER, "inspect", f"ontoprism-{service}"],
             root,
             runner,
             environment=environment,
@@ -1021,7 +1167,7 @@ def _podman_compose_check(values: list[str], root: Path, runner: CommandRunner) 
         _validate_compose_resource(output, root=root, service=service)
     _capture_required(
         [
-            "/opt/homebrew/bin/docker",
+            _DOCKER,
             "exec",
             "ontoprism-postgres",
             "getent",
@@ -1042,13 +1188,18 @@ def _podman_compose_down(values: list[str], root: Path, runner: CommandRunner) -
     compose_file = _require_files(root, ("docker-compose.yml",))[0]
     socket_path = _podman_socket(root, runner)
     environment = _podman_environment(root, socket_path)
-    for service in ("postgres", "qlever-ncit", "qlever-uberon"):
-        output = _capture_required(
-            ["/opt/homebrew/bin/docker", "inspect", f"ontoprism-{service}"],
-            root,
-            runner,
-            environment=environment,
-        )
+    for service in _COMPOSE_SERVICES:
+        try:
+            output = _capture_required(
+                [_DOCKER, "inspect", f"ontoprism-{service}"],
+                root,
+                runner,
+                environment=environment,
+            )
+        except AgentReplayInputError as exc:
+            if "no such object" in str(exc).lower():
+                continue
+            raise
         try:
             resource = json.loads(output)[0]
             labels = resource["Config"]["Labels"]
@@ -1058,17 +1209,13 @@ def _podman_compose_down(values: list[str], root: Path, runner: CommandRunner) -
         if (
             not isinstance(identifier, str)
             or re.fullmatch(r"[0-9a-f]{64}", identifier) is None
-            or labels.get("com.docker.compose.project") != "ontoprism-podman-poc"
+            or labels.get("com.docker.compose.project") != _PODMAN_PROJECT
             or labels.get("com.docker.compose.service") != service
         ):
             raise AgentReplayInputError("invalid cleanup ownership contract")
     _capture_required(
         [
-            "/opt/homebrew/bin/docker-compose",
-            "--project-name",
-            "ontoprism-podman-poc",
-            "--file",
-            compose_file,
+            *_compose_command(compose_file),
             "down",
         ],
         root,
@@ -1076,12 +1223,69 @@ def _podman_compose_down(values: list[str], root: Path, runner: CommandRunner) -
         environment=environment,
         timeout=_COMPOSE_TIMEOUT_SECONDS,
     )
+    volume_output = _capture_required(
+        [_DOCKER, "volume", "inspect", _PODMAN_VOLUME],
+        root,
+        runner,
+        environment=environment,
+    )
+    _validate_owned_volume(volume_output)
     return 0
 
 
-def _write_fixed_override(path: Path, content: str) -> None:
+def _validate_owned_volume(output: str) -> None:
+    try:
+        volume = json.loads(output)[0]
+        name = volume["Name"]
+        labels = volume["Labels"]
+    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise AgentReplayInputError("named volume identity predicate failed") from exc
+    if not isinstance(labels, dict):
+        raise AgentReplayInputError("named volume labels predicate failed")
+    if name != _PODMAN_VOLUME:
+        raise AgentReplayInputError("named volume identity predicate failed")
+    if (
+        labels.get("com.docker.compose.project") != _PODMAN_PROJECT
+        or labels.get("com.docker.compose.volume") != "ontoprism_pg_data"
+    ):
+        raise AgentReplayInputError("named volume ownership predicate failed")
+
+
+def _write_fixed_override(path: Path, content: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_text(yaml.safe_dump(content, sort_keys=True), encoding="utf-8")
+
+
+def _remove_operation_paths(*paths: Path) -> list[AgentReplayInputError]:
+    errors: list[AgentReplayInputError] = []
+    for path in paths:
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        except OSError as exc:
+            errors.append(
+                AgentReplayInputError(
+                    f"temporary path cleanup failed: {path.name}: {exc}"
+                )
+            )
+    return errors
+
+
+def _finish_cleanup(
+    primary: BaseException | None,
+    cleanup_errors: list[AgentReplayInputError],
+) -> None:
+    if primary is not None:
+        for cleanup in cleanup_errors:
+            _add_cleanup_note(primary, cleanup)
+        raise primary
+    if cleanup_errors:
+        first, *rest = cleanup_errors
+        for cleanup in rest:
+            _add_cleanup_note(first, cleanup)
+        raise first
 
 
 def _podman_health_reject(values: list[str], root: Path, runner: CommandRunner) -> int:
@@ -1091,34 +1295,42 @@ def _podman_health_reject(values: list[str], root: Path, runner: CommandRunner) 
     environment = _podman_environment(root, socket_path)
     override = root / _POC_DIR / "broken-health.override.yml"
     data_dir = root / _POC_DIR / "broken-health-postgres"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    _write_fixed_override(
-        override,
-        f"""services:
-  broken:
-    image: {_POSTGRES_IMAGE}
-    environment:
-      POSTGRES_USER: ontoprism
-      POSTGRES_PASSWORD: ontoprism
-      POSTGRES_DB: ontoprism
-    volumes:
-      - {data_dir}:/var/lib/postgresql/data
-    healthcheck:
-      test: [\"CMD\", \"/bin/false\"]
-      interval: 1s
-      timeout: 1s
-      retries: 1
-""",
-    )
     compose = [
-        "/opt/homebrew/bin/docker-compose",
+        _DOCKER_COMPOSE,
         "--project-name",
         "ontoprism-podman-health-reject",
         "--file",
         str(override),
     ]
     rejected = False
+    primary: BaseException | None = None
+    cleanup_errors: list[AgentReplayInputError] = []
+    compose_attempted = False
     try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        _write_fixed_override(
+            override,
+            {
+                "services": {
+                    "broken": {
+                        "image": _POSTGRES_IMAGE,
+                        "environment": {
+                            "POSTGRES_USER": "ontoprism",
+                            "POSTGRES_PASSWORD": "ontoprism",
+                            "POSTGRES_DB": "ontoprism",
+                        },
+                        "volumes": [f"{data_dir}:/var/lib/postgresql/data"],
+                        "healthcheck": {
+                            "test": ["CMD", "/bin/false"],
+                            "interval": "1s",
+                            "timeout": "1s",
+                            "retries": 1,
+                        },
+                    }
+                }
+            },
+        )
+        compose_attempted = True
         result = runner(
             [*compose, "up", "--detach", "--wait", "--wait-timeout", "30"],
             cwd=root,
@@ -1129,36 +1341,76 @@ def _podman_health_reject(values: list[str], root: Path, runner: CommandRunner) 
             text=True,
             env=environment,
         )
-        captured = cast("CapturedCommandResult", result)
         if result.returncode == 0:
             raise AgentReplayInputError("broken-health Compose project was accepted")
-        detail = _bounded_sanitized(captured.stderr or captured.stdout)
+        raw_detail = f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        detail = _bounded_sanitized(raw_detail)
         if (
-            "unhealthy" not in detail.lower()
-            or "ontoprism-podman-health-reject-broken-1" not in detail
+            "unhealthy" not in raw_detail.lower()
+            or "ontoprism-podman-health-reject-broken-1" not in raw_detail
         ):
             raise AgentReplayInputError(
                 "broken-health Compose failed for an unexpected reason"
             )
         rejected = True
         print(f"broken-health-rejected exit={result.returncode} detail={detail}")
+    except AgentReplayInputError as exc:
+        primary = exc
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise AgentReplayInputError(
-            "broken-health Compose check failed closed"
-        ) from exc
+        primary = exc
     finally:
-        _capture_required(
-            [*compose, "down"],
-            root,
-            runner,
-            environment=environment,
-            timeout=_COMPOSE_TIMEOUT_SECONDS,
-        )
-        override.unlink(missing_ok=True)
-        shutil.rmtree(data_dir)
+        if compose_attempted:
+            try:
+                _capture_required(
+                    [*compose, "down"],
+                    root,
+                    runner,
+                    environment=environment,
+                    timeout=_COMPOSE_TIMEOUT_SECONDS,
+                )
+            except AgentReplayInputError as cleanup:
+                cleanup_errors.append(cleanup)
+        cleanup_errors.extend(_remove_operation_paths(override, data_dir))
+    _finish_cleanup(primary, cleanup_errors)
     if not rejected:
         raise AgentReplayInputError("broken-health Compose rejection was not observed")
     return 0
+
+
+@dataclass(frozen=True)
+class AppSmokePrecondition:
+    environment: dict[str, str]
+    volume: NamedVolume
+
+
+def _app_smoke_precondition(root: Path, runner: CommandRunner) -> AppSmokePrecondition:
+    with _reserved_fixed_ports(_APP_PORTS):
+        pass
+    socket_path = _podman_socket(root, runner)
+    environment = _podman_environment(root, socket_path)
+    volume_output = _capture_required(
+        [_DOCKER, "volume", "inspect", _PODMAN_VOLUME],
+        root,
+        runner,
+        environment=environment,
+    )
+    _validate_owned_volume(volume_output)
+    for service in _COMPOSE_SERVICES:
+        try:
+            _capture_required(
+                [_DOCKER, "inspect", f"ontoprism-{service}"],
+                root,
+                runner,
+                environment=environment,
+            )
+        except AgentReplayInputError as exc:
+            if "no such object" in str(exc).lower():
+                continue
+            raise
+        raise AgentReplayInputError(
+            f"app-smoke precondition failed: existing resource ontoprism-{service}"
+        )
+    return AppSmokePrecondition(environment, NamedVolume(_PODMAN_VOLUME))
 
 
 def _podman_app_smoke(values: list[str], root: Path, runner: CommandRunner) -> int:
@@ -1172,26 +1424,12 @@ def _podman_app_smoke(values: list[str], root: Path, runner: CommandRunner) -> i
             "Caddyfile",
         ),
     )
-    socket_path = _podman_socket(root, runner)
-    environment = _podman_environment(root, socket_path)
+    precondition = _app_smoke_precondition(root, runner)
+    environment = precondition.environment
     override = root / _POC_DIR / "app-podman.override.yml"
     refresh_dir = root / _POC_DIR / "app-refresh"
-    refresh_dir.mkdir(parents=True, exist_ok=True)
-    _write_fixed_override(
-        override,
-        f"""services:
-  api:
-    volumes:
-      - ./data/cadsr:/app/data/cadsr:ro
-      - {refresh_dir}:/app/refresh
-volumes:
-  ontoprism_pg_data:
-    external: true
-    name: {_PODMAN_VOLUME}
-""",
-    )
     compose = [
-        "/opt/homebrew/bin/docker-compose",
+        _DOCKER_COMPOSE,
         "--project-name",
         "ontoprism-podman-app",
         "--file",
@@ -1201,7 +1439,31 @@ volumes:
         "--file",
         str(override),
     ]
+    primary: BaseException | None = None
+    cleanup_errors: list[AgentReplayInputError] = []
+    compose_attempted = False
     try:
+        refresh_dir.mkdir(parents=True, exist_ok=True)
+        _write_fixed_override(
+            override,
+            {
+                "services": {
+                    "api": {
+                        "volumes": [
+                            "./data/cadsr:/app/data/cadsr:ro",
+                            f"{refresh_dir}:/app/refresh",
+                        ]
+                    }
+                },
+                "volumes": {
+                    "ontoprism_pg_data": {
+                        "external": True,
+                        "name": precondition.volume.name,
+                    }
+                },
+            },
+        )
+        compose_attempted = True
         _capture_required(
             [*compose, "up", "--detach", "--wait", "--build"],
             root,
@@ -1255,7 +1517,7 @@ volumes:
             raise AgentReplayInputError("full-app Caddy/BFF smoke contract failed")
         dns = _capture_required(
             [
-                "/opt/homebrew/bin/docker",
+                _DOCKER,
                 "exec",
                 "ontoprism-api",
                 "python",
@@ -1270,16 +1532,24 @@ volumes:
         if dns.strip():
             raise AgentReplayInputError("service DNS check emitted unexpected output")
         print("app-smoke=caddy-root+bff-C3262+service-dns")
+    except AgentReplayInputError as exc:
+        primary = exc
+    except OSError as exc:
+        primary = exc
     finally:
-        _capture_required(
-            [*compose, "down"],
-            root,
-            runner,
-            environment=environment,
-            timeout=_COMPOSE_TIMEOUT_SECONDS,
-        )
-        override.unlink(missing_ok=True)
-        shutil.rmtree(refresh_dir)
+        if compose_attempted:
+            try:
+                _capture_required(
+                    [*compose, "down"],
+                    root,
+                    runner,
+                    environment=environment,
+                    timeout=_COMPOSE_TIMEOUT_SECONDS,
+                )
+            except AgentReplayInputError as cleanup:
+                cleanup_errors.append(cleanup)
+        cleanup_errors.extend(_remove_operation_paths(override, refresh_dir))
+    _finish_cleanup(primary, cleanup_errors)
     return 0
 
 

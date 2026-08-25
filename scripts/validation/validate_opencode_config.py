@@ -149,8 +149,7 @@ ORCHESTRATOR_BASH_ALLOWS = (
     "gh pr merge * --squash --delete-branch --subject *",
 )
 ORCHESTRATOR_MERGE_DENIES = tuple(
-    f"gh pr merge * --squash --delete-branch --subject * {suffix}*"
-    for suffix in ("--admin", "--auto", "--queue", "--bypass")
+    f"gh pr merge *{suffix}*" for suffix in ("--admin", "--auto", "--queue", "--bypass")
 )
 ORCHESTRATOR_BASH_ALLOWS += (
     *SAFE_WORKTREE_DIFF,
