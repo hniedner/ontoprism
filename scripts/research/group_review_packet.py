@@ -6,12 +6,14 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import tempfile
 from collections import Counter
-from datetime import date
+from contextlib import suppress
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated, Literal, Self, cast
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from defusedxml import ElementTree as DefusedET
 from openpyxl import Workbook, load_workbook
@@ -247,6 +249,7 @@ class RuleEvidenceRow(StrictFrozenBoundaryModel):
     source_occurrence_ids: tuple[str, ...] = Field(min_length=1)
     source_fact_ids: tuple[str, ...] = Field(min_length=1)
     source_group_ids: tuple[str, ...] = Field(min_length=1)
+    source_occurrences: tuple[SourceOccurrenceDocument, ...] = Field(min_length=1)
     output_group_ids: tuple[str, ...]
     output_pairs: tuple[Pair, ...]
     r82_path: tuple[R82PathEdge, ...] = ()
@@ -257,6 +260,10 @@ class RuleEvidenceRow(StrictFrozenBoundaryModel):
 
     @model_validator(mode="after")
     def _identity_matches(self) -> Self:
+        if self.source_occurrence_ids != tuple(
+            row.occurrence_id for row in self.source_occurrences
+        ):
+            raise ValueError("rule evidence occurrence documents differ")
         expected = _identity(self.model_dump(mode="json", exclude={"row_identity"}))
         if self.row_identity != expected:
             raise ValueError("rule evidence row identity differs")
@@ -328,7 +335,7 @@ class GroupReviewConcept(StrictFrozenBoundaryModel):
 
 
 class GroupReviewPacket(StrictFrozenBoundaryModel):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     source_identity: str = Field(pattern=_SHA256)
     ncit_version: str
     current_evidence_identity: str = Field(pattern=_SHA256)
@@ -589,6 +596,7 @@ def _rule_row(
         "source_occurrence_ids": tuple(row.occurrence_id for row in canonical),
         "source_fact_ids": tuple(sorted({row.source_fact_id for row in canonical})),
         "source_group_ids": tuple(sorted({row.source_group_id for row in canonical})),
+        "source_occurrences": canonical,
         "output_group_ids": tuple(sorted(output_group_ids)),
         "output_pairs": tuple(sorted(output_pairs)),
         "r82_path": r82_path,
@@ -828,7 +836,7 @@ def build_group_review_packet(
     )
     rule_evidence = _machine_rule_evidence(concepts, evidence, r101_report)
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "source_identity": comparison.source_identity,
         "ncit_version": comparison.ncit_version,
         "current_evidence_identity": evidence.evidence_identity,
@@ -926,6 +934,7 @@ _REVIEW_HEADERS = (
     "Grouping Diagnosis",
     "Actual Group IDs",
     "Evidence Row IDs",
+    "Evidence Links",
     "Machine Evidence / Suggestion",
     "Pair Decision",
     "Decision",
@@ -939,6 +948,7 @@ class GroupDecision(StrictFrozenBoundaryModel):
     review_row_identity: str = Field(pattern=_SHA256)
     concept_code: str = Field(pattern=r"^C[0-9]+$")
     review_type: Literal["pair-only", "grouping"]
+    pair_decision: Decision | None
     decision: Decision
     rationale: str = Field(min_length=1)
     reviewer: str = Field(min_length=1)
@@ -946,7 +956,7 @@ class GroupDecision(StrictFrozenBoundaryModel):
 
 
 class GroupDecisionRegistry(StrictFrozenBoundaryModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     packet_identity: str = Field(pattern=_SHA256)
     source_identity: str = Field(pattern=_SHA256)
     evidence_identity: str = Field(pattern=_SHA256)
@@ -978,7 +988,26 @@ def load_group_decision_registry(path: Path) -> GroupDecisionRegistry:
     return GroupDecisionRegistry.model_validate_json(path.read_bytes())
 
 
-def _visible_row(row: GroupReviewRow) -> tuple[object, ...]:
+def _evidence_links(packet: GroupReviewPacket, row: GroupReviewRow) -> str:
+    group_rows = tuple(
+        index
+        for index, evidence_row in enumerate(_group_evidence_rows(packet), start=2)
+        if evidence_row[0] == row.concept_code
+    )
+    rule_rows = tuple(
+        index
+        for index, evidence in enumerate(packet.rule_evidence, start=2)
+        if evidence.row_identity in row.evidence_row_ids
+    )
+    return "; ".join(
+        (
+            "Group Evidence rows " + ", ".join(map(str, group_rows)),
+            "Rule Evidence rows " + ", ".join(map(str, rule_rows)),
+        )
+    )
+
+
+def _visible_row(packet: GroupReviewPacket, row: GroupReviewRow) -> tuple[object, ...]:
     machine = {
         "pair_delta": row.pair_delta.model_dump(mode="json"),
         "grouping_diagnosis": row.grouping_diagnosis.model_dump(mode="json"),
@@ -991,9 +1020,171 @@ def _visible_row(row: GroupReviewRow) -> tuple[object, ...]:
         json.dumps(row.grouping_diagnosis.model_dump(mode="json"), sort_keys=True),
         json.dumps(row.actual_group_ids),
         json.dumps(row.evidence_row_ids),
+        _evidence_links(packet, row),
         json.dumps(machine, sort_keys=True),
         None,
     )
+
+
+_GROUP_EVIDENCE_HEADERS = (
+    "Concept",
+    "Side",
+    "Normalized Group ID",
+    "Pair",
+    "Source Evidence Status",
+    "Source Group IDs",
+    "Source Occurrence IDs",
+)
+_SOURCE_EVIDENCE_HEADERS = (
+    "Occurrence ID",
+    "Root Code",
+    "Source Fact ID",
+    "Source Group ID",
+    "Anchor Code",
+    "Depth",
+    "Structural Path",
+    "Member Position",
+    "Role Code",
+    "Filler Code",
+    "Label Availability",
+    "Definition Availability",
+)
+_RULE_EVIDENCE_HEADERS = (
+    "Evidence Row ID",
+    "Concept",
+    "Kind",
+    "Source Occurrence IDs",
+    "Source Fact IDs",
+    "Source Group IDs",
+    "Output Group IDs",
+    "Output Pairs",
+    "R82 Path",
+    "Proposed Partition",
+    "Affected Co-membership",
+    "Machine Evidence",
+    "Evidence Limitation",
+)
+
+
+def _group_evidence_rows(packet: GroupReviewPacket) -> tuple[tuple[object, ...], ...]:
+    rows: list[tuple[object, ...]] = []
+    for concept in packet.concepts:
+        for group in concept.expected_groups:
+            for pair in group.pairs:
+                rows.append(
+                    (
+                        concept.code,
+                        "expected",
+                        group.normalized_group_id,
+                        json.dumps(pair),
+                        "EXPECTED SOURCE UNAVAILABLE - historical expected grouping "
+                        "is an oracle proposal, not source-stated",
+                        None,
+                        None,
+                    )
+                )
+        for group in concept.actual_groups:
+            for pair in group.pairs:
+                rows.append(
+                    (
+                        concept.code,
+                        "actual",
+                        group.normalized_group_id,
+                        json.dumps(pair.pair),
+                        pair.availability,
+                        json.dumps(group.source_group_ids),
+                        (
+                            json.dumps(pair.occurrence_ids)
+                            if isinstance(pair, ActualPairEvidence)
+                            else None
+                        ),
+                    )
+                )
+    return tuple(rows)
+
+
+def _source_evidence_rows(packet: GroupReviewPacket) -> tuple[tuple[object, ...], ...]:
+    occurrences = {
+        occurrence.occurrence_id: occurrence
+        for rule in packet.rule_evidence
+        for occurrence in rule.source_occurrences
+    }
+    return tuple(
+        (
+            row.occurrence_id,
+            row.root_code,
+            row.source_fact_id,
+            row.source_group_id,
+            row.anchor_code,
+            row.depth,
+            json.dumps(row.structural_path),
+            row.member_position,
+            row.role_code,
+            row.filler_code,
+            "Unavailable in current evidence artifact",
+            "Unavailable in current evidence artifact",
+        )
+        for row in sorted(occurrences.values(), key=lambda item: item.occurrence_id)
+    )
+
+
+def _rule_evidence_rows(packet: GroupReviewPacket) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (
+            row.row_identity,
+            row.concept_code,
+            row.kind,
+            json.dumps(row.source_occurrence_ids),
+            json.dumps(row.source_fact_ids),
+            json.dumps(row.source_group_ids),
+            json.dumps(row.output_group_ids),
+            json.dumps(row.output_pairs),
+            json.dumps(tuple(item.model_dump(mode="json") for item in row.r82_path)),
+            json.dumps(row.proposed_partition),
+            json.dumps(row.affected_co_membership),
+            row.machine_evidence,
+            row.machine_evidence_limitation,
+        )
+        for row in packet.rule_evidence
+    )
+
+
+def _append_evidence_sheet(
+    book: Workbook,
+    name: str,
+    headers: tuple[str, ...],
+    rows: tuple[tuple[object, ...], ...],
+) -> None:
+    sheet = book.create_sheet(name)
+    sheet.append(headers)
+    for row in rows:
+        sheet.append(row)
+    sheet.freeze_panes = "A2"
+
+
+def _normalize_xlsx(source: Path, destination: Path) -> None:
+    with (
+        ZipFile(source) as original,
+        ZipFile(
+            destination, "w", compression=ZIP_DEFLATED, compresslevel=9
+        ) as normalized,
+    ):
+        for name in sorted(original.namelist()):
+            info = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = 0o600 << 16
+            content = original.read(name)
+            if name == "docProps/core.xml":
+                content = re.sub(
+                    rb"<dcterms:(created|modified)[^>]*>.*?</dcterms:\1>",
+                    rb'<dcterms:\1 xsi:type="dcterms:W3CDTF">'
+                    rb"2000-01-01T00:00:00Z</dcterms:\1>",
+                    content,
+                )
+            elif name == "xl/workbook.xml":
+                content = re.sub(rb' calcId="[0-9]+"', b"", content)
+            normalized.writestr(info, content)
 
 
 def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
@@ -1009,13 +1200,36 @@ def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
     instructions.append(
         [
             "Machine evidence and suggestions are not reviewer rationale. Complete "
-            "Decision, Rationale, Reviewer, and Date for every row."
+            "Decision, Rationale, Reviewer, and Date for every row; Pair Decision is "
+            "also required for pair-only rows and must agree with Decision."
+        ]
+    )
+    instructions.append(
+        [
+            "Evidence is asymmetric: expected-side source evidence is unavailable. "
+            "The expected grouping is an oracle proposal, not a source-stated group. "
+            "Actual-side source occurrences and every transformation witness are "
+            "displayed in the evidence sheets. Labels and definitions are explicitly "
+            "marked unavailable because the bound current evidence artifact does not "
+            "contain source text."
         ]
     )
     sheet = book.create_sheet("Group Review")
     sheet.append(_REVIEW_HEADERS)
     for row in packet.review_rows:
-        sheet.append((*_visible_row(row), None, None, None, None))
+        sheet.append((*_visible_row(packet, row), None, None, None, None))
+    _append_evidence_sheet(
+        book, "Group Evidence", _GROUP_EVIDENCE_HEADERS, _group_evidence_rows(packet)
+    )
+    _append_evidence_sheet(
+        book,
+        "Source Evidence",
+        _SOURCE_EVIDENCE_HEADERS,
+        _source_evidence_rows(packet),
+    )
+    _append_evidence_sheet(
+        book, "Rule Evidence", _RULE_EVIDENCE_HEADERS, _rule_evidence_rows(packet)
+    )
     bindings = book.create_sheet("Bindings")
     bindings.append(["Name", "Value"])
     for name, value in (
@@ -1028,15 +1242,18 @@ def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
     ):
         bindings.append([name, value])
     bindings.sheet_state = "veryHidden"
-    decision_column = _REVIEW_HEADERS.index("Decision") + 1
+    decision_columns = tuple(
+        _REVIEW_HEADERS.index(name) + 1 for name in ("Pair Decision", "Decision")
+    )
     validation = DataValidation(
         type="list", formula1='"' + ",".join(_DECISIONS) + '"', allow_blank=True
     )
     sheet.add_data_validation(validation)
-    first_decision = sheet.cell(2, decision_column).coordinate
-    last_decision = sheet.cell(sheet.max_row, decision_column).coordinate
-    validation.add(f"{first_decision}:{last_decision}")
-    editable = {"Decision", "Rationale", "Reviewer", "Date"}
+    for decision_column in decision_columns:
+        first_decision = sheet.cell(2, decision_column).coordinate
+        last_decision = sheet.cell(sheet.max_row, decision_column).coordinate
+        validation.add(f"{first_decision}:{last_decision}")
+    editable = {"Pair Decision", "Decision", "Rationale", "Reviewer", "Date"}
     for worksheet in book.worksheets:
         for cells in worksheet.iter_rows():
             for cell in cells:
@@ -1045,7 +1262,17 @@ def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
         worksheet.protection.sheet = True
     book.calculation.fullCalcOnLoad = False
     book.calculation.forceFullCalc = False
-    book.save(path)
+    fixed = datetime(2000, 1, 1)
+    book.properties.created = fixed
+    book.properties.modified = fixed
+    descriptor, staging = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    os.close(descriptor)
+    try:
+        book.save(staging)
+        _normalize_xlsx(Path(staging), path)
+    finally:
+        with suppress(FileNotFoundError):
+            os.unlink(staging)
 
 
 def _reject_unsafe_workbook(path: Path) -> None:
@@ -1074,13 +1301,41 @@ def _expected_bindings(packet: GroupReviewPacket) -> tuple[tuple[object, object]
     )
 
 
-def import_group_review_decisions(  # noqa: C901
+def _validate_evidence_sheet(
+    book: object,
+    name: str,
+    headers: tuple[str, ...],
+    rows: tuple[tuple[object, ...], ...],
+) -> None:
+    sheet = book[name]  # type: ignore[index]
+    observed = tuple(
+        tuple(cell.value for cell in row)
+        for row in sheet.iter_rows(  # type: ignore[attr-defined]
+            min_row=1, max_row=len(rows) + 1, max_col=len(headers)
+        )
+    )
+    if (  # type: ignore[attr-defined]
+        observed != (headers, *rows)
+        or sheet.max_row != len(rows) + 1
+        or sheet.max_column != len(headers)
+    ):
+        raise ValueError(f"{name} cells differ")
+
+
+def import_group_review_decisions(  # noqa: C901, PLR0912
     packet: GroupReviewPacket, workbook: Path, output: Path
 ) -> GroupDecisionRegistry:
     """Import only complete human decisions after validating every machine cell."""
     _reject_unsafe_workbook(workbook)
     book = load_workbook(workbook, data_only=False)
-    if book.sheetnames != ["Instructions", "Group Review", "Bindings"]:
+    if book.sheetnames != [
+        "Instructions",
+        "Group Review",
+        "Group Evidence",
+        "Source Evidence",
+        "Rule Evidence",
+        "Bindings",
+    ]:
         raise ValueError("review workbook sheet inventory differs")
     if book["Bindings"].sheet_state != "veryHidden":
         raise ValueError("review workbook binding visibility differs")
@@ -1090,6 +1345,18 @@ def import_group_review_decisions(  # noqa: C901
     )
     if observed_bindings != _expected_bindings(packet):
         raise ValueError("review workbook binding cells differ")
+    _validate_evidence_sheet(
+        book, "Group Evidence", _GROUP_EVIDENCE_HEADERS, _group_evidence_rows(packet)
+    )
+    _validate_evidence_sheet(
+        book,
+        "Source Evidence",
+        _SOURCE_EVIDENCE_HEADERS,
+        _source_evidence_rows(packet),
+    )
+    _validate_evidence_sheet(
+        book, "Rule Evidence", _RULE_EVIDENCE_HEADERS, _rule_evidence_rows(packet)
+    )
     sheet = book["Group Review"]
     if tuple(cell.value for cell in sheet[1]) != _REVIEW_HEADERS:
         raise ValueError("review workbook headers differ")
@@ -1101,11 +1368,20 @@ def import_group_review_decisions(  # noqa: C901
         row.machine_evidence for row in packet.rule_evidence
     }
     for index, expected in enumerate(packet.review_rows, 2):
-        observed = tuple(sheet.cell(index, column).value for column in range(1, 9))
-        if observed[:7] != _visible_row(expected)[:7]:
+        pair_column = headers["Pair Decision"]
+        observed = tuple(
+            sheet.cell(index, column).value for column in range(1, pair_column + 1)
+        )
+        if observed[:-1] != _visible_row(packet, expected)[:-1]:
             raise ValueError("immutable review cells differ")
-        pair_decision = observed[7]
+        pair_decision = observed[-1]
         decision = sheet.cell(index, headers["Decision"]).value
+        if expected.review_type == "pair-only" and (
+            pair_decision is None or str(pair_decision).strip() == ""
+        ):
+            raise ValueError("pair decision is required for pair-only rows")
+        if pair_decision is not None and pair_decision not in _DECISIONS:
+            raise ValueError("pair decision is not one of the closed values")
         if pair_decision is not None and pair_decision != decision:
             raise ValueError("pair and grouping decisions are contradictory")
         values = (
@@ -1130,6 +1406,7 @@ def import_group_review_decisions(  # noqa: C901
                 review_row_identity=expected.row_identity,
                 concept_code=expected.concept_code,
                 review_type=expected.review_type,
+                pair_decision=cast("Decision | None", pair_decision),
                 decision=cast("Decision", decision),
                 rationale=rationale,
                 reviewer=str(values[2]).strip(),
@@ -1137,7 +1414,7 @@ def import_group_review_decisions(  # noqa: C901
             )
         )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "packet_identity": packet.packet_identity,
         "source_identity": packet.source_identity,
         "evidence_identity": packet.current_evidence_identity,

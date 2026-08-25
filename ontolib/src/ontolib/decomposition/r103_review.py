@@ -68,6 +68,10 @@ R103Outcome = Literal[
 ]
 _QUERY_CONTRACT = {
     "candidate_assertions": _INVENTORY,
+    "inventory_scope": (
+        "issue-declared assertions; each named source restriction must occur "
+        "exactly once"
+    ),
     "method_reference": _METHOD,
     "source": "stated RDF/XML equivalentClass/intersectionOf",
     "source_passes": 2,
@@ -201,8 +205,10 @@ class MethodReference(_StrictModel):
     role_code: Literal["R103"]
     filler_code: Literal["C54105"]
     subject_label: str = Field(min_length=1)
+    role_label: str = Field(min_length=1)
     filler_label: str = Field(min_length=1)
     subject_p97_definition: str = Field(min_length=1)
+    role_p97_definition: str = Field(min_length=1)
     filler_p97_definition: str = Field(min_length=1)
     complete_definition_identity: str = Field(pattern=_SHA256)
     source_fact_identity: str = Field(pattern=_SHA256)
@@ -226,6 +232,7 @@ class R103ReviewPacket(_StrictModel):
     query_contract_identity: str = Field(pattern=_SHA256)
     tool_identity: str = Field(pattern=_SHA256)
     source_pass_count: Literal[2]
+    inventory_scope: Literal["issue-declared assertions, source-presence certified"]
     rows: tuple[R103EvidenceRow, R103EvidenceRow, R103EvidenceRow]
     method_reference: MethodReference
     packet_identity: str = Field(pattern=_SHA256)
@@ -578,8 +585,10 @@ def _method_reference(
         role_code="R103",
         filler_code="C54105",
         subject_label=text[subject][0],
+        role_label=text[role][0],
         filler_label=text[filler][0],
         subject_p97_definition=text[subject][1],
+        role_p97_definition=text[role][1],
         filler_p97_definition=(
             text[filler][1]
             or "No P97 definition is present in the pinned stated source."
@@ -625,6 +634,7 @@ def build_r103_review_packet(
         "query_contract_identity": _identity(_QUERY_CONTRACT),
         "tool_identity": _tool_identity(),
         "source_pass_count": 2,
+        "inventory_scope": "issue-declared assertions, source-presence certified",
         "rows": tuple(_evidence_row(item, definitions, text) for item in _INVENTORY),
         "method_reference": _method_reference(definitions, text),
     }
@@ -692,6 +702,7 @@ _EVIDENCE_HEADERS = (
     "Impact Concepts",
     "Machine Evidence",
     "C3708 Method Contrast",
+    "Method Reference",
 )
 _HUMAN_HEADERS = ("Outcome", "Rationale", "Reviewer", "Date")
 _HEADERS = (*_EVIDENCE_HEADERS, *_HUMAN_HEADERS)
@@ -704,6 +715,7 @@ _BINDINGS = (
     "proposal_registry_identity",
     "query_contract_identity",
     "tool_identity",
+    "inventory_scope",
 )
 
 
@@ -751,6 +763,53 @@ def _row_values(row: R103EvidenceRow) -> tuple[object, ...]:
         " | ".join(row.impact_concepts),
         row.machine_evidence,
         row.contrast_to_method,
+        "Method Reference row 2",
+    )
+
+
+_METHOD_HEADERS = (
+    "Subject Code",
+    "Subject Label",
+    "Subject P97 Definition",
+    "Role Code",
+    "Role Label",
+    "Role P97 Definition",
+    "Filler Code",
+    "Filler Label",
+    "Filler P97 Definition",
+    "Source Restriction",
+    "Genus Facts",
+    "Coasserted R103/R104 Facts",
+    "Comparison Scope",
+    "Decision Row",
+)
+
+
+def _method_values(reference: MethodReference) -> tuple[object, ...]:
+    return (
+        reference.subject_code,
+        reference.subject_label,
+        reference.subject_p97_definition,
+        reference.role_code,
+        reference.role_label,
+        reference.role_p97_definition,
+        reference.filler_code,
+        reference.filler_label,
+        reference.filler_p97_definition,
+        (
+            f"{reference.subject_code}/{reference.role_code}/{reference.filler_code}; "
+            f"fact={reference.source_fact_identity}; "
+            f"group={reference.source_group_identity}; "
+            f"occurrence={reference.source_occurrence_identity}; "
+            f"{reference.source_citation}"
+        ),
+        _genus_text(reference.genus_facts),
+        _coasserted_text(reference.coasserted_facts),
+        (
+            "Comparison method only: demonstrates the same source-query and evidence "
+            "method; it is not a recommendation, rationale, or decision row."
+        ),
+        "No",
     )
 
 
@@ -803,7 +862,9 @@ def write_r103_review_workbook(path: Path, packet: R103ReviewPacket) -> None:
         (
             "Scope",
             "Choose one closed outcome for each of exactly three source-bound "
-            "assertions.",
+            "assertions. This is the issue-declared inventory, not a claim to "
+            "enumerate all source R103 assertions; generation fails unless each "
+            "named restriction occurs exactly once.",
         )
     )
     instructions.append(
@@ -849,6 +910,7 @@ def write_r103_review_workbook(path: Path, packet: R103ReviewPacket) -> None:
         f"{review.cell(_WORKBOOK_MAX_ROW, outcome_column).coordinate}"
     )
     _style_sheet(review)
+    _write_method_sheet(book, packet.method_reference)
     bindings = book.create_sheet("Bindings")
     binding_values = (
         packet.packet_identity,
@@ -859,6 +921,7 @@ def write_r103_review_workbook(path: Path, packet: R103ReviewPacket) -> None:
         packet.proposal_registry_identity,
         packet.query_contract_identity,
         packet.tool_identity,
+        packet.inventory_scope,
     )
     bindings.append(("Binding", "Value"))
     for name, value in zip(_BINDINGS, binding_values, strict=True):
@@ -880,6 +943,15 @@ def write_r103_review_workbook(path: Path, packet: R103ReviewPacket) -> None:
     finally:
         with suppress(FileNotFoundError):
             os.unlink(staging_name)
+
+
+def _write_method_sheet(book: Workbook, reference: MethodReference) -> None:
+    method = book.create_sheet("Method Reference")
+    method.append(_METHOD_HEADERS)
+    method.append(_method_values(reference))
+    for cell in method[2]:
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+    _style_sheet(method)
 
 
 class CorrectionProposalPreview(_StrictModel):
@@ -978,17 +1050,37 @@ def _validate_workbook_structure(book: Any, packet: R103ReviewPacket) -> Any:
     _validate_workbook_bindings(book, packet)
     _validate_formula_free(book)
     _validate_immutable_rows(review, packet)
+    _validate_method_sheet(book["Method Reference"], packet.method_reference)
     return review
 
 
 def _validate_workbook_container(book: Any) -> Any:
-    if book.sheetnames != ["Instructions", "R103 Review", "Bindings"]:  # type: ignore[attr-defined]
+    if book.sheetnames != [  # type: ignore[attr-defined]
+        "Instructions",
+        "R103 Review",
+        "Method Reference",
+        "Bindings",
+    ]:
         raise R103ReviewValidationError("workbook sheet inventory differs")
     if book["Bindings"].sheet_state != "veryHidden":  # type: ignore[index]
         raise R103ReviewValidationError("bindings visibility differs")
     review = book["R103 Review"]  # type: ignore[index]
     _validate_review_sheet_shape(review)
     return review
+
+
+def _validate_method_sheet(method: Any, reference: MethodReference) -> None:
+    expected_rows = 2
+    observed = tuple(
+        tuple(cell.value for cell in row)
+        for row in method.iter_rows(min_row=1, max_row=2, max_col=len(_METHOD_HEADERS))
+    )
+    if (
+        observed != (_METHOD_HEADERS, _method_values(reference))
+        or method.max_row != expected_rows
+        or method.max_column != len(_METHOD_HEADERS)
+    ):
+        raise R103ReviewValidationError("method reference evidence differs")
 
 
 def _validate_review_sheet_shape(review: Any) -> None:
@@ -1017,6 +1109,7 @@ def _validate_workbook_bindings(book: Any, packet: R103ReviewPacket) -> None:
                 packet.proposal_registry_identity,
                 packet.query_contract_identity,
                 packet.tool_identity,
+                packet.inventory_scope,
             ),
             strict=True,
         )

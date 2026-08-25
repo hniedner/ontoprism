@@ -184,6 +184,9 @@ def test_packet_has_exact_source_derived_inventory_and_complete_evidence(
     assert packet.query_contract_identity
     assert packet.tool_identity
     assert packet.packet_identity
+    assert (
+        packet.inventory_scope == "issue-declared assertions, source-presence certified"
+    )
     assert packet.method_reference.subject_code == "C3708"
     assert packet.method_reference.filler_code == "C54105"
     assert packet.method_reference.is_decision_row is False
@@ -249,7 +252,12 @@ def test_workbook_has_only_three_rows_four_blank_human_fields_and_no_decision_la
     path = tmp_path / "review.xlsx"
     write_r103_review_workbook(path, packet)
     book = load_workbook(path)
-    assert book.sheetnames == ["Instructions", "R103 Review", "Bindings"]
+    assert book.sheetnames == [
+        "Instructions",
+        "R103 Review",
+        "Method Reference",
+        "Bindings",
+    ]
     assert book["Bindings"].sheet_state == "veryHidden"
     sheet = book["R103 Review"]
     headers = tuple(cell.value for cell in sheet[1])
@@ -266,6 +274,31 @@ def test_workbook_has_only_three_rows_four_blank_human_fields_and_no_decision_la
     visible = "\n".join(str(cell.value or "") for row in sheet for cell in row)
     assert "content approval" not in visible.casefold()
     assert "recommended outcome" not in visible.casefold()
+    method_links = tuple(
+        sheet.cell(row, headers.index("Method Reference") + 1).value
+        for row in range(2, 5)
+    )
+    assert method_links == ("Method Reference row 2",) * 3
+
+    method = book["Method Reference"]
+    method_headers = tuple(cell.value for cell in method[1])
+    assert {
+        "Subject Code",
+        "Subject Label",
+        "Subject P97 Definition",
+        "Role Code",
+        "Filler Code",
+        "Filler Label",
+        "Filler P97 Definition",
+        "Source Restriction",
+        "Coasserted R103/R104 Facts",
+        "Comparison Scope",
+        "Decision Row",
+    } <= set(method_headers)
+    assert method.cell(2, method_headers.index("Subject Code") + 1).value == "C3708"
+    assert method.cell(2, method_headers.index("Role Code") + 1).value == "R103"
+    assert method.cell(2, method_headers.index("Filler Code") + 1).value == "C54105"
+    assert method.cell(2, method_headers.index("Decision Row") + 1).value == "No"
 
 
 def _reviewed(

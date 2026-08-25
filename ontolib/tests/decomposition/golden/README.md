@@ -266,6 +266,23 @@ pdm run agent-replay generate-axis-diagnostics C35501 C12431 MINT-781c8c8c6096
 pdm run agent-replay generate-group-review
 ```
 
+The generated group workbook keeps all human fields blank. For pair-only rows, the SME must
+complete both `Pair Decision` and `Decision` with the same closed value; for grouping rows,
+`Decision` is required and an optional `Pair Decision` must agree. After the SME saves a reviewed
+copy, import it and run the write-free impact preview with these exact commands:
+
+```bash
+pdm run adjudication import-group-review --packet tmp/m1-6-group-review-packet.json --reviewed-xlsx tmp/m1-6-group-review-workbook-reviewed.xlsx --output tmp/m1-6-group-review-decisions.json
+pdm run adjudication dry-run-group-review --packet tmp/m1-6-group-review-packet.json --registry tmp/m1-6-group-review-decisions.json --output tmp/m1-6-group-review-dry-run.json
+```
+
+The evidence is intentionally asymmetric: actual normalized groups cite current stated-source
+occurrences, while expected-side source evidence is unavailable. The expected grouping is the
+historical oracle proposal, not a source-stated relationship group. The evidence sheets display
+the exact source facts, groups, occurrences, anchors, depth/path, and transformation witnesses;
+labels and definitions are marked unavailable where the bound current evidence artifact contains
+no source text. Machine evidence is never reviewer rationale.
+
 ### R103 manual SME review boundary (#294)
 
 Generate the source-bound packet and blank workbook offline from the pinned stated OWL

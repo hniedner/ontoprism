@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter
 from pathlib import Path
 from typing import cast
@@ -353,6 +354,119 @@ def test_blank_workbook_has_no_machine_generated_human_text(tmp_path: Path) -> N
         )
 
 
+@pytest.mark.unit
+def test_workbook_exposes_linked_human_readable_evidence_and_expected_warning(
+    tmp_path: Path,
+) -> None:
+    packet = _review_boundary()
+    workbook = tmp_path / "group-review.xlsx"
+    group_review.write_group_review_workbook(workbook, packet)
+    book = load_workbook(workbook)
+
+    assert book.sheetnames == [
+        "Instructions",
+        "Group Review",
+        "Group Evidence",
+        "Source Evidence",
+        "Rule Evidence",
+        "Bindings",
+    ]
+    instructions = "\n".join(
+        str(cell.value or "") for row in book["Instructions"] for cell in row
+    )
+    assert "expected-side source evidence is unavailable" in instructions.casefold()
+    assert "oracle proposal" in instructions.casefold()
+    review = book["Group Review"]
+    headers = _sheet_headers(review)
+    assert all(
+        "Rule Evidence row" in str(review.cell(row, headers["Evidence Links"]).value)
+        and "Group Evidence row"
+        in str(review.cell(row, headers["Evidence Links"]).value)
+        for row in range(2, review.max_row + 1)
+    )
+    source = book["Source Evidence"]
+    source_headers = _sheet_headers(source)
+    assert {
+        "Occurrence ID",
+        "Source Fact ID",
+        "Source Group ID",
+        "Anchor Code",
+        "Depth",
+        "Structural Path",
+        "Member Position",
+        "Role Code",
+        "Filler Code",
+        "Label Availability",
+        "Definition Availability",
+    } <= set(source_headers)
+    rules = book["Rule Evidence"]
+    rule_headers = _sheet_headers(rules)
+    assert {
+        "Kind",
+        "Source Occurrence IDs",
+        "Source Fact IDs",
+        "Source Group IDs",
+        "Output Group IDs",
+        "Output Pairs",
+        "R82 Path",
+        "Proposed Partition",
+        "Affected Co-membership",
+        "Evidence Limitation",
+    } <= set(rule_headers)
+    groups = book["Group Evidence"]
+    assert any(
+        "EXPECTED SOURCE UNAVAILABLE" in str(cell.value)
+        for row in groups.iter_rows()
+        for cell in row
+    )
+
+
+@pytest.mark.unit
+def test_group_workbook_bytes_are_deterministic(tmp_path: Path) -> None:
+    packet = _review_boundary()
+    first = tmp_path / "first.xlsx"
+    second = tmp_path / "second.xlsx"
+    group_review.write_group_review_workbook(first, packet)
+    time.sleep(2.1)
+    group_review.write_group_review_workbook(second, packet)
+    assert first.read_bytes() == second.read_bytes()
+
+
+@pytest.mark.unit
+def test_pair_decision_is_editable_and_required_for_pair_only_rows(
+    tmp_path: Path,
+) -> None:
+    packet = _review_boundary()
+    path = tmp_path / "review.xlsx"
+    group_review.write_group_review_workbook(path, packet)
+    book = load_workbook(path)
+    sheet = book["Group Review"]
+    headers = _sheet_headers(sheet)
+    pair_only_row = next(
+        index
+        for index, row in enumerate(packet.review_rows, start=2)
+        if row.review_type == "pair-only"
+    )
+    assert (
+        sheet.cell(pair_only_row, headers["Pair Decision"]).protection.locked is False
+    )
+
+    for index, row in enumerate(packet.review_rows, start=2):
+        sheet.cell(index, headers["Decision"], APPROVE)
+        if row.review_type == "pair-only" and index != pair_only_row:
+            sheet.cell(index, headers["Pair Decision"], APPROVE)
+        sheet.cell(index, headers["Rationale"], "TEST-ONLY SME rationale")
+        sheet.cell(index, headers["Reviewer"], "TEST-ONLY reviewer")
+        sheet.cell(index, headers["Date"], "2099-01-01")
+    book.save(path)
+
+    with pytest.raises(ValueError, match="pair decision is required for pair-only"):
+        group_review.import_group_review_decisions(
+            packet, path, tmp_path / "must-not-exist.json"
+        )
+    assert not (tmp_path / "must-not-exist.json").exists()
+
+
 def _filled_workbook(tmp_path: Path):
     packet = _review_boundary()
     path = tmp_path / "review.xlsx"
@@ -360,8 +474,10 @@ def _filled_workbook(tmp_path: Path):
     book = load_workbook(path)
     sheet = book["Group Review"]
     headers = _sheet_headers(sheet)
-    for row in range(2, sheet.max_row + 1):
+    for row, review_row in enumerate(packet.review_rows, start=2):
         sheet.cell(row, headers["Decision"], APPROVE)
+        if review_row.review_type == "pair-only":
+            sheet.cell(row, headers["Pair Decision"], APPROVE)
         sheet.cell(row, headers["Rationale"], "TEST-ONLY SME rationale")
         sheet.cell(row, headers["Reviewer"], "TEST-ONLY reviewer")
         sheet.cell(row, headers["Date"], "2099-01-01")
@@ -442,6 +558,11 @@ def test_import_closes_decisions_and_dry_run_reports_deferred_without_writes(
     registry = group_review.import_group_review_decisions(
         packet, path, tmp_path / "decisions.json"
     )
+    assert all(
+        decision.pair_decision == decision.decision
+        for decision in registry.decisions
+        if decision.review_type == "pair-only"
+    )
     result = group_review.dry_run_group_review_decisions(packet, registry)
     assert result.writes_performed is False
     assert result.unresolved_count == 1
@@ -477,3 +598,20 @@ def test_highest_fanout_generation_loads_each_authoritative_source_once(
     assert reads[_R101.resolve()] == 1
     assert output.is_file()
     assert workbook.is_file()
+
+
+@pytest.mark.unit
+def test_readme_gives_exact_group_post_sme_import_and_dry_run_commands() -> None:
+    readme = (_GOLDEN / "README.md").read_text(encoding="utf-8")
+    assert (
+        "pdm run adjudication import-group-review --packet "
+        "tmp/m1-6-group-review-packet.json --reviewed-xlsx "
+        "tmp/m1-6-group-review-workbook-reviewed.xlsx --output "
+        "tmp/m1-6-group-review-decisions.json"
+    ) in readme
+    assert (
+        "pdm run adjudication dry-run-group-review --packet "
+        "tmp/m1-6-group-review-packet.json --registry "
+        "tmp/m1-6-group-review-decisions.json --output "
+        "tmp/m1-6-group-review-dry-run.json"
+    ) in readme

@@ -21,5 +21,8 @@ def test_r103_review_offline_packet_matches_pinned_stated_source() -> None:
         ("C3716", "R103", "C34228"),
     )
     assert packet.source_release == "26.07d"
+    assert (
+        packet.inventory_scope == "issue-declared assertions, source-presence certified"
+    )
     assert packet.method_reference.subject_code == "C3708"
     assert packet.method_reference.is_decision_row is False
