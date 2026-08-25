@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import importlib
+import json
+import os
 import re
+import socket
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -19,6 +22,8 @@ _RUN_ID = re.compile(
 _FILLER = re.compile(r"(?:C[0-9]+|MINT-[0-9a-f]+)")
 _MAX_FILLERS = 8
 _DIAGNOSTIC_TIMEOUT_SECONDS = 20
+_GATE_TIMEOUT_SECONDS = 3_600
+_COMPOSE_TIMEOUT_SECONDS = 1_800
 _MAX_DIAGNOSTIC_CHARS = 8_192
 _SECRET_VALUE = re.compile(
     r"(?i)\b(password|passwd|token|secret|api[_-]?key)(\s*[:=]\s*)([^\s,;]+)"
@@ -712,6 +717,360 @@ def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int
     return 0
 
 
+def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("inspect-podman accepts no arguments")
+    commands = (
+        ["podman", "version", "--format", "json"],
+        ["podman", "info", "--format", "json"],
+        ["podman", "machine", "list", "--format", "json"],
+        ["podman", "machine", "inspect", "ontoprism-vm"],
+        ["podman", "system", "connection", "list", "--format", "json"],
+        ["/usr/bin/which", "docker"],
+        ["/usr/bin/which", "docker-compose"],
+        ["docker", "version"],
+        ["docker-compose", "version"],
+        ["podman", "compose", "version"],
+    )
+    for command in commands:
+        _collect_diagnostic_command(command, root, runner)
+    return 0
+
+
+def _capture_required(
+    command: list[str],
+    root: Path,
+    runner: CommandRunner,
+    *,
+    environment: dict[str, str] | None = None,
+    timeout: int = _DIAGNOSTIC_TIMEOUT_SECONDS,
+) -> str:
+    options: dict[str, object] = {
+        "cwd": root,
+        "shell": False,
+        "check": False,
+        "timeout": timeout,
+        "capture_output": True,
+        "text": True,
+    }
+    if environment is not None:
+        options["env"] = environment
+    try:
+        result = runner(command, **options)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AgentReplayInputError("required Podman command failed closed") from exc
+    captured = cast("CapturedCommandResult", result)
+    if result.returncode != 0:
+        detail = _bounded_sanitized(captured.stderr or captured.stdout)
+        raise AgentReplayInputError(f"required Podman command failed: {detail}")
+    raw_output = captured.stdout
+    output = (
+        raw_output.decode(errors="replace")
+        if isinstance(raw_output, bytes)
+        else str(raw_output or "")
+    )
+    sanitized = _bounded_sanitized(output)
+    if sanitized:
+        print(sanitized)
+    return output
+
+
+def _podman_socket(root: Path, runner: CommandRunner) -> Path:
+    output = _capture_required(
+        ["podman", "machine", "inspect", "ontoprism-vm"], root, runner
+    )
+    try:
+        payload = json.loads(output)
+        machine = payload[0]
+        socket_path = Path(machine["ConnectionInfo"]["PodmanSocket"]["Path"])
+    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise AgentReplayInputError("invalid Podman machine contract") from exc
+    if (
+        len(payload) != 1
+        or machine.get("Name") != "ontoprism-vm"
+        or machine.get("State") != "running"
+        or machine.get("Rootful") is not False
+        or not socket_path.is_absolute()
+        or socket_path.name != "ontoprism-vm-api.sock"
+        or socket_path.parent.name != "podman"
+    ):
+        raise AgentReplayInputError("invalid Podman machine contract")
+    return socket_path
+
+
+def _check_podman_api(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("check-podman-api accepts no arguments")
+    socket_path = _podman_socket(root, runner)
+    environment = {
+        "DOCKER_HOST": f"unix://{socket_path}",
+        "PODMAN_COMPOSE_PROVIDER": "/opt/homebrew/bin/docker-compose",
+    }
+    commands = (
+        ["/opt/homebrew/bin/docker", "version"],
+        ["/opt/homebrew/bin/docker", "info", "--format", "{{json .}}"],
+        ["/opt/homebrew/bin/docker-compose", "version"],
+        ["/opt/homebrew/bin/podman", "compose", "version"],
+    )
+    for command in commands:
+        _capture_required(command, root, runner, environment=environment)
+    return 0
+
+
+def _podman_environment(root: Path, socket_path: Path) -> dict[str, str]:
+    environment = dict(os.environ)
+    inherited_path = environment.get("PATH", "")
+    for variable in (
+        "DOCKER_CONTEXT",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+    ):
+        environment.pop(variable, None)
+    environment.update(
+        {
+            "PATH": (
+                f"{root / '.venv/bin'}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+                f"{f':{inherited_path}' if inherited_path else ''}"
+            ),
+            "DOCKER_HOST": f"unix://{socket_path}",
+            "PODMAN_COMPOSE_PROVIDER": "/opt/homebrew/bin/docker-compose",
+        }
+    )
+    return environment
+
+
+def _podman_gate(
+    values: list[str],
+    root: Path,
+    runner: CommandRunner,
+    *,
+    operation: str,
+    script: str,
+) -> int:
+    if values:
+        raise AgentReplayInputError(f"{operation} accepts no arguments")
+    socket_path = _podman_socket(root, runner)
+    _capture_required(
+        ["/opt/homebrew/bin/pdm", "run", script],
+        root,
+        runner,
+        environment=_podman_environment(root, socket_path),
+        timeout=_GATE_TIMEOUT_SECONDS,
+    )
+    return 0
+
+
+def _podman_test_integration(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    return _podman_gate(
+        values,
+        root,
+        runner,
+        operation="podman-test-integration",
+        script="test-integration",
+    )
+
+
+def _podman_test_full_store(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    return _podman_gate(
+        values,
+        root,
+        runner,
+        operation="podman-test-full-store",
+        script="test-integration-full-store",
+    )
+
+
+def _podman_verify(values: list[str], root: Path, runner: CommandRunner) -> int:
+    return _podman_gate(
+        values,
+        root,
+        runner,
+        operation="podman-verify",
+        script="verify",
+    )
+
+
+def _fixed_ports_are_free() -> bool:
+    sockets: list[socket.socket] = []
+    try:
+        for port in (5433, 7888, 7889):
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sockets.append(listener)
+            listener.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        for listener in sockets:
+            listener.close()
+
+
+def _podman_compose_up(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("podman-compose-up accepts no arguments")
+    if not _fixed_ports_are_free():
+        raise AgentReplayInputError(
+            "fixed ports are occupied; Colima must remain untouched"
+        )
+    compose_file = _require_files(root, ("docker-compose.yml",))[0]
+    socket_path = _podman_socket(root, runner)
+    environment = _podman_environment(root, socket_path)
+    compose = [
+        "/opt/homebrew/bin/docker-compose",
+        "--project-name",
+        "ontoprism-podman-poc",
+        "--file",
+        compose_file,
+    ]
+    _capture_required(
+        [*compose, "config"],
+        root,
+        runner,
+        environment=environment,
+        timeout=_COMPOSE_TIMEOUT_SECONDS,
+    )
+    try:
+        _capture_required(
+            [*compose, "up", "--detach", "--wait"],
+            root,
+            runner,
+            environment=environment,
+            timeout=_COMPOSE_TIMEOUT_SECONDS,
+        )
+    except AgentReplayInputError:
+        _capture_required(
+            [*compose, "down"],
+            root,
+            runner,
+            environment=environment,
+            timeout=_COMPOSE_TIMEOUT_SECONDS,
+        )
+        raise
+    return 0
+
+
+def _validate_compose_resource(output: str, *, root: Path, service: str) -> None:
+    expected = {
+        "postgres": ("/var/lib/postgresql/data", "5432/tcp", "5433"),
+        "qlever-ncit": ("/data", "7001/tcp", "7888"),
+        "qlever-uberon": ("/data", "7001/tcp", "7889"),
+    }
+    destination, target_port, host_port = expected[service]
+    try:
+        resource = json.loads(output)[0]
+        labels = resource["Config"]["Labels"]
+        health = resource["State"]["Health"]["Status"]
+        mounts = resource["Mounts"]
+        bindings = resource["NetworkSettings"]["Ports"][target_port]
+        identifier = resource["Id"]
+    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise AgentReplayInputError("invalid compose resource contract") from exc
+    matching_mounts = [
+        mount for mount in mounts if mount.get("Destination") == destination
+    ]
+    mount_source = (
+        matching_mounts[0].get("Source") if len(matching_mounts) == 1 else None
+    )
+    expected_source = root / f"data/{service}"
+    valid_source = isinstance(mount_source, str) and (
+        (
+            service == "postgres"
+            and "ontoprism-podman-poc_ontoprism_pg_data" in mount_source
+        )
+        or (
+            service != "postgres"
+            and Path(mount_source).resolve() == expected_source.resolve()
+        )
+    )
+    if (
+        not isinstance(identifier, str)
+        or re.fullmatch(r"[0-9a-f]{64}", identifier) is None
+        or labels.get("com.docker.compose.project") != "ontoprism-podman-poc"
+        or labels.get("com.docker.compose.service") != service
+        or health != "healthy"
+        or not valid_source
+        or bindings != [{"HostIp": "127.0.0.1", "HostPort": host_port}]
+    ):
+        raise AgentReplayInputError("invalid compose resource contract")
+
+
+def _podman_compose_check(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("podman-compose-check accepts no arguments")
+    socket_path = _podman_socket(root, runner)
+    environment = _podman_environment(root, socket_path)
+    for service in ("postgres", "qlever-ncit", "qlever-uberon"):
+        output = _capture_required(
+            ["/opt/homebrew/bin/docker", "inspect", f"ontoprism-{service}"],
+            root,
+            runner,
+            environment=environment,
+        )
+        _validate_compose_resource(output, root=root, service=service)
+    _capture_required(
+        [
+            "/opt/homebrew/bin/docker",
+            "exec",
+            "ontoprism-postgres",
+            "getent",
+            "hosts",
+            "qlever-ncit",
+            "qlever-uberon",
+        ],
+        root,
+        runner,
+        environment=environment,
+    )
+    return 0
+
+
+def _podman_compose_down(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("podman-compose-down accepts no arguments")
+    compose_file = _require_files(root, ("docker-compose.yml",))[0]
+    socket_path = _podman_socket(root, runner)
+    environment = _podman_environment(root, socket_path)
+    for service in ("postgres", "qlever-ncit", "qlever-uberon"):
+        output = _capture_required(
+            ["/opt/homebrew/bin/docker", "inspect", f"ontoprism-{service}"],
+            root,
+            runner,
+            environment=environment,
+        )
+        try:
+            resource = json.loads(output)[0]
+            labels = resource["Config"]["Labels"]
+            identifier = resource["Id"]
+        except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise AgentReplayInputError("invalid cleanup ownership contract") from exc
+        if (
+            not isinstance(identifier, str)
+            or re.fullmatch(r"[0-9a-f]{64}", identifier) is None
+            or labels.get("com.docker.compose.project") != "ontoprism-podman-poc"
+            or labels.get("com.docker.compose.service") != service
+        ):
+            raise AgentReplayInputError("invalid cleanup ownership contract")
+    _capture_required(
+        [
+            "/opt/homebrew/bin/docker-compose",
+            "--project-name",
+            "ontoprism-podman-poc",
+            "--file",
+            compose_file,
+            "down",
+        ],
+        root,
+        runner,
+        environment=environment,
+        timeout=_COMPOSE_TIMEOUT_SECONDS,
+    )
+    return 0
+
+
 _OPERATIONS: dict[str, Operation] = {
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
@@ -722,6 +1081,14 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-r103-review": _generate_r103_review,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "diagnose-stack": _diagnose_stack,
+    "inspect-podman": _inspect_podman,
+    "check-podman-api": _check_podman_api,
+    "podman-test-integration": _podman_test_integration,
+    "podman-test-full-store": _podman_test_full_store,
+    "podman-verify": _podman_verify,
+    "podman-compose-up": _podman_compose_up,
+    "podman-compose-check": _podman_compose_check,
+    "podman-compose-down": _podman_compose_down,
 }
 
 
