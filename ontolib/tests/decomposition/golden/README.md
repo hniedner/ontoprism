@@ -121,9 +121,11 @@ The three withdrawn expectations are pinned by the baseline test
 | Stage I Differentiated Thyroid Gland Carcinoma Under 45 Years AJCC v7 (`C101539`) | `op:AssociatedRegion` Head and Neck (`C12418`) | candidate, excluded |
 | Left Atrial Myxoma (`C4791`) | `op:AssociatedRegion` Heart (`C12727`) | candidate, excluded |
 
-The last row does not make Heart (`C12727`) the primary site. The adjudicated primary site for
-Left Atrial Myxoma (`C4791`) is Left Atrium (`C12869`); Endocardium (`C13004`) is retained as
-tissue evidence, not described as an anatomical region.
+The last row records that Heart (`C12727`) as `op:AssociatedRegion` was withdrawn; it does not
+make Heart the primary site. The adjudicated primary site for Left Atrial Myxoma (`C4791`) is
+Left Atrium (`C12869`). Endocardium (`C13004`) is tissue rather than the primary site and is
+retained on both `op:AssociatedRegion` and `op:AssociatedSite` because D23 permits the same
+anatomy on multiple axes.
 
 Blanking those three `expected` fields leaves the cross-tab unchanged but removes the recorded
 withdrawal evidence; the test above pins the evidence relation. The unchanged cross-tab and the

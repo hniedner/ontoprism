@@ -453,6 +453,18 @@ def test_three_withdrawn_expectations_sit_outside_the_oracle(
 
 
 @pytest.mark.unit
+def test_readme_preserves_c4791_withdrawal_and_describes_retained_anatomy() -> None:
+    readme = " ".join((_GOLDEN / "README.md").read_text(encoding="utf-8").split())
+
+    assert "Heart (`C12727`) as `op:AssociatedRegion` was withdrawn" in readme
+    assert "Endocardium (`C13004`) is tissue rather than the primary site" in readme
+    assert (
+        "retained on both `op:AssociatedRegion` and `op:AssociatedSite` because D23 "
+        "permits the same anatomy on multiple axes"
+    ) in readme
+
+
+@pytest.mark.unit
 def test_row_decisions_name_the_run_and_source_the_oracle_names(
     m1_row_decisions: RowDecisionExport,
     m1_artifact: AdjudicationArtifact,
