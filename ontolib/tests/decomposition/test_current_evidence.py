@@ -251,6 +251,40 @@ def test_current_constituent_preserves_and_validates_source_fact_citations() -> 
             source_occurrence_ids=(occurrence.occurrence_id,),
             source_occurrences=(occurrence,),
         )
+    with pytest.raises(ValueError, match="require source definition"):
+        CurrentConstituent(
+            axis="op:PrimarySite",
+            filler="C12400",
+            relationship_group=None,
+            needs_review=False,
+            source_definition_ids=(),
+            source_occurrence_ids=(occurrence.occurrence_id,),
+            source_occurrences=(occurrence,),
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("axis", "filler"),
+    [
+        ("PrimarySite", "C12400"),
+        ("op:PrimarySite!", "C12400"),
+        ("op:PrimarySite", "bad"),
+    ],
+)
+def test_current_constituent_rejects_malformed_axis_or_filler(
+    axis: str, filler: str
+) -> None:
+    with pytest.raises(ValueError, match="String should match pattern"):
+        CurrentConstituent(
+            axis=axis,
+            filler=filler,
+            relationship_group=None,
+            needs_review=False,
+            source_definition_ids=(),
+            source_occurrence_ids=(),
+            source_occurrences=(),
+        )
 
 
 @pytest.mark.unit

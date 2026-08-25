@@ -21,7 +21,8 @@ _SPARQL_TOKEN = re.compile(
     re.IGNORECASE,
 )
 _STATIC_SQL = re.compile(
-    r"\b(?:FROM|JOIN|UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+[a-z_][a-z0-9_.]*",
+    r"\b(?:FROM(?!\s+NAMED\b)|JOIN|UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+"
+    r"[a-z_][a-z0-9_.]*",
     re.IGNORECASE,
 )
 _TRANSPORT_METHODS = frozenset(

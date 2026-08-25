@@ -64,6 +64,20 @@ def test_inventory_ignores_static_sql_and_mapping_update(tmp_path: Path) -> None
 
 
 @pytest.mark.unit
+def test_inventory_does_not_mistake_from_named_sparql_for_sql(tmp_path: Path) -> None:
+    source = tmp_path / "scripts" / "named_graph.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "def query():\n"
+        "    return 'SELECT ?s FROM NAMED <urn:graph> "
+        "WHERE { GRAPH ?g { ?s ?p ?o } }'\n",
+        encoding="utf-8",
+    )
+
+    assert summarize_sparql_inventory(tmp_path)["query_shape_count"] == 1
+
+
+@pytest.mark.unit
 def test_inventory_detects_typed_sparql_transport_not_dict_update(
     tmp_path: Path,
 ) -> None:

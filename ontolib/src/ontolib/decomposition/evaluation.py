@@ -15,6 +15,34 @@ type PairPartition = tuple[PartitionBlock, ...]
 _MIN_COMMON_PAIR_COUNT = 2
 
 
+def _partition_pairs(partition: PairPartition) -> set[EvaluationPair]:
+    return {pair for block in partition for pair in block}
+
+
+def _validate_shared_pair_count(comparison: PartitionComparison) -> None:
+    expected_pairs = _partition_pairs(comparison.expected_partition)
+    actual_pairs = _partition_pairs(comparison.actual_partition)
+    if comparison.shared_pair_count != len(expected_pairs & actual_pairs):
+        raise ValueError("shared pair count does not match partitions")
+
+
+def _validate_eligibility_shape(comparison: PartitionComparison) -> None:
+    if comparison.eligible:
+        if comparison.agrees is None or comparison.ineligibility_reason is not None:
+            raise ValueError("eligible comparison has inconsistent fields")
+        return
+    reasons = {0: "zero-shared-pairs", 1: "one-shared-pair"}
+    if comparison.agrees is not None or comparison.ineligibility_reason != reasons.get(
+        comparison.shared_pair_count
+    ):
+        raise ValueError("ineligible comparison has inconsistent fields")
+
+
+def _validate_diagnosis_shape(comparison: PartitionComparison) -> None:
+    if comparison.agrees is not False and comparison.primary_diagnosis is not None:
+        raise ValueError("partition diagnosis requires a disagreement")
+
+
 class EvaluationMetricName(StrEnum):
     """Independent views reported by decomposition evaluations."""
 
@@ -56,6 +84,11 @@ class PartitionComparison:
     shared_pair_count: int
     ineligibility_reason: Literal["zero-shared-pairs", "one-shared-pair"] | None
     primary_diagnosis: PartitionDiagnosis | None
+
+    def __post_init__(self) -> None:
+        _validate_shared_pair_count(self)
+        _validate_eligibility_shape(self)
+        _validate_diagnosis_shape(self)
 
 
 @dataclass(frozen=True, slots=True)

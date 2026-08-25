@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the fixed, source-bound M1.6 current replay commands without a shell."""
+"""Run declared source-bound M1.6 replay and diagnostic commands without a shell."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ _SECRET_VALUE = re.compile(
 )
 _URL_CREDENTIALS = re.compile(r"(https?://[^\s:/]+:)[^@\s]+(@)")
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-_COLIMA_CONFIG_PATH = Path("/Users/hannes/.colima/default/colima.yaml")
 _COLIMA_CONFIG_FIELDS = (
     "portForwarder",
     "vmType",
@@ -157,8 +156,15 @@ class CommandResult(Protocol):
     returncode: int
 
 
+class CapturedCommandResult(CommandResult, Protocol):
+    stdout: str | bytes | None
+    stderr: str | bytes | None
+
+
 class CommandRunner(Protocol):
-    def __call__(self, arguments: list[str], **kwargs: object) -> CommandResult: ...
+    def __call__(
+        self, arguments: list[str], **kwargs: object
+    ) -> CommandResult | CapturedCommandResult: ...
 
 
 class Operation(Protocol):
@@ -268,8 +274,9 @@ def _collect_diagnostic_command(
         print(f"collection-error: {_bounded_sanitized(exc)}")
         return False
     print(f"exit-code: {result.returncode}")
-    stdout = _bounded_sanitized(getattr(result, "stdout", ""))
-    stderr = _bounded_sanitized(getattr(result, "stderr", ""))
+    captured = cast("CapturedCommandResult", result)
+    stdout = _bounded_sanitized(captured.stdout)
+    stderr = _bounded_sanitized(captured.stderr)
     if stdout:
         print("stdout:")
         print(stdout)
@@ -307,7 +314,9 @@ def _colima_config_value_error(parsed: object) -> str | None:
 def _report_colima_config() -> None:
     print("\n=== Colima config (allowlisted fields) ===")
     try:
-        source = _COLIMA_CONFIG_PATH.read_text(encoding="utf-8")
+        source = (Path.home() / ".colima/default/colima.yaml").read_text(
+            encoding="utf-8"
+        )
     except (OSError, UnicodeError):
         print("colima-config-error: unable to read authorized config")
         return

@@ -23,6 +23,7 @@ from ontolib.decomposition.evaluation import (
     compare_full_partition,
     grouping_difference_pairs,
 )
+from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
 from ontolib.decomposition.proposal_registry import (
     ProposalRegistry,
     load_proposal_registry,
@@ -114,8 +115,8 @@ class CurrentSourceOccurrence(_StrictModel):
 
 
 class CurrentConstituent(_StrictModel):
-    axis: str
-    filler: str
+    axis: str = Field(pattern=r"^op:[A-Za-z][A-Za-z0-9]*$")
+    filler: str = Field(pattern=r"^(?:C[0-9]+|MINT-[0-9a-f]+)$")
     relationship_group: str | None
     needs_review: bool
     source_definition_ids: tuple[str, ...] = Field(
@@ -127,7 +128,11 @@ class CurrentConstituent(_StrictModel):
     @property
     def provenance_status(self) -> Literal["ncit-26.07d", "proposed"]:
         """Derive the typed scoreability status from the validated filler identity."""
-        return "ncit-26.07d" if self.filler.startswith("C") else "proposed"
+        return (
+            "ncit-26.07d"
+            if re.fullmatch(r"C[0-9]+", self.filler) is not None
+            else "proposed"
+        )
 
     @model_validator(mode="after")
     def _citations_match_selected_ids(self) -> Self:
@@ -142,6 +147,8 @@ class CurrentConstituent(_StrictModel):
         cited = tuple(item.occurrence_id for item in self.source_occurrences)
         if cited != self.source_occurrence_ids:
             raise ValueError("source occurrence citations do not match selected IDs")
+        if self.source_occurrences and not self.source_definition_ids:
+            raise ValueError("source occurrences require source definition citations")
         occurrence_fact_ids = {item.source_fact_id for item in self.source_occurrences}
         if self.source_definition_ids and not occurrence_fact_ids <= set(
             self.source_definition_ids
@@ -152,7 +159,7 @@ class CurrentConstituent(_StrictModel):
 
 class CurrentConceptEvidence(_StrictModel):
     code: str = Field(pattern=r"^C[0-9]+$")
-    outcome: str
+    outcome: ConceptOutcome
     semantic_types: tuple[str, ...]
     all_source_occurrences: tuple[CurrentSourceOccurrence, ...]
     constituents: tuple[CurrentConstituent, ...]

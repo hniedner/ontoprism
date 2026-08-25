@@ -1323,20 +1323,21 @@ async def test_precoordinated_fillers_reraises_with_context_on_detection_error(
 
 
 @pytest.mark.unit
-async def test_precoordinated_fillers_excludes_typed_unsupported_definitions(
+async def test_precoordinated_fillers_fail_closed_on_unsupported_definitions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    error = UnsupportedDefinitionConstructorError("unsupported owl:unionOf member")
+
     async def unsupported(*_args: object, **_kwargs: object) -> object:
-        raise UnsupportedDefinitionConstructorError("unsupported owl:unionOf member")
+        raise error
 
     monkeypatch.setattr(run_module, "_detect_concept", unsupported)
 
-    assert (
+    with pytest.raises(UnsupportedDefinitionConstructorError) as raised:
         await _precoordinated_fillers(
             [_decomp("C1", "C9099")], MagicMock(), None, walker_max_depth=5
         )
-        == set()
-    )
+    assert raised.value is error
 
 
 @pytest.mark.unit

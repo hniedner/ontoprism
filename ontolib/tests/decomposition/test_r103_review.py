@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
+from defusedxml import ElementTree as DefusedET
 from openpyxl import load_workbook
 from scripts.adjudication import _parser
 
+from ontolib.decomposition import r103_review
 from ontolib.decomposition.proposal_registry import load_proposal_registry
 from ontolib.decomposition.r103_review import (
     R103ReviewValidationError,
@@ -68,6 +71,21 @@ def _class(
         f'<owl:Class rdf:about="{NCIT}{code}">{equivalent}'
         f"<P97>{definition}</P97><rdfs:label>{label}</rdfs:label></owl:Class>"
     )
+
+
+@pytest.mark.unit
+def test_definition_parser_ignores_subclass_intersection_without_equivalent_class() -> (
+    None
+):
+    element = DefusedET.fromstring(
+        f'<owl:Class xmlns:rdf="{RDF}" xmlns:rdfs="{RDFS}" xmlns:owl="{OWL}" '
+        f'rdf:about="{NCIT}C2860"><rdfs:subClassOf><owl:Class>'
+        '<owl:intersectionOf rdf:parseType="Collection">'
+        f'<rdf:Description rdf:about="{NCIT}C7617"/>'
+        "</owl:intersectionOf></owl:Class></rdfs:subClassOf></owl:Class>"
+    )
+
+    assert r103_review._definition_from_class("C2860", element) is None
 
 
 @pytest.fixture
@@ -360,6 +378,22 @@ def test_import_binds_exact_decisions_and_preserves_narrow_exclusion(
         "source_release": "26.07d",
     }
     assert registry.proposal_preview[0].lifecycle == "proposed"
+
+
+@pytest.mark.unit
+def test_import_normalizes_excel_datetime_to_iso_date(packet, tmp_path: Path) -> None:
+    workbook = tmp_path / "reviewed.xlsx"
+    _reviewed(packet, workbook)
+    book = load_workbook(workbook)
+    headers = {cell.value: cast("int", cell.column) for cell in book["R103 Review"][1]}
+    book["R103 Review"].cell(2, headers["Date"], datetime(2099, 1, 2, 13, 45))
+    book.save(workbook)
+
+    registry = import_r103_review_decisions(
+        packet, workbook, tmp_path / "registry.json"
+    )
+
+    assert registry.decisions[0].review_date == "2099-01-02"
 
 
 @pytest.mark.unit

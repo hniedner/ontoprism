@@ -126,6 +126,20 @@ def test_inventory_refresh_uses_only_the_repository_generator(tmp_path: Path) ->
 
 
 @pytest.mark.unit
+def test_colima_config_is_resolved_from_the_current_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / ".colima/default/colima.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("cpu: 7\n", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner())
+
+    assert "cpu: 7" in capsys.readouterr().out
+
+
+@pytest.mark.unit
 def test_diagnose_stack_runs_only_fixed_bounded_read_only_commands(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

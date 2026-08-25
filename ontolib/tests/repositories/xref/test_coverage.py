@@ -137,6 +137,41 @@ def test_cde_anchor_map_accepts_file_uri(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"anchors_in_roles": 0, "anchors_new": 0},
+        {
+            "anchors_identity_mapped": 0,
+            "anchors_close_only": 0,
+            "anchors_unmapped": 0,
+        },
+    ],
+)
+def test_coverage_report_rejects_every_partition_invariant(
+    changes: dict[str, int],
+) -> None:
+    values = {
+        "n_cdes": 1,
+        "single_code_cdes": 1,
+        "post_coordinated_cdes": 0,
+        "distinct_anchors": 1,
+        "live": 1,
+        "unresolved": 0,
+        "anchors_in_roles": 1,
+        "anchors_new": 0,
+        "anchors_identity_mapped": 1,
+        "anchors_close_only": 0,
+        "anchors_unmapped": 0,
+        "cde_coverage": 1.0,
+    }
+    values.update(changes)
+
+    with pytest.raises(ValueError, match="Invariant"):
+        CoverageReport.model_validate(values)
+
+
+@pytest.mark.unit
 def test_all_anchors_live_and_identity_mapped() -> None:
     anchor_map = {
         ("100", "1.0"): CdeAnchors(

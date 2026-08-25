@@ -148,6 +148,10 @@ ORCHESTRATOR_BASH_ALLOWS = (
     "pdm run validate-opencode-runtime",
     "gh pr merge * --squash --delete-branch --subject *",
 )
+ORCHESTRATOR_MERGE_DENIES = tuple(
+    f"gh pr merge * --squash --delete-branch --subject * {suffix}*"
+    for suffix in ("--admin", "--auto", "--queue", "--bypass")
+)
 ORCHESTRATOR_BASH_ALLOWS += (
     *SAFE_WORKTREE_DIFF,
     "pdm run agent-test *",
@@ -763,6 +767,7 @@ def validate_standard_permissions(
             "gh pr create": "deny",
             "gh pr create*": "deny",
             "gh pr merge * --squash --delete-branch --subject *": "allow",
+            **dict.fromkeys(ORCHESTRATOR_MERGE_DENIES, "deny"),
             "npm publish": "deny",
             "npm publish*": "deny",
             "pdm publish": "deny",

@@ -185,7 +185,7 @@ pdm run test-smoke           # frontend vitest via npm
   `main` pushes only). Everything else is covered locally.
 
 - **Single test / focused run**: use the repository's safe wrapper —
-  `pdm run agent-test ontolib/tests/path/test_x.py::test_name -v`. Never invoke raw
+  `pdm run agent-test ontolib/tests/path/test_x.py::test_name -v`. Agents must never invoke raw
   `pdm run pytest` or `python -m pytest`: the wrapper constrains paths, flags, markers,
   environment, and subprocess execution, while the module form also prepends the repo
   root to `sys.path`, where the outer `ontolib/`/`backend/` dirs shadow the editable

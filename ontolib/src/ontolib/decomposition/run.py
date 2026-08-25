@@ -678,8 +678,6 @@ async def _is_precoordinated_filler(
             label=label,
             walker_max_depth=walker_max_depth,
         )
-    except complete_definition.UnsupportedDefinitionConstructorError:
-        return False
     except Exception:
         logger.exception(
             "residual-precoordination detection failed for filler_code=%s", filler

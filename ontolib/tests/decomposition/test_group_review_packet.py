@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -570,6 +571,55 @@ def test_import_closes_decisions_and_dry_run_reports_deferred_without_writes(
     assert result.affected_concepts
     assert result.affected_groups
     assert result.affected_traces
+
+
+@pytest.mark.unit
+def test_import_normalizes_excel_datetime_to_iso_date(tmp_path: Path) -> None:
+    packet, path, headers = _filled_workbook(tmp_path)
+    book = load_workbook(path)
+    book["Group Review"].cell(2, headers["Date"], datetime(2099, 1, 2, 13, 45))
+    book.save(path)
+
+    registry = group_review.import_group_review_decisions(
+        packet, path, tmp_path / "decisions.json"
+    )
+
+    assert registry.decisions[0].review_date == "2099-01-02"
+
+
+@pytest.mark.unit
+def test_macro_archive_check_is_case_insensitive(tmp_path: Path) -> None:
+    packet, path, _headers = _filled_workbook(tmp_path)
+    with ZipFile(path, "a", ZIP_DEFLATED) as archive:
+        archive.writestr("XL/VBAPROJECT.BIN", b"TEST")
+
+    with pytest.raises(ValueError, match="macro"):
+        group_review.import_group_review_decisions(
+            packet, path, tmp_path / "must-not-exist.json"
+        )
+
+
+@pytest.mark.unit
+def test_group_concept_rejects_stored_common_pair_flags_that_drift() -> None:
+    concept = _review_boundary().concepts[0]
+    payload = concept.model_dump(mode="python")
+    payload["common_pair_eligible"] = not concept.common_pair_eligible
+
+    with pytest.raises(ValidationError, match="common-pair"):
+        group_review.GroupReviewConcept.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_rule_evidence_rejects_kind_specific_evidence_drift() -> None:
+    row = next(item for item in _review_boundary().rule_evidence if item.r82_path)
+    payload = row.model_dump(mode="python")
+    payload["kind"] = "routing"
+    payload["row_identity"] = group_review._identity(
+        {key: value for key, value in payload.items() if key != "row_identity"}
+    )
+
+    with pytest.raises(ValidationError, match="R82 path"):
+        group_review.RuleEvidenceRow.model_validate(payload)
 
 
 @pytest.mark.unit

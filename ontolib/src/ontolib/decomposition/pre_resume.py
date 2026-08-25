@@ -522,7 +522,7 @@ def affected_missing_p106(
 def semantic_dependency_identity(
     root: Path, dependencies: tuple[Path, ...] = SEMANTIC_DEPENDENCIES
 ) -> tuple[str, dict[str, str]]:
-    """Bind the raw bytes of every output-affecting semantic dependency."""
+    """Bind the raw bytes of the fixed semantic-dependency declaration."""
     identities = {
         path.as_posix(): _sha256((root / path).read_bytes())
         for path in sorted(dependencies)
@@ -544,7 +544,7 @@ def site_table_identity(
 
 
 def query_validator_identity() -> str:
-    """Bind every SQL/SPARQL builder and reachability validator used here."""
+    """Bind the fixed SQL/SPARQL builder and validator symbol declaration."""
     symbols = {
         "acquire_candidate_evidence": acquire_candidate_evidence,
         "affected_missing_p106": affected_missing_p106,

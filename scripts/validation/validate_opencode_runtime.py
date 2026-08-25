@@ -221,6 +221,15 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
             ),
             ("gh pr merge 123", "deny"),
             ("gh pr merge 123 --admin", "deny"),
+            (
+                "gh pr merge 123 --squash --delete-branch --subject "
+                "fix:example --admin",
+                "deny",
+            ),
+            (
+                "gh pr merge 123 --squash --delete-branch --subject fix:example --auto",
+                "deny",
+            ),
             ("touch forbidden", "deny"),
         )
     if name in READ_ONLY_ROLES:

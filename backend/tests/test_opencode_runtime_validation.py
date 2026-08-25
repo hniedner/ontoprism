@@ -547,6 +547,14 @@ def test_orchestrator_contract_allows_only_fixed_inspection_commands(
     assert effective_action(rules, command) == expected
 
 
+@pytest.mark.parametrize("suffix", ["--admin", "--auto", "--queue", "--bypass"])
+def test_orchestrator_merge_contract_rejects_dangerous_suffixes(suffix: str) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")
+    command = "gh pr merge 123 --squash --delete-branch --subject fix:example " + suffix
+
+    assert effective_action(rules, command) == "deny"
+
+
 @pytest.mark.parametrize(
     ("command", "expected"),
     [

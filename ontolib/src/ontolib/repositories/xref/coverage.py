@@ -72,7 +72,6 @@ class CoverageReport(BaseModel):
                 f"!= distinct_anchors ({self.distinct_anchors})"
             )
             raise ValueError(msg)
-        return self
         if self.anchors_in_roles + self.anchors_new != self.distinct_anchors:
             msg = (
                 f"Invariant: anchors_in_roles ({self.anchors_in_roles}) + "
@@ -93,6 +92,7 @@ class CoverageReport(BaseModel):
                 f"!= distinct_anchors ({self.distinct_anchors})"
             )
             raise ValueError(msg)
+        return self
 
     def as_dict(self) -> dict[str, float | int]:
         return self.model_dump(mode="json")

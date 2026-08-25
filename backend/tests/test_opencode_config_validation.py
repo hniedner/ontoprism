@@ -56,6 +56,22 @@ def test_checked_out_opencode_configuration_is_valid(config_root: Path) -> None:
     assert validate(config_root) == []
 
 
+@pytest.mark.parametrize("suffix", ["admin", "auto", "queue", "bypass"])
+def test_orchestrator_requires_dangerous_merge_suffix_denies(
+    config_root: Path, suffix: str
+) -> None:
+    relative = ".opencode/agent/ontoprism-team.md"
+    rule = (
+        f'    "gh pr merge * --squash --delete-branch --subject * --{suffix}*": deny\n'
+    )
+    replace(config_root, relative, rule, "")
+
+    assert any(
+        f"gh pr merge * --squash --delete-branch --subject * --{suffix}*" in error
+        for error in validate(config_root)
+    )
+
+
 def test_fallback_plugin_reintroduction_is_rejected(config_root: Path) -> None:
     update_root_config(
         config_root,

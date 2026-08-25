@@ -6,6 +6,7 @@ import pytest
 
 from ontolib.decomposition.evaluation import (
     M1_6_METRIC_CONTRACTS,
+    PartitionComparison,
     PartitionDiagnosis,
     compare_common_pair_partition,
     compare_full_partition,
@@ -194,3 +195,18 @@ def test_common_pair_partition_reports_ineligible_denominators(
     assert comparison.ineligibility_reason == reason
     assert comparison.shared_pair_count == shared_count
     assert comparison.primary_diagnosis is None
+
+
+def test_partition_comparison_constructor_rejects_correlated_field_drift() -> None:
+    with pytest.raises(ValueError, match="ineligible"):
+        PartitionComparison(
+            eligible=False,
+            agrees=True,
+            expected_partition=((("a", "1"),),),
+            actual_partition=((("a", "1"),),),
+            missing_pairs=(),
+            extra_pairs=(),
+            shared_pair_count=1,
+            ineligibility_reason="one-shared-pair",
+            primary_diagnosis=None,
+        )

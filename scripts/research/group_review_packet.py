@@ -24,10 +24,12 @@ from pydantic import Field, model_validator
 from ontolib.common.boundary_models import StrictFrozenBoundaryModel
 from ontolib.decomposition.evaluation import (
     PartitionComparison,
+    PartitionDiagnosis,
     compare_common_pair_partition,
     compare_full_partition,
     grouping_difference_pairs,
 )
+from ontolib.decomposition.models import ConceptOutcome  # noqa: TC001
 from ontolib.decomposition.r101_conservation import R82PathEdge, R101ConservationReport
 
 try:
@@ -107,7 +109,7 @@ class ControlConcept(StrictFrozenBoundaryModel):
 
 class ReviewCohort(StrictFrozenBoundaryModel):
     accepted_concept_count: int = Field(gt=0)
-    outcome_counts: dict[str, int]
+    outcome_counts: dict[ConceptOutcome, int]
     decomposed_codes: tuple[str, ...]
     controls: tuple[ControlConcept, ...]
     full_disagreement_codes: tuple[str, ...]
@@ -235,6 +237,13 @@ class TransformationRuleCatalogEntry(StrictFrozenBoundaryModel):
     kind: RuleKind
     evidence_status: Literal["derived", "derived-with-explicit-limitation"]
 
+    @model_validator(mode="after")
+    def _limitation_matches_kind(self) -> Self:
+        limited = self.kind == "reviewed-regrouping"
+        if limited != (self.evidence_status == "derived-with-explicit-limitation"):
+            raise ValueError("transformation evidence limitation differs from kind")
+        return self
+
 
 class ReviewBoundary(StrictFrozenBoundaryModel):
     status: Literal["human-review-pending"]
@@ -267,6 +276,17 @@ class RuleEvidenceRow(StrictFrozenBoundaryModel):
         expected = _identity(self.model_dump(mode="json", exclude={"row_identity"}))
         if self.row_identity != expected:
             raise ValueError("rule evidence row identity differs")
+        if self.r82_path and self.kind != "specificity-collapse":
+            raise ValueError(
+                "R82 path must occur only for specificity-collapse evidence"
+            )
+        expected_limitation = (
+            "historical expected partition has no source citations"
+            if self.kind == "reviewed-regrouping"
+            else None
+        )
+        if self.machine_evidence_limitation != expected_limitation:
+            raise ValueError("rule evidence limitation differs from kind")
         return self
 
 
@@ -311,6 +331,11 @@ class GroupReviewConcept(StrictFrozenBoundaryModel):
             or full.extra_pairs != self.pair_delta.extra_pairs
         ):
             raise ValueError("pair delta does not match normalized partitions")
+        if (
+            self.common_pair_eligible != common.eligible
+            or self.common_pair_agrees != common.agrees
+        ):
+            raise ValueError("common-pair fields do not match normalized partitions")
         expected_kind, affected = _grouping_diagnosis(common)
         if (self.grouping_diagnosis.kind, self.grouping_diagnosis.affected_pairs) != (
             expected_kind,
@@ -412,7 +437,7 @@ def _grouping_diagnosis(
         if typed is None:
             raise ValueError("disagreeing eligible partition lacks a diagnosis")
         return typed.diagnosis.value, affected
-    return comparison.primary_diagnosis.value, affected  # type: ignore[union-attr]
+    return cast("PartitionDiagnosis", diagnosis).value, affected
 
 
 def diagnose_grouping(expected: Partition, actual: Partition) -> GroupingDiagnosis:
@@ -850,8 +875,11 @@ def build_group_review_packet(
         "current_metrics": comparison.metrics,
         "cohort": ReviewCohort(
             accepted_concept_count=len(comparison.concepts),
-            outcome_counts=dict(
-                sorted(Counter(item.outcome for item in evidence.concepts).items())
+            outcome_counts=cast(
+                "dict[ConceptOutcome, int]",
+                dict(
+                    sorted(Counter(item.outcome for item in evidence.concepts).items())
+                ),
             ),
             decomposed_codes=tuple(
                 item.code for item in evidence.concepts if item.outcome == "decomposed"
@@ -1278,7 +1306,7 @@ def write_group_review_workbook(path: Path, packet: GroupReviewPacket) -> None:
 def _reject_unsafe_workbook(path: Path) -> None:
     with ZipFile(path) as archive:
         names = archive.namelist()
-        if any(name.endswith("vbaProject.bin") for name in names):
+        if any(name.casefold().endswith("vbaproject.bin") for name in names):
             raise ValueError("review workbook contains a macro")
         if any(name.startswith("xl/externalLinks/") for name in names):
             raise ValueError("review workbook contains an external link")
@@ -1397,10 +1425,7 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
         rationale = str(values[1]).strip()
         if rationale in machine_text:
             raise ValueError("machine-generated text cannot be reviewer rationale")
-        raw_date = values[3]
-        review_date = (
-            raw_date.isoformat() if isinstance(raw_date, date) else str(raw_date)
-        )
+        review_date = _normalize_review_date(values[3])
         decisions.append(
             GroupDecision(
                 review_row_identity=expected.row_identity,
@@ -1424,6 +1449,22 @@ def import_group_review_decisions(  # noqa: C901, PLR0912
     registry = GroupDecisionRegistry(**payload, registry_identity=_identity(payload))
     _write_json(output, registry.model_dump(mode="json"))
     return registry
+
+
+def _normalize_review_date(value: object) -> str:
+    normalized = (
+        value.date().isoformat()
+        if isinstance(value, datetime)
+        else value.isoformat()
+        if isinstance(value, date)
+        else str(value).strip()
+    )
+    try:
+        if date.fromisoformat(normalized).isoformat() != normalized:
+            raise ValueError
+    except ValueError as error:
+        raise ValueError("review date is not an ISO date") from error
+    return normalized
 
 
 def dry_run_group_review_decisions(
@@ -1481,28 +1522,6 @@ def dry_run_group_review_decisions(
     )
 
 
-def _write_packet(path: Path, packet: GroupReviewPacket) -> None:
-    payload = (
-        json.dumps(
-            packet.model_dump(mode="json"),
-            indent=2,
-            sort_keys=True,
-            ensure_ascii=True,
-        ).encode()
-        + b"\n"
-    )
-    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
-
-
 def _write_json(path: Path, value: object) -> None:
     payload = (
         json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True).encode() + b"\n"
@@ -1545,7 +1564,7 @@ def generate_group_review_packet(
             gzip.decompress(r101_report_path.read_bytes())
         ),
     )
-    _write_packet(output, packet)
+    _write_json(output, packet.model_dump(mode="json"))
     if load_group_review_packet(output) != packet:
         raise ValueError("persisted group review packet did not round trip")
     return packet

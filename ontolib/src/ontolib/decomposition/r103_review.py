@@ -36,6 +36,7 @@ _OWL = "http://www.w3.org/2002/07/owl#"
 _ABOUT = f"{{{_RDF}}}about"
 _RESOURCE = f"{{{_RDF}}}resource"
 _CLASS = f"{{{_OWL}}}Class"
+_EQUIVALENT = f"{{{_OWL}}}equivalentClass"
 _INTERSECTION = f"{{{_OWL}}}intersectionOf"
 _RESTRICTION = f"{{{_OWL}}}Restriction"
 _ON_PROPERTY = f"{{{_OWL}}}onProperty"
@@ -135,15 +136,6 @@ def _load_json(path: Path) -> object:
         )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise R103ReviewValidationError("invalid JSON evidence") from error
-
-
-class SourceMember(_StrictModel):
-    kind: Literal["genus", "restriction"]
-    member_position: int = Field(ge=0)
-    genus_code: str | None = Field(default=None, pattern=_CODE)
-    role_code: str | None = Field(default=None, pattern=_ROLE)
-    filler_code: str | None = Field(default=None, pattern=_CODE)
-    source_fact_identity: str = Field(pattern=_SHA256)
 
 
 class CoassertedFact(_StrictModel):
@@ -289,9 +281,9 @@ def _code(iri: str | None, pattern: str, description: str) -> str:
     return value
 
 
-def _definition_from_class(code: str, element: object) -> _Definition | None:
+def _definition_from_class(code: str, element: Any) -> _Definition | None:
     # ElementTree's runtime element API is intentionally used without retaining nodes.
-    intersections = list(element.iter(_INTERSECTION))  # type: ignore[attr-defined]
+    intersections = list(element.findall(f"./{_EQUIVALENT}/{_CLASS}/{_INTERSECTION}"))
     if not intersections:
         return None
     if len(intersections) != 1:
@@ -511,7 +503,9 @@ def _restriction_position(definition: _Definition, role: str, filler: str) -> in
     return positions[0]
 
 
-def _current_state(subject: str, role: str, filler: str) -> str:
+def _current_state(
+    subject: str, role: str, filler: str
+) -> Literal["projected", "suppressed", "review-required"]:
     if is_unsupported_filler(subject, role, filler):
         return "review-required"
     if is_generic_filler(role, filler):
@@ -1147,17 +1141,28 @@ def _human_values(review: Any, row_number: int) -> tuple[str, str, str, str]:
     values = tuple(
         review.cell(row_number, column).value for column in range(start, start + 4)
     )
-    outcome, rationale, reviewer, review_date = _required_human_strings(values)
+    outcome, rationale, reviewer = _required_human_strings(values[:3])
+    review_date = _review_date(values[3])
     if outcome not in _OUTCOMES:
         raise R103ReviewValidationError("outcome is not a closed outcome")
     _validate_iso_date(review_date)
     return outcome, rationale, reviewer, review_date
 
 
-def _required_human_strings(values: tuple[object, ...]) -> tuple[str, str, str, str]:
+def _required_human_strings(values: tuple[object, ...]) -> tuple[str, str, str]:
     if any(not isinstance(value, str) or not value.strip() for value in values):
         raise R103ReviewValidationError("required human field is blank")
-    return cast("tuple[str, str, str, str]", values)
+    return cast("tuple[str, str, str]", values)
+
+
+def _review_date(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if not isinstance(value, str) or not value.strip():
+        raise R103ReviewValidationError("required human field is blank")
+    return value.strip()
 
 
 def _validate_iso_date(review_date: str) -> None:
@@ -1306,7 +1311,7 @@ def import_r103_review_decisions(
 
 class R103ReviewDryRun(_StrictModel):
     writes_performed: Literal[False]
-    outcome_counts: dict[str, int]
+    outcome_counts: dict[R103Outcome, int]
     proposal_previews: tuple[CorrectionProposalPreview, ...]
     exclusion_previews: tuple[ConceptScopedExclusionPreview, ...]
     unresolved: int = Field(ge=0)
