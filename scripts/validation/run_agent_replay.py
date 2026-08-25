@@ -671,6 +671,180 @@ def _generate_r103_review(values: list[str], root: Path, runner: CommandRunner) 
     )
 
 
+def _validate_r101_current(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("validate-r101-current accepts no arguments")
+    script, report, packet, registry = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+            "tmp/r101-review-packet-v3.json",
+            "tmp/r101-review-registry-v3-SME.json",
+        ),
+    )
+    return _run(
+        [
+            sys.executable,
+            script,
+            "dry-run-r101-decision-expansion",
+            "--report",
+            report,
+            "--packet",
+            packet,
+            "--registry",
+            registry,
+            "--output",
+            str(root / "tmp/r101-review-current-validation.json"),
+        ],
+        root,
+        runner,
+    )
+
+
+def _regenerate_r101_current_packet(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "regenerate-r101-current-packet accepts no arguments"
+        )
+    script, report, source = _require_files(
+        root,
+        (
+            "scripts/adjudication.py",
+            "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        ),
+    )
+    return _run(
+        [
+            sys.executable,
+            script,
+            "prepare-r101-review-packet",
+            "--report",
+            report,
+            "--source-manifest",
+            source,
+            "--endpoint",
+            "http://localhost:7888",
+            "--output-packet",
+            str(root / "tmp/r101-review-packet-current.json"),
+            "--output-xlsx",
+            str(root / "tmp/r101-review-workbook-current.xlsx"),
+        ],
+        root,
+        runner,
+    )
+
+
+def _report_r101_current_reuse(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError("report-r101-current-reuse accepts no arguments")
+    report, existing, current, registry = _require_files(
+        root,
+        (
+            "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+            "tmp/r101-review-packet-v3.json",
+            "tmp/r101-review-packet-current.json",
+            "tmp/r101-review-registry-v3-SME.json",
+        ),
+    )
+    generate = importlib.import_module(
+        "scripts.research.pre_sme_readiness"
+    ).generate_r101_reuse_validation
+    try:
+        generate(
+            report=Path(report),
+            existing_packet=Path(existing),
+            current_packet=Path(current),
+            registry=Path(registry),
+            output=root / "tmp/r101-review-current-validation.json",
+        )
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    return 0
+
+
+def _audit_primary_sites(values: list[str], root: Path, runner: CommandRunner) -> int:
+    del runner
+    if values:
+        raise AgentReplayInputError("audit-primary-sites accepts no arguments")
+    source, baseline, artifact = _require_files(
+        root,
+        (
+            "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+            "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+            "tmp/m1-6-current-full-corpus.ttl",
+        ),
+    )
+    generate = importlib.import_module(
+        "scripts.research.pre_sme_readiness"
+    ).generate_primary_site_audit
+    try:
+        generate(
+            source_manifest=Path(source),
+            baseline=Path(baseline),
+            artifact=Path(artifact),
+            output=root / "tmp/m1-6-primary-site-audit.json",
+        )
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    return 0
+
+
+def _generate_pre_sme_readiness(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError("generate-pre-sme-readiness accepts no arguments")
+    relatives = (
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "tmp/m1-6-current-full-corpus.ttl",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-current-validation.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "tmp/m1-6-primary-site-audit.json",
+        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-r103-review-packet.json",
+        "tmp/m1-6-verify-evidence.json",
+    )
+    paths = tuple(Path(item) for item in _require_files(root, relatives))
+    generate = importlib.import_module(
+        "scripts.research.pre_sme_readiness"
+    ).generate_pre_sme_readiness
+    names = (
+        "source_manifest",
+        "current_evidence",
+        "current_comparison",
+        "corpus_baseline",
+        "corpus_artifact",
+        "r101_report",
+        "r101_validation",
+        "proposal_registry",
+        "primary_site_audit",
+        "group_packet",
+        "r103_packet",
+        "verify_evidence",
+    )
+    try:
+        git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+        generate(
+            **dict(zip(names, paths, strict=True)),
+            expected_git_head=git_head,
+            output=root / "tmp/m1-6-machine-readiness.json",
+        )
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    return 0
+
+
 def _refresh_sparql_inventory(
     values: list[str], root: Path, runner: CommandRunner
 ) -> int:
@@ -1172,6 +1346,28 @@ def _podman_verify(values: list[str], root: Path, runner: CommandRunner) -> int:
         script="verify",
         routing="context",
     )
+
+
+def _capture_pre_sme_verify(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    _podman_gate(
+        values,
+        root,
+        runner,
+        operation="capture-pre-sme-verify",
+        script="verify",
+        routing="context",
+    )
+    git_head = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
+    writer = importlib.import_module(
+        "scripts.research.pre_sme_readiness"
+    ).write_verify_evidence
+    try:
+        writer(root / "tmp/m1-6-verify-evidence.json", git_head=git_head)
+    except ValueError as exc:
+        raise AgentReplayInputError(str(exc)) from exc
+    return 0
 
 
 @contextmanager
@@ -1782,6 +1978,11 @@ _OPERATIONS: dict[str, Operation] = {
     "generate-axis-diagnostics": _generate_axis_diagnostics,
     "generate-group-review": _generate_group_review,
     "generate-r103-review": _generate_r103_review,
+    "validate-r101-current": _validate_r101_current,
+    "regenerate-r101-current-packet": _regenerate_r101_current_packet,
+    "report-r101-current-reuse": _report_r101_current_reuse,
+    "audit-primary-sites": _audit_primary_sites,
+    "generate-pre-sme-readiness": _generate_pre_sme_readiness,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "diagnose-stack": _diagnose_stack,
     "inspect-podman": _inspect_podman,
@@ -1790,6 +1991,7 @@ _OPERATIONS: dict[str, Operation] = {
     "podman-test-integration": _podman_test_integration,
     "podman-test-full-store": _podman_test_full_store,
     "podman-verify": _podman_verify,
+    "capture-pre-sme-verify": _capture_pre_sme_verify,
     "podman-compose-up": _podman_compose_up,
     "podman-compose-check": _podman_compose_check,
     "podman-compose-down": _podman_compose_down,

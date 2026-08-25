@@ -261,6 +261,221 @@ def test_axis_diagnostics_reject_unsafe_or_unbounded_fillers(tmp_path: Path) -> 
 
 
 @pytest.mark.unit
+def test_r101_current_validation_uses_only_existing_sme_artifacts(
+    tmp_path: Path,
+) -> None:
+    for relative in (
+        "scripts/adjudication.py",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-packet-v3.json",
+        "tmp/r101-review-registry-v3-SME.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert run_agent_replay(["validate-r101-current"], tmp_path, runner=runner) == 0
+
+    command, options = runner.calls[0]
+    assert command[1:] == [
+        str(tmp_path / "scripts/adjudication.py"),
+        "dry-run-r101-decision-expansion",
+        "--report",
+        str(
+            tmp_path
+            / "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"
+        ),
+        "--packet",
+        str(tmp_path / "tmp/r101-review-packet-v3.json"),
+        "--registry",
+        str(tmp_path / "tmp/r101-review-registry-v3-SME.json"),
+        "--output",
+        str(tmp_path / "tmp/r101-review-current-validation.json"),
+    ]
+    assert options["shell"] is False
+
+
+@pytest.mark.unit
+def test_r101_packet_regeneration_uses_current_report_and_source(
+    tmp_path: Path,
+) -> None:
+    for relative in (
+        "scripts/adjudication.py",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert (
+        run_agent_replay(["regenerate-r101-current-packet"], tmp_path, runner=runner)
+        == 0
+    )
+
+    command, _options = runner.calls[0]
+    assert command[1:] == [
+        str(tmp_path / "scripts/adjudication.py"),
+        "prepare-r101-review-packet",
+        "--report",
+        str(
+            tmp_path
+            / "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"
+        ),
+        "--source-manifest",
+        str(tmp_path / "data/qlever-ncit/.ontoprism-ncit-candidate.json"),
+        "--endpoint",
+        "http://localhost:7888",
+        "--output-packet",
+        str(tmp_path / "tmp/r101-review-packet-current.json"),
+        "--output-xlsx",
+        str(tmp_path / "tmp/r101-review-workbook-current.xlsx"),
+    ]
+
+
+@pytest.mark.unit
+def test_r101_reuse_report_uses_both_packets_and_existing_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for relative in (
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-packet-v3.json",
+        "tmp/r101-review-packet-current.json",
+        "tmp/r101-review-registry-v3-SME.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    calls: list[dict[str, Path]] = []
+    module = __import__(
+        "scripts.research.pre_sme_readiness",
+        fromlist=["generate_r101_reuse_validation"],
+    )
+    monkeypatch.setattr(
+        module, "generate_r101_reuse_validation", lambda **values: calls.append(values)
+    )
+
+    assert run_agent_replay(["report-r101-current-reuse"], tmp_path) == 0
+
+    assert calls == [
+        {
+            "report": tmp_path
+            / (
+                "ontolib/tests/decomposition/golden/"
+                "neoplasm-r101-v4-conservation.json.gz"
+            ),
+            "existing_packet": tmp_path / "tmp/r101-review-packet-v3.json",
+            "current_packet": tmp_path / "tmp/r101-review-packet-current.json",
+            "registry": tmp_path / "tmp/r101-review-registry-v3-SME.json",
+            "output": tmp_path / "tmp/r101-review-current-validation.json",
+        }
+    ]
+
+
+@pytest.mark.unit
+def test_pre_sme_artifact_operations_use_only_fixed_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = (
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "tmp/m1-6-current-full-corpus.ttl",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-current-validation.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "tmp/m1-6-primary-site-audit.json",
+        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-r103-review-packet.json",
+        "tmp/m1-6-verify-evidence.json",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    calls: list[dict[str, Path]] = []
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_primary_site_audit"]
+    )
+    monkeypatch.setattr(
+        module, "generate_primary_site_audit", lambda **values: calls.append(values)
+    )
+    monkeypatch.setattr(
+        module, "generate_pre_sme_readiness", lambda **values: calls.append(values)
+    )
+
+    class Runner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                result.stdout = "a" * 40 + "\n"
+                result.stderr = ""
+            return result
+
+    runner = Runner()
+    assert run_agent_replay(["audit-primary-sites"], tmp_path, runner=runner) == 0
+    assert (
+        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=runner) == 0
+    )
+
+    assert calls[0] == {
+        "source_manifest": tmp_path / "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "baseline": tmp_path
+        / "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "artifact": tmp_path / "tmp/m1-6-current-full-corpus.ttl",
+        "output": tmp_path / "tmp/m1-6-primary-site-audit.json",
+    }
+    assert calls[1]["current_evidence"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json"
+    )
+    assert calls[1]["r101_validation"] == (
+        tmp_path / "tmp/r101-review-current-validation.json"
+    )
+    assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
+    assert calls[1]["expected_git_head"] == "a" * 40
+
+
+@pytest.mark.unit
+def test_pre_sme_verify_evidence_is_written_only_after_exact_podman_gate(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+
+    class Runner(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout="a" * 40 + "\n")
+            return super().__call__(arguments, **kwargs)
+
+    runner = Runner(
+        socket_path,
+        contexts=("ontoprism-podman",),
+        current="ontoprism-podman",
+    )
+    (tmp_path / "tmp").mkdir()
+
+    assert run_agent_replay(["capture-pre-sme-verify"], tmp_path, runner=runner) == 0
+
+    commands = [command for command, _options in runner.calls]
+    assert ["/opt/homebrew/bin/pdm", "run", "verify"] in commands
+    assert commands[-1] == ["git", "rev-parse", "HEAD"]
+    evidence = json.loads((tmp_path / "tmp/m1-6-verify-evidence.json").read_text())
+    assert evidence["command"] == "pdm run verify"
+    assert evidence["status"] == "passed"
+    assert evidence["git_head"] == "a" * 40
+    assert evidence["writes_performed"] is False
+
+
+@pytest.mark.unit
 def test_wrapper_rejects_unlisted_operations(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="unsupported"):
         run_agent_replay(["import-workbook"], tmp_path)
