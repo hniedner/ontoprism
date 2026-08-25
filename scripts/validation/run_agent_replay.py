@@ -41,6 +41,8 @@ _POC_DIR = Path("tmp/podman-poc")
 _PODMAN_PROJECT = "ontoprism-podman-poc"
 _PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
 _PODMAN_MACHINE = "ontoprism-vm"
+_PODMAN_DOCKER_CONTEXT = "ontoprism-podman"
+_PODMAN_DOCKER_CONTEXT_DESCRIPTION = "OntoPrism rootless Podman machine"
 _PODMAN = "/opt/homebrew/bin/podman"
 _DOCKER = "/opt/homebrew/bin/docker"
 _DOCKER_COMPOSE = "/opt/homebrew/bin/docker-compose"
@@ -903,6 +905,167 @@ def _podman_socket(root: Path, runner: CommandRunner) -> Path:
     return socket_path
 
 
+def _docker_context_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    for variable in (
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+        "PODMAN_COMPOSE_PROVIDER",
+        "CONTAINER_HOST",
+    ):
+        environment.pop(variable, None)
+    return environment
+
+
+def _validate_safe_podman_context(output: str) -> None:
+    try:
+        contexts = json.loads(output)
+        context = contexts[0]
+        metadata = context["Metadata"]
+        endpoints = context["Endpoints"]
+        docker_endpoint = endpoints["docker"]
+        host = docker_endpoint["Host"]
+    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise AgentReplayInputError("invalid safe Docker context contract") from exc
+    if (
+        len(contexts) != 1
+        or context.get("Name") != _PODMAN_DOCKER_CONTEXT
+        or not isinstance(metadata, dict)
+        or metadata.get("Description") != _PODMAN_DOCKER_CONTEXT_DESCRIPTION
+        or set(endpoints) != {"docker"}
+        or not isinstance(docker_endpoint, dict)
+        or docker_endpoint.get("SkipTLSVerify") is not False
+        or not isinstance(host, str)
+        or not host.startswith("unix:///")
+        or not Path(host.removeprefix("unix://")).is_absolute()
+    ):
+        raise AgentReplayInputError("invalid safe Docker context contract")
+
+
+def _validate_active_podman_context(output: str, socket_path: Path) -> None:
+    _validate_safe_podman_context(output)
+    context = json.loads(output)[0]
+    if context["Endpoints"]["docker"]["Host"] != f"unix://{socket_path}":
+        raise AgentReplayInputError("active Podman endpoint predicate failed")
+
+
+def _validate_podman_api_info(output: str) -> None:
+    try:
+        info = json.loads(output)
+        security_options = info["SecurityOptions"]
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise AgentReplayInputError("invalid Podman API contract") from exc
+    if (
+        not isinstance(info, dict)
+        or info.get("OSType") != "linux"
+        or not isinstance(info.get("ServerVersion"), str)
+        or not cast("str", info["ServerVersion"])
+        or not isinstance(info.get("DockerRootDir"), str)
+        or not cast("str", info["DockerRootDir"]).endswith("/containers/storage")
+        or not isinstance(security_options, list)
+        or "name=rootless" not in security_options
+        or info.get("ProductLicense") != "Apache-2.0"
+    ):
+        raise AgentReplayInputError("invalid Podman API contract")
+
+
+def _activate_podman_docker_context(
+    values: list[str], root: Path, runner: CommandRunner
+) -> int:
+    if values:
+        raise AgentReplayInputError(
+            "activate-podman-docker-context accepts no arguments"
+        )
+    socket_path = _podman_socket(root, runner)
+    endpoint = f"unix://{socket_path}"
+    environment = _docker_context_environment()
+    prior_context = _capture_required(
+        [_DOCKER, "context", "show"],
+        root,
+        runner,
+        environment=environment,
+    ).strip()
+    if not prior_context or "\n" in prior_context:
+        raise AgentReplayInputError("invalid current Docker context contract")
+    print(f"prior-docker-context={prior_context}")
+
+    context_lines = _capture_required(
+        [_DOCKER, "context", "ls", "--format", "{{.Name}}"],
+        root,
+        runner,
+        environment=environment,
+    ).splitlines()
+    contexts = [name.strip() for name in context_lines if name.strip()]
+    if len(contexts) != len(set(contexts)):
+        raise AgentReplayInputError("invalid Docker context inventory contract")
+
+    context_command: list[str]
+    if _PODMAN_DOCKER_CONTEXT in contexts:
+        existing = _capture_required(
+            [_DOCKER, "context", "inspect", _PODMAN_DOCKER_CONTEXT],
+            root,
+            runner,
+            environment=environment,
+        )
+        _validate_safe_podman_context(existing)
+        context_command = [_DOCKER, "context", "update", _PODMAN_DOCKER_CONTEXT]
+    else:
+        context_command = [_DOCKER, "context", "create", _PODMAN_DOCKER_CONTEXT]
+    _capture_required(
+        [
+            *context_command,
+            "--description",
+            _PODMAN_DOCKER_CONTEXT_DESCRIPTION,
+            "--docker",
+            f"host={endpoint}",
+        ],
+        root,
+        runner,
+        environment=environment,
+    )
+    _capture_required(
+        [_DOCKER, "context", "use", _PODMAN_DOCKER_CONTEXT],
+        root,
+        runner,
+        environment=environment,
+    )
+
+    inspected = _capture_required(
+        [_DOCKER, "context", "inspect", _PODMAN_DOCKER_CONTEXT],
+        root,
+        runner,
+        environment=environment,
+    )
+    _validate_active_podman_context(inspected, socket_path)
+    active_context = _capture_required(
+        [_DOCKER, "context", "show"],
+        root,
+        runner,
+        environment=environment,
+    ).strip()
+    if active_context != _PODMAN_DOCKER_CONTEXT:
+        raise AgentReplayInputError("active Docker context predicate failed")
+    version = _capture_required(
+        [_DOCKER, "version"], root, runner, environment=environment
+    )
+    if re.search(r"(?m)^\s*Podman Engine:\s*$", version) is None:
+        raise AgentReplayInputError("Docker client Podman server predicate failed")
+    info = _capture_required(
+        [_DOCKER, "info", "--format", "{{json .}}"],
+        root,
+        runner,
+        environment=environment,
+    )
+    _validate_podman_api_info(info)
+    print(f"active-docker-context={active_context}")
+    print(f"podman-docker-endpoint={endpoint}")
+    print("docker-server=Podman")
+    print("podman-api-contract=rootless+containers-storage+apache-2.0")
+    return 0
+
+
 def _check_podman_api(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("check-podman-api accepts no arguments")
@@ -1608,6 +1771,7 @@ _OPERATIONS: dict[str, Operation] = {
     "refresh-sparql-inventory": _refresh_sparql_inventory,
     "diagnose-stack": _diagnose_stack,
     "inspect-podman": _inspect_podman,
+    "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,
     "podman-test-integration": _podman_test_integration,
     "podman-test-full-store": _podman_test_full_store,

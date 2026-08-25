@@ -96,6 +96,114 @@ class _PodmanApiRunner:
         return _Result(0, stdout="compatible")
 
 
+class _DockerContextRunner(_PodmanApiRunner):
+    def __init__(
+        self,
+        socket_path: Path,
+        *,
+        contexts: tuple[str, ...] = ("colima",),
+        current: str = "colima",
+    ) -> None:
+        super().__init__(socket_path)
+        self.contexts = contexts
+        self.current = current
+
+    def __call__(  # noqa: PLR0911 - fixed command-result table for the fake CLI
+        self, arguments: list[str], **kwargs: object
+    ) -> _Result:
+        self.calls.append((arguments, kwargs))
+        if arguments == [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ]:
+            return _Result(
+                0,
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": "ontoprism-vm",
+                            "State": "running",
+                            "Rootful": False,
+                            "ConnectionInfo": {
+                                "PodmanSocket": {"Path": str(self.socket_path)}
+                            },
+                        }
+                    ]
+                ),
+            )
+        if arguments == ["/opt/homebrew/bin/docker", "context", "show"]:
+            return _Result(0, stdout=f"{self.current}\n")
+        if arguments == [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "ls",
+            "--format",
+            "{{.Name}}",
+        ]:
+            return _Result(0, stdout="\n".join(self.contexts) + "\n")
+        if arguments == [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "inspect",
+            "ontoprism-podman",
+        ]:
+            return _Result(
+                0,
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": "ontoprism-podman",
+                            "Metadata": {
+                                "Description": "OntoPrism rootless Podman machine"
+                            },
+                            "Endpoints": {
+                                "docker": {
+                                    "Host": f"unix://{self.socket_path}",
+                                    "SkipTLSVerify": False,
+                                }
+                            },
+                        }
+                    ]
+                ),
+            )
+        if arguments == [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "use",
+            "ontoprism-podman",
+        ]:
+            self.current = "ontoprism-podman"
+            return _Result(0, stdout="ontoprism-podman\n")
+        if arguments == ["/opt/homebrew/bin/docker", "version"]:
+            return _Result(0, stdout="Server:\n Podman Engine:\n  Version: 6.1.0\n")
+        if arguments == [
+            "/opt/homebrew/bin/docker",
+            "info",
+            "--format",
+            "{{json .}}",
+        ]:
+            return _Result(
+                0,
+                stdout=json.dumps(
+                    {
+                        "OSType": "linux",
+                        "ServerVersion": "6.1.0",
+                        "DockerRootDir": (
+                            "/var/home/core/.local/share/containers/storage"
+                        ),
+                        "SecurityOptions": [
+                            "name=seccomp,profile=default",
+                            "name=rootless",
+                        ],
+                        "ProductLicense": "Apache-2.0",
+                    }
+                ),
+            )
+        return _Result(0)
+
+
 def _write_compose_inputs(root: Path, *, app: bool = False) -> None:
     (root / "docker-compose.yml").touch()
     if app:
@@ -234,6 +342,166 @@ def test_check_podman_api_pins_socket_cli_and_compose_provider(
         assert environment["PATH"].startswith(f"{tmp_path}/.venv/bin:/opt/homebrew/bin")
         assert options["shell"] is False
         assert options["timeout"] == 20
+
+
+@pytest.mark.unit
+def test_activate_podman_context_creates_uses_and_verifies_exact_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _DockerContextRunner(socket_path)
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "PATH": "inherited",
+            "DOCKER_HOST": "tcp://unsafe",
+            "DOCKER_CONTEXT": "unsafe",
+            "DOCKER_TLS_VERIFY": "1",
+            "DOCKER_CERT_PATH": "/unsafe",
+        },
+    )
+
+    assert (
+        run_agent_replay(["activate-podman-docker-context"], tmp_path, runner=runner)
+        == 0
+    )
+
+    assert [command for command, _options in runner.calls] == [
+        [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ],
+        ["/opt/homebrew/bin/docker", "context", "show"],
+        [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "ls",
+            "--format",
+            "{{.Name}}",
+        ],
+        [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "create",
+            "ontoprism-podman",
+            "--description",
+            "OntoPrism rootless Podman machine",
+            "--docker",
+            f"host=unix://{socket_path}",
+        ],
+        ["/opt/homebrew/bin/docker", "context", "use", "ontoprism-podman"],
+        [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "inspect",
+            "ontoprism-podman",
+        ],
+        ["/opt/homebrew/bin/docker", "context", "show"],
+        ["/opt/homebrew/bin/docker", "version"],
+        [
+            "/opt/homebrew/bin/docker",
+            "info",
+            "--format",
+            "{{json .}}",
+        ],
+    ]
+    assert all(options["shell"] is False for _command, options in runner.calls)
+    assert all(options["timeout"] == 20 for _command, options in runner.calls)
+    assert runner.calls[0][1]["env"] is None
+    for _command, options in runner.calls[1:]:
+        environment = options["env"]
+        assert isinstance(environment, dict)
+        assert environment == {"PATH": "inherited"}
+    output = capsys.readouterr().out
+    assert "prior-docker-context=colima" in output
+    assert "active-docker-context=ontoprism-podman" in output
+    assert f"podman-docker-endpoint=unix://{socket_path}" in output
+    assert "docker-server=Podman" in output
+    assert "podman-api-contract=rootless+containers-storage+apache-2.0" in output
+
+
+@pytest.mark.unit
+def test_activate_podman_context_updates_only_safe_exact_existing_context(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _DockerContextRunner(
+        socket_path,
+        contexts=("colima", "ontoprism-podman"),
+    )
+
+    assert (
+        run_agent_replay(["activate-podman-docker-context"], tmp_path, runner=runner)
+        == 0
+    )
+
+    commands = [command for command, _options in runner.calls]
+    assert [
+        "/opt/homebrew/bin/docker",
+        "context",
+        "update",
+        "ontoprism-podman",
+        "--description",
+        "OntoPrism rootless Podman machine",
+        "--docker",
+        f"host=unix://{socket_path}",
+    ] in commands
+    assert not any("create" in command for command in commands)
+
+
+@pytest.mark.unit
+def test_activate_podman_context_refuses_unsafe_existing_context_before_mutation(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+
+    class _UnsafeContext(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            result = super().__call__(arguments, **kwargs)
+            if arguments[-3:] == ["context", "inspect", "ontoprism-podman"]:
+                payload = json.loads(result.stdout)
+                payload[0]["Endpoints"]["kubernetes"] = {"Host": "unsafe"}
+                result.stdout = json.dumps(payload)
+            return result
+
+    runner = _UnsafeContext(
+        socket_path,
+        contexts=("colima", "ontoprism-podman"),
+    )
+    with pytest.raises(AgentReplayInputError, match="safe Docker context contract"):
+        run_agent_replay(["activate-podman-docker-context"], tmp_path, runner=runner)
+    assert not any(
+        "update" in command or "use" in command for command, _options in runner.calls
+    )
+
+
+@pytest.mark.unit
+def test_activate_podman_context_rejects_arguments_and_non_podman_server(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
+        run_agent_replay(["activate-podman-docker-context", "unsafe"], tmp_path)
+
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+
+    class _DockerServer(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["/opt/homebrew/bin/docker", "version"]:
+                result.stdout = "Server: Docker Engine\n"
+            return result
+
+    with pytest.raises(AgentReplayInputError, match="Podman server predicate"):
+        run_agent_replay(
+            ["activate-podman-docker-context"],
+            tmp_path,
+            runner=_DockerServer(socket_path),
+        )
 
 
 @pytest.mark.unit

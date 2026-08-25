@@ -134,6 +134,26 @@ pdm run agent-replay podman-compose-down
 pdm run agent-replay podman-app-smoke
 ```
 
+To make an unwrapped, literal `pdm run verify` use Podman, activate the dedicated Docker
+context first:
+
+```bash
+pdm run agent-replay activate-podman-docker-context
+pdm run verify
+```
+
+`activate-podman-docker-context` reports the prior context, derives the endpoint only from
+the running rootless `ontoprism-vm`, creates or safely updates only the exact
+`ontoprism-podman` context, selects it, and verifies the selected endpoint and Podman API.
+It does not set persistent environment variables or edit shell configuration. The
+shell-free `verify` runner ignores inherited Docker selector variables, so its Docker
+calls use the selected context without a per-command override. It deliberately leaves
+Podman selected. If the reported prior context was exactly `colima`
+and that context still exists, the manual non-destructive rollback is
+`/opt/homebrew/bin/docker context use colima`; otherwise choose an existing context
+explicitly after inspecting `/opt/homebrew/bin/docker context ls`. Never delete a context
+as part of rollback.
+
 `inspect-podman` collects bounded runtime diagnostics, and `check-podman-api` exercises the
 pinned Docker-compatible API and Compose provider. `podman-compose-up` rejects any occupied
 fixed data port before starting the unchanged data Compose stack. `podman-compose-check`
