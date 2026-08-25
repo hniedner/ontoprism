@@ -1,29 +1,81 @@
 #!/usr/bin/env python3
-"""Run the authoritative gates without shell parsing or Docker selector overrides."""
+"""Run authoritative gates against the operator-selected default Docker context."""
 
 from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
+
+from .docker_selectors import DOCKER_SELECTOR_VARIABLES
 
 _ROOT = Path(__file__).resolve().parents[2]
-_PDM = "/opt/homebrew/bin/pdm"
-_NPM = "/opt/homebrew/bin/npm"
-_DOCKER_SELECTOR_VARIABLES = (
-    "DOCKER_HOST",
-    "DOCKER_CONTEXT",
-    "DOCKER_TLS_VERIFY",
-    "DOCKER_CERT_PATH",
-    "PODMAN_COMPOSE_PROVIDER",
-    "CONTAINER_HOST",
-)
+_ENVIRONMENT_BIN = Path(sys.executable).parent
 _GATES = (
-    (_PDM, "run", "validate-opencode-config"),
-    (_PDM, "run", "pre-commit", "run", "--all-files"),
-    (_PDM, "run", "test-ci"),
-    (_NPM, "--prefix", "frontend", "run", "test:coverage"),
+    (
+        (
+            sys.executable,
+            "scripts/validation/validate_opencode_config.py",
+            "--root",
+            ".",
+        ),
+        None,
+    ),
+    ((sys.executable, "-m", "pre_commit", "run", "--all-files"), None),
+    (
+        (
+            str(_ENVIRONMENT_BIN / "pytest"),
+            "ontolib/tests",
+            "backend/tests",
+            "-m",
+            "not integration",
+            "--cov",
+            "--cov-report=term-missing",
+            "--cov-report=xml",
+            "-n",
+            "auto",
+        ),
+        ".coverage.unit",
+    ),
+    (
+        (
+            sys.executable,
+            "scripts/run_safe_integration.py",
+            "ontolib/tests",
+            "backend/tests",
+            "-m",
+            "integration and not full_store and not full_build and not slow",
+            "--cov=ontolib/src",
+            "--cov=backend/src",
+            "--cov-branch",
+            "--cov-report=",
+        ),
+        ".coverage.integration",
+    ),
+    (
+        (
+            str(_ENVIRONMENT_BIN / "coverage"),
+            "combine",
+            ".coverage.unit",
+            ".coverage.integration",
+        ),
+        None,
+    ),
+    (
+        (
+            sys.executable,
+            "scripts/validation/strict_coverage_gate.py",
+            "python",
+            "--coverage-data",
+            ".coverage",
+            "--root",
+            ".",
+        ),
+        None,
+    ),
+    (("npm", "--prefix", "frontend", "run", "test:coverage"), None),
 )
 
 
@@ -32,22 +84,22 @@ class CommandRunner(Protocol):
         self,
         arguments: list[str],
         *,
-        check: bool,
+        check: Literal[False],
         cwd: Path,
         env: dict[str, str],
-        shell: bool,
-        text: bool,
+        shell: Literal[False],
+        text: Literal[True],
     ) -> subprocess.CompletedProcess[str]: ...
 
 
 def _subprocess_runner(
     arguments: list[str],
     *,
-    check: bool,
+    check: Literal[False],
     cwd: Path,
     env: dict[str, str],
-    shell: bool,
-    text: bool,
+    shell: Literal[False],
+    text: Literal[True],
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603
         arguments,
@@ -60,16 +112,28 @@ def _subprocess_runner(
 
 
 def run_verify(*, runner: CommandRunner = _subprocess_runner) -> int:
-    """Run each fixed gate, routing Docker through the selected Docker context."""
+    """Run fixed gates only when Docker will use its selected default context."""
     environment = dict(os.environ)
-    for variable in _DOCKER_SELECTOR_VARIABLES:
+    selectors = [
+        variable for variable in DOCKER_SELECTOR_VARIABLES if variable in environment
+    ]
+    if selectors:
+        print(
+            "default-context verification ignores Docker selectors: "
+            + ", ".join(selectors),
+            file=sys.stderr,
+        )
+    for variable in DOCKER_SELECTOR_VARIABLES:
         environment.pop(variable, None)
-    for command in _GATES:
+    for command, coverage_file in _GATES:
+        gate_environment = dict(environment)
+        if coverage_file is not None:
+            gate_environment["COVERAGE_FILE"] = coverage_file
         result = runner(
             list(command),
             check=False,
             cwd=_ROOT,
-            env=environment,
+            env=gate_environment,
             shell=False,
             text=True,
         )

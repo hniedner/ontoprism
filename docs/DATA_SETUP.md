@@ -115,8 +115,9 @@ API of an existing rootless Podman machine named `ontoprism-vm`; it is not a sup
 production runtime. Machine creation and package installation remain manual setup. The
 data-service `docker-compose.yml` is exercised unchanged. The application smoke check uses
 the unchanged data and app Compose files plus a generated, temporary Podman override. The
-fixed wrappers pin the Homebrew Docker, Podman, Docker Compose v2, and PDM paths; Python
-`podman-compose` is not used or required.
+Podman replay operations pin the Homebrew Docker, Podman, Docker Compose v2, and PDM paths;
+the shared `verify` runner uses its active Python environment and resolves npm from `PATH`.
+Python `podman-compose` is not used or required.
 
 Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine socket and
 `PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
@@ -146,8 +147,9 @@ pdm run verify
 the running rootless `ontoprism-vm`, creates or safely updates only the exact
 `ontoprism-podman` context, selects it, and verifies the selected endpoint and Podman API.
 It does not set persistent environment variables or edit shell configuration. The
-shell-free `verify` runner ignores inherited Docker selector variables, so its Docker
-calls use the selected context without a per-command override. It deliberately leaves
+shell-free `verify` runner explicitly reports and removes inherited Docker selector
+variables as part of its default-context contract, so its Docker calls use the selected
+context without a per-command override. It deliberately leaves
 Podman selected. If the reported prior context was exactly `colima`
 and that context still exists, the manual non-destructive rollback is
 `/opt/homebrew/bin/docker context use colima`; otherwise choose an existing context
@@ -160,8 +162,12 @@ fixed data port before starting the unchanged data Compose stack. `podman-compos
 validates the exact three-service inventory, health, owner labels, loopback bindings,
 service DNS, exact PostgreSQL named-volume identity, and resolved QLever bind paths.
 `podman-health-reject` exercises Compose's nonzero unhealthy-service rejection.
-`podman-test-integration`, `podman-test-full-store`, and `podman-verify` run the repository's
-integration, configured-corpus, and complete verification gates through the pinned socket.
+`podman-test-integration` and `podman-test-full-store` run the repository's integration and
+configured-corpus gates with `DOCKER_HOST` pinned to the inspected machine socket.
+`podman-verify` instead fails closed unless the selected context is exactly
+`ontoprism-podman` at that same inspected endpoint, then runs the complete default-context
+verification gate. A successful verification under another selected runtime such as Colima
+is not presented as Podman verification.
 `podman-compose-down` accepts a partial owned stack, refuses any present wrong-owner
 resource, performs project-scoped cleanup without `-v`, and then inspects the exact
 `ontoprism-podman-poc_ontoprism_pg_data` identity and owner labels to prove the populated

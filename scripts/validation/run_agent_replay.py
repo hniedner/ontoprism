@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, assert_never, ca
 
 import yaml
 
+from .docker_selectors import DOCKER_SELECTOR_VARIABLES
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -907,14 +909,7 @@ def _podman_socket(root: Path, runner: CommandRunner) -> Path:
 
 def _docker_context_environment() -> dict[str, str]:
     environment = dict(os.environ)
-    for variable in (
-        "DOCKER_HOST",
-        "DOCKER_CONTEXT",
-        "DOCKER_TLS_VERIFY",
-        "DOCKER_CERT_PATH",
-        "PODMAN_COMPOSE_PROVIDER",
-        "CONTAINER_HOST",
-    ):
+    for variable in DOCKER_SELECTOR_VARIABLES:
         environment.pop(variable, None)
     return environment
 
@@ -1111,15 +1106,35 @@ def _podman_gate(
     *,
     operation: str,
     script: Literal["test-integration", "test-integration-full-store", "verify"],
+    routing: Literal["environment", "context"],
 ) -> int:
     if values:
         raise AgentReplayInputError(f"{operation} accepts no arguments")
     socket_path = _podman_socket(root, runner)
+    if routing == "environment":
+        environment = _podman_environment(root, socket_path)
+    else:
+        environment = _docker_context_environment()
+        active_context = _capture_required(
+            [_DOCKER, "context", "show"],
+            root,
+            runner,
+            environment=environment,
+        ).strip()
+        if active_context != _PODMAN_DOCKER_CONTEXT:
+            raise AgentReplayInputError("active Docker context predicate failed")
+        inspected = _capture_required(
+            [_DOCKER, "context", "inspect", _PODMAN_DOCKER_CONTEXT],
+            root,
+            runner,
+            environment=environment,
+        )
+        _validate_active_podman_context(inspected, socket_path)
     _capture_required(
         [_PDM, "run", script],
         root,
         runner,
-        environment=_podman_environment(root, socket_path),
+        environment=environment,
         timeout=_GATE_TIMEOUT_SECONDS,
         display_limit=None,
     )
@@ -1135,6 +1150,7 @@ def _podman_test_integration(
         runner,
         operation="podman-test-integration",
         script="test-integration",
+        routing="environment",
     )
 
 
@@ -1147,6 +1163,7 @@ def _podman_test_full_store(
         runner,
         operation="podman-test-full-store",
         script="test-integration-full-store",
+        routing="environment",
     )
 
 
@@ -1157,6 +1174,7 @@ def _podman_verify(values: list[str], root: Path, runner: CommandRunner) -> int:
         runner,
         operation="podman-verify",
         script="verify",
+        routing="context",
     )
 
 

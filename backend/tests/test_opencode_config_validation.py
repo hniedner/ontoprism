@@ -984,7 +984,7 @@ def test_authoritative_verify_starts_with_static_opencode_validation() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
     verify = pyproject["tool"]["pdm"]["scripts"]["verify"]
 
-    assert verify == "python scripts/validation/run_verify.py"
+    assert verify == "python -m scripts.validation.run_verify"
 
 
 def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
@@ -997,7 +997,7 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
         "python scripts/validation/run_agent_git.py"
     )
     assert pyproject["tool"]["pdm"]["scripts"]["agent-replay"] == (
-        "python scripts/validation/run_agent_replay.py"
+        "python -m scripts.validation.run_agent_replay"
     )
 
 

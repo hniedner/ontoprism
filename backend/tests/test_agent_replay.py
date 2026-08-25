@@ -549,7 +549,6 @@ def test_check_podman_api_rejects_wrong_machine_contract(
             "podman-test-full-store",
             ["/opt/homebrew/bin/pdm", "run", "test-integration-full-store"],
         ),
-        ("podman-verify", ["/opt/homebrew/bin/pdm", "run", "verify"]),
     ],
 )
 def test_podman_gate_operations_use_fixed_commands_and_controlled_runtime(
@@ -580,6 +579,67 @@ def test_podman_gate_operations_use_fixed_commands_and_controlled_runtime(
 
 
 @pytest.mark.unit
+def test_podman_verify_requires_selected_exact_context_and_endpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _DockerContextRunner(socket_path)
+    runner.current = "ontoprism-podman"
+    monkeypatch.setattr(os, "environ", {"SAFE_SETTING": "retained", "PATH": "safe"})
+
+    assert run_agent_replay(["podman-verify"], tmp_path, runner=runner) == 0
+
+    assert [command for command, _options in runner.calls[-3:]] == [
+        ["/opt/homebrew/bin/docker", "context", "show"],
+        [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "inspect",
+            "ontoprism-podman",
+        ],
+        ["/opt/homebrew/bin/pdm", "run", "verify"],
+    ]
+    gate_environment = runner.calls[-1][1]["env"]
+    assert gate_environment == {"SAFE_SETTING": "retained", "PATH": "safe"}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", ["wrong-context", "wrong-endpoint"])
+def test_podman_verify_refuses_non_podman_selected_context(
+    failure: str,
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _DockerContextRunner(socket_path)
+    runner.current = "colima" if failure == "wrong-context" else "ontoprism-podman"
+
+    if failure == "wrong-endpoint":
+
+        class _WrongEndpoint(_DockerContextRunner):
+            def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+                result = super().__call__(arguments, **kwargs)
+                if arguments[-3:] == ["context", "inspect", "ontoprism-podman"]:
+                    payload = json.loads(result.stdout)
+                    payload[0]["Endpoints"]["docker"]["Host"] = (
+                        "unix:///tmp/podman/decoy-api.sock"
+                    )
+                    result.stdout = json.dumps(payload)
+                return result
+
+        runner = _WrongEndpoint(socket_path, current="ontoprism-podman")
+
+    with pytest.raises(
+        AgentReplayInputError,
+        match=r"active (Docker context|Podman endpoint)",
+    ):
+        run_agent_replay(["podman-verify"], tmp_path, runner=runner)
+    assert ["/opt/homebrew/bin/pdm", "run", "verify"] not in [
+        command for command, _options in runner.calls
+    ]
+
+
+@pytest.mark.unit
 def test_podman_gate_operations_reject_all_user_arguments(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
         run_agent_replay(["podman-verify", "--skip", "tests"], tmp_path)
@@ -591,7 +651,7 @@ def test_podman_gate_failure_reports_labelled_stdout_and_stderr(
 ) -> None:
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
 
-    class _FailedGate(_PodmanApiRunner):
+    class _FailedGate(_DockerContextRunner):
         def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
             result = super().__call__(arguments, **kwargs)
             if arguments == ["/opt/homebrew/bin/pdm", "run", "verify"]:
@@ -603,7 +663,11 @@ def test_podman_gate_failure_reports_labelled_stdout_and_stderr(
             return result
 
     with pytest.raises(AgentReplayInputError) as raised:
-        run_agent_replay(["podman-verify"], tmp_path, runner=_FailedGate(socket_path))
+        run_agent_replay(
+            ["podman-verify"],
+            tmp_path,
+            runner=_FailedGate(socket_path, current="ontoprism-podman"),
+        )
 
     message = str(raised.value)
     assert (
@@ -622,7 +686,7 @@ def test_podman_gate_timeout_names_command_and_preserves_sanitized_streams(
 ) -> None:
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
 
-    class _TimedOutGate(_PodmanApiRunner):
+    class _TimedOutGate(_DockerContextRunner):
         def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
             if arguments == ["/opt/homebrew/bin/pdm", "run", "verify"]:
                 raise subprocess.TimeoutExpired(
@@ -634,7 +698,11 @@ def test_podman_gate_timeout_names_command_and_preserves_sanitized_streams(
             return super().__call__(arguments, **kwargs)
 
     with pytest.raises(AgentReplayInputError) as raised:
-        run_agent_replay(["podman-verify"], tmp_path, runner=_TimedOutGate(socket_path))
+        run_agent_replay(
+            ["podman-verify"],
+            tmp_path,
+            runner=_TimedOutGate(socket_path, current="ontoprism-podman"),
+        )
 
     message = str(raised.value)
     assert (
