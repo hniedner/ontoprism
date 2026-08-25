@@ -61,15 +61,10 @@ def test_orchestrator_requires_dangerous_merge_suffix_denies(
     config_root: Path, suffix: str
 ) -> None:
     relative = ".opencode/agent/ontoprism-team.md"
-    rule = (
-        f'    "gh pr merge * --squash --delete-branch --subject * --{suffix}*": deny\n'
-    )
+    rule = f'    "gh pr merge *--{suffix}*": deny\n'
     replace(config_root, relative, rule, "")
 
-    assert any(
-        f"gh pr merge * --squash --delete-branch --subject * --{suffix}*" in error
-        for error in validate(config_root)
-    )
+    assert any(f"gh pr merge *--{suffix}*" in error for error in validate(config_root))
 
 
 def test_fallback_plugin_reintroduction_is_rejected(config_root: Path) -> None:
@@ -987,11 +982,9 @@ def test_review_command_requires_static_runtime_and_delegated_verify(
 
 def test_authoritative_verify_starts_with_static_opencode_validation() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    verify = pyproject["tool"]["pdm"]["scripts"]["verify"]["shell"]
+    verify = pyproject["tool"]["pdm"]["scripts"]["verify"]
 
-    assert verify.startswith("pdm run validate-opencode-config &&")
-    assert verify.count("pdm run validate-opencode-config") == 1
-    assert "pdm run verify" not in verify
+    assert verify == "python -m scripts.validation.run_verify"
 
 
 def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
@@ -1004,7 +997,7 @@ def test_agent_test_pdm_script_uses_repository_wrapper() -> None:
         "python scripts/validation/run_agent_git.py"
     )
     assert pyproject["tool"]["pdm"]["scripts"]["agent-replay"] == (
-        "python scripts/validation/run_agent_replay.py"
+        "python -m scripts.validation.run_agent_replay"
     )
 
 

@@ -39,10 +39,10 @@ permission:
     "pdm run validate-opencode-config": allow
     "pdm run validate-opencode-runtime": allow
     "gh pr merge * --squash --delete-branch --subject *": allow
-    "gh pr merge * --squash --delete-branch --subject * --admin*": deny
-    "gh pr merge * --squash --delete-branch --subject * --auto*": deny
-    "gh pr merge * --squash --delete-branch --subject * --queue*": deny
-    "gh pr merge * --squash --delete-branch --subject * --bypass*": deny
+    "gh pr merge *--admin*": deny
+    "gh pr merge *--auto*": deny
+    "gh pr merge *--queue*": deny
+    "gh pr merge *--bypass*": deny
     "git diff --no-ext-diff": allow
     "git diff --check": allow
     "git diff --no-index /dev/null *": allow

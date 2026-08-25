@@ -12,7 +12,7 @@ import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import Literal, Protocol
 
 SHELL_METACHARACTERS = frozenset("&;|><`$\n\r")
 SAFE_FLAGS = frozenset({"-q", "-v", "-x"})
@@ -29,6 +29,7 @@ NONINTEGRATION_MARKERS = (
     "not integration and not mutating_integration and not full_store"
 )
 FULL_STORE_MARKERS = "integration and full_store"
+type AgentTestMode = Literal["pytest", "frontend", "safe-integration", "full-store"]
 
 
 class AgentTestInputError(ValueError):
@@ -41,7 +42,7 @@ class AgentTestInvocation:
 
     arguments: tuple[str, ...]
     cwd: Path
-    mode: str
+    mode: AgentTestMode
 
 
 @dataclass(frozen=True)
@@ -58,15 +59,31 @@ class CommandResult(Protocol):
 
 class CommandRunner(Protocol):
     def __call__(
-        self, arguments: tuple[str, ...], **kwargs: object
+        self,
+        arguments: tuple[str, ...],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        shell: Literal[False],
+        check: Literal[False],
     ) -> CommandResult: ...
 
 
-def _subprocess_runner(arguments: tuple[str, ...], **kwargs: object) -> CommandResult:
+def _subprocess_runner(
+    arguments: tuple[str, ...],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    shell: Literal[False],
+    check: Literal[False],
+) -> subprocess.CompletedProcess[bytes]:
     # Arguments are the validated fixed test invocation; never shell input.
-    return subprocess.run(  # noqa: S603, PLW1510
+    return subprocess.run(  # noqa: S603
         arguments,
-        **kwargs,  # type: ignore[arg-type,return-value]
+        cwd=cwd,
+        env=env,
+        shell=shell,
+        check=check,
     )
 
 
