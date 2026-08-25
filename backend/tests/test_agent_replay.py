@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import scripts.validation.run_agent_replay as replay
 from scripts.validation.run_agent_replay import (
     AgentReplayInputError,
     run_agent_replay,
@@ -71,7 +72,12 @@ class _PodmanApiRunner:
 
     def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
         self.calls.append((arguments, kwargs))
-        if arguments == ["podman", "machine", "inspect", "ontoprism-vm"]:
+        if arguments == [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ]:
             return _Result(
                 0,
                 stdout=json.dumps(
@@ -160,16 +166,28 @@ def test_inspect_podman_runs_only_fixed_bounded_read_only_commands(
     assert run_agent_replay(["inspect-podman"], tmp_path, runner=runner) == 0
 
     assert [command for command, _options in runner.calls] == [
-        ["podman", "version", "--format", "json"],
-        ["podman", "info", "--format", "json"],
-        ["podman", "machine", "list", "--format", "json"],
-        ["podman", "machine", "inspect", "ontoprism-vm"],
-        ["podman", "system", "connection", "list", "--format", "json"],
+        ["/opt/homebrew/bin/podman", "version", "--format", "json"],
+        ["/opt/homebrew/bin/podman", "info", "--format", "json"],
+        ["/opt/homebrew/bin/podman", "machine", "list", "--format", "json"],
+        [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ],
+        [
+            "/opt/homebrew/bin/podman",
+            "system",
+            "connection",
+            "list",
+            "--format",
+            "json",
+        ],
         ["/usr/bin/which", "docker"],
         ["/usr/bin/which", "docker-compose"],
-        ["docker", "version"],
-        ["docker-compose", "version"],
-        ["podman", "compose", "version"],
+        ["/opt/homebrew/bin/docker", "version"],
+        ["/opt/homebrew/bin/docker-compose", "version"],
+        ["/opt/homebrew/bin/podman", "compose", "version"],
     ]
     assert all(options["cwd"] == tmp_path for _command, options in runner.calls)
     assert all(options["shell"] is False for _command, options in runner.calls)
@@ -195,7 +213,12 @@ def test_check_podman_api_pins_socket_cli_and_compose_provider(
     assert run_agent_replay(["check-podman-api"], tmp_path, runner=runner) == 0
 
     assert [command for command, _options in runner.calls] == [
-        ["podman", "machine", "inspect", "ontoprism-vm"],
+        [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ],
         ["/opt/homebrew/bin/docker", "version"],
         ["/opt/homebrew/bin/docker", "info", "--format", "{{json .}}"],
         ["/opt/homebrew/bin/docker-compose", "version"],
@@ -230,7 +253,11 @@ def test_check_podman_api_rejects_wrong_machine_contract(
     class _InvalidRunner(_PodmanApiRunner):
         def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
             result = super().__call__(arguments, **kwargs)
-            if arguments[:3] == ["podman", "machine", "inspect"]:
+            if arguments[:3] == [
+                "/opt/homebrew/bin/podman",
+                "machine",
+                "inspect",
+            ]:
                 payload = json.loads(result.stdout)
                 payload[0][changed_field] = changed_value
                 result.stdout = json.dumps(payload)
@@ -302,16 +329,53 @@ def test_podman_gate_failure_reports_labelled_stdout_and_stderr(
             if arguments == ["/opt/homebrew/bin/pdm", "run", "verify"]:
                 return _Result(
                     1,
-                    stdout="tests completed before failure",
-                    stderr="lint failed",
+                    stdout='{"api_token":"tests-secret"}',
+                    stderr='lint failed PASSWORD="lint-secret"',
                 )
             return result
 
     with pytest.raises(AgentReplayInputError) as raised:
         run_agent_replay(["podman-verify"], tmp_path, runner=_FailedGate(socket_path))
 
-    assert "stdout: tests completed before failure" in str(raised.value)
-    assert "stderr: lint failed" in str(raised.value)
+    message = str(raised.value)
+    assert (
+        "required command exited nonzero (1): "
+        "/opt/homebrew/bin/pdm run verify" in message
+    )
+    assert 'stdout: {"api_token":"[REDACTED]"}' in message
+    assert 'stderr: lint failed PASSWORD="[REDACTED]"' in message
+    assert "tests-secret" not in message
+    assert "lint-secret" not in message
+
+
+@pytest.mark.unit
+def test_podman_gate_timeout_names_command_and_preserves_sanitized_streams(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+
+    class _TimedOutGate(_PodmanApiRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            if arguments == ["/opt/homebrew/bin/pdm", "run", "verify"]:
+                raise subprocess.TimeoutExpired(
+                    arguments,
+                    3600,
+                    output='{"secret":"timeout-secret"}',
+                    stderr="timed stderr",
+                )
+            return super().__call__(arguments, **kwargs)
+
+    with pytest.raises(AgentReplayInputError) as raised:
+        run_agent_replay(["podman-verify"], tmp_path, runner=_TimedOutGate(socket_path))
+
+    message = str(raised.value)
+    assert (
+        "required command timed out after 3600s: "
+        "/opt/homebrew/bin/pdm run verify" in message
+    )
+    assert 'stdout: {"secret":"[REDACTED]"}' in message
+    assert "stderr: timed stderr" in message
+    assert "timeout-secret" not in message
 
 
 @pytest.mark.unit
@@ -322,9 +386,16 @@ def test_podman_compose_up_uses_exact_project_files_provider_and_wait(
         (tmp_path / relative).touch()
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _PodmanApiRunner(socket_path)
-    monkeypatch.setattr(
-        "scripts.validation.run_agent_replay._fixed_ports_are_free", lambda: True
-    )
+    reserved: list[int] = []
+
+    class _AvailableSocket:
+        def bind(self, address: tuple[str, int]) -> None:
+            reserved.append(address[1])
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(socket, "socket", lambda *_args: _AvailableSocket())
 
     assert run_agent_replay(["podman-compose-up"], tmp_path, runner=runner) == 0
 
@@ -339,6 +410,7 @@ def test_podman_compose_up_uses_exact_project_files_provider_and_wait(
         [*compose, "config"],
         [*compose, "up", "--detach", "--wait"],
     ]
+    assert reserved == [5433, 7888, 7889]
     for _command, options in runner.calls[-2:]:
         environment = options["env"]
         assert isinstance(environment, dict)
@@ -348,19 +420,6 @@ def test_podman_compose_up_uses_exact_project_files_provider_and_wait(
         )
         assert options["shell"] is False
         assert options["timeout"] == 1800
-
-
-@pytest.mark.unit
-def test_podman_compose_up_refuses_occupied_fixed_ports(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _write_compose_inputs(tmp_path)
-    monkeypatch.setattr(
-        "scripts.validation.run_agent_replay._fixed_ports_are_free", lambda: False
-    )
-
-    with pytest.raises(AgentReplayInputError, match="fixed ports are occupied"):
-        run_agent_replay(["podman-compose-up"], tmp_path, runner=_Runner())
 
 
 @pytest.mark.unit
@@ -473,8 +532,8 @@ class _ComposeCheckRunner(_PodmanApiRunner):
 @pytest.mark.parametrize(
     ("service", "source"),
     [
-        ("postgres", "decoy-ontoprism-podman-poc_ontoprism_pg_data-copy"),
-        ("qlever-ncit", "data/qlever-ncit-copy"),
+        ("postgres", "ontoprism-podman-poc_ontoprism_pg_data-backup"),
+        ("qlever-ncit", "decoy/qlever-ncit"),
         ("qlever-uberon", "data/not-qlever-uberon"),
     ],
 )
@@ -482,6 +541,7 @@ def test_podman_compose_check_rejects_mount_source_decoys(
     service: str, source: str, tmp_path: Path
 ) -> None:
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    decoy_source = source if service == "postgres" else str(tmp_path / source)
 
     class _MountDecoyRunner(_ComposeCheckRunner):
         def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
@@ -492,8 +552,8 @@ def test_podman_compose_check_rejects_mount_source_decoys(
                 f"ontoprism-{service}",
             ]:
                 payload = json.loads(result.stdout)
-                payload[0]["Mounts"][0]["Source"] = source
-                payload[0]["Mounts"][0]["Name"] = source
+                payload[0]["Mounts"][0]["Source"] = decoy_source
+                payload[0]["Mounts"][0]["Name"] = decoy_source
                 result.stdout = json.dumps(payload)
             return result
 
@@ -548,6 +608,35 @@ def test_podman_compose_check_rejects_broken_health(tmp_path: Path) -> None:
             ["podman-compose-check"],
             tmp_path,
             runner=_ComposeCheckRunner(socket_path, health="unhealthy"),
+        )
+
+
+@pytest.mark.unit
+def test_podman_compose_check_rejects_non_list_mounts_with_named_predicate(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+
+    class _MalformedMountsRunner(_ComposeCheckRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == [
+                "/opt/homebrew/bin/docker",
+                "inspect",
+                "ontoprism-postgres",
+            ]:
+                payload = json.loads(result.stdout)
+                payload[0]["Mounts"] = "not-a-list"
+                result.stdout = json.dumps(payload)
+            return result
+
+    with pytest.raises(
+        AgentReplayInputError, match="postgres mounts shape predicate failed"
+    ):
+        run_agent_replay(
+            ["podman-compose-check"],
+            tmp_path,
+            runner=_MalformedMountsRunner(socket_path),
         )
 
 
@@ -664,9 +753,15 @@ def test_podman_compose_up_preserves_primary_failure_when_rollback_fails(
 ) -> None:
     _write_compose_inputs(tmp_path)
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
-    monkeypatch.setattr(
-        "scripts.validation.run_agent_replay._fixed_ports_are_free", lambda: True
-    )
+
+    class _AvailableSocket:
+        def bind(self, _address: tuple[str, int]) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(socket, "socket", lambda *_args: _AvailableSocket())
 
     class _FailedRollback(_PodmanApiRunner):
         def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
@@ -684,6 +779,26 @@ def test_podman_compose_up_preserves_primary_failure_when_rollback_fails(
 
     assert "primary up failure" in str(raised.value)
     assert any("rollback down failure" in note for note in raised.value.__notes__)
+
+
+@pytest.mark.unit
+def test_main_prints_cleanup_notes_to_cli_stderr(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    failure = AgentReplayInputError("primary operation failed")
+    failure.add_note("cleanup failure: generated override could not be removed")
+
+    def fail_replay(_arguments: list[str], _root: Path) -> int:
+        raise failure
+
+    monkeypatch.setattr(replay, "run_agent_replay", fail_replay)
+    monkeypatch.setattr(replay.sys, "argv", ["run_agent_replay.py", "podman-app-smoke"])
+
+    assert replay.main() == 2
+    assert capsys.readouterr().err == (
+        "primary operation failed\n"
+        "cleanup failure: generated override could not be removed\n"
+    )
 
 
 @pytest.mark.unit

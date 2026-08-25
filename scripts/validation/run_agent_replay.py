@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Run fixed operations, including mutating local container/tmp operations.
 
-Operations return zero on success and raise ``AgentReplayInputError`` on refusal or
-failure. Cleanup failures are attached without replacing an earlier operation failure.
+Operations return zero on success. Contract refusals and required-command failures raise
+``AgentReplayInputError``; local filesystem setup failures may propagate as their native
+environment exceptions. Cleanup failures are attached without replacing an earlier
+operation failure.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, assert_never, cast
 
 import yaml
 
@@ -43,16 +45,19 @@ _PODMAN = "/opt/homebrew/bin/podman"
 _DOCKER = "/opt/homebrew/bin/docker"
 _DOCKER_COMPOSE = "/opt/homebrew/bin/docker-compose"
 _PDM = "/opt/homebrew/bin/pdm"
-_COMPOSE_SERVICES = ("postgres", "qlever-ncit", "qlever-uberon")
-_DATA_PORTS = (5433, 7888, 7889)
-_APP_PORTS = (*_DATA_PORTS, 8080)
+type ComposeService = Literal["postgres", "qlever-ncit", "qlever-uberon"]
+_COMPOSE_SERVICES: tuple[ComposeService, ...] = (
+    "postgres",
+    "qlever-ncit",
+    "qlever-uberon",
+)
 _POSTGRES_IMAGE = (
     "pgvector/pgvector@sha256:"
     "a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da"
 )
 _SECRET_VALUE = re.compile(
-    r"(?i)(\b[A-Z0-9_-]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API[_-]?KEY)"
-    r"\s*[:=]\s*)([^\s,;\"']+)"
+    r"(?i)([\"']?[A-Z0-9_-]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API[_-]?KEY)"
+    r"[\"']?\s*[:=]\s*[\"']?)([^\s,;\"']+)"
 )
 _URL_CREDENTIALS = re.compile(
     r"((?:https?|postgresql(?:\+asyncpg)?)://[^\s:/]+:)[^@\s]+(@)", re.I
@@ -793,16 +798,16 @@ def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int
     if values:
         raise AgentReplayInputError("inspect-podman accepts no arguments")
     commands = (
-        ["podman", "version", "--format", "json"],
-        ["podman", "info", "--format", "json"],
-        ["podman", "machine", "list", "--format", "json"],
-        ["podman", "machine", "inspect", _PODMAN_MACHINE],
-        ["podman", "system", "connection", "list", "--format", "json"],
+        [_PODMAN, "version", "--format", "json"],
+        [_PODMAN, "info", "--format", "json"],
+        [_PODMAN, "machine", "list", "--format", "json"],
+        [_PODMAN, "machine", "inspect", _PODMAN_MACHINE],
+        [_PODMAN, "system", "connection", "list", "--format", "json"],
         ["/usr/bin/which", "docker"],
         ["/usr/bin/which", "docker-compose"],
-        ["docker", "version"],
-        ["docker-compose", "version"],
-        ["podman", "compose", "version"],
+        [_DOCKER, "version"],
+        [_DOCKER_COMPOSE, "version"],
+        [_PODMAN, "compose", "version"],
     )
     for command in commands:
         _collect_diagnostic_command(command, root, runner)
@@ -818,6 +823,7 @@ def _capture_required(
     timeout: int = _DIAGNOSTIC_TIMEOUT_SECONDS,
     display_limit: int | None = _MAX_DIAGNOSTIC_CHARS,
 ) -> str:
+    rendered_command = " ".join(command)
     try:
         result = runner(
             command,
@@ -829,13 +835,42 @@ def _capture_required(
             text=True,
             env=environment,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise AgentReplayInputError("required Podman command failed closed") from exc
+    except subprocess.TimeoutExpired as exc:
+        stdout = _timeout_stream_text(exc.stdout)
+        stderr = _timeout_stream_text(exc.stderr)
+        labelled = _labelled_streams(
+            stdout or "", stderr or "", display_limit=display_limit
+        )
+        raise AgentReplayInputError(
+            f"required command timed out after {timeout}s: {rendered_command}"
+            f"{f': {labelled}' if labelled else ''}"
+        ) from exc
+    except OSError as exc:
+        raise AgentReplayInputError(
+            f"required command could not start: {rendered_command}: "
+            f"{_bounded_sanitized(str(exc), limit=display_limit)}"
+        ) from exc
     raw_stdout = result.stdout
     raw_stderr = result.stderr
-    displayed_stdout = _bounded_sanitized(raw_stdout, limit=display_limit)
-    displayed_stderr = _bounded_sanitized(raw_stderr, limit=display_limit)
-    labelled = "\n".join(
+    labelled = _labelled_streams(raw_stdout, raw_stderr, display_limit=display_limit)
+    if result.returncode != 0:
+        raise AgentReplayInputError(
+            f"required command exited nonzero ({result.returncode}): {rendered_command}"
+            f"{f': {labelled}' if labelled else ''}"
+        )
+    if labelled:
+        print(labelled)
+    return raw_stdout
+
+
+def _timeout_stream_text(value: bytes | str | None) -> str:
+    return value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+
+
+def _labelled_streams(stdout: str, stderr: str, *, display_limit: int | None) -> str:
+    displayed_stdout = _bounded_sanitized(stdout, limit=display_limit)
+    displayed_stderr = _bounded_sanitized(stderr, limit=display_limit)
+    return "\n".join(
         line
         for line in (
             f"stdout: {displayed_stdout}" if displayed_stdout else "",
@@ -843,18 +878,11 @@ def _capture_required(
         )
         if line
     )
-    if result.returncode != 0:
-        raise AgentReplayInputError(
-            f"required Podman command failed{f': {labelled}' if labelled else ''}"
-        )
-    if labelled:
-        print(labelled)
-    return raw_stdout
 
 
 def _podman_socket(root: Path, runner: CommandRunner) -> Path:
     output = _capture_required(
-        ["podman", "machine", "inspect", _PODMAN_MACHINE], root, runner
+        [_PODMAN, "machine", "inspect", _PODMAN_MACHINE], root, runner
     )
     try:
         payload = json.loads(output)
@@ -989,12 +1017,6 @@ def _reserved_fixed_ports(ports: tuple[int, ...]) -> Iterator[None]:
             listener.close()
 
 
-def _fixed_ports_are_free() -> bool:
-    """Probe every fixed data port and report the first failed bind precisely."""
-    with _reserved_fixed_ports(_DATA_PORTS):
-        return True
-
-
 def _compose_command(compose_file: str) -> list[str]:
     return [
         _DOCKER_COMPOSE,
@@ -1012,8 +1034,8 @@ def _add_cleanup_note(primary: BaseException, cleanup: AgentReplayInputError) ->
 def _podman_compose_up(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
         raise AgentReplayInputError("podman-compose-up accepts no arguments")
-    if not _fixed_ports_are_free():
-        raise AgentReplayInputError("fixed ports are occupied")
+    with _reserved_fixed_ports(_DATA_PORTS):
+        pass
     compose_file = _require_files(root, ("docker-compose.yml",))[0]
     socket_path = _podman_socket(root, runner)
     environment = _podman_environment(root, socket_path)
@@ -1026,8 +1048,6 @@ def _podman_compose_up(values: list[str], root: Path, runner: CommandRunner) -> 
         timeout=_COMPOSE_TIMEOUT_SECONDS,
     )
     try:
-        if not _fixed_ports_are_free():
-            raise AgentReplayInputError("fixed ports are occupied")
         _capture_required(
             [*compose, "up", "--detach", "--wait"],
             root,
@@ -1068,7 +1088,17 @@ class ServiceExpectation:
     source: NamedVolume | BindPath
 
 
-_SERVICE_EXPECTATIONS: dict[str, ServiceExpectation] = {
+ServiceExpectations = TypedDict(
+    "ServiceExpectations",
+    {
+        "postgres": ServiceExpectation,
+        "qlever-ncit": ServiceExpectation,
+        "qlever-uberon": ServiceExpectation,
+    },
+)
+
+
+_SERVICE_EXPECTATIONS: ServiceExpectations = {
     "postgres": ServiceExpectation(
         "/var/lib/postgresql/data", "5432/tcp", "5433", NamedVolume(_PODMAN_VOLUME)
     ),
@@ -1079,6 +1109,10 @@ _SERVICE_EXPECTATIONS: dict[str, ServiceExpectation] = {
         "/data", "7001/tcp", "7889", BindPath(Path("data/qlever-uberon"))
     ),
 }
+_DATA_PORTS = tuple(
+    int(_SERVICE_EXPECTATIONS[service].host_port) for service in _COMPOSE_SERVICES
+)
+_APP_PORTS = (*_DATA_PORTS, 8080)
 
 
 def _mount_source_is_valid(
@@ -1089,16 +1123,35 @@ def _mount_source_is_valid(
             mount.get("Type") == "volume"
             and mount.get("Name") == expectation.source.name
         )
-    mount_source = mount.get("Source")
-    return (
-        mount.get("Type") == "bind"
-        and isinstance(mount_source, str)
-        and Path(mount_source).resolve()
-        == (root / expectation.source.relative).resolve()
-    )
+    if isinstance(expectation.source, BindPath):
+        mount_source = mount.get("Source")
+        return (
+            mount.get("Type") == "bind"
+            and isinstance(mount_source, str)
+            and Path(mount_source).resolve()
+            == (root / expectation.source.relative).resolve()
+        )
+    assert_never(expectation.source)
 
 
-def _validate_compose_resource(output: str, *, root: Path, service: str) -> None:
+def _expected_mount(
+    mounts: object, expectation: ServiceExpectation, service: ComposeService
+) -> dict[str, object]:
+    if not isinstance(mounts, list) or any(
+        not isinstance(mount, dict) for mount in mounts
+    ):
+        raise AgentReplayInputError(f"{service} mounts shape predicate failed")
+    matching_mounts = [
+        mount for mount in mounts if mount.get("Destination") == expectation.destination
+    ]
+    if len(matching_mounts) != 1:
+        raise AgentReplayInputError(f"{service} mount cardinality failed")
+    return cast("dict[str, object]", matching_mounts[0])
+
+
+def _validate_compose_resource(
+    output: str, *, root: Path, service: ComposeService
+) -> None:
     expectation = _SERVICE_EXPECTATIONS[service]
     try:
         resource = json.loads(output)[0]
@@ -1111,12 +1164,7 @@ def _validate_compose_resource(output: str, *, root: Path, service: str) -> None
         raise AgentReplayInputError("invalid compose resource contract") from exc
     if not isinstance(labels, dict):
         raise AgentReplayInputError(f"{service} owner labels predicate failed")
-    matching_mounts = [
-        mount for mount in mounts if mount.get("Destination") == expectation.destination
-    ]
-    if len(matching_mounts) != 1:
-        raise AgentReplayInputError(f"{service} mount cardinality failed")
-    mount = matching_mounts[0]
+    mount = _expected_mount(mounts, expectation, service)
     if not _mount_source_is_valid(mount, expectation, root):
         raise AgentReplayInputError(f"{service} mount source failed")
     if (
@@ -1302,7 +1350,6 @@ def _podman_health_reject(values: list[str], root: Path, runner: CommandRunner) 
         "--file",
         str(override),
     ]
-    rejected = False
     primary: BaseException | None = None
     cleanup_errors: list[AgentReplayInputError] = []
     compose_attempted = False
@@ -1352,7 +1399,6 @@ def _podman_health_reject(values: list[str], root: Path, runner: CommandRunner) 
             raise AgentReplayInputError(
                 "broken-health Compose failed for an unexpected reason"
             )
-        rejected = True
         print(f"broken-health-rejected exit={result.returncode} detail={detail}")
     except AgentReplayInputError as exc:
         primary = exc
@@ -1372,8 +1418,6 @@ def _podman_health_reject(values: list[str], root: Path, runner: CommandRunner) 
                 cleanup_errors.append(cleanup)
         cleanup_errors.extend(_remove_operation_paths(override, data_dir))
     _finish_cleanup(primary, cleanup_errors)
-    if not rejected:
-        raise AgentReplayInputError("broken-health Compose rejection was not observed")
     return 0
 
 
@@ -1599,6 +1643,8 @@ def main() -> int:
         return run_agent_replay(sys.argv[1:], Path(__file__).resolve().parents[2])
     except AgentReplayInputError as exc:
         print(str(exc), file=sys.stderr)
+        for note in getattr(exc, "__notes__", ()):
+            print(note, file=sys.stderr)
         return 2
 
 
