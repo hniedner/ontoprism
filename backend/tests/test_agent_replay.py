@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import scripts.validation.run_agent_replay as replay
+from scripts.validation.docker_selectors import DOCKER_SELECTOR_VARIABLES
 from scripts.validation.run_agent_replay import (
     AgentReplayInputError,
     run_agent_replay,
@@ -313,10 +314,18 @@ def test_inspect_podman_rejects_all_user_arguments(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_check_podman_api_pins_socket_cli_and_compose_provider(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _PodmanApiRunner(socket_path)
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "PATH": "inherited",
+            **dict.fromkeys(DOCKER_SELECTOR_VARIABLES, "unsafe"),
+        },
+    )
 
     assert run_agent_replay(["check-podman-api"], tmp_path, runner=runner) == 0
 
@@ -339,6 +348,10 @@ def test_check_podman_api_pins_socket_cli_and_compose_provider(
         assert environment["PODMAN_COMPOSE_PROVIDER"] == (
             "/opt/homebrew/bin/docker-compose"
         )
+        assert set(environment).intersection(DOCKER_SELECTOR_VARIABLES) == {
+            "DOCKER_HOST",
+            "PODMAN_COMPOSE_PROVIDER",
+        }
         assert environment["PATH"].startswith(f"{tmp_path}/.venv/bin:/opt/homebrew/bin")
         assert options["shell"] is False
         assert options["timeout"] == 20

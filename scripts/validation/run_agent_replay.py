@@ -1080,11 +1080,7 @@ def _check_podman_api(values: list[str], root: Path, runner: CommandRunner) -> i
 def _podman_environment(root: Path, socket_path: Path) -> dict[str, str]:
     environment = dict(os.environ)
     inherited_path = environment.get("PATH", "")
-    for variable in (
-        "DOCKER_CONTEXT",
-        "DOCKER_TLS_VERIFY",
-        "DOCKER_CERT_PATH",
-    ):
+    for variable in DOCKER_SELECTOR_VARIABLES:
         environment.pop(variable, None)
     environment.update(
         {

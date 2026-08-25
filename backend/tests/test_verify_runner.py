@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,8 @@ class _Runner:
 def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pdm_executable = shutil.which("pdm")
+    assert pdm_executable is not None
     runner = _Runner()
     monkeypatch.setattr(
         "scripts.validation.run_verify.os.environ",
@@ -49,69 +53,27 @@ def test_verify_runner_uses_portable_tools_and_runs_exact_gates(
             ".",
         ],
         [sys.executable, "-m", "pre_commit", "run", "--all-files"],
-        [
-            str(Path(sys.executable).parent / "pytest"),
-            "ontolib/tests",
-            "backend/tests",
-            "-m",
-            "not integration",
-            "--cov",
-            "--cov-report=term-missing",
-            "--cov-report=xml",
-            "-n",
-            "auto",
-        ],
-        [
-            sys.executable,
-            "scripts/run_safe_integration.py",
-            "ontolib/tests",
-            "backend/tests",
-            "-m",
-            "integration and not full_store and not full_build and not slow",
-            "--cov=ontolib/src",
-            "--cov=backend/src",
-            "--cov-branch",
-            "--cov-report=",
-        ],
-        [
-            str(Path(sys.executable).parent / "coverage"),
-            "combine",
-            ".coverage.unit",
-            ".coverage.integration",
-        ],
-        [
-            sys.executable,
-            "scripts/validation/strict_coverage_gate.py",
-            "python",
-            "--coverage-data",
-            ".coverage",
-            "--root",
-            ".",
-        ],
+        [pdm_executable, "run", "test-ci"],
         ["npm", "--prefix", "frontend", "run", "test:coverage"],
     ]
-    expected_coverage_files = (
-        None,
-        None,
-        ".coverage.unit",
-        ".coverage.integration",
-        None,
-        None,
-        None,
-    )
-    for (_command, options), coverage_file in zip(
-        runner.calls, expected_coverage_files, strict=True
-    ):
-        expected_environment = {"SAFE": "retained"}
-        if coverage_file is not None:
-            expected_environment["COVERAGE_FILE"] = coverage_file
+    for _command, options in runner.calls:
         assert options == {
             "check": False,
             "cwd": Path(__file__).resolve().parents[2],
-            "env": expected_environment,
+            "env": {"SAFE": "retained"},
             "shell": False,
             "text": True,
         }
+
+    pyproject = tomllib.loads(
+        (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    scripts = pyproject["tool"]["pdm"]["scripts"]
+    assert scripts["verify"] == "python -m scripts.validation.run_verify"
+    assert "test-ci" in scripts
+    assert "pdm run verify" not in scripts["test-ci"]["shell"]
 
 
 @pytest.mark.unit
@@ -126,7 +88,7 @@ def test_verify_runner_reports_ignored_docker_selector_overrides(
     )
 
     assert run_verify(runner=runner) == 0
-    assert len(runner.calls) == 7
+    assert len(runner.calls) == 4
     assert capsys.readouterr().err == (
         "default-context verification ignores Docker selectors: DOCKER_HOST\n"
     )
