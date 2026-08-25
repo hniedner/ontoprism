@@ -108,6 +108,32 @@ This loopback request is an operator check against the QLever service itself. Th
 FastAPI application exposes no public raw-SPARQL endpoint; its supported query surface
 is the typed API (D44).
 
+### Experimental local Podman runtime
+
+The Compose files also run unchanged against the Docker-compatible API of an existing
+rootless Podman machine named `ontoprism-vm`. Machine creation and package installation
+remain manual setup. The supported PoC path requires the Homebrew Docker CLI and pins
+Docker Compose v2 at `/opt/homebrew/bin/docker-compose`; Python `podman-compose` is not
+used or required.
+
+Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine socket and
+`PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
+
+```bash
+pdm run agent-replay check-podman-api
+pdm run agent-replay podman-compose-up
+pdm run agent-replay podman-compose-check
+pdm run agent-replay podman-test-full-store
+pdm run agent-replay podman-verify
+pdm run agent-replay podman-compose-down
+```
+
+`podman-compose-down` verifies exact Compose ownership before cleanup and deliberately
+does not pass `-v`, so the `ontoprism-podman-poc_ontoprism_pg_data` named volume is
+retained. QLever continues to use the repository's existing bind-mounted indexes. Do
+not run Colima and Podman stacks concurrently because both publish the same loopback
+ports. GitHub CI remains on Docker; this local runtime selection does not change CI.
+
 The M1 26.07d review uses a separately certified stated-source store on `:7890`; it does
 not replace the application store on `:7888`. Run the combined read-only corpus contracts
 with both lanes explicit:

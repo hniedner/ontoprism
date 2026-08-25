@@ -460,6 +460,15 @@ def test_podman_compose_down_preserves_a_decoy_with_wrong_owner_label(
 
 
 @pytest.mark.unit
+def test_poc_acceptance_operations_are_fixed_and_reject_arguments(
+    tmp_path: Path,
+) -> None:
+    for operation in ("podman-health-reject", "podman-app-smoke"):
+        with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
+            run_agent_replay([operation, "unsafe"], tmp_path, runner=_Runner())
+
+
+@pytest.mark.unit
 def test_inventory_refresh_uses_only_the_repository_generator(tmp_path: Path) -> None:
     script = tmp_path / "scripts/validation/write_sparql_inventory.py"
     script.parent.mkdir(parents=True)

@@ -7,6 +7,7 @@ import importlib
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -25,6 +26,13 @@ _DIAGNOSTIC_TIMEOUT_SECONDS = 20
 _GATE_TIMEOUT_SECONDS = 3_600
 _COMPOSE_TIMEOUT_SECONDS = 1_800
 _MAX_DIAGNOSTIC_CHARS = 8_192
+_POC_DIR = Path("tmp/podman-poc")
+_PODMAN_PROJECT = "ontoprism-podman-poc"
+_PODMAN_VOLUME = f"{_PODMAN_PROJECT}_ontoprism_pg_data"
+_POSTGRES_IMAGE = (
+    "pgvector/pgvector@sha256:"
+    "a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da"
+)
 _SECRET_VALUE = re.compile(
     r"(?i)\b(password|passwd|token|secret|api[_-]?key)(\s*[:=]\s*)([^\s,;]+)"
 )
@@ -1071,6 +1079,210 @@ def _podman_compose_down(values: list[str], root: Path, runner: CommandRunner) -
     return 0
 
 
+def _write_fixed_override(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _podman_health_reject(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("podman-health-reject accepts no arguments")
+    socket_path = _podman_socket(root, runner)
+    environment = _podman_environment(root, socket_path)
+    override = root / _POC_DIR / "broken-health.override.yml"
+    data_dir = root / _POC_DIR / "broken-health-postgres"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _write_fixed_override(
+        override,
+        f"""services:
+  broken:
+    image: {_POSTGRES_IMAGE}
+    environment:
+      POSTGRES_USER: ontoprism
+      POSTGRES_PASSWORD: ontoprism
+      POSTGRES_DB: ontoprism
+    volumes:
+      - {data_dir}:/var/lib/postgresql/data
+    healthcheck:
+      test: [\"CMD\", \"/bin/false\"]
+      interval: 1s
+      timeout: 1s
+      retries: 1
+""",
+    )
+    compose = [
+        "/opt/homebrew/bin/docker-compose",
+        "--project-name",
+        "ontoprism-podman-health-reject",
+        "--file",
+        str(override),
+    ]
+    rejected = False
+    try:
+        result = runner(
+            [*compose, "up", "--detach", "--wait", "--wait-timeout", "30"],
+            cwd=root,
+            shell=False,
+            check=False,
+            timeout=_COMPOSE_TIMEOUT_SECONDS,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        captured = cast("CapturedCommandResult", result)
+        if result.returncode == 0:
+            raise AgentReplayInputError("broken-health Compose project was accepted")
+        detail = _bounded_sanitized(captured.stderr or captured.stdout)
+        if (
+            "unhealthy" not in detail.lower()
+            or "ontoprism-podman-health-reject-broken-1" not in detail
+        ):
+            raise AgentReplayInputError(
+                "broken-health Compose failed for an unexpected reason"
+            )
+        rejected = True
+        print(f"broken-health-rejected exit={result.returncode} detail={detail}")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AgentReplayInputError(
+            "broken-health Compose check failed closed"
+        ) from exc
+    finally:
+        _capture_required(
+            [*compose, "down"],
+            root,
+            runner,
+            environment=environment,
+            timeout=_COMPOSE_TIMEOUT_SECONDS,
+        )
+        override.unlink(missing_ok=True)
+        shutil.rmtree(data_dir)
+    if not rejected:
+        raise AgentReplayInputError("broken-health Compose rejection was not observed")
+    return 0
+
+
+def _podman_app_smoke(values: list[str], root: Path, runner: CommandRunner) -> int:
+    if values:
+        raise AgentReplayInputError("podman-app-smoke accepts no arguments")
+    _require_files(
+        root,
+        (
+            "docker-compose.yml",
+            "docker-compose.app.yml",
+            "Caddyfile",
+        ),
+    )
+    socket_path = _podman_socket(root, runner)
+    environment = _podman_environment(root, socket_path)
+    override = root / _POC_DIR / "app-podman.override.yml"
+    refresh_dir = root / _POC_DIR / "app-refresh"
+    refresh_dir.mkdir(parents=True, exist_ok=True)
+    _write_fixed_override(
+        override,
+        f"""services:
+  api:
+    volumes:
+      - ./data/cadsr:/app/data/cadsr:ro
+      - {refresh_dir}:/app/refresh
+volumes:
+  ontoprism_pg_data:
+    external: true
+    name: {_PODMAN_VOLUME}
+""",
+    )
+    compose = [
+        "/opt/homebrew/bin/docker-compose",
+        "--project-name",
+        "ontoprism-podman-app",
+        "--file",
+        str(root / "docker-compose.yml"),
+        "--file",
+        str(root / "docker-compose.app.yml"),
+        "--file",
+        str(override),
+    ]
+    try:
+        _capture_required(
+            [*compose, "up", "--detach", "--wait", "--build"],
+            root,
+            runner,
+            environment=environment,
+            timeout=_GATE_TIMEOUT_SECONDS,
+        )
+        root_page = _capture_required(
+            [
+                "/usr/bin/curl",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--retry",
+                "10",
+                "--retry-all-errors",
+                "--retry-delay",
+                "0",
+                "--max-time",
+                "180",
+                "http://127.0.0.1:8080/",
+            ],
+            root,
+            runner,
+            environment=environment,
+            timeout=_COMPOSE_TIMEOUT_SECONDS,
+        )
+        bff = _capture_required(
+            [
+                "/usr/bin/curl",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--retry",
+                "10",
+                "--retry-all-errors",
+                "--retry-delay",
+                "0",
+                "--max-time",
+                "180",
+                "http://127.0.0.1:8080/api/v1/ncit/concepts/C3262",
+            ],
+            root,
+            runner,
+            environment=environment,
+            timeout=_COMPOSE_TIMEOUT_SECONDS,
+        )
+        if "<html" not in root_page.lower() or '"code":"C3262"' not in re.sub(
+            r"\s+", "", bff
+        ):
+            raise AgentReplayInputError("full-app Caddy/BFF smoke contract failed")
+        dns = _capture_required(
+            [
+                "/opt/homebrew/bin/docker",
+                "exec",
+                "ontoprism-api",
+                "python",
+                "-c",
+                "import socket;[socket.getaddrinfo(n,None) for n in "
+                "('web','postgres','qlever-ncit','qlever-uberon')]",
+            ],
+            root,
+            runner,
+            environment=environment,
+        )
+        if dns.strip():
+            raise AgentReplayInputError("service DNS check emitted unexpected output")
+        print("app-smoke=caddy-root+bff-C3262+service-dns")
+    finally:
+        _capture_required(
+            [*compose, "down"],
+            root,
+            runner,
+            environment=environment,
+            timeout=_COMPOSE_TIMEOUT_SECONDS,
+        )
+        override.unlink(missing_ok=True)
+        shutil.rmtree(refresh_dir)
+    return 0
+
+
 _OPERATIONS: dict[str, Operation] = {
     "read-issue": _read_issue,
     "decompose-current": _decompose_current,
@@ -1089,6 +1301,8 @@ _OPERATIONS: dict[str, Operation] = {
     "podman-compose-up": _podman_compose_up,
     "podman-compose-check": _podman_compose_check,
     "podman-compose-down": _podman_compose_down,
+    "podman-health-reject": _podman_health_reject,
+    "podman-app-smoke": _podman_app_smoke,
 }
 
 
