@@ -210,11 +210,17 @@ class CurrentEngineEvidence(_StrictModel):
 class CurrentRateMetric(_StrictModel):
     numerator: int = Field(ge=0)
     denominator: int = Field(ge=0)
-    rate: float = Field(ge=0, le=1)
+    rate: float | None = Field(ge=0, le=1)
 
     @model_validator(mode="after")
     def _rate_matches_counts(self) -> Self:
-        expected = self.numerator / self.denominator if self.denominator else 0.0
+        if self.numerator > self.denominator:
+            raise ValueError("metric numerator exceeds denominator")
+        if (self.denominator == 0) != (self.rate is None):
+            raise ValueError("metric rate presence differs from denominator")
+        if self.denominator == 0:
+            return self
+        expected = self.numerator / self.denominator
         if self.rate != expected:
             raise ValueError("metric rate does not match numerator and denominator")
         return self
@@ -229,6 +235,22 @@ class CurrentMetrics(_StrictModel):
     exact_pair_recall: CurrentRateMetric
     full_partition_agreement: CurrentRateMetric
     common_pair_partition_agreement: CurrentCommonPartitionMetric
+
+    @model_validator(mode="after")
+    def _exact_pair_views_share_true_positive_count(self) -> Self:
+        if self.exact_pair_precision.numerator != self.exact_pair_recall.numerator:
+            raise ValueError("exact pair true-positive counts differ")
+        return self
+
+    @model_validator(mode="after")
+    def _grouping_views_share_cohort(self) -> Self:
+        common = self.common_pair_partition_agreement
+        if (
+            common.denominator + common.ineligible
+            != self.full_partition_agreement.denominator
+        ):
+            raise ValueError("grouping denominators do not describe one cohort")
+        return self
 
 
 class AvailableActualPairCitation(_StrictModel):
@@ -739,8 +761,8 @@ def _row_replay(
     return CurrentRowReplay(results=tuple(results), aggregates=aggregates)
 
 
-def _rate(numerator: int, denominator: int) -> float:
-    return numerator / denominator if denominator else 0.0
+def _rate(numerator: int, denominator: int) -> float | None:
+    return numerator / denominator if denominator else None
 
 
 def _rate_metric(numerator: int, denominator: int) -> CurrentRateMetric:

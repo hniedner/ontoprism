@@ -564,6 +564,37 @@ def test_orchestrator_contract_allows_only_fixed_inspection_commands(
     assert effective_action(rules, command) == expected
 
 
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (
+            "gh pr view 123 --json title,baseRefName,headRefName,headRefOid,"
+            "mergeStateStatus,statusCheckRollup",
+            "allow",
+        ),
+        (
+            "gh run list --workflow ci.yml --branch main --event push --json "
+            "databaseId,headSha,status,conclusion,createdAt",
+            "allow",
+        ),
+        (
+            "gh run list --workflow pr-title.yml --branch feat/example --event "
+            "pull_request --json displayTitle,headSha,status,conclusion,createdAt",
+            "allow",
+        ),
+        ("gh run watch 456 --exit-status", "allow"),
+        ("gh pr view 123 --json body", "deny"),
+        ("gh run watch 456", "deny"),
+    ],
+)
+def test_orchestrator_can_execute_only_required_read_only_gh_checks(
+    command: str, expected: str
+) -> None:
+    rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")
+
+    assert effective_action(rules, command) == expected
+
+
 @pytest.mark.parametrize("suffix", ["--admin", "--auto", "--queue", "--bypass"])
 def test_orchestrator_merge_contract_rejects_dangerous_suffixes(suffix: str) -> None:
     rules = expected_permission_contract(Path(__file__).parents[2], "ontoprism-team")

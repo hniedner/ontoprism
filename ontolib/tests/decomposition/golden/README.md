@@ -328,6 +328,36 @@ The packet and workbook are generated from exactly the tracked current evidence,
 comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
 execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review`, 2026-08-24).
 
+### Final machine-readiness evidence
+
+Capture the exact verification gate only from a clean worktree with the valid rootless
+`ontoprism-vm` running and the selected Docker context set to `ontoprism-podman` at that
+machine's inspected socket:
+
+```bash
+pdm run agent-replay capture-pre-sme-verify
+```
+
+The operation observes the clean Git HEAD before and after running the literal
+`pdm run verify`, requires the gate to pass without changing the worktree, and writes
+`tmp/m1-6-verify-evidence.json`. The evidence records the inspected Podman endpoint,
+selected context, resolved PDM executable/version, exit code, and bound Git HEAD. It is
+local machine evidence and performs no ontology or store publication.
+
+After the current comparison, R101 reuse validation, primary-site audit, group-review
+packet, R103 packet, full-corpus baseline/artifact, proposal registry, source manifest,
+and current-HEAD verify evidence all exist, generate the pending-human report from a
+clean worktree:
+
+```bash
+pdm run agent-replay generate-pre-sme-readiness
+```
+
+The operation validates all fixed input identities and cohort invariants, refuses verify
+evidence from another Git HEAD, and atomically writes
+`tmp/m1-6-machine-readiness.json`. The output remains
+`awaiting-human-review`, records no authorization, and does not perform publication.
+
 Generate the exhaustive fanout observation against the configured current source:
 
 ```bash
@@ -385,26 +415,14 @@ at most eight candidate pairs, eight R82 hops, and twenty asserted-superclass ho
 2026-08-19).
 
 The self-excluding canonical semantic `json_identity` is
-`f29210eee8e6d071d17d19a170118c9ea9b82380f4a887adc99eed27f15309a0`, its lossless TSV
+`bfa2ccdcc43e7b1a7c57df023678a48b3aa32fefd21574ed62b35f430868fd54`, its lossless TSV
 identity is `b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d`, and its report
-identity is `706613077f7b6edb6d684be57840cb4105d595f2efdf6e9778e49e13614a50a6`
-(`pdm run python -c 'from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); print(r.json_identity,r.tsv_identity,r.report_identity)'`,
-2026-08-19). Two independent regenerations from the immutable completed runs produced byte-equal
-gzip files
-(`cmp -s ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-1.json.gz" && cmp -s "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-1.json.gz" "$TMPDIR/neoplasm-r101-v4-conservation-regenerated-2.json.gz"`,
-2026-08-19).
-
-The tracked gzip is 3,926,797 bytes with file SHA-256
-`bf5ea01f2213c09766e6affc188c056c7dee07e1742f0e80c7afc6a5ffb4c014`; its decompressed,
-indented canonical JSON is 49,076,502 bytes with byte SHA-256
-`14fa41a97f78b28844868eae8e48929e530ded52787d88d84c1ba822b7027862`
-(`pdm run python -c 'import gzip,hashlib,pathlib; p=pathlib.Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"); raw=gzip.decompress(p.read_bytes()); print(p.stat().st_size,hashlib.sha256(p.read_bytes()).hexdigest(),len(raw),hashlib.sha256(raw).hexdigest())'`,
-2026-08-19). Both differ deliberately from `json_identity`, which hashes semantic JSON after
-excluding authorization, publication, and identity fields. `report_identity` covers the complete
-report except itself. The 22,220,891-byte TSV is not tracked; generating it on demand from
-decompressed occurrences produces SHA-256 `b4182dcc676d8e6ad57234757b774fcee37f857f4d9e593bb6e83200a0b6a73d`,
-equal to `tsv_identity`
-(`pdm run python -c 'import hashlib; from pathlib import Path; from ontolib.decomposition.r101_conservation import load_r101_conservation_report,r101_ledger_tsv_bytes; r=load_r101_conservation_report(Path("ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz")); t=r101_ledger_tsv_bytes(r); print(len(t),hashlib.sha256(t).hexdigest(),r.tsv_identity)'`, 2026-08-19).
+identity is `53e78119350780dc4a67ef8848b5948b4e2f9d952b2067b9e2ed353213b2f132`
+(`pdm run agent-test ontolib/tests/decomposition/test_r101_occurrence_ledger.py::test_generated_ledger_inventory_sentinels_and_exact_tsv_are_bound -v`,
+2026-08-26). `json_identity` hashes semantic JSON after excluding authorization, publication,
+and identity fields. `report_identity` covers the complete report except itself. The lossless TSV
+is not tracked; the same test regenerates it from every decompressed occurrence and verifies its
+SHA-256 equals `tsv_identity`.
 
 The exact non-R101 delta evidence contains zero canonical rows and binds the old run, new run, and
 the SQL query contract identity

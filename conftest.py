@@ -602,10 +602,10 @@ def _provision_qlever(
 ) -> Iterator[tuple[str, str]]:
     """Provision and exactly tear down one pinned disposable QLever container."""
     prefix = f"ontoprism-qlever-{owner.nonce}-"
-    # Colima only shares configured project roots with its Linux VM. macOS's
-    # default tempfile root lives under /private/var/folders, where a bind mount
-    # can exist but appear empty inside the VM. Keep this nonce-owned disposable
-    # index under the repository data root so QLever sees the fixture inputs.
+    # The rootless Podman machine reliably exposes this configured project root,
+    # while macOS's default tempfile root is not a portable bind-mount source for
+    # its Linux VM. Keep this nonce-owned disposable index under the repository
+    # data root so QLever sees the fixture inputs.
     data_root = (_ROOT / "data").resolve()
     data_root.mkdir(exist_ok=True)
     data_dir = Path(tempfile.mkdtemp(prefix=prefix, dir=data_root))

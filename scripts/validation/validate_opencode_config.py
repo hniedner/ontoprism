@@ -124,6 +124,19 @@ SAFE_WORKTREE_DIFF = (
     "git diff --check",
     "git diff --no-index /dev/null *",
 )
+GH_PR_VIEW = (
+    "gh pr view * --json "
+    "title,baseRefName,headRefName,headRefOid,mergeStateStatus,statusCheckRollup"
+)
+GH_MAIN_CI_RUNS = (
+    "gh run list --workflow ci.yml --branch main --event push --json "
+    "databaseId,headSha,status,conclusion,createdAt"
+)
+GH_PR_TITLE_RUNS = (
+    "gh run list --workflow pr-title.yml --branch * --event pull_request --json "
+    "displayTitle,headSha,status,conclusion,createdAt"
+)
+GH_RUN_WATCH = "gh run watch * --exit-status"
 IMPLEMENTER_BASH_ALLOWS = (
     *(f"pdm run {command}" for command in IMPLEMENTER_PACKAGE_COMMANDS),
     *IMPLEMENTER_NPM_COMMANDS,
@@ -146,6 +159,10 @@ ORCHESTRATOR_BASH_ALLOWS = (
     *FIXED_GIT_INSPECTION,
     "pdm run validate-opencode-config",
     "pdm run validate-opencode-runtime",
+    GH_PR_VIEW,
+    GH_MAIN_CI_RUNS,
+    GH_PR_TITLE_RUNS,
+    GH_RUN_WATCH,
     "gh pr merge * --squash --delete-branch --subject *",
 )
 ORCHESTRATOR_MERGE_DENIES = tuple(
@@ -757,6 +774,10 @@ def validate_standard_permissions(
             **dict.fromkeys(FIXED_GIT_INSPECTION, "allow"),
             "pdm run validate-opencode-config": "allow",
             "pdm run validate-opencode-runtime": "allow",
+            GH_PR_VIEW: "allow",
+            GH_MAIN_CI_RUNS: "allow",
+            GH_PR_TITLE_RUNS: "allow",
+            GH_RUN_WATCH: "allow",
             "git reset": "deny",
             "git reset *": "deny",
             "git clean": "deny",
@@ -901,7 +922,7 @@ def validate_role_contracts(
             "milestone task",
             "semantic",
             "pdm run verify",
-            "git merge --no-ff",
+            "pdm run agent-git merge-no-ff <branch>",
             "R3",
             "runs alone",
             "reduced",

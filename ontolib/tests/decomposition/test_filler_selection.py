@@ -25,6 +25,10 @@ from ontolib.decomposition.filler_selection import (
     select_constituents as _select_constituents,
 )
 from ontolib.decomposition.models import RoleRestriction
+from ontolib.decomposition.site_resolution import (
+    MORPHOLOGY_TO_ORGAN,
+    MORPHOLOGY_TO_PRIMARY_SUBSITES,
+)
 
 
 def select_constituents(*args: Any, **kwargs: Any):
@@ -127,6 +131,43 @@ def test_selection_preserves_source_ids_from_every_routed_occurrence() -> None:
 
     assert constituent.source_definition_ids == ("a" * 64, "c" * 64)
     assert constituent.source_occurrence_ids == ("b" * 64, "d" * 64)
+
+
+@pytest.mark.unit
+def test_overlapping_organ_subsite_mapping_preserves_routed_source_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    morphology = "C999001"
+    organ = "C999002"
+    other_site = "C999003"
+    definition_id = "a" * 64
+    occurrence_id = "b" * 64
+    monkeypatch.setitem(MORPHOLOGY_TO_ORGAN, morphology, organ)
+    monkeypatch.setitem(MORPHOLOGY_TO_PRIMARY_SUBSITES, morphology, frozenset({organ}))
+    restrictions = [
+        RoleRestriction(
+            "R100",
+            organ,
+            source_definition_ids=(definition_id,),
+            source_occurrence_ids=(occurrence_id,),
+        ),
+        RoleRestriction("R101", other_site),
+    ]
+
+    constituents = select_constituents(
+        restrictions,
+        lambda _ancestor, _descendant: False,
+        parent_morphologies=(morphology,),
+        semantic_type_of=lambda _code: None,
+    )
+
+    subsite = next(
+        item
+        for item in constituents
+        if (item.axis, item.filler_code) == ("op:PrimarySubsite", organ)
+    )
+    assert subsite.source_definition_ids == (definition_id,)
+    assert subsite.source_occurrence_ids == (occurrence_id,)
 
 
 @pytest.mark.unit

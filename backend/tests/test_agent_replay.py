@@ -35,34 +35,47 @@ class _Result:
         self.stderr = stderr
 
 
-class _DiagnosticRunner:
-    def __init__(self) -> None:
+class _PodmanDiagnosticRunner:
+    def __init__(self, socket_path: Path) -> None:
+        self.socket_path = socket_path
         self.calls: list[tuple[list[str], dict[str, object]]] = []
 
     def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
         self.calls.append((arguments, kwargs))
-        if arguments == ["colima", "status", "--json"]:
-            return _Result(1, stderr="unknown flag: --json")
-        if arguments[:2] == ["docker", "info"]:
-            return _Result(1, stderr="Cannot connect to Docker daemon")
-        if arguments[:3] == ["docker", "ps", "-a"]:
+        if arguments == [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ]:
             return _Result(
                 0,
-                stdout=(
-                    "ontoprism-postgres Exited (137) Password=hunter2 "
-                    + "x" * 20_000
-                    + " RECENT-END"
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": "ontoprism-vm",
+                            "State": "running",
+                            "Rootful": False,
+                            "ConnectionInfo": {
+                                "PodmanSocket": {"Path": str(self.socket_path)}
+                            },
+                        }
+                    ]
                 ),
             )
-        return _Result(0, stdout="diagnostic evidence")
-
-
-class _PodmanDiagnosticRunner:
-    def __init__(self) -> None:
-        self.calls: list[tuple[list[str], dict[str, object]]] = []
-
-    def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
-        self.calls.append((arguments, kwargs))
+        if arguments == ["/opt/homebrew/bin/docker", "info"]:
+            return _Result(1, stderr="Cannot connect to API password=hunter2")
+        if arguments == [
+            "/opt/homebrew/bin/docker",
+            "compose",
+            "logs",
+            "--since",
+            "2h",
+            "--no-color",
+            "--tail",
+            "200",
+        ]:
+            return _Result(0, stdout="x" * 20_000 + " RECENT-END")
         return _Result(0, stdout="podman diagnostic evidence")
 
 
@@ -102,8 +115,8 @@ class _DockerContextRunner(_PodmanApiRunner):
         self,
         socket_path: Path,
         *,
-        contexts: tuple[str, ...] = ("colima",),
-        current: str = "colima",
+        contexts: tuple[str, ...] = ("default",),
+        current: str = "default",
     ) -> None:
         super().__init__(socket_path)
         self.contexts = contexts
@@ -261,6 +274,386 @@ def test_axis_diagnostics_reject_unsafe_or_unbounded_fillers(tmp_path: Path) -> 
 
 
 @pytest.mark.unit
+def test_r101_current_validation_uses_only_existing_sme_artifacts(
+    tmp_path: Path,
+) -> None:
+    for relative in (
+        "scripts/adjudication.py",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-packet-v3.json",
+        "tmp/r101-review-registry-v3-SME.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert run_agent_replay(["validate-r101-current"], tmp_path, runner=runner) == 0
+
+    command, options = runner.calls[0]
+    assert command[1:] == [
+        str(tmp_path / "scripts/adjudication.py"),
+        "dry-run-r101-decision-expansion",
+        "--report",
+        str(
+            tmp_path
+            / "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"
+        ),
+        "--packet",
+        str(tmp_path / "tmp/r101-review-packet-v3.json"),
+        "--registry",
+        str(tmp_path / "tmp/r101-review-registry-v3-SME.json"),
+        "--output",
+        str(tmp_path / "tmp/r101-review-dry-run.json"),
+    ]
+    assert options["shell"] is False
+
+
+@pytest.mark.unit
+def test_r101_packet_regeneration_uses_current_report_and_source(
+    tmp_path: Path,
+) -> None:
+    for relative in (
+        "scripts/adjudication.py",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    runner = _Runner()
+
+    assert (
+        run_agent_replay(["regenerate-r101-current-packet"], tmp_path, runner=runner)
+        == 0
+    )
+
+    command, _options = runner.calls[0]
+    assert command[1:] == [
+        str(tmp_path / "scripts/adjudication.py"),
+        "prepare-r101-review-packet",
+        "--report",
+        str(
+            tmp_path
+            / "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz"
+        ),
+        "--source-manifest",
+        str(tmp_path / "data/qlever-ncit/.ontoprism-ncit-candidate.json"),
+        "--endpoint",
+        "http://localhost:7888",
+        "--output-packet",
+        str(tmp_path / "tmp/r101-review-packet-current.json"),
+        "--output-xlsx",
+        str(tmp_path / "tmp/r101-review-workbook-current.xlsx"),
+    ]
+
+
+@pytest.mark.unit
+def test_r101_reuse_report_uses_both_packets_and_existing_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for relative in (
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-packet-v3.json",
+        "tmp/r101-review-packet-current.json",
+        "tmp/r101-review-registry-v3-SME.json",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    calls: list[dict[str, Path]] = []
+    module = __import__(
+        "scripts.research.pre_sme_readiness",
+        fromlist=["generate_r101_reuse_validation"],
+    )
+    monkeypatch.setattr(
+        module, "generate_r101_reuse_validation", lambda **values: calls.append(values)
+    )
+
+    assert run_agent_replay(["report-r101-current-reuse"], tmp_path) == 0
+
+    assert calls == [
+        {
+            "report": tmp_path
+            / (
+                "ontolib/tests/decomposition/golden/"
+                "neoplasm-r101-v4-conservation.json.gz"
+            ),
+            "existing_packet": tmp_path / "tmp/r101-review-packet-v3.json",
+            "current_packet": tmp_path / "tmp/r101-review-packet-current.json",
+            "registry": tmp_path / "tmp/r101-review-registry-v3-SME.json",
+            "output": tmp_path / "tmp/r101-review-reuse-validation.json",
+        }
+    ]
+
+
+@pytest.mark.unit
+def test_pre_sme_artifact_operations_use_only_fixed_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = (
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "tmp/m1-6-current-full-corpus.ttl",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-reuse-validation.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "tmp/m1-6-primary-site-audit.json",
+        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-r103-review-packet.json",
+        "tmp/m1-6-verify-evidence.json",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    calls: list[dict[str, Path]] = []
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_primary_site_audit"]
+    )
+    monkeypatch.setattr(
+        module, "generate_primary_site_audit", lambda **values: calls.append(values)
+    )
+    monkeypatch.setattr(
+        module, "generate_pre_sme_readiness", lambda **values: calls.append(values)
+    )
+
+    class Runner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "status", "--porcelain"]:
+                result.stdout = ""
+                result.stderr = ""
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                result.stdout = "a" * 40 + "\n"
+                result.stderr = ""
+            return result
+
+    runner = Runner()
+    assert run_agent_replay(["audit-primary-sites"], tmp_path, runner=runner) == 0
+    assert (
+        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=runner) == 0
+    )
+
+    assert calls[0] == {
+        "source_manifest": tmp_path / "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "baseline": tmp_path
+        / "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "artifact": tmp_path / "tmp/m1-6-current-full-corpus.ttl",
+        "output": tmp_path / "tmp/m1-6-primary-site-audit.json",
+    }
+    assert calls[1]["current_evidence"] == (
+        tmp_path
+        / "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json"
+    )
+    assert calls[1]["r101_validation"] == (
+        tmp_path / "tmp/r101-review-reuse-validation.json"
+    )
+    assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
+    assert calls[1]["expected_git_head"] == "a" * 40
+
+
+@pytest.mark.unit
+def test_pre_sme_readiness_refuses_dirty_worktree_before_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generated = False
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+    )
+
+    def mark_generated(**_values: object) -> None:
+        nonlocal generated
+        generated = True
+
+    monkeypatch.setattr(module, "generate_pre_sme_readiness", mark_generated)
+
+    class Runner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "status", "--porcelain"]:
+                result.stdout = " M tracked.py\n"
+                result.stderr = ""
+            return result
+
+    with pytest.raises(AgentReplayInputError, match="dirty worktree"):
+        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
+
+    assert generated is False
+    assert not (tmp_path / "tmp/m1-6-machine-readiness.json").exists()
+
+
+@pytest.mark.unit
+def test_pre_sme_readiness_generation_failure_removes_stale_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    required = (
+        "data/qlever-ncit/.ontoprism-ncit-candidate.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-comparison.json",
+        "ontolib/tests/decomposition/golden/neoplasm-current-corpus-baseline.json",
+        "tmp/m1-6-current-full-corpus.ttl",
+        "ontolib/tests/decomposition/golden/neoplasm-r101-v4-conservation.json.gz",
+        "tmp/r101-review-reuse-validation.json",
+        "ontolib/tests/decomposition/golden/proposal-registry.json",
+        "tmp/m1-6-primary-site-audit.json",
+        "tmp/m1-6-group-review-packet.json",
+        "tmp/m1-6-r103-review-packet.json",
+        "tmp/m1-6-verify-evidence.json",
+    )
+    for relative in required:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    output = tmp_path / "tmp/m1-6-machine-readiness.json"
+    output.write_text("stale readiness\n")
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+    )
+
+    def fail_generation(**_values: object) -> None:
+        raise ValueError("readiness failed")
+
+    monkeypatch.setattr(module, "generate_pre_sme_readiness", fail_generation)
+
+    class Runner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "status", "--porcelain"]:
+                result.stdout = ""
+                result.stderr = ""
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                result.stdout = "a" * 40 + "\n"
+                result.stderr = ""
+            return result
+
+    with pytest.raises(AgentReplayInputError, match="readiness failed"):
+        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
+
+    assert not output.exists()
+
+
+@pytest.mark.unit
+def test_pre_sme_verify_evidence_is_written_only_after_exact_podman_gate(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+
+    class Runner(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout="a" * 40 + "\n")
+            if arguments == ["git", "status", "--porcelain"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout="")
+            if arguments == ["/opt/homebrew/bin/pdm", "--version"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout="PDM, version 2.25.9\n")
+            return super().__call__(arguments, **kwargs)
+
+    runner = Runner(
+        socket_path,
+        contexts=("ontoprism-podman",),
+        current="ontoprism-podman",
+    )
+    (tmp_path / "tmp").mkdir()
+
+    assert run_agent_replay(["capture-pre-sme-verify"], tmp_path, runner=runner) == 0
+
+    commands = [command for command, _options in runner.calls]
+    assert ["/opt/homebrew/bin/pdm", "run", "verify"] in commands
+    assert commands.count(["git", "rev-parse", "HEAD"]) == 2
+    assert commands.count(["git", "status", "--porcelain"]) == 2
+    evidence = json.loads((tmp_path / "tmp/m1-6-verify-evidence.json").read_text())
+    assert evidence["command"] == "pdm run verify"
+    assert evidence["status"] == "passed"
+    assert evidence["git_head"] == "a" * 40
+    assert evidence["publication_writes_performed"] is False
+    assert evidence["observed_exit_code"] == 0
+    assert evidence["docker_context"] == "ontoprism-podman"
+    assert evidence["docker_endpoint"] == f"unix://{socket_path}"
+    assert evidence["gate_executable"] == "/opt/homebrew/bin/pdm"
+    assert evidence["gate_version"] == "PDM, version 2.25.9"
+
+
+@pytest.mark.unit
+def test_pre_sme_verify_refuses_dirty_worktree_without_running_gate_or_writing(
+    tmp_path: Path,
+) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+
+    class Runner(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            if arguments == ["git", "status", "--porcelain"]:
+                self.calls.append((arguments, kwargs))
+                return _Result(0, stdout=" M tracked.py\n")
+            return super().__call__(arguments, **kwargs)
+
+    runner = Runner(
+        socket_path,
+        contexts=("ontoprism-podman",),
+        current="ontoprism-podman",
+    )
+    (tmp_path / "tmp").mkdir()
+
+    with pytest.raises(AgentReplayInputError, match="dirty worktree"):
+        run_agent_replay(["capture-pre-sme-verify"], tmp_path, runner=runner)
+
+    assert ["/opt/homebrew/bin/pdm", "run", "verify"] not in [
+        command for command, _options in runner.calls
+    ]
+    assert not (tmp_path / "tmp/m1-6-verify-evidence.json").exists()
+
+
+@pytest.mark.unit
+def test_pre_sme_verify_gate_failure_removes_stale_evidence(tmp_path: Path) -> None:
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    socket_path.parent.mkdir()
+    socket_path.touch()
+
+    class Runner(_DockerContextRunner):
+        def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
+            self.calls.append((arguments, kwargs))
+            if arguments == ["git", "status", "--porcelain"]:
+                return _Result(0, stdout="")
+            if arguments == ["git", "rev-parse", "HEAD"]:
+                return _Result(0, stdout="a" * 40 + "\n")
+            if arguments == ["/opt/homebrew/bin/pdm", "--version"]:
+                return _Result(0, stdout="PDM, version 2.25.9\n")
+            if arguments == ["/opt/homebrew/bin/pdm", "run", "verify"]:
+                return _Result(1, stderr="verify failed")
+            self.calls.pop()
+            return super().__call__(arguments, **kwargs)
+
+    runner = Runner(
+        socket_path,
+        contexts=("ontoprism-podman",),
+        current="ontoprism-podman",
+    )
+    output = tmp_path / "tmp/m1-6-verify-evidence.json"
+    output.parent.mkdir()
+    output.write_text("stale passed evidence\n")
+
+    with pytest.raises(AgentReplayInputError, match="verify failed"):
+        run_agent_replay(["capture-pre-sme-verify"], tmp_path, runner=runner)
+
+    assert not output.exists()
+
+
+@pytest.mark.unit
 def test_wrapper_rejects_unlisted_operations(tmp_path: Path) -> None:
     with pytest.raises(AgentReplayInputError, match="unsupported"):
         run_agent_replay(["import-workbook"], tmp_path)
@@ -268,22 +661,40 @@ def test_wrapper_rejects_unlisted_operations(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_inspect_podman_runs_only_fixed_bounded_read_only_commands(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runner = _PodmanDiagnosticRunner()
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanDiagnosticRunner(socket_path)
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "PATH": "inherited",
+            **dict.fromkeys(DOCKER_SELECTOR_VARIABLES, "unsafe"),
+        },
+    )
 
     assert run_agent_replay(["inspect-podman"], tmp_path, runner=runner) == 0
 
-    assert [command for command, _options in runner.calls] == [
-        ["/opt/homebrew/bin/podman", "version", "--format", "json"],
-        ["/opt/homebrew/bin/podman", "info", "--format", "json"],
-        ["/opt/homebrew/bin/podman", "machine", "list", "--format", "json"],
+    commands = [command for command, _options in runner.calls]
+    events = next(
+        command for command in commands if command[1:3] == ["events", "--since"]
+    )
+    assert events[:4] == ["/opt/homebrew/bin/docker", "events", "--since", "2h"]
+    assert events[4] == "--until"
+    assert events[5].endswith("Z")
+    assert commands == [
         [
             "/opt/homebrew/bin/podman",
             "machine",
             "inspect",
             "ontoprism-vm",
         ],
+        ["/opt/homebrew/bin/podman", "version", "--format", "json"],
+        ["/opt/homebrew/bin/podman", "info", "--format", "json"],
+        ["/opt/homebrew/bin/podman", "machine", "list", "--format", "json"],
         [
             "/opt/homebrew/bin/podman",
             "system",
@@ -292,18 +703,105 @@ def test_inspect_podman_runs_only_fixed_bounded_read_only_commands(
             "--format",
             "json",
         ],
-        ["/usr/bin/which", "docker"],
-        ["/usr/bin/which", "docker-compose"],
+        ["/usr/bin/stat", "-f", "%N %HT %Sp %Su %Sg", str(socket_path)],
+        ["/usr/sbin/lsof", "-n", "-a", "-U", str(socket_path)],
+        ["/opt/homebrew/bin/docker", "context", "show"],
+        [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "inspect",
+            "ontoprism-podman",
+        ],
+        *(["/usr/bin/printenv", variable] for variable in DOCKER_SELECTOR_VARIABLES),
         ["/opt/homebrew/bin/docker", "version"],
+        ["/opt/homebrew/bin/docker", "info"],
         ["/opt/homebrew/bin/docker-compose", "version"],
         ["/opt/homebrew/bin/podman", "compose", "version"],
+        ["/opt/homebrew/bin/docker", "compose", "config", "--services"],
+        ["/opt/homebrew/bin/docker", "compose", "ps", "-a"],
+        *(
+            [
+                "/opt/homebrew/bin/docker",
+                "inspect",
+                "--format",
+                "{{json .State}} {{json .RestartCount}}",
+                container,
+            ]
+            for container in (
+                "ontoprism-qlever-ncit",
+                "ontoprism-qlever-uberon",
+                "ontoprism-postgres",
+            )
+        ),
+        events,
+        [
+            "/opt/homebrew/bin/docker",
+            "compose",
+            "logs",
+            "--since",
+            "2h",
+            "--no-color",
+            "--tail",
+            "200",
+        ],
     ]
     assert all(options["cwd"] == tmp_path for _command, options in runner.calls)
     assert all(options["shell"] is False for _command, options in runner.calls)
     assert all(options["timeout"] == 20 for _command, options in runner.calls)
     assert all(options["capture_output"] is True for _command, options in runner.calls)
     assert all(options["text"] is True for _command, options in runner.calls)
-    assert "podman diagnostic evidence" in capsys.readouterr().out
+    assert runner.calls[0][1]["env"] is None
+    for _command, options in runner.calls[1:]:
+        assert options["env"] == {"PATH": "inherited"}
+    output = capsys.readouterr().out
+    assert "podman diagnostic evidence" in output
+    assert "hunter2" not in output
+    assert "[REDACTED]" in output
+    assert "[TRUNCATED" in output
+    assert "RECENT-END" in output
+    assert len(output) < 30_000
+
+
+@pytest.mark.unit
+def test_diagnostic_command_reports_failure_as_evidence_not_a_verdict(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def runner(arguments: list[str], **_kwargs: object) -> _Result:
+        return _Result(17, stderr="diagnostic failed")
+
+    completion = replay._collect_diagnostic_command(
+        ["diagnostic", "status"], tmp_path, runner
+    )
+
+    assert completion is None
+    assert "exit-code: 17" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_podman_documentation_states_manual_setup_and_selected_context_contract() -> (
+    None
+):
+    data_setup = Path("docs/DATA_SETUP.md").read_text()
+    architecture = Path("docs/ARCHITECTURE.md").read_text()
+    agents = Path("AGENTS.md").read_text()
+
+    assert "brew install podman docker docker-compose" in data_setup
+    assert (
+        "podman machine init --provider applehv --cpus 8 --memory 32768 "
+        "--disk-size 120 --now --update-connection ontoprism-vm"
+    ) in data_setup
+    assert "/opt/homebrew/bin/podman machine inspect ontoprism-vm" in data_setup
+    assert "/opt/homebrew/bin/docker-compose version" in data_setup
+    assert "external Docker Compose v2 provider" in data_setup
+    assert (
+        "PostgreSQL container resolves `qlever-ncit` and `qlever-uberon`" in data_setup
+    )
+    assert (
+        "API container resolves `web`, `postgres`, `qlever-ncit`, and `qlever-uberon`"
+    ) in data_setup
+    assert "when the `ontoprism-podman` Docker context is selected" in architecture
+    assert "current selected Docker context" in agents
+    assert "activate-podman-docker-context" in agents
 
 
 @pytest.mark.unit
@@ -431,7 +929,7 @@ def test_activate_podman_context_creates_uses_and_verifies_exact_context(
         assert isinstance(environment, dict)
         assert environment == {"PATH": "inherited"}
     output = capsys.readouterr().out
-    assert "prior-docker-context=colima" in output
+    assert "prior-docker-context=default" in output
     assert "active-docker-context=ontoprism-podman" in output
     assert f"podman-docker-endpoint=unix://{socket_path}" in output
     assert "docker-server=Podman" in output
@@ -445,7 +943,7 @@ def test_activate_podman_context_updates_only_safe_exact_existing_context(
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _DockerContextRunner(
         socket_path,
-        contexts=("colima", "ontoprism-podman"),
+        contexts=("default", "ontoprism-podman"),
     )
 
     assert (
@@ -484,7 +982,7 @@ def test_activate_podman_context_refuses_unsafe_existing_context_before_mutation
 
     runner = _UnsafeContext(
         socket_path,
-        contexts=("colima", "ontoprism-podman"),
+        contexts=("default", "ontoprism-podman"),
     )
     with pytest.raises(AgentReplayInputError, match="safe Docker context contract"):
         run_agent_replay(["activate-podman-docker-context"], tmp_path, runner=runner)
@@ -625,7 +1123,7 @@ def test_podman_verify_refuses_non_podman_selected_context(
 ) -> None:
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _DockerContextRunner(socket_path)
-    runner.current = "colima" if failure == "wrong-context" else "ontoprism-podman"
+    runner.current = "default" if failure == "wrong-context" else "ontoprism-podman"
 
     if failure == "wrong-endpoint":
 
@@ -1291,411 +1789,3 @@ def test_inventory_refresh_uses_only_the_repository_generator(tmp_path: Path) ->
         "--output",
         str(tmp_path / "scripts/validation/sparql-inventory.json"),
     ]
-
-
-@pytest.mark.unit
-def test_colima_config_is_resolved_from_the_current_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config = tmp_path / ".colima/default/colima.yaml"
-    config.parent.mkdir(parents=True)
-    config.write_text("cpu: 7\n", encoding="utf-8")
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-    run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner())
-
-    assert "cpu: 7" in capsys.readouterr().out
-
-
-@pytest.mark.unit
-def test_diagnose_stack_runs_only_fixed_bounded_read_only_commands(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    runner = _DiagnosticRunner()
-
-    assert run_agent_replay(["diagnose-stack"], tmp_path, runner=runner) == 0
-
-    commands = [command for command, _options in runner.calls]
-    events = next(
-        command for command in commands if command[:2] == ["docker", "events"]
-    )
-    assert events[:4] == ["docker", "events", "--since", "2h"]
-    assert events[4] == "--until"
-    assert events[5].endswith("Z")
-    inspect_commands = [
-        [
-            "docker",
-            "inspect",
-            "--format",
-            "{{json .State}} {{json .RestartCount}}",
-            container,
-        ]
-        for container in (
-            "ontoprism-qlever-ncit",
-            "ontoprism-qlever-uberon",
-            "ontoprism-postgres",
-        )
-    ]
-    guest_commands = [
-        ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
-        ["cat", "/etc/os-release"],
-        ["systemctl", "status", "docker", "--no-pager", "--full"],
-        [
-            "systemctl",
-            "show",
-            "docker",
-            "--no-pager",
-            "--property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InactiveExitTimestamp,ActiveEnterTimestamp",
-        ],
-        ["rc-service", "docker", "status"],
-        ["ps", "auxww"],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-u",
-            "docker",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-        ],
-        ["sudo", "-n", "tail", "-n", "200", "/var/log/docker.log"],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-u",
-            "docker",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-            "--grep",
-            "Stopping Docker|Stopped Docker|docker.service:|signal|shut down|"
-            "no space left|permission denied",
-            "--case-sensitive=no",
-        ],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-k",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-        ],
-        ["sudo", "-n", "dmesg", "-T"],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-k",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-            "--grep",
-            "out of memory|oom-kill|killed process|invoked oom-killer",
-            "--case-sensitive=no",
-        ],
-        ["free", "-h"],
-        ["swapon", "--show"],
-        ["df", "-h"],
-        ["df", "-i"],
-        ["stat", "-c", "%n %F %a %U %G", "/run/docker.sock"],
-        ["stat", "-c", "%n %F %a %U %G", "/var/run/docker.sock"],
-        [
-            "curl",
-            "--silent",
-            "--show-error",
-            "--fail",
-            "--max-time",
-            "5",
-            "--unix-socket",
-            "/var/run/docker.sock",
-            "http://localhost/_ping",
-        ],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-        ],
-        ["sudo", "-n", "tail", "-n", "200", "/var/log/messages"],
-        ["sudo", "-n", "tail", "-n", "200", "/var/log/syslog"],
-    ]
-    colima_root = Path.home() / ".colima"
-    host_socket = colima_root / "default/docker.sock"
-    host_agent_pattern = "colima|lima"
-    forwarding_pattern = "docker\\.sock|socket|forward|stopp|clos|exit|fatal|error"
-    host_commands = [
-        [
-            "/usr/bin/stat",
-            "-f",
-            "%N %HT %Sp %Su %Sg",
-            str(host_socket),
-        ],
-        ["/usr/sbin/lsof", "-n", "-a", "-U", str(host_socket)],
-        ["/usr/bin/pgrep", "-alf", host_agent_pattern],
-        [
-            "/usr/bin/env",
-            f"LIMA_HOME={colima_root / '_lima'}",
-            "limactl",
-            "list",
-            "--json",
-        ],
-        ["docker", "context", "show"],
-        [
-            "docker",
-            "context",
-            "inspect",
-            "--format",
-            "{{json .Endpoints.docker.Host}}",
-        ],
-        *(
-            ["/usr/bin/printenv", variable]
-            for variable in (
-                "DOCKER_HOST",
-                "DOCKER_CONTEXT",
-                "DOCKER_TLS_VERIFY",
-                "DOCKER_CERT_PATH",
-            )
-        ),
-    ]
-    log_paths = (
-        colima_root / "_lima/colima/ha.stderr.log",
-        colima_root / "_lima/colima/ha.stdout.log",
-        colima_root / "_lima/colima/serial.log",
-        colima_root / "default/daemon.log",
-    )
-    assert commands == [
-        ["colima", "status", "--json"],
-        ["colima", "status"],
-        *host_commands,
-        ["docker", "info"],
-        ["docker", "ps", "-a", "--no-trunc"],
-        ["docker", "compose", "ps", "-a"],
-        *inspect_commands,
-        events,
-        [
-            "docker",
-            "compose",
-            "logs",
-            "--since",
-            "2h",
-            "--no-color",
-            "--tail",
-            "200",
-        ],
-        *(["/usr/bin/tail", "-n", "200", str(path)] for path in log_paths),
-        *(
-            [
-                "/usr/bin/grep",
-                "-E",
-                "-i",
-                "-n",
-                "-m",
-                "200",
-                forwarding_pattern,
-                str(path),
-            ]
-            for path in log_paths
-        ),
-        *(["colima", "ssh", "--", *command] for command in guest_commands),
-    ]
-    assert all(options["cwd"] == tmp_path for _command, options in runner.calls)
-    assert all(options["shell"] is False for _command, options in runner.calls)
-    assert all(options["timeout"] == 20 for _command, options in runner.calls)
-    assert all(options["capture_output"] is True for _command, options in runner.calls)
-    assert all(options["text"] is True for _command, options in runner.calls)
-
-    output = capsys.readouterr().out
-    assert "unknown flag: --json" in output
-    assert "Cannot connect to Docker daemon" in output
-    assert "Exited (137)" in output
-    assert "hunter2" not in output
-    assert "[REDACTED]" in output
-    assert "[TRUNCATED" in output
-    assert "RECENT-END" in output
-    assert len(output) < 30_000
-
-
-@pytest.mark.unit
-def test_diagnose_stack_rejects_all_user_arguments(tmp_path: Path) -> None:
-    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
-        run_agent_replay(["diagnose-stack", "--since", "24h"], tmp_path)
-
-
-@pytest.mark.unit
-def test_diagnose_stack_reports_only_allowlisted_colima_config_from_exact_path(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    expected_path = Path("/Users/hannes/.colima/default/colima.yaml")
-    read_paths: list[Path] = []
-
-    def read_text(path: Path, *, encoding: str | None = None) -> str:
-        read_paths.append(path)
-        assert encoding == "utf-8"
-        return """
-portForwarder: ssh
-vmType: vz
-mountType: virtiofs
-mountInotify: true
-cpu: 8
-memory: 16
-disk: 100
-runtime: docker
-password: never-print-this
-docker:
-  registry-token: also-never-print-this
-"""
-
-    monkeypatch.setattr(Path, "read_text", read_text)
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    assert read_paths == [expected_path]
-    output = capsys.readouterr().out
-    assert (
-        """=== Colima config (allowlisted fields) ===
-portForwarder: ssh
-vmType: vz
-mountType: virtiofs
-mountInotify: true
-cpu: 8
-memory: 16
-disk: 100
-runtime: docker
-"""
-        in output
-    )
-    config_output = output.partition("=== colima status --json ===")[0]
-    assert "password" not in config_output.lower()
-    assert "never-print-this" not in config_output
-    assert "registry-token" not in config_output
-    assert "also-never-print-this" not in config_output
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "config",
-    [
-        "runtime: docker\nruntime: containerd\n",
-        "runtime: docker\ndocker:\n  token: first\n  token: second\n",
-    ],
-)
-def test_diagnose_stack_rejects_duplicate_yaml_keys_without_leaking_values(
-    config: str,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(Path, "read_text", lambda _path, *, encoding=None: config)
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    assert "colima-config-error: invalid or duplicate-key YAML" in output
-    assert "docker\nruntime" not in output
-    assert "containerd" not in output
-    assert "first" not in output
-    assert "second" not in output
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("failure", ["malformed", "unreadable"])
-def test_diagnose_stack_sanitizes_malformed_or_unreadable_config_errors(
-    failure: str,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def read_text(_path: Path, *, encoding: str | None = None) -> str:
-        if failure == "unreadable":
-            raise PermissionError("password=hunter2")
-        return "runtime: [token=secret-value"
-
-    monkeypatch.setattr(Path, "read_text", read_text)
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    expected = (
-        "colima-config-error: unable to read authorized config"
-        if failure == "unreadable"
-        else "colima-config-error: invalid or duplicate-key YAML"
-    )
-    assert expected in output
-    assert "hunter2" not in output
-    assert "secret-value" not in output
-
-
-@pytest.mark.unit
-def test_diagnose_stack_rejects_non_scalar_allowlisted_config_without_leaking(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        Path,
-        "read_text",
-        lambda _path, *, encoding=None: "runtime:\n  token: secret-value\n",
-    )
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    assert "colima-config-error: allowlisted fields have invalid types" in output
-    assert "token" not in output.lower()
-    assert "secret-value" not in output
-
-
-@pytest.mark.unit
-def test_diagnose_stack_rejects_arbitrary_text_in_allowlisted_config_fields(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        Path,
-        "read_text",
-        lambda _path, *, encoding=None: 'runtime: "password=hunter2"\n',
-    )
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    assert "colima-config-error: allowlisted fields have invalid values" in output
-    assert "hunter2" not in output

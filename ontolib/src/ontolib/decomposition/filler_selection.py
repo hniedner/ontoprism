@@ -687,7 +687,10 @@ def select_constituents(
 
     def source_ids(constituent: Constituent) -> tuple[set[str], set[str]]:
         key = (constituent.axis, constituent.filler_code)
-        if key not in provenance and constituent.axis == axes.ASSOCIATED_REGION_AXIS:
+        if key not in provenance and constituent.axis in {
+            axes.ASSOCIATED_REGION_AXIS,
+            axes.PRIMARY_SUBSITE_AXIS,
+        }:
             key = (axes.PRIMARY_SITE_AXIS, constituent.filler_code)
         return provenance[key]
 
