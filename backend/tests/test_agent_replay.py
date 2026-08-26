@@ -412,6 +412,9 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
             self, arguments: list[str], **kwargs: object
         ) -> subprocess.CompletedProcess[str]:
             result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "status", "--porcelain"]:
+                result.stdout = ""
+                result.stderr = ""
             if arguments == ["git", "rev-parse", "HEAD"]:
                 result.stdout = "a" * 40 + "\n"
                 result.stderr = ""
@@ -439,6 +442,38 @@ def test_pre_sme_artifact_operations_use_only_fixed_paths(
     )
     assert calls[1]["output"] == tmp_path / "tmp/m1-6-machine-readiness.json"
     assert calls[1]["expected_git_head"] == "a" * 40
+
+
+@pytest.mark.unit
+def test_pre_sme_readiness_refuses_dirty_worktree_before_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generated = False
+    module = __import__(
+        "scripts.research.pre_sme_readiness", fromlist=["generate_pre_sme_readiness"]
+    )
+
+    def mark_generated(**_values: object) -> None:
+        nonlocal generated
+        generated = True
+
+    monkeypatch.setattr(module, "generate_pre_sme_readiness", mark_generated)
+
+    class Runner(_Runner):
+        def __call__(
+            self, arguments: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            result = super().__call__(arguments, **kwargs)
+            if arguments == ["git", "status", "--porcelain"]:
+                result.stdout = " M tracked.py\n"
+                result.stderr = ""
+            return result
+
+    with pytest.raises(AgentReplayInputError, match="dirty worktree"):
+        run_agent_replay(["generate-pre-sme-readiness"], tmp_path, runner=Runner())
+
+    assert generated is False
+    assert not (tmp_path / "tmp/m1-6-machine-readiness.json").exists()
 
 
 @pytest.mark.unit

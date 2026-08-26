@@ -801,6 +801,9 @@ def _generate_pre_sme_readiness(
 ) -> int:
     if values:
         raise AgentReplayInputError("generate-pre-sme-readiness accepts no arguments")
+    status = _capture_required(["git", "status", "--porcelain"], root, runner).strip()
+    if status:
+        raise AgentReplayInputError("pre-SME readiness refuses a dirty worktree")
     relatives = (
         "data/qlever-ncit/.ontoprism-ncit-candidate.json",
         "ontolib/tests/decomposition/golden/neoplasm-current-engine-evidence.json",
@@ -1277,7 +1280,7 @@ def _podman_gate(
     operation: str,
     script: Literal["test-integration", "test-integration-full-store", "verify"],
     routing: Literal["environment", "context"],
-) -> int:
+) -> Literal[0]:
     if values:
         raise AgentReplayInputError(f"{operation} accepts no arguments")
     socket_path = _podman_socket(root, runner)
@@ -1369,7 +1372,7 @@ def _capture_pre_sme_verify(
     gate_version = _capture_required([_PDM, "--version"], root, runner).strip()
     evidence_path = root / "tmp/m1-6-verify-evidence.json"
     evidence_path.unlink(missing_ok=True)
-    gate_exit = _podman_gate(
+    gate_exit: Literal[0] = _podman_gate(
         values,
         root,
         runner,
@@ -1377,8 +1380,6 @@ def _capture_pre_sme_verify(
         script="verify",
         routing="context",
     )
-    if gate_exit != 0:
-        raise AgentReplayInputError("verify gate did not report exit 0")
     head_after = _capture_required(["git", "rev-parse", "HEAD"], root, runner).strip()
     status_after = _capture_required(
         ["git", "status", "--porcelain"], root, runner

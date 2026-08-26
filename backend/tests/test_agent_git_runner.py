@@ -274,7 +274,7 @@ def test_agent_git_bounds_every_process(tmp_path: Path) -> None:
         return Result(0)
 
     assert run_agent_git(["switch-new", "feat/x"], tmp_path, runner=runner) == 0
-    assert timeouts == [10, 10]
+    assert timeouts == [10, 600]
 
 
 def test_branch_validation_uses_a_fixed_full_local_branch_ref(tmp_path: Path) -> None:

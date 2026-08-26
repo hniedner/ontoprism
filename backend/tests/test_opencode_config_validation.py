@@ -101,6 +101,29 @@ def test_task_reconciliation_guard_is_required(
     )
 
 
+def test_milestone_prompt_requires_agent_git_merge_wrapper(config_root: Path) -> None:
+    assert (
+        any(
+            "missing required semantics: pdm run agent-git merge-no-ff <branch>"
+            in error
+            for error in validate(config_root)
+        )
+        is False
+    )
+
+    replace(
+        config_root,
+        ".opencode/agent/ontoprism-team.md",
+        "pdm run agent-git merge-no-ff <branch>",
+        "git merge --no-ff <branch>",
+    )
+
+    assert any(
+        "missing required semantics: pdm run agent-git merge-no-ff <branch>" in error
+        for error in validate(config_root)
+    )
+
+
 def test_dead_fallback_plugin_artifact_is_rejected(config_root: Path) -> None:
     relative = ".opencode/opencode-model-fallback.jsonc"
     (config_root / relative).write_text("{}")

@@ -15,6 +15,7 @@ OPERATION_ARGUMENT_COUNT = 2
 COMMIT_ARGUMENT_COUNT = 3
 MAX_COMMIT_MESSAGE_LENGTH = 200
 PROCESS_TIMEOUT_SECONDS = 10
+MUTATION_TIMEOUT_SECONDS = 600
 MUTATION_FAILURE_MESSAGES = {
     "switch-existing": (
         "Git switch failed and may have changed repository state; inspect git status"
@@ -76,7 +77,7 @@ def _invoke(
             text=True,
             shell=False,
             check=False,
-            timeout=PROCESS_TIMEOUT_SECONDS,
+            timeout=(MUTATION_TIMEOUT_SECONDS if mutating else PROCESS_TIMEOUT_SECONDS),
         )
     except UnicodeDecodeError as exc:
         message = (

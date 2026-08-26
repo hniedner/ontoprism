@@ -14,6 +14,7 @@ from scripts.research.pre_sme_readiness import (
     build_machine_readiness,
     build_r101_reuse_validation,
     generate_pre_sme_readiness,
+    generate_primary_site_audit,
     require_current_verify_evidence,
 )
 
@@ -159,6 +160,13 @@ ncit:C1 op:hasConstituent [ op:axis op:PrimarySite, op:PrimarySite ;
 """,
             "duplicate primary-site axis",
         ),
+        (
+            f"""@prefix op: <{_OP}> .
+@prefix ncit: <{_NCIT}> .
+ncit:C1 op:hasConstituent [ op:filler ncit:C10 ] .
+""",
+            "primary-site axis is missing",
+        ),
     ],
 )
 def test_primary_site_parser_rejects_non_total_constituent_observations(
@@ -219,6 +227,26 @@ def test_primary_site_audit_model_rejects_vacuous_observation_invariants(
 
 
 @pytest.mark.unit
+def test_primary_site_audit_model_refuses_zero_observations() -> None:
+    payload = {
+        "schema_version": 1,
+        "source_identity": "a" * 64,
+        "source_release": "26.07d",
+        "corpus_baseline_identity": "b" * 64,
+        "corpus_artifact_identity": "c" * 64,
+        "resolved_sites": (),
+        "review_required_sites": (),
+        "resolved_site_count": 0,
+        "review_required_site_count": 0,
+        "parser_passes": 1,
+        "audit_identity": "d" * 64,
+    }
+
+    with pytest.raises(ValueError, match="at least one observation"):
+        PrimarySiteAudit.model_validate(payload)
+
+
+@pytest.mark.unit
 def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta() -> (
     None
 ):
@@ -240,6 +268,8 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
             r101_validation_identity="3" * 64,
             proposal_registry_identity="4" * 64,
             primary_site_audit_identity="5" * 64,
+            primary_site_resolved_count=8039,
+            primary_site_review_required_count=5918,
             group_packet_identity="6" * 64,
             r103_packet_identity="7" * 64,
             verify_evidence_identity="8" * 64,
@@ -249,9 +279,11 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
             exact_pair_expected=153,
             full_partition_agreement=(2, 20),
             common_partition_agreement=(5, 18),
+            common_partition_ineligible=2,
             group_review_count=18,
             r103_review_count=3,
             r101_exact_validation_established=False,
+            r101_occurrence_count=3291,
         )
     )
 
@@ -261,6 +293,19 @@ def test_machine_readiness_keeps_human_decisions_pending_without_claiming_delta(
     assert report.publication.publication_writes_performed is False
     assert report.metrics.exceeds_historical_thresholds is True
     assert report.grouping.full_view != report.grouping.common_pair_view
+    assert report.grouping.full_view.model_dump() == {
+        "numerator": 2,
+        "denominator": 20,
+        "value": 0.1,
+    }
+    assert report.grouping.common_pair_view.model_dump() == {
+        "numerator": 5,
+        "denominator": 18,
+        "value": 5 / 18,
+        "ineligible": 2,
+    }
+    assert report.primary_site_audit.resolved_site_count == 8039
+    assert report.primary_site_audit.review_required_site_count == 5918
     assert report.claims.no_unadjudicated_delta is None
     assert [item.requirement for item in report.human_requirements] == [
         "group-review",
@@ -291,6 +336,8 @@ def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity()
         r101_validation_identity="5" * 64,
         proposal_registry_identity="6" * 64,
         primary_site_audit_identity="7" * 64,
+        primary_site_resolved_count=8039,
+        primary_site_review_required_count=5918,
         group_packet_identity="8" * 64,
         r103_packet_identity="9" * 64,
         verify_evidence_identity="0" * 64,
@@ -300,9 +347,11 @@ def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity()
         exact_pair_expected=153,
         full_partition_agreement=(2, 20),
         common_partition_agreement=(5, 18),
+        common_partition_ineligible=2,
         group_review_count=18,
         r103_review_count=3,
         r101_exact_validation_established=True,
+        r101_occurrence_count=3291,
     )
 
     requirement = build_machine_readiness(inputs).human_requirements[2]
@@ -311,6 +360,57 @@ def test_exact_r101_reuse_remains_explicit_and_carries_human_evidence_identity()
     assert requirement.status == "satisfied-by-exact-reuse"
     assert requirement.packet_identity == "4" * 64
     assert requirement.registry_identity == "3" * 64
+
+
+@pytest.mark.unit
+def test_readiness_report_refuses_r101_requirement_inconsistent_with_identities() -> (
+    None
+):
+    inputs = MachineReadinessInputs(
+        source_identity="a" * 64,
+        source_manifest_identity="b" * 64,
+        current_evidence_identity="c" * 64,
+        current_comparison_identity="d" * 64,
+        sample_artifact_identity="e" * 64,
+        corpus_baseline_identity="f" * 64,
+        corpus_artifact_identity="1" * 64,
+        r101_report_identity="2" * 64,
+        r101_registry_identity="3" * 64,
+        r101_existing_packet_identity="4" * 64,
+        r101_current_packet_identity="4" * 64,
+        r101_validation_identity="5" * 64,
+        proposal_registry_identity="6" * 64,
+        primary_site_audit_identity="7" * 64,
+        primary_site_resolved_count=8039,
+        primary_site_review_required_count=5918,
+        group_packet_identity="8" * 64,
+        r103_packet_identity="9" * 64,
+        verify_evidence_identity="0" * 64,
+        git_head="a" * 40,
+        exact_pair_true_positive=100,
+        exact_pair_emitted=108,
+        exact_pair_expected=153,
+        full_partition_agreement=(2, 20),
+        common_partition_agreement=(5, 18),
+        common_partition_ineligible=2,
+        group_review_count=18,
+        r103_review_count=3,
+        r101_exact_validation_established=True,
+        r101_occurrence_count=3291,
+    )
+    report = build_machine_readiness(inputs)
+    payload = report.model_dump(mode="json")
+    payload["human_requirements"][2] = {
+        "requirement": "r101-ledger-authorization",
+        "count": 3291,
+        "status": "pending",
+    }
+    payload["human_requirements"] = tuple(payload["human_requirements"])
+
+    with pytest.raises(
+        ValueError, match="R101 requirement differs from packet identities"
+    ):
+        type(report).model_validate(payload)
 
 
 @pytest.mark.unit
@@ -400,6 +500,29 @@ def test_readiness_refuses_missing_machine_evidence_without_output(
             r103_packet=tmp_path / "absent-r103.json",
             verify_evidence=tmp_path / "absent-verify.json",
             expected_git_head="a" * 40,
+            output=output,
+        )
+
+    assert not output.exists()
+
+
+@pytest.mark.unit
+def test_primary_site_generation_translates_invalid_manifest_without_output(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "corpus.ttl"
+    artifact.write_text(_site_line("C1", "C10"))
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(_baseline(artifact).model_dump_json())
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}")
+    output = tmp_path / "audit.json"
+
+    with pytest.raises(PreSmeValidationError):
+        generate_primary_site_audit(
+            source_manifest=manifest,
+            baseline=baseline,
+            artifact=artifact,
             output=output,
         )
 

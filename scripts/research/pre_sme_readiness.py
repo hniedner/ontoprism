@@ -39,6 +39,10 @@ _GIT_SHA = r"^[0-9a-f]{40}$"
 _NCIT = "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#"
 _GROUP_REVIEW_COUNT = 18
 _R103_REVIEW_COUNT = 3
+_GROUP_REVIEW = "group-review"
+_R103_REVIEW = "r103-review"
+_R101_AUTHORIZATION = "r101-ledger-authorization"
+_FINAL_ACCEPTANCE = "final-full-corpus-scientific-acceptance-and-publication"
 
 
 class PreSmeValidationError(ValueError):
@@ -117,6 +121,8 @@ class PrimarySiteAudit(_StrictModel):
             raise ValueError("resolved site count differs")
         if self.review_required_site_count != len(self.review_required_sites):
             raise ValueError("review-required site count differs")
+        if self.resolved_site_count + self.review_required_site_count == 0:
+            raise ValueError("primary-site audit requires at least one observation")
         resolved_concepts = [item.concept_code for item in self.resolved_sites]
         if len(resolved_concepts) != len(set(resolved_concepts)):
             raise ValueError("resolved concepts must be unique")
@@ -146,6 +152,11 @@ class _PrimarySiteStore(Store):
         self.review: list[PrimarySiteObservation] = []
         self._seen: set[tuple[str, str, bool]] = set()
         self._resolved_by_concept: dict[str, str] = {}
+
+    @property
+    def has_unbound_parts(self) -> bool:
+        """Whether parsed constituent properties were never bound to a subject."""
+        return bool(self._parts)
 
     def add(
         self,
@@ -187,6 +198,8 @@ class _PrimarySiteStore(Store):
         part = self._parts.pop(value, None)
         if not part:
             raise PreSmeValidationError("reused constituent blank node has no data")
+        if "axis" not in part:
+            raise PreSmeValidationError("primary-site axis is missing")
         if part.get("axis") != rdflib.URIRef(f"{vocab.ONTOPRISM_NS}PrimarySite"):
             return
         filler = part.get("filler")
@@ -237,7 +250,7 @@ def _parse_primary_sites(artifact: Path) -> tuple[str, _PrimarySiteStore]:
         raise PreSmeValidationError(
             f"corpus artifact is malformed Turtle: {exc}"
         ) from exc
-    if store._parts:
+    if store.has_unbound_parts:
         raise PreSmeValidationError(
             "unbound constituent data remains after Turtle parse"
         )
@@ -331,6 +344,8 @@ class MachineReadinessInputs(_StrictModel):
     r101_validation_identity: str = Field(pattern=_SHA256)
     proposal_registry_identity: str = Field(pattern=_SHA256)
     primary_site_audit_identity: str = Field(pattern=_SHA256)
+    primary_site_resolved_count: int = Field(ge=0)
+    primary_site_review_required_count: int = Field(ge=0)
     group_packet_identity: str = Field(pattern=_SHA256)
     r103_packet_identity: str = Field(pattern=_SHA256)
     verify_evidence_identity: str = Field(pattern=_SHA256)
@@ -340,15 +355,22 @@ class MachineReadinessInputs(_StrictModel):
     exact_pair_expected: int = Field(gt=0)
     full_partition_agreement: tuple[int, int]
     common_partition_agreement: tuple[int, int]
+    common_partition_ineligible: int = Field(ge=0)
     group_review_count: Literal[18]
     r103_review_count: Literal[3]
     r101_exact_validation_established: bool
+    r101_occurrence_count: int = Field(gt=0)
 
     @model_validator(mode="after")
     def _validate_reuse_status(self) -> Self:
         exact = self.r101_existing_packet_identity == self.r101_current_packet_identity
         if self.r101_exact_validation_established != exact:
             raise ValueError("R101 exact-reuse status differs from packet identities")
+        if (
+            self.primary_site_resolved_count + self.primary_site_review_required_count
+            == 0
+        ):
+            raise ValueError("primary-site audit requires at least one observation")
         return self
 
 
@@ -468,6 +490,10 @@ class ValidatedFraction(_StrictModel):
         return self
 
 
+class CommonValidatedFraction(ValidatedFraction):
+    ineligible: int = Field(ge=0)
+
+
 class ReadinessMetrics(_StrictModel):
     exact_pair_precision: ValidatedFraction
     exact_pair_recall: ValidatedFraction
@@ -487,8 +513,20 @@ class ReadinessMetrics(_StrictModel):
 
 
 class GroupingViews(_StrictModel):
-    full_view: tuple[int, int]
-    common_pair_view: tuple[int, int]
+    full_view: ValidatedFraction
+    common_pair_view: CommonValidatedFraction
+
+
+class PrimarySiteAuditSummary(_StrictModel):
+    audit_identity: str = Field(pattern=_SHA256)
+    resolved_site_count: int = Field(ge=0)
+    review_required_site_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _validate_nonempty(self) -> Self:
+        if self.resolved_site_count + self.review_required_site_count == 0:
+            raise ValueError("primary-site audit requires at least one observation")
+        return self
 
 
 class PublicationState(_StrictModel):
@@ -497,6 +535,8 @@ class PublicationState(_StrictModel):
 
 
 class ReadinessClaims(_StrictModel):
+    """Claims withheld until human review; null means deliberately unasserted."""
+
     no_unadjudicated_delta: None
 
 
@@ -510,25 +550,22 @@ RequirementKind = Literal[
 
 class PendingHumanRequirement(_StrictModel):
     requirement: RequirementKind
-    count: Literal[18, 3, 3291] | None
+    count: int | None
     status: Literal["pending"]
 
     @model_validator(mode="after")
     def _validate_count(self) -> Self:
-        expected = {
-            "group-review": 18,
-            "r103-review": 3,
-            "r101-ledger-authorization": 3291,
-            "final-full-corpus-scientific-acceptance-and-publication": None,
-        }[self.requirement]
-        if self.count != expected:
-            raise ValueError("human requirement count differs")
+        final = self.requirement == _FINAL_ACCEPTANCE
+        if final != (self.count is None):
+            raise ValueError("human requirement count shape differs")
+        if self.count is not None and self.count <= 0:
+            raise ValueError("human requirement count must be positive")
         return self
 
 
 class SatisfiedR101Requirement(_StrictModel):
     requirement: Literal["r101-ledger-authorization"]
-    count: Literal[3291]
+    count: int = Field(gt=0)
     status: Literal["satisfied-by-exact-reuse"]
     packet_identity: str = Field(pattern=_SHA256)
     registry_identity: str = Field(pattern=_SHA256)
@@ -569,6 +606,8 @@ class MachineReadinessReport(_StrictModel):
     identities: ReportIdentities
     metrics: ReadinessMetrics
     grouping: GroupingViews
+    primary_site_audit: PrimarySiteAuditSummary
+    r101_occurrence_count: int = Field(gt=0)
     r101_mechanical_unresolved: Literal[0]
     r101_non_r101_delta: Literal[0]
     claims: ReadinessClaims
@@ -581,12 +620,36 @@ class MachineReadinessReport(_StrictModel):
         if len(requirements) != len(set(requirements)):
             raise ValueError("human requirements must be unique")
         if set(requirements) != {
-            "group-review",
-            "r103-review",
-            "r101-ledger-authorization",
-            "final-full-corpus-scientific-acceptance-and-publication",
+            _GROUP_REVIEW,
+            _R103_REVIEW,
+            _R101_AUTHORIZATION,
+            _FINAL_ACCEPTANCE,
         }:
             raise ValueError("required human requirements differ")
+        by_requirement = {item.requirement: item for item in self.human_requirements}
+        if by_requirement[_GROUP_REVIEW].count != _GROUP_REVIEW_COUNT:
+            raise ValueError("group review count differs")
+        if by_requirement[_R103_REVIEW].count != _R103_REVIEW_COUNT:
+            raise ValueError("R103 review count differs")
+        if (
+            self.primary_site_audit.audit_identity
+            != self.identities.primary_site_audit_identity
+        ):
+            raise ValueError("primary-site audit summary identity differs")
+        r101 = by_requirement[_R101_AUTHORIZATION]
+        if r101.count != self.r101_occurrence_count:
+            raise ValueError("R101 requirement count differs from report")
+        exact_reuse = (
+            self.identities.r101_existing_packet_identity
+            == self.identities.r101_current_packet_identity
+        )
+        if exact_reuse != isinstance(r101, SatisfiedR101Requirement):
+            raise ValueError("R101 requirement differs from packet identities")
+        if isinstance(r101, SatisfiedR101Requirement) and (
+            r101.packet_identity != self.identities.r101_current_packet_identity
+            or r101.registry_identity != self.identities.r101_registry_identity
+        ):
+            raise ValueError("R101 satisfied requirement identities differ")
         expected = _identity(self.model_dump(mode="json", exclude={"report_identity"}))
         if self.report_identity != expected:
             raise ValueError("machine readiness report identity differs")
@@ -603,14 +666,18 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
     if not precision_better or not recall_better:
         raise PreSmeValidationError("current exact-pair metrics do not exceed baseline")
     requirements: list[PendingHumanRequirement | SatisfiedR101Requirement] = [
-        PendingHumanRequirement(requirement="group-review", count=18, status="pending"),
-        PendingHumanRequirement(requirement="r103-review", count=3, status="pending"),
+        PendingHumanRequirement(
+            requirement=_GROUP_REVIEW, count=_GROUP_REVIEW_COUNT, status="pending"
+        ),
+        PendingHumanRequirement(
+            requirement=_R103_REVIEW, count=_R103_REVIEW_COUNT, status="pending"
+        ),
     ]
     if inputs.r101_exact_validation_established:
         requirements.append(
             SatisfiedR101Requirement(
-                requirement="r101-ledger-authorization",
-                count=3291,
+                requirement=_R101_AUTHORIZATION,
+                count=inputs.r101_occurrence_count,
                 status="satisfied-by-exact-reuse",
                 packet_identity=inputs.r101_current_packet_identity,
                 registry_identity=inputs.r101_registry_identity,
@@ -619,12 +686,14 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
     else:
         requirements.append(
             PendingHumanRequirement(
-                requirement="r101-ledger-authorization", count=3291, status="pending"
+                requirement=_R101_AUTHORIZATION,
+                count=inputs.r101_occurrence_count,
+                status="pending",
             )
         )
     requirements.append(
         PendingHumanRequirement(
-            requirement="final-full-corpus-scientific-acceptance-and-publication",
+            requirement=_FINAL_ACCEPTANCE,
             count=None,
             status="pending",
         )
@@ -666,9 +735,30 @@ def build_machine_readiness(inputs: MachineReadinessInputs) -> MachineReadinessR
             "exceeds_historical_thresholds": True,
         },
         "grouping": {
-            "full_view": inputs.full_partition_agreement,
-            "common_pair_view": inputs.common_partition_agreement,
+            "full_view": {
+                "numerator": inputs.full_partition_agreement[0],
+                "denominator": inputs.full_partition_agreement[1],
+                "value": (
+                    inputs.full_partition_agreement[0]
+                    / inputs.full_partition_agreement[1]
+                ),
+            },
+            "common_pair_view": {
+                "numerator": inputs.common_partition_agreement[0],
+                "denominator": inputs.common_partition_agreement[1],
+                "value": (
+                    inputs.common_partition_agreement[0]
+                    / inputs.common_partition_agreement[1]
+                ),
+                "ineligible": inputs.common_partition_ineligible,
+            },
         },
+        "primary_site_audit": {
+            "audit_identity": inputs.primary_site_audit_identity,
+            "resolved_site_count": inputs.primary_site_resolved_count,
+            "review_required_site_count": inputs.primary_site_review_required_count,
+        },
+        "r101_occurrence_count": inputs.r101_occurrence_count,
         "r101_mechanical_unresolved": 0,
         "r101_non_r101_delta": 0,
         "claims": {"no_unadjudicated_delta": None},
@@ -840,9 +930,13 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             raise PreSmeValidationError(f"{name} identity or invariant differs")
     metrics = comparison.metrics
     if len(group.review_rows) != _GROUP_REVIEW_COUNT:
-        raise PreSmeValidationError("group review count differs from 18")
+        raise PreSmeValidationError(
+            f"group review count differs from {_GROUP_REVIEW_COUNT}"
+        )
     if len(r103.rows) != _R103_REVIEW_COUNT:
-        raise PreSmeValidationError("R103 review count differs from 3")
+        raise PreSmeValidationError(
+            f"R103 review count differs from {_R103_REVIEW_COUNT}"
+        )
     try:
         inputs = MachineReadinessInputs(
             source_identity=manifest.source_identity,
@@ -859,6 +953,8 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
             r101_validation_identity=validation.validation_identity,
             proposal_registry_identity=proposals.registry_identity,
             primary_site_audit_identity=audit.audit_identity,
+            primary_site_resolved_count=audit.resolved_site_count,
+            primary_site_review_required_count=audit.review_required_site_count,
             group_packet_identity=group.packet_identity,
             r103_packet_identity=r103.packet_identity,
             verify_evidence_identity=gate.evidence_identity,
@@ -874,9 +970,13 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
                 metrics.common_pair_partition_agreement.numerator,
                 metrics.common_pair_partition_agreement.denominator,
             ),
-            group_review_count=18,
-            r103_review_count=3,
+            common_partition_ineligible=(
+                metrics.common_pair_partition_agreement.ineligible
+            ),
+            group_review_count=_GROUP_REVIEW_COUNT,
+            r103_review_count=_R103_REVIEW_COUNT,
             r101_exact_validation_established=validation.exact_reuse,
+            r101_occurrence_count=report.counts.total,
         )
     except ValidationError as exc:
         raise PreSmeValidationError(str(exc)) from exc
@@ -901,7 +1001,7 @@ def write_verify_evidence(
     docker_endpoint: str,
     gate_executable: str,
     gate_version: str,
-    observed_exit_code: int,
+    observed_exit_code: Literal[0],
 ) -> VerifyEvidence:
     """Write observations from one successful, clean-worktree verify execution.
 

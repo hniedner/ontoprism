@@ -216,6 +216,22 @@ def expected_agent_commands(name: str) -> tuple[tuple[str, str], ...]:
         return (
             ("git status --porcelain", "allow"),
             (
+                "gh pr view 123 --json title,baseRefName,headRefName,headRefOid,"
+                "mergeStateStatus,statusCheckRollup",
+                "allow",
+            ),
+            (
+                "gh run list --workflow ci.yml --branch main --event push --json "
+                "databaseId,headSha,status,conclusion,createdAt",
+                "allow",
+            ),
+            (
+                "gh run list --workflow pr-title.yml --branch feat/example --event "
+                "pull_request --json displayTitle,headSha,status,conclusion,createdAt",
+                "allow",
+            ),
+            ("gh run watch 456 --exit-status", "allow"),
+            (
                 "gh pr merge 123 --squash --delete-branch --subject fix:example",
                 "allow",
             ),
