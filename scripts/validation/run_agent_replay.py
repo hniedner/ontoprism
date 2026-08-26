@@ -67,128 +67,6 @@ _URL_CREDENTIALS = re.compile(
     r"((?:https?|postgresql(?:\+asyncpg)?)://[^\s:/]+:)[^@\s]+(@)", re.I
 )
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-_COLIMA_CONFIG_FIELDS = (
-    "portForwarder",
-    "vmType",
-    "mountType",
-    "mountInotify",
-    "cpu",
-    "memory",
-    "disk",
-    "runtime",
-)
-_COLIMA_TEXT_FIELDS = frozenset({"portForwarder", "vmType", "mountType", "runtime"})
-_COLIMA_INTEGER_FIELDS = frozenset({"cpu", "memory", "disk"})
-_COLIMA_TEXT_VALUE = re.compile(r"[A-Za-z0-9._-]{1,64}")
-_COLIMA_GUEST_DIAGNOSTICS = (
-    ("date", "-u", "+%Y-%m-%dT%H:%M:%SZ"),
-    ("cat", "/etc/os-release"),
-    ("systemctl", "status", "docker", "--no-pager", "--full"),
-    (
-        "systemctl",
-        "show",
-        "docker",
-        "--no-pager",
-        "--property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,"
-        "InactiveExitTimestamp,ActiveEnterTimestamp",
-    ),
-    ("rc-service", "docker", "status"),
-    ("ps", "auxww"),
-    (
-        "sudo",
-        "-n",
-        "journalctl",
-        "-u",
-        "docker",
-        "--since",
-        "-2h",
-        "--no-pager",
-        "-n",
-        "200",
-        "-o",
-        "short-iso",
-    ),
-    ("sudo", "-n", "tail", "-n", "200", "/var/log/docker.log"),
-    (
-        "sudo",
-        "-n",
-        "journalctl",
-        "-u",
-        "docker",
-        "--since",
-        "-2h",
-        "--no-pager",
-        "-n",
-        "200",
-        "-o",
-        "short-iso",
-        "--grep",
-        "Stopping Docker|Stopped Docker|docker.service:|signal|shut down|"
-        "no space left|permission denied",
-        "--case-sensitive=no",
-    ),
-    (
-        "sudo",
-        "-n",
-        "journalctl",
-        "-k",
-        "--since",
-        "-2h",
-        "--no-pager",
-        "-n",
-        "200",
-        "-o",
-        "short-iso",
-    ),
-    ("sudo", "-n", "dmesg", "-T"),
-    (
-        "sudo",
-        "-n",
-        "journalctl",
-        "-k",
-        "--since",
-        "-2h",
-        "--no-pager",
-        "-n",
-        "200",
-        "-o",
-        "short-iso",
-        "--grep",
-        "out of memory|oom-kill|killed process|invoked oom-killer",
-        "--case-sensitive=no",
-    ),
-    ("free", "-h"),
-    ("swapon", "--show"),
-    ("df", "-h"),
-    ("df", "-i"),
-    ("stat", "-c", "%n %F %a %U %G", "/run/docker.sock"),
-    ("stat", "-c", "%n %F %a %U %G", "/var/run/docker.sock"),
-    (
-        "curl",
-        "--silent",
-        "--show-error",
-        "--fail",
-        "--max-time",
-        "5",
-        "--unix-socket",
-        "/var/run/docker.sock",
-        "http://localhost/_ping",
-    ),
-    (
-        "sudo",
-        "-n",
-        "journalctl",
-        "--since",
-        "-2h",
-        "--no-pager",
-        "-n",
-        "200",
-        "-o",
-        "short-iso",
-    ),
-    ("sudo", "-n", "tail", "-n", "200", "/var/log/messages"),
-    ("sudo", "-n", "tail", "-n", "200", "/var/log/syslog"),
-)
 
 
 class AgentReplayInputError(ValueError):
@@ -218,45 +96,6 @@ class CommandRunner(Protocol):
 
 class Operation(Protocol):
     def __call__(self, values: list[str], root: Path, runner: CommandRunner) -> int: ...
-
-
-class _UniqueKeySafeLoader(yaml.SafeLoader):
-    """Safe YAML loader that rejects duplicate keys at every mapping depth."""
-
-
-def _construct_unique_mapping(
-    loader: _UniqueKeySafeLoader, node: yaml.MappingNode, *, deep: bool = False
-) -> dict[object, object]:
-    loader.flatten_mapping(node)
-    keys: set[object] = set()
-    for key_node, _value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        try:
-            duplicate = key in keys
-        except TypeError as exc:
-            raise yaml.constructor.ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                "found an unhashable key",
-                key_node.start_mark,
-            ) from exc
-        if duplicate:
-            raise yaml.constructor.ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                "found a duplicate key",
-                key_node.start_mark,
-            )
-        keys.add(key)
-    return cast(
-        "dict[object, object]",
-        yaml.SafeLoader.construct_mapping(loader, node, deep=deep),
-    )
-
-
-_UniqueKeySafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
-)
 
 
 def _subprocess_runner(
@@ -345,7 +184,11 @@ def _bounded_sanitized(value: str, *, limit: int | None = _MAX_DIAGNOSTIC_CHARS)
 
 
 def _collect_diagnostic_command(
-    command: list[str], root: Path, runner: CommandRunner
+    command: list[str],
+    root: Path,
+    runner: CommandRunner,
+    *,
+    environment: dict[str, str] | None = None,
 ) -> bool:
     print(f"\n=== {' '.join(command)} ===")
     try:
@@ -357,6 +200,7 @@ def _collect_diagnostic_command(
             timeout=_DIAGNOSTIC_TIMEOUT_SECONDS,
             capture_output=True,
             text=True,
+            env=environment,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"collection-error: {_bounded_sanitized(str(exc))}")
@@ -371,60 +215,6 @@ def _collect_diagnostic_command(
         print("stderr:")
         print(stderr)
     return result.returncode == 0
-
-
-def _colima_config_value_error(parsed: object) -> str | None:
-    if not isinstance(parsed, dict) or any(not isinstance(key, str) for key in parsed):
-        return "invalid or duplicate-key YAML"
-    for field in _COLIMA_CONFIG_FIELDS:
-        if field not in parsed:
-            continue
-        value = parsed[field]
-        if field in _COLIMA_TEXT_FIELDS:
-            valid_type = isinstance(value, str)
-        elif field in _COLIMA_INTEGER_FIELDS:
-            valid_type = isinstance(value, int) and not isinstance(value, bool)
-        else:
-            valid_type = isinstance(value, bool)
-        if not valid_type:
-            return "allowlisted fields have invalid types"
-    if any(
-        field in parsed
-        and field in _COLIMA_TEXT_FIELDS
-        and _COLIMA_TEXT_VALUE.fullmatch(cast("str", parsed[field])) is None
-        for field in _COLIMA_CONFIG_FIELDS
-    ):
-        return "allowlisted fields have invalid values"
-    return None
-
-
-def _report_colima_config() -> None:
-    print("\n=== Colima config (allowlisted fields) ===")
-    try:
-        source = (Path.home() / ".colima/default/colima.yaml").read_text(
-            encoding="utf-8"
-        )
-    except (OSError, UnicodeError):
-        print("colima-config-error: unable to read authorized config")
-        return
-    try:
-        parsed = yaml.load(source, Loader=_UniqueKeySafeLoader)  # noqa: S506
-    except yaml.YAMLError:
-        print("colima-config-error: invalid or duplicate-key YAML")
-        return
-    error = _colima_config_value_error(parsed)
-    if error is not None:
-        print(f"colima-config-error: {error}")
-        return
-
-    parsed = cast("dict[str, object]", parsed)
-    for field in _COLIMA_CONFIG_FIELDS:
-        if field not in parsed:
-            print(f"{field}: <not set>")
-            continue
-        value = parsed[field]
-        rendered = str(value).lower() if isinstance(value, bool) else str(value)
-        print(f"{field}: {rendered}")
 
 
 def _adjudication_inputs(root: Path) -> tuple[str, str, str, str, str]:
@@ -870,61 +660,33 @@ def _refresh_sparql_inventory(
     )
 
 
-def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int:
+def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int:
     if values:
-        raise AgentReplayInputError("diagnose-stack accepts no arguments")
-
+        raise AgentReplayInputError("inspect-podman accepts no arguments")
+    socket_path = _podman_socket(root, runner)
     captured_now = (
         datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     )
-    _report_colima_config()
-    json_status_supported = _collect_diagnostic_command(
-        ["colima", "status", "--json"], root, runner
-    )
-    if not json_status_supported:
-        _collect_diagnostic_command(["colima", "status"], root, runner)
-
-    colima_root = Path.home() / ".colima"
-    host_socket = colima_root / "default/docker.sock"
-    commands = [
-        [
-            "/usr/bin/stat",
-            "-f",
-            "%N %HT %Sp %Su %Sg",
-            str(host_socket),
-        ],
-        ["/usr/sbin/lsof", "-n", "-a", "-U", str(host_socket)],
-        ["/usr/bin/pgrep", "-alf", "colima|lima"],
-        [
-            "/usr/bin/env",
-            f"LIMA_HOME={colima_root / '_lima'}",
-            "limactl",
-            "list",
-            "--json",
-        ],
-        ["docker", "context", "show"],
-        [
-            "docker",
-            "context",
-            "inspect",
-            "--format",
-            "{{json .Endpoints.docker.Host}}",
-        ],
-        *(
-            ["/usr/bin/printenv", variable]
-            for variable in (
-                "DOCKER_HOST",
-                "DOCKER_CONTEXT",
-                "DOCKER_TLS_VERIFY",
-                "DOCKER_CERT_PATH",
-            )
-        ),
-        ["docker", "info"],
-        ["docker", "ps", "-a", "--no-trunc"],
-        ["docker", "compose", "ps", "-a"],
+    environment = _docker_context_environment()
+    commands = (
+        [_PODMAN, "version", "--format", "json"],
+        [_PODMAN, "info", "--format", "json"],
+        [_PODMAN, "machine", "list", "--format", "json"],
+        [_PODMAN, "system", "connection", "list", "--format", "json"],
+        ["/usr/bin/stat", "-f", "%N %HT %Sp %Su %Sg", str(socket_path)],
+        ["/usr/sbin/lsof", "-n", "-a", "-U", str(socket_path)],
+        [_DOCKER, "context", "show"],
+        [_DOCKER, "context", "inspect", _PODMAN_DOCKER_CONTEXT],
+        *(["/usr/bin/printenv", variable] for variable in DOCKER_SELECTOR_VARIABLES),
+        [_DOCKER, "version"],
+        [_DOCKER, "info"],
+        [_DOCKER_COMPOSE, "version"],
+        [_PODMAN, "compose", "version"],
+        [_DOCKER, "compose", "config", "--services"],
+        [_DOCKER, "compose", "ps", "-a"],
         *(
             [
-                "docker",
+                _DOCKER,
                 "inspect",
                 "--format",
                 "{{json .State}} {{json .RestartCount}}",
@@ -936,9 +698,9 @@ def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int
                 "ontoprism-postgres",
             )
         ),
-        ["docker", "events", "--since", "2h", "--until", captured_now],
+        [_DOCKER, "events", "--since", "2h", "--until", captured_now],
         [
-            "docker",
+            _DOCKER,
             "compose",
             "logs",
             "--since",
@@ -947,53 +709,9 @@ def _diagnose_stack(values: list[str], root: Path, runner: CommandRunner) -> int
             "--tail",
             "200",
         ],
-    ]
-    log_paths = (
-        colima_root / "_lima/colima/ha.stderr.log",
-        colima_root / "_lima/colima/ha.stdout.log",
-        colima_root / "_lima/colima/serial.log",
-        colima_root / "default/daemon.log",
-    )
-    commands.extend(["/usr/bin/tail", "-n", "200", str(path)] for path in log_paths)
-    commands.extend(
-        [
-            "/usr/bin/grep",
-            "-E",
-            "-i",
-            "-n",
-            "-m",
-            "200",
-            "docker\\.sock|socket|forward|stopp|clos|exit|fatal|error",
-            str(path),
-        ]
-        for path in log_paths
-    )
-    commands.extend(
-        ["colima", "ssh", "--", *guest_command]
-        for guest_command in _COLIMA_GUEST_DIAGNOSTICS
     )
     for command in commands:
-        _collect_diagnostic_command(command, root, runner)
-    return 0
-
-
-def _inspect_podman(values: list[str], root: Path, runner: CommandRunner) -> int:
-    if values:
-        raise AgentReplayInputError("inspect-podman accepts no arguments")
-    commands = (
-        [_PODMAN, "version", "--format", "json"],
-        [_PODMAN, "info", "--format", "json"],
-        [_PODMAN, "machine", "list", "--format", "json"],
-        [_PODMAN, "machine", "inspect", _PODMAN_MACHINE],
-        [_PODMAN, "system", "connection", "list", "--format", "json"],
-        ["/usr/bin/which", "docker"],
-        ["/usr/bin/which", "docker-compose"],
-        [_DOCKER, "version"],
-        [_DOCKER_COMPOSE, "version"],
-        [_PODMAN, "compose", "version"],
-    )
-    for command in commands:
-        _collect_diagnostic_command(command, root, runner)
+        _collect_diagnostic_command(command, root, runner, environment=environment)
     return 0
 
 
@@ -2022,7 +1740,6 @@ _OPERATIONS: dict[str, Operation] = {
     "audit-primary-sites": _audit_primary_sites,
     "generate-pre-sme-readiness": _generate_pre_sme_readiness,
     "refresh-sparql-inventory": _refresh_sparql_inventory,
-    "diagnose-stack": _diagnose_stack,
     "inspect-podman": _inspect_podman,
     "activate-podman-docker-context": _activate_podman_docker_context,
     "check-podman-api": _check_podman_api,

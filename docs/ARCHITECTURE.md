@@ -16,7 +16,7 @@ terms after that introduction.
 ontoprism/
 ├── pyproject.toml            # root PDM project (distribution=false), tool config, test scripts
 ├── conftest.py               # puts ontolib/src & backend/src on sys.path (see DECISIONS D6)
-├── docker-compose.yml        # postgres(:5433) + qlever-ncit(:7888) + qlever-uberon(:7889)
+├── docker-compose.yml        # Podman-backed local Compose services on :5433/:7888/:7889
 ├── Makefile  .env.example
 ├── .github/workflows/       # ci (path-filtered: quality/backend/coverage/web/integration
 │                            #   + ci-summary) + release + security (codeql default setup,
@@ -43,8 +43,8 @@ ontoprism/
 
 - **QLever (immutable publisher-ontology indexes; D65)** — publisher-inferred NCIt in
   the default graph, publisher-stated NCIt in its protected named graph, and Uberon/CL
-  in a separate default-graph index. Runtime reasoning is disabled. The compose stack
-  runs the digest-pinned QLever index/server pair on :7888/:7889; the first-install
+  in a separate default-graph index. Runtime reasoning is disabled. The local Podman-backed
+  Compose stack runs the digest-pinned QLever index/server pair on :7888/:7889; the first-install
   bootstrap and #148's journaled, rollback-capable replacement of an existing NCIt index
   are implemented.
 - **PostgreSQL (selected mutable authority)** — concept metadata/FTS cache, decomposition run

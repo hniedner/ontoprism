@@ -35,34 +35,47 @@ class _Result:
         self.stderr = stderr
 
 
-class _DiagnosticRunner:
-    def __init__(self) -> None:
+class _PodmanDiagnosticRunner:
+    def __init__(self, socket_path: Path) -> None:
+        self.socket_path = socket_path
         self.calls: list[tuple[list[str], dict[str, object]]] = []
 
     def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
         self.calls.append((arguments, kwargs))
-        if arguments == ["colima", "status", "--json"]:
-            return _Result(1, stderr="unknown flag: --json")
-        if arguments[:2] == ["docker", "info"]:
-            return _Result(1, stderr="Cannot connect to Docker daemon")
-        if arguments[:3] == ["docker", "ps", "-a"]:
+        if arguments == [
+            "/opt/homebrew/bin/podman",
+            "machine",
+            "inspect",
+            "ontoprism-vm",
+        ]:
             return _Result(
                 0,
-                stdout=(
-                    "ontoprism-postgres Exited (137) Password=hunter2 "
-                    + "x" * 20_000
-                    + " RECENT-END"
+                stdout=json.dumps(
+                    [
+                        {
+                            "Name": "ontoprism-vm",
+                            "State": "running",
+                            "Rootful": False,
+                            "ConnectionInfo": {
+                                "PodmanSocket": {"Path": str(self.socket_path)}
+                            },
+                        }
+                    ]
                 ),
             )
-        return _Result(0, stdout="diagnostic evidence")
-
-
-class _PodmanDiagnosticRunner:
-    def __init__(self) -> None:
-        self.calls: list[tuple[list[str], dict[str, object]]] = []
-
-    def __call__(self, arguments: list[str], **kwargs: object) -> _Result:
-        self.calls.append((arguments, kwargs))
+        if arguments == ["/opt/homebrew/bin/docker", "info"]:
+            return _Result(1, stderr="Cannot connect to API password=hunter2")
+        if arguments == [
+            "/opt/homebrew/bin/docker",
+            "compose",
+            "logs",
+            "--since",
+            "2h",
+            "--no-color",
+            "--tail",
+            "200",
+        ]:
+            return _Result(0, stdout="x" * 20_000 + " RECENT-END")
         return _Result(0, stdout="podman diagnostic evidence")
 
 
@@ -102,8 +115,8 @@ class _DockerContextRunner(_PodmanApiRunner):
         self,
         socket_path: Path,
         *,
-        contexts: tuple[str, ...] = ("colima",),
-        current: str = "colima",
+        contexts: tuple[str, ...] = ("default",),
+        current: str = "default",
     ) -> None:
         super().__init__(socket_path)
         self.contexts = contexts
@@ -648,22 +661,40 @@ def test_wrapper_rejects_unlisted_operations(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_inspect_podman_runs_only_fixed_bounded_read_only_commands(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    runner = _PodmanDiagnosticRunner()
+    socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
+    runner = _PodmanDiagnosticRunner(socket_path)
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "PATH": "inherited",
+            **dict.fromkeys(DOCKER_SELECTOR_VARIABLES, "unsafe"),
+        },
+    )
 
     assert run_agent_replay(["inspect-podman"], tmp_path, runner=runner) == 0
 
-    assert [command for command, _options in runner.calls] == [
-        ["/opt/homebrew/bin/podman", "version", "--format", "json"],
-        ["/opt/homebrew/bin/podman", "info", "--format", "json"],
-        ["/opt/homebrew/bin/podman", "machine", "list", "--format", "json"],
+    commands = [command for command, _options in runner.calls]
+    events = next(
+        command for command in commands if command[1:3] == ["events", "--since"]
+    )
+    assert events[:4] == ["/opt/homebrew/bin/docker", "events", "--since", "2h"]
+    assert events[4] == "--until"
+    assert events[5].endswith("Z")
+    assert commands == [
         [
             "/opt/homebrew/bin/podman",
             "machine",
             "inspect",
             "ontoprism-vm",
         ],
+        ["/opt/homebrew/bin/podman", "version", "--format", "json"],
+        ["/opt/homebrew/bin/podman", "info", "--format", "json"],
+        ["/opt/homebrew/bin/podman", "machine", "list", "--format", "json"],
         [
             "/opt/homebrew/bin/podman",
             "system",
@@ -672,18 +703,63 @@ def test_inspect_podman_runs_only_fixed_bounded_read_only_commands(
             "--format",
             "json",
         ],
-        ["/usr/bin/which", "docker"],
-        ["/usr/bin/which", "docker-compose"],
+        ["/usr/bin/stat", "-f", "%N %HT %Sp %Su %Sg", str(socket_path)],
+        ["/usr/sbin/lsof", "-n", "-a", "-U", str(socket_path)],
+        ["/opt/homebrew/bin/docker", "context", "show"],
+        [
+            "/opt/homebrew/bin/docker",
+            "context",
+            "inspect",
+            "ontoprism-podman",
+        ],
+        *(["/usr/bin/printenv", variable] for variable in DOCKER_SELECTOR_VARIABLES),
         ["/opt/homebrew/bin/docker", "version"],
+        ["/opt/homebrew/bin/docker", "info"],
         ["/opt/homebrew/bin/docker-compose", "version"],
         ["/opt/homebrew/bin/podman", "compose", "version"],
+        ["/opt/homebrew/bin/docker", "compose", "config", "--services"],
+        ["/opt/homebrew/bin/docker", "compose", "ps", "-a"],
+        *(
+            [
+                "/opt/homebrew/bin/docker",
+                "inspect",
+                "--format",
+                "{{json .State}} {{json .RestartCount}}",
+                container,
+            ]
+            for container in (
+                "ontoprism-qlever-ncit",
+                "ontoprism-qlever-uberon",
+                "ontoprism-postgres",
+            )
+        ),
+        events,
+        [
+            "/opt/homebrew/bin/docker",
+            "compose",
+            "logs",
+            "--since",
+            "2h",
+            "--no-color",
+            "--tail",
+            "200",
+        ],
     ]
     assert all(options["cwd"] == tmp_path for _command, options in runner.calls)
     assert all(options["shell"] is False for _command, options in runner.calls)
     assert all(options["timeout"] == 20 for _command, options in runner.calls)
     assert all(options["capture_output"] is True for _command, options in runner.calls)
     assert all(options["text"] is True for _command, options in runner.calls)
-    assert "podman diagnostic evidence" in capsys.readouterr().out
+    assert runner.calls[0][1]["env"] is None
+    for _command, options in runner.calls[1:]:
+        assert options["env"] == {"PATH": "inherited"}
+    output = capsys.readouterr().out
+    assert "podman diagnostic evidence" in output
+    assert "hunter2" not in output
+    assert "[REDACTED]" in output
+    assert "[TRUNCATED" in output
+    assert "RECENT-END" in output
+    assert len(output) < 30_000
 
 
 @pytest.mark.unit
@@ -811,7 +887,7 @@ def test_activate_podman_context_creates_uses_and_verifies_exact_context(
         assert isinstance(environment, dict)
         assert environment == {"PATH": "inherited"}
     output = capsys.readouterr().out
-    assert "prior-docker-context=colima" in output
+    assert "prior-docker-context=default" in output
     assert "active-docker-context=ontoprism-podman" in output
     assert f"podman-docker-endpoint=unix://{socket_path}" in output
     assert "docker-server=Podman" in output
@@ -825,7 +901,7 @@ def test_activate_podman_context_updates_only_safe_exact_existing_context(
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _DockerContextRunner(
         socket_path,
-        contexts=("colima", "ontoprism-podman"),
+        contexts=("default", "ontoprism-podman"),
     )
 
     assert (
@@ -864,7 +940,7 @@ def test_activate_podman_context_refuses_unsafe_existing_context_before_mutation
 
     runner = _UnsafeContext(
         socket_path,
-        contexts=("colima", "ontoprism-podman"),
+        contexts=("default", "ontoprism-podman"),
     )
     with pytest.raises(AgentReplayInputError, match="safe Docker context contract"):
         run_agent_replay(["activate-podman-docker-context"], tmp_path, runner=runner)
@@ -1005,7 +1081,7 @@ def test_podman_verify_refuses_non_podman_selected_context(
 ) -> None:
     socket_path = tmp_path / "podman/ontoprism-vm-api.sock"
     runner = _DockerContextRunner(socket_path)
-    runner.current = "colima" if failure == "wrong-context" else "ontoprism-podman"
+    runner.current = "default" if failure == "wrong-context" else "ontoprism-podman"
 
     if failure == "wrong-endpoint":
 
@@ -1671,411 +1747,3 @@ def test_inventory_refresh_uses_only_the_repository_generator(tmp_path: Path) ->
         "--output",
         str(tmp_path / "scripts/validation/sparql-inventory.json"),
     ]
-
-
-@pytest.mark.unit
-def test_colima_config_is_resolved_from_the_current_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config = tmp_path / ".colima/default/colima.yaml"
-    config.parent.mkdir(parents=True)
-    config.write_text("cpu: 7\n", encoding="utf-8")
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-    run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner())
-
-    assert "cpu: 7" in capsys.readouterr().out
-
-
-@pytest.mark.unit
-def test_diagnose_stack_runs_only_fixed_bounded_read_only_commands(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    runner = _DiagnosticRunner()
-
-    assert run_agent_replay(["diagnose-stack"], tmp_path, runner=runner) == 0
-
-    commands = [command for command, _options in runner.calls]
-    events = next(
-        command for command in commands if command[:2] == ["docker", "events"]
-    )
-    assert events[:4] == ["docker", "events", "--since", "2h"]
-    assert events[4] == "--until"
-    assert events[5].endswith("Z")
-    inspect_commands = [
-        [
-            "docker",
-            "inspect",
-            "--format",
-            "{{json .State}} {{json .RestartCount}}",
-            container,
-        ]
-        for container in (
-            "ontoprism-qlever-ncit",
-            "ontoprism-qlever-uberon",
-            "ontoprism-postgres",
-        )
-    ]
-    guest_commands = [
-        ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
-        ["cat", "/etc/os-release"],
-        ["systemctl", "status", "docker", "--no-pager", "--full"],
-        [
-            "systemctl",
-            "show",
-            "docker",
-            "--no-pager",
-            "--property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InactiveExitTimestamp,ActiveEnterTimestamp",
-        ],
-        ["rc-service", "docker", "status"],
-        ["ps", "auxww"],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-u",
-            "docker",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-        ],
-        ["sudo", "-n", "tail", "-n", "200", "/var/log/docker.log"],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-u",
-            "docker",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-            "--grep",
-            "Stopping Docker|Stopped Docker|docker.service:|signal|shut down|"
-            "no space left|permission denied",
-            "--case-sensitive=no",
-        ],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-k",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-        ],
-        ["sudo", "-n", "dmesg", "-T"],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "-k",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-            "--grep",
-            "out of memory|oom-kill|killed process|invoked oom-killer",
-            "--case-sensitive=no",
-        ],
-        ["free", "-h"],
-        ["swapon", "--show"],
-        ["df", "-h"],
-        ["df", "-i"],
-        ["stat", "-c", "%n %F %a %U %G", "/run/docker.sock"],
-        ["stat", "-c", "%n %F %a %U %G", "/var/run/docker.sock"],
-        [
-            "curl",
-            "--silent",
-            "--show-error",
-            "--fail",
-            "--max-time",
-            "5",
-            "--unix-socket",
-            "/var/run/docker.sock",
-            "http://localhost/_ping",
-        ],
-        [
-            "sudo",
-            "-n",
-            "journalctl",
-            "--since",
-            "-2h",
-            "--no-pager",
-            "-n",
-            "200",
-            "-o",
-            "short-iso",
-        ],
-        ["sudo", "-n", "tail", "-n", "200", "/var/log/messages"],
-        ["sudo", "-n", "tail", "-n", "200", "/var/log/syslog"],
-    ]
-    colima_root = Path.home() / ".colima"
-    host_socket = colima_root / "default/docker.sock"
-    host_agent_pattern = "colima|lima"
-    forwarding_pattern = "docker\\.sock|socket|forward|stopp|clos|exit|fatal|error"
-    host_commands = [
-        [
-            "/usr/bin/stat",
-            "-f",
-            "%N %HT %Sp %Su %Sg",
-            str(host_socket),
-        ],
-        ["/usr/sbin/lsof", "-n", "-a", "-U", str(host_socket)],
-        ["/usr/bin/pgrep", "-alf", host_agent_pattern],
-        [
-            "/usr/bin/env",
-            f"LIMA_HOME={colima_root / '_lima'}",
-            "limactl",
-            "list",
-            "--json",
-        ],
-        ["docker", "context", "show"],
-        [
-            "docker",
-            "context",
-            "inspect",
-            "--format",
-            "{{json .Endpoints.docker.Host}}",
-        ],
-        *(
-            ["/usr/bin/printenv", variable]
-            for variable in (
-                "DOCKER_HOST",
-                "DOCKER_CONTEXT",
-                "DOCKER_TLS_VERIFY",
-                "DOCKER_CERT_PATH",
-            )
-        ),
-    ]
-    log_paths = (
-        colima_root / "_lima/colima/ha.stderr.log",
-        colima_root / "_lima/colima/ha.stdout.log",
-        colima_root / "_lima/colima/serial.log",
-        colima_root / "default/daemon.log",
-    )
-    assert commands == [
-        ["colima", "status", "--json"],
-        ["colima", "status"],
-        *host_commands,
-        ["docker", "info"],
-        ["docker", "ps", "-a", "--no-trunc"],
-        ["docker", "compose", "ps", "-a"],
-        *inspect_commands,
-        events,
-        [
-            "docker",
-            "compose",
-            "logs",
-            "--since",
-            "2h",
-            "--no-color",
-            "--tail",
-            "200",
-        ],
-        *(["/usr/bin/tail", "-n", "200", str(path)] for path in log_paths),
-        *(
-            [
-                "/usr/bin/grep",
-                "-E",
-                "-i",
-                "-n",
-                "-m",
-                "200",
-                forwarding_pattern,
-                str(path),
-            ]
-            for path in log_paths
-        ),
-        *(["colima", "ssh", "--", *command] for command in guest_commands),
-    ]
-    assert all(options["cwd"] == tmp_path for _command, options in runner.calls)
-    assert all(options["shell"] is False for _command, options in runner.calls)
-    assert all(options["timeout"] == 20 for _command, options in runner.calls)
-    assert all(options["capture_output"] is True for _command, options in runner.calls)
-    assert all(options["text"] is True for _command, options in runner.calls)
-
-    output = capsys.readouterr().out
-    assert "unknown flag: --json" in output
-    assert "Cannot connect to Docker daemon" in output
-    assert "Exited (137)" in output
-    assert "hunter2" not in output
-    assert "[REDACTED]" in output
-    assert "[TRUNCATED" in output
-    assert "RECENT-END" in output
-    assert len(output) < 30_000
-
-
-@pytest.mark.unit
-def test_diagnose_stack_rejects_all_user_arguments(tmp_path: Path) -> None:
-    with pytest.raises(AgentReplayInputError, match="accepts no arguments"):
-        run_agent_replay(["diagnose-stack", "--since", "24h"], tmp_path)
-
-
-@pytest.mark.unit
-def test_diagnose_stack_reports_only_allowlisted_colima_config_from_exact_path(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    expected_path = Path("/Users/hannes/.colima/default/colima.yaml")
-    read_paths: list[Path] = []
-
-    def read_text(path: Path, *, encoding: str | None = None) -> str:
-        read_paths.append(path)
-        assert encoding == "utf-8"
-        return """
-portForwarder: ssh
-vmType: vz
-mountType: virtiofs
-mountInotify: true
-cpu: 8
-memory: 16
-disk: 100
-runtime: docker
-password: never-print-this
-docker:
-  registry-token: also-never-print-this
-"""
-
-    monkeypatch.setattr(Path, "read_text", read_text)
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    assert read_paths == [expected_path]
-    output = capsys.readouterr().out
-    assert (
-        """=== Colima config (allowlisted fields) ===
-portForwarder: ssh
-vmType: vz
-mountType: virtiofs
-mountInotify: true
-cpu: 8
-memory: 16
-disk: 100
-runtime: docker
-"""
-        in output
-    )
-    config_output = output.partition("=== colima status --json ===")[0]
-    assert "password" not in config_output.lower()
-    assert "never-print-this" not in config_output
-    assert "registry-token" not in config_output
-    assert "also-never-print-this" not in config_output
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "config",
-    [
-        "runtime: docker\nruntime: containerd\n",
-        "runtime: docker\ndocker:\n  token: first\n  token: second\n",
-    ],
-)
-def test_diagnose_stack_rejects_duplicate_yaml_keys_without_leaking_values(
-    config: str,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(Path, "read_text", lambda _path, *, encoding=None: config)
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    assert "colima-config-error: invalid or duplicate-key YAML" in output
-    assert "docker\nruntime" not in output
-    assert "containerd" not in output
-    assert "first" not in output
-    assert "second" not in output
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("failure", ["malformed", "unreadable"])
-def test_diagnose_stack_sanitizes_malformed_or_unreadable_config_errors(
-    failure: str,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def read_text(_path: Path, *, encoding: str | None = None) -> str:
-        if failure == "unreadable":
-            raise PermissionError("password=hunter2")
-        return "runtime: [token=secret-value"
-
-    monkeypatch.setattr(Path, "read_text", read_text)
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    expected = (
-        "colima-config-error: unable to read authorized config"
-        if failure == "unreadable"
-        else "colima-config-error: invalid or duplicate-key YAML"
-    )
-    assert expected in output
-    assert "hunter2" not in output
-    assert "secret-value" not in output
-
-
-@pytest.mark.unit
-def test_diagnose_stack_rejects_non_scalar_allowlisted_config_without_leaking(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        Path,
-        "read_text",
-        lambda _path, *, encoding=None: "runtime:\n  token: secret-value\n",
-    )
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    assert "colima-config-error: allowlisted fields have invalid types" in output
-    assert "token" not in output.lower()
-    assert "secret-value" not in output
-
-
-@pytest.mark.unit
-def test_diagnose_stack_rejects_arbitrary_text_in_allowlisted_config_fields(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        Path,
-        "read_text",
-        lambda _path, *, encoding=None: 'runtime: "password=hunter2"\n',
-    )
-
-    assert (
-        run_agent_replay(["diagnose-stack"], tmp_path, runner=_DiagnosticRunner()) == 0
-    )
-
-    output = capsys.readouterr().out
-    assert "colima-config-error: allowlisted fields have invalid values" in output
-    assert "hunter2" not in output
