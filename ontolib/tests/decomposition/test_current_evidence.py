@@ -17,6 +17,8 @@ from scripts.research.current_evidence import (
     CurrentConstituent,
     CurrentEngineEvidence,
     CurrentEvidenceValidationError,
+    CurrentMetrics,
+    CurrentRateMetric,
     CurrentSourceOccurrence,
     HistoricalOraclePairCitation,
     PartitionDiagnosisEvidence,
@@ -68,6 +70,59 @@ def _payload_identity(value: object) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+@pytest.mark.unit
+def test_current_rate_metric_represents_an_empty_denominator_as_uncomputed() -> None:
+    metric = CurrentRateMetric(numerator=0, denominator=0, rate=None)
+
+    assert metric.model_dump(mode="json") == {
+        "numerator": 0,
+        "denominator": 0,
+        "rate": None,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("denominator", "rate"),
+    [(0, 0.0), (1, None)],
+)
+def test_current_rate_metric_rejects_rate_presence_that_differs_from_denominator(
+    denominator: int, rate: float | None
+) -> None:
+    with pytest.raises(ValueError, match="denominator"):
+        CurrentRateMetric(numerator=0, denominator=denominator, rate=rate)
+
+
+@pytest.mark.unit
+def test_current_metrics_reject_grouping_views_with_different_cohorts() -> None:
+    with pytest.raises(ValueError, match="grouping denominators"):
+        CurrentMetrics.model_validate(
+            {
+                "exact_pair_precision": {
+                    "numerator": 1,
+                    "denominator": 1,
+                    "rate": 1.0,
+                },
+                "exact_pair_recall": {
+                    "numerator": 1,
+                    "denominator": 1,
+                    "rate": 1.0,
+                },
+                "full_partition_agreement": {
+                    "numerator": 1,
+                    "denominator": 20,
+                    "rate": 0.05,
+                },
+                "common_pair_partition_agreement": {
+                    "numerator": 1,
+                    "denominator": 18,
+                    "rate": 1 / 18,
+                    "ineligible": 1,
+                },
+            }
+        )
 
 
 def _fingerprint() -> RunFingerprint:
@@ -880,22 +935,22 @@ def test_current_output_models_reject_self_identity_drift(model: type[object]) -
             "exact_pair_precision": {
                 "numerator": 0,
                 "denominator": 0,
-                "rate": 0.0,
+                "rate": None,
             },
             "exact_pair_recall": {
                 "numerator": 0,
                 "denominator": 0,
-                "rate": 0.0,
+                "rate": None,
             },
             "full_partition_agreement": {
                 "numerator": 0,
                 "denominator": 0,
-                "rate": 0.0,
+                "rate": None,
             },
             "common_pair_partition_agreement": {
                 "numerator": 0,
                 "denominator": 0,
-                "rate": 0.0,
+                "rate": None,
                 "ineligible": 0,
             },
         }

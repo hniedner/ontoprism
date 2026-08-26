@@ -328,6 +328,36 @@ The packet and workbook are generated from exactly the tracked current evidence,
 comparison, and tracked R101 conservation report by the wrapper above; each input is checked before
 execution by `run_agent_replay.py` (`pdm run agent-replay generate-group-review`, 2026-08-24).
 
+### Final machine-readiness evidence
+
+Capture the exact verification gate only from a clean worktree with the valid rootless
+`ontoprism-vm` running and the selected Docker context set to `ontoprism-podman` at that
+machine's inspected socket:
+
+```bash
+pdm run agent-replay capture-pre-sme-verify
+```
+
+The operation observes the clean Git HEAD before and after running the literal
+`pdm run verify`, requires the gate to pass without changing the worktree, and writes
+`tmp/m1-6-verify-evidence.json`. The evidence records the inspected Podman endpoint,
+selected context, resolved PDM executable/version, exit code, and bound Git HEAD. It is
+local machine evidence and performs no ontology or store publication.
+
+After the current comparison, R101 reuse validation, primary-site audit, group-review
+packet, R103 packet, full-corpus baseline/artifact, proposal registry, source manifest,
+and current-HEAD verify evidence all exist, generate the pending-human report from a
+clean worktree:
+
+```bash
+pdm run agent-replay generate-pre-sme-readiness
+```
+
+The operation validates all fixed input identities and cohort invariants, refuses verify
+evidence from another Git HEAD, and atomically writes
+`tmp/m1-6-machine-readiness.json`. The output remains
+`awaiting-human-review`, records no authorization, and does not perform publication.
+
 Generate the exhaustive fanout observation against the configured current source:
 
 ```bash

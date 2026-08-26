@@ -133,8 +133,9 @@ Verify the installation and the non-rootful running machine without resetting it
 The data-service `docker-compose.yml` is exercised unchanged. The
 application smoke check uses the unchanged data and app Compose files plus a generated,
 temporary Podman override. The replay operations pin the Homebrew Docker, Podman, and
-external Docker Compose v2 provider plus PDM paths; the shared `verify` runner uses its active Python
-environment and resolves npm from `PATH`.
+external Docker Compose v2 provider plus PDM paths. The shared `verify` runner uses the
+current Python environment and resolves both `pdm` and `npm` from `PATH`; it does not pin
+either executable to a Homebrew path.
 
 Use the fixed wrappers so `DOCKER_HOST` is derived from the inspected machine socket and
 `PODMAN_COMPOSE_PROVIDER` is controlled rather than inherited from the shell:
@@ -172,14 +173,19 @@ a valid operator-owned context explicitly with `/opt/homebrew/bin/docker context
 <context-name>`. The activation output reports the prior context for this purpose. Never
 delete a context as part of rollback.
 
-`inspect-podman` collects bounded best-effort runtime diagnostics: each command's output and
-exit code are evidence, while overall exit 0 means collection completed rather than every
-diagnostic succeeded. `check-podman-api` exercises the
+Useful `inspect-podman` evidence requires an already running, valid rootless `ontoprism-vm`
+and its Docker-compatible socket. Given that prerequisite, the operation collects bounded
+best-effort runtime diagnostics: each command's output and exit code are evidence, while
+overall exit 0 means collection completed rather than every diagnostic succeeded. It does
+not turn a missing, stopped, rootful, or invalid machine into a successful runtime check.
+`check-podman-api` exercises the
 pinned Docker-compatible API and Compose provider. `podman-compose-up` rejects any occupied
 fixed data port before starting the unchanged data Compose stack. `podman-compose-check`
-validates the exact three-service inventory, health, owner labels, loopback bindings,
-exact PostgreSQL named-volume identity, and resolved QLever bind paths; specifically, the
-PostgreSQL container resolves `qlever-ncit` and `qlever-uberon`.
+validates the exact three-service inventory, health, owner labels, loopback bindings, and
+exact PostgreSQL named-volume identity. Its QLever bind-path checks validate the resolved
+host index paths mounted by both QLever containers. Separately, its
+PostgreSQL-to-QLever DNS checks prove service-name resolution.
+The PostgreSQL container resolves `qlever-ncit` and `qlever-uberon`.
 `podman-health-reject` exercises Compose's nonzero unhealthy-service rejection.
 `podman-test-integration` and `podman-test-full-store` run the repository's integration and
 configured-corpus gates with `DOCKER_HOST` pinned to the inspected machine socket.

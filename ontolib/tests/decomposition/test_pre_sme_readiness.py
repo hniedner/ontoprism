@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import pytest
 from scripts.research.current_evidence import CurrentComparison, CurrentEngineEvidence
 from scripts.research.pre_sme_readiness import (
+    GroupingViews,
     MachineReadinessInputs,
     PreSmeValidationError,
     PrimarySiteAudit,
@@ -475,6 +477,58 @@ def test_machine_readiness_inputs_refuse_empty_grouping_denominator() -> None:
 
     with pytest.raises(ValueError, match="greater than 0"):
         MachineReadinessInputs.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_grouping_views_require_common_and_ineligible_to_cover_full_cohort() -> None:
+    with pytest.raises(ValueError, match="grouping denominators"):
+        GroupingViews.model_validate(
+            {
+                "full_view": {"numerator": 2, "denominator": 20, "value": 0.1},
+                "common_pair_view": {
+                    "numerator": 5,
+                    "denominator": 18,
+                    "value": 5 / 18,
+                    "ineligible": 1,
+                },
+            }
+        )
+
+
+@pytest.mark.unit
+def test_machine_readiness_inputs_require_grouping_views_to_share_one_cohort() -> None:
+    payload = _machine_readiness_input_payload()
+    common = payload["common_partition_agreement"]
+    assert isinstance(common, dict)
+    common["ineligible"] = 1
+
+    with pytest.raises(ValueError, match="grouping denominators"):
+        MachineReadinessInputs.model_validate(payload)
+
+
+@pytest.mark.unit
+def test_pre_sme_documentation_names_runtime_and_readiness_contracts() -> None:
+    data_setup = Path("docs/DATA_SETUP.md").read_text()
+    evidence_guide = Path("ontolib/tests/decomposition/golden/README.md").read_text()
+
+    assert "requires an already running, valid rootless `ontoprism-vm`" in data_setup
+    assert "QLever bind-path checks" in data_setup
+    assert "PostgreSQL-to-QLever DNS checks" in data_setup
+    assert "resolves both `pdm` and `npm` from `PATH`" in data_setup
+    assert "pdm run agent-replay capture-pre-sme-verify" in evidence_guide
+    assert "pdm run agent-replay generate-pre-sme-readiness" in evidence_guide
+    assert "tmp/m1-6-verify-evidence.json" in evidence_guide
+    assert "tmp/m1-6-machine-readiness.json" in evidence_guide
+    assert "clean worktree" in evidence_guide
+
+
+@pytest.mark.unit
+def test_verify_evidence_writer_documents_fixed_publication_field_as_a_claim() -> None:
+    docstring = inspect.getdoc(write_verify_evidence)
+
+    assert docstring is not None
+    assert "observed fields" in docstring
+    assert "fixed no-publication assertion" in docstring
 
 
 @pytest.mark.unit

@@ -399,6 +399,12 @@ class MachineReadinessInputs(_StrictModel):
             == 0
         ):
             raise ValueError("primary-site audit requires at least one observation")
+        if (
+            self.common_partition_agreement.denominator
+            + self.common_partition_agreement.ineligible
+            != self.full_partition_agreement.denominator
+        ):
+            raise ValueError("grouping denominators do not describe one cohort")
         return self
 
 
@@ -525,6 +531,15 @@ class ReadinessMetrics(_StrictModel):
 class GroupingViews(_StrictModel):
     full_view: ValidatedFraction
     common_pair_view: CommonValidatedFraction
+
+    @model_validator(mode="after")
+    def _views_share_cohort(self) -> Self:
+        if (
+            self.common_pair_view.denominator + self.common_pair_view.ineligible
+            != self.full_view.denominator
+        ):
+            raise ValueError("grouping denominators do not describe one cohort")
+        return self
 
 
 class PrimarySiteAuditSummary(_StrictModel):
@@ -934,6 +949,11 @@ def generate_pre_sme_readiness(  # noqa: C901 - fail-closed cross-artifact valid
         if not accepted:
             raise PreSmeValidationError(f"{name} identity or invariant differs")
     metrics = comparison.metrics
+    if (
+        metrics.full_partition_agreement.rate is None
+        or metrics.common_pair_partition_agreement.rate is None
+    ):
+        raise PreSmeValidationError("readiness grouping metrics are uncomputed")
     if len(group.review_rows) != _GROUP_REVIEW_COUNT:
         raise PreSmeValidationError(
             f"group review count differs from {_GROUP_REVIEW_COUNT}"
@@ -1010,10 +1030,13 @@ def write_verify_evidence(
     gate_version: str,
     observed_exit_code: Literal[0],
 ) -> VerifyEvidence:
-    """Write observations from one successful, clean-worktree verify execution.
+    """Write evidence for one successful, clean-worktree verify execution.
 
-    The caller must observe the same clean Git HEAD before and after the gate. This
-    local evidence write is not an ontology, store, or publication write.
+    The observed fields are the Git/runtime/gate values supplied by the caller after
+    observing the same clean Git HEAD before and after the gate. The payload also makes
+    the fixed no-publication assertion ``publication_writes_performed=False``; that
+    field is a scoped claim about this local operation, not an independently observed
+    value.
     """
     command = "pdm run verify"
     command_identity = _identity(
